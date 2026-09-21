@@ -13,10 +13,12 @@ the filesystem. Everything specific to *your* project — migrations, seeding,
 health checks — arrives as a small config file and a handful of executables
 in whatever language you already use.
 
-> **Status: scaffold.** The engine is ported and tested (identity, locks,
-> filesystem safety, process control, config, the hook sequencer). The Docker
-> Compose runtime, the router, the checkout index, and cleanup are stubs that
-> fail loudly. See [Roadmap](#roadmap).
+> **Status: pre-release.** `up`, `down`, `status`, and `urls` work end to end
+> against Docker Compose: identity, locks, the registry, the hook sequencer,
+> and a runtime that stamps every resource with ownership labels and refuses
+> to touch anything it cannot prove it owns. The shared router, the checkout
+> index, and `worktree remove` are the next ports, so the URLs `urls` prints
+> are not yet reachable. See [Roadmap](#roadmap).
 
 ## How it works
 
@@ -88,10 +90,21 @@ Then:
 
 ```bash
 berth config validate     # parse and check the file
-berth dev                 # start this worktree's environment (stub)
-berth urls                # print its routed URLs (stub)
-berth worktree remove     # tear it down, verified by ownership (stub)
+berth up                  # register this worktree, start its services, run prepare (+ seed the first time)
+berth status              # per-service state
+berth urls                # print its routed URLs
+berth down                # stop it; data is kept
+berth worktree remove     # tear it down, verified by ownership (next)
 ```
+
+`up` starts the Compose project under a name derived from the worktree's
+UUIDs, with every container, volume, and network labelled
+`dev.berth.managed`, `dev.berth.repository-uuid`, and
+`dev.berth.worktree-uuid`. Your Compose file is never asked to add those
+labels; a generated override file does it, so forgetting one — and silently
+exempting a container from cleanup — is not possible. The Compose file sees
+the same `BERTH_*` variables hooks do, so `${BERTH_WORKTREE_HOME}` works in a
+bind mount exactly as it does in a seed script.
 
 A full annotated example is in [`berth.example.toml`](berth.example.toml).
 The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
@@ -154,33 +167,40 @@ src/
   cli/main.ts           entry point; the only place argv is read for a name
   config/               berth.toml schema and discovery
   hooks/                hook protocol and sequencer
-  runtime/              the Runtime interface, an in-memory backend, the Compose stub
+  commands/             the everyday verbs as plain functions over a context
+  runtime/              the Runtime interface, an in-memory backend, the Compose backend
   worktree-registry.ts  identity markers, slugs, the registry
   operation-lock.ts     scoped locks and explicit stale recovery
   layout.ts             where everything lives under the control home
   files.ts              owner-only, symlink-refusing filesystem primitives
 tests/
   unit/                 hermetic; no Docker, no real Git
-  integration/          real Git worktrees and cross-process locks
+  integration/          real Git worktrees, cross-process locks, and a real Docker daemon
 ```
 
 ## Roadmap
 
-In order, each behind the `Runtime` interface in `src/runtime/runtime.ts`:
+Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
 
-1. **Compose runtime** — `up`/`down` that stamp every resource with
-   `<namespace>.managed`, `.repository-uuid`, `.worktree-uuid`; `inventory`
-   as a label-filtered `docker ps`; `reap` that verifies the full ownership
-   tuple before removing anything.
-2. **Shared router** — one Traefik instance across every worktree of every
+- **Compose runtime** — `up`/`down` that stamp every resource with
+  `<namespace>.managed`, `.repository-uuid`, `.worktree-uuid`; `inventory`
+  as a label-filtered `docker ps` that verifies the full ownership tuple on
+  every resource before returning any; `reap` that verifies again before
+  removing.
+- **`up` / `down` / `status` / `urls`** — with the worktree lock held and
+  interrupts deferred until it can be released cleanly.
+
+Next, in order:
+
+1. **Shared router** — one Traefik instance across every worktree of every
    repository, behind a hardened socket proxy, with the file provider enabled
    from day one so hybrid native-plus-container worktrees stay possible.
-3. **Checkout index** — a live page listing every registered worktree on the
+2. **Checkout index** — a live page listing every registered worktree on the
    machine with per-service status.
-4. **Cleanup** — ownership-verified teardown, plus a content-addressed
-   standalone cleanup binary so removing a worktree never imports code from
-   the branch being deleted.
-5. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
+3. **Cleanup** — `worktree remove` over `inventory`/`reap`, plus a
+   content-addressed standalone cleanup binary so removing a worktree never
+   imports code from the branch being deleted.
+4. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
 
 ## License
 

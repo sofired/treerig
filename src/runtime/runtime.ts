@@ -48,6 +48,7 @@ export interface UpOptions {
 export interface Runtime {
   readonly kind: string;
 
+  /** An empty `services` list means every service the backend's definition declares. */
   up(worktree: WorktreeRef, services: readonly ServiceSpec[], options?: UpOptions): Promise<void>;
   down(worktree: WorktreeRef): Promise<void>;
   status(worktree: WorktreeRef): Promise<ServiceStatus[]>;

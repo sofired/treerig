@@ -24,6 +24,16 @@ The `prepare`/`seed` ordering is enforced by the runner, not by convention.
 Put migrations in `prepare` and data loading in `seed`, and it is impossible
 to load data into an unmigrated schema.
 
+## When `up` runs them
+
+`up` runs `prepare` every time, once the services report healthy. It runs
+`seed` only the first time a worktree comes up — more precisely, while the
+worktree's registration is still *pending*, which it stays until `prepare`
+and `seed` have both exited zero. A failed first `up` therefore seeds on the
+retry; a successful one never seeds again until the environment is removed.
+Write `prepare` to be idempotent; write `seed` assuming an empty, migrated
+store.
+
 ## Resolution
 
 A command that starts with `.` or contains `/` is resolved relative to the

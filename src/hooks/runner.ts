@@ -4,7 +4,7 @@ import { CliError } from '../errors.ts';
 import type { Logger } from '../logger.ts';
 import type { CommandRunner } from '../process-runner.ts';
 import { withProgress } from '../progress.ts';
-import { hookEnvironmentVariables, LIFECYCLE_ORDER, type HookEnvironment } from './protocol.ts';
+import { hookEnvironmentVariables, LIFECYCLE_ORDER, type LifecycleStage, type WorktreeEnvironment } from './protocol.ts';
 
 export interface HookRunOptions {
   /** Passed as the hook's first argument (backup and restore bundle directory). */
@@ -14,7 +14,8 @@ export interface HookRunOptions {
 }
 
 export interface HookContext {
-  environment: HookEnvironment;
+  /** The runner adds `STAGE` itself; callers never set it. */
+  environment: WorktreeEnvironment;
   hooks: HooksConfig;
   logger: Logger;
   runner: CommandRunner;
@@ -60,16 +61,24 @@ export async function runHook(
   return true;
 }
 
+export interface LifecycleOptions extends Pick<HookRunOptions, 'cancelSignal' | 'timeoutMs'> {
+  /** Which lifecycle stages to run; always in lifecycle order regardless of how they are listed. */
+  stages?: readonly LifecycleStage[];
+}
+
 /**
  * Runs prepare → seed → verify in order, stopping at the first failure.
  * Returns the stages that actually ran (unconfigured stages are skipped).
+ * A subset of stages still runs in lifecycle order: `seed` cannot precede `prepare`.
  */
 export async function runLifecycle(
   context: HookContext,
-  options: Pick<HookRunOptions, 'cancelSignal' | 'timeoutMs'> = {}
+  options: LifecycleOptions = {}
 ): Promise<HookStage[]> {
+  const wanted = new Set(options.stages ?? LIFECYCLE_ORDER);
   const ran: HookStage[] = [];
   for (const stage of LIFECYCLE_ORDER) {
+    if (!wanted.has(stage)) continue;
     if (await runHook(stage, context, options)) ran.push(stage);
   }
   return ran;

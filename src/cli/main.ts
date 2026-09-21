@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { BRAND, cliName } from '../brand.ts';
+import { createCommandContext, type CommandContext } from '../commands/context.ts';
+import { down, status, up, urls } from '../commands/worktree.ts';
 import { loadConfig, loadNearestConfig } from '../config/load.ts';
 import { CliError } from '../errors.ts';
 import { createConsoleLogger } from '../logger.ts';
 import { resolveControlHome } from '../layout.ts';
+import { ExecaRunner } from '../process-runner.ts';
 
 const VERSION = '0.1.0';
 
@@ -16,8 +19,8 @@ const logger = createConsoleLogger(commandName);
 function notYet(command: string): () => never {
   return () => {
     throw new CliError(
-      `'${commandName} ${command}' is not implemented in this scaffold. ` +
-      'The Compose runtime, router, checkout index, and cleanup are the next ports.',
+      `'${commandName} ${command}' is not implemented yet. ` +
+      'The router, checkout index, and cleanup are the next ports.',
       2
     );
   };
@@ -50,11 +53,35 @@ async function main(argv: readonly string[]): Promise<void> {
       logger.output(JSON.stringify(loaded.config, null, 2));
     });
 
+  const context = async (): Promise<CommandContext> => createCommandContext({
+    loaded: await load(program.opts<{ config?: string }>().config),
+    controlHome: resolveControlHome(process.env),
+    commandName,
+    logger,
+    runner: new ExecaRunner()
+  });
+
   program.command('dev').description('start this worktree\'s environment and follow its logs').action(notYet('dev'));
-  program.command('up').description('start this worktree\'s services').action(notYet('up'));
-  program.command('down').description('stop this worktree\'s services').action(notYet('down'));
-  program.command('status').description('show service status for this worktree').action(notYet('status'));
-  program.command('urls').description('print this worktree\'s routed URLs').action(notYet('urls'));
+  program.command('up [services...]')
+    .description('register this worktree, start its services, and run its hooks')
+    .action(async (services: string[]) => {
+      await up(await context(), { services });
+    });
+  program.command('down')
+    .description('stop this worktree\'s services; data is kept')
+    .action(async () => {
+      await down(await context());
+    });
+  program.command('status')
+    .description('show service status for this worktree')
+    .action(async () => {
+      await status(await context());
+    });
+  program.command('urls')
+    .description('print this worktree\'s routed URLs')
+    .action(async () => {
+      await urls(await context());
+    });
   program.command('doctor').description('validate prerequisites and local state').action(notYet('doctor'));
 
   const worktree = program.command('worktree').description('manage registered worktrees');

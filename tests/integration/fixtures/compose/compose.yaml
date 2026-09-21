@@ -1,0 +1,18 @@
+# Fixture for the real-Docker runtime test. Two tiny services, one named
+# volume, and environment references that prove the BERTH_* injection.
+services:
+  api:
+    image: busybox:1.37.0
+    command: ["sh", "-c", "sleep 300"]
+    expose: ["8080"]
+    environment:
+      SLUG: ${BERTH_SLUG}
+      HOST: ${BERTH_HOST}
+      WORKTREE_HOME: ${BERTH_WORKTREE_HOME}
+    volumes:
+      - data:/data
+  worker:
+    image: busybox:1.37.0
+    command: ["sh", "-c", "sleep 300"]
+volumes:
+  data: {}
