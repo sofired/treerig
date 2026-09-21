@@ -78,7 +78,9 @@ them and refuses to continue if anything differs from what it asked for.
 
 ## Quick start
 
-Commit a `berth.toml` at the root of your repository:
+The tool is tested with Docker Compose 2.21 and newer (check with
+`docker compose version`). Commit a `berth.toml` at the root of your
+repository:
 
 ```toml
 [project]
@@ -117,13 +119,18 @@ berth worktree remove     # tear it down, verified by ownership
 ```
 
 `up` starts the Compose project under a name derived from the worktree's
-UUIDs, with every container, volume, and network labelled
+UUIDs, with every container, volume, network, and image it builds labelled
 `dev.berth.managed`, `dev.berth.repository-uuid`, and
 `dev.berth.worktree-uuid`. Your Compose file is never asked to add those
 labels; a generated override file does it, so forgetting one — and silently
-exempting a container from cleanup — is not possible. The Compose file sees
+exempting a resource from cleanup — is not possible. The Compose file sees
 the same `BERTH_*` variables hooks do, so `${BERTH_WORKTREE_HOME}` works in a
 bind mount exactly as it does in a seed script.
+
+`status` reports each declared service as `running`, `starting` (container
+running, health check pending), `stopped` (its container exists but has
+exited), `absent` (no container — the state after `down`), or `unknown`,
+with Compose's own state in parentheses.
 
 Each `[[service]]` becomes a route: the tool generates the Traefik labels and
 joins the container to the shared router network through the same override,
@@ -180,11 +187,15 @@ binary name, renaming a symlink would orphan state.
 | `project.name` | Lower-case slug. |
 | `project.domain` | Worktrees are routed as `<slug>.<domain>`. |
 | `project.label-namespace` | Optional. Only to adopt resources created by a predecessor tool. |
-| `compose.file` | Compose file, relative to `berth.toml`. |
+| `compose.file` | Compose file, relative to `berth.toml`. Paths inside it (build contexts, bind mounts, `env_file`) and its `.env` resolve against the Compose file's directory, as with `docker compose -f`; `${BERTH_ROOT}` is still `berth.toml`'s directory. |
 | `[[service]]` | `name`, optional `subdomain` (empty = host root), optional `path` (route only that prefix, so services can share a host), optional `port` (defaults to the first port the service exposes), optional `index` presence. |
 | `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — commands relative to the config file. |
 
 Unknown keys are rejected, so a typo cannot silently disable a feature.
+
+`COMPOSE_*` keys in the Compose file's `.env` are honoured, except the
+project name and file list, which the tool sets. Do not set
+`COMPOSE_IGNORE_ORPHANS` there; `up` relies on `--remove-orphans`.
 
 The control home is `~/.berth`, overridable only through the `BERTH_HOME`
 environment variable, and the router's loopback port is 80, overridable only

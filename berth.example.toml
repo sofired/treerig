@@ -20,7 +20,12 @@ domain = "acme.localhost"
 # label-namespace = "dev.acme"
 
 [compose]
-# Relative to this file.
+# Relative to this file. Paths inside the Compose file itself (build contexts,
+# bind mounts, env_file) and its `.env` resolve against the Compose file's own
+# directory — docker/ here — exactly as with `docker compose -f docker/compose.yaml`.
+# ${BERTH_ROOT} still names the directory of *this* file, for paths that must
+# be repository-relative. COMPOSE_* keys in that .env are honoured, except the
+# project name and file list, which the tool sets.
 file = "docker/compose.yaml"
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { pathExists } from '../../src/files.ts';
 import { composeProjectName, worktreeLayout } from '../../src/layout.ts';
 import { silentLogger } from '../../src/logger.ts';
 import type { CommandRunner, RunOptions, RunResult } from '../../src/process-runner.ts';
@@ -21,7 +22,8 @@ const CONFIG = {
   services: {
     api: { image: 'busybox', expose: ['8080/tcp'], volumes: [{ type: 'volume', source: 'data', target: '/data' }] },
     worker: { image: 'busybox', ports: [{ mode: 'ingress', target: 9090, protocol: 'tcp' }] },
-    quiet: { image: 'busybox', networks: { backend: null } }
+    quiet: { image: 'busybox', networks: { backend: null } },
+    builder: { build: { context: '/work/acme/docker/builder', dockerfile: 'Dockerfile' }, expose: ['7000'] }
   },
   volumes: {
     data: { name: `${PROJECT}_data` },
@@ -38,7 +40,10 @@ interface Call { command: string; args: readonly string[]; options?: RunOptions 
 /** Answers every docker/compose invocation the runtime makes, with knobs for the failure modes. */
 class DockerFake implements CommandRunner {
   readonly calls: Call[] = [];
+  config: object = CONFIG;
   psLines: object[] = [];
+  /** Raw `ps` stdout, overriding `psLines`, for output shapes that are not line-delimited. */
+  psOutput?: string;
   resources: Record<string, string[]> = { ps: [], volume: [], network: [], image: [] };
   labels = new Map<string, Record<string, string>>();
   uninspectable = new Set<string>();
@@ -59,8 +64,8 @@ class DockerFake implements CommandRunner {
 
     if (args[0] === 'compose') {
       const verb = ['config', 'up', 'down', 'ps'].find((candidate) => args.includes(candidate));
-      if (verb === 'config') return ok(JSON.stringify(CONFIG));
-      if (verb === 'ps') return ok(this.psLines.map((line) => JSON.stringify(line)).join('\n'));
+      if (verb === 'config') return ok(JSON.stringify(this.config));
+      if (verb === 'ps') return ok(this.psOutput ?? this.psLines.map((line) => JSON.stringify(line)).join('\n'));
       return ok();
     }
     if (args.includes('--filter')) {
@@ -88,9 +93,14 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
 
-async function runtime(fake = new DockerFake(), routes: readonly RouteSpec[] = []) {
+const overrideIn = (controlHome: string): string =>
+  path.join(worktreeLayout(controlHome, REF.repositoryId, REF.worktreeId).home, 'berth.override.yaml');
+
+async function runtime(fake = new DockerFake(), routes: readonly RouteSpec[] = [], { home = true } = {}) {
   const controlHome = await mkdtemp(path.join(tmpdir(), 'berth-compose-'));
   temporary.push(controlHome);
+  // The command layer creates the home before `up`; the runtime never does.
+  if (home) await mkdir(worktreeLayout(controlHome, REF.repositoryId, REF.worktreeId).home, { recursive: true });
   return {
     fake,
     controlHome,
@@ -130,10 +140,34 @@ describe('ComposeRuntime up', () => {
       [`${NS}.repository-uuid`]: REF.repositoryId,
       [`${NS}.worktree-uuid`]: REF.worktreeId
     };
-    expect(Object.keys(document.services).sort()).toEqual(['api', 'quiet', 'worker']);
+    expect(Object.keys(document.services).sort()).toEqual(['api', 'builder', 'quiet', 'worker']);
     expect(document.services.api?.labels).toEqual(expectedLabels);
     expect(Object.keys(document.volumes)).toEqual(['data']);          // `shared` is external
     expect(Object.keys(document.networks).sort()).toEqual(['backend', 'default']);  // `corp` is external; default is used by api/worker
+  });
+
+  it('stamps build labels on services that build, and only those, so the images they produce are owned too', async () => {
+    const { runtime: rt, controlHome } = await runtime(new DockerFake(), [{ service: 'builder', subdomain: 'b' }]);
+    await rt.up(REF, []);
+
+    const document = JSON.parse(await readFile(overrideIn(controlHome), 'utf8')) as {
+      services: Record<string, { labels: Record<string, string>; build?: { labels: Record<string, string> } }>;
+    };
+    const ownership = {
+      [`${NS}.managed`]: 'true',
+      [`${NS}.repository-uuid`]: REF.repositoryId,
+      [`${NS}.worktree-uuid`]: REF.worktreeId
+    };
+    expect(document.services.builder?.build).toEqual({ labels: ownership });
+    expect(document.services.builder?.labels).toMatchObject({ ...ownership, 'traefik.enable': 'true' });   // routed and built
+    expect(document.services.api?.build).toBeUndefined();
+  });
+
+  it('refuses to run without the worktree home, which only the command layer creates', async () => {
+    const { fake, runtime: rt, controlHome } = await runtime(new DockerFake(), [], { home: false });
+    await expect(rt.up(REF, [])).rejects.toThrow('does not exist. `up` creates it before starting services, so this is a bug in berth');
+    expect(await pathExists(overrideIn(controlHome))).toBe(false);
+    expect(fake.calls).toEqual([]);   // refused before spawning anything
   });
 
   it('routes declared services with Traefik labels and the shared network, leaving the rest alone', async () => {
@@ -182,13 +216,13 @@ describe('ComposeRuntime up', () => {
     await rt.up(REF, [{ name: 'api' }]);
 
     const [up] = composeCalls(fake, 'up');
-    const override = path.join(worktreeLayout(controlHome, REF.repositoryId, REF.worktreeId).home, 'berth.override.yaml');
     expect(up?.args).toEqual([
       'compose',
-      '--project-directory', '/work/acme',
       '--project-name', PROJECT,
+      // The Compose file's own directory, as with `docker compose -f`: relative paths in it resolve unchanged.
+      '--project-directory', '/work/acme/docker',
       '-f', '/work/acme/docker/compose.yaml',
-      '-f', override,
+      '-f', overrideIn(controlHome),
       'up', '--detach', '--build', '--remove-orphans', '--wait', '--wait-timeout', '45',
       'api'
     ]);
@@ -209,9 +243,24 @@ describe('ComposeRuntime up', () => {
       BERTH_WORKTREE_HOME: worktreeLayout(controlHome, REF.repositoryId, REF.worktreeId).home,
       BERTH_CONFIG: '/work/acme/berth.toml',
       BERTH_ROOT: '/work/acme',
-      COMPOSE_PROJECT_NAME: PROJECT
+      COMPOSE_PROJECT_NAME: PROJECT,
+      COMPOSE_PROGRESS: 'plain'
     });
     expect(up?.options?.env).not.toHaveProperty('BERTH_STAGE');
+  });
+
+  it('keeps the shell from redirecting Compose to other files', async () => {
+    const { fake, runtime: rt } = await runtime();
+    const redirecting = ['COMPOSE_FILE', 'COMPOSE_PATH_SEPARATOR', 'COMPOSE_ENV_FILES', 'COMPOSE_IGNORE_ORPHANS'];
+    for (const name of redirecting) process.env[name] = 'from-the-shell';
+    try {
+      await rt.up(REF, []);
+    } finally {
+      for (const name of redirecting) delete process.env[name];
+    }
+    const [up] = composeCalls(fake, 'up');
+    for (const name of redirecting) expect(up?.options?.env).not.toHaveProperty(name);
+    // The runner passes a supplied environment through verbatim (see process-runner tests), so this is the child's env.
   });
 
   it('reads the config without the override, since the override does not exist yet', async () => {
@@ -219,31 +268,70 @@ describe('ComposeRuntime up', () => {
     await rt.up(REF, []);
     const [config] = composeCalls(fake, 'config');
     expect(config?.args.filter((a) => a === '-f')).toHaveLength(1);
+    expect(config?.args).toContain('--project-directory');
   });
 });
 
 describe('ComposeRuntime down, status, endpoints', () => {
-  it('down removes orphans and leaves named volumes to reap', async () => {
-    const { fake, runtime: rt } = await runtime();
+  it('down acts on the project name alone — no model, no files, no override — and leaves named volumes to reap', async () => {
+    const { fake, runtime: rt, controlHome } = await runtime();
     await rt.down(REF);
     const [down] = composeCalls(fake, 'down');
-    expect(down?.args.slice(-2)).toEqual(['down', '--remove-orphans']);
-    expect(down?.args).not.toContain('--volumes');
+    expect(down?.args).toEqual(['compose', '--project-name', PROJECT, 'down', '--remove-orphans']);
+    expect(composeCalls(fake, 'config')).toEqual([]);
+    expect(await pathExists(overrideIn(controlHome))).toBe(false);
   });
 
-  it('status maps Compose states and reports declared services that have no container as missing', async () => {
+  it('status maps Compose states and reports declared services that have no container as absent', async () => {
     const fake = new DockerFake();
     fake.psLines = [
       { Service: 'api', State: 'running', Health: 'healthy' },
       { Service: 'worker', State: 'running', Health: 'starting' },
       { Service: 'noise', State: 'exited', Health: '' }
     ];
-    const { runtime: rt } = await runtime(fake);
+    const { runtime: rt, controlHome } = await runtime(fake);
     await expect(rt.status(REF)).resolves.toEqual([
       { service: 'api', state: 'running' },
-      { service: 'quiet', state: 'missing' },
+      { service: 'builder', state: 'absent' },
+      { service: 'quiet', state: 'absent' },
       { service: 'worker', state: 'starting' }
     ]);
+    // Read-only verbs never write the override.
+    expect(await pathExists(overrideIn(controlHome))).toBe(false);
+    const [ps] = composeCalls(fake, 'ps');
+    expect(ps?.args).not.toContain('-f');
+  });
+
+  it('status accepts the single-array form older Compose releases print', async () => {
+    const fake = new DockerFake();
+    fake.psOutput = JSON.stringify([{ Service: 'api', State: 'running' }, { Service: 'worker', State: 'exited' }]);
+    const { runtime: rt } = await runtime(fake);
+    const status = await rt.status(REF);
+    expect(status.find((s) => s.service === 'api')?.state).toBe('running');
+    expect(status.find((s) => s.service === 'worker')?.state).toBe('stopped');
+  });
+
+  it('status treats an empty array or null — older Compose with no containers — as everything absent', async () => {
+    for (const output of ['[]', '[]\n', 'null']) {
+      const fake = new DockerFake();
+      fake.psOutput = output;
+      const { runtime: rt } = await runtime(fake);
+      const states = (await rt.status(REF)).map((s) => s.state);
+      expect(states, output).toEqual(['absent', 'absent', 'absent', 'absent']);
+    }
+  });
+
+  it('status refuses to report anything absent when the ps output is unreadable, even partially', async () => {
+    for (const output of [
+      'NAME   IMAGE   COMMAND\nberth-x-api-1   busybox   "sleep"',
+      '{"Service":"api","State":"running"}\n{"Service":"worker","State":"runn',   // truncated second line
+      '[{"Service":"api","State":"running"},{"nope":true}]'
+    ]) {
+      const fake = new DockerFake();
+      fake.psOutput = output;
+      const { runtime: rt } = await runtime(fake);
+      await expect(rt.status(REF), output).rejects.toThrow('Run `docker compose version` and report it');
+    }
   });
 
   it('status surfaces an unhealthy running container without inventing a state', async () => {
@@ -256,11 +344,13 @@ describe('ComposeRuntime down, status, endpoints', () => {
   });
 
   it('endpoints use the service name as host and the first exposed or published port', async () => {
-    const { runtime: rt } = await runtime();
+    const { runtime: rt, controlHome } = await runtime();
     await expect(rt.endpoints(REF)).resolves.toEqual([
       { service: 'api', host: 'api', port: 8080 },
+      { service: 'builder', host: 'builder', port: 7000 },
       { service: 'worker', host: 'worker', port: 9090 }
     ]);
+    expect(await pathExists(overrideIn(controlHome))).toBe(false);
   });
 });
 

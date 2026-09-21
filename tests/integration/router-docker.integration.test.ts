@@ -7,7 +7,8 @@ import { execa } from 'execa';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { writeIndexCard } from '../../src/checkout-index/card.ts';
 import { CheckoutIndexService } from '../../src/checkout-index/service.ts';
-import { composeProjectName } from '../../src/layout.ts';
+import { secureWorktreeDirectories } from '../../src/files.ts';
+import { composeProjectName, worktreeLayout } from '../../src/layout.ts';
 import { silentLogger } from '../../src/logger.ts';
 import { ExecaRunner } from '../../src/process-runner.ts';
 import { RouterService } from '../../src/router/router.ts';
@@ -20,7 +21,7 @@ import type { WorktreeRef } from '../../src/runtime/runtime.ts';
 // does not need. Names carry a random suffix so this never touches a
 // developer's real router.
 
-const NS = 'dev.berth-test';
+const NS = 'dev.berth-test-router';   // per file, so one suite's sweep can never touch another's resources
 const SUFFIX = randomUUID().slice(0, 8);
 const PROJECT = `berth-router-test-${SUFFIX}`;
 const PORT = 18_000 + (process.pid % 1000);
@@ -87,7 +88,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const worktree of worktrees) {
-    await execa('docker', ['compose', '-p', composeProjectName(worktree.repositoryId, worktree.worktreeId), 'down', '--volumes', '--remove-orphans'], { reject: false });
+    await execa('docker', ['compose', '-p', composeProjectName(worktree.repositoryId, worktree.worktreeId), 'down', '--volumes', '--rmi', 'local', '--remove-orphans'], { reject: false });
   }
   await execa('docker', ['compose', '-p', PROJECT, 'down', '--remove-orphans'], { reject: false });
   await execa('docker', ['network', 'rm', PROJECT], { reject: false });
@@ -116,7 +117,8 @@ describe('the shared router', () => {
   it('routes a worktree by hostname over the shared network, without disturbing its own network', async () => {
     const worktree: WorktreeRef = { repositoryId: randomUUID(), worktreeId: randomUUID(), slug: 'feature-route' };
     worktrees.push(worktree);
-    await runtime.up(worktree, []);
+    await secureWorktreeDirectories(worktreeLayout(controlHome, worktree.repositoryId, worktree.worktreeId));
+    await runtime.up(worktree, [{ name: 'api' }, { name: 'worker' }]);
 
     const api = await eventually(() => get('feature-route.test.localhost'), (r) => r.status === 200);
     expect(api.body).toBe('hello from api\n');

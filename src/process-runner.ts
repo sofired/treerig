@@ -6,6 +6,10 @@ import { CliError, OperationCancelledError, signalAbortError } from './errors.ts
 export interface RunOptions {
   cancelSignal?: AbortSignal;
   cwd?: string;
+  /**
+   * The child's entire environment. Spread `process.env` (or a filtered copy)
+   * yourself; nothing is merged in. Omit it to inherit this process's.
+   */
   env?: NodeJS.ProcessEnv;
   input?: string | Uint8Array;
   /** Throw on a non-zero exit. Defaults to true. */
@@ -77,6 +81,9 @@ export class ExecaRunner implements CommandRunner {
     const execaOptions = {
       cwd: options.cwd,
       env: options.env,
+      // A caller that supplies an environment has decided what the child
+      // sees; nothing is merged back in from this process.
+      extendEnv: options.env === undefined,
       reject: false,
       all: false,
       cancelSignal: options.cancelSignal,

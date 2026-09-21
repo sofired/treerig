@@ -159,6 +159,22 @@ describe('RouterService.ensure', () => {
     expect(w.logger.lines.filter((l) => l.startsWith('warn:'))).toEqual([]);
   });
 
+  it('runs Compose with the same guarded environment as worktrees, so a shell setting cannot split the two', async () => {
+    const w = await world();
+    process.env.COMPOSE_IGNORE_ORPHANS = 'true';   // would make `up --remove-orphans` a hard error
+    process.env.COMPOSE_FILE = '/elsewhere/compose.yaml';
+    try {
+      await w.router.ensure();
+    } finally {
+      delete process.env.COMPOSE_IGNORE_ORPHANS;
+      delete process.env.COMPOSE_FILE;
+    }
+    const [up] = w.fake.calls.filter((c) => c.args[0] === 'compose' && c.args.includes('up'));
+    expect(up?.options?.env).not.toHaveProperty('COMPOSE_IGNORE_ORPHANS');
+    expect(up?.options?.env).not.toHaveProperty('COMPOSE_FILE');
+    expect(up?.options?.env).toMatchObject({ COMPOSE_PROGRESS: 'plain', PATH: process.env.PATH });
+  });
+
   it('recreates a drifted router once, and accepts it when the recreation fixes it', async () => {
     const w = await world();
     w.fake.docs.set('router-1', { ...routerDoc(w.layout.routerDynamicDir), HostConfig: { ...routerDoc(w.layout.routerDynamicDir).HostConfig, ReadonlyRootfs: false } });

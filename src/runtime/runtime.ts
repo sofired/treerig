@@ -16,7 +16,8 @@ export interface ServiceSpec {
   name: string;
 }
 
-export type ServiceState = 'running' | 'starting' | 'stopped' | 'missing' | 'unknown';
+/** `absent`: declared, but no container exists for it — the state after `down`. */
+export type ServiceState = 'running' | 'starting' | 'stopped' | 'absent' | 'unknown';
 
 export interface ServiceStatus {
   service: string;
@@ -51,6 +52,7 @@ export interface Runtime {
   /** An empty `services` list means every service the backend's definition declares. */
   up(worktree: WorktreeRef, services: readonly ServiceSpec[], options?: UpOptions): Promise<void>;
   down(worktree: WorktreeRef): Promise<void>;
+  /** Every declared service, including those with no container (`absent`). */
   status(worktree: WorktreeRef): Promise<ServiceStatus[]>;
 
   /** Feeds the router: where does each service listen? */

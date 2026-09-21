@@ -5,6 +5,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/integration/**/*.integration.test.ts'],
-    testTimeout: 30_000
+    testTimeout: 30_000,
+    // The Docker suites share one daemon; one file's cleanup must never run
+    // while another file's containers are still being asserted on.
+    fileParallelism: false
   }
 });

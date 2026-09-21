@@ -7,6 +7,7 @@ import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
 import type { CommandRunner, RunOptions, RunResult } from '../process-runner.ts';
+import { composeEnvironment } from '../runtime/compose.ts';
 import {
   DOCKER_API_ACCESS,
   DOCKER_API_IMAGE,
@@ -131,7 +132,7 @@ export class RouterService implements Router {
       '--project-name', this.projectName,
       '-f', this.layout.routerComposeFile,
       ...args
-    ], options);
+    ], { ...options, env: composeEnvironment(options.env) });
   }
 
   /** Writes the stack document and makes sure the directories it mounts exist and serve. */

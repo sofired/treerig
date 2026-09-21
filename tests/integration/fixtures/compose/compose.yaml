@@ -1,5 +1,5 @@
-# Fixture for the real-Docker tests. Two tiny HTTP servers, one named
-# volume, and environment references that prove the BERTH_* injection.
+# Fixture for the real-Docker tests. Two tiny HTTP servers, one built image,
+# one named volume, and environment references that prove the BERTH_* injection.
 services:
   api:
     image: busybox:1.37.0
@@ -15,5 +15,8 @@ services:
     image: busybox:1.37.0
     command: ["sh", "-c", "mkdir -p /www && echo 'hello from worker' > /www/index.html && exec httpd -f -p 9090 -h /www"]
     expose: ["9090"]
+  builder:
+    # String form on purpose: the override's `build.labels` must merge into what a real consumer writes.
+    build: ./builder
 volumes:
   data: {}

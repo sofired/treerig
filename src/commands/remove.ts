@@ -50,8 +50,12 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
 
   const result = await withWorktreeMutation(context, ref, async () => {
     const identity = await targetIdentity(context, target);
-    // A graceful stop only makes sense with this repository's Compose file.
-    if (identity) {
+    // `down` acts on the project name, so any target can be stopped gracefully
+    // before its containers are reaped; skipped when there is nothing to stop.
+    // Decided under the lock, so a container that appeared since the prompt
+    // is stopped rather than killed.
+    const current = await runtime.inventory(ref);
+    if (current.some((resource) => resource.kind === 'container')) {
       await withProgress(logger, `Stopping ${host}`, () => runtime.down(ref));
     }
     const resources = await withProgress(logger, `Removing ${host}`, async () => {

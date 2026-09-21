@@ -119,7 +119,7 @@ describe('worktree remove', () => {
     await expect(world.context().registry.list()).resolves.toHaveLength(1);
   });
 
-  it('removes an orphaned registration whose Git worktree is gone, with nothing to stop and no marker to remove', async () => {
+  it('removes an orphaned registration whose Git worktree is gone, stopping its containers, with no marker to remove', async () => {
     world = await commandWorld();
     const other = await world.worktree('gone', 'feature/gone');
     await up(world.context(), { services: ['api'] });
@@ -132,6 +132,34 @@ describe('worktree remove', () => {
     expect(result).toMatchObject({ registration: true, home: true, marker: false });
     expect(result.resources).toHaveLength(1);
     await expect(world.context().registry.list()).resolves.toHaveLength(1);
+  });
+
+  it('stops a target gracefully when it has containers, and skips the stop when it has none', async () => {
+    world = await commandWorld();
+    const other = await world.worktree('other', 'feature/other');
+    const mine = await up(world.context(), { services: ['api'] });
+    const otherUp = await up(world.context(other), { services: ['api'] });
+    const honest = world.runtime;
+    const stopped: string[] = [];
+    const observed: Runtime = {
+      kind: 'observed',
+      up: (r, s) => honest.up(r, s),
+      down: (r) => { stopped.push(r.slug); return honest.down(r); },
+      status: (r) => honest.status(r),
+      endpoints: (r) => honest.endpoints(r),
+      inventory: (r) => honest.inventory(r),
+      reap: (r, resource) => honest.reap(r, resource)
+    };
+    // An orphan (Git no longer lists it) still gets a graceful stop: `down` needs no checkout.
+    world.runner.active = world.runner.active.filter((root) => root !== other);
+    await rm(other, { recursive: true, force: true });
+    await remove({ ...world.context(), runtime: observed }, { identifier: otherUp.registration.worktreeId, approved: true });
+    expect(stopped).toEqual(['feature-other']);
+
+    // Nothing left to stop: containers already reaped by hand.
+    for (const resource of await honest.inventory(ref(mine.registration))) await honest.reap(ref(mine.registration), resource);
+    await remove({ ...world.context(), runtime: observed }, { approved: true });
+    expect(stopped).toEqual(['feature-other']);
   });
 
   it('finishes an interrupted removal that left a quarantine directory behind', async () => {

@@ -1,8 +1,9 @@
+import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { BRAND } from '../brand.ts';
 import { CliError, invariant } from '../errors.ts';
-import { atomicWrite } from '../files.ts';
+import { assertSafeDirectoryPath, atomicWrite } from '../files.ts';
 import { hookEnvironmentVariables, worktreeEnvironment } from '../hooks/protocol.ts';
 import { composeProjectName, worktreeHost, worktreeLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
@@ -24,15 +25,19 @@ import type {
 // Ownership is the whole point. Every resource Compose creates for a worktree
 // is stamped with three labels: `<namespace>.managed`, `.repository-uuid`,
 // and `.worktree-uuid`. The consumer's Compose file is never asked to add
-// them; a generated override file does it for every service, volume, and
-// network, so forgetting a label — and silently exempting a container from
-// cleanup — is not possible. `inventory` finds resources by those labels,
-// verifies the full tuple on each one, and refuses everything if any single
-// resource fails. `reap` verifies again before removing.
+// them; a generated override file does it for every service, volume,
+// network, and built image, so forgetting a label — and silently exempting a
+// resource from cleanup — is not possible. `inventory` finds resources by
+// those labels, verifies the full tuple on each one, and refuses everything
+// if any single resource fails. `reap` verifies again before removing.
 //
 // The same override carries routing. Each `[[service]]` becomes a set of
 // Traefik labels and a membership in the shared router network, so the
 // consumer's Compose file never mentions the router at all.
+//
+// Only `up` writes the override. `status` and `endpoints` read the model and
+// nothing else; `down` needs no model at all — it acts on the project name,
+// so a Compose file that no longer parses cannot stop you from stopping it.
 
 /** One `[[service]]` entry, as the runtime needs it. */
 export interface RouteSpec {
@@ -46,9 +51,13 @@ export interface RouteSpec {
 }
 
 export interface ComposeRuntimeOptions {
-  /** Absolute path to the consumer's Compose file. */
+  /**
+   * Absolute path to the consumer's Compose file. Its directory is Compose's
+   * project directory, exactly as with `docker compose -f`, so relative
+   * paths in the file resolve the way the consumer already expects.
+   */
   composeFile: string;
-  /** Directory containing the config file; Compose's project directory. */
+  /** Directory containing the config file; reaches Compose and hooks as `BERTH_ROOT`. */
   projectRoot: string;
   /** Absolute path of the loaded config file, handed to Compose as an env var. */
   configFile: string;
@@ -72,6 +81,30 @@ export interface ComposeRuntimeOptions {
 const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
 const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service';
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 120;
+/**
+ * Shell variables that would let the caller's environment change what Compose
+ * loads or how it reconciles: which files, which `.env`, whether orphans are
+ * kept. `DOCKER_HOST` and friends are deliberately not here — the plain
+ * `docker` calls inherit them too, so stripping them would split `up` and
+ * `remove` across daemons.
+ */
+const COMPOSE_FILE_VARIABLES = ['COMPOSE_FILE', 'COMPOSE_PATH_SEPARATOR', 'COMPOSE_ENV_FILES', 'COMPOSE_IGNORE_ORPHANS'];
+
+/**
+ * The environment every Compose invocation gets — the worktree runtime's and
+ * the router's alike, so a shell setting cannot split behaviour between the
+ * two projects the tool manages. The redirecting variables are dropped; plain
+ * progress output keeps Compose's lines and the tool's own from fighting over
+ * the terminal (older releases ignore the variable; they already fall back to
+ * plain on a pipe). The runner passes this through verbatim, so what is
+ * absent here is absent in the child.
+ */
+export function composeEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !COMPOSE_FILE_VARIABLES.includes(name))
+  );
+  return { ...inherited, COMPOSE_PROGRESS: 'plain', ...extra };
+}
 
 type ResourceKind = OwnedResource['kind'];
 
@@ -97,6 +130,7 @@ const RESOURCE_TYPES: readonly ResourceType[] = [
 const externalSchema = z.union([z.boolean(), z.object({}).passthrough()]).optional();
 const composeConfigSchema = z.object({
   services: z.record(z.string(), z.object({
+    build: z.record(z.string(), z.unknown()).optional(),
     expose: z.array(z.union([z.string(), z.number()])).optional(),
     ports: z.array(z.object({ target: z.number().optional() }).passthrough()).optional(),
     networks: z.unknown().optional()
@@ -108,11 +142,25 @@ const composeConfigSchema = z.object({
 type ComposeConfig = z.infer<typeof composeConfigSchema>;
 type ComposeService = ComposeConfig['services'][string];
 
+/** What the override says about one service; `build.labels` is what reaches the image. */
+interface OverrideService {
+  labels: Record<string, string>;
+  networks?: Record<string, object>;
+  build?: { labels: Record<string, string> };
+}
+
+interface OverrideDocument {
+  services: Record<string, OverrideService>;
+  volumes: Record<string, object>;
+  networks: Record<string, object>;
+}
+
 const psRecordSchema = z.object({
   Service: z.string(),
   State: z.string(),
   Health: z.string().optional()
 }).passthrough();
+type PsRecord = z.infer<typeof psRecordSchema>;
 
 function isExternal(resource: { external?: boolean | object } | undefined): boolean {
   return resource?.external !== undefined && resource.external !== false;
@@ -158,7 +206,7 @@ function firstPort(service: ComposeService): number | undefined {
   return service.ports?.find((entry) => entry.target !== undefined)?.target;
 }
 
-function serviceState(record: z.infer<typeof psRecordSchema>): Pick<ServiceStatus, 'state' | 'detail'> {
+function serviceState(record: PsRecord): Pick<ServiceStatus, 'state' | 'detail'> {
   const state = record.State.toLowerCase();
   if (state === 'running') {
     if (record.Health === 'starting') return { state: 'starting' };
@@ -168,6 +216,46 @@ function serviceState(record: z.infer<typeof psRecordSchema>): Pick<ServiceStatu
   if (state === 'restarting') return { state: 'starting' };
   if (['created', 'exited', 'dead', 'paused', 'removing'].includes(state)) return { state: 'stopped' };
   return { state: 'unknown', detail: record.State };
+}
+
+/**
+ * `docker compose ps --format json` has printed one document per line since
+ * Compose 2.21, the documented floor, and a single document — an array, or
+ * `null` for none — before that; the older shape is accepted as well since
+ * it costs nothing. Refuse to turn output nobody can parse into "every
+ * service is absent": an empty list is a complete answer, garbage is not.
+ */
+function parsePsOutput(stdout: string): PsRecord[] {
+  const text = stdout.trim();
+  if (text === '') return [];
+  const unreadable = (): CliError => new CliError(
+    `Compose returned service state in a form this version of ${BRAND.name} cannot read. ` +
+    'Run `docker compose version` and report it with the output below:\n' +
+    `${text.slice(0, 400)}${text.length > 400 ? '\n…' : ''}`
+  );
+  const record = (candidate: unknown): PsRecord => {
+    const parsed = psRecordSchema.safeParse(candidate);
+    if (!parsed.success) throw unreadable();
+    return parsed.data;
+  };
+  const parse = (fragment: string): unknown => {
+    try {
+      return JSON.parse(fragment);
+    } catch {
+      throw unreadable();
+    }
+  };
+
+  let whole: unknown;
+  try {
+    whole = JSON.parse(text);
+  } catch {
+    // One document per line; every non-blank line must be a record.
+    return text.split('\n').filter((line) => line.trim() !== '').map((line) => record(parse(line)));
+  }
+  if (whole === null) return [];
+  if (Array.isArray(whole)) return (whole as unknown[]).map(record);
+  return [record(whole)];
 }
 
 /* -------------------------------------------------------------- runtime */
@@ -184,11 +272,14 @@ export class ComposeRuntime implements Runtime {
     return composeProjectName(ref.repositoryId, ref.worktreeId);
   }
 
+  private home(ref: WorktreeRef): string {
+    return worktreeLayout(this.options.controlHome, ref.repositoryId, ref.worktreeId).home;
+  }
+
   private overridePath(ref: WorktreeRef): string {
-    const { home } = worktreeLayout(this.options.controlHome, ref.repositoryId, ref.worktreeId);
     // JSON content under a .yaml name: JSON is valid YAML, Compose reads it
     // as such, and it spares us a YAML emitter and every quoting bug one brings.
-    return path.join(home, `${BRAND.name}.override.yaml`);
+    return path.join(this.home(ref), `${BRAND.name}.override.yaml`);
   }
 
   private ownershipLabels(ref: WorktreeRef): Record<string, string> {
@@ -202,38 +293,36 @@ export class ComposeRuntime implements Runtime {
 
   /** The same `BERTH_*` vocabulary hooks receive, so one name means one thing. */
   private environment(ref: WorktreeRef): NodeJS.ProcessEnv {
-    return {
-      ...process.env,
+    return composeEnvironment({
       ...hookEnvironmentVariables(worktreeEnvironment(this.options, ref)),
       COMPOSE_PROJECT_NAME: this.project(ref)
-    };
-  }
-
-  private compose(
-    ref: WorktreeRef,
-    files: readonly string[],
-    args: readonly string[],
-    options: RunOptions = {}
-  ): Promise<RunResult> {
-    return this.options.runner.run('docker', [
-      'compose',
-      '--project-directory', this.options.projectRoot,
-      '--project-name', this.project(ref),
-      ...files.flatMap((file) => ['-f', file]),
-      ...args
-    ], { ...options, env: { ...this.environment(ref), ...options.env } });
+    });
   }
 
   /**
-   * Reads the consumer's Compose file as Compose itself resolves it, then
-   * writes the override that stamps ownership labels onto every service and
-   * every non-external volume and network, and routes the declared services.
-   * Idempotent; every command calls it so the override always matches the
-   * current Compose file.
+   * One Compose invocation. Files are passed only when a verb needs the
+   * model; the project directory is then the consumer file's own directory,
+   * as it would be with a plain `docker compose -f`.
    */
-  private async prepare(ref: WorktreeRef): Promise<{ config: ComposeConfig; files: string[] }> {
+  private compose(
+    ref: WorktreeRef,
+    args: readonly string[],
+    options: RunOptions & { files?: readonly string[] } = {}
+  ): Promise<RunResult> {
+    const { files, ...run } = options;
+    return this.options.runner.run('docker', [
+      'compose',
+      '--project-name', this.project(ref),
+      ...(files === undefined ? [] : ['--project-directory', path.dirname(this.options.composeFile)]),
+      ...(files ?? []).flatMap((file) => ['-f', file]),
+      ...args
+    ], { ...run, env: { ...this.environment(ref), ...run.env } });
+  }
+
+  /** The consumer's Compose file as Compose itself resolves it. Reads nothing else, writes nothing. */
+  private async readModel(ref: WorktreeRef): Promise<ComposeConfig> {
     const { composeFile } = this.options;
-    const result = await this.compose(ref, [composeFile], ['config', '--format', 'json'], { reject: false });
+    const result = await this.compose(ref, ['config', '--format', 'json'], { files: [composeFile], reject: false });
     if (result.exitCode !== 0) {
       throw new CliError(`Compose could not read ${composeFile}:\n${result.stderr.trim() || result.stdout.trim()}`);
     }
@@ -245,12 +334,25 @@ export class ComposeRuntime implements Runtime {
     }
     const parsed = composeConfigSchema.safeParse(raw);
     if (!parsed.success) throw new CliError(`Compose returned an unrecognized document for ${composeFile}.`);
-    const config = parsed.data;
+    return parsed.data;
+  }
 
+  /**
+   * Pure: the override that stamps ownership labels onto every service, every
+   * built image, and every non-external volume and network, and routes the
+   * declared services.
+   */
+  private overrideDocument(ref: WorktreeRef, config: ComposeConfig): OverrideDocument {
+    const { composeFile } = this.options;
     const labels = this.ownershipLabels(ref);
     const stamp = () => ({ labels });
-    const services: Record<string, { labels: Record<string, string>; networks?: Record<string, object> }> =
-      Object.fromEntries(Object.keys(config.services).map((name) => [name, stamp()]));
+    const services: Record<string, OverrideService> = Object.fromEntries(
+      Object.entries(config.services).map(([name, service]) => [
+        name,
+        // Service labels reach the container; only `build.labels` reach the image it builds.
+        service.build === undefined ? stamp() : { ...stamp(), build: { labels } }
+      ])
+    );
     const volumes = Object.fromEntries(
       Object.entries(config.volumes).filter(([, volume]) => !isExternal(volume)).map(([name]) => [name, stamp()])
     );
@@ -275,6 +377,7 @@ export class ComposeRuntime implements Runtime {
           );
         }
         services[route.service] = {
+          ...services[route.service],
           labels: { ...labels, ...routeLabels(`${this.project(ref)}-${route.service}`, route, routerNetwork, host, port) },
           // Adding the router network must not cost the service its own networks.
           networks: { ...serviceNetworks(service), [routerNetwork]: {} }
@@ -282,56 +385,69 @@ export class ComposeRuntime implements Runtime {
       }
       networks[routerNetwork] = { external: true };
     }
+    return { services, volumes, networks };
+  }
 
+  /**
+   * Reads the model and writes the override into the worktree home. Only
+   * `up` calls this: the home must already exist, created by the command
+   * layer with its containment checks — the runtime never creates it.
+   */
+  private async prepare(ref: WorktreeRef): Promise<string[]> {
+    const home = this.home(ref);
+    await assertSafeDirectoryPath(this.options.controlHome, home);
+    const present = await lstat(home).then((entry) => entry.isDirectory(), () => false);
+    if (!present) {
+      throw new CliError(
+        `Worktree home ${home} does not exist. \`up\` creates it before starting services, ` +
+        `so this is a bug in ${BRAND.name}; please report it.`
+      );
+    }
+    const config = await this.readModel(ref);
+    const document = this.overrideDocument(ref, config);
     const override = this.overridePath(ref);
-    await atomicWrite(override, `${JSON.stringify({ services, volumes, networks }, null, 2)}\n`);
-    return { config, files: [composeFile, override] };
+    await atomicWrite(override, `${JSON.stringify(document, null, 2)}\n`);
+    return [this.options.composeFile, override];
   }
 
   async up(ref: WorktreeRef, services: readonly ServiceSpec[], options: UpOptions = {}): Promise<void> {
-    const { files } = await this.prepare(ref);
+    const files = await this.prepare(ref);
     const timeout = this.options.waitTimeoutSeconds ?? DEFAULT_WAIT_TIMEOUT_SECONDS;
-    await this.compose(ref, files, [
+    await this.compose(ref, [
       'up', '--detach', '--build', '--remove-orphans',
       '--wait', '--wait-timeout', String(timeout),
       ...services.map((service) => service.name)
-    ], { printOutput: true, cancelSignal: options.signal });
+    ], { files, printOutput: true, cancelSignal: options.signal });
   }
 
-  /** Stops and removes containers and networks. Named volumes survive; that is what `reap` is for. */
+  /**
+   * Stops and removes containers and networks by project name alone, so it
+   * works whatever state the Compose file is in. Named volumes survive; that
+   * is what `reap` is for.
+   */
   async down(ref: WorktreeRef): Promise<void> {
-    const { files } = await this.prepare(ref);
-    await this.compose(ref, files, ['down', '--remove-orphans'], { printOutput: true });
+    await this.compose(ref, ['down', '--remove-orphans'], { printOutput: true });
   }
 
+  /** Every declared service, `absent` when it has no container at all. */
   async status(ref: WorktreeRef): Promise<ServiceStatus[]> {
-    const { config, files } = await this.prepare(ref);
-    const result = await this.compose(ref, files, ['ps', '--format', 'json', '--all'], { reject: false });
+    const config = await this.readModel(ref);
+    const result = await this.compose(ref, ['ps', '--format', 'json', '--all'], { reject: false });
     if (result.exitCode !== 0) {
       throw new CliError(`Compose could not list services:\n${result.stderr.trim() || result.stdout.trim()}`);
     }
-    // One JSON document per line.
     const seen = new Map<string, ServiceStatus>();
-    for (const line of result.stdout.split('\n')) {
-      if (!line.trim()) continue;
-      let raw: unknown;
-      try {
-        raw = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const record = psRecordSchema.safeParse(raw);
-      if (!record.success) continue;
-      seen.set(record.data.Service, { service: record.data.Service, ...serviceState(record.data) });
+    for (const record of parsePsOutput(result.stdout)) {
+      seen.set(record.Service, { service: record.Service, ...serviceState(record) });
     }
     return Object.keys(config.services).sort().map((name) =>
-      seen.get(name) ?? { service: name, state: 'missing' }
+      seen.get(name) ?? { service: name, state: 'absent' }
     );
   }
 
   /** Each service is reachable by name on the project network; the port is its first exposed one. */
   async endpoints(ref: WorktreeRef): Promise<Endpoint[]> {
-    const { config } = await this.prepare(ref);
+    const config = await this.readModel(ref);
     const endpoints: Endpoint[] = [];
     for (const [name, service] of Object.entries(config.services)) {
       const port = firstPort(service);
@@ -398,8 +514,9 @@ export class ComposeRuntime implements Runtime {
     ];
     const owned: OwnedResource[] = [];
     for (const type of RESOURCE_TYPES) {
-      // Images carry no Compose project label, and a project-only match would
-      // sweep in images built before ownership labels existed.
+      // Built images carry the Compose project label too, but they are found
+      // by ownership alone: a project-only match would sweep in images built
+      // before the override stamped them, which verification would then refuse.
       const byProject = type.kind === 'image'
         ? []
         : await this.list(type, [`${COMPOSE_PROJECT_LABEL}=${this.project(ref)}`]);
@@ -414,7 +531,7 @@ export class ComposeRuntime implements Runtime {
 
   async reap(ref: WorktreeRef, resource: OwnedResource): Promise<void> {
     const type = RESOURCE_TYPES.find((candidate) => candidate.kind === resource.kind);
-    invariant(type, `Unknown resource kind: ${resource.kind}`);
+    if (!type) throw new CliError(`Unknown resource kind: ${resource.kind}`);
     await this.verify(ref, type, resource.id);
     await this.options.runner.run('docker', [...type.removeArguments, resource.id]);
     this.options.logger.info(`Removed ${resource.kind} ${resource.id}.`);
