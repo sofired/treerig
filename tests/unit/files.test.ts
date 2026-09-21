@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,10 +19,10 @@ import {
   sha256,
   touchSecure
 } from '../../src/files.ts';
+import { fileMode as mode } from '../helpers/fs.ts';
 import { controlLayout, worktreeLayout } from '../../src/layout.ts';
 
 const temporary: string[] = [];
-const mode = async (file: string): Promise<number> => (await stat(file)).mode & 0o777;
 
 async function scratch(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'berth-files-'));
@@ -215,15 +215,33 @@ describe('secure directory creation', () => {
     }
   });
 
-  it('creates the control layout owner-only', async () => {
+  it('creates the control layout owner-only, except the two directories containers must read', async () => {
     const controlHome = path.join(await scratch(), 'control');
     const layout = controlLayout(controlHome);
 
     await secureControlDirectories(layout);
 
-    for (const directory of [layout.controlHome, layout.repositoriesDir, layout.locksDir, layout.indexDir]) {
+    for (const directory of [layout.controlHome, layout.repositoriesDir, layout.locksDir, layout.routerDir]) {
       expect(await mode(directory)).toBe(0o700);
     }
+    for (const directory of [layout.indexDir, layout.routerDynamicDir]) {
+      expect(await mode(directory)).toBe(0o755);
+    }
+  });
+
+  it('widens both mounted directories an older install created owner-only, without widening their parent', async () => {
+    const controlHome = path.join(await scratch(), 'control');
+    const layout = controlLayout(controlHome);
+    for (const directory of [layout.indexDir, layout.routerDynamicDir]) {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      expect(await mode(directory)).toBe(0o700);
+    }
+
+    await secureControlDirectories(layout);
+
+    expect(await mode(layout.indexDir)).toBe(0o755);
+    expect(await mode(layout.routerDynamicDir)).toBe(0o755);
+    expect(await mode(layout.routerDir)).toBe(0o700);
   });
 
   it('creates a worktree home owner-only and refuses while a removal is half-finished', async () => {

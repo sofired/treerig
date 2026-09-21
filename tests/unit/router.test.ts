@@ -19,6 +19,7 @@ import {
   routerCommand
 } from '../../src/router/stack.ts';
 import { RecordingLogger } from '../helpers/command-doubles.ts';
+import { fileMode } from '../helpers/fs.ts';
 
 const PROJECT = 'berth-router';
 const NETWORK = 'berth-router';
@@ -145,7 +146,11 @@ describe('RouterService.ensure', () => {
     expect(document.services.router?.ports).toEqual(['127.0.0.1:80:80']);
     expect(document.services.router?.command).toContain(`--providers.file.directory=${DYNAMIC_CONFIG_MOUNT}`);
     expect(document.networks).toEqual({ router: { name: NETWORK }, 'docker-api': { internal: true } });
-    expect((await stat(w.layout.routerDynamicDir)).isDirectory()).toBe(true);
+    // What the containers read must be readable by root with no capabilities; what they don't, stays private.
+    expect(await fileMode(w.layout.routerDynamicDir)).toBe(0o755);
+    expect(await fileMode(w.layout.indexDir)).toBe(0o755);
+    expect(await fileMode(w.layout.indexFile)).toBe(0o644);
+    expect(await fileMode(w.layout.routerComposeFile)).toBe(0o600);
 
     expect(w.ups()).toEqual([[
       'compose', '--project-directory', w.layout.routerDir, '--project-name', PROJECT, '-f', w.layout.routerComposeFile,

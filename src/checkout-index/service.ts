@@ -103,10 +103,12 @@ export class CheckoutIndexService implements CheckoutIndex {
 
   async refresh(): Promise<IndexSnapshot> {
     const layout = controlLayout(this.options.controlHome);
-    await secureControlDirectories(layout);
     return withScopedLock(routerLockTarget(this.options.controlHome), 'shared router', this.options.logger, async () => {
+      // Under the lock, so directory setup is serialised with the router's own `write()`.
+      await secureControlDirectories(layout);
       const snapshot = await this.snapshot();
-      // World-readable on purpose: the index container serves it as root or not at all.
+      // 0644 on purpose: readable by the cap-dropped index container through its bind
+      // mount; the 0700 parents keep it off-limits to other users on disk.
       await atomicWrite(layout.indexFile, renderIndexHtml(snapshot), 0o644);
       return snapshot;
     }, { acquireTimeoutMs: INDEX_LOCK_TIMEOUT_MS });

@@ -1,4 +1,3 @@
-import { mkdir } from 'node:fs/promises';
 import { z } from 'zod';
 import { BRAND } from '../brand.ts';
 import { CliError } from '../errors.ts';
@@ -138,7 +137,6 @@ export class RouterService implements Router {
   /** Writes the stack document and makes sure the directories it mounts exist and serve. */
   private async write(): Promise<void> {
     await secureControlDirectories(this.layout);
-    await mkdir(this.layout.routerDynamicDir, { recursive: true, mode: 0o700 });
     // The index container's health check fetches the page, so one must exist before `up --wait`.
     if (!(await pathExists(this.layout.indexFile))) {
       await atomicWrite(this.layout.indexFile, renderIndexHtml({ entries: [], generatedAt: new Date().toISOString() }), 0o644);

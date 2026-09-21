@@ -22,7 +22,13 @@ export interface ControlLayout {
   controlHome: string;
   routerDir: string;
   routerComposeFile: string;
+  /**
+   * Bind-mounted read-only into the router; 0755, and files written there
+   * must be 0644 and must never contain secrets (TLS keys, tokens) — those
+   * belong in Docker secrets or a named volume, not a served directory.
+   */
   routerDynamicDir: string;
+  /** Bind-mounted read-only into the index server; 0755, 0644 files, never secrets. */
   indexDir: string;
   indexFile: string;
   repositoriesDir: string;

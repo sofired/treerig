@@ -4,7 +4,8 @@ import { BRAND } from '../brand.ts';
 // written to the control home and started from there; the same constants
 // drive the post-start verification in router.ts, so what is checked is by
 // construction what was asked for. Everything is pinned by digest, runs
-// read-only, drops every capability, and cannot escalate.
+// read-only, drops every capability (the router gets back only
+// NET_BIND_SERVICE), and cannot escalate.
 //
 // Traefik never sees the Docker socket. It talks to a proxy that exposes the
 // read-only subset of the API a router needs — containers, networks, events —

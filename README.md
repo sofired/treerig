@@ -53,7 +53,14 @@ command, never automatic.
 
 **Homes.** Each worktree owns a directory under the control home
 (`~/.berth` by default) created owner-only, with path containment that refuses
-symlinks anywhere in the chain before creating or removing anything.
+symlinks anywhere in the chain before creating or removing anything. The two
+control-home directories the router stack bind-mounts (`router/index`,
+`router/dynamic`) are the one exception: they are 0755, because the containers
+that read them run as root without the capability that lets root bypass file
+permissions, and on Linux Docker Engine that leaves a 0700 directory
+unreadable to them. Their parents stay owner-only — a bind mount is entered
+at its mount point, so the parents are never traversed. Only the index page
+and route fragments are written there; nothing secret.
 
 **Hooks.** `prepare`, `seed`, `verify`, `backup`, and `restore` are
 executables you point at from the config file. `seed` never runs unless
@@ -63,10 +70,11 @@ executables you point at from the config file. `seed` never runs unless
 by every worktree of every repository. It binds a single loopback port and
 routes by hostname. It never sees the Docker socket: it reads container
 labels through a proxy that exposes only the read-only subset of the API a
-router needs and refuses every write. Both containers run read-only with all
-capabilities dropped, pinned by image digest, and after every start the tool
-inspects them and refuses to continue if anything differs from what it asked
-for.
+router needs and refuses every write. All three containers — the proxy,
+Traefik, and the BusyBox `httpd` that serves the index page — run read-only
+with every capability dropped (Traefik gets back only the one it needs to bind
+port 80), pinned by image digest, and after every start the tool inspects
+them and refuses to continue if anything differs from what it asked for.
 
 ## Quick start
 
@@ -119,10 +127,10 @@ bind mount exactly as it does in a seed script.
 
 Each `[[service]]` becomes a route: the tool generates the Traefik labels and
 joins the container to the shared router network through the same override,
-so your Compose file never mentions the router. Browsers resolve
-`*.localhost` to the loopback address on their own; command-line tools
-usually need `curl --resolve` or a `Host:` header. If port 80 is taken, set
-`BERTH_ROUTER_PORT` — the printed URLs follow it.
+so your Compose file never mentions the router. Chrome and Firefox resolve
+`*.localhost` to the loopback address on their own; everything else depends
+on the system resolver — see [Platform notes](#platform-notes). If port 80 is
+taken, set `BERTH_ROUTER_PORT` — the printed URLs follow it.
 
 ```bash
 berth router status       # is the shared router running, and is it what this version expects?
@@ -184,6 +192,52 @@ through `BERTH_ROUTER_PORT` — deliberately not config-file settings. The confi
 is committed and shared; a path that is only correct on one machine has no
 business in it, and one developer pointing it at a synced folder would put the
 whole team's state on iCloud Drive.
+
+## Platform notes
+
+**Bind mounts on Linux.** Docker Engine enforces host file permissions inside
+containers. A worktree's home directory (`${BERTH_WORKTREE_HOME}`) is 0700, so
+a service whose process runs as a uid other than yours — `postgres`, `redis`,
+and `mysql` drop to uid 999 in their default images (`postgres:*-alpine` uses
+70) — cannot read a bind mount of it. For content such a service only *reads*
+(seeds, config), bind-mount a subdirectory of the home rather than the home
+itself: a bind mount is entered at the mount point, so the container never
+traverses the 0700 parents, and every `up` resets only the home itself to
+0700, so a subdirectory you loosened (`chmod -R o+rX` it from your `prepare`
+hook if your umask made it private) stays loosened. For anything such a
+service *writes*, use a named volume: `postgres`, `mysql`, and `redis` `chown`
+their data directory to their own uid as root before dropping privileges, and
+`worktree remove` cannot delete a directory another uid has taken ownership
+of. When that happens it stops and prints a one-off `docker run … chown` that
+hands them back to you; run it, then run the removal again and it finishes.
+
+**Docker Desktop on macOS.** File sharing performs I/O as your macOS user, so
+mode bits are not enforced against the container's uid: a bind mount that
+works on macOS can fail on a Linux teammate's Docker Engine for the reason
+above. Projects that must run on both should use named volumes. Docker
+Desktop on Windows behaves like Linux when the tool runs inside the WSL 2
+distribution with the control home and checkout on its own filesystem; paths
+under `/mnt/c` present as 0777 and behave like the macOS case.
+
+**Rootless Docker.** Not supported yet: the socket proxy mounts
+`/var/run/docker.sock`, which a rootless daemon does not provide.
+
+**SELinux.** Hosts with SELinux enforcing need bind mounts relabelled (`:z`),
+which the tool does not do for its own router mounts; treat such hosts as
+unsupported for now.
+
+**Hostname resolution.** Chrome and Firefox map `*.localhost` to loopback
+internally on every platform. Other clients — Safari, `curl`, language HTTP
+libraries — use the system resolver, and whether it maps `*.localhost` varies:
+current macOS and systemd-resolved (Ubuntu, Fedora) do; plain glibc or musl
+resolvers (Debian, Alpine, distributions without systemd-resolved) do not.
+Check with `curl -sSI http://berth.localhost` (add the port if you changed
+it): any `HTTP/1.1 …` status line means the resolver is fine (the router
+answered), `Could not resolve host` means it is not, and a connection error
+means resolution worked and the router simply isn't running. Where it fails,
+`/etc/hosts` has no wildcards, so add every hostname `berth urls` prints for
+the worktree — `<slug>.<domain>` and any `<subdomain>.<slug>.<domain>` — plus
+`berth.localhost`; or use `curl --resolve` / a `Host:` header.
 
 ## Development
 

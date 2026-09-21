@@ -22,6 +22,14 @@ import type { ControlLayout, WorktreeLayout } from './layout.ts';
 // 0600 files) and every path is verified to sit inside the control home with
 // no symlink in the chain before it is created or removed. That containment is
 // what makes recursive removal during cleanup safe.
+//
+// The one exception is the two directories the router stack bind-mounts
+// (`router/index`, `router/dynamic`). Their containers run as root without
+// CAP_DAC_OVERRIDE, and on Linux Docker Engine that makes a 0700 directory
+// owned by the user unreadable to them. Those two are 0755 with 0644 files.
+// Their parents stay 0700, so other local users still cannot reach them on
+// disk; only a process handed the directory by a bind mount can. Nothing
+// secret is ever written there.
 
 export async function pathExists(file: string): Promise<boolean> {
   try {
@@ -85,13 +93,15 @@ export async function assertSafeFilePath(root: string, candidate: string): Promi
 // unreadable inside containers. Explicit modes plus the chmod below are enough.
 async function createSecureDirectories(
   controlHome: string,
-  directories: readonly string[]
+  directories: readonly string[],
+  mode = 0o700
 ): Promise<void> {
   for (const directory of directories) {
     await assertSafeDirectoryPath(controlHome, directory);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await mkdir(directory, { recursive: true, mode });
     await assertSafeDirectoryPath(controlHome, directory);
-    await chmod(directory, 0o700);
+    // Unconditional, so an install created before a mode changed is brought up to date.
+    await chmod(directory, mode);
   }
 }
 
@@ -100,8 +110,14 @@ export async function secureControlDirectories(layout: ControlLayout): Promise<v
     layout.controlHome,
     layout.repositoriesDir,
     layout.locksDir,
-    layout.indexDir
+    layout.routerDir
   ]);
+  // Bind-mounted into cap-dropped containers; see the header comment. The
+  // 0700 parents are created first because a recursive mkdir gives every
+  // directory it creates the leaf's mode: the end state would be the same
+  // either way (the chmod is unconditional), but a fresh install would pass
+  // through a moment with a 0755 control home.
+  await createSecureDirectories(layout.controlHome, [layout.indexDir, layout.routerDynamicDir], 0o755);
   await assertSafeFilePath(layout.controlHome, layout.registryLockPath);
   await assertSafeFilePath(layout.controlHome, layout.routerLockPath);
   await assertSafeFilePath(layout.controlHome, layout.indexFile);

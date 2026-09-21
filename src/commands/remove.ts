@@ -4,6 +4,7 @@ import { assertSafeDirectoryPath, pathExists, removeWithin } from '../files.ts';
 import { worktreeHost, worktreeLayout, type WorktreeLayout } from '../layout.ts';
 import { withProgress } from '../progress.ts';
 import { confirm } from '../prompts.ts';
+import { INDEX_IMAGE } from '../router/stack.ts';
 import type { OwnedResource, WorktreeRef } from '../runtime/runtime.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../worktree-registry.ts';
 import type { CommandContext } from './context.ts';
@@ -59,7 +60,7 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
       for (const resource of owned) await runtime.reap(ref, resource);
       return owned;
     });
-    const home = await removeHome(layout);
+    const home = await removeHome(layout, context.commandName);
     const registration = await registry.store(target.repositoryId).remove(target.worktreeId, target.slug, logger);
     let marker = false;
     if (identity) {
@@ -108,19 +109,54 @@ async function targetIdentity(context: CommandContext, target: RegisteredWorktre
  * adopt as complete. A leftover quarantine from an earlier attempt is finished
  * first.
  */
-async function removeHome(layout: WorktreeLayout): Promise<boolean> {
+async function removeHome(layout: WorktreeLayout, commandName: string): Promise<boolean> {
   let removed = false;
   if (await pathExists(layout.quarantinePath)) {
-    await removeWithin(layout.controlHome, layout.quarantinePath);
+    await deleteQuarantine(layout, commandName);
     removed = true;
   }
   if (await pathExists(layout.home)) {
     await assertSafeDirectoryPath(layout.controlHome, layout.home);
     await rename(layout.home, layout.quarantinePath);
-    await removeWithin(layout.controlHome, layout.quarantinePath);
+    await deleteQuarantine(layout, commandName);
     removed = true;
   }
   return removed;
+}
+
+/** Single-quoted for a POSIX shell, so a pasted command survives any character in the path. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", String.raw`'\''`)}'`;
+}
+
+/**
+ * A container that ran as another uid may have left files the user cannot
+ * delete (a database's data directory, typically). Say what happened and how
+ * to get out, rather than reporting a generic interrupted removal forever.
+ * The recovery runs the same digest-pinned image the router stack already
+ * pulled, as real root, on the quarantine directory alone.
+ */
+async function deleteQuarantine(layout: WorktreeLayout, commandName: string): Promise<void> {
+  try {
+    await removeWithin(layout.controlHome, layout.quarantinePath);
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException;
+    if (failure.code !== 'EACCES' && failure.code !== 'EPERM') throw error;
+    const where = failure.path === undefined ? '' : ` (first refusal: ${failure.path})`;
+    // The container runs as root, so the owner must be spelled out as the
+    // user's own uid:gid — a `$(id -u)` evaluated inside the container would say 0.
+    const uid = process.getuid?.();
+    const gid = process.getgid?.();
+    const owner = uid === undefined || gid === undefined ? '$(id -u):$(id -g)' : `${uid}:${gid}`;
+    throw new CliError(
+      `Could not delete ${layout.quarantinePath}${where}. Some of its files are most likely owned ` +
+      'by another user — written by a container running as a different uid. Take ownership back, ' +
+      'for example with\n\n' +
+      `  docker run --rm --network none -v ${shellQuote(`${layout.quarantinePath}:/d`)} ${INDEX_IMAGE} ` +
+      `sh -c "chown -R ${owner} /d && chmod -R u+rwX /d"\n\n` +
+      `then run '${commandName} worktree remove' again to finish.`
+    );
+  }
 }
 
 function countResources(resources: readonly OwnedResource[]): string {

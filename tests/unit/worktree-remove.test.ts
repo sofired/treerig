@@ -1,4 +1,5 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { remove } from '../../src/commands/remove.ts';
 import { up } from '../../src/commands/worktree.ts';
@@ -144,6 +145,40 @@ describe('worktree remove', () => {
 
     expect(result.home).toBe(true);
     expect(await pathExists(layout.quarantinePath)).toBe(false);
+  });
+
+  // Root ignores mode bits, so the provocation below cannot work as uid 0.
+  it.skipIf(process.getuid?.() === 0)('explains a home it cannot delete, and finishes once the files are reclaimed', async () => {
+    world = await commandWorld();
+    const started = await up(world.context(), { services: ['api'] });
+    const layout = worktreeLayout(world.controlHome, started.registration.repositoryId, started.registration.worktreeId);
+    // A directory the owner cannot unlink from stands in for files another uid left behind.
+    const stubborn = path.join(layout.home, 'data');
+    await mkdir(stubborn);
+    await writeFile(path.join(stubborn, 'base'), '');
+    await chmod(stubborn, 0o000);
+    const reclaim = async (): Promise<void> => {
+      for (const candidate of [path.join(layout.quarantinePath, 'data'), stubborn]) {
+        await chmod(candidate, 0o700).catch(() => undefined);
+      }
+    };
+    try {
+      // The chown must name this user's uid literally: the command runs as root inside the container.
+      await expect(remove(world.context(), { approved: true })).rejects.toThrow(
+        new RegExp(String.raw`owned by another user[\s\S]*chown -R ${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0} /d[\s\S]*'berth worktree remove' again`)
+      );
+      // The registration survives, so the removal can be run again once the files are reclaimed.
+      await expect(world.context().registry.current()).resolves.toMatchObject({ slug: 'feature-login' });
+    } finally {
+      await reclaim();
+    }
+
+    const retry = await remove(world.context(), { approved: true });
+
+    expect(retry).toMatchObject({ home: true, registration: true });
+    expect(await pathExists(layout.home)).toBe(false);
+    expect(await pathExists(layout.quarantinePath)).toBe(false);
+    await expect(world.context().registry.current()).resolves.toBeUndefined();
   });
 
   it('names what it could not find', async () => {

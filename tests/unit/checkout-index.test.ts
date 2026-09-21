@@ -10,6 +10,7 @@ import { controlLayout } from '../../src/layout.ts';
 import type { CommandRunner, RunResult } from '../../src/process-runner.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../../src/worktree-registry.ts';
 import { RecordingLogger } from '../helpers/command-doubles.ts';
+import { fileMode } from '../helpers/fs.ts';
 
 const REPO = '11111111-1111-4111-8111-111111111111';
 const OTHER_REPO = '33333333-3333-4333-8333-333333333333';
@@ -236,6 +237,15 @@ describe('CheckoutIndexService', () => {
     expect(html).toContain('feature-a.acme.localhost');
     expect(html).toContain('href="http://feature-a.acme.localhost"');
     expect(s.docker.calls).toEqual([['ps', '--all', '--filter', 'label=dev.berth.managed=true', '--format', expect.stringContaining('{{.State}}') as string]]);
+  });
+
+  it('leaves the served directory and page readable by the index container on a fresh control home', async () => {
+    const s = await service();
+    await s.index.refresh();
+    const layout = controlLayout(s.controlHome);
+    expect(await fileMode(layout.indexDir)).toBe(0o755);
+    expect(await fileMode(layout.indexFile)).toBe(0o644);
+    expect(await fileMode(layout.routerDir)).toBe(0o700);
   });
 
   it('still writes the page when Docker is unavailable, with unknown statuses', async () => {
