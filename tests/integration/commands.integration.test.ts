@@ -82,6 +82,8 @@ async function world(): Promise<World> {
       const context = createCommandContext({
         loaded: await loadConfig(path.join(root, 'berth.toml')),
         controlHome,
+        routerPort: 80,
+        router: { port: 80, network: 'berth-router', ensure: () => Promise.resolve() },
         commandName: 'berth',
         logger,
         runner: overrides.runner ?? runner,

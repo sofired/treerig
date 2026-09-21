@@ -55,6 +55,8 @@ async function world() {
     domain: 'test.localhost',
     controlHome,
     labelNamespace: NS,
+    routes: [],
+    routerNetwork: 'berth-router-unused',
     runner: new ExecaRunner(),
     logger: silentLogger,
     waitTimeoutSeconds: 60
@@ -92,7 +94,10 @@ describe('ComposeRuntime against a real daemon', () => {
       { service: 'api', state: 'running' },
       { service: 'worker', state: 'running' }
     ]);
-    await expect(w.runtime.endpoints(subject)).resolves.toEqual([{ service: 'api', host: 'api', port: 8080 }]);
+    await expect(w.runtime.endpoints(subject)).resolves.toEqual([
+      { service: 'api', host: 'api', port: 8080 },
+      { service: 'worker', host: 'worker', port: 9090 }
+    ]);
 
     await w.runtime.down(subject);
     await expect(w.runtime.status(subject)).resolves.toEqual([

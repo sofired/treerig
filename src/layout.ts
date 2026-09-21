@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { BRAND } from './brand.ts';
+import { CliError } from './errors.ts';
 
 /**
  * On-disk layout of the control home. Nothing here touches the filesystem;
@@ -19,6 +20,9 @@ import { BRAND } from './brand.ts';
 
 export interface ControlLayout {
   controlHome: string;
+  routerDir: string;
+  routerComposeFile: string;
+  routerDynamicDir: string;
   indexDir: string;
   indexFile: string;
   repositoriesDir: string;
@@ -52,12 +56,27 @@ export function resolveControlHome(
   );
 }
 
+/** Loopback port the shared router publishes; `BERTH_ROUTER_PORT` overrides the default of 80. */
+export function resolveRouterPort(environment: NodeJS.ProcessEnv = process.env): number {
+  const raw = environment[`${BRAND.envPrefix}_ROUTER_PORT`];
+  if (raw === undefined || raw === '') return 80;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new CliError(`${BRAND.envPrefix}_ROUTER_PORT must be a port number between 1 and 65535, not "${raw}".`);
+  }
+  return port;
+}
+
 export function controlLayout(controlHome: string): ControlLayout {
   const resolved = path.resolve(controlHome);
   const locksDir = path.join(resolved, 'locks');
-  const indexDir = path.join(resolved, 'router', 'index');
+  const routerDir = path.join(resolved, 'router');
+  const indexDir = path.join(routerDir, 'index');
   return {
     controlHome: resolved,
+    routerDir,
+    routerComposeFile: path.join(routerDir, 'compose.yaml'),
+    routerDynamicDir: path.join(routerDir, 'dynamic'),
     indexDir,
     indexFile: path.join(indexDir, 'index.html'),
     repositoriesDir: path.join(resolved, 'repositories'),

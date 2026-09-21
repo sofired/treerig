@@ -14,8 +14,13 @@ export const serviceSchema = z.object({
   name: z.string().regex(SLUG, 'must be lower-case letters, digits, and hyphens'),
   /** Subdomain under the worktree host; empty routes at the host root. */
   subdomain: z.string().regex(SUBDOMAIN, 'must be lower-case letters, digits, and hyphens').default(''),
-  /** Path prefix appended to the routed URL. */
+  /**
+   * Routes only this path prefix, so several services can share one host;
+   * also where the printed URL points. Omit to route the whole host.
+   */
   path: z.string().startsWith('/').optional(),
+  /** Container port to route to; defaults to the first port the service exposes or publishes. */
+  port: z.number().int().min(1).max(65_535).optional(),
   /** Presence on the shared checkout index; omit to keep the service internal. */
   index: z.object({
     label: z.string().min(1),
@@ -57,7 +62,7 @@ export const configSchema = z.object({
   hooks: hooksSchema.default({})
 }).strict().superRefine((config, context) => {
   const names = new Set<string>();
-  const subdomains = new Set<string>();
+  const routes = new Set<string>();
   config.service.forEach((service, index) => {
     if (names.has(service.name)) {
       context.addIssue({
@@ -67,15 +72,18 @@ export const configSchema = z.object({
       });
     }
     names.add(service.name);
-    if (subdomains.has(service.subdomain)) {
-      const label = service.subdomain === '' ? 'the host root' : `subdomain "${service.subdomain}"`;
+    // A route is identified by subdomain and path together: two services may share a host if their paths differ.
+    const route = `${service.subdomain}\0${service.path ?? ''}`;
+    if (routes.has(route)) {
+      const host = service.subdomain === '' ? 'the host root' : `subdomain "${service.subdomain}"`;
+      const where = service.path === undefined ? host : `${host} at path "${service.path}"`;
       context.addIssue({
         code: 'custom',
-        path: ['service', index, 'subdomain'],
-        message: `${label} is already claimed by another service`
+        path: ['service', index, service.path === undefined ? 'subdomain' : 'path'],
+        message: `${where} is already claimed by another service`
       });
     }
-    subdomains.add(service.subdomain);
+    routes.add(route);
   });
 });
 

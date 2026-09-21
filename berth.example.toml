@@ -44,7 +44,8 @@ purpose = "Captured email"
 [[service]]
 name      = "docs"
 subdomain = "docs"
-path      = "/latest"   # optional path prefix appended to the routed URL
+path      = "/latest"   # routes only this prefix; several services may share a host with different paths
+port      = 4000        # container port to route to; defaults to the first port the service exposes
 
 # ---------------------------------------------------------------------------
 # Hooks. Each is an executable — any language — resolved relative to this

@@ -4,6 +4,7 @@ import type { LoadedConfig } from '../config/load.ts';
 import type { ProjectConfig } from '../config/schema.ts';
 import type { Logger } from '../logger.ts';
 import type { CommandRunner } from '../process-runner.ts';
+import { RouterService, type Router } from '../router/router.ts';
 import { ComposeRuntime } from '../runtime/compose.ts';
 import type { Runtime } from '../runtime/runtime.ts';
 import type { SignalSource } from '../signal-lifecycle.ts';
@@ -30,17 +31,21 @@ export interface CommandContext {
   controlHome: string;
   registry: WorktreeRegistry;
   runtime: Runtime;
+  router: Router;
   process: ProcessControl;
 }
 
 export interface CommandContextOptions {
   loaded: LoadedConfig;
   controlHome: string;
+  routerPort: number;
   commandName: string;
   logger: Logger;
   runner: CommandRunner;
   /** Defaults to the Compose runtime over `runner`. */
   runtime?: Runtime;
+  /** Defaults to the shared Traefik router. */
+  router?: Router;
   /** Defaults to the real process. */
   process?: ProcessControl;
 }
@@ -63,6 +68,9 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     logger,
     commandName
   });
+  // The router is machine-wide, so it keeps the tool's own label namespace
+  // even when a project adopts a predecessor's for its worktree resources.
+  const router = options.router ?? new RouterService({ controlHome, port: options.routerPort, runner, logger });
   const runtime = options.runtime ?? new ComposeRuntime({
     composeFile: composeFilePath(loaded),
     projectRoot: loaded.root,
@@ -71,6 +79,13 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     domain: loaded.config.project.domain,
     controlHome,
     labelNamespace: labelNamespace(loaded.config),
+    routes: loaded.config.service.map((service) => ({
+      service: service.name,
+      subdomain: service.subdomain,
+      ...(service.path === undefined ? {} : { path: service.path }),
+      ...(service.port === undefined ? {} : { port: service.port })
+    })),
+    routerNetwork: router.network,
     runner,
     logger
   });
@@ -82,6 +97,7 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     controlHome,
     registry,
     runtime,
+    router,
     process: options.process ?? realProcess(logger)
   };
 }

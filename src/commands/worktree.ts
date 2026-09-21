@@ -26,12 +26,14 @@ export interface ServiceUrl {
 /** Pure: the URL each routed service will answer on, in config order. */
 export function worktreeUrls(
   config: ProjectConfig,
-  registration: Pick<RegisteredWorktree, 'slug' | 'domain'>
+  registration: Pick<RegisteredWorktree, 'slug' | 'domain'>,
+  port = 80
 ): ServiceUrl[] {
   const host = worktreeHost(registration.slug, registration.domain);
+  const suffix = port === 80 ? '' : `:${port}`;
   return config.service.map((service) => ({
     service: service.name,
-    url: `http://${service.subdomain ? `${service.subdomain}.` : ''}${host}${service.path ?? ''}`,
+    url: `http://${service.subdomain ? `${service.subdomain}.` : ''}${host}${suffix}${service.path ?? ''}`,
     ...(service.index ? { label: service.index.label, purpose: service.index.purpose } : {})
   }));
 }
@@ -49,14 +51,16 @@ export interface UpResult {
 }
 
 /**
- * Register (or reconcile), start, then run hooks: `prepare` on every `up`,
- * `seed` only the first time this worktree comes up. The worktree lock is
- * held for all of it, and an interrupt is deferred until the lock can be
- * released cleanly — a half-started environment is never left locked.
+ * Register (or reconcile), make sure the shared router is up, start, then
+ * run hooks: `prepare` on every `up`, `seed` only the first time this
+ * worktree comes up. The worktree lock is held for all of it, and an
+ * interrupt is deferred until the lock can be released cleanly — a
+ * half-started environment is never left locked.
  */
 export async function up(context: CommandContext, options: UpOptions = {}): Promise<UpResult> {
   const { logger, runner, runtime, registry } = context;
   const registration = await registry.ensure();
+  await context.router.ensure();
   const ref = toRef(registration);
   const store = registry.store(ref.repositoryId);
   const services = (options.services ?? []).map((name) => ({ name }));
@@ -76,7 +80,7 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
     return ran;
   });
 
-  const urls = worktreeUrls(context.loaded.config, ref);
+  const urls = worktreeUrls(context.loaded.config, ref, context.router.port);
   logger.info(`${worktreeHost(ref.slug, ref.domain)} is up.`);
   printUrls(context, urls);
   return { registration, hooks, urls };
@@ -121,7 +125,7 @@ export async function status(context: CommandContext): Promise<ServiceStatus[] |
 
 export async function urls(context: CommandContext): Promise<ServiceUrl[]> {
   const registration = await requireRegistration(context);
-  const list = worktreeUrls(context.loaded.config, registration);
+  const list = worktreeUrls(context.loaded.config, registration, context.router.port);
   if (list.length === 0) {
     context.logger.warn(`No [[service]] entries in ${BRAND.configFile}; nothing is routed.`);
   }

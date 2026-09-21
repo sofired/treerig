@@ -1,9 +1,9 @@
-# Fixture for the real-Docker runtime test. Two tiny services, one named
+# Fixture for the real-Docker tests. Two tiny HTTP servers, one named
 # volume, and environment references that prove the BERTH_* injection.
 services:
   api:
     image: busybox:1.37.0
-    command: ["sh", "-c", "sleep 300"]
+    command: ["sh", "-c", "mkdir -p /www && echo 'hello from api' > /www/index.html && exec httpd -f -p 8080 -h /www"]
     expose: ["8080"]
     environment:
       SLUG: ${BERTH_SLUG}
@@ -13,6 +13,7 @@ services:
       - data:/data
   worker:
     image: busybox:1.37.0
-    command: ["sh", "-c", "sleep 300"]
+    command: ["sh", "-c", "mkdir -p /www && echo 'hello from worker' > /www/index.html && exec httpd -f -p 9090 -h /www"]
+    expose: ["9090"]
 volumes:
   data: {}

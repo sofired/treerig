@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCommandContext, type CommandContext } from '../../src/commands/context.ts';
 import { parseConfig } from '../../src/config/load.ts';
+import type { Router } from '../../src/router/router.ts';
 import { MemoryRuntime } from '../../src/runtime/memory.ts';
 import { FakeProcess, RecordingLogger } from './command-doubles.ts';
 import { GitRunner } from './git-runner.ts';
@@ -21,6 +22,8 @@ export interface CommandWorld {
   root: string;
   runner: GitRunner;
   runtime: MemoryRuntime;
+  /** How many times a command asked for the router. */
+  routerEnsured: number;
   /** Adds another Git worktree; `common` defaults to this repository's. */
   worktree(name: string, branch: string, common?: string): Promise<string>;
   /** A context whose config lives in `root`, with `domain` in its config. */
@@ -55,28 +58,40 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
     return root;
   };
   const root = await worktree('worktree', branch);
-  return {
+  const world: CommandWorld = {
     base,
     controlHome,
     root,
     runner,
     runtime,
+    routerEnsured: 0,
     worktree,
     context(contextRoot = root, contextDomain = domain) {
       const file = path.join(contextRoot, 'berth.toml');
       const logger = new RecordingLogger();
       const fakeProcess = new FakeProcess();
+      const router: Router = {
+        port: 80,
+        network: 'berth-router',
+        ensure: () => {
+          world.routerEnsured += 1;
+          return Promise.resolve();
+        }
+      };
       const context = createCommandContext({
         loaded: { config: parseConfig(CONFIG(path.basename(contextDomain, '.localhost'), contextDomain), file), file, root: contextRoot },
         controlHome,
+        routerPort: 80,
         commandName: 'berth',
         logger,
         runner,
         runtime,
+        router,
         process: fakeProcess.control()
       });
       return { ...context, logger, fakeProcess };
     },
     dispose: () => rm(base, { recursive: true, force: true })
   };
+  return world;
 }

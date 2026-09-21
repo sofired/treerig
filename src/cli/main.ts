@@ -8,8 +8,9 @@ import { down, status, up, urls } from '../commands/worktree.ts';
 import { loadConfig, loadNearestConfig } from '../config/load.ts';
 import { CliError } from '../errors.ts';
 import { createConsoleLogger } from '../logger.ts';
-import { resolveControlHome } from '../layout.ts';
+import { resolveControlHome, resolveRouterPort } from '../layout.ts';
 import { ExecaRunner } from '../process-runner.ts';
+import { RouterService } from '../router/router.ts';
 
 const VERSION = '0.1.0';
 
@@ -58,9 +59,17 @@ async function main(argv: readonly string[]): Promise<void> {
   const context = async (): Promise<CommandContext> => createCommandContext({
     loaded: await load(program.opts<{ config?: string }>().config),
     controlHome: resolveControlHome(process.env),
+    routerPort: resolveRouterPort(process.env),
     commandName,
     logger,
     runner: new ExecaRunner()
+  });
+  // The router is machine-wide: no config file needed.
+  const router = (): RouterService => new RouterService({
+    controlHome: resolveControlHome(process.env),
+    port: resolveRouterPort(process.env),
+    runner: new ExecaRunner(),
+    logger
   });
 
   program.command('dev').description('start this worktree\'s environment and follow its logs').action(notYet('dev'));
@@ -85,6 +94,30 @@ async function main(argv: readonly string[]): Promise<void> {
       await urls(await context());
     });
   program.command('doctor').description('validate prerequisites and local state').action(notYet('doctor'));
+
+  const routerCommand = program.command('router').description('manage the shared local router');
+  routerCommand.command('up')
+    .description('start the shared router and verify its hardened configuration')
+    .action(async () => {
+      const service = router();
+      await service.ensure();
+      logger.info(`Router is up on 127.0.0.1:${service.port} (network ${service.network}).`);
+    });
+  routerCommand.command('status')
+    .description('report whether the shared router is running as expected')
+    .action(async () => {
+      const status = await router().status();
+      logger.output(status.running
+        ? `running on 127.0.0.1:${status.port}, network ${status.network}`
+        : `not running (would use 127.0.0.1:${status.port}, network ${status.network})`);
+      for (const problem of status.problems) logger.output(`  problem: ${problem}`);
+      if (status.running && status.problems.length > 0) process.exitCode = 1;
+    });
+  routerCommand.command('down')
+    .description('stop the shared router; worktree services keep running but are no longer routed')
+    .action(async () => {
+      await router().down();
+    });
 
   const worktree = program.command('worktree').description('manage registered worktrees');
   worktree.command('list')

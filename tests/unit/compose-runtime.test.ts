@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { composeProjectName, worktreeLayout } from '../../src/layout.ts';
 import { silentLogger } from '../../src/logger.ts';
 import type { CommandRunner, RunOptions, RunResult } from '../../src/process-runner.ts';
-import { ComposeRuntime } from '../../src/runtime/compose.ts';
+import { ComposeRuntime, type RouteSpec } from '../../src/runtime/compose.ts';
 import type { OwnedResource, WorktreeRef } from '../../src/runtime/runtime.ts';
 
 const NS = 'dev.berth';
@@ -88,7 +88,7 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
 
-async function runtime(fake = new DockerFake()) {
+async function runtime(fake = new DockerFake(), routes: readonly RouteSpec[] = []) {
   const controlHome = await mkdtemp(path.join(tmpdir(), 'berth-compose-'));
   temporary.push(controlHome);
   return {
@@ -102,6 +102,8 @@ async function runtime(fake = new DockerFake()) {
       domain: 'acme.localhost',
       controlHome,
       labelNamespace: NS,
+      routes,
+      routerNetwork: 'berth-router',
       runner: fake,
       logger: silentLogger,
       waitTimeoutSeconds: 45
@@ -132,6 +134,47 @@ describe('ComposeRuntime up', () => {
     expect(document.services.api?.labels).toEqual(expectedLabels);
     expect(Object.keys(document.volumes)).toEqual(['data']);          // `shared` is external
     expect(Object.keys(document.networks).sort()).toEqual(['backend', 'default']);  // `corp` is external; default is used by api/worker
+  });
+
+  it('routes declared services with Traefik labels and the shared network, leaving the rest alone', async () => {
+    const { runtime: rt, controlHome } = await runtime(new DockerFake(), [
+      { service: 'api', subdomain: '' },
+      { service: 'worker', subdomain: 'jobs', path: '/v2', port: 9091 }
+    ]);
+    await rt.up(REF, []);
+
+    const override = path.join(worktreeLayout(controlHome, REF.repositoryId, REF.worktreeId).home, 'berth.override.yaml');
+    const document = JSON.parse(await readFile(override, 'utf8')) as {
+      services: Record<string, { labels: Record<string, string>; networks?: Record<string, object> }>;
+      networks: Record<string, unknown>;
+    };
+    expect(document.services.api).toEqual({
+      labels: {
+        [`${NS}.managed`]: 'true',
+        [`${NS}.repository-uuid`]: REF.repositoryId,
+        [`${NS}.worktree-uuid`]: REF.worktreeId,
+        'traefik.enable': 'true',
+        'traefik.docker.network': 'berth-router',
+        [`traefik.http.routers.${PROJECT}-api.rule`]: 'Host(`feature-login.acme.localhost`)',
+        [`traefik.http.routers.${PROJECT}-api.entrypoints`]: 'web',
+        [`traefik.http.services.${PROJECT}-api.loadbalancer.server.port`]: '8080'   // from `expose`
+      },
+      networks: { default: {}, 'berth-router': {} }                                   // keeps its implicit default
+    });
+    expect(document.services.worker?.labels).toMatchObject({
+      [`traefik.http.routers.${PROJECT}-worker.rule`]: 'Host(`jobs.feature-login.acme.localhost`) && PathPrefix(`/v2`)',
+      [`traefik.http.services.${PROJECT}-worker.loadbalancer.server.port`]: '9091'   // explicit port wins
+    });
+    expect(document.services.quiet).toEqual({ labels: expect.objectContaining({ [`${NS}.managed`]: 'true' }) as object });
+    expect(Object.keys(document.services.quiet?.labels ?? {}).some((k) => k.startsWith('traefik.'))).toBe(false);
+    expect(document.networks['berth-router']).toEqual({ external: true });
+  });
+
+  it('refuses to route a service with no port, and one the Compose file does not define', async () => {
+    const noPort = await runtime(new DockerFake(), [{ service: 'quiet', subdomain: 'q' }]);
+    await expect(noPort.runtime.up(REF, [])).rejects.toThrow('Service quiet declares no port');
+    const missing = await runtime(new DockerFake(), [{ service: 'ghost', subdomain: '' }]);
+    await expect(missing.runtime.up(REF, [])).rejects.toThrow('[[service]] ghost is not defined');
   });
 
   it('runs compose up detached with build, orphan removal, and a bounded wait, naming the requested services', async () => {

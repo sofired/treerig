@@ -55,6 +55,23 @@ name = "web"
     expect(() => parseConfig(contents, 'test.toml')).toThrow('the host root is already claimed');
   });
 
+  it('lets two services share a host when their paths differ, and rejects the same path twice', () => {
+    const shared = `${MINIMAL}
+[[service]]
+name = "web"
+[[service]]
+name = "api"
+path = "/api"
+port = 3000
+`;
+    const config = parseConfig(shared, 'test.toml');
+    expect(config.service.map((s) => [s.name, s.path ?? '', s.port ?? null])).toEqual([['web', '', null], ['api', '/api', 3000]]);
+
+    expect(() => parseConfig(`${shared}[[service]]\nname = "api2"\npath = "/api"\n`, 'test.toml'))
+      .toThrow('the host root at path "/api" is already claimed');
+    expect(() => parseConfig(`${MINIMAL}[[service]]\nname = "a"\nport = 70000\n`, 'test.toml')).toThrow(/port/);
+  });
+
   it('rejects duplicate service names', () => {
     const contents = `${MINIMAL}
 [[service]]

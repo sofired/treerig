@@ -15,11 +15,11 @@ in whatever language you already use.
 
 > **Status: pre-release.** The worktree lifecycle works end to end against
 > Docker Compose: `up`, `down`, `status`, `urls`, `worktree list`, and
-> `worktree remove` — identity, locks, the registry, the hook sequencer, and a
+> `worktree remove` — identity, locks, the registry, the hook sequencer, a
 > runtime that stamps every resource with ownership labels and refuses to
-> touch anything it cannot prove it owns. The shared router and the checkout
-> index are the next ports, so the URLs `urls` prints are not yet reachable.
-> See [Roadmap](#roadmap).
+> touch anything it cannot prove it owns, and a shared hardened router that
+> makes every worktree reachable at its own hostname. The checkout index is
+> the next port. See [Roadmap](#roadmap).
 
 ## How it works
 
@@ -58,6 +58,15 @@ symlinks anywhere in the chain before creating or removing anything.
 **Hooks.** `prepare`, `seed`, `verify`, `backup`, and `restore` are
 executables you point at from the config file. `seed` never runs unless
 `prepare` exited zero. The tool never learns what they do.
+
+**Router.** One Traefik instance per machine, started on first `up`, shared
+by every worktree of every repository. It binds a single loopback port and
+routes by hostname. It never sees the Docker socket: it reads container
+labels through a proxy that exposes only the read-only subset of the API a
+router needs and refuses every write. Both containers run read-only with all
+capabilities dropped, pinned by image digest, and after every start the tool
+inspects them and refuses to continue if anything differs from what it asked
+for.
 
 ## Quick start
 
@@ -108,6 +117,19 @@ exempting a container from cleanup — is not possible. The Compose file sees
 the same `BERTH_*` variables hooks do, so `${BERTH_WORKTREE_HOME}` works in a
 bind mount exactly as it does in a seed script.
 
+Each `[[service]]` becomes a route: the tool generates the Traefik labels and
+joins the container to the shared router network through the same override,
+so your Compose file never mentions the router. Browsers resolve
+`*.localhost` to the loopback address on their own; command-line tools
+usually need `curl --resolve` or a `Host:` header. If port 80 is taken, set
+`BERTH_ROUTER_PORT` — the printed URLs follow it.
+
+```bash
+berth router status       # is the shared router running, and is it what this version expects?
+berth router up           # start it without starting a worktree
+berth router down         # stop it; worktree services keep running, unrouted
+```
+
 `worktree remove` is the only destructive verb. It inventories everything
 the worktree owns, verifies the full ownership tuple on every resource, and
 refuses the whole operation if a single one fails — before it asks you to
@@ -144,13 +166,14 @@ binary name, renaming a symlink would orphan state.
 | `project.domain` | Worktrees are routed as `<slug>.<domain>`. |
 | `project.label-namespace` | Optional. Only to adopt resources created by a predecessor tool. |
 | `compose.file` | Compose file, relative to `berth.toml`. |
-| `[[service]]` | `name`, optional `subdomain` (empty = host root), optional `path`, optional `index` presence. |
+| `[[service]]` | `name`, optional `subdomain` (empty = host root), optional `path` (route only that prefix, so services can share a host), optional `port` (defaults to the first port the service exposes), optional `index` presence. |
 | `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — commands relative to the config file. |
 
 Unknown keys are rejected, so a typo cannot silently disable a feature.
 
 The control home is `~/.berth`, overridable only through the `BERTH_HOME`
-environment variable — deliberately not a config-file setting. The config file
+environment variable, and the router's loopback port is 80, overridable only
+through `BERTH_ROUTER_PORT` — deliberately not config-file settings. The config file
 is committed and shared; a path that is only correct on one machine has no
 business in it, and one developer pointing it at a synced folder would put the
 whole team's state on iCloud Drive.
@@ -179,6 +202,7 @@ src/
   config/               berth.toml schema and discovery
   hooks/                hook protocol and sequencer
   commands/             the everyday verbs as plain functions over a context
+  router/               the shared router: its Compose stack as constants, and the verifier
   runtime/              the Runtime interface, an in-memory backend, the Compose backend
   worktree-registry.ts  identity markers, slugs, the registry
   operation-lock.ts     scoped locks and explicit stale recovery
@@ -202,14 +226,18 @@ Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
   interrupts deferred until it can be released cleanly.
 - **`worktree list` / `worktree remove`** — ownership-verified teardown
   in crash-safe order; orphan detection for checkouts Git no longer lists.
+- **Shared router** — one Traefik instance across every worktree of every
+  repository, behind a hardened socket proxy, verified after every start;
+  routes generated from `[[service]]`. The file provider is enabled from day
+  one (watching `<control home>/router/dynamic`) so hybrid
+  native-plus-container worktrees can be routed without touching the router.
 
 Next, in order:
 
-1. **Shared router** — one Traefik instance across every worktree of every
-   repository, behind a hardened socket proxy, with the file provider enabled
-   from day one so hybrid native-plus-container worktrees stay possible.
-2. **Checkout index** — a live page listing every registered worktree on the
+1. **Checkout index** — a live page listing every registered worktree on the
    machine with per-service status.
+2. **Native routes** — `berth route` writing file-provider fragments for
+   processes running outside Docker.
 3. **Standalone cleanup binary** — content-addressed, installed outside
    the checkout, so removing a worktree never imports code from the branch
    being deleted.

@@ -4,9 +4,10 @@ import { BRAND } from '../brand.ts';
 import { CliError, invariant } from '../errors.ts';
 import { atomicWrite } from '../files.ts';
 import { hookEnvironmentVariables, worktreeEnvironment } from '../hooks/protocol.ts';
-import { composeProjectName, worktreeLayout } from '../layout.ts';
+import { composeProjectName, worktreeHost, worktreeLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import type { CommandRunner, RunOptions, RunResult } from '../process-runner.ts';
+import { ROUTER_ENTRYPOINT } from '../router/stack.ts';
 import type {
   Endpoint,
   OwnedResource,
@@ -28,6 +29,21 @@ import type {
 // cleanup — is not possible. `inventory` finds resources by those labels,
 // verifies the full tuple on each one, and refuses everything if any single
 // resource fails. `reap` verifies again before removing.
+//
+// The same override carries routing. Each `[[service]]` becomes a set of
+// Traefik labels and a membership in the shared router network, so the
+// consumer's Compose file never mentions the router at all.
+
+/** One `[[service]]` entry, as the runtime needs it. */
+export interface RouteSpec {
+  service: string;
+  /** Empty routes at the worktree host itself. */
+  subdomain: string;
+  /** Route only this prefix; lets several services share one host. */
+  path?: string;
+  /** Container port; defaults to the first port the service exposes or publishes. */
+  port?: number;
+}
 
 export interface ComposeRuntimeOptions {
   /** Absolute path to the consumer's Compose file. */
@@ -43,6 +59,10 @@ export interface ComposeRuntimeOptions {
   controlHome: string;
   /** Docker label namespace, e.g. `dev.berth`. */
   labelNamespace: string;
+  /** Services to route, from `[[service]]` in config. */
+  routes: readonly RouteSpec[];
+  /** The shared router's network; routed services join it. */
+  routerNetwork: string;
   runner: CommandRunner;
   logger: Logger;
   /** How long `up --wait` waits for health before failing. */
@@ -105,6 +125,28 @@ function usesDefaultNetwork(service: ComposeService): boolean {
   if (Array.isArray(networks)) return networks.includes('default');
   if (typeof networks === 'object') return 'default' in networks;
   return false;
+}
+
+/** The networks a service is on, as Compose normalized them; no key means the implicit default. */
+function serviceNetworks(service: ComposeService): Record<string, object> {
+  const networks = service.networks;
+  if (Array.isArray(networks)) return Object.fromEntries(networks.map((name) => [String(name), {}]));
+  if (networks !== null && typeof networks === 'object') return Object.fromEntries(Object.keys(networks).map((name) => [name, {}]));
+  return { default: {} };
+}
+
+function routeLabels(name: string, route: RouteSpec, network: string, host: string, port: number): Record<string, string> {
+  const routeHost = route.subdomain ? `${route.subdomain}.${host}` : host;
+  const rule = route.path === undefined
+    ? `Host(\`${routeHost}\`)`
+    : `Host(\`${routeHost}\`) && PathPrefix(\`${route.path}\`)`;
+  return {
+    'traefik.enable': 'true',
+    'traefik.docker.network': network,
+    [`traefik.http.routers.${name}.rule`]: rule,
+    [`traefik.http.routers.${name}.entrypoints`]: ROUTER_ENTRYPOINT,
+    [`traefik.http.services.${name}.loadbalancer.server.port`]: String(port)
+  };
 }
 
 function firstPort(service: ComposeService): number | undefined {
@@ -185,8 +227,9 @@ export class ComposeRuntime implements Runtime {
   /**
    * Reads the consumer's Compose file as Compose itself resolves it, then
    * writes the override that stamps ownership labels onto every service and
-   * every non-external volume and network. Idempotent; every command calls it
-   * so the override always matches the current Compose file.
+   * every non-external volume and network, and routes the declared services.
+   * Idempotent; every command calls it so the override always matches the
+   * current Compose file.
    */
   private async prepare(ref: WorktreeRef): Promise<{ config: ComposeConfig; files: string[] }> {
     const { composeFile } = this.options;
@@ -206,16 +249,38 @@ export class ComposeRuntime implements Runtime {
 
     const labels = this.ownershipLabels(ref);
     const stamp = () => ({ labels });
-    const services = Object.fromEntries(Object.keys(config.services).map((name) => [name, stamp()]));
+    const services: Record<string, { labels: Record<string, string>; networks?: Record<string, object> }> =
+      Object.fromEntries(Object.keys(config.services).map((name) => [name, stamp()]));
     const volumes = Object.fromEntries(
       Object.entries(config.volumes).filter(([, volume]) => !isExternal(volume)).map(([name]) => [name, stamp()])
     );
-    const networks = Object.fromEntries(
+    const networks: Record<string, object> = Object.fromEntries(
       Object.entries(config.networks).filter(([, network]) => !isExternal(network)).map(([name]) => [name, stamp()])
     );
     const defaultDeclared = 'default' in config.networks;
     if (!defaultDeclared && Object.values(config.services).some(usesDefaultNetwork)) {
       networks.default = stamp();
+    }
+
+    if (this.options.routes.length > 0) {
+      const host = worktreeHost(ref.slug, this.options.domain);
+      const { routerNetwork } = this.options;
+      for (const route of this.options.routes) {
+        const service = config.services[route.service];
+        if (!service) throw new CliError(`[[service]] ${route.service} is not defined in ${composeFile}.`);
+        const port = route.port ?? firstPort(service);
+        if (port === undefined) {
+          throw new CliError(
+            `Service ${route.service} declares no port: set port in its [[service]] entry, or expose one in ${composeFile}.`
+          );
+        }
+        services[route.service] = {
+          labels: { ...labels, ...routeLabels(`${this.project(ref)}-${route.service}`, route, routerNetwork, host, port) },
+          // Adding the router network must not cost the service its own networks.
+          networks: { ...serviceNetworks(service), [routerNetwork]: {} }
+        };
+      }
+      networks[routerNetwork] = { external: true };
     }
 
     const override = this.overridePath(ref);

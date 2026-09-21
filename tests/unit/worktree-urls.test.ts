@@ -36,6 +36,14 @@ describe('worktreeUrls', () => {
     expect(api?.url).toBe('http://main.old.localhost');
   });
 
+  it('appends the router port when it is not 80', () => {
+    expect(worktreeUrls(config, { slug: 'main', domain: 'acme.localhost' }, 8080).map((u) => u.url)).toEqual([
+      'http://main.acme.localhost:8080',
+      'http://mail.main.acme.localhost:8080',
+      'http://docs.main.acme.localhost:8080/latest'
+    ]);
+  });
+
   it('returns nothing for a project with no routed services', () => {
     const bare = parseConfig('[project]\nname = "x"\ndomain = "x.localhost"\n[compose]\nfile = "c.yaml"\n', 'berth.toml');
     expect(worktreeUrls(bare, { slug: 'main', domain: 'x.localhost' })).toEqual([]);
