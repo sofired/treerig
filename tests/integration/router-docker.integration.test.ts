@@ -5,10 +5,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execa } from 'execa';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { writeIndexCard } from '../../src/checkout-index/card.ts';
+import { CheckoutIndexService } from '../../src/checkout-index/service.ts';
 import { composeProjectName } from '../../src/layout.ts';
 import { silentLogger } from '../../src/logger.ts';
 import { ExecaRunner } from '../../src/process-runner.ts';
 import { RouterService } from '../../src/router/router.ts';
+import { INDEX_HOST } from '../../src/router/stack.ts';
 import { ComposeRuntime } from '../../src/runtime/compose.ts';
 import type { WorktreeRef } from '../../src/runtime/runtime.ts';
 
@@ -104,6 +107,10 @@ describe('the shared router', () => {
     // The empty file-provider directory must not upset Traefik.
     const logs = await docker(['logs', before]);
     expect(`${logs.stdout}\n${logs.stderr}`).not.toMatch(/level=error|ERR /);
+
+    // The index answers through the router before anything has been indexed.
+    const page = await eventually(() => get(INDEX_HOST), (r) => r.status === 200);
+    expect(page.body).toContain('No checkouts have been indexed yet');
   }, 120_000);
 
   it('routes a worktree by hostname over the shared network, without disturbing its own network', async () => {
@@ -120,6 +127,29 @@ describe('the shared router', () => {
     // Service discovery inside the worktree still works: api reaches worker by name.
     const apiId = (await docker(['compose', '-p', composeProjectName(worktree.repositoryId, worktree.worktreeId), 'ps', '-q', 'api'])).stdout.trim();
     expect((await docker(['exec', apiId, 'wget', '-qO-', 'http://worker:9090/'])).stdout).toBe('hello from worker');
+
+    // A refreshed index — real `docker ps`, real file, real httpd — lists the worktree as running.
+    const index = new CheckoutIndexService({
+      controlHome,
+      routerPort: PORT,
+      registry: {
+        listAll: () => Promise.resolve([{ ...worktree, domain: 'test.localhost' }]),
+        identities: { activeIdentities: () => Promise.resolve([]), repositoryId: () => Promise.resolve(undefined) }
+      },
+      runner: new ExecaRunner(),
+      logger: silentLogger
+    });
+    await writeIndexCard(controlHome, worktree.repositoryId, worktree.worktreeId, {
+      version: 1, project: 'berth-test', domain: 'test.localhost', slug: worktree.slug, host: 'feature-route.test.localhost',
+      root: FIXTURE, branch: 'feature/route', labelNamespace: NS,
+      services: [{ name: 'api', url: `http://feature-route.test.localhost:${PORT}`, label: 'API', purpose: 'fixture' }],
+      updatedAt: new Date().toISOString()
+    });
+    const snapshot = await index.refresh();
+    expect(snapshot.entries.map((e) => [e.host, e.status, e.services[0]?.available])).toEqual([['feature-route.test.localhost', 'running', true]]);
+    const page = await eventually(() => get(INDEX_HOST), (r) => r.status === 200 && r.body.includes('feature-route.test.localhost'));
+    expect(page.body).toContain(`href="http://feature-route.test.localhost:${PORT}"`);
+    expect(page.body).toContain('status-running');
   }, 120_000);
 
   it('exposes only the read-only Docker API through the proxy', async () => {

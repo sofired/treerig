@@ -10,7 +10,12 @@ import {
   DOCKER_API_IMAGE,
   DOCKER_SOCKET,
   DYNAMIC_CONFIG_MOUNT,
+  INDEX_COMMAND,
+  INDEX_IMAGE,
+  INDEX_MOUNT,
+  indexRouteLabels,
   ROUTER_IMAGE,
+  ROUTER_PROTOCOL,
   routerCommand
 } from '../../src/router/stack.ts';
 import { RecordingLogger } from '../helpers/command-doubles.ts';
@@ -24,7 +29,7 @@ interface Call { args: readonly string[]; options?: RunOptions }
 /** Answers the compose/inspect calls the router makes; `docs` is what `docker inspect` would return. */
 class DockerFake implements CommandRunner {
   readonly calls: Call[] = [];
-  ids: Record<string, string> = { router: 'router-1', 'docker-api': 'api-1' };
+  ids: Record<string, string> = { router: 'router-1', 'docker-api': 'api-1', index: 'index-1' };
   docs = new Map<string, ContainerInspect>();
   upExitCode = 0;
   upStderr = '';
@@ -67,7 +72,7 @@ function labels(service: string): Record<string, string> {
     'com.docker.compose.project': PROJECT,
     'com.docker.compose.service': service,
     [`${NS}.component`]: service,
-    [`${NS}.router-protocol`]: '1'
+    [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL)
   };
 }
 
@@ -99,6 +104,16 @@ function apiDoc(): ContainerInspect {
   };
 }
 
+function indexDoc(indexDir: string): ContainerInspect {
+  return {
+    Config: { Cmd: [...INDEX_COMMAND], Image: INDEX_IMAGE, Labels: { ...labels('index'), ...indexRouteLabels() } },
+    HostConfig: { CapAdd: [], CapDrop: ['ALL'], ReadonlyRootfs: true, SecurityOpt: ['no-new-privileges:true'] },
+    Mounts: [{ Type: 'bind', Source: indexDir, Destination: INDEX_MOUNT, RW: false }],
+    NetworkSettings: { Networks: { [NETWORK]: {} }, Ports: {} },
+    State: { Status: 'running', Health: { Status: 'healthy' } }
+  };
+}
+
 async function world(port = 80) {
   const controlHome = await mkdtemp(path.join(tmpdir(), 'berth-router-'));
   temporary.push(controlHome);
@@ -108,6 +123,7 @@ async function world(port = 80) {
   const healthy = (): void => {
     fake.docs.set('router-1', routerDoc(layout.routerDynamicDir, port));
     fake.docs.set('api-1', apiDoc());
+    fake.docs.set('index-1', indexDoc(layout.indexDir));
   };
   healthy();
   const router = new RouterService({ controlHome, port, runner: fake, logger });
@@ -124,7 +140,8 @@ describe('RouterService.ensure', () => {
       services: Record<string, { image: string; ports?: string[]; command?: string[] }>;
       networks: Record<string, { name?: string; internal?: boolean }>;
     };
-    expect(Object.keys(document.services).sort()).toEqual(['docker-api', 'router']);
+    expect(Object.keys(document.services).sort()).toEqual(['docker-api', 'index', 'router']);
+    expect((await stat(w.layout.indexFile)).isFile()).toBe(true);   // a page exists before the health check needs one
     expect(document.services.router?.ports).toEqual(['127.0.0.1:80:80']);
     expect(document.services.router?.command).toContain(`--providers.file.directory=${DYNAMIC_CONFIG_MOUNT}`);
     expect(document.networks).toEqual({ router: { name: NETWORK }, 'docker-api': { internal: true } });
@@ -164,10 +181,10 @@ describe('RouterService.ensure', () => {
   it('refuses to downgrade a router started by a newer version', async () => {
     const w = await world();
     const newer = routerDoc(w.layout.routerDynamicDir);
-    newer.Config = { ...newer.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: '2' } };
+    newer.Config = { ...newer.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL + 1) } };
     w.fake.docs.set('router-1', newer);
 
-    await expect(w.router.ensure()).rejects.toThrow('started by a newer version (protocol 2; this version speaks 1)');
+    await expect(w.router.ensure()).rejects.toThrow(`started by a newer version (protocol ${ROUTER_PROTOCOL + 1}; this version speaks ${ROUTER_PROTOCOL})`);
     expect(w.ups()).toEqual([]);
   });
 
@@ -180,7 +197,10 @@ describe('RouterService.ensure', () => {
 });
 
 describe('RouterService.verify', () => {
-  const tampering: [string, (router: ContainerInspect, api: ContainerInspect) => void, string][] = [
+  const tampering: [string, (router: ContainerInspect, api: ContainerInspect, index: ContainerInspect) => void, string][] = [
+    ['the index serving another directory', (_r, _a, i) => { i.Mounts = [{ Type: 'bind', Source: '/etc', Destination: INDEX_MOUNT, RW: false }]; }, 'index: mounts are not exactly the read-only index directory'],
+    ['the index publishing a port', (_r, _a, i) => { i.NetworkSettings = { ...i.NetworkSettings, Ports: { '8080/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }] } }; }, 'index: publishes a port'],
+    ['the index routed elsewhere', (_r, _a, i) => { i.Config = { ...i.Config, Labels: { ...i.Config?.Labels, 'traefik.http.routers.berth-index.rule': 'Host(`evil.localhost`)' } }; }, 'index: routing labels differ'],
     ['a writable root filesystem', (r) => { r.HostConfig = { ...r.HostConfig, ReadonlyRootfs: false }; }, 'router: root filesystem is writable'],
     ['kept capabilities', (r) => { r.HostConfig = { ...r.HostConfig, CapDrop: [] }; }, 'router: capabilities are not dropped'],
     ['extra capabilities', (r) => { r.HostConfig = { ...r.HostConfig, CapAdd: ['CAP_NET_BIND_SERVICE', 'CAP_SYS_ADMIN'] }; }, 'router: capabilities beyond NET_BIND_SERVICE'],
@@ -202,9 +222,11 @@ describe('RouterService.verify', () => {
     const w = await world();
     const router = routerDoc(w.layout.routerDynamicDir);
     const api = apiDoc();
-    tamper(router, api);
+    const index = indexDoc(w.layout.indexDir);
+    tamper(router, api, index);
     w.fake.docs.set('router-1', router);
     w.fake.docs.set('api-1', api);
+    w.fake.docs.set('index-1', index);
     const problems = await w.router.verify();
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain(expected);

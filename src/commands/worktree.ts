@@ -1,4 +1,5 @@
 import { BRAND } from '../brand.ts';
+import { writeIndexCard } from '../checkout-index/card.ts';
 import type { ProjectConfig } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
 import { secureWorktreeDirectories } from '../files.ts';
@@ -9,7 +10,7 @@ import { withScopedLock, worktreeLockTarget } from '../operation-lock.ts';
 import { withProgress } from '../progress.ts';
 import type { ServiceStatus, WorktreeRef } from '../runtime/runtime.ts';
 import type { RegisteredWorktree, WorktreeRegistration } from '../worktree-registry.ts';
-import type { CommandContext } from './context.ts';
+import { labelNamespace, type CommandContext } from './context.ts';
 import { lockOptions, withWorktreeMutation } from './mutation.ts';
 
 // The four everyday verbs. `up` is the only one that mutates the registry —
@@ -65,8 +66,23 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
   const store = registry.store(ref.repositoryId);
   const services = (options.services ?? []).map((name) => ({ name }));
 
+  const urls = worktreeUrls(context.loaded.config, ref, context.router.port);
   const hooks = await withWorktreeMutation(context, ref, async () => {
     await secureWorktreeDirectories(worktreeLayout(context.controlHome, ref.repositoryId, ref.worktreeId));
+    await writeIndexCard(context.controlHome, ref.repositoryId, ref.worktreeId, {
+      version: 1,
+      project: context.loaded.config.project.name,
+      domain: ref.domain,
+      slug: ref.slug,
+      host: worktreeHost(ref.slug, ref.domain),
+      root: registration.root,
+      branch: registration.branch,
+      labelNamespace: labelNamespace(context.loaded.config),
+      services: urls.flatMap((entry) => entry.label === undefined
+        ? []
+        : [{ name: entry.service, url: entry.url, label: entry.label, purpose: entry.purpose ?? '' }]),
+      updatedAt: new Date().toISOString()
+    });
     const what = services.length === 0 ? 'all services' : services.map((s) => s.name).join(', ');
     await withProgress(logger, `Starting ${what} for ${worktreeHost(ref.slug, ref.domain)}`, () =>
       runtime.up(ref, services, { signal: runner.cancellationSignal })
@@ -80,7 +96,7 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
     return ran;
   });
 
-  const urls = worktreeUrls(context.loaded.config, ref, context.router.port);
+  await context.index.refreshBestEffort('up');
   logger.info(`${worktreeHost(ref.slug, ref.domain)} is up.`);
   printUrls(context, urls);
   return { registration, hooks, urls };
@@ -98,6 +114,7 @@ export async function down(context: CommandContext): Promise<void> {
     () => withProgress(logger, `Stopping ${worktreeHost(ref.slug, ref.domain)}`, () => runtime.down(ref)),
     lockOptions(context)
   );
+  await context.index.refreshBestEffort('down');
   logger.info(`${worktreeHost(ref.slug, ref.domain)} is down.`);
 }
 

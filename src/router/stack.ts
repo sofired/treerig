@@ -10,13 +10,21 @@ import { BRAND } from '../brand.ts';
 // read-only subset of the API a router needs — containers, networks, events —
 // and refuses everything else, including every POST.
 
-export const ROUTER_PROTOCOL = 1;
+/** Bumped whenever the stack changes shape; a newer router is never downgraded. */
+export const ROUTER_PROTOCOL = 2;
 
 export const ROUTER_IMAGE = 'traefik:v3.7.9@sha256:652929a140a32d7cafafb13c6cdfab5376cfeff800f51397b87b524501ed02a8';
 export const DOCKER_API_IMAGE = 'tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459';
+export const INDEX_IMAGE = 'busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0';
 
 export const ROUTER_SERVICE = 'router';
 export const DOCKER_API_SERVICE = 'docker-api';
+export const INDEX_SERVICE = 'index';
+/** The machine-wide checkout index answers here; a storage-contract name like the others. */
+export const INDEX_HOST = `${BRAND.name}.localhost`;
+export const INDEX_MOUNT = '/srv/index';
+export const INDEX_PORT = 8080;
+export const INDEX_COMMAND = ['httpd', '-f', '-p', String(INDEX_PORT), '-h', INDEX_MOUNT];
 export const DOCKER_API_NETWORK = 'docker-api';
 export const DOCKER_SOCKET = '/var/run/docker.sock';
 /** Where the file provider looks inside the container; the control home's `router/dynamic` is mounted here. */
@@ -65,7 +73,24 @@ export interface RouterStackOptions {
   port: number;
   /** Host directory watched by the file provider. */
   dynamicDir: string;
+  /** Host directory the index container serves. */
+  indexDir: string;
   labelNamespace: string;
+}
+
+export function indexUrl(port: number): string {
+  return `http://${INDEX_HOST}${port === 80 ? '' : `:${port}`}`;
+}
+
+/** The index is routed like any worktree service: by labels, through the shared network. */
+export function indexRouteLabels(): Record<string, string> {
+  const name = `${BRAND.name}-index`;
+  return {
+    'traefik.enable': 'true',
+    [`traefik.http.routers.${name}.rule`]: `Host(\`${INDEX_HOST}\`)`,
+    [`traefik.http.routers.${name}.entrypoints`]: ROUTER_ENTRYPOINT,
+    [`traefik.http.services.${name}.loadbalancer.server.port`]: String(INDEX_PORT)
+  };
 }
 
 export function routerLabels(labelNamespace: string, component: string): Record<string, string> {
@@ -125,6 +150,16 @@ export function routerStack(options: RouterStackOptions): Record<string, unknown
         healthcheck: { test: ['CMD', 'traefik', 'healthcheck', '--ping'], ...HEALTHCHECK },
         labels: routerLabels(options.labelNamespace, ROUTER_SERVICE),
         networks: [ROUTER_SERVICE, DOCKER_API_NETWORK]
+      },
+      [INDEX_SERVICE]: {
+        image: INDEX_IMAGE,
+        restart: 'unless-stopped',
+        command: INDEX_COMMAND,
+        ...HARDENED,
+        volumes: [{ type: 'bind', source: options.indexDir, target: INDEX_MOUNT, read_only: true }],
+        healthcheck: { test: ['CMD', 'wget', '-qO-', `http://127.0.0.1:${INDEX_PORT}/index.html`], ...HEALTHCHECK },
+        labels: { ...routerLabels(options.labelNamespace, INDEX_SERVICE), ...indexRouteLabels() },
+        networks: [ROUTER_SERVICE]
       }
     },
     networks: {

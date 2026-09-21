@@ -69,6 +69,7 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
     return { target, resources, home, registration, marker };
   }, { exclusive: true });
 
+  await context.index.refreshBestEffort('worktree remove');
   logger.info(`Removed ${host}: ${summarize(result)}.`);
   return result;
 }

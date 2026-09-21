@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { BRAND, cliName } from '../brand.ts';
+import { formatIndexText } from '../checkout-index/render.ts';
 import { createCommandContext, type CommandContext } from '../commands/context.ts';
 import { list } from '../commands/list.ts';
 import { remove } from '../commands/remove.ts';
@@ -93,6 +94,12 @@ async function main(argv: readonly string[]): Promise<void> {
     .action(async () => {
       await urls(await context());
     });
+  program.command('index')
+    .description('refresh the machine-wide checkout index and print it')
+    .action(async () => {
+      const current = await context();
+      logger.output(formatIndexText(await current.index.refresh(), current.index.url));
+    });
   program.command('doctor').description('validate prerequisites and local state').action(notYet('doctor'));
 
   const routerCommand = program.command('router').description('manage the shared local router');
@@ -101,7 +108,7 @@ async function main(argv: readonly string[]): Promise<void> {
     .action(async () => {
       const service = router();
       await service.ensure();
-      logger.info(`Router is up on 127.0.0.1:${service.port} (network ${service.network}).`);
+      logger.info(`Router is up on 127.0.0.1:${service.port} (network ${service.network}); index at ${service.indexUrl}.`);
     });
   routerCommand.command('status')
     .description('report whether the shared router is running as expected')

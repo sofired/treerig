@@ -1,3 +1,4 @@
+import { readIndexCard } from '../checkout-index/card.ts';
 import { worktreeHost } from '../layout.ts';
 import type { RegisteredWorktree } from '../worktree-registry.ts';
 import type { CommandContext } from './context.ts';
@@ -11,7 +12,7 @@ export type WorktreeState = 'ready' | 'pending' | 'orphaned';
 export interface ListedRegistration extends RegisteredWorktree {
   host: string;
   state: WorktreeState;
-  /** Known only for live worktrees of this repository. */
+  /** Live from Git for this repository's worktrees; otherwise as last recorded by `up`. */
   root?: string;
   branch?: string;
   current: boolean;
@@ -40,11 +41,12 @@ export async function list(context: CommandContext, options: ListOptions = {}): 
     const local = record.repositoryId === repositoryId;
     const identity = local ? active.get(record.worktreeId) : undefined;
     const initialization = await registry.store(record.repositoryId).initialization(record.worktreeId, record.slug);
+    const seen = identity ?? await readIndexCard(context.controlHome, record.repositoryId, record.worktreeId);
     rows.push({
       ...record,
       host: worktreeHost(record.slug, record.domain),
       state: local && !identity ? 'orphaned' : initialization === 'pending' ? 'pending' : 'ready',
-      ...(identity ? { root: identity.root, branch: identity.branch } : {}),
+      ...(seen ? { root: seen.root, branch: seen.branch } : {}),
       current: current?.worktreeId === record.worktreeId
     });
   }

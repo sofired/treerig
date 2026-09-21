@@ -31,7 +31,7 @@ describe('worktree list', () => {
     ]);
   });
 
-  it('reports a registration whose worktree Git no longer lists as orphaned, and one whose first up never finished as pending', async () => {
+  it('reports a registration whose worktree Git no longer lists as orphaned (with its last-seen branch), and one whose first up never finished as pending', async () => {
     world = await commandWorld();
     const gone = await world.worktree('gone', 'feature/gone');
     const half = await world.worktree('half', 'feature/half');
@@ -44,13 +44,13 @@ describe('worktree list', () => {
     const rows = await list(world.context());
 
     expect(rows.map((row) => [row.slug, row.state, row.branch ?? '-'])).toEqual([
-      ['feature-gone', 'orphaned', '-'],
+      ['feature-gone', 'orphaned', 'feature/gone'],
       ['feature-half', 'pending', 'feature/half'],
       ['feature-login', 'ready', 'feature/login']
     ]);
   });
 
-  it('--all spans repositories and domains, without Git detail for the others', async () => {
+  it('--all spans repositories and domains, with last-seen detail for the others', async () => {
     world = await commandWorld();
     const widgets = await world.worktree('widgets', 'main', path.join(world.base, 'widgets-common'));
     await up(world.context());
@@ -62,7 +62,7 @@ describe('worktree list', () => {
     const everything = await list(world.context(), { all: true });
     expect(everything.map((row) => [row.host, row.state, row.root ?? '-', row.current])).toEqual([
       ['feature-login.acme.localhost', 'ready', world.root, true],
-      ['main.widgets.localhost', 'ready', '-', false]
+      ['main.widgets.localhost', 'ready', widgets, false]
     ]);
   });
 

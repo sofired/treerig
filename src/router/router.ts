@@ -2,7 +2,8 @@ import { mkdir } from 'node:fs/promises';
 import { z } from 'zod';
 import { BRAND } from '../brand.ts';
 import { CliError } from '../errors.ts';
-import { atomicWrite, secureControlDirectories } from '../files.ts';
+import { renderIndexHtml } from '../checkout-index/render.ts';
+import { atomicWrite, pathExists, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
@@ -14,6 +15,12 @@ import {
   DOCKER_API_SERVICE,
   DOCKER_SOCKET,
   DYNAMIC_CONFIG_MOUNT,
+  INDEX_COMMAND,
+  INDEX_IMAGE,
+  INDEX_MOUNT,
+  INDEX_SERVICE,
+  indexRouteLabels,
+  indexUrl,
   ROUTER_IMAGE,
   ROUTER_PROTOCOL,
   ROUTER_SERVICE,
@@ -31,6 +38,8 @@ import {
 export interface Router {
   readonly port: number;
   readonly network: string;
+  /** Where the checkout index answers. */
+  readonly indexUrl: string;
   /** Idempotent: start it if needed, verify it, and fail loudly if it cannot be made right. */
   ensure(): Promise<void>;
 }
@@ -98,6 +107,7 @@ const sameSet = (actual: readonly string[], expected: readonly string[]): boolea
 export class RouterService implements Router {
   readonly port: number;
   readonly network: string;
+  readonly indexUrl: string;
   readonly projectName: string;
   private readonly options: RouterOptions;
   private readonly labelNamespace: string;
@@ -107,6 +117,7 @@ export class RouterService implements Router {
     this.port = options.port;
     this.projectName = options.projectName ?? DEFAULT_ROUTER_NAME;
     this.network = options.network ?? this.projectName;
+    this.indexUrl = indexUrl(options.port);
     this.labelNamespace = options.labelNamespace ?? BRAND.labelNamespace;
   }
 
@@ -124,15 +135,20 @@ export class RouterService implements Router {
     ], options);
   }
 
-  /** Writes the stack document and makes sure the watched directory exists. */
+  /** Writes the stack document and makes sure the directories it mounts exist and serve. */
   private async write(): Promise<void> {
     await secureControlDirectories(this.layout);
     await mkdir(this.layout.routerDynamicDir, { recursive: true, mode: 0o700 });
+    // The index container's health check fetches the page, so one must exist before `up --wait`.
+    if (!(await pathExists(this.layout.indexFile))) {
+      await atomicWrite(this.layout.indexFile, renderIndexHtml({ entries: [], generatedAt: new Date().toISOString() }), 0o644);
+    }
     const document = routerStack({
       projectName: this.projectName,
       network: this.network,
       port: this.port,
       dynamicDir: this.layout.routerDynamicDir,
+      indexDir: this.layout.indexDir,
       labelNamespace: this.labelNamespace
     });
     // JSON is YAML; Compose reads it as such.
@@ -242,13 +258,31 @@ export class RouterService implements Router {
     return problems;
   }
 
+  private indexProblems(inspected: ContainerInspect): string[] {
+    const problems = this.commonProblems(inspected, INDEX_SERVICE);
+    if (inspected.Config?.Image !== INDEX_IMAGE) problems.push('index: image is not the pinned digest');
+    if ((inspected.Config?.Cmd ?? []).join('\0') !== INDEX_COMMAND.join('\0')) problems.push('index: command line differs');
+    const labels = inspected.Config?.Labels ?? {};
+    if (Object.entries(indexRouteLabels()).some(([name, value]) => labels[name] !== value)) problems.push('index: routing labels differ');
+    const networks = Object.keys(inspected.NetworkSettings?.Networks ?? {});
+    if (!sameSet(networks, [this.network])) problems.push('index: attached to a network other than the shared one');
+    if (Object.values(inspected.NetworkSettings?.Ports ?? {}).some((list) => list && list.length > 0)) problems.push('index: publishes a port');
+    if ((inspected.HostConfig?.CapAdd ?? []).length !== 0) problems.push('index: has added capabilities');
+    const mounts = inspected.Mounts ?? [];
+    const served = mounts.find((mount) => mount.Destination === INDEX_MOUNT);
+    if (mounts.length !== 1 || !served || served.Type !== 'bind' || served.Source !== this.layout.indexDir || served.RW !== false) {
+      problems.push('index: mounts are not exactly the read-only index directory');
+    }
+    return problems;
+  }
+
   /** Everything that differs between the running router and what this version would start. */
   async verify(): Promise<string[]> {
-    const [routerId, apiId] = await Promise.all([this.containerId(ROUTER_SERVICE), this.containerId(DOCKER_API_SERVICE)]);
-    if (!routerId || !apiId) return ['the router is not running'];
-    const [router, api] = await Promise.all([this.inspect(routerId), this.inspect(apiId)]);
-    if (!router || !api) return ['the router could not be inspected'];
-    return [...this.routerProblems(router), ...this.dockerApiProblems(api)];
+    const ids = await Promise.all([ROUTER_SERVICE, DOCKER_API_SERVICE, INDEX_SERVICE].map((service) => this.containerId(service)));
+    if (ids.some((id) => !id)) return ['the router is not running'];
+    const [router, api, index] = await Promise.all(ids.map((id) => this.inspect(id ?? '')));
+    if (!router || !api || !index) return ['the router could not be inspected'];
+    return [...this.routerProblems(router), ...this.dockerApiProblems(api), ...this.indexProblems(index)];
   }
 
   async ensure(): Promise<void> {

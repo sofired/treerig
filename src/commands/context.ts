@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { BRAND } from '../brand.ts';
+import { CheckoutIndexService, type CheckoutIndex } from '../checkout-index/service.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import type { ProjectConfig } from '../config/schema.ts';
 import type { Logger } from '../logger.ts';
@@ -32,6 +33,7 @@ export interface CommandContext {
   registry: WorktreeRegistry;
   runtime: Runtime;
   router: Router;
+  index: CheckoutIndex;
   process: ProcessControl;
 }
 
@@ -46,6 +48,8 @@ export interface CommandContextOptions {
   runtime?: Runtime;
   /** Defaults to the shared Traefik router. */
   router?: Router;
+  /** Defaults to the checkout index served from the router stack. */
+  index?: CheckoutIndex;
   /** Defaults to the real process. */
   process?: ProcessControl;
 }
@@ -89,6 +93,7 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     runner,
     logger
   });
+  const index = options.index ?? new CheckoutIndexService({ controlHome, routerPort: options.routerPort, registry, runner, logger });
   return {
     commandName,
     logger,
@@ -98,6 +103,7 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     registry,
     runtime,
     router,
+    index,
     process: options.process ?? realProcess(logger)
   };
 }

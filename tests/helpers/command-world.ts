@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCommandContext, type CommandContext } from '../../src/commands/context.ts';
 import { parseConfig } from '../../src/config/load.ts';
+import type { CheckoutIndex } from '../../src/checkout-index/service.ts';
 import type { Router } from '../../src/router/router.ts';
 import { MemoryRuntime } from '../../src/runtime/memory.ts';
 import { FakeProcess, RecordingLogger } from './command-doubles.ts';
@@ -24,6 +25,8 @@ export interface CommandWorld {
   runtime: MemoryRuntime;
   /** How many times a command asked for the router. */
   routerEnsured: number;
+  /** Contexts (`up`, `down`, ...) after which the index was refreshed, in order. */
+  indexRefreshes: string[];
   /** Adds another Git worktree; `common` defaults to this repository's. */
   worktree(name: string, branch: string, common?: string): Promise<string>;
   /** A context whose config lives in `root`, with `domain` in its config. */
@@ -65,6 +68,7 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
     runner,
     runtime,
     routerEnsured: 0,
+    indexRefreshes: [],
     worktree,
     context(contextRoot = root, contextDomain = domain) {
       const file = path.join(contextRoot, 'berth.toml');
@@ -73,8 +77,17 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
       const router: Router = {
         port: 80,
         network: 'berth-router',
+        indexUrl: 'http://berth.localhost',
         ensure: () => {
           world.routerEnsured += 1;
+          return Promise.resolve();
+        }
+      };
+      const index: CheckoutIndex = {
+        url: 'http://berth.localhost',
+        refresh: () => Promise.resolve({ entries: [], generatedAt: '' }),
+        refreshBestEffort: (after) => {
+          world.indexRefreshes.push(after);
           return Promise.resolve();
         }
       };
@@ -87,6 +100,7 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
         runner,
         runtime,
         router,
+        index,
         process: fakeProcess.control()
       });
       return { ...context, logger, fakeProcess };
