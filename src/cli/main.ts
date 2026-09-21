@@ -2,6 +2,8 @@
 import { Command } from 'commander';
 import { BRAND, cliName } from '../brand.ts';
 import { createCommandContext, type CommandContext } from '../commands/context.ts';
+import { list } from '../commands/list.ts';
+import { remove } from '../commands/remove.ts';
 import { down, status, up, urls } from '../commands/worktree.ts';
 import { loadConfig, loadNearestConfig } from '../config/load.ts';
 import { CliError } from '../errors.ts';
@@ -85,8 +87,20 @@ async function main(argv: readonly string[]): Promise<void> {
   program.command('doctor').description('validate prerequisites and local state').action(notYet('doctor'));
 
   const worktree = program.command('worktree').description('manage registered worktrees');
-  worktree.command('list').description('list registered worktrees').action(notYet('worktree list'));
-  worktree.command('remove [slug]').description('remove a worktree\'s environment').action(notYet('worktree remove'));
+  worktree.command('list')
+    .description('list registered worktrees')
+    .option('--all', 'every repository and domain on this machine')
+    .option('--json', 'machine-readable output')
+    .action(async (options: { all?: boolean; json?: boolean }) => {
+      await list(await context(), options);
+    });
+  worktree.command('remove [identifier]')
+    .description('remove a worktree\'s environment: containers, volumes, networks, images, home, and registration')
+    .option('--domain <domain>', 'narrow a slug registered under more than one domain')
+    .option('--yes', 'skip the confirmation phrase')
+    .action(async (identifier: string | undefined, options: { domain?: string; yes?: boolean }) => {
+      await remove(await context(), { identifier, domain: options.domain, approved: options.yes });
+    });
   worktree.command('unlock [slug]').description('clear stale locks for a worktree').action(notYet('worktree unlock'));
 
   await program.parseAsync([...argv]);

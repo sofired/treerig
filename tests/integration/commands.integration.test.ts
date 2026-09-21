@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -7,11 +6,11 @@ import { createCommandContext, type CommandContext, type ProcessControl } from '
 import { down, status, up, urls } from '../../src/commands/worktree.ts';
 import { loadConfig } from '../../src/config/load.ts';
 import { CliError, OperationCancelledError } from '../../src/errors.ts';
-import type { Logger } from '../../src/logger.ts';
 import { ScopedLock, worktreeLockTarget } from '../../src/operation-lock.ts';
 import { ExecaRunner } from '../../src/process-runner.ts';
 import { MemoryRuntime } from '../../src/runtime/memory.ts';
 import type { Runtime, ServiceSpec, WorktreeRef } from '../../src/runtime/runtime.ts';
+import { FakeProcess, RecordingLogger } from '../helpers/command-doubles.ts';
 
 // The command layer end to end: a real Git repository, real hook executables,
 // real locks — and an in-memory runtime in place of Docker.
@@ -20,26 +19,6 @@ const temporary: string[] = [];
 afterEach(async () => {
   await Promise.all(temporary.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
-
-class RecordingLogger implements Logger {
-  readonly lines: string[] = [];
-  info(message: string): void { this.lines.push(`info: ${message}`); }
-  warn(message: string): void { this.lines.push(`warn: ${message}`); }
-  error(message: string): void { this.lines.push(`error: ${message}`); }
-  output(message: string): void { this.lines.push(message); }
-  get output_(): string[] { return this.lines.filter((l) => !/^(info|warn|error): /.test(l)); }
-}
-
-class FakeProcess extends EventEmitter {
-  readonly reenacted: NodeJS.Signals[] = [];
-  control(): ProcessControl {
-    return {
-      source: this,
-      reenact: (signal) => { this.reenacted.push(signal); },
-      forceExit: (error) => { throw error instanceof Error ? error : new Error(String(error)); }
-    };
-  }
-}
 
 const CONFIG = `
 [project]
@@ -130,7 +109,7 @@ describe('up', () => {
       'http://feature-login.acme.localhost',
       'http://mail.feature-login.acme.localhost/inbox'
     ]);
-    expect(context.logger.output_).toEqual([
+    expect(context.logger.printed).toEqual([
       'api   http://feature-login.acme.localhost',
       'mail  http://mail.feature-login.acme.localhost/inbox'
     ]);
@@ -223,7 +202,7 @@ describe('down, status, urls', () => {
     await expect(down(context)).rejects.toThrow("This worktree is not registered. Run 'berth up' first.");
     await expect(urls(context)).rejects.toThrow('not registered');
     await expect(status(context)).resolves.toBeUndefined();
-    expect(context.logger.output_).toEqual(["not registered — run 'berth up' to create this worktree's environment"]);
+    expect(context.logger.printed).toEqual(["not registered — run 'berth up' to create this worktree's environment"]);
     await expect(context.registry.current()).resolves.toBeUndefined();   // read-only verbs never register
   });
 
@@ -239,7 +218,7 @@ describe('down, status, urls', () => {
       { service: 'api', state: 'stopped' },
       { service: 'mail', state: 'stopped' }
     ]);
-    expect(context.logger.output_).toEqual([
+    expect(context.logger.printed).toEqual([
       'feature-login.acme.localhost',
       '  api   stopped',
       '  mail  stopped'

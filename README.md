@@ -13,12 +13,13 @@ the filesystem. Everything specific to *your* project — migrations, seeding,
 health checks — arrives as a small config file and a handful of executables
 in whatever language you already use.
 
-> **Status: pre-release.** `up`, `down`, `status`, and `urls` work end to end
-> against Docker Compose: identity, locks, the registry, the hook sequencer,
-> and a runtime that stamps every resource with ownership labels and refuses
-> to touch anything it cannot prove it owns. The shared router, the checkout
-> index, and `worktree remove` are the next ports, so the URLs `urls` prints
-> are not yet reachable. See [Roadmap](#roadmap).
+> **Status: pre-release.** The worktree lifecycle works end to end against
+> Docker Compose: `up`, `down`, `status`, `urls`, `worktree list`, and
+> `worktree remove` — identity, locks, the registry, the hook sequencer, and a
+> runtime that stamps every resource with ownership labels and refuses to
+> touch anything it cannot prove it owns. The shared router and the checkout
+> index are the next ports, so the URLs `urls` prints are not yet reachable.
+> See [Roadmap](#roadmap).
 
 ## How it works
 
@@ -94,7 +95,8 @@ berth up                  # register this worktree, start its services, run prep
 berth status              # per-service state
 berth urls                # print its routed URLs
 berth down                # stop it; data is kept
-berth worktree remove     # tear it down, verified by ownership (next)
+berth worktree list       # every worktree of this repository, with state
+berth worktree remove     # tear it down, verified by ownership
 ```
 
 `up` starts the Compose project under a name derived from the worktree's
@@ -105,6 +107,15 @@ labels; a generated override file does it, so forgetting one — and silently
 exempting a container from cleanup — is not possible. The Compose file sees
 the same `BERTH_*` variables hooks do, so `${BERTH_WORKTREE_HOME}` works in a
 bind mount exactly as it does in a seed script.
+
+`worktree remove` is the only destructive verb. It inventories everything
+the worktree owns, verifies the full ownership tuple on every resource, and
+refuses the whole operation if a single one fails — before it asks you to
+type the hostname to confirm (`--yes` skips the prompt). Then, in an order
+chosen so that an interrupted removal can simply be run again: Docker
+resources, the home directory, the registration, the identity marker.
+`berth worktree remove <slug|uuid>` removes another worktree, including one
+whose checkout is already gone.
 
 A full annotated example is in [`berth.example.toml`](berth.example.toml).
 The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
@@ -189,6 +200,8 @@ Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
   removing.
 - **`up` / `down` / `status` / `urls`** — with the worktree lock held and
   interrupts deferred until it can be released cleanly.
+- **`worktree list` / `worktree remove`** — ownership-verified teardown
+  in crash-safe order; orphan detection for checkouts Git no longer lists.
 
 Next, in order:
 
@@ -197,9 +210,9 @@ Next, in order:
    from day one so hybrid native-plus-container worktrees stay possible.
 2. **Checkout index** — a live page listing every registered worktree on the
    machine with per-service status.
-3. **Cleanup** — `worktree remove` over `inventory`/`reap`, plus a
-   content-addressed standalone cleanup binary so removing a worktree never
-   imports code from the branch being deleted.
+3. **Standalone cleanup binary** — content-addressed, installed outside
+   the checkout, so removing a worktree never imports code from the branch
+   being deleted.
 4. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
 
 ## License

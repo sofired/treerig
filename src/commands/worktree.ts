@@ -5,12 +5,12 @@ import { secureWorktreeDirectories } from '../files.ts';
 import { worktreeEnvironment } from '../hooks/protocol.ts';
 import { runLifecycle, type HookContext } from '../hooks/runner.ts';
 import { worktreeHost, worktreeLayout } from '../layout.ts';
-import { OPERATION_LOCK_TIMEOUT_MS, ScopedLock, withScopedLock, worktreeLockTarget, type ScopedLockOptions } from '../operation-lock.ts';
+import { withScopedLock, worktreeLockTarget } from '../operation-lock.ts';
 import { withProgress } from '../progress.ts';
 import type { ServiceStatus, WorktreeRef } from '../runtime/runtime.ts';
-import { runWithDeferredSignals } from '../signal-lifecycle.ts';
 import type { RegisteredWorktree, WorktreeRegistration } from '../worktree-registry.ts';
 import type { CommandContext } from './context.ts';
+import { lockOptions, withWorktreeMutation } from './mutation.ts';
 
 // The four everyday verbs. `up` is the only one that mutates the registry —
 // through `ensure()` — and the only one that runs hooks; the rest read the
@@ -61,14 +61,7 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
   const store = registry.store(ref.repositoryId);
   const services = (options.services ?? []).map((name) => ({ name }));
 
-  const lock = new ScopedLock(
-    worktreeLockTarget(context.controlHome, ref.repositoryId, ref.worktreeId),
-    `worktree ${ref.slug}`,
-    logger,
-    lockOptions(context)
-  );
-  await lock.acquire();
-  const hooks = await runWithDeferredSignals(async () => {
+  const hooks = await withWorktreeMutation(context, ref, async () => {
     await secureWorktreeDirectories(worktreeLayout(context.controlHome, ref.repositoryId, ref.worktreeId));
     const what = services.length === 0 ? 'all services' : services.map((s) => s.name).join(', ');
     await withProgress(logger, `Starting ${what} for ${worktreeHost(ref.slug, ref.domain)}`, () =>
@@ -80,17 +73,7 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
       cancelSignal: runner.cancellationSignal
     });
     await store.completeInitialization(ref.worktreeId, ref.slug, logger);
-    lock.assertHealthy();
     return ran;
-  }, {
-    cancel: (signal) => runner.cancelActive?.(signal) ?? Promise.resolve(),
-    // `cancelActive` reaps every child it signalled before returning; calling
-    // it again proves nothing is still running.
-    postActionQuiesce: () => runner.cancelActive?.('SIGTERM') ?? Promise.resolve(),
-    release: () => lock.release(),
-    reenact: (signal) => context.process.reenact(signal),
-    forceExit: (error) => context.process.forceExit(error),
-    source: context.process.source
   });
 
   const urls = worktreeUrls(context.loaded.config, ref);
@@ -163,13 +146,6 @@ async function requireRegistration(context: CommandContext): Promise<WorktreeReg
     throw new CliError(`This worktree is not registered. Run '${context.commandName} up' first.`);
   }
   return registration;
-}
-
-function lockOptions(context: CommandContext): ScopedLockOptions {
-  return {
-    acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS,
-    recoveryCommand: `${context.commandName} worktree unlock`
-  };
 }
 
 function hookContext(context: CommandContext, ref: WorktreeRef & { domain: string }): HookContext {
