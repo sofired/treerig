@@ -1,4 +1,7 @@
 import { rename } from 'node:fs/promises';
+import { recordedLabelNamespace } from '../checkout-index/card.ts';
+import { BRAND } from '../brand.ts';
+import { LABEL_NAMESPACE } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
 import { assertSafeDirectoryPath, pathExists, removeWithin } from '../files.ts';
 import { worktreeHost, worktreeLayout, type WorktreeLayout } from '../layout.ts';
@@ -7,7 +10,7 @@ import { confirm } from '../prompts.ts';
 import { INDEX_IMAGE } from '../router/stack.ts';
 import type { OwnedResource, WorktreeRef } from '../runtime/runtime.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../worktree-registry.ts';
-import type { CommandContext } from './context.ts';
+import { labelNamespace, type CommandContext } from './context.ts';
 import { withWorktreeMutation } from './mutation.ts';
 
 // The destructive verb. Order matters for crash safety: Docker resources go
@@ -24,6 +27,8 @@ export interface RemoveOptions {
   domain?: string;
   /** Skip the confirmation phrase (`--yes`). */
   approved?: boolean;
+  /** Which labels the target's resources carry, when nothing on disk can say. */
+  labelNamespace?: string;
 }
 
 export interface RemoveResult {
@@ -33,14 +38,19 @@ export interface RemoveResult {
   registration: boolean;
   /** The worktree's identity marker was removed, so its next `up` mints a fresh identity. */
   marker: boolean;
+  /** Another removal finished first; nothing was left for this one. */
+  alreadyGone: boolean;
 }
 
 export async function remove(context: CommandContext, options: RemoveOptions = {}): Promise<RemoveResult> {
-  const { logger, runtime, registry, controlHome } = context;
+  const { logger, registry, controlHome } = context;
   const target = await resolveTarget(context, options);
   const ref: WorktreeRef = { repositoryId: target.repositoryId, worktreeId: target.worktreeId, slug: target.slug };
   const host = worktreeHost(target.slug, target.domain);
   const layout = worktreeLayout(controlHome, target.repositoryId, target.worktreeId);
+  const local = await registry.identities.repositoryId() === target.repositoryId;
+  const namespace = await targetNamespace(context, target, local, options);
+  const runtime = context.runtimeFor(namespace);
 
   // Everything that will go, verified before anything is touched. A resource
   // that cannot be proven ours fails here, before the prompt.
@@ -49,7 +59,19 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
   await confirm({ nonInteractive: false }, describePlan(host, planned, hasHome), host, options.approved);
 
   const result = await withWorktreeMutation(context, ref, async () => {
-    const identity = await targetIdentity(context, target);
+    // The lock was free while the prompt was up: another removal may have
+    // finished, or an `up` may have re-labelled the worktree's resources.
+    const found = await registry.store(target.repositoryId).find(target.worktreeId);
+    if (!found) {
+      logger.info(`${host} was already removed while '${context.commandName} worktree remove' was waiting; nothing left to do.`);
+      return { target, resources: [], home: false, registration: false, marker: false, alreadyGone: true };
+    }
+    if (found.labelNamespace !== undefined && found.labelNamespace !== namespace) {
+      throw new CliError(
+        `${host} was re-labelled under ${found.labelNamespace} while '${context.commandName} worktree remove' was waiting; run it again.`
+      );
+    }
+    const identity = local ? await targetIdentity(context, target) : undefined;
     // `down` acts on the project name, so any target can be stopped gracefully
     // before its containers are reaped; skipped when there is nothing to stop.
     // Decided under the lock, so a container that appeared since the prompt
@@ -61,6 +83,9 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
     const resources = await withProgress(logger, `Removing ${host}`, async () => {
       // Re-verified after `down`; every resource is checked before any is removed.
       const owned = await runtime.inventory(ref);
+      // From here on data is destroyed. Should this be interrupted, the next
+      // `up` must seed again rather than start on empty volumes.
+      await registry.store(target.repositoryId).markPending(target.worktreeId, target.slug, logger);
       for (const resource of owned) await runtime.reap(ref, resource);
       return owned;
     });
@@ -71,11 +96,11 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
       await registry.identities.removeWorktreeMarker(identity);
       marker = true;
     }
-    return { target, resources, home, registration, marker };
+    return { target, resources, home, registration, marker, alreadyGone: false };
   }, { exclusive: true });
 
   await context.index.refreshBestEffort('worktree remove');
-  logger.info(`Removed ${host}: ${summarize(result)}.`);
+  if (!result.alreadyGone) logger.info(`Removed ${host}: ${summarize(result)}.`);
   return result;
 }
 
@@ -100,11 +125,50 @@ async function resolveTarget(context: CommandContext, options: RemoveOptions): P
   return found;
 }
 
-/** The target's Git identity, when it is a live worktree of this repository; otherwise undefined. */
+/**
+ * The target's Git identity among this repository's live worktrees. Only
+ * meaningful for a local target; callers gate on that.
+ */
 async function targetIdentity(context: CommandContext, target: RegisteredWorktree): Promise<WorktreeIdentity | undefined> {
-  const { identities } = context.registry;
-  if (await identities.repositoryId() !== target.repositoryId) return undefined;
-  return (await identities.activeIdentities()).find((identity) => identity.worktreeId === target.worktreeId);
+  return (await context.registry.identities.activeIdentities()).find((identity) => identity.worktreeId === target.worktreeId);
+}
+
+/**
+ * Which labels the target's resources carry: the registration (deleted last,
+ * so it survives an interrupted removal); then the index card, wherever the
+ * home currently is; then, for a worktree of this repository, this config.
+ * `--label-namespace` is for a worktree none of those describe — never an
+ * override of one they do, because inventorying under the wrong namespace
+ * finds nothing and would delete the registration that points at the data.
+ */
+async function targetNamespace(
+  context: CommandContext,
+  target: RegisteredWorktree,
+  local: boolean,
+  options: RemoveOptions
+): Promise<string> {
+  const flag = options.labelNamespace;
+  if (flag !== undefined && !LABEL_NAMESPACE.test(flag)) {
+    throw new CliError(`--label-namespace must look like a reverse domain, e.g. dev.example, not "${flag}".`);
+  }
+  const recorded = await recordedLabelNamespace(context.controlHome, target);
+  if (recorded !== undefined) {
+    if (flag !== undefined && flag !== recorded) {
+      throw new CliError(
+        `${worktreeHost(target.slug, target.domain)} records its resources as labelled under ${recorded}, not ${flag}. ` +
+        'Drop --label-namespace, or pass the recorded one.'
+      );
+    }
+    return recorded;
+  }
+  if (flag !== undefined) return flag;
+  if (local) return labelNamespace(context.loaded.config);
+  throw new CliError(
+    `Cannot remove ${worktreeHost(target.slug, target.domain)} from this repository: it belongs to a different one, ` +
+    'and nothing on disk records which Docker labels its resources carry. Run ' +
+    `'${context.commandName} worktree remove' from a checkout of the repository that created it, or pass ` +
+    `--label-namespace (${BRAND.labelNamespace} unless that project set project.label-namespace).`
+  );
 }
 
 /**

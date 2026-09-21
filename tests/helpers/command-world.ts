@@ -29,15 +29,16 @@ export interface CommandWorld {
   indexRefreshes: string[];
   /** Adds another Git worktree; `common` defaults to this repository's. */
   worktree(name: string, branch: string, common?: string): Promise<string>;
-  /** A context whose config lives in `root`, with `domain` in its config. */
-  context(root?: string, domain?: string): TestContext;
+  /** A context whose config lives in `root`, with `domain` (and optionally a `label-namespace`) in its config. */
+  context(root?: string, domain?: string, labelNamespace?: string): TestContext;
   dispose(): Promise<void>;
 }
 
-const CONFIG = (name: string, domain: string): string => `
+const CONFIG = (name: string, domain: string, labelNamespace?: string): string => `
 [project]
 name = "${name}"
 domain = "${domain}"
+${labelNamespace === undefined ? '' : `label-namespace = "${labelNamespace}"`}
 [compose]
 file = "compose.yaml"
 [[service]]
@@ -70,7 +71,7 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
     routerEnsured: 0,
     indexRefreshes: [],
     worktree,
-    context(contextRoot = root, contextDomain = domain) {
+    context(contextRoot = root, contextDomain = domain, contextNamespace?: string) {
       const file = path.join(contextRoot, 'berth.toml');
       const logger = new RecordingLogger();
       const fakeProcess = new FakeProcess();
@@ -92,7 +93,7 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
         }
       };
       const context = createCommandContext({
-        loaded: { config: parseConfig(CONFIG(path.basename(contextDomain, '.localhost'), contextDomain), file), file, root: contextRoot },
+        loaded: { config: parseConfig(CONFIG(path.basename(contextDomain, '.localhost'), contextDomain, contextNamespace), file), file, root: contextRoot },
         controlHome,
         routerPort: 80,
         commandName: 'berth',

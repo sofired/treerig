@@ -6,6 +6,7 @@ import { readIndexCard, writeIndexCard, type IndexCard } from '../../src/checkou
 import { compactPath, formatIndexText, renderIndexHtml } from '../../src/checkout-index/render.ts';
 import { CheckoutIndexService } from '../../src/checkout-index/service.ts';
 import { buildSnapshot, entryKey, parseContainerInventory, type IndexSnapshot } from '../../src/checkout-index/snapshot.ts';
+import { secureControlDirectories } from '../../src/files.ts';
 import { controlLayout } from '../../src/layout.ts';
 import type { CommandRunner, RunResult } from '../../src/process-runner.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../../src/worktree-registry.ts';
@@ -206,6 +207,8 @@ describe('CheckoutIndexService', () => {
   async function service(docker = new DockerFake(), identities: WorktreeIdentity[] = []) {
     const controlHome = await mkdtemp(path.join(tmpdir(), 'berth-index-'));
     temporary.push(controlHome);
+    // As in production: the control home is established (and marked) before any card is written.
+    await secureControlDirectories(controlLayout(controlHome));
     const [a, b] = registrations as [RegisteredWorktree, RegisteredWorktree];
     await writeIndexCard(controlHome, a.repositoryId, a.worktreeId, card(a, 'acme', [API]));
     const logger = new RecordingLogger();
@@ -214,7 +217,7 @@ describe('CheckoutIndexService', () => {
       routerPort: 8080,
       registry: {
         listAll: () => Promise.resolve([a, b]),
-        identities: { activeIdentities: () => Promise.resolve(identities), repositoryId: () => Promise.resolve(REPO) }
+        identities: { root: '/work/acme', activeIdentities: () => Promise.resolve(identities), repositoryId: () => Promise.resolve(REPO) }
       },
       runner: docker,
       logger,
@@ -257,12 +260,41 @@ describe('CheckoutIndexService', () => {
     expect(await readFile(controlLayout(s.controlHome).indexFile, 'utf8')).toContain('status-missing');
   });
 
+  it('never calls a checkout missing when Git could not be asked which worktrees exist', async () => {
+    const docker = new DockerFake();
+    const s = await service(docker);
+    const flaky = new CheckoutIndexService({
+      controlHome: s.controlHome,
+      routerPort: 80,
+      registry: {
+        listAll: () => Promise.resolve([s.a, s.b]),
+        identities: {
+          root: '/work/acme',
+          activeIdentities: () => Promise.reject(new Error('Invalid identity marker for a sibling')),
+          repositoryId: () => Promise.resolve(REPO)
+        }
+      },
+      runner: docker,
+      logger: s.logger,
+      now: () => new Date('2026-09-21T12:00:00.000Z')
+    });
+    const snapshot = await flaky.refresh();
+    expect(snapshot.entries.map((e) => e.status)).toEqual(['unknown', 'unknown']);
+    expect(snapshot.identityError).toBe('Git could not list the worktrees of /work/acme: Invalid identity marker for a sibling');
+    const html = await readFile(controlLayout(s.controlHome).indexFile, 'utf8');
+    expect(html).not.toContain('worktree remove');
+    expect(html).toContain('Checkout state unavailable for the repository that last regenerated this page — Git could not list the worktrees of /work/acme');
+    expect(html).toContain('Run <code>berth index</code> from one of its checkouts');
+    expect(formatIndexText(snapshot, 'http://berth.localhost')).toContain('Checkout state unavailable for the repository that last regenerated this page — Git could not list the worktrees of /work/acme: Invalid identity marker');
+    expect(s.logger.lines).toContainEqual('warn: Git could not list the worktrees of /work/acme: Invalid identity marker for a sibling. The index shows its checkouts as unknown.');
+  });
+
   it('refreshBestEffort warns instead of failing the command', async () => {
     const s = await service();
     const broken = new CheckoutIndexService({
       controlHome: s.controlHome,
       routerPort: 80,
-      registry: { listAll: () => Promise.reject(new Error('registry exploded')), identities: { activeIdentities: () => Promise.resolve([]), repositoryId: () => Promise.resolve(undefined) } },
+      registry: { listAll: () => Promise.reject(new Error('registry exploded')), identities: { root: '/work/acme', activeIdentities: () => Promise.resolve([]), repositoryId: () => Promise.resolve(undefined) } },
       runner: s.docker,
       logger: s.logger
     });

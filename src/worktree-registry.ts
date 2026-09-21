@@ -4,6 +4,7 @@ import { chmod, link, lstat, mkdir, readFile, readdir, realpath, rm, writeFile }
 import path from 'node:path';
 import { z } from 'zod';
 import { BRAND } from './brand.ts';
+import { LABEL_NAMESPACE } from './config/schema.ts';
 import { CliError, invariant } from './errors.ts';
 import { atomicJson, pathExists, secureRegistrationDirectories } from './files.ts';
 import { repositoryLayout, worktreeHost, worktreeLayout } from './layout.ts';
@@ -42,6 +43,8 @@ const recordSchema = z.object({
   worktreeId: uuidSchema,
   slug: z.string().regex(SLUG),
   domain: z.string().min(1),
+  /** Absent in records written before it was tracked. */
+  labelNamespace: z.string().regex(LABEL_NAMESPACE).optional(),
   initialization: z.enum(['pending', 'complete'])
 }).strict();
 
@@ -54,11 +57,19 @@ export interface RegisteredWorktree {
   slug: string;
   /** The project domain the slug was allocated under. */
   domain: string;
+  /**
+   * The Docker label namespace this worktree's resources carry. Kept here,
+   * in the record that removal deletes last, so a removal that was
+   * interrupted can still find what it left behind.
+   */
+  labelNamespace?: string;
 }
 
 /** What `ensure()` returns: the record, plus where it was before if it moved. */
 export interface EnsuredWorktree extends RegisteredWorktree {
   previousHost?: string;
+  /** The namespace the record carried before this call rewrote it. */
+  previousLabelNamespace?: string;
 }
 
 export interface WorktreeIdentity {
@@ -78,6 +89,7 @@ export interface WorktreeRegistration extends RegisteredWorktree {
 
 export interface EnsuredRegistration extends WorktreeRegistration {
   previousHost?: string;
+  previousLabelNamespace?: string;
 }
 
 export interface ListedWorktree {
@@ -110,6 +122,8 @@ export interface WorktreeRegistryOptions {
   root: string;
   /** The project domain from config; slugs are allocated unique within it. */
   domain: string;
+  /** Recorded on every registration this registry writes or reconciles. */
+  labelNamespace?: string;
   runner: CommandRunner;
   logger: Logger;
   /** The name the CLI was invoked as; appears in recovery hints. */
@@ -190,7 +204,8 @@ async function assertIdentityMarkerPath(base: string, marker: string): Promise<v
 }
 
 export class WorktreeIdentityService {
-  private readonly root: string;
+  /** The checkout this service answers for. */
+  readonly root: string;
   private readonly runner: CommandRunner;
 
   constructor(root: string, runner: CommandRunner) {
@@ -479,7 +494,8 @@ export class WorktreeStore {
         repositoryId: this.repositoryId,
         worktreeId: named.data,
         slug: parsed.data.slug,
-        domain: parsed.data.domain
+        domain: parsed.data.domain,
+        ...(parsed.data.labelNamespace === undefined ? {} : { labelNamespace: parsed.data.labelNamespace })
       }
     };
   }
@@ -541,7 +557,8 @@ export class WorktreeStore {
     domain: string,
     allocate: (others: readonly RegisteredWorktree[], preferred?: string) => string,
     logger: Logger,
-    initialization: () => Promise<WorktreeInitialization>
+    initialization: () => Promise<WorktreeInitialization>,
+    labelNamespace?: string
   ): Promise<EnsuredWorktree> {
     await secureRegistrationDirectories(this.layout(worktreeId));
     return withScopedLock(
@@ -556,7 +573,23 @@ export class WorktreeStore {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
-        if (stored && stored.registration.domain === domain) return stored.registration;
+        if (stored && stored.registration.domain === domain) {
+          if (labelNamespace === undefined || stored.registration.labelNamespace === labelNamespace) {
+            return stored.registration;
+          }
+          // Same hostname, different labels: rewrite in place; nothing to allocate.
+          await atomicJson(file, recordSchema.parse({
+            version: 1,
+            repositoryId: this.repositoryId,
+            worktreeId,
+            slug: stored.registration.slug,
+            domain,
+            labelNamespace,
+            initialization: stored.initialization
+          }));
+          const previous = stored.registration.labelNamespace;
+          return { ...stored.registration, labelNamespace, ...(previous === undefined ? {} : { previousLabelNamespace: previous }) };
+        }
 
         const scan = await scanRegistrations(this.controlHome);
         if (scan.problems.length > 0) {
@@ -568,20 +601,31 @@ export class WorktreeStore {
         }
         const others = scan.records.filter((record) => record.worktreeId !== worktreeId);
         const slug = allocate(others, stored?.registration.slug);
+        // A caller that does not know the namespace must not erase one that is recorded.
+        const namespace = labelNamespace ?? stored?.registration.labelNamespace;
         const record = recordSchema.parse({
           version: 1,
           repositoryId: this.repositoryId,
           worktreeId,
           slug,
           domain,
+          ...(namespace === undefined ? {} : { labelNamespace: namespace }),
           // Only computed when a record is actually written; the fast path never asks.
           initialization: stored?.initialization ?? await initialization()
         });
         await atomicJson(file, record);
 
-        const ensured: EnsuredWorktree = { repositoryId: this.repositoryId, worktreeId, slug, domain };
+        const ensured: EnsuredWorktree = {
+          repositoryId: this.repositoryId,
+          worktreeId,
+          slug,
+          domain,
+          ...(namespace === undefined ? {} : { labelNamespace: namespace })
+        };
         if (stored) {
           ensured.previousHost = worktreeHost(stored.registration.slug, stored.registration.domain);
+          const previous = stored.registration.labelNamespace;
+          if (previous !== undefined && previous !== namespace) ensured.previousLabelNamespace = previous;
         }
         return ensured;
       },
@@ -600,7 +644,17 @@ export class WorktreeStore {
     return stored.initialization;
   }
 
-  async completeInitialization(worktreeId: string, expectedSlug: string, logger: Logger): Promise<void> {
+  /**
+   * Rewrites the initialization state under the registry lock, leaving every
+   * other field as it is. Idempotent, and refuses a record the caller no
+   * longer owns.
+   */
+  private async setInitialization(
+    worktreeId: string,
+    expectedSlug: string,
+    logger: Logger,
+    state: WorktreeInitialization
+  ): Promise<void> {
     await secureRegistrationDirectories(this.layout(worktreeId));
     await withScopedLock(
       registryLockTarget(this.controlHome),
@@ -614,18 +668,32 @@ export class WorktreeStore {
           stored.registration.slug === expectedSlug,
           `Worktree ${expectedSlug} no longer owns registration ${file}`
         );
-        if (stored.initialization === 'complete') return;
+        if (stored.initialization === state) return;
         await atomicJson(file, recordSchema.parse({
           version: 1,
           repositoryId: stored.registration.repositoryId,
           worktreeId: stored.registration.worktreeId,
           slug: stored.registration.slug,
           domain: stored.registration.domain,
-          initialization: 'complete'
+          ...(stored.registration.labelNamespace === undefined ? {} : { labelNamespace: stored.registration.labelNamespace }),
+          initialization: state
         }));
       },
       this.lockOptions()
     );
+  }
+
+  async completeInitialization(worktreeId: string, expectedSlug: string, logger: Logger): Promise<void> {
+    await this.setInitialization(worktreeId, expectedSlug, logger, 'complete');
+  }
+
+  /**
+   * The inverse: a removal is about to destroy data, so if it is interrupted
+   * the next `up` must seed again rather than start on empty volumes as if
+   * nothing had happened.
+   */
+  async markPending(worktreeId: string, expectedSlug: string, logger: Logger): Promise<void> {
+    await this.setInitialization(worktreeId, expectedSlug, logger, 'pending');
   }
 
   async remove(worktreeId: string, expectedSlug: string, logger: Logger): Promise<boolean> {
@@ -657,6 +725,7 @@ function registration(identity: WorktreeIdentity, record: RegisteredWorktree): W
     worktreeId: identity.worktreeId,
     slug: record.slug,
     domain: record.domain,
+    ...(record.labelNamespace === undefined ? {} : { labelNamespace: record.labelNamespace }),
     root: identity.root,
     branch: identity.branch
   };
@@ -667,6 +736,7 @@ export class WorktreeRegistry {
   readonly identities: WorktreeIdentityService;
   private readonly root: string;
   private readonly domain: string;
+  private readonly labelNamespace: string | undefined;
   private readonly logger: Logger;
   private readonly commandName: string;
 
@@ -674,6 +744,7 @@ export class WorktreeRegistry {
     this.controlHome = path.resolve(options.controlHome);
     this.root = options.root;
     this.domain = options.domain;
+    this.labelNamespace = options.labelNamespace;
     this.logger = options.logger;
     this.commandName = options.commandName ?? BRAND.name;
     this.identities = new WorktreeIdentityService(options.root, options.runner);
@@ -714,9 +785,17 @@ export class WorktreeRegistry {
             this.controlHome,
             identity.repositoryId,
             identity.worktreeId
-          )) ? 'complete' : 'pending'
+          )) ? 'complete' : 'pending',
+          this.labelNamespace
         );
         const ensured: EnsuredRegistration = registration(currentIdentity, record);
+        if (record.previousLabelNamespace !== undefined) {
+          ensured.previousLabelNamespace = record.previousLabelNamespace;
+          // `up` only lets this happen once nothing is left under the old namespace, so nothing is orphaned.
+          this.logger.info(
+            `Now labelling this worktree's resources under ${record.labelNamespace ?? ''} (was ${record.previousLabelNamespace}; nothing remained under it).`
+          );
+        }
         if (record.previousHost !== undefined) {
           ensured.previousHost = record.previousHost;
           this.logger.warn(

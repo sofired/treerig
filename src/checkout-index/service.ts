@@ -23,6 +23,8 @@ export interface CheckoutIndex {
 export interface IndexRegistry {
   listAll(): Promise<RegisteredWorktree[]>;
   identities: {
+    /** The checkout the index is refreshed from. */
+    readonly root: string;
     activeIdentities(): Promise<WorktreeIdentity[]>;
     repositoryId(): Promise<string | undefined>;
   };
@@ -80,14 +82,22 @@ export class CheckoutIndexService implements CheckoutIndex {
       const card = await readIndexCard(controlHome, record.repositoryId, record.worktreeId);
       if (card) cards.set(entryKey(record), card);
     }
-    // Git may be unavailable (or this may not be a checkout at all); the index still renders.
+    // Git may be unavailable, or one sibling's marker unreadable; the index
+    // still renders, but without a repository to compare against nothing is
+    // called missing — "run worktree remove" is advice for a certainty, not a guess.
     let identities: WorktreeIdentity[] = [];
     let currentRepositoryId: string | undefined;
+    let identityError: string | undefined;
     try {
       currentRepositoryId = await registry.identities.repositoryId();
       if (currentRepositoryId !== undefined) identities = await registry.identities.activeIdentities();
-    } catch {
+    } catch (error) {
       identities = [];
+      const reason = error instanceof Error ? error.message : String(error);
+      identityError = `Git could not list the worktrees of ${registry.identities.root}: ${reason}`;
+      this.options.logger.warn(currentRepositoryId === undefined
+        ? `${identityError}. The index cannot tell which of its checkouts are missing.`
+        : `${identityError}. The index shows its checkouts as unknown.`);
     }
     const namespaces = new Set([BRAND.labelNamespace, ...[...cards.values()].map((card) => card.labelNamespace)]);
     const containers = await this.containers(namespaces);
@@ -97,12 +107,15 @@ export class CheckoutIndexService implements CheckoutIndex {
       identities,
       ...(currentRepositoryId === undefined ? {} : { currentRepositoryId }),
       ...(containers === undefined ? {} : { containers }),
+      ...(identityError === undefined ? {} : { identityError }),
       generatedAt: (this.options.now ?? (() => new Date()))().toISOString()
     });
   }
 
   async refresh(): Promise<IndexSnapshot> {
     const layout = controlLayout(this.options.controlHome);
+    // Before the lock, so a directory that is not ours is refused before a lock file lands in it.
+    await secureControlDirectories(layout);
     return withScopedLock(routerLockTarget(this.options.controlHome), 'shared router', this.options.logger, async () => {
       // Under the lock, so directory setup is serialised with the router's own `write()`.
       await secureControlDirectories(layout);

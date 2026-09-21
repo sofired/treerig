@@ -31,7 +31,10 @@ export interface CommandContext {
   loaded: LoadedConfig;
   controlHome: string;
   registry: WorktreeRegistry;
+  /** The runtime for this project's own label namespace. */
   runtime: Runtime;
+  /** A runtime for another namespace — a worktree that adopted a predecessor's labels, say. */
+  runtimeFor(labelNamespace: string): Runtime;
   router: Router;
   index: CheckoutIndex;
   process: ProcessControl;
@@ -44,8 +47,10 @@ export interface CommandContextOptions {
   commandName: string;
   logger: Logger;
   runner: CommandRunner;
-  /** Defaults to the Compose runtime over `runner`. */
+  /** Defaults to the Compose runtime over `runner`; a test double serves every namespace. */
   runtime?: Runtime;
+  /** Overrides how a runtime for a foreign namespace is built; defaults to `runtime` when that is given. */
+  runtimeFor?(labelNamespace: string): Runtime;
   /** Defaults to the shared Traefik router. */
   router?: Router;
   /** Defaults to the checkout index served from the router stack. */
@@ -68,6 +73,7 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     controlHome,
     root: loaded.root,
     domain: loaded.config.project.domain,
+    labelNamespace: labelNamespace(loaded.config),
     runner,
     logger,
     commandName
@@ -75,14 +81,14 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
   // The router is machine-wide, so it keeps the tool's own label namespace
   // even when a project adopts a predecessor's for its worktree resources.
   const router = options.router ?? new RouterService({ controlHome, port: options.routerPort, runner, logger });
-  const runtime = options.runtime ?? new ComposeRuntime({
+  const compose = (namespace: string): Runtime => new ComposeRuntime({
     composeFile: composeFilePath(loaded),
     projectRoot: loaded.root,
     configFile: loaded.file,
     projectName: loaded.config.project.name,
     domain: loaded.config.project.domain,
     controlHome,
-    labelNamespace: labelNamespace(loaded.config),
+    labelNamespace: namespace,
     routes: loaded.config.service.map((service) => ({
       service: service.name,
       subdomain: service.subdomain,
@@ -93,6 +99,13 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     runner,
     logger
   });
+  const own = labelNamespace(loaded.config);
+  const runtime = options.runtime ?? compose(own);
+  const runtimeFor = (namespace: string): Runtime => {
+    if (namespace === own) return runtime;
+    if (options.runtimeFor) return options.runtimeFor(namespace);
+    return options.runtime ?? compose(namespace);
+  };
   const index = options.index ?? new CheckoutIndexService({ controlHome, routerPort: options.routerPort, registry, runner, logger });
   return {
     commandName,
@@ -102,6 +115,7 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     controlHome,
     registry,
     runtime,
+    runtimeFor,
     router,
     index,
     process: options.process ?? realProcess(logger)

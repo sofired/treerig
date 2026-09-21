@@ -137,9 +137,10 @@ async function main(argv: readonly string[]): Promise<void> {
   worktree.command('remove [identifier]')
     .description('remove a worktree\'s environment: containers, volumes, networks, images, home, and registration')
     .option('--domain <domain>', 'narrow a slug registered under more than one domain')
+    .option('--label-namespace <namespace>', 'supply the Docker label namespace when nothing on disk records it (a worktree of another repository)')
     .option('--yes', 'skip the confirmation phrase')
-    .action(async (identifier: string | undefined, options: { domain?: string; yes?: boolean }) => {
-      await remove(await context(), { identifier, domain: options.domain, approved: options.yes });
+    .action(async (identifier: string | undefined, options: { domain?: string; labelNamespace?: string; yes?: boolean }) => {
+      await remove(await context(), { identifier, domain: options.domain, labelNamespace: options.labelNamespace, approved: options.yes });
     });
   worktree.command('unlock [slug]').description('clear stale locks for a worktree').action(notYet('worktree unlock'));
 
@@ -150,11 +151,22 @@ async function load(explicit: string | undefined) {
   return explicit ? loadConfig(explicit) : loadNearestConfig(process.cwd(), commandName);
 }
 
+/** A failure that hid others — a hook that failed while its lock could not be released, say — shows all of them. */
+function report(error: CliError): void {
+  logger.error(error.message);
+  const describe = (item: unknown): string => item instanceof Error ? item.message : String(item);
+  if (error.cause !== undefined) logger.error(`  caused by: ${describe(error.cause)}`);
+  const suppressed = (error as { suppressed?: unknown[] }).suppressed ?? [];
+  for (const item of suppressed) {
+    if (item !== error.cause) logger.error(`  also: ${describe(item)}`);
+  }
+}
+
 try {
   await main(process.argv);
 } catch (error) {
   if (error instanceof CliError) {
-    logger.error(error.message);
+    report(error);
     process.exitCode = error.exitCode;
   } else {
     throw error;

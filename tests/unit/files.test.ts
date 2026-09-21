@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CliError } from '../../src/errors.ts';
 import {
+  assertAdoptableControlHome,
   assertSafeDirectoryPath,
+  CONTROL_HOME_MARKER,
   atomicJson,
   atomicWrite,
   copySecure,
@@ -215,6 +217,52 @@ describe('secure directory creation', () => {
     }
   });
 
+  it('adopts an empty directory and marks it, adopts an older install, and refuses a stranger\'s directory', async () => {
+    const empty = path.join(await scratch(), 'control');
+    await secureControlDirectories(controlLayout(empty));
+    expect(await pathExists(path.join(empty, CONTROL_HOME_MARKER))).toBe(true);
+    await secureControlDirectories(controlLayout(empty));   // and again, idempotently
+
+    // An install from before the marker existed has at least two of the tool's directories.
+    const older = path.join(await scratch(), 'older');
+    await mkdir(path.join(older, 'repositories'), { recursive: true });
+    await mkdir(path.join(older, 'locks'), { recursive: true });
+    await expect(secureControlDirectories(controlLayout(older))).resolves.toBeUndefined();
+
+    // A directory a file manager merely looked at is still empty.
+    const browsed = path.join(await scratch(), 'browsed');
+    await mkdir(browsed, { recursive: true });
+    await writeFile(path.join(browsed, '.DS_Store'), '');
+    await expect(secureControlDirectories(controlLayout(browsed))).resolves.toBeUndefined();
+
+    // One generic directory name is not evidence: a code folder with `repositories/` is not ours.
+    const code = path.join(await scratch(), 'code');
+    await mkdir(path.join(code, 'repositories', 'acme'), { recursive: true });
+    await expect(secureControlDirectories(controlLayout(code))).rejects.toThrow('not empty (repositories) and was not created by berth');
+
+    const theirs = path.join(await scratch(), 'documents');
+    await mkdir(theirs, { recursive: true });
+    await writeFile(path.join(theirs, 'thesis.txt'), 'years of work');
+    // Resolved first: an `await` inside the matcher's argument would leave the rejection unhandled for a tick.
+    const resolvedTheirs = await realpath(theirs);
+    await expect(secureControlDirectories(controlLayout(theirs))).rejects.toThrow(
+      `Refusing to use ${resolvedTheirs} as the control home: it is not empty (thesis.txt) and was not created by berth. ` +
+      'Move it aside, or set BERTH_HOME to an empty directory, or to one berth created earlier (it leaves a .berth-control-home marker file).'
+    );
+    expect(await mode(theirs)).not.toBe(0o700);
+    expect(await pathExists(path.join(theirs, 'thesis.txt'))).toBe(true);
+  });
+
+  it('refuses the home directory, anything above it, and the filesystem root outright, without telling the user to move them', async () => {
+    await expect(assertAdoptableControlHome(homedir())).rejects.toThrow(
+      'it is your home directory. Set BERTH_HOME to an empty directory, or to one berth created earlier (it leaves a .berth-control-home marker file).'
+    );
+    await expect(assertAdoptableControlHome(path.dirname(homedir()))).rejects.toThrow('it contains your home directory');
+    await expect(assertAdoptableControlHome('/')).rejects.toThrow('it is the filesystem root');
+    // A directory *under* the home is of course fine, even before it exists.
+    await expect(assertAdoptableControlHome(path.join(homedir(), '.berth-does-not-exist-' + String(process.pid)))).resolves.toBeUndefined();
+  });
+
   it('creates the control layout owner-only, except the two directories containers must read', async () => {
     const controlHome = path.join(await scratch(), 'control');
     const layout = controlLayout(controlHome);
@@ -232,6 +280,8 @@ describe('secure directory creation', () => {
   it('widens both mounted directories an older install created owner-only, without widening their parent', async () => {
     const controlHome = path.join(await scratch(), 'control');
     const layout = controlLayout(controlHome);
+    // An older install: every command took a lock, so `locks/` is there alongside `router/`.
+    await mkdir(layout.locksDir, { recursive: true, mode: 0o700 });
     for (const directory of [layout.indexDir, layout.routerDynamicDir]) {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       expect(await mode(directory)).toBe(0o700);

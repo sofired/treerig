@@ -5,20 +5,42 @@ import { z } from 'zod';
 // promise. Keep it small.
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
-const SUBDOMAIN = /^[a-z0-9-]*$/;
+/** One DNS label or nothing: no leading or trailing hyphen. */
+const SUBDOMAIN = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?)?$/;
 const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
-const LABEL_NAMESPACE = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;
+/** Shared with the registry and index cards, which store the namespace a worktree's resources carry. */
+export const LABEL_NAMESPACE = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;
+/**
+ * A URL path prefix: RFC 3986 path characters, `%` only as a proper escape,
+ * and no `$`. It ends up verbatim inside a Traefik rule, where only a
+ * backtick could do harm; in a printed URL, where `?` and `#` would change
+ * its meaning; and in a Compose label value, where `$` is interpolated.
+ */
+const URL_PATH = /^\/(?:[A-Za-z0-9._~!&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$/;
+const DNS_LABEL_MAX = 63;
+/** A routed hostname is `<subdomain>.<slug>.<domain>`; with two 63-character labels ahead of it, the domain gets the rest of 253. */
+const DOMAIN_MAX = 253 - (DNS_LABEL_MAX + 1) * 2;
+
+const hostnameSchema = z.string()
+  .regex(HOSTNAME, 'must be a valid hostname')
+  .max(DOMAIN_MAX, `must be at most ${DOMAIN_MAX} characters, so that <subdomain>.<slug>.<domain> fits in a hostname`)
+  .refine((value) => value.split('.').every((label) => label.length <= DNS_LABEL_MAX), {
+    message: `each label must be at most ${DNS_LABEL_MAX} characters`
+  });
 
 export const serviceSchema = z.object({
   /** Compose service name. */
   name: z.string().regex(SLUG, 'must be lower-case letters, digits, and hyphens'),
   /** Subdomain under the worktree host; empty routes at the host root. */
-  subdomain: z.string().regex(SUBDOMAIN, 'must be lower-case letters, digits, and hyphens').default(''),
+  subdomain: z.string()
+    .regex(SUBDOMAIN, 'must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen')
+    .max(DNS_LABEL_MAX, `must be at most ${DNS_LABEL_MAX} characters`)
+    .default(''),
   /**
    * Routes only this path prefix, so several services can share one host;
    * also where the printed URL points. Omit to route the whole host.
    */
-  path: z.string().startsWith('/').optional(),
+  path: z.string().regex(URL_PATH, 'must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits').optional(),
   /** Container port to route to; defaults to the first port the service exposes or publishes. */
   port: z.number().int().min(1).max(65_535).optional(),
   /** Presence on the shared checkout index; omit to keep the service internal. */
@@ -45,7 +67,7 @@ export const configSchema = z.object({
   project: z.object({
     name: z.string().regex(SLUG, 'must be lower-case letters, digits, and hyphens'),
     /** Worktrees are routed as `<slug>.<domain>`. */
-    domain: z.string().regex(HOSTNAME, 'must be a valid hostname'),
+    domain: hostnameSchema,
     // The control home is deliberately NOT configurable here. This file is
     // committed and shared; a per-machine path belongs in the environment.
     /**

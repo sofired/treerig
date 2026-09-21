@@ -3,6 +3,39 @@ import { describe, expect, it, vi } from 'vitest';
 import { runWithDeferredSignals } from '../../src/signal-lifecycle.ts';
 
 describe('runWithDeferredSignals', () => {
+  it('reports the action\'s own error, with a lock-release failure attached as its cause', async () => {
+    const hookFailure = Object.assign(new Error('The prepare hook failed (exit 7).'), { exitCode: 7 });
+    const releaseFailure = new Error('lock file vanished');
+    const thrown = await runWithDeferredSignals(() => Promise.reject(hookFailure), {
+      cancel: () => Promise.resolve(),
+      postActionQuiesce: () => Promise.resolve(),
+      release: () => Promise.reject(releaseFailure),
+      reenact: () => undefined,
+      forceExit: (error) => { throw error instanceof Error ? error : new Error(String(error)); },
+      source: new EventEmitter()
+    }).catch((error: unknown) => error);
+    expect(thrown).toBe(hookFailure);
+    expect((thrown as Error).cause).toBe(releaseFailure);
+    expect((thrown as { suppressed?: unknown[] }).suppressed).toEqual([releaseFailure]);
+  });
+
+  it('keeps every secondary error, appending to ones the action already carried', async () => {
+    const primary = Object.assign(new Error('primary', { cause: new Error('original cause') }), { suppressed: [new Error('earlier')] });
+    const finalizeFailure = new Error('finalize');
+    const releaseFailure = new Error('release');
+    const thrown = await runWithDeferredSignals(() => Promise.reject(primary), {
+      cancel: () => Promise.resolve(),
+      postActionQuiesce: () => Promise.resolve(),
+      finalize: () => Promise.reject(finalizeFailure),
+      release: () => Promise.reject(releaseFailure),
+      reenact: () => undefined,
+      forceExit: (error) => { throw error instanceof Error ? error : new Error(String(error)); },
+      source: new EventEmitter()
+    }).catch((error: unknown) => error as Error & { suppressed?: unknown[] });
+    expect(thrown.cause).toEqual(new Error('original cause'));                 // not overwritten
+    expect(thrown.suppressed?.map((e) => (e as Error).message)).toEqual(['earlier', 'release']);   // finalize never runs after a failed action
+  });
+
   it('cancels active work but retains ownership until the action settles', async () => {
     const signals = new EventEmitter();
     const events: string[] = [];

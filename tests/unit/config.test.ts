@@ -72,6 +72,20 @@ port = 3000
     expect(() => parseConfig(`${MINIMAL}[[service]]\nname = "a"\nport = 70000\n`, 'test.toml')).toThrow(/port/);
   });
 
+  it('keeps what reaches Traefik rules and hostnames well-formed', () => {
+    const service = (body: string) => `${MINIMAL}[[service]]\nname = "s"\n${body}`;
+    expect(() => parseConfig(service('path = "/api`)||Host(`evil"\n'), 'test.toml')).toThrow('must be a URL path starting with /');
+    expect(() => parseConfig(service('path = "/a%zz"\n'), 'test.toml')).toThrow('% must be followed by two hex digits');
+    expect(() => parseConfig(service('path = "/search?q=1"\n'), 'test.toml')).toThrow('must be a URL path starting with /');
+    expect(() => parseConfig(service('path = "/api$HOME"\n'), 'test.toml')).toThrow('backticks, $, ? or #');   // Compose would interpolate it
+    expect(parseConfig(service('path = "/v1/things:list/@scope/c++%2Fx"\n'), 'test.toml').service[0]?.path).toBe('/v1/things:list/@scope/c++%2Fx');
+    expect(() => parseConfig(service('subdomain = "-mail"\n'), 'test.toml')).toThrow('not starting or ending with a hyphen');
+    expect(() => parseConfig(service('subdomain = "mail-"\n'), 'test.toml')).toThrow('not starting or ending with a hyphen');
+    expect(() => parseConfig(service(`subdomain = "${'a'.repeat(64)}"\n`), 'test.toml')).toThrow('at most 63');
+    expect(() => parseConfig(MINIMAL.replace('acme.localhost', `${'a'.repeat(64)}.localhost`), 'test.toml')).toThrow('each label must be at most 63');
+    expect(() => parseConfig(MINIMAL.replace('acme.localhost', `${'ab.'.repeat(40)}localhost`), 'test.toml')).toThrow('at most 125 characters, so that <subdomain>.<slug>.<domain> fits');
+  });
+
   it('rejects duplicate service names', () => {
     const contents = `${MINIMAL}
 [[service]]

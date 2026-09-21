@@ -192,6 +192,9 @@ export class RouterService implements Router {
         'Upgrade rather than downgrading the router other worktrees depend on.'
       );
     }
+    if (protocol < ROUTER_PROTOCOL) {
+      this.options.logger.info(`Upgrading the shared router from protocol ${protocol} to ${ROUTER_PROTOCOL}.`);
+    }
   }
 
   /* ---- verification: every property the stack asked for, checked on the running container */
@@ -285,6 +288,8 @@ export class RouterService implements Router {
   }
 
   async ensure(): Promise<void> {
+    // The lock file lands under the control home, so the home must be ours — and marked — before it is taken.
+    await secureControlDirectories(this.layout);
     await withScopedLock(routerLockTarget(this.options.controlHome), 'shared router', this.options.logger, async () => {
       await this.assertCompatibleProtocol();
       await this.write();

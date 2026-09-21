@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { LABEL_NAMESPACE } from '../config/schema.ts';
 import { atomicJson } from '../files.ts';
 import { worktreeLayout } from '../layout.ts';
 
@@ -20,7 +21,8 @@ const cardSchema = z.object({
   /** Last seen; the index prefers live Git identity when it has it. */
   root: z.string(),
   branch: z.string(),
-  labelNamespace: z.string().min(1),
+  /** Validated like the config field: it ends up inside Go templates handed to `docker`. */
+  labelNamespace: z.string().regex(LABEL_NAMESPACE),
   services: z.array(z.object({
     name: z.string().min(1),
     url: z.string().min(1),
@@ -42,9 +44,29 @@ export async function writeIndexCard(controlHome: string, repositoryId: string, 
 
 /** Missing, unreadable, or unrecognized cards all read as "no card". */
 export async function readIndexCard(controlHome: string, repositoryId: string, worktreeId: string): Promise<IndexCard | undefined> {
+  return readIndexCardAt(indexCardPath(controlHome, repositoryId, worktreeId));
+}
+
+/**
+ * The label namespace a worktree's resources were recorded under: the
+ * registration says, or the index card does, wherever the home currently is.
+ * Undefined only for a worktree registered before either recorded it.
+ */
+export async function recordedLabelNamespace(
+  controlHome: string,
+  worktree: { repositoryId: string; worktreeId: string; labelNamespace?: string }
+): Promise<string | undefined> {
+  if (worktree.labelNamespace !== undefined) return worktree.labelNamespace;
+  const { home, quarantinePath } = worktreeLayout(controlHome, worktree.repositoryId, worktree.worktreeId);
+  const card = await readIndexCardAt(path.join(home, INDEX_CARD_FILE)) ?? await readIndexCardAt(path.join(quarantinePath, INDEX_CARD_FILE));
+  return card?.labelNamespace;
+}
+
+/** The same, for a card that is not where it usually is — inside a quarantined home, say. */
+export async function readIndexCardAt(file: string): Promise<IndexCard | undefined> {
   let text: string;
   try {
-    text = await readFile(indexCardPath(controlHome, repositoryId, worktreeId), 'utf8');
+    text = await readFile(file, 'utf8');
   } catch {
     return undefined;
   }

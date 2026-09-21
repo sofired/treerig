@@ -1,5 +1,5 @@
 import { BRAND } from '../brand.ts';
-import { writeIndexCard } from '../checkout-index/card.ts';
+import { recordedLabelNamespace, writeIndexCard } from '../checkout-index/card.ts';
 import type { ProjectConfig } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
 import { secureWorktreeDirectories } from '../files.ts';
@@ -60,6 +60,7 @@ export interface UpResult {
  */
 export async function up(context: CommandContext, options: UpOptions = {}): Promise<UpResult> {
   const { logger, runner, runtime, registry } = context;
+  await refuseRelabelling(context);
   const registration = await registry.ensure();
   await context.router.ensure();
   const ref = toRef(registration);
@@ -68,6 +69,30 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
 
   const urls = worktreeUrls(context.loaded.config, ref, context.router.port);
   const hooks = await withWorktreeMutation(context, ref, async () => {
+    // The router may have taken minutes to start, and the lock was free
+    // meanwhile: a removal can have finished. Nothing is created unless the
+    // registration and the identity are still the ones `ensure()` saw.
+    const found = await store.find(ref.worktreeId);
+    if (!found) {
+      throw new CliError(
+        `${worktreeHost(ref.slug, ref.domain)} was removed while '${context.commandName} up' was waiting for the shared router; ` +
+        'run it again to re-register.'
+      );
+    }
+    if (found.labelNamespace !== undefined && found.labelNamespace !== labelNamespace(context.loaded.config)) {
+      throw new CliError(
+        `${worktreeHost(ref.slug, ref.domain)} was re-labelled under ${found.labelNamespace} while '${context.commandName} up' ` +
+        'was waiting for the shared router; run it again.'
+      );
+    }
+    const identity = await registry.identities.inspect();
+    if (identity?.worktreeId !== ref.worktreeId) {
+      throw new CliError(
+        `This checkout's ${BRAND.name} markers changed or were removed while '${context.commandName} up' was waiting ` +
+        'for the shared router; run it again.'
+      );
+    }
+    const firstTime = await store.initialization(ref.worktreeId, ref.slug) === 'pending';
     await secureWorktreeDirectories(worktreeLayout(context.controlHome, ref.repositoryId, ref.worktreeId));
     await writeIndexCard(context.controlHome, ref.repositoryId, ref.worktreeId, {
       version: 1,
@@ -87,7 +112,6 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
     await withProgress(logger, `Starting ${what} for ${worktreeHost(ref.slug, ref.domain)}`, () =>
       runtime.up(ref, services, { signal: runner.cancellationSignal })
     );
-    const firstTime = await store.initialization(ref.worktreeId, ref.slug) === 'pending';
     const ran = await runLifecycle(hookContext(context, ref), {
       stages: firstTime ? ['prepare', 'seed'] : ['prepare'],
       cancelSignal: runner.cancellationSignal
@@ -151,6 +175,37 @@ export async function urls(context: CommandContext): Promise<ServiceUrl[]> {
 }
 
 /* ------------------------------------------------------------------ helpers */
+
+/**
+ * Compose relabels containers on the next `up` but never volumes or networks,
+ * so once resources exist under one namespace the record must keep naming
+ * it — otherwise `remove` could no longer find them. A changed
+ * `label-namespace` is therefore honoured only for a worktree that owns
+ * nothing under the old one; anything else must be removed first.
+ *
+ * Checked before `ensure()` rewrites the record, and so before the worktree
+ * lock. Two `up`s racing from one checkout with a config edit between them
+ * could still slip resources in under the old namespace; the under-lock
+ * re-check catches the record changing, not that narrower case.
+ */
+async function refuseRelabelling(context: CommandContext): Promise<void> {
+  // The record is read directly: `current()` would add a domain-mismatch hint
+  // to run `up`, which is what is running; `ensure()` handles that next.
+  const identity = await context.registry.identities.inspect();
+  if (!identity) return;
+  const current = await context.registry.store(identity.repositoryId).find(identity.worktreeId);
+  if (!current) return;
+  const own = labelNamespace(context.loaded.config);
+  // Records from before the namespace was tracked still have a card saying what `up` used.
+  const recorded = await recordedLabelNamespace(context.controlHome, current);
+  if (recorded === undefined || recorded === own) return;
+  const leftovers = await context.runtimeFor(recorded).inventory(toRef(current));
+  if (leftovers.length === 0) return;
+  throw new CliError(
+    `This worktree's resources are labelled under ${recorded}, but ${BRAND.configFile} now says ${own}. ` +
+    `Run '${context.commandName} worktree remove' first — it uses the recorded labels — then '${context.commandName} up' again.`
+  );
+}
 
 function toRef(registration: RegisteredWorktree): WorktreeRef & Pick<RegisteredWorktree, 'domain'> {
   return {

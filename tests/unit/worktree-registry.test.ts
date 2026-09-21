@@ -278,6 +278,24 @@ describe('WorktreeRegistry', () => {
   });
 });
 
+describe('label namespace in the record', () => {
+  it('is written on registration, refreshed in place when the config changes it, and absent when never given', async () => {
+    const context = await fixture();
+    const plain = await context.registry.ensure();
+    expect(plain.labelNamespace).toBeUndefined();
+
+    const adopted = new WorktreeRegistry({ controlHome: context.controlHome, root: context.root, domain: ACME, labelNamespace: 'dev.predecessor', runner: context.runner, logger });
+    const first = await adopted.ensure();
+    expect(first).toMatchObject({ slug: plain.slug, labelNamespace: 'dev.predecessor' });
+    expect(first.previousHost).toBeUndefined();
+
+    const own = new WorktreeRegistry({ controlHome: context.controlHome, root: context.root, domain: ACME, labelNamespace: 'dev.berth', runner: context.runner, logger });
+    const second = await own.ensure();
+    expect(second).toMatchObject({ slug: plain.slug, labelNamespace: 'dev.berth' });
+    await expect(own.list()).resolves.toEqual([expect.objectContaining({ labelNamespace: 'dev.berth' })]);
+  });
+});
+
 describe('slug uniqueness is per domain', () => {
   it('suffixes a collision within one repository and domain', async () => {
     const context = await fixture('feature/shared');

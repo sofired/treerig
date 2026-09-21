@@ -75,7 +75,10 @@ export function renderIndexHtml(snapshot: IndexSnapshot): string {
         </table>
       </div>
     </section>`).join('\n');
-  const body = groups || `<p class="empty">No checkouts have been indexed yet. Run <code>${escapeHtml(BRAND.name)} up</code> in a worktree.</p>`;
+  const notice = snapshot.identityError === undefined
+    ? ''
+    : `<p class="notice" role="status">Checkout state unavailable for the repository that last regenerated this page — ${escapeHtml(snapshot.identityError)}. Its rows show Unknown rather than Missing. Run <code>${escapeHtml(BRAND.name)} index</code> from one of its checkouts once Git can list them again.</p>`;
+  const body = notice + (groups || `<p class="empty">No checkouts have been indexed yet. Run <code>${escapeHtml(BRAND.name)} up</code> in a worktree.</p>`);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -114,6 +117,7 @@ export function renderIndexHtml(snapshot: IndexSnapshot): string {
     .status-unknown { color: #4c1d95; background: #ede9fe; }
     .guidance { margin-top: 7px; color: #7f1d1d; font-size: 11px; }
     .empty { padding: 36px; color: #52606d; text-align: center; }
+    .notice { margin: 16px 0 0; padding: 10px 14px; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; color: #78350f; font-size: 13px; }
     @media (prefers-color-scheme: dark) {
       body { color: #e5e7eb; background: #111827; }
       header, .table-wrap { background: #1f2937; border-color: #374151; }
@@ -122,6 +126,7 @@ export function renderIndexHtml(snapshot: IndexSnapshot): string {
       h2, .updated, .service-purpose { color: #9ca3af; }
       .service-label { color: #7dd3fc; }
       a.service-link:hover { background: #0c4a6e; }
+      .notice { background: #451a03; border-color: #92400e; color: #fde68a; }
     }
   </style>
 </head>
@@ -152,5 +157,9 @@ export function formatIndexText(snapshot: IndexSnapshot, url: string): string {
     }).join('\n\n');
     return `${title}\n${rows}`;
   }).join('\n\n');
-  return `Checkout index  ${url}\nUpdated         ${snapshot.generatedAt}\n\n${groups || 'No checkouts have been indexed yet.'}`;
+  const notice = snapshot.identityError === undefined
+    ? ''
+    : `Checkout state unavailable for the repository that last regenerated this page — ${snapshot.identityError}. ` +
+      `Its rows show Unknown rather than Missing. Run \`${BRAND.name} index\` from one of its checkouts once Git can list them again.\n\n`;
+  return `Checkout index  ${url}\nUpdated         ${snapshot.generatedAt}\n\n${notice}${groups || 'No checkouts have been indexed yet.'}`;
 }

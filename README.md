@@ -159,7 +159,8 @@ type the hostname to confirm (`--yes` skips the prompt). Then, in an order
 chosen so that an interrupted removal can simply be run again: Docker
 resources, the home directory, the registration, the identity marker.
 `berth worktree remove <slug|uuid>` removes another worktree, including one
-whose checkout is already gone.
+whose checkout is already gone; `--label-namespace` supplies the Docker label
+namespace of its resources when nothing on disk records it.
 
 A full annotated example is in [`berth.example.toml`](berth.example.toml).
 The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
@@ -199,10 +200,15 @@ project name and file list, which the tool sets. Do not set
 
 The control home is `~/.berth`, overridable only through the `BERTH_HOME`
 environment variable, and the router's loopback port is 80, overridable only
-through `BERTH_ROUTER_PORT` — deliberately not config-file settings. The config file
-is committed and shared; a path that is only correct on one machine has no
-business in it, and one developer pointing it at a synced folder would put the
-whole team's state on iCloud Drive.
+through `BERTH_ROUTER_PORT` — deliberately not config-file settings. The
+config file is committed and shared; a path that is only correct on one
+machine has no business in it, and one developer pointing it at a synced
+folder would put the whole team's state on iCloud Drive.
+
+Because `worktree remove` deletes inside it, the control home must be empty
+or one the tool created earlier — it leaves a `.berth-control-home` marker to
+recognise its own. Your home directory, anything above it, and the filesystem
+root are always refused.
 
 ## Platform notes
 

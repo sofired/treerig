@@ -199,6 +199,16 @@ describe('RouterService.ensure', () => {
     expect(w.ups()).toHaveLength(2);
   });
 
+  it('says so when it upgrades a router started by an older version', async () => {
+    const w = await world();
+    const older = routerDoc(w.layout.routerDynamicDir);
+    older.Config = { ...older.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL - 1) } };
+    w.fake.docs.set('router-1', older);
+    w.fake.onRecreate = w.healthy;
+    await w.router.ensure();
+    expect(w.logger.lines).toContain(`info: Upgrading the shared router from protocol ${ROUTER_PROTOCOL - 1} to ${ROUTER_PROTOCOL}.`);
+  });
+
   it('refuses to downgrade a router started by a newer version', async () => {
     const w = await world();
     const newer = routerDoc(w.layout.routerDynamicDir);

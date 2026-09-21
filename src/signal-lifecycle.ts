@@ -88,9 +88,20 @@ export async function runWithDeferredSignals<T>(
     options.source.removeListener(signal, handler);
   }
   if (pendingSignal) options.reenact(pendingSignal);
-  for (const error of [releaseError, finalizationError, actionError, cancellationError]) {
-    if (error instanceof Error) throw error;
-    if (error !== undefined) throw new Error('Deferred signal handling failed.');
+  // The action's own error is the one the user acted on — a hook's exit code,
+  // say — so it wins. Every other failure rides along on it (mutating the
+  // caller's error object): as `cause` when it has none, and always in a
+  // `suppressed` list, so a lock that could not be released is never silent.
+  const errors = [actionError, cancellationError, finalizationError, releaseError].filter((error) => error !== undefined);
+  const [primary, ...suppressed] = errors;
+  if (primary !== undefined) {
+    const thrown = primary instanceof Error ? primary : new Error('Deferred signal handling failed.', { cause: primary });
+    if (suppressed.length > 0) {
+      if (thrown.cause === undefined) thrown.cause = suppressed[0];
+      const existing = (thrown as { suppressed?: unknown[] }).suppressed ?? [];
+      Object.assign(thrown, { suppressed: [...existing, ...suppressed] });
+    }
+    throw thrown;
   }
   return result as T;
 }

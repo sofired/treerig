@@ -136,7 +136,7 @@ describe('the shared router', () => {
       routerPort: PORT,
       registry: {
         listAll: () => Promise.resolve([{ ...worktree, domain: 'test.localhost' }]),
-        identities: { activeIdentities: () => Promise.resolve([]), repositoryId: () => Promise.resolve(undefined) }
+        identities: { root: FIXTURE, activeIdentities: () => Promise.resolve([]), repositoryId: () => Promise.resolve(undefined) }
       },
       runner: new ExecaRunner(),
       logger: silentLogger

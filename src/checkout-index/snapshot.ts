@@ -33,6 +33,8 @@ export interface IndexEntry {
 export interface IndexSnapshot {
   entries: IndexEntry[];
   generatedAt: string;
+  /** Set when Git could not say which worktrees of the current repository exist. */
+  identityError?: string;
 }
 
 /** One managed container, as `docker ps` reports it. */
@@ -69,6 +71,8 @@ export interface SnapshotInput {
   currentRepositoryId?: string;
   /** Undefined when Docker could not be asked. */
   containers?: readonly ContainerRecord[];
+  /** Git could not list this repository's worktrees; its rows are unknown, never missing. */
+  identityError?: string;
   generatedAt: string;
 }
 
@@ -87,7 +91,8 @@ export function buildSnapshot(input: SnapshotInput): IndexSnapshot {
     );
 
     let status: IndexStatus;
-    if (local && !identity) status = 'missing';
+    if (local && input.identityError !== undefined) status = 'unknown';
+    else if (local && !identity) status = 'missing';
     else if (owned === undefined) status = 'unknown';
     else {
       const available = owned.filter((container) => container.available).length;
@@ -119,5 +124,9 @@ export function buildSnapshot(input: SnapshotInput): IndexSnapshot {
     Number(left.status === 'missing') - Number(right.status === 'missing') ||
     (left.branch ?? left.slug).localeCompare(right.branch ?? right.slug)
   );
-  return { entries, generatedAt: input.generatedAt };
+  return {
+    entries,
+    generatedAt: input.generatedAt,
+    ...(input.identityError === undefined ? {} : { identityError: input.identityError })
+  };
 }

@@ -14,7 +14,10 @@ import {
   stat
 } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
+import { BRAND } from './brand.ts';
 import { CliError, invariant } from './errors.ts';
 import type { ControlLayout, WorktreeLayout } from './layout.ts';
 
@@ -105,7 +108,68 @@ async function createSecureDirectories(
   }
 }
 
+/** Marks a directory as one the tool created, so it may be adopted again later. */
+export const CONTROL_HOME_MARKER = `.${BRAND.name}-control-home`;
+/** Top-level directories only the tool creates; an install from before the marker has at least two of them. */
+const CONTROL_HOME_DIRECTORIES = ['repositories', 'locks', 'router'];
+/** Files the operating system drops into directories a user merely looked at. */
+const INCIDENTAL_ENTRIES = new Set(['.DS_Store', '.localized', 'Thumbs.db', 'desktop.ini']);
+
+async function canonical(target: string): Promise<string> {
+  try {
+    return await realpath(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+/**
+ * The control home is chmod'd, populated, and — under `worktree remove` —
+ * recursively deleted within. So it is never a directory the user already
+ * uses for something else: an existing directory is adopted only when the
+ * tool created it (the marker, or two of the directories only the tool
+ * creates, from before the marker existed) or it is empty. The filesystem
+ * root, the home directory, and anything above it are refused outright.
+ */
+export async function assertAdoptableControlHome(controlHome: string): Promise<void> {
+  const resolved = await canonical(controlHome);
+  const alternatives = `Set ${BRAND.homeEnv} to an empty directory, or to one ${BRAND.name} created earlier ` +
+    `(it leaves a ${CONTROL_HOME_MARKER} marker file).`;
+  const refusal = (reason: string, movable = false): CliError => new CliError(
+    `Refusing to use ${resolved} as the control home: ${reason}. ${movable ? `Move it aside, or ${alternatives.charAt(0).toLowerCase()}${alternatives.slice(1)}` : alternatives}`
+  );
+  if (resolved === path.parse(resolved).root) throw refusal('it is the filesystem root');
+  const home = await canonical(homedir());
+  if (resolved === home) throw refusal('it is your home directory');
+  const toHome = path.relative(resolved, home);
+  if (!(toHome === '..' || toHome.startsWith(`..${path.sep}`) || path.isAbsolute(toHome))) {
+    throw refusal('it contains your home directory');
+  }
+  let entries: string[];
+  try {
+    entries = await readdir(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  const meaningful = entries.filter((entry) => !INCIDENTAL_ENTRIES.has(entry));
+  if (meaningful.length === 0 || meaningful.includes(CONTROL_HOME_MARKER)) return;
+  if (CONTROL_HOME_DIRECTORIES.filter((name) => meaningful.includes(name)).length >= 2) return;
+  const shown = meaningful.slice(0, 3).join(', ') + (meaningful.length > 3 ? ', …' : '');
+  throw refusal(`it is not empty (${shown}) and was not created by ${BRAND.name}`, true);
+}
+
+/** Creates the control home itself, after checking it is ours to use, and leaves the marker. */
+async function establishControlHome(controlHome: string): Promise<void> {
+  await assertAdoptableControlHome(controlHome);
+  await createSecureDirectories(controlHome, [controlHome]);
+  const marker = path.join(controlHome, CONTROL_HOME_MARKER);
+  await assertSafeFilePath(controlHome, marker);
+  if (!(await pathExists(marker))) await touchSecure(marker);
+}
+
 export async function secureControlDirectories(layout: ControlLayout): Promise<void> {
+  await establishControlHome(layout.controlHome);
   await createSecureDirectories(layout.controlHome, [
     layout.controlHome,
     layout.repositoriesDir,
@@ -125,8 +189,8 @@ export async function secureControlDirectories(layout: ControlLayout): Promise<v
 
 /** Directories a worktree needs before it can be registered — no home yet. */
 export async function secureRegistrationDirectories(layout: WorktreeLayout): Promise<void> {
+  await establishControlHome(layout.controlHome);
   await createSecureDirectories(layout.controlHome, [
-    layout.controlHome,
     layout.repositoriesDir,
     layout.locksDir,
     layout.repositoryDir,

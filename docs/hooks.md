@@ -31,8 +31,10 @@ to load data into an unmigrated schema.
 worktree's registration is still *pending*, which it stays until `prepare`
 and `seed` have both exited zero. A failed first `up` therefore seeds on the
 retry; a successful one never seeds again until the environment is removed.
-Write `prepare` to be idempotent; write `seed` assuming an empty, migrated
-store.
+An interrupted `worktree remove` also returns the registration to pending,
+since its volumes may already be gone, so the next `up` seeds again rather
+than starting on empty stores. Write `prepare` to be idempotent; write `seed`
+assuming an empty, migrated store.
 
 ## Resolution
 
