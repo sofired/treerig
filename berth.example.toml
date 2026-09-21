@@ -1,0 +1,66 @@
+# berth.toml — commit this at the root of your repository.
+#
+# Everything the tool needs to know about your project lives here. Everything
+# it needs to *do* for your project lives in the hook executables you point at.
+# Unknown keys are rejected so a typo cannot silently disable a feature.
+
+[project]
+# Lower-case letters, digits, and hyphens.
+name = "acme"
+
+# Every worktree is routed as <slug>.<domain>, where the slug is derived from
+# the branch name: feature/login becomes feature-login.acme.localhost.
+# A shared parent domain lets password managers reuse a local credential
+# across every environment.
+domain = "acme.localhost"
+
+# Optional, and you almost certainly do not want it. Sets the Docker label
+# namespace used to mark resources as owned. The only reason to set this is to
+# adopt resources created by a predecessor tool that used a different one.
+# label-namespace = "dev.acme"
+
+[compose]
+# Relative to this file.
+file = "docker/compose.yaml"
+
+# ---------------------------------------------------------------------------
+# Services. Each entry names a Compose service and says how it is reached.
+# Services not listed here still run; they just are not routed or indexed.
+
+[[service]]
+name = "api"
+# subdomain = ""        # empty (the default) routes at the worktree host root
+[service.index]         # presence on the shared checkout index; omit to hide
+label   = "API"
+purpose = "REST surface"
+
+[[service]]
+name      = "mail"
+subdomain = "mail"      # mail.<slug>.acme.localhost
+[service.index]
+label   = "Mailpit"
+purpose = "Captured email"
+
+[[service]]
+name      = "docs"
+subdomain = "docs"
+path      = "/latest"   # optional path prefix appended to the routed URL
+
+# ---------------------------------------------------------------------------
+# Hooks. Each is an executable — any language — resolved relative to this
+# file, run with this directory as its working directory, and handed the
+# BERTH_* environment described in docs/hooks.md. Exit zero means success.
+
+[hooks]
+# Services are up and healthy; nothing has been seeded. Migrations go here.
+prepare = "./scripts/migrate.sh"
+
+# Runs only after `prepare` exits zero.
+seed = "./scripts/seed.py"
+
+# Folded into `berth doctor`.
+verify = "./scripts/doctor"
+
+# Both receive a bundle directory as their first argument.
+backup  = "./scripts/backup.sh"
+restore = "./scripts/restore.sh"

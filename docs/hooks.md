@@ -1,0 +1,105 @@
+# The hook contract
+
+Hooks are how a project tells the tool what to do without the tool learning
+what the project is. They are ordinary executables. The tool spawns them,
+hands them an environment, and reads their exit code. That is the whole
+interface, and it is deliberately small: everything here is a compatibility
+promise.
+
+## Stages
+
+| Stage | When it runs | Receives |
+| ----- | ------------ | -------- |
+| `prepare` | Services are up and healthy. Nothing has been seeded. | environment only |
+| `seed` | **Only after `prepare` exited zero.** | environment only |
+| `verify` | On demand, folded into `doctor`. | environment only |
+| `backup` | On demand. | environment + bundle directory as `$1` |
+| `restore` | On demand. | environment + bundle directory as `$1` |
+
+The lifecycle order is `prepare → seed → verify`. The sequencer stops at the
+first non-zero exit and reports which stage failed. A stage that is not
+configured is skipped, not failed.
+
+The `prepare`/`seed` ordering is enforced by the runner, not by convention.
+Put migrations in `prepare` and data loading in `seed`, and it is impossible
+to load data into an unmigrated schema.
+
+## Resolution
+
+A command that starts with `.` or contains `/` is resolved relative to the
+directory containing `berth.toml`. Anything else is looked up on `PATH`.
+
+```toml
+[hooks]
+prepare = "./scripts/migrate.sh --fast"   # ./scripts/migrate.sh, relative to berth.toml
+backup  = "pg_dump"                       # from PATH
+```
+
+Splitting is on whitespace, with double-quoted segments kept whole. If you
+need anything richer than that, write a script.
+
+## Environment
+
+Every hook inherits the parent environment plus these. The prefix is a
+storage-contract name — it does **not** change when the binary is renamed, so
+hook scripts keep working however the tool is invoked.
+
+| Variable | Value |
+| -------- | ----- |
+| `BERTH_STAGE` | `prepare`, `seed`, `verify`, `backup`, or `restore` |
+| `BERTH_PROJECT` | `project.name` from the config |
+| `BERTH_REPOSITORY_ID` | UUID of the repository |
+| `BERTH_WORKTREE_ID` | UUID of this worktree |
+| `BERTH_SLUG` | The worktree's machine-unique slug |
+| `BERTH_HOST` | `<slug>.<domain>` |
+| `BERTH_WORKTREE_HOME` | The worktree's private directory under the control home |
+| `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
+| `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
+
+`BERTH_HOME` — the control-home override, if the user set one — is *not* in
+this list on purpose. It passes through from the parent unchanged, so a hook
+that invokes the tool itself resolves the same control home the user did.
+
+## Output and exit codes
+
+Standard output and standard error are streamed to the terminal. Exit zero is
+success. Any other exit code fails the stage and is preserved as the tool's
+own exit code, so CI sees the same number your script produced.
+
+## Cancellation
+
+Hooks are spawned through the tool's process runner, which means an interrupt
+(`SIGINT`/`SIGTERM`) is delivered as `SIGTERM` to the hook and its descendants,
+escalating to `SIGKILL` after ten seconds. Write hooks that can be interrupted.
+
+## An example, in three languages
+
+Each of these is a valid `prepare` hook. The tool cannot tell them apart.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+echo "migrating ${BERTH_SLUG} against ${BERTH_HOST}"
+exec ./bin/rails db:migrate
+```
+
+```python
+#!/usr/bin/env python3
+import os, subprocess, sys
+print(f"migrating {os.environ['BERTH_SLUG']}")
+sys.exit(subprocess.call(["python", "manage.py", "migrate"]))
+```
+
+```go
+// go run ./cmd/prepare
+package main
+
+import ("fmt"; "os"; "os/exec")
+
+func main() {
+	fmt.Println("migrating", os.Getenv("BERTH_SLUG"))
+	cmd := exec.Command("goose", "up")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil { os.Exit(1) }
+}
+```
