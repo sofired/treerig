@@ -78,7 +78,8 @@ async function world() {
 }
 
 describe.skipIf(!DOCKER)('ComposeRuntime against a real daemon', () => {
-  // Anything a killed run left behind, before any test of this run has created something.
+  // Anything a killed run left behind, after global setup has excluded other test processes
+  // and before any test of this run has created something.
   beforeAll(() => sweep([`${NS}.managed=true`]));
 
   afterEach(async () => {

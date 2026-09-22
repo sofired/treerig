@@ -12,8 +12,8 @@ export default defineConfig({
     hookTimeout: 60_000,
     // One `docker info` for the whole run; each Docker suite reads the answer with `inject('docker')`.
     globalSetup: ['tests/helpers/docker-setup.ts'],
-    // The Docker suites share one daemon; one file's cleanup must never run
-    // while another file's containers are still being asserted on.
+    // The Docker suites share one host-local daemon. This serializes files
+    // within the process; global setup locks out same-user peer processes.
     fileParallelism: false
   }
 });

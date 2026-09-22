@@ -1,6 +1,10 @@
 import { execa } from 'execa';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { dockerSaid } from '../../src/docker.ts';
+import { createConsoleLogger } from '../../src/logger.ts';
+import { OPERATION_LOCK_TIMEOUT_MS, ScopedLock } from '../../src/operation-lock.ts';
 
 /**
  * Global setup for the integration run: asks `docker info` once, in the main
@@ -11,8 +15,10 @@ import { dockerSaid } from '../../src/docker.ts';
  */
 const REQUIRE = ['1', 'true', 'yes', 'on'];
 const IGNORE = ['0', 'false', 'no', 'off'];
+const DOCKER_SUITE_LOCK = path.join(tmpdir(), 'berth-docker-integration-suite');
+const DOCKER_SUITE_LOCK_RETRY_MS = 250;
 
-export default async function setup(project: TestProject): Promise<void> {
+export default async function setup(project: TestProject): Promise<void | (() => Promise<void>)> {
   // Read before anything else, so a typo is reported on the machine where it was made.
   const knob = (process.env.BERTH_TEST_REQUIRE_DOCKER ?? '').trim();
   if (knob !== '' && ![...REQUIRE, ...IGNORE].includes(knob.toLowerCase())) {
@@ -33,7 +39,38 @@ export default async function setup(project: TestProject): Promise<void> {
     }
     console.warn(`No Docker daemon answered \`docker info\` (${said}); the suites that need one will skip.`);
   }
-  project.provide('docker', available);
+  if (!available) {
+    project.provide('docker', false);
+    return;
+  }
+
+  // Docker suites deliberately clean fixed test namespaces so a killed run's
+  // resources can be recovered. Hold one same-user, host-local lock while any
+  // suite can perform that cleanup, including across separate Vitest processes.
+  const lock = new ScopedLock(
+    DOCKER_SUITE_LOCK,
+    'Docker integration test suite',
+    createConsoleLogger('berth tests'),
+    {
+      acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS,
+      retryIntervalMs: DOCKER_SUITE_LOCK_RETRY_MS,
+      holder: 'pnpm test:integration'
+    }
+  );
+  await lock.acquire();
+  try {
+    project.provide('docker', true);
+  } catch (error) {
+    await lock.release();
+    throw error;
+  }
+  return async () => {
+    try {
+      lock.assertHealthy();
+    } finally {
+      await lock.release();
+    }
+  };
 }
 
 declare module 'vitest' {

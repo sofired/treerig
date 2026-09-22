@@ -44,8 +44,8 @@ async function docker(args: readonly string[], reject = true) {
 /**
  * Everything a killed run of this suite left behind: the router stack, the
  * worktrees it started, and the intruder — all under a namespace no
- * installation uses. It takes no account of age, so one Docker integration
- * run per machine at a time; `fileParallelism: false` already assumes as much.
+ * installation uses. It takes no account of age, so the integration global
+ * setup holds a same-user, host-local lock before any suite can call it.
  */
 async function sweep(): Promise<void> {
   for (const filter of [`label=${NS}.component`, `label=${NS}.managed=true`]) {
