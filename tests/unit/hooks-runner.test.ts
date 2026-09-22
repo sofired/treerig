@@ -3,7 +3,7 @@ import { CliError } from '../../src/errors.ts';
 import { runHook, runLifecycle, splitCommand, type HookContext } from '../../src/hooks/runner.ts';
 import type { HookEnvironment } from '../../src/hooks/protocol.ts';
 import { silentLogger } from '../../src/logger.ts';
-import type { CommandRunner, RunOptions, RunResult } from '../../src/process-runner.ts';
+import { CommandStartError, type CommandRunner, type RunOptions, type RunResult } from '../../src/process-runner.ts';
 
 const environment: HookEnvironment = {
   STAGE: 'prepare',
@@ -35,6 +35,27 @@ class RecordingRunner implements CommandRunner {
 
   which(): Promise<boolean> {
     return Promise.resolve(true);
+  }
+}
+
+/** A runner whose every command never runs (spawn failure) or is ended by a signal. */
+type Outcome = 'ENOENT' | 'EACCES' | 'SIGKILL' | 'TIMEOUT';
+
+class BrokenRunner implements CommandRunner {
+  private readonly outcome: Outcome;
+
+  constructor(outcome: Outcome) {
+    this.outcome = outcome;
+  }
+
+  run(command: string): Promise<RunResult> {
+    if (this.outcome === 'SIGKILL') return Promise.resolve({ stdout: '', stderr: '', exitCode: 137, signal: 'SIGKILL' });
+    if (this.outcome === 'TIMEOUT') return Promise.resolve({ stdout: '', stderr: '', exitCode: 0, timedOut: true });
+    return Promise.reject(new CommandStartError(command, this.outcome, `spawn ${command} ${this.outcome}`));
+  }
+
+  which(): Promise<boolean> {
+    return Promise.resolve(false);
   }
 }
 
@@ -95,6 +116,49 @@ describe('runHook', () => {
     await expect(failure).rejects.toBeInstanceOf(CliError);
     await expect(failure).rejects.toMatchObject({ exitCode: 3 });
     await expect(failure).rejects.toThrow('The seed hook failed (exit 3)');
+  });
+});
+
+describe('runHook when the hook never runs', () => {
+  it('names the resolved path of a hook that does not exist, with the shell\'s exit code', async () => {
+    const attempt = runHook('prepare', context(new BrokenRunner('ENOENT'), { prepare: './scripts/missing.sh' }));
+    await expect(attempt).rejects.toBeInstanceOf(CliError);
+    await expect(attempt).rejects.toMatchObject({
+      message: 'The prepare hook could not be started: `/work/acme/scripts/missing.sh` does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT).',
+      exitCode: 127
+    });
+  });
+
+  it('says when a hook is not executable, rather than reporting a failed exit', async () => {
+    await expect(runHook('seed', context(new BrokenRunner('EACCES'), { seed: './scripts/seed' }))).rejects.toMatchObject({
+      message: 'The seed hook could not be started: `/work/acme/scripts/seed` is not executable (EACCES).',
+      exitCode: 126
+    });
+  });
+
+  it('reports the signal that ended a hook', async () => {
+    await expect(runHook('prepare', context(new BrokenRunner('SIGKILL'), { prepare: 'make prepare' }))).rejects.toMatchObject({
+      message: 'The prepare hook was terminated by SIGKILL.',
+      exitCode: 137
+    });
+  });
+
+  it('reports a hook that drowned its own output', async () => {
+    const runner: CommandRunner = {
+      run: () => Promise.resolve({ stdout: '', stderr: '', exitCode: 1, outputOverflow: true }),
+      which: () => Promise.resolve(true)
+    };
+    await expect(runHook('prepare', context(runner, { prepare: 'make noisy' }))).rejects.toMatchObject({
+      message: 'The prepare hook produced more output than can be captured and was stopped.',
+      exitCode: 1
+    });
+  });
+
+  it('reports a timeout as a timeout, whatever the hook managed to exit with', async () => {
+    await expect(runHook('seed', context(new BrokenRunner('TIMEOUT'), { seed: 'make seed' }), { timeoutMs: 50 })).rejects.toMatchObject({
+      message: 'The seed hook timed out after 50 ms and was terminated.',
+      exitCode: 124
+    });
   });
 });
 

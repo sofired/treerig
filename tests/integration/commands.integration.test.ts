@@ -129,6 +129,19 @@ describe('up', () => {
     ]);
   });
 
+  it('reports a hook that cannot be started, not a failed exit', async () => {
+    const w = await world();
+    const hook = path.join(w.root, 'hooks', 'record');
+    await chmod(hook, 0o644);
+    const context = await w.context();
+
+    await expect(up(context)).rejects.toMatchObject({
+      message: `The prepare hook could not be started: \`${hook}\` is not executable (EACCES).`,
+      exitCode: 126
+    });
+    expect(await hookLog(w)).toEqual([]);
+  });
+
   it('runs only prepare on later ups', async () => {
     const w = await world();
     await up(await w.context());

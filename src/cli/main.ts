@@ -118,6 +118,11 @@ async function main(argv: readonly string[]): Promise<void> {
     .description('report whether the shared router is running as expected')
     .action(async () => {
       const status = await router().status();
+      if (!status.reachable) {
+        logger.output(`unknown: ${status.problems.join('; ').replace(/\.$/, '')}`);
+        process.exitCode = 1;
+        return;
+      }
       logger.output(status.running
         ? `running on 127.0.0.1:${status.port}, network ${status.network}`
         : `not running (would use 127.0.0.1:${status.port}, network ${status.network})`);
@@ -155,7 +160,7 @@ async function load(explicit: string | undefined) {
 }
 
 /** A failure that hid others — a hook that failed while its lock could not be released, say — shows all of them. */
-function report(error: CliError): void {
+function report(error: Error): void {
   logger.error(error.message);
   const describe = (item: unknown): string => item instanceof Error ? item.message : String(item);
   if (error.cause !== undefined) logger.error(`  caused by: ${describe(error.cause)}`);
@@ -168,10 +173,17 @@ function report(error: CliError): void {
 try {
   await main(process.argv);
 } catch (error) {
+  // Every failure ends as one prefixed line and an exit code; a stack trace
+  // is for whoever asked for it.
+  const debug = ['1', 'true', 'yes', 'on'].includes((process.env[`${BRAND.envPrefix}_DEBUG`] ?? '').trim().toLowerCase());
   if (error instanceof CliError) {
     report(error);
     process.exitCode = error.exitCode;
   } else {
-    throw error;
+    if (error instanceof Error) report(error);
+    else logger.error(String(error));
+    if (!debug) logger.error(`  (set ${BRAND.envPrefix}_DEBUG=1 to see the stack trace)`);
+    process.exitCode = 1;
   }
+  if (debug) console.error(error instanceof Error ? error.stack ?? error.message : String(error));
 }

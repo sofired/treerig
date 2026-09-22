@@ -212,6 +212,9 @@ config file is committed and shared; a path that is only correct on one
 machine has no business in it, and one developer pointing it at a synced
 folder would put the whole team's state on iCloud Drive.
 
+Every failure ends in a non-zero exit code and a `[berth] ERROR:` line saying
+why. Set `BERTH_DEBUG=1` to see the stack trace behind it.
+
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.berth-control-home` marker to
 recognise its own. Your home directory, anything above it, and the filesystem

@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { HookStage, HooksConfig } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
 import type { Logger } from '../logger.ts';
-import type { CommandRunner } from '../process-runner.ts';
+import { CommandStartError, type CommandRunner, type RunResult } from '../process-runner.ts';
 import { withProgress } from '../progress.ts';
 import { hookEnvironmentVariables, LIFECYCLE_ORDER, type LifecycleStage, type WorktreeEnvironment } from './protocol.ts';
 
@@ -25,7 +25,8 @@ export interface HookContext {
  * Runs one hook. The command is resolved relative to the project root, runs
  * with the project root as its working directory, sees the hook environment on
  * top of the parent's, and has its output streamed to the terminal. Any
- * non-zero exit is a failure attributed to the stage.
+ * non-zero exit is a failure attributed to the stage — and so, distinctly, is
+ * a hook that never ran at all or was ended by a signal.
  */
 export async function runHook(
   stage: HookStage,
@@ -43,19 +44,34 @@ export async function runHook(
   if (options.argument !== undefined) args.push(options.argument);
 
   await withProgress(context.logger, `Running ${stage} hook`, async () => {
-    const result = await context.runner.run(resolved, args, {
-      cwd: context.environment.ROOT,
-      env: { ...process.env, ...hookEnvironmentVariables({ ...context.environment, STAGE: stage }) },
-      printOutput: true,
-      reject: false,
-      cancelSignal: options.cancelSignal,
-      timeoutMs: options.timeoutMs
-    });
+    let result: RunResult;
+    try {
+      result = await context.runner.run(resolved, args, {
+        cwd: context.environment.ROOT,
+        env: { ...process.env, ...hookEnvironmentVariables({ ...context.environment, STAGE: stage }) },
+        printOutput: true,
+        reject: false,
+        cancelSignal: options.cancelSignal,
+        timeoutMs: options.timeoutMs
+      });
+    } catch (error) {
+      if (error instanceof CommandStartError) {
+        throw new CliError(`The ${stage} hook could not be started: \`${resolved}\` ${error.detail}`, error.exitCode);
+      }
+      throw error;
+    }
+    if (result.timedOut) {
+      // 124 is what `timeout(1)` reports; the hook's own exit, if any, was not its verdict.
+      throw new CliError(`The ${stage} hook timed out after ${options.timeoutMs} ms and was terminated.`, 124);
+    }
+    if (result.outputOverflow) {
+      throw new CliError(`The ${stage} hook produced more output than can be captured and was stopped.`, 1);
+    }
+    if (result.signal !== undefined) {
+      throw new CliError(`The ${stage} hook was terminated by ${result.signal}.`, result.exitCode);
+    }
     if (result.exitCode !== 0) {
-      throw new CliError(
-        `The ${stage} hook failed (exit ${result.exitCode})${result.timedOut ? ' — timed out' : ''}.`,
-        result.exitCode
-      );
+      throw new CliError(`The ${stage} hook failed (exit ${result.exitCode}).`, result.exitCode);
     }
   });
   return true;

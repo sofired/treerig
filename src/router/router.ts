@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BRAND } from '../brand.ts';
+import { DockerUnavailableError, dockerSaid, runDocker } from '../docker.ts';
 import { CliError } from '../errors.ts';
 import { renderIndexHtml } from '../checkout-index/render.ts';
 import { atomicWrite, pathExists, secureControlDirectories } from '../files.ts';
@@ -58,12 +59,16 @@ export interface RouterOptions {
 }
 
 export interface RouterStatus {
+  /** False when Docker itself could not be asked; `running` is then unknown and reported false. */
+  reachable: boolean;
   running: boolean;
   /** Empty when the running router is exactly what this version would start. */
   problems: string[];
   port: number;
   network: string;
 }
+
+const NOT_RUNNING = 'the router is not running';
 
 export const DEFAULT_ROUTER_NAME = `${BRAND.name}-router`;
 const ROUTER_LOCK_TIMEOUT_MS = 5 * 60_000;
@@ -127,8 +132,8 @@ export class RouterService implements Router {
     return controlLayout(this.options.controlHome);
   }
 
-  private compose(args: readonly string[], options: RunOptions = {}): Promise<RunResult> {
-    return this.options.runner.run('docker', [
+  private compose(args: readonly string[], options: Omit<RunOptions, 'cwd'> = {}): Promise<RunResult> {
+    return runDocker(this.options.runner, [
       'compose',
       '--project-directory', this.layout.routerDir,
       '--project-name', this.projectName,
@@ -156,13 +161,28 @@ export class RouterService implements Router {
     await atomicWrite(this.layout.routerComposeFile, `${JSON.stringify(document, null, 2)}\n`);
   }
 
+  /**
+   * By project name alone, with no stack file: this runs before the file
+   * exists, and a failure then can only mean Docker itself — a daemon that
+   * is not running, a socket this user cannot open, a `docker` that is not
+   * installed — never a stopped router. Compose given a project name and no
+   * file looks for none, so the consumer's own compose file in the current
+   * directory is never loaded; keep it that way (no `cwd`, no `-f`).
+   */
   private async containerId(service: string): Promise<string | undefined> {
-    const result = await this.compose(['ps', '--all', '--quiet', service], { reject: false });
-    return result.exitCode === 0 ? result.stdout.trim().split('\n')[0] || undefined : undefined;
+    const result = await runDocker(
+      this.options.runner,
+      ['compose', '--project-name', this.projectName, 'ps', '--all', '--quiet', service],
+      { reject: false, env: composeEnvironment() }
+    );
+    if (result.exitCode !== 0) {
+      throw new DockerUnavailableError(dockerSaid(result.stderr, `\`docker compose ps\` exited ${result.exitCode} without saying why`));
+    }
+    return result.stdout.trim().split('\n')[0] || undefined;
   }
 
   private async inspect(container: string): Promise<ContainerInspect | undefined> {
-    const result = await this.options.runner.run('docker', ['inspect', container], { reject: false });
+    const result = await runDocker(this.options.runner, ['inspect', container], { reject: false });
     if (result.exitCode !== 0) return undefined;
     try {
       const parsed = z.array(inspectSchema).safeParse(JSON.parse(result.stdout));
@@ -280,10 +300,13 @@ export class RouterService implements Router {
     return problems;
   }
 
-  /** Everything that differs between the running router and what this version would start. */
+  /**
+   * Everything that differs between the running router and what this version
+   * would start. Throws `DockerUnavailableError` when Docker cannot say.
+   */
   async verify(): Promise<string[]> {
     const ids = await Promise.all([ROUTER_SERVICE, DOCKER_API_SERVICE, INDEX_SERVICE].map((service) => this.containerId(service)));
-    if (ids.some((id) => !id)) return ['the router is not running'];
+    if (ids.some((id) => !id)) return [NOT_RUNNING];
     const [router, api, index] = await Promise.all(ids.map((id) => this.inspect(id ?? '')));
     if (!router || !api || !index) return ['the router could not be inspected'];
     return [...this.routerProblems(router), ...this.dockerApiProblems(api), ...this.indexProblems(index)];
@@ -318,9 +341,14 @@ export class RouterService implements Router {
   }
 
   async status(): Promise<RouterStatus> {
-    const problems = await this.verify();
-    const running = !problems.includes('the router is not running');
-    return { running, problems, port: this.port, network: this.network };
+    let problems: string[];
+    try {
+      problems = await this.verify();
+    } catch (error) {
+      if (!(error instanceof DockerUnavailableError)) throw error;
+      return { reachable: false, running: false, problems: [error.message], port: this.port, network: this.network };
+    }
+    return { reachable: true, running: !problems.includes(NOT_RUNNING), problems, port: this.port, network: this.network };
   }
 
   /**

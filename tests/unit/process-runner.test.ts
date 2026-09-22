@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OperationCancelledError } from '../../src/errors.ts';
-import { ExecaRunner } from '../../src/process-runner.ts';
+import { CommandStartError, ExecaRunner } from '../../src/process-runner.ts';
 
 const execa = vi.hoisted(() => vi.fn());
 
@@ -46,11 +46,15 @@ describe('ExecaRunner output', () => {
   });
 
   it('passes command deadlines to Execa and reports timeouts distinctly', async () => {
-    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: undefined, timedOut: true });
+    // Execa kills a timed-out child itself; that signal is not the child's story.
+    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: undefined, timedOut: true, isTerminated: true, signal: 'SIGTERM' });
 
     await expect(new ExecaRunner().run('docker', ['compose', 'exec'], {
       timeoutMs: 15_000
     })).rejects.toThrow('timed out after 15000 ms');
+    await expect(new ExecaRunner().run('docker', ['compose', 'exec'], {
+      timeoutMs: 15_000, reject: false
+    })).resolves.toEqual({ stdout: '', stderr: '', exitCode: 1, timedOut: true });
     expect(execa).toHaveBeenCalledWith(
       'docker',
       ['compose', 'exec'],
@@ -139,6 +143,95 @@ describe('ExecaRunner output', () => {
         killDescendants: true
       })
     );
+  });
+
+  it('diagnoses a command that never started instead of inventing an exit code', async () => {
+    execa.mockResolvedValue({
+      stdout: '', stderr: '', exitCode: undefined, failed: true, code: 'ENOENT',
+      cause: Object.assign(new Error('spawn missing-tool ENOENT'), { code: 'ENOENT' })
+    });
+
+    const attempt = new ExecaRunner().run('missing-tool', ['--version'], { reject: false });
+    await expect(attempt).rejects.toBeInstanceOf(CommandStartError);
+    await expect(attempt).rejects.toMatchObject({
+      message: '`missing-tool` could not be started: it is not on PATH (ENOENT).',
+      exitCode: 127,
+      code: 'ENOENT'
+    });
+  });
+
+  it('names the file, not PATH, when a command given by path cannot be started', async () => {
+    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: undefined, failed: true, code: 'EACCES' });
+
+    await expect(new ExecaRunner().run('/work/acme/hooks/prepare', [], { reject: false })).rejects.toMatchObject({
+      message: '`/work/acme/hooks/prepare` could not be started: it is not executable (EACCES).',
+      exitCode: 126
+    });
+  });
+
+  it('tells a script without a #! line what it is missing', async () => {
+    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: undefined, failed: true, code: 'ENOEXEC' });
+
+    await expect(new ExecaRunner().run('/work/acme/hooks/seed', [], { reject: false })).rejects.toMatchObject({
+      message: '`/work/acme/hooks/seed` could not be started: it is not a valid executable (ENOEXEC) — a script needs a #! line.',
+      exitCode: 126
+    });
+  });
+
+  it('blames the working directory, not PATH, when that is what is missing', async () => {
+    // Execa's message is three lines; only the first says what is wrong.
+    execa.mockResolvedValue({
+      stdout: '', stderr: '', exitCode: undefined, failed: true, code: 'ENOENT',
+      originalMessage: 'The "cwd" option is invalid: /work/gone.\nENOENT: no such file or directory, stat \'/work/gone\'\nspawn make ENOENT',
+      cause: Object.assign(new Error('spawn make ENOENT'), { code: 'ENOENT' })
+    });
+
+    await expect(new ExecaRunner().run('make', [], { cwd: '/work/gone', reject: false })).rejects.toMatchObject({
+      message: '`make` could not be started: it has no working directory: /work/gone does not exist (ENOENT).',
+      exitCode: 126
+    });
+  });
+
+  it('explains a working directory that is a file the same way', async () => {
+    execa.mockResolvedValue({
+      stdout: '', stderr: '', exitCode: undefined, failed: true, code: 'ENOTDIR',
+      originalMessage: 'The "cwd" option is not a directory: /work/acme/berth.toml.\nspawn make ENOTDIR',
+      cause: Object.assign(new Error('spawn make ENOTDIR'), { code: 'ENOTDIR' })
+    });
+
+    await expect(new ExecaRunner().run('make', [], { cwd: '/work/acme/berth.toml', reject: false })).rejects.toMatchObject({
+      message: '`make` could not be started: it has no working directory: /work/acme/berth.toml is not a directory (ENOTDIR).'
+    });
+  });
+
+  it('falls back to the error code alone for a spawn failure it has no words for', async () => {
+    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: undefined, failed: true, code: 'EPERM', cause: Object.assign(new Error('spawn make EPERM'), { code: 'EPERM' }) });
+
+    await expect(new ExecaRunner().run('make', [], { reject: false })).rejects.toMatchObject({
+      message: '`make` could not be started: it failed to spawn (EPERM).',
+      exitCode: 126
+    });
+  });
+
+  it('reports a child stopped for overflowing the output buffer as such, not as a signal', async () => {
+    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: undefined, failed: true, isMaxBuffer: true, isTerminated: true, signal: 'SIGTERM' });
+
+    await expect(new ExecaRunner().run('make', ['build'], { reject: false })).resolves.toEqual({ stdout: '', stderr: '', exitCode: 1, timedOut: false, outputOverflow: true });
+    await expect(new ExecaRunner().run('make', ['build'])).rejects.toThrow('Command failed (make build): produced more than 100 MB of output and was stopped');
+  });
+
+  it('treats a timed-out child as failed even when it managed to exit zero', async () => {
+    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: true, isTerminated: false });
+
+    await expect(new ExecaRunner().run('make', [], { timeoutMs: 50 })).rejects.toMatchObject({ message: expect.stringContaining('timed out after 50 ms') as string, exitCode: 124 });
+    await expect(new ExecaRunner().run('make', [], { timeoutMs: 50, reject: false })).resolves.toMatchObject({ exitCode: 0, timedOut: true });
+  });
+
+  it("reports a child ended by a signal as such, with the shell's exit code", async () => {
+    execa.mockResolvedValue({ stdout: '', stderr: '', exitCode: undefined, failed: true, isTerminated: true, signal: 'SIGKILL' });
+
+    await expect(new ExecaRunner().run('make', ['build'], { reject: false })).resolves.toMatchObject({ exitCode: 137, signal: 'SIGKILL' });
+    await expect(new ExecaRunner().run('make', ['build'])).rejects.toThrow('Command failed (make build): terminated by SIGKILL');
   });
 
   it('does not start subprocesses after cancellation was requested', async () => {

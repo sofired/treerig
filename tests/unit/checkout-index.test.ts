@@ -8,7 +8,7 @@ import { CheckoutIndexService } from '../../src/checkout-index/service.ts';
 import { buildSnapshot, entryKey, parseContainerInventory, type IndexSnapshot } from '../../src/checkout-index/snapshot.ts';
 import { secureControlDirectories } from '../../src/files.ts';
 import { controlLayout } from '../../src/layout.ts';
-import type { CommandRunner, RunResult } from '../../src/process-runner.ts';
+import { CommandStartError, type CommandRunner, type RunResult } from '../../src/process-runner.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../../src/worktree-registry.ts';
 import { RecordingLogger } from '../helpers/command-doubles.ts';
 import { fileMode } from '../helpers/fs.ts';
@@ -195,8 +195,11 @@ describe('CheckoutIndexService', () => {
     readonly calls: readonly string[][] = [];
     stdout = '';
     exitCode = 0;
-    run(_command: string, args: readonly string[] = []): Promise<RunResult> {
+    /** Pretend `docker` is not installed at all. */
+    missing = false;
+    run(command: string, args: readonly string[] = []): Promise<RunResult> {
       (this.calls as string[][]).push([...args]);
+      if (this.missing) return Promise.reject(new CommandStartError(command, 'ENOENT', `spawn ${command} ENOENT`));
       return Promise.resolve({ stdout: this.stdout, stderr: '', exitCode: this.exitCode });
     }
     which(): Promise<boolean> {
@@ -251,13 +254,30 @@ describe('CheckoutIndexService', () => {
     expect(await fileMode(layout.routerDir)).toBe(0o700);
   });
 
-  it('still writes the page when Docker is unavailable, with unknown statuses', async () => {
+  it('still writes the page when docker ps fails, with unknown statuses and a reason', async () => {
     const docker = new DockerFake();
     docker.exitCode = 1;
-    const s = await service(docker);
+    const [a] = registrations as [RegisteredWorktree];
+    const s = await service(docker, [identity(a, 'feature/a')]);
     const snapshot = await s.index.refresh();
-    expect(snapshot.entries.map((e) => e.status)).toEqual(['missing', 'missing']);   // both local, neither listed by Git
-    expect(await readFile(controlLayout(s.controlHome).indexFile, 'utf8')).toContain('status-missing');
+    expect(snapshot.entries.map((e) => [e.slug, e.status])).toEqual([['feature-a', 'unknown'], ['feature-b', 'missing']]);
+    expect(s.logger.lines).toContainEqual(
+      'warn: The index shows service state as Unknown because containers could not be listed: `docker ps` exited 1 without saying why'
+    );
+    expect(await readFile(controlLayout(s.controlHome).indexFile, 'utf8')).toContain('status-unknown');
+  });
+
+  it('still writes the page when docker itself cannot be started, saying why the states are unknown', async () => {
+    const docker = new DockerFake();
+    docker.missing = true;
+    const [a] = registrations as [RegisteredWorktree];
+    const s = await service(docker, [identity(a, 'feature/a')]);
+    const snapshot = await s.index.refresh();
+    expect(snapshot.entries.map((e) => [e.slug, e.status])).toEqual([['feature-a', 'unknown'], ['feature-b', 'missing']]);
+    expect(s.logger.lines).toContainEqual(
+      'warn: The index shows service state as Unknown because containers could not be listed: Docker is not available: the `docker` command is not on PATH (ENOENT); is Docker installed?'
+    );
+    expect(await readFile(controlLayout(s.controlHome).indexFile, 'utf8')).toContain('status-unknown');
   });
 
   it('never calls a checkout missing when Git could not be asked which worktrees exist', async () => {

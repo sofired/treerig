@@ -1,4 +1,5 @@
-import { access } from 'node:fs/promises';
+import { access, constants, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { execa, type ResultPromise } from 'execa';
 import { CliError, OperationCancelledError, signalAbortError } from './errors.ts';
@@ -25,8 +26,101 @@ export interface RunOptions {
 export interface RunResult {
   stdout: string;
   stderr: string;
+  /**
+   * The child's exit code; a child ended by a signal reports 128 plus the
+   * signal number, as a shell would, and a child killed for a timeout or
+   * for overflowing the output buffer reports 1 with the flag set.
+   */
   exitCode: number;
   timedOut?: boolean;
+  /** The child was stopped for producing more output than can be captured. */
+  outputOverflow?: boolean;
+  /** Set when a signal ended the child rather than an exit; a timeout is reported as `timedOut` alone. */
+  signal?: NodeJS.Signals;
+}
+
+/** Execa's default `maxBuffer`, per stream. */
+const OUTPUT_LIMIT_MB = 100;
+
+/**
+ * The child never ran: the executable is missing, not executable, or could not
+ * be spawned. Distinct from a failed exit, which is the command's own verdict.
+ * Exit codes follow the shell: 127 for "not found", 126 for "not executable".
+ */
+export class CommandStartError extends CliError {
+  readonly command: string;
+  readonly code: string | undefined;
+  /** The reason as a predicate — "is not executable (EACCES)." — for callers that name the command themselves. */
+  readonly detail: string;
+
+  constructor(command: string, code: string | undefined, message: string) {
+    const { detail, exitCode } = describeStartFailure(command, code, message);
+    super(`\`${command}\` could not be started: it ${detail}`, exitCode);
+    this.name = 'CommandStartError';
+    this.command = command;
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+/** Execa's first line when the working directory, not the command, is the problem: `The "cwd" option is invalid: /x.` */
+const CWD_COMPLAINT = /^The "cwd" option is (?:invalid|not a directory): (.*?)\.?$/;
+
+function describeStartFailure(command: string, code: string | undefined, message: string): { detail: string; exitCode: number } {
+  const suffix = code === undefined ? '' : ` (${code})`;
+  // Node reports a missing working directory as ENOENT on the command itself; that is not "command not found".
+  const cwd = CWD_COMPLAINT.exec(message);
+  if (cwd) {
+    const problem = code === 'ENOTDIR' ? 'is not a directory' : 'does not exist';
+    return { detail: `has no working directory: ${cwd[1]} ${problem}${suffix}.`, exitCode: 126 };
+  }
+  switch (code) {
+    case 'ENOENT':
+      return {
+        detail: command.includes('/')
+          ? 'does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT).'
+          : 'is not on PATH (ENOENT).',
+        exitCode: 127
+      };
+    case 'EACCES':
+      return { detail: 'is not executable (EACCES).', exitCode: 126 };
+    case 'ENOEXEC':
+      return { detail: 'is not a valid executable (ENOEXEC) — a script needs a #! line.', exitCode: 126 };
+    default:
+      return { detail: code === undefined ? `failed to spawn: ${message.replace(/\.$/, '')}.` : `failed to spawn${suffix}.`, exitCode: 126 };
+  }
+}
+
+/**
+ * What Execa reports when the process never started: no exit code, no
+ * timeout, no terminating signal — only the spawn's own error. Execa's own
+ * first line is kept when it explains more than Node's (a bad `cwd`).
+ */
+function startFailure(result: Awaited<ResultPromise>): { code: string | undefined; message: string } | undefined {
+  if (result.exitCode !== undefined || result.timedOut || result.isTerminated) return undefined;
+  const cause = result.cause instanceof Error ? (result.cause as NodeJS.ErrnoException) : undefined;
+  const firstLine = (text: string | undefined): string => text?.split('\n', 1)[0] ?? '';
+  const original = firstLine(result.originalMessage);
+  return {
+    code: result.code ?? cause?.code,
+    message: CWD_COMPLAINT.test(original) ? original : firstLine(cause?.message ?? result.shortMessage) || 'unknown spawn failure'
+  };
+}
+
+/** The error a rejecting `run` throws for a command that ran and did not succeed. */
+export function commandFailure(
+  command: string,
+  args: readonly string[],
+  result: RunResult,
+  options: Pick<RunOptions, 'timeoutMs'> = {}
+): CliError {
+  const detail = result.stderr.trim() || result.stdout.trim();
+  const reason = result.timedOut
+    ? `timed out after ${options.timeoutMs} ms`
+    : result.outputOverflow
+      ? `produced more than ${OUTPUT_LIMIT_MB} MB of output and was stopped`
+      : result.signal === undefined ? detail || `exit ${result.exitCode}` : `terminated by ${result.signal}`;
+  return new CliError(`Command failed (${command} ${args.join(' ')}): ${reason}`, result.timedOut ? 124 : 1);
 }
 
 /**
@@ -37,6 +131,7 @@ export interface CommandRunner {
   readonly cancellationSignal?: AbortSignal;
   cancelActive?(signal: NodeJS.Signals): Promise<void>;
   run(command: string, args?: readonly string[], options?: RunOptions): Promise<RunResult>;
+  /** Whether an executable regular file by that name is on PATH. */
   which(command: string): Promise<boolean>;
 }
 
@@ -115,18 +210,26 @@ export class ExecaRunner implements CommandRunner {
     }
     const cancellationError = this.operationCancellation(options.cancelSignal);
     if (cancellationError) throw cancellationError;
+    const failure = startFailure(result);
+    if (failure) throw new CommandStartError(command, failure.code, failure.message);
     const stdout = typeof result.stdout === 'string' ? result.stdout : '';
     const stderr = typeof result.stderr === 'string' ? result.stderr : '';
     const timedOut = result.timedOut === true;
-    if (result.exitCode !== 0 && options.reject !== false) {
-      const detail = stderr.trim() || stdout.trim();
-      throw new CliError(
-        `Command failed (${command} ${args.join(' ')}): ${timedOut
-          ? `timed out after ${options.timeoutMs} ms`
-          : detail || `exit ${result.exitCode}`}`
-      );
-    }
-    return { stdout, stderr, exitCode: result.exitCode ?? 1, timedOut };
+    const outputOverflow = result.isMaxBuffer === true;
+    // Execa ends both of those with a signal of its own; that is not the child's story.
+    const signal = !timedOut && !outputOverflow && result.isTerminated === true && typeof result.signal === 'string'
+      ? result.signal
+      : undefined;
+    const signalNumber = signal === undefined ? undefined : os.constants.signals[signal];
+    const exitCode = result.exitCode ?? (signalNumber === undefined ? 1 : 128 + signalNumber);
+    const outcome: RunResult = {
+      stdout, stderr, exitCode, timedOut,
+      ...(outputOverflow ? { outputOverflow } : {}),
+      ...(signal === undefined ? {} : { signal })
+    };
+    // A timed-out child that caught the signal and exited 0 did not succeed.
+    if ((exitCode !== 0 || timedOut || outputOverflow) && options.reject !== false) throw commandFailure(command, args, outcome, options);
+    return outcome;
   }
 
   async which(command: string): Promise<boolean> {
@@ -135,7 +238,9 @@ export class ExecaRunner implements CommandRunner {
     );
     for (const candidate of candidates) {
       try {
-        await access(candidate);
+        // A directory of that name passes an X_OK check; only a file can be run.
+        if (!(await stat(candidate)).isFile()) continue;
+        await access(candidate, constants.X_OK);
         return true;
       } catch {
         // Keep looking along PATH.

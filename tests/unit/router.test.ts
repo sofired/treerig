@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { controlLayout } from '../../src/layout.ts';
-import type { CommandRunner, RunOptions, RunResult } from '../../src/process-runner.ts';
+import { CommandStartError, type CommandRunner, type RunOptions, type RunResult } from '../../src/process-runner.ts';
 import { RouterService, type ContainerInspect } from '../../src/router/router.ts';
 import {
   DOCKER_API_ACCESS,
@@ -36,14 +36,23 @@ class DockerFake implements CommandRunner {
   upStderr = '';
   downExitCode = 0;
   downStderr = '';
+  /** What `compose ps` says when Docker itself is the problem. */
+  psExitCode = 0;
+  psStderr = '';
+  /** Pretend `docker` is not installed at all. */
+  dockerMissing = false;
   /** Called when `up --force-recreate` runs, so a test can make the recreation "fix" things. */
   onRecreate?: () => void;
 
-  run(_command: string, args: readonly string[] = [], options?: RunOptions): Promise<RunResult> {
+  run(command: string, args: readonly string[] = [], options?: RunOptions): Promise<RunResult> {
     this.calls.push({ args, options });
+    if (this.dockerMissing) return Promise.reject(new CommandStartError(command, 'ENOENT', `spawn ${command} ENOENT`));
     const ok = (stdout = ''): Promise<RunResult> => Promise.resolve({ stdout, stderr: '', exitCode: 0 });
     if (args[0] === 'compose') {
-      if (args.includes('ps')) return ok(this.ids[args.at(-1) ?? ''] ?? '');
+      if (args.includes('ps')) {
+        if (this.psExitCode !== 0) return Promise.resolve({ stdout: '', stderr: this.psStderr, exitCode: this.psExitCode });
+        return ok(this.ids[args.at(-1) ?? ''] ?? '');
+      }
       if (args.includes('up')) {
         if (args.includes('--force-recreate')) this.onRecreate?.();
         return Promise.resolve({ stdout: '', stderr: this.upStderr, exitCode: this.upExitCode });
@@ -273,7 +282,68 @@ describe('RouterService.status and down', () => {
   it('reports a router that is not running', async () => {
     const w = await world();
     w.fake.ids = {};
-    await expect(w.router.status()).resolves.toEqual({ running: false, problems: ['the router is not running'], port: 80, network: NETWORK });
+    await expect(w.router.status()).resolves.toEqual({ reachable: true, running: false, problems: ['the router is not running'], port: 80, network: NETWORK });
+  });
+
+  it('reports Docker as unreachable, not the router as stopped, when Compose cannot talk to the daemon', async () => {
+    const w = await world();
+    w.fake.psExitCode = 1;
+    w.fake.psStderr = 'failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory\n';
+
+    await expect(w.router.status()).resolves.toEqual({
+      reachable: false,
+      running: false,
+      problems: ['Docker is not available: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory'],
+      port: 80,
+      network: NETWORK
+    });
+  });
+
+  it('asks Docker about the router by project name alone, so a missing stack file is never mistaken for a missing daemon', async () => {
+    const w = await world();
+    await w.router.status();
+    const ps = w.fake.calls.find((c) => c.args.includes('ps'))?.args ?? [];
+    expect(ps).toEqual(['compose', '--project-name', PROJECT, 'ps', '--all', '--quiet', 'router']);
+  });
+
+  it('reports the line Docker meant, not the warning it printed first', async () => {
+    const w = await world();
+    w.fake.psExitCode = 1;
+    w.fake.psStderr = 'WARNING: Error parsing config file (/home/me/.docker/config.json): invalid character\n' +
+      'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n';
+
+    await expect(w.router.status()).resolves.toMatchObject({
+      reachable: false,
+      problems: ['Docker is not available: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?']
+    });
+  });
+
+  it('reports the reason, not the help hint Docker prints after it', async () => {
+    const w = await world();
+    w.fake.psExitCode = 1;
+    w.fake.psStderr = 'docker: unknown command: docker compose\n\nRun \'docker --help\' for more information\n';
+
+    await expect(w.router.status()).resolves.toMatchObject({
+      reachable: false,
+      problems: ['Docker is not available: docker: unknown command: docker compose']
+    });
+  });
+
+  it('does not blame the port when the socket is not ours', async () => {
+    const w = await world();
+    w.fake.ids = {};
+    w.fake.upExitCode = 1;
+    w.fake.upStderr = 'permission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n';
+
+    await expect(w.router.ensure()).rejects.toThrow('Docker is not available: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock');
+  });
+
+  it('says that docker is not installed instead of blaming the port when it cannot be started', async () => {
+    const w = await world();
+    w.fake.dockerMissing = true;
+
+    await expect(w.router.ensure()).rejects.toThrow('Docker is not available: the `docker` command is not on PATH (ENOENT); is Docker installed?');
+    await expect(w.router.status()).resolves.toMatchObject({ reachable: false, running: false });
   });
 
   it('treats the shared network staying behind as the expected outcome of down', async () => {

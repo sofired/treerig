@@ -2,6 +2,7 @@ import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { BRAND } from '../brand.ts';
+import { runDocker } from '../docker.ts';
 import { CliError, invariant } from '../errors.ts';
 import { assertSafeDirectoryPath, atomicWrite } from '../files.ts';
 import { hookEnvironmentVariables, worktreeEnvironment } from '../hooks/protocol.ts';
@@ -307,10 +308,10 @@ export class ComposeRuntime implements Runtime {
   private compose(
     ref: WorktreeRef,
     args: readonly string[],
-    options: RunOptions & { files?: readonly string[] } = {}
+    options: Omit<RunOptions, 'cwd'> & { files?: readonly string[] } = {}
   ): Promise<RunResult> {
     const { files, ...run } = options;
-    return this.options.runner.run('docker', [
+    return runDocker(this.options.runner, [
       'compose',
       '--project-name', this.project(ref),
       ...(files === undefined ? [] : ['--project-directory', path.dirname(this.options.composeFile)]),
@@ -457,7 +458,7 @@ export class ComposeRuntime implements Runtime {
   }
 
   private async list(type: ResourceType, labelFilters: readonly string[]): Promise<string[]> {
-    const result = await this.options.runner.run('docker', [
+    const result = await runDocker(this.options.runner, [
       ...type.listArguments,
       ...labelFilters.flatMap((filter) => ['--filter', `label=${filter}`])
     ]);
@@ -479,7 +480,7 @@ export class ComposeRuntime implements Runtime {
       label(`${namespace}.worktree-uuid`),
       label(COMPOSE_SERVICE_LABEL)
     ].join('\t');
-    const result = await this.options.runner.run('docker', [
+    const result = await runDocker(this.options.runner, [
       ...type.inspectCommand, '--format', format, id
     ], { reject: false });
     invariant(
@@ -533,7 +534,7 @@ export class ComposeRuntime implements Runtime {
     const type = RESOURCE_TYPES.find((candidate) => candidate.kind === resource.kind);
     if (!type) throw new CliError(`Unknown resource kind: ${resource.kind}`);
     await this.verify(ref, type, resource.id);
-    await this.options.runner.run('docker', [...type.removeArguments, resource.id]);
+    await runDocker(this.options.runner, [...type.removeArguments, resource.id]);
     this.options.logger.info(`Removed ${resource.kind} ${resource.id}.`);
   }
 }

@@ -78,6 +78,13 @@ Standard output and standard error are streamed to the terminal. Exit zero is
 success. Any other exit code fails the stage and is preserved as the tool's
 own exit code, so CI sees the same number your script produced.
 
+A hook that cannot be started fails the stage without running, with the
+shell's codes: 127 when the file — or the interpreter on its `#!` line — does
+not exist, 126 when it is not executable (on macOS and Alpine, also when it
+has no `#!` line; glibc-based Linux runs such a file through `/bin/sh`). A
+hook ended by a signal exits 128 plus the signal number (137 for `SIGKILL`),
+as a shell reports it.
+
 ## Cancellation
 
 Hooks are spawned through the tool's process runner, which means an interrupt

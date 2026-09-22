@@ -1,4 +1,5 @@
 import { BRAND } from '../brand.ts';
+import { DockerUnavailableError, dockerSaid, runDocker } from '../docker.ts';
 import { atomicWrite, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
@@ -63,15 +64,23 @@ export class CheckoutIndexService implements CheckoutIndex {
         `{{.Label "${namespace}.worktree-uuid"}}`,
         '{{.Label "com.docker.compose.service"}}'
       ].join('\t');
+      let reason: string;
       try {
-        const result = await this.options.runner.run('docker', [
+        const result = await runDocker(this.options.runner, [
           'ps', '--all', '--filter', `label=${namespace}.managed=true`, '--format', format
         ], { reject: false });
-        if (result.exitCode !== 0) return undefined;
-        records.push(...parseContainerInventory(result.stdout));
-      } catch {
-        return undefined;
+        if (result.exitCode === 0) {
+          records.push(...parseContainerInventory(result.stdout));
+          continue;
+        }
+        reason = dockerSaid(result.stderr, `\`docker ps\` exited ${result.exitCode} without saying why`);
+      } catch (error) {
+        // Anything else — a cancellation, say — is not a story about Docker.
+        if (!(error instanceof DockerUnavailableError)) throw error;
+        reason = error.message;
       }
+      this.options.logger.warn(`The index shows service state as Unknown because containers could not be listed: ${reason}`);
+      return undefined;
     }
     return records;
   }
