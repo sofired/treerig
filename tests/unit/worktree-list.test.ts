@@ -1,4 +1,5 @@
 import { rm } from 'node:fs/promises';
+import { indexCardPath } from '../../src/checkout-index/card.ts';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatTable, list } from '../../src/commands/list.ts';
@@ -31,7 +32,7 @@ describe('worktree list', () => {
     ]);
   });
 
-  it('reports a registration whose worktree Git no longer lists as orphaned (with its last-seen branch), and one whose first up never finished as pending', async () => {
+  it('reports a registration whose worktree Git no longer lists as missing (with its last-seen branch), and one whose first up never finished as pending', async () => {
     world = await commandWorld();
     const gone = await world.worktree('gone', 'feature/gone');
     const half = await world.worktree('half', 'feature/half');
@@ -44,10 +45,22 @@ describe('worktree list', () => {
     const rows = await list(world.context());
 
     expect(rows.map((row) => [row.slug, row.state, row.branch ?? '-'])).toEqual([
-      ['feature-gone', 'orphaned', 'feature/gone'],
+      ['feature-gone', 'missing', 'feature/gone'],
       ['feature-half', 'pending', 'feature/half'],
       ['feature-login', 'ready', 'feature/login']
     ]);
+  });
+
+  it('says a detached checkout is detached, in the index\'s words', async () => {
+    world = await commandWorld();
+    const detached = await world.worktree('detached', '');
+    await up(world.context(detached));
+    const context = world.context(detached);
+
+    const rows = await list(context);
+
+    expect(rows.map((row) => [row.slug, row.branch])).toEqual([['detached', '']]);
+    expect(context.logger.printed[1]).toContain('(detached)');
   });
 
   it('--all spans repositories and domains, with last-seen detail for the others', async () => {
@@ -64,6 +77,14 @@ describe('worktree list', () => {
       ['feature-login.acme.localhost', 'ready', world.root, true],
       ['main.widgets.localhost', 'ready', widgets, false]
     ]);
+
+    // With the other repository's card gone, nothing records its branch.
+    const [, other] = everything;
+    if (!other) throw new Error('fixture');
+    await rm(indexCardPath(world.controlHome, other.repositoryId, other.worktreeId), { force: true });
+    const forgotten = await list(world.context(), { all: true });
+    expect(forgotten.map((row) => row.branch)).toEqual(['feature/login', undefined]);
+    expect(world.context().logger.printed.join('\n')).not.toContain('(no branch)');
   });
 
   it('--json prints the rows', async () => {
@@ -72,6 +93,31 @@ describe('worktree list', () => {
     const context = world.context();
     const rows = await list(context, { json: true });
     expect(JSON.parse(context.logger.printed.join('\n'))).toEqual(rows);
+  });
+
+  it('keeps a branch name from driving the terminal, in the table and in the JSON', async () => {
+    world = await commandWorld();
+    // A clone chooses its own branch names: an escape sequence here would move
+    // a real cursor, and a right-to-left override would reverse the row.
+    const hostile = await world.worktree('hostile', 'feature/\u001b[2K\u202ex');
+    await up(world.context(hostile));
+    const context = world.context(hostile);
+
+    await list(context);
+    const table = context.logger.printed.join('\n');
+    expect([...table].some((character) => character === '\u001b' || character === '\u202e')).toBe(false);
+    expect(table).toContain('\uFFFD');
+    // Still a table: the widths are measured after the replacement, not before.
+    const lines = context.logger.printed.filter(Boolean);
+    expect(new Set(lines.map((line) => line.trimEnd().length)).size).toBeLessThanOrEqual(lines.length);
+
+    const json = world.context(hostile);
+    await list(json, { json: true });
+    const printed = json.logger.printed.join('\n');
+    expect(printed.includes('\u202e')).toBe(false);
+    expect(printed).toContain('\\u202e');
+    const parsed = JSON.parse(printed) as { branch: string }[];
+    expect(parsed[0]?.branch).toBe('feature/\u001b[2K\u202ex');
   });
 
   it('says so when nothing is registered', async () => {

@@ -5,6 +5,7 @@ import { DockerUnavailableError, dockerSaid, runDocker } from '../docker.ts';
 import { CliError, invariant } from '../errors.ts';
 import { shellQuote } from '../shell.ts';
 import { renderIndexHtml } from '../checkout-index/render.ts';
+import { placeholderSnapshot } from '../checkout-index/snapshot.ts';
 import { atomicWrite, pathExists, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
@@ -169,7 +170,7 @@ export class RouterService implements Router {
     await secureControlDirectories(this.layout);
     // The index container's health check fetches the page, so one must exist before `up --wait`.
     if (!(await pathExists(this.layout.indexFile))) {
-      await atomicWrite(this.layout.indexFile, renderIndexHtml({ entries: [], generatedAt: new Date().toISOString() }), 0o644);
+      await atomicWrite(this.layout.indexFile, renderIndexHtml(placeholderSnapshot(new Date().toISOString())), 0o644);
     }
     const document = routerStack({
       projectName: this.projectName,

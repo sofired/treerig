@@ -45,8 +45,8 @@ export const serviceSchema = z.object({
   port: z.number().int().min(1).max(65_535).optional(),
   /** Presence on the shared checkout index; omit to keep the service internal. */
   index: z.object({
-    label: z.string().min(1),
-    purpose: z.string().default('')
+    label: z.string().min(1).max(512),
+    purpose: z.string().max(512).default('')
   }).strict().optional()
 }).strict();
 

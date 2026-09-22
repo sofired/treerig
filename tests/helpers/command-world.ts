@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCommandContext, type CommandContext } from '../../src/commands/context.ts';
 import { parseConfig } from '../../src/config/load.ts';
+import { placeholderSnapshot } from '../../src/checkout-index/snapshot.ts';
 import type { CheckoutIndex } from '../../src/checkout-index/service.ts';
 import type { Router } from '../../src/router/router.ts';
 import { MemoryRuntime } from '../../src/runtime/memory.ts';
@@ -88,7 +89,7 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
       };
       const index: CheckoutIndex = {
         url: 'http://berth.localhost',
-        refresh: () => Promise.resolve({ entries: [], generatedAt: '' }),
+        refresh: () => Promise.resolve(placeholderSnapshot('')),
         refreshBestEffort: (after) => {
           world.indexRefreshes.push(after);
           return Promise.resolve();

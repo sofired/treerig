@@ -1,13 +1,16 @@
 import { readIndexCard } from '../checkout-index/card.ts';
+import { printable } from '../checkout-index/render.ts';
+import { describeBranch } from '../checkout-index/snapshot.ts';
 import { worktreeHost } from '../layout.ts';
 import type { RegisteredWorktree } from '../worktree-registry.ts';
 import type { CommandContext } from './context.ts';
 
-// Read-only. Orphan detection needs Git, so it is only offered for the
-// repository the command runs in; records from other repositories are
-// listed as the registry knows them.
+// Read-only. Telling a registration from a checkout that is gone needs Git, so
+// it is only offered for the repository the command runs in; records from other
+// repositories are listed as the registry knows them.
 
-export type WorktreeState = 'ready' | 'pending' | 'orphaned';
+/** `missing` is the index's word for the same thing: registered, but the checkout is gone. */
+export type WorktreeState = 'ready' | 'pending' | 'missing';
 
 export interface ListedRegistration extends RegisteredWorktree {
   host: string;
@@ -45,15 +48,21 @@ export async function list(context: CommandContext, options: ListOptions = {}): 
     rows.push({
       ...record,
       host: worktreeHost(record.slug, record.domain),
-      state: local && !identity ? 'orphaned' : initialization === 'pending' ? 'pending' : 'ready',
+      state: local && !identity ? 'missing' : initialization === 'pending' ? 'pending' : 'ready',
       ...(seen ? { root: seen.root, branch: seen.branch } : {}),
       current: current?.worktreeId === record.worktreeId
     });
   }
-  rows.sort((left, right) => left.domain.localeCompare(right.domain) || left.slug.localeCompare(right.slug));
+  // A fixed locale, as the index sorts with.
+  rows.sort((left, right) => left.domain.localeCompare(right.domain, 'en') || left.slug.localeCompare(right.slug, 'en'));
 
   if (options.json) {
-    logger.output(JSON.stringify(rows, null, 2));
+    // Escaped rather than filtered: the values stay exactly what they are, and
+    // nothing a branch name carries can drive the terminal printing them.
+    logger.output(JSON.stringify(rows, null, 2).replaceAll(
+      /[\u007f-\uffff]/g,
+      (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+    ));
   } else {
     for (const line of formatTable(rows, options.all === true)) logger.output(line);
   }
@@ -64,11 +73,15 @@ export function formatTable(rows: readonly ListedRegistration[], all: boolean): 
   if (rows.length === 0) {
     return [all ? 'No worktrees are registered on this machine.' : 'No worktrees are registered for this repository.'];
   }
+  // `printable`, before the widths are measured: a branch or a path is whatever
+  // a clone put there, and this table is printed to a terminal.
   const columns = [
-    { title: 'HOST', value: (row: ListedRegistration) => row.host },
+    { title: 'HOST', value: (row: ListedRegistration) => printable(row.host) },
     { title: 'STATE', value: (row: ListedRegistration) => row.state },
-    { title: 'BRANCH', value: (row: ListedRegistration) => row.branch ?? '-' },
-    { title: 'ROOT', value: (row: ListedRegistration) => row.root ?? '-' }
+    // The index's word for a detached HEAD, so one state has one name; `-` for
+    // nothing recorded, which is this table's spelling and what ROOT says beside it.
+    { title: 'BRANCH', value: (row: ListedRegistration) => row.branch === undefined ? '-' : printable(describeBranch(row.branch).text) },
+    { title: 'ROOT', value: (row: ListedRegistration) => row.root === undefined ? '-' : printable(row.root) }
   ];
   const widths = columns.map((column) =>
     Math.max(column.title.length, ...rows.map((row) => column.value(row).length))

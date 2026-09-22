@@ -1,4 +1,5 @@
 import { BRAND } from '../brand.ts';
+import { CliError } from '../errors.ts';
 import { DockerUnavailableError, dockerSaid, runDocker } from '../docker.ts';
 import { atomicWrite, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
@@ -6,10 +7,11 @@ import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
 import type { CommandRunner } from '../process-runner.ts';
 import { indexUrl } from '../router/stack.ts';
+import { printable } from './render.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../worktree-registry.ts';
-import { readIndexCard, type IndexCard } from './card.ts';
+import { readIndexCard, recordedLabelNamespace, type IndexCard } from './card.ts';
 import { renderIndexHtml } from './render.ts';
-import { buildSnapshot, entryKey, parseContainerInventory, type ContainerRecord, type IndexSnapshot } from './snapshot.ts';
+import { buildSnapshot, entryKey, parseContainerInventory, type IdentityFailure, type ContainerRecord, type IndexSnapshot } from './snapshot.ts';
 
 // Regenerates the page. Runs after every lifecycle verb, best-effort: a
 // stale index is an inconvenience, a failed `up` because of it would not be.
@@ -43,6 +45,13 @@ export interface CheckoutIndexOptions {
 }
 
 const INDEX_LOCK_TIMEOUT_MS = 60_000;
+/**
+ * The index is best-effort: a daemon that will not answer must not hold the
+ * router lock. Long enough not to give up on a daemon that is merely busy —
+ * `up` gives the same one 45 seconds to bring a stack up — and well inside the
+ * 60-second budget another command has to acquire the lock.
+ */
+const INVENTORY_TIMEOUT_MS = 30_000;
 
 export class CheckoutIndexService implements CheckoutIndex {
   readonly url: string;
@@ -54,43 +63,66 @@ export class CheckoutIndexService implements CheckoutIndex {
   }
 
   /** One `docker ps` per label namespace in use; any failure makes the whole inventory unknown. */
-  private async containers(namespaces: ReadonlySet<string>): Promise<ContainerRecord[] | undefined> {
+  private async containers(namespaces: ReadonlySet<string>): Promise<ContainerRecord[] | string> {
+    // Together: each is an independent read, and they all run while this
+    // process holds the shared router lock.
+    const answers = await Promise.all([...namespaces].map((namespace) => this.inventory(namespace)));
     const records: ContainerRecord[] = [];
-    for (const namespace of namespaces) {
-      const format = [
-        '{{.State}}',
-        '{{.Status}}',
-        `{{.Label "${namespace}.repository-uuid"}}`,
-        `{{.Label "${namespace}.worktree-uuid"}}`,
-        '{{.Label "com.docker.compose.service"}}'
-      ].join('\t');
-      let reason: string;
-      try {
-        const result = await runDocker(this.options.runner, [
-          'ps', '--all', '--filter', `label=${namespace}.managed=true`, '--format', format
-        ], { reject: false });
-        if (result.exitCode === 0) {
-          records.push(...parseContainerInventory(result.stdout));
-          continue;
-        }
-        reason = dockerSaid(result.stderr, `\`docker ps\` exited ${result.exitCode} without saying why`);
-      } catch (error) {
-        // Anything else — a cancellation, say — is not a story about Docker.
-        if (!(error instanceof DockerUnavailableError)) throw error;
-        reason = error.message;
+    for (const answer of answers) {
+      // Said once, however many namespaces were asked: it is one story.
+      if (typeof answer === 'string') {
+        const reason = printable(answer);
+        this.options.logger.warn(`The index shows service state as Unknown because containers could not be listed: ${reason}`);
+        return reason;
       }
-      this.options.logger.warn(`The index shows service state as Unknown because containers could not be listed: ${reason}`);
-      return undefined;
+      records.push(...answer);
     }
     return records;
+  }
+
+  /** One namespace's containers, or why it could not answer. */
+  private async inventory(namespace: string): Promise<ContainerRecord[] | string> {
+    const format = [
+      '{{.State}}',
+      '{{.Status}}',
+      `{{.Label "${namespace}.repository-uuid"}}`,
+      `{{.Label "${namespace}.worktree-uuid"}}`,
+      '{{.Label "com.docker.compose.service"}}'
+    ].join('\t');
+    let result;
+    try {
+      result = await runDocker(this.options.runner, [
+        'ps', '--all', '--filter', `label=${namespace}.managed=true`, '--format', format
+      ], { reject: false, timeoutMs: INVENTORY_TIMEOUT_MS });
+    } catch (error) {
+      // Docker being unavailable is a story about Docker; a cancellation, or
+      // anything else, belongs to whoever asked.
+      if (error instanceof DockerUnavailableError) return error.message;
+      throw error;
+    }
+    if (result.timedOut) return `\`docker ps\` did not answer within ${INVENTORY_TIMEOUT_MS / 1000}s`;
+    if (result.exitCode !== 0) {
+      return dockerSaid(result.stderr, `\`docker ps\` exited ${result.exitCode} without saying why`);
+    }
+    try {
+      return parseContainerInventory(result.stdout);
+    } catch (error) {
+      // A line this tool cannot read is a story about Docker too: the page says
+      // Unknown rather than the command failing outright.
+      if (error instanceof CliError) return error.message;
+      throw error;
+    }
   }
 
   async snapshot(): Promise<IndexSnapshot> {
     const { registry, controlHome } = this.options;
     const registrations = await registry.listAll();
+    // Read together: this runs while the shared router lock is held.
     const cards = new Map<string, IndexCard>();
-    for (const record of registrations) {
-      const card = await readIndexCard(controlHome, record.repositoryId, record.worktreeId);
+    const read = await Promise.all(registrations.map(async (record) =>
+      [record, await readIndexCard(controlHome, record.repositoryId, record.worktreeId)] as const
+    ));
+    for (const [record, card] of read) {
       if (card) cards.set(entryKey(record), card);
     }
     // Git may be unavailable, or one sibling's marker unreadable; the index
@@ -98,21 +130,42 @@ export class CheckoutIndexService implements CheckoutIndex {
     // called missing — "run worktree remove" is advice for a certainty, not a guess.
     let identities: WorktreeIdentity[] = [];
     let currentRepositoryId: string | undefined;
-    let identityError: string | undefined;
+    let identityError: IdentityFailure | undefined;
     try {
       currentRepositoryId = await registry.identities.repositoryId();
       if (currentRepositoryId !== undefined) identities = await registry.identities.activeIdentities();
     } catch (error) {
       identities = [];
-      const reason = error instanceof Error ? error.message : String(error);
-      identityError = `Git could not list the worktrees of ${registry.identities.root}: ${reason}`;
-      this.options.logger.warn(currentRepositoryId === undefined
-        ? `${identityError}. The index cannot tell which of its checkouts are missing.`
-        : `${identityError}. The index shows its checkouts as unknown.`);
+      const reason = printable(error instanceof Error ? error.message : String(error));
+      // Which call failed decides both what to say and what it costs the page.
+      const said = currentRepositoryId === undefined
+        ? `Git could not identify the repository at ${registry.identities.root}: ${reason}`
+        : `Git could not list the worktrees of ${registry.identities.root}: ${reason}`;
+      identityError = { reason: said, rowsUnknown: currentRepositoryId !== undefined };
+      this.options.logger.warn(identityError.rowsUnknown
+        ? `${said}. The index shows its checkouts as unknown.`
+        : `${said}. The index cannot tell which of its checkouts are missing.`);
     }
-    const namespaces = new Set([BRAND.labelNamespace, ...[...cards.values()].map((card) => card.labelNamespace)]);
-    const containers = await this.containers(namespaces);
+    // One question, one answer: `recordedLabelNamespace` reads the registration,
+    // the card, and a quarantined home. The registration outlives the home, so
+    // a worktree whose card is gone still says which namespace to ask about —
+    // miss one and its containers go unlisted, which reads as Stopped.
+    const recorded = await Promise.all(registrations.map(async (record) =>
+      // The card this method already read answers for most of them; only a
+      // record older than namespace tracking, whose home is gone or
+      // quarantined, needs the helper to go back to disk.
+      record.labelNamespace ?? cards.get(entryKey(record))?.labelNamespace ??
+        await recordedLabelNamespace(controlHome, record)
+    ));
+    const namespaces = new Set([
+      BRAND.labelNamespace,
+      ...recorded.flatMap((namespace) => namespace === undefined ? [] : [namespace])
+    ]);
+    const inventory = await this.containers(namespaces);
+    const containers = typeof inventory === 'string' ? undefined : inventory;
     return buildSnapshot({
+      routerPort: this.options.routerPort,
+      ...(typeof inventory === 'string' ? { dockerError: inventory } : {}),
       registrations,
       cards,
       identities,

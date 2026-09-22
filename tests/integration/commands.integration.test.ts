@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { placeholderSnapshot } from '../../src/checkout-index/snapshot.ts';
 import { createCommandContext, type CommandContext, type ProcessControl } from '../../src/commands/context.ts';
 import { down, status, up, urls } from '../../src/commands/worktree.ts';
 import { loadConfig } from '../../src/config/load.ts';
@@ -84,7 +85,7 @@ async function world(): Promise<World> {
         controlHome,
         routerPort: 80,
         router: { port: 80, network: 'berth-router', indexUrl: 'http://berth.localhost', ensure: () => Promise.resolve() },
-        index: { url: 'http://berth.localhost', refresh: () => Promise.resolve({ entries: [], generatedAt: '' }), refreshBestEffort: () => Promise.resolve() },
+        index: { url: 'http://berth.localhost', refresh: () => Promise.resolve(placeholderSnapshot('')), refreshBestEffort: () => Promise.resolve() },
         commandName: 'berth',
         logger,
         runner: overrides.runner ?? runner,
