@@ -49,13 +49,13 @@ class DockerFake implements CommandRunner {
   labels = new Map<string, Record<string, string>>();
   uninspectable = new Set<string>();
 
-  own(id: string, service = ''): void {
+  /** `composeLabels: false` is an image from Compose's bake builder, which stamps only our `build.labels`. */
+  own(id: string, service = '', { composeLabels = true } = {}): void {
     this.labels.set(id, {
       [`${NS}.managed`]: 'true',
-      'com.docker.compose.project': PROJECT,
       [`${NS}.repository-uuid`]: REF.repositoryId,
       [`${NS}.worktree-uuid`]: REF.worktreeId,
-      'com.docker.compose.service': service
+      ...(composeLabels ? { 'com.docker.compose.project': PROJECT, 'com.docker.compose.service': service } : {})
     });
   }
 
@@ -417,6 +417,30 @@ describe('ComposeRuntime inventory and reap', () => {
     fake.labels.set('stray', { ...fake.labels.get('stray'), 'com.docker.compose.project': 'somebody-else' });
     const { runtime: rt } = await runtime(fake);
     await expect(rt.inventory(REF)).rejects.toThrow('Refusing to touch container stray');
+  });
+
+  it('accepts and reaps an image the bake builder left without Compose\'s own labels', async () => {
+    const fake = populated();
+    fake.own('i1', '', { composeLabels: false });
+    const { runtime: rt } = await runtime(fake);
+
+    await expect(rt.inventory(REF)).resolves.toContainEqual({ kind: 'image', id: 'i1' });
+    await rt.reap(REF, { kind: 'image', id: 'i1' });
+    expect(fake.calls.some((c) => c.args.join(' ') === 'image rm i1')).toBe(true);
+  });
+
+  it('still refuses an image whose Compose project label names another project', async () => {
+    const fake = populated();
+    fake.labels.set('i1', { ...fake.labels.get('i1'), 'com.docker.compose.project': 'somebody-else' });
+    const { runtime: rt } = await runtime(fake);
+    await expect(rt.inventory(REF)).rejects.toThrow('Refusing to touch image i1: its ownership labels do not match this worktree.');
+  });
+
+  it('refuses a volume without a Compose project label: only images may lack one', async () => {
+    const fake = populated();
+    fake.own('v1', '', { composeLabels: false });
+    const { runtime: rt } = await runtime(fake);
+    await expect(rt.inventory(REF)).rejects.toThrow('Refusing to touch volume v1: its ownership labels do not match this worktree.');
   });
 
   it('reap re-verifies and then removes with the right verb for each kind', async () => {

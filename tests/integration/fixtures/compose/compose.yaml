@@ -1,8 +1,11 @@
 # Fixture for the real-Docker tests. Two tiny HTTP servers, one built image,
 # one named volume, and environment references that prove the BERTH_* injection.
+# `init: true` everywhere: busybox as PID 1 ignores SIGTERM, so without an init
+# every stop waits out Docker's 10 s grace period.
 services:
   api:
     image: busybox:1.37.0
+    init: true
     command: ["sh", "-c", "mkdir -p /www && echo 'hello from api' > /www/index.html && exec httpd -f -p 8080 -h /www"]
     expose: ["8080"]
     environment:
@@ -13,10 +16,12 @@ services:
       - data:/data
   worker:
     image: busybox:1.37.0
+    init: true
     command: ["sh", "-c", "mkdir -p /www && echo 'hello from worker' > /www/index.html && exec httpd -f -p 9090 -h /www"]
     expose: ["9090"]
   builder:
     # String form on purpose: the override's `build.labels` must merge into what a real consumer writes.
     build: ./builder
+    init: true
 volumes:
   data: {}

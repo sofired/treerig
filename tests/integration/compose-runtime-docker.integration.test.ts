@@ -3,7 +3,7 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execa } from 'execa';
-import { afterEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, inject, it } from 'vitest';
 import { secureWorktreeDirectories } from '../../src/files.ts';
 import { composeProjectName, worktreeLayout } from '../../src/layout.ts';
 import { silentLogger } from '../../src/logger.ts';
@@ -11,8 +11,8 @@ import { ExecaRunner } from '../../src/process-runner.ts';
 import { ComposeRuntime } from '../../src/runtime/compose.ts';
 import type { WorktreeRef } from '../../src/runtime/runtime.ts';
 
-// A namespace no real installation uses, so the sweep in afterEach can never
-// touch a developer's actual environments.
+// A namespace no real installation uses, so the sweeps can never touch a
+// developer's actual environments.
 const NS = 'dev.berth-test-compose';   // per file, so one suite's sweep can never touch another's resources
 const FIXTURE = path.resolve(import.meta.dirname, 'fixtures', 'compose');
 const COMPOSE_FILE = path.join(FIXTURE, 'compose.yaml');
@@ -20,6 +20,9 @@ const NESTED = path.resolve(import.meta.dirname, 'fixtures', 'compose-nested');
 
 const temporary: string[] = [];
 const projects: string[] = [];
+// The repositories the current test created. Cleanup after a test is confined to them, so a
+// cleanup that outlives its test cannot remove what the next test just created.
+const repositories: string[] = [];
 const DOCKER = inject('docker');
 // A config that forgot the global setup would otherwise skip everything in silence.
 if (typeof DOCKER !== 'boolean') throw new Error('The integration config must load tests/helpers/docker-setup.ts.');
@@ -27,6 +30,15 @@ if (typeof DOCKER !== 'boolean') throw new Error('The integration config must lo
 async function docker(args: readonly string[], reject = true): Promise<string> {
   const result = await execa('docker', [...args], { reject });
   return result.stdout.trim();
+}
+
+/** Removes every container, volume, network, and image carrying all of these labels. */
+async function sweep(labels: readonly string[]): Promise<void> {
+  const filters = labels.flatMap((label) => ['--filter', `label=${label}`]);
+  for (const [kind, list] of [['container', ['ps', '-aq']], ['volume', ['volume', 'ls', '-q']], ['network', ['network', 'ls', '-q']], ['image', ['image', 'ls', '-q']]] as const) {
+    const ids = (await docker([...list, ...filters], false)).split(/\s+/).filter(Boolean);
+    for (const id of ids) await docker([kind, 'rm', ...(kind === 'network' ? [] : ['--force']), id], false);
+  }
 }
 
 async function exists(kind: 'container' | 'volume' | 'network' | 'image', name: string): Promise<boolean> {
@@ -57,6 +69,7 @@ async function world() {
   // The command layer creates the worktree home before `up`; the runtime refuses to.
   const ref = async (slug: string): Promise<WorktreeRef> => {
     const worktree = { repositoryId: randomUUID(), worktreeId: randomUUID(), slug };
+    repositories.push(worktree.repositoryId);
     projects.push(composeProjectName(worktree.repositoryId, worktree.worktreeId));
     await secureWorktreeDirectories(worktreeLayout(controlHome, worktree.repositoryId, worktree.worktreeId));
     return worktree;
@@ -65,16 +78,19 @@ async function world() {
 }
 
 describe.skipIf(!DOCKER)('ComposeRuntime against a real daemon', () => {
+  // Anything a killed run left behind, before any test of this run has created something.
+  beforeAll(() => sweep([`${NS}.managed=true`]));
+
   afterEach(async () => {
-    for (const project of projects.splice(0)) {
+    // Taken before the first await: a cleanup that outlives its test must not
+    // pick up what the next test registers.
+    const [ownProjects, ownRepositories, ownDirectories] = [projects.splice(0), repositories.splice(0), temporary.splice(0)];
+    for (const project of ownProjects) {
       await execa('docker', ['compose', '-p', project, 'down', '--volumes', '--rmi', 'local', '--remove-orphans'], { reject: false });
     }
-    // Belt and braces: anything still carrying the test namespace goes too.
-    for (const [kind, list] of [['container', ['ps', '-aq']], ['volume', ['volume', 'ls', '-q']], ['network', ['network', 'ls', '-q']], ['image', ['image', 'ls', '-q']]] as const) {
-      const ids = (await docker([...list, '--filter', `label=${NS}.managed=true`], false)).split(/\s+/).filter(Boolean);
-      for (const id of ids) await docker([kind, 'rm', ...(kind === 'network' ? [] : ['--force']), id], false);
-    }
-    await Promise.all(temporary.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+    // Belt and braces: anything else this test's repositories still own goes too.
+    for (const repository of ownRepositories) await sweep([`${NS}.managed=true`, `${NS}.repository-uuid=${repository}`]);
+    await Promise.all(ownDirectories.map((d) => rm(d, { recursive: true, force: true })));
   });
 
   it('brings a worktree up with ownership labels and injected environment, reports it, takes it down, and reaps it', async () => {
