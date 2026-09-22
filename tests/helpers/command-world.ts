@@ -34,6 +34,12 @@ export interface CommandWorld {
   dispose(): Promise<void>;
 }
 
+/** The services every test config declares; the in-memory runtime declares the same ones. */
+const SERVICES: ReadonlyArray<{ name: string; subdomain?: string }> = [
+  { name: 'api' },
+  { name: 'mail', subdomain: 'mail' }
+];
+
 const CONFIG = (name: string, domain: string, labelNamespace?: string): string => `
 [project]
 name = "${name}"
@@ -41,11 +47,7 @@ domain = "${domain}"
 ${labelNamespace === undefined ? '' : `label-namespace = "${labelNamespace}"`}
 [compose]
 file = "compose.yaml"
-[[service]]
-name = "api"
-[[service]]
-name = "mail"
-subdomain = "mail"
+${SERVICES.map((service) => `[[service]]\nname = "${service.name}"${service.subdomain === undefined ? '' : `\nsubdomain = "${service.subdomain}"`}`).join('\n')}
 `;
 
 export async function commandWorld(branch = 'feature/login', domain = 'acme.localhost'): Promise<CommandWorld> {
@@ -53,7 +55,7 @@ export async function commandWorld(branch = 'feature/login', domain = 'acme.loca
   const controlHome = path.join(base, 'control');
   const common = path.join(base, 'common');
   const runner = new GitRunner();
-  const runtime = new MemoryRuntime();
+  const runtime = new MemoryRuntime({ services: SERVICES.map((service) => service.name) });
   const worktree = async (name: string, wtBranch: string, wtCommon = common): Promise<string> => {
     const root = path.join(base, name);
     await mkdir(root, { recursive: true });

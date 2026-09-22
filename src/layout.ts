@@ -13,6 +13,8 @@ import { CliError } from './errors.ts';
  *     locks/router                      routerLockPath
  *     locks/worktrees/<repo>/<wt>       worktree operation lock
  *     locks/worktrees/<repo>/<wt>.dev   development-session lock
+ *     router/compose.yaml               the shared router's stack file
+ *     router/protocol                   the protocol of the last router that ran here
  *     router/index/index.html           the shared checkout index
  *     repositories/<repo>/worktrees/    registry records, one JSON per worktree
  *     repositories/<repo>/instances/<wt>/   the worktree's home
@@ -22,6 +24,12 @@ export interface ControlLayout {
   controlHome: string;
   routerDir: string;
   routerComposeFile: string;
+  /**
+   * The protocol of the last router known to have run for this control home:
+   * written from the evidence found before an upgrade is attempted, and
+   * promoted once the new router verifies. See `RouterService`.
+   */
+  routerProtocolFile: string;
   /**
    * Bind-mounted read-only into the router; 0755, and files written there
    * must be 0644 and must never contain secrets (TLS keys, tokens) — those
@@ -82,6 +90,7 @@ export function controlLayout(controlHome: string): ControlLayout {
     controlHome: resolved,
     routerDir,
     routerComposeFile: path.join(routerDir, 'compose.yaml'),
+    routerProtocolFile: path.join(routerDir, 'protocol'),
     routerDynamicDir: path.join(routerDir, 'dynamic'),
     indexDir,
     indexFile: path.join(indexDir, 'index.html'),

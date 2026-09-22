@@ -12,7 +12,20 @@ import { BRAND } from '../brand.ts';
 // and refuses everything else, including every POST.
 
 /** Bumped whenever the stack changes shape; a newer router is never downgraded. */
-export const ROUTER_PROTOCOL = 2;
+export const ROUTER_PROTOCOL = 3;
+
+/**
+ * The label a container carries to be routed, naming the shared network of
+ * the router it belongs to. Traefik is told to discover nothing else, so two
+ * router stacks on one daemon — the integration suite's beside a real
+ * installation's, say — never route each other's containers. Keyed on the
+ * tool's own namespace, whatever a project labels its own resources with,
+ * since the router is machine-wide. (Traefik reserves `traefik.*` for
+ * configuration, so its own network label cannot serve as the constraint.)
+ */
+export const ROUTED_BY_LABEL = `${BRAND.labelNamespace}.router`;
+/** The protocol that introduced the label: a router older than this routed containers that carry none. */
+export const ROUTED_BY_SINCE_PROTOCOL = 3;
 
 export const ROUTER_IMAGE = 'traefik:v3.7.9@sha256:652929a140a32d7cafafb13c6cdfab5376cfeff800f51397b87b524501ed02a8';
 export const DOCKER_API_IMAGE = 'tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459';
@@ -84,10 +97,11 @@ export function indexUrl(port: number): string {
 }
 
 /** The index is routed like any worktree service: by labels, through the shared network. */
-export function indexRouteLabels(): Record<string, string> {
+export function indexRouteLabels(network: string): Record<string, string> {
   const name = `${BRAND.name}-index`;
   return {
     'traefik.enable': 'true',
+    [ROUTED_BY_LABEL]: network,
     [`traefik.http.routers.${name}.rule`]: `Host(\`${INDEX_HOST}\`)`,
     [`traefik.http.routers.${name}.entrypoints`]: ROUTER_ENTRYPOINT,
     [`traefik.http.services.${name}.loadbalancer.server.port`]: String(INDEX_PORT)
@@ -108,6 +122,7 @@ export function routerCommand(options: Pick<RouterStackOptions, 'network'>): str
     '--providers.docker=true',
     `--providers.docker.endpoint=tcp://${DOCKER_API_SERVICE}:2375`,
     '--providers.docker.exposedbydefault=false',
+    `--providers.docker.constraints=Label(\`${ROUTED_BY_LABEL}\`,\`${options.network}\`)`,
     `--providers.docker.network=${options.network}`,
     `--providers.file.directory=${DYNAMIC_CONFIG_MOUNT}`,
     '--providers.file.watch=true',
@@ -159,7 +174,7 @@ export function routerStack(options: RouterStackOptions): Record<string, unknown
         ...HARDENED,
         volumes: [{ type: 'bind', source: options.indexDir, target: INDEX_MOUNT, read_only: true }],
         healthcheck: { test: ['CMD', 'wget', '-qO-', `http://127.0.0.1:${INDEX_PORT}/index.html`], ...HEALTHCHECK },
-        labels: { ...routerLabels(options.labelNamespace, INDEX_SERVICE), ...indexRouteLabels() },
+        labels: { ...routerLabels(options.labelNamespace, INDEX_SERVICE), ...indexRouteLabels(options.network) },
         networks: [ROUTER_SERVICE]
       }
     },

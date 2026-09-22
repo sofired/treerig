@@ -207,6 +207,17 @@ describe('path containment', () => {
 });
 
 describe('secure directory creation', () => {
+  it('refuses a symlink where the router reads its own files back', async () => {
+    for (const file of ['router/compose.yaml', 'router/protocol'] as const) {
+      const home = await scratch();
+      const layout = controlLayout(home);
+      await secureControlDirectories(layout);   // established and marked, as on any real run
+      await symlink(path.join(await scratch(), 'elsewhere'), path.join(home, file));
+
+      await expect(secureControlDirectories(layout)).rejects.toThrow('Refusing symlinked or non-file managed path');
+    }
+  });
+
   it('does not change the process umask, which hooks would inherit', async () => {
     const original = process.umask(0o022);
     try {

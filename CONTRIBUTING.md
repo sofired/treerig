@@ -32,7 +32,8 @@ command — not a find-and-replace.
 
 **No unused parameters, no parameter properties.** The TypeScript config uses
 `erasableSyntaxOnly` so the source can run on Node directly. Stub methods that
-must satisfy an interface may simply omit their parameters.
+must satisfy an interface may simply omit their parameters; where the concrete
+class is called directly, keep them and `void` each.
 
 ## Tests
 
@@ -42,6 +43,17 @@ integration test under `tests/integration/` instead.
 
 Every module with security-relevant behaviour — path containment, file modes,
 lock recovery, identity markers — has a dedicated test file. Keep it that way.
+
+The Docker suites (`*-docker.integration.test.ts`) need a daemon; without one
+they skip themselves, and the run says why once, at the start. CI's Linux leg
+sets `BERTH_TEST_REQUIRE_DOCKER=1`, which turns that skip into a failure.
+`true`, `yes`, and `on` count as well; `0`, `false`, `no`, and `off` mean the
+default; case does not matter, and any other value is refused rather than
+guessed at. The probe runs once for the whole integration run, whichever
+files the run includes, so a daemon-free run of just the Git and lock suites
+still pays for it — and still fails under `BERTH_TEST_REQUIRE_DOCKER=1`. The
+Docker suites sweep anything a killed run left behind, without regard to age,
+so run one of them at a time on a machine.
 
 ## Commit messages
 

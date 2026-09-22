@@ -185,6 +185,9 @@ export async function secureControlDirectories(layout: ControlLayout): Promise<v
   await assertSafeFilePath(layout.controlHome, layout.registryLockPath);
   await assertSafeFilePath(layout.controlHome, layout.routerLockPath);
   await assertSafeFilePath(layout.controlHome, layout.indexFile);
+  // Both are read back, not only written: a symlink at either would send the read elsewhere.
+  await assertSafeFilePath(layout.controlHome, layout.routerComposeFile);
+  await assertSafeFilePath(layout.controlHome, layout.routerProtocolFile);
 }
 
 /** Directories a worktree needs before it can be registered — no home yet. */

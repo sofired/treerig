@@ -86,7 +86,7 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
   });
   // The router is machine-wide, so it keeps the tool's own label namespace
   // even when a project adopts a predecessor's for its worktree resources.
-  const router = options.router ?? new RouterService({ controlHome, port: options.routerPort, runner, logger, invocation });
+  const router = options.router ?? new RouterService({ controlHome, port: options.routerPort, runner, logger, invocation, commandName });
   const compose = (namespace: string): Runtime => new ComposeRuntime({
     composeFile: composeFilePath(loaded),
     projectRoot: loaded.root,

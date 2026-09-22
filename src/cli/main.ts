@@ -74,7 +74,8 @@ async function main(argv: readonly string[]): Promise<void> {
     port: resolveRouterPort(process.env),
     runner: new ExecaRunner(),
     logger,
-    invocation
+    invocation,
+    commandName
   });
 
   program.command('dev').description('start this worktree\'s environment and follow its logs').action(notYet('dev'));

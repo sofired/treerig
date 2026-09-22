@@ -34,6 +34,7 @@ export interface RemoveOptions {
 
 export interface RemoveResult {
   target: RegisteredWorktree;
+  /** Everything the worktree owned that is now gone, in inventory order: what stopping it removed and what was reaped. */
   resources: OwnedResource[];
   home: boolean;
   registration: boolean;
@@ -88,7 +89,14 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
       // `up` must seed again rather than start on empty volumes.
       await registry.store(target.repositoryId).markPending(target.worktreeId, target.slug, logger);
       for (const resource of owned) await runtime.reap(ref, resource);
-      return owned;
+      // Everything now gone, in inventory order — what `down` took (containers
+      // and their networks, which the second inventory no longer sees) together
+      // with what was reaped — so the summary lists kinds the way the plan did.
+      const gone = new Map(current.map((resource) => [`${resource.kind}:${resource.id}`, resource]));
+      // `owned` is normally a subset of `current`; the second pass is for anything
+      // that appeared between the two inventories and was reaped all the same.
+      for (const resource of owned) gone.set(`${resource.kind}:${resource.id}`, resource);
+      return [...gone.values()];
     });
     const home = await removeHome(layout, context.commandName);
     const registration = await registry.store(target.repositoryId).remove(target.worktreeId, target.slug, logger);

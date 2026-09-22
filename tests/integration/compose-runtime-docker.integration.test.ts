@@ -3,7 +3,7 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execa } from 'execa';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, inject, it } from 'vitest';
 import { secureWorktreeDirectories } from '../../src/files.ts';
 import { composeProjectName, worktreeLayout } from '../../src/layout.ts';
 import { silentLogger } from '../../src/logger.ts';
@@ -20,6 +20,9 @@ const NESTED = path.resolve(import.meta.dirname, 'fixtures', 'compose-nested');
 
 const temporary: string[] = [];
 const projects: string[] = [];
+const DOCKER = inject('docker');
+// A config that forgot the global setup would otherwise skip everything in silence.
+if (typeof DOCKER !== 'boolean') throw new Error('The integration config must load tests/helpers/docker-setup.ts.');
 
 async function docker(args: readonly string[], reject = true): Promise<string> {
   const result = await execa('docker', [...args], { reject });
@@ -29,22 +32,6 @@ async function docker(args: readonly string[], reject = true): Promise<string> {
 async function exists(kind: 'container' | 'volume' | 'network' | 'image', name: string): Promise<boolean> {
   return (await execa('docker', [kind, 'inspect', name], { reject: false })).exitCode === 0;
 }
-
-beforeAll(async () => {
-  await docker(['info']);
-});
-
-afterEach(async () => {
-  for (const project of projects.splice(0)) {
-    await execa('docker', ['compose', '-p', project, 'down', '--volumes', '--rmi', 'local', '--remove-orphans'], { reject: false });
-  }
-  // Belt and braces: anything still carrying the test namespace goes too.
-  for (const [kind, list] of [['container', ['ps', '-aq']], ['volume', ['volume', 'ls', '-q']], ['network', ['network', 'ls', '-q']], ['image', ['image', 'ls', '-q']]] as const) {
-    const ids = (await docker([...list, '--filter', `label=${NS}.managed=true`], false)).split(/\s+/).filter(Boolean);
-    for (const id of ids) await docker([kind, 'rm', ...(kind === 'network' ? [] : ['--force']), id], false);
-  }
-  await Promise.all(temporary.splice(0).map((d) => rm(d, { recursive: true, force: true })));
-});
 
 function runtimeFor(controlHome: string, composeFile: string, projectRoot: string): ComposeRuntime {
   return new ComposeRuntime({
@@ -77,7 +64,19 @@ async function world() {
   return { controlHome, runtime, ref };
 }
 
-describe('ComposeRuntime against a real daemon', () => {
+describe.skipIf(!DOCKER)('ComposeRuntime against a real daemon', () => {
+  afterEach(async () => {
+    for (const project of projects.splice(0)) {
+      await execa('docker', ['compose', '-p', project, 'down', '--volumes', '--rmi', 'local', '--remove-orphans'], { reject: false });
+    }
+    // Belt and braces: anything still carrying the test namespace goes too.
+    for (const [kind, list] of [['container', ['ps', '-aq']], ['volume', ['volume', 'ls', '-q']], ['network', ['network', 'ls', '-q']], ['image', ['image', 'ls', '-q']]] as const) {
+      const ids = (await docker([...list, '--filter', `label=${NS}.managed=true`], false)).split(/\s+/).filter(Boolean);
+      for (const id of ids) await docker([kind, 'rm', ...(kind === 'network' ? [] : ['--force']), id], false);
+    }
+    await Promise.all(temporary.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  });
+
   it('brings a worktree up with ownership labels and injected environment, reports it, takes it down, and reaps it', async () => {
     const w = await world();
     const subject = await w.ref('feature-subject');

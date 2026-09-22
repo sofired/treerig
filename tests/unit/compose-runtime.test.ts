@@ -8,6 +8,7 @@ import { silentLogger } from '../../src/logger.ts';
 import type { CommandRunner, RunOptions, RunResult } from '../../src/process-runner.ts';
 import { ComposeRuntime, type RouteSpec } from '../../src/runtime/compose.ts';
 import type { OwnedResource, WorktreeRef } from '../../src/runtime/runtime.ts';
+import { ROUTED_BY_LABEL } from '../../src/router/stack.ts';
 
 const NS = 'dev.berth';
 const REF: WorktreeRef = {
@@ -189,6 +190,7 @@ describe('ComposeRuntime up', () => {
         [`${NS}.worktree-uuid`]: REF.worktreeId,
         'traefik.enable': 'true',
         'traefik.docker.network': 'berth-router',
+        [ROUTED_BY_LABEL]: 'berth-router',
         [`traefik.http.routers.${PROJECT}-api.rule`]: 'Host(`feature-login.acme.localhost`)',
         [`traefik.http.routers.${PROJECT}-api.entrypoints`]: 'web',
         [`traefik.http.services.${PROJECT}-api.loadbalancer.server.port`]: '8080'   // from `expose`

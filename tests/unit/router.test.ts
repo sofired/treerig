@@ -1,7 +1,9 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { chmodSync } from 'node:fs';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { pathExists, secureControlDirectories } from '../../src/files.ts';
 import { controlLayout } from '../../src/layout.ts';
 import { CommandStartError, type CommandRunner, type RunOptions, type RunResult } from '../../src/process-runner.ts';
 import { RouterService, type ContainerInspect } from '../../src/router/router.ts';
@@ -15,6 +17,7 @@ import {
   INDEX_MOUNT,
   indexRouteLabels,
   ROUTER_IMAGE,
+  ROUTED_BY_SINCE_PROTOCOL,
   ROUTER_PROTOCOL,
   routerCommand
 } from '../../src/router/stack.ts';
@@ -41,6 +44,8 @@ class DockerFake implements CommandRunner {
   psStderr = '';
   /** Pretend `docker` is not installed at all. */
   dockerMissing = false;
+  /** Called on every `up`, so a test can make the start itself bring containers back. */
+  onUp?: () => void;
   /** Called when `up --force-recreate` runs, so a test can make the recreation "fix" things. */
   onRecreate?: () => void;
 
@@ -54,6 +59,8 @@ class DockerFake implements CommandRunner {
         return ok(this.ids[args.at(-1) ?? ''] ?? '');
       }
       if (args.includes('up')) {
+        // A failed start brings nothing back in this fake; a leftover container is staged by hand.
+        if (this.upExitCode === 0) this.onUp?.();
         if (args.includes('--force-recreate')) this.onRecreate?.();
         return Promise.resolve({ stdout: '', stderr: this.upStderr, exitCode: this.upExitCode });
       }
@@ -116,7 +123,7 @@ function apiDoc(): ContainerInspect {
 
 function indexDoc(indexDir: string): ContainerInspect {
   return {
-    Config: { Cmd: [...INDEX_COMMAND], Image: INDEX_IMAGE, Labels: { ...labels('index'), ...indexRouteLabels() } },
+    Config: { Cmd: [...INDEX_COMMAND], Image: INDEX_IMAGE, Labels: { ...labels('index'), ...indexRouteLabels(NETWORK) } },
     HostConfig: { CapAdd: [], CapDrop: ['ALL'], ReadonlyRootfs: true, SecurityOpt: ['no-new-privileges:true'] },
     Mounts: [{ Type: 'bind', Source: indexDir, Destination: INDEX_MOUNT, RW: false }],
     NetworkSettings: { Networks: { [NETWORK]: {} }, Ports: {} },
@@ -124,9 +131,9 @@ function indexDoc(indexDir: string): ContainerInspect {
   };
 }
 
-async function world(port = 80) {
-  const controlHome = await mkdtemp(path.join(tmpdir(), 'berth-router-'));
-  temporary.push(controlHome);
+async function world(port = 80, existing?: string) {
+  const controlHome = existing ?? await mkdtemp(path.join(tmpdir(), 'berth-router-'));
+  if (existing === undefined) temporary.push(controlHome);
   const fake = new DockerFake();
   const logger = new RecordingLogger();
   const layout = controlLayout(controlHome);
@@ -136,10 +143,30 @@ async function world(port = 80) {
     fake.docs.set('index-1', indexDoc(layout.indexDir));
   };
   healthy();
-  const router = new RouterService({ controlHome, port, runner: fake, logger });
+  const router = new RouterService({ controlHome, port, runner: fake, logger, commandName: 'duke' });
   const ups = () => fake.calls.filter((c) => c.args[0] === 'compose' && c.args.includes('up')).map((c) => c.args);
   return { controlHome, layout, fake, logger, router, healthy, ups };
 }
+
+/**
+ * A control home whose router containers are gone — what `router down` leaves.
+ * Pass a protocol to record one as last brought up, or `undefined` to leave
+ * any existing record untouched. Starting it again brings the containers
+ * back, as a real `up` would.
+ */
+async function taken(w: Awaited<ReturnType<typeof world>>, protocol: number | undefined): Promise<void> {
+  w.fake.ids = {};
+  // As in production: the control home is established (and marked) before anything is written into it.
+  await secureControlDirectories(w.layout);
+  if (protocol !== undefined) await writeFile(w.layout.routerProtocolFile, `${protocol}\n`);
+  w.fake.onUp = () => {
+    w.fake.ids = { router: 'router-1', 'docker-api': 'api-1', index: 'index-1' };
+    w.healthy();
+  };
+}
+
+/** The exact line `noteUnroutedAfterUpgrade` emits, so asserting its absence cannot go vacuous. */
+const UNROUTED = "warn: Worktrees already up elsewhere stay unrouted until their next 'duke up'.";
 
 describe('RouterService.ensure', () => {
   it('writes the stack, starts it once, verifies it, and leaves a correct router alone', async () => {
@@ -160,6 +187,8 @@ describe('RouterService.ensure', () => {
     expect(await fileMode(w.layout.indexDir)).toBe(0o755);
     expect(await fileMode(w.layout.indexFile)).toBe(0o644);
     expect(await fileMode(w.layout.routerComposeFile)).toBe(0o600);
+    expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTER_PROTOCOL}\n`);
+    expect(await fileMode(w.layout.routerProtocolFile)).toBe(0o600);
 
     expect(w.ups()).toEqual([[
       'compose', '--project-directory', w.layout.routerDir, '--project-name', PROJECT, '-f', w.layout.routerComposeFile,
@@ -208,7 +237,19 @@ describe('RouterService.ensure', () => {
     expect(w.ups()).toHaveLength(2);
   });
 
-  it('says so when it upgrades a router started by an older version', async () => {
+  it('says so when it upgrades a router started by an older version, and what that costs other worktrees', async () => {
+    const w = await world();
+    const older = routerDoc(w.layout.routerDynamicDir);
+    older.Config = { ...older.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTED_BY_SINCE_PROTOCOL - 1) } };
+    w.fake.docs.set('router-1', older);
+    w.fake.onRecreate = w.healthy;
+    await w.router.ensure();
+    expect(w.logger.lines).toContain(`info: Upgrading the shared router from protocol ${ROUTED_BY_SINCE_PROTOCOL - 1} to ${ROUTER_PROTOCOL}.`);
+    expect(w.logger.lines).toContain(UNROUTED);
+  });
+
+  // Switches itself on at the next protocol bump: a router that already carries the label needs no such warning.
+  it.skipIf(ROUTER_PROTOCOL === ROUTED_BY_SINCE_PROTOCOL)('upgrades a router that already routes by label without warning about routing', async () => {
     const w = await world();
     const older = routerDoc(w.layout.routerDynamicDir);
     older.Config = { ...older.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL - 1) } };
@@ -216,16 +257,334 @@ describe('RouterService.ensure', () => {
     w.fake.onRecreate = w.healthy;
     await w.router.ensure();
     expect(w.logger.lines).toContain(`info: Upgrading the shared router from protocol ${ROUTER_PROTOCOL - 1} to ${ROUTER_PROTOCOL}.`);
+    // The drift warning still fires here (the fake's doc carries the old label until it is recreated); only routing must stay silent.
+    expect(w.logger.lines).not.toContain(UNROUTED);
   });
 
-  it('refuses to downgrade a router started by a newer version', async () => {
+  it('upgrades a router that was taken down across the upgrade, from what this control home last ran', async () => {
     const w = await world();
+    await taken(w, ROUTED_BY_SINCE_PROTOCOL - 1);
+
+    await w.router.ensure();
+
+    expect(w.logger.lines).toContain(`info: Upgrading the shared router from protocol ${ROUTED_BY_SINCE_PROTOCOL - 1} to ${ROUTER_PROTOCOL}.`);
+    expect(w.logger.lines).toContain(UNROUTED);
+    expect(w.ups()).toHaveLength(1);   // the start itself brought it back; no drift repair was needed
+    expect(w.logger.lines.some((line) => line.includes('not configured as expected'))).toBe(false);
+    expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTER_PROTOCOL}\n`);   // promoted once it verified
+  });
+
+  it('tells a second control home its worktrees went dark when another home did the upgrading', async () => {
+    const w = await world();
+    // This home never recorded anything (no released version did) and its own stack
+    // file is the only witness that it last ran an older router; the machine-wide
+    // router is already upgraded, by some other control home.
+    await secureControlDirectories(w.layout);
+    await writeFile(w.layout.routerComposeFile, JSON.stringify({
+      services: { router: { labels: { [`${NS}.router-protocol`]: String(ROUTED_BY_SINCE_PROTOCOL - 1) } } }
+    }));
+
+    await w.router.ensure();
+
+    expect(w.logger.lines).toContain(
+      `info: The shared router is already at protocol ${ROUTER_PROTOCOL}, but this control home last saw ${ROUTED_BY_SINCE_PROTOCOL - 1}.`
+    );
+    expect(w.logger.lines).toContain(UNROUTED);
+  });
+
+  it("does not let a newer version's stack file, which never started, poison the record", async () => {
+    const w = await world();
+    await taken(w, undefined);
+    // A newer version wrote its stack file and then failed to start: intent, never a run.
+    await writeFile(w.layout.routerComposeFile, JSON.stringify({
+      services: { router: { labels: { [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL + 1) } } }
+    }));
+    w.fake.upExitCode = 1;
+    w.fake.upStderr = 'bind: address already in use';
+    await expect(w.router.ensure()).rejects.toThrow('The shared router failed to start');
+
+    const second = await world(80, w.controlHome);
+    await taken(second, undefined);
+
+    // If that number had been recorded, this control home would refuse itself for ever.
+    await expect(second.router.ensure()).resolves.toBeUndefined();
+  });
+
+  it('names both steps when a newer router and a newer record are in the way, and both together hand it over', async () => {
+    const w = await world();
+    await secureControlDirectories(w.layout);
+    await writeFile(w.layout.routerProtocolFile, `${ROUTER_PROTOCOL + 1}\n`);
     const newer = routerDoc(w.layout.routerDynamicDir);
     newer.Config = { ...newer.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL + 1) } };
     w.fake.docs.set('router-1', newer);
 
-    await expect(w.router.ensure()).rejects.toThrow(`started by a newer version (protocol ${ROUTER_PROTOCOL + 1}; this version speaks ${ROUTER_PROTOCOL})`);
-    expect(w.ups()).toEqual([]);
+    await expect(w.router.ensure()).rejects.toThrow(
+      `remove it with 'duke router down' and this control home's record with \`rm '${w.layout.routerProtocolFile}'\``
+    );
+
+    // Doing both of the things it named has to be enough.
+    w.fake.ids = {};
+    await rm(w.layout.routerProtocolFile);
+    await taken(w, undefined);
+    await expect(w.router.ensure()).resolves.toBeUndefined();
+  });
+
+  it('ignores a record that has been corrupted into something that is not a protocol', async () => {
+    const w = await world();
+    await taken(w, undefined);
+    await writeFile(w.layout.routerProtocolFile, '0x10\n');   // reads as 16 to `Number`, but it is corruption
+
+    await w.router.ensure();
+
+    expect(w.logger.lines).toContain(
+      `warn: Ignoring ${w.layout.routerProtocolFile}: it does not name a router protocol. ` +
+      `This run takes the previous protocol from the router itself, or from ${w.layout.routerComposeFile}, if either is still there.`
+    );
+    expect(w.logger.lines.some((line) => line.includes('protocol 16'))).toBe(false);
+    expect(w.logger.lines).not.toContain(UNROUTED);   // no history at all is not an upgrade
+  });
+
+  it.each(['0', '99999999999999999999'])('reads a record of %s as no protocol at all', async (recorded) => {
+    const w = await world();
+    await taken(w, undefined);
+    await writeFile(w.layout.routerProtocolFile, `${recorded}\n`);
+
+    await w.router.ensure();
+
+    expect(w.logger.lines.some((line) => line.startsWith(`warn: Ignoring ${w.layout.routerProtocolFile}`))).toBe(true);
+  });
+
+  // Root reads a 0000 file regardless, so there would be nothing to refuse.
+  it.skipIf(process.getuid?.() === 0)('refuses to guess when its own protocol record cannot be read', async () => {
+    const w = await world();
+    await taken(w, undefined);
+    await writeFile(w.layout.routerProtocolFile, `${ROUTER_PROTOCOL}\n`);
+    chmodSync(w.layout.routerProtocolFile, 0o000);
+
+    try {
+      // Reading it as "no record" is how a newer router gets silently downgraded.
+      await expect(w.router.ensure()).rejects.toThrow(`${w.layout.routerProtocolFile} could not be read (EACCES)`);
+      expect(w.ups()).toEqual([]);
+    } finally {
+      chmodSync(w.layout.routerProtocolFile, 0o600);
+    }
+  });
+
+  it('ignores a stack file it cannot parse, which it is about to replace anyway', async () => {
+    const w = await world();
+    await taken(w, undefined);
+    await writeFile(w.layout.routerComposeFile, '{ not json');
+
+    // One corrupt byte there must not brick every `up` on the machine.
+    await expect(w.router.ensure()).resolves.toBeUndefined();
+  });
+
+  // Root reads a 0000 file regardless, so there would be nothing to ignore.
+  it.skipIf(process.getuid?.() === 0)('ignores a stack file it cannot read either', async () => {
+    const w = await world();
+    await taken(w, undefined);
+    await writeFile(w.layout.routerComposeFile, '{}');
+    chmodSync(w.layout.routerComposeFile, 0o000);
+
+    try {
+      // Unreadable is no answer here, where unreadable is fatal for the record.
+      await expect(w.router.ensure()).resolves.toBeUndefined();
+    } finally {
+      chmodSync(w.layout.routerComposeFile, 0o600);
+    }
+  });
+
+  it('lets a container carrying no protocol label fall through to the other evidence', async () => {
+    const w = await world();
+    const unlabelled = routerDoc(w.layout.routerDynamicDir);
+    const rest = { ...labels('router') };
+    delete rest[`${NS}.router-protocol`];
+    unlabelled.Config = { ...unlabelled.Config, Labels: rest };
+    w.fake.docs.set('router-1', unlabelled);
+    w.fake.onRecreate = w.healthy;
+
+    // Not ours, or started under another namespace: no answer, not an invalid one.
+    await expect(w.router.ensure()).resolves.toBeUndefined();
+  });
+
+  it('records nothing when the first ever start fails, because there was no history to record', async () => {
+    const w = await world();
+    await taken(w, undefined);
+    w.fake.upExitCode = 1;
+    w.fake.upStderr = 'bind: address already in use';
+
+    await expect(w.router.ensure()).rejects.toThrow('The shared router failed to start');
+    expect(await pathExists(w.layout.routerProtocolFile)).toBe(false);
+  });
+
+  it("refuses a router name that could rewrite Traefik's discovery predicate", () => {
+    const base = { controlHome: '/tmp/unused', port: 80, runner: new DockerFake(), logger: new RecordingLogger() };
+    expect(() => new RouterService({ ...base, projectName: 'berth-router`,`x' })).toThrow('Invalid router project name');
+    expect(() => new RouterService({ ...base, network: 'n`,`x' })).toThrow('Invalid router network name');
+    expect(() => new RouterService({ ...base, projectName: 'berth-router-2.test_a' })).not.toThrow();
+  });
+
+  it('refuses a router whose protocol label is not a protocol', async () => {
+    const w = await world();
+    const odd = routerDoc(w.layout.routerDynamicDir);
+    odd.Config = { ...odd.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: '1e3' } };
+    w.fake.docs.set('router-1', odd);
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      "The shared router carries an invalid protocol label: 1e3. Remove the router with 'duke router down' and run this again."
+    );
+  });
+
+  it('remembers what it last brought up, so an upgrade that failed to start is still announced next time', async () => {
+    const w = await world();
+    await taken(w, ROUTED_BY_SINCE_PROTOCOL - 1);
+    w.fake.upExitCode = 1;
+    w.fake.upStderr = 'bind: address already in use';
+
+    await expect(w.router.ensure()).rejects.toThrow('The shared router failed to start');
+    // `write()` already stamped the new protocol into the stack file; the record of what ran must not have moved.
+    expect(w.logger.lines).not.toContain(UNROUTED);
+
+    const second = await world(80, w.controlHome);
+    await taken(second, undefined);   // same control home, still nothing running
+
+    await second.router.ensure();
+
+    expect(second.logger.lines).toContain(`info: Upgrading the shared router from protocol ${ROUTED_BY_SINCE_PROTOCOL - 1} to ${ROUTER_PROTOCOL}.`);
+    expect(second.logger.lines).toContain(UNROUTED);
+  });
+
+  it('trusts what it last brought up over a container a failed start left behind', async () => {
+    const w = await world();
+    await taken(w, ROUTED_BY_SINCE_PROTOCOL - 1);
+    // A start that failed after creating the containers leaves them already carrying
+    // the new protocol label, though no router of that protocol has ever served anything.
+    w.fake.ids = { router: 'router-1', 'docker-api': 'api-1', index: 'index-1' };
+    w.healthy();
+    const leftover = routerDoc(w.layout.routerDynamicDir);
+    leftover.State = { Status: 'created' };   // created by the failed `up`, never started
+    w.fake.docs.set('router-1', leftover);
+
+    await w.router.ensure();
+
+    expect(w.logger.lines).toContain(`info: Upgrading the shared router from protocol ${ROUTED_BY_SINCE_PROTOCOL - 1} to ${ROUTER_PROTOCOL}.`);
+    expect(w.logger.lines).toContain(UNROUTED);
+  });
+
+  it('says nothing about upgrades when the router it brought up is the one this version speaks', async () => {
+    const w = await world();
+    await w.router.ensure();
+    // The record is written by `ensure` itself, and is the only source left once the stack file is gone.
+    expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTER_PROTOCOL}\n`);
+    await rm(w.layout.routerComposeFile);
+    const again = await world(80, w.controlHome);
+    await taken(again, undefined);   // taken down, then brought back on the same version
+
+    await again.router.ensure();
+
+    expect(again.logger.lines.some((line) => line.includes('Upgrading'))).toBe(false);
+    expect(again.logger.lines).not.toContain(UNROUTED);
+  });
+
+  it('refuses to take over from a newer version this control home last ran, and hands over once that record is gone', async () => {
+    const w = await world();
+    await taken(w, ROUTER_PROTOCOL + 1);
+    // The newer version wrote its stack file before it ever started; that alone must not keep refusing.
+    await writeFile(w.layout.routerComposeFile, JSON.stringify({
+      services: { router: { labels: { [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL + 1) } } }
+    }));
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      `This control home last recorded the shared router at protocol ${ROUTER_PROTOCOL + 1}; this version speaks ${ROUTER_PROTOCOL}. Run that version again, or remove the record with \`rm `
+    );
+
+    // The remedy the message names has to work, or it is not a remedy.
+    await rm(w.layout.routerProtocolFile);
+    await expect(w.router.ensure()).resolves.toBeUndefined();
+  });
+
+  it('records what it found on a control home that has none yet, so a failed start cannot erase it', async () => {
+    const w = await world();
+    await taken(w, undefined);   // no record, as on every control home from before this version
+    await writeFile(w.layout.routerComposeFile, JSON.stringify({
+      services: { router: { labels: { [`${NS}.router-protocol`]: String(ROUTED_BY_SINCE_PROTOCOL - 1) } } }
+    }));
+    w.fake.upExitCode = 1;
+    w.fake.upStderr = 'bind: address already in use';
+
+    await expect(w.router.ensure()).rejects.toThrow('The shared router failed to start');
+    expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTED_BY_SINCE_PROTOCOL - 1}\n`);
+
+    const second = await world(80, w.controlHome);
+    await taken(second, undefined);
+    await second.router.ensure();
+
+    expect(second.logger.lines).toContain(`info: Upgrading the shared router from protocol ${ROUTED_BY_SINCE_PROTOCOL - 1} to ${ROUTER_PROTOCOL}.`);
+    expect(second.logger.lines).toContain(UNROUTED);
+  });
+
+  it('refuses to downgrade a newer router that is running, whatever its own record says', async () => {
+    const w = await world();
+    // The router is machine-wide; another control home may have upgraded it.
+    await secureControlDirectories(w.layout);
+    await writeFile(w.layout.routerProtocolFile, `${ROUTER_PROTOCOL}\n`);
+    const newer = routerDoc(w.layout.routerDynamicDir);
+    newer.Config = { ...newer.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL + 1) } };
+    w.fake.docs.set('router-1', newer);
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      `The shared router is at protocol ${ROUTER_PROTOCOL + 1}; this version speaks ${ROUTER_PROTOCOL}.`
+    );
+    // The record is at this version's protocol, so it is not in the way and must not be named.
+    await expect(w.router.ensure()).rejects.toThrow(/remove it with 'duke router down'\.$/);
+    expect(w.ups()).toEqual([]);   // the refusal precedes every mutation
+    expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTER_PROTOCOL}\n`);   // record left alone
+  });
+
+  it('does not announce unrouted worktrees when the upgrade itself fails', async () => {
+    const w = await world();
+    const older = routerDoc(w.layout.routerDynamicDir);
+    older.Config = { ...older.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTED_BY_SINCE_PROTOCOL - 1) } };
+    w.fake.docs.set('router-1', older);
+    w.fake.upExitCode = 1;
+    w.fake.upStderr = 'bind: address already in use';
+    await expect(w.router.ensure()).rejects.toThrow('The shared router failed to start');
+    expect(w.logger.lines).not.toContain(UNROUTED);
+  });
+
+  it('tells Traefik to discover only containers labelled for this router, and labels the index that way', () => {
+    // Pinned as literal text: the verifier compares against the same constants, so it alone cannot catch a typo here.
+    expect(routerCommand({ network: 'n' })).toContain('--providers.docker.constraints=Label(`dev.berth.router`,`n`)');
+    expect(indexRouteLabels('n')).toMatchObject({ 'dev.berth.router': 'n', 'traefik.enable': 'true' });
+    // Every fixture derives from this, so nothing else would notice it moving.
+    expect(ROUTED_BY_SINCE_PROTOCOL).toBe(3);
+  });
+
+  it('refuses a router it cannot inspect rather than recreating it blind', async () => {
+    const w = await world();
+    w.fake.docs.clear();   // the containers are there; `docker inspect` says nothing about them
+
+    await expect(w.router.ensure()).rejects.toThrow('The shared router exists but could not be inspected.');
+    expect(w.ups()).toEqual([]);   // a router this version may not downgrade is never recreated blind
+  });
+
+  // Root bypasses the mode this stages, so there would be nothing to warn about.
+  it.skipIf(process.getuid?.() === 0)('warns instead of failing a verified up when the protocol record cannot be written', async () => {
+    const w = await world();
+    await taken(w, ROUTED_BY_SINCE_PROTOCOL - 1);
+    const bring = w.fake.onUp;
+    w.fake.onUp = () => {
+      bring?.();
+      chmodSync(w.layout.routerDir, 0o500);   // read-only by the time the record is promoted
+    };
+
+    try {
+      await expect(w.router.ensure()).resolves.toBeUndefined();   // the router is up; only the record failed
+      expect(w.logger.lines.some((line) =>
+        line.startsWith(`warn: Could not record the router protocol in ${w.layout.routerProtocolFile}: `))).toBe(true);
+    } finally {
+      chmodSync(w.layout.routerDir, 0o700);   // or the cleanup cannot unlink
+    }
   });
 
   it('explains a failed start in terms of the port', async () => {
@@ -241,6 +600,7 @@ describe('RouterService.verify', () => {
     ['the index serving another directory', (_r, _a, i) => { i.Mounts = [{ Type: 'bind', Source: '/etc', Destination: INDEX_MOUNT, RW: false }]; }, 'index: mounts are not exactly the read-only index directory'],
     ['the index publishing a port', (_r, _a, i) => { i.NetworkSettings = { ...i.NetworkSettings, Ports: { '8080/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }] } }; }, 'index: publishes a port'],
     ['the index routed elsewhere', (_r, _a, i) => { i.Config = { ...i.Config, Labels: { ...i.Config?.Labels, 'traefik.http.routers.berth-index.rule': 'Host(`evil.localhost`)' } }; }, 'index: routing labels differ'],
+    ['a router still carrying an older protocol label', (r) => { r.Config = { ...r.Config, Labels: { ...labels('router'), [`${NS}.router-protocol`]: String(ROUTER_PROTOCOL - 1) } }; }, 'router: protocol label'],
     ['a writable root filesystem', (r) => { r.HostConfig = { ...r.HostConfig, ReadonlyRootfs: false }; }, 'router: root filesystem is writable'],
     ['kept capabilities', (r) => { r.HostConfig = { ...r.HostConfig, CapDrop: [] }; }, 'router: capabilities are not dropped'],
     ['extra capabilities', (r) => { r.HostConfig = { ...r.HostConfig, CapAdd: ['CAP_NET_BIND_SERVICE', 'CAP_SYS_ADMIN'] }; }, 'router: capabilities beyond NET_BIND_SERVICE'],
@@ -279,10 +639,29 @@ describe('RouterService.verify', () => {
 });
 
 describe('RouterService.status and down', () => {
+  it('reports a stack it cannot inspect as unverifiable rather than clean', async () => {
+    const w = await world();
+    w.fake.docs.delete('api-1');   // the containers are listed; one of them says nothing
+
+    await expect(w.router.verify()).resolves.toEqual(['the router could not be inspected']);
+  });
+
   it('reports a router that is not running', async () => {
     const w = await world();
     w.fake.ids = {};
     await expect(w.router.status()).resolves.toEqual({ reachable: true, running: false, problems: ['the router is not running'], port: 80, network: NETWORK });
+  });
+
+  it('reports Docker as unreachable when `compose ps` fails for a reason it does not recognize', async () => {
+    const w = await world();
+    w.fake.psExitCode = 125;
+    w.fake.psStderr = 'context "desktop-linux" not found\n';
+
+    await expect(w.router.status()).resolves.toMatchObject({
+      reachable: false,
+      running: false,
+      problems: ['Docker is not available: context "desktop-linux" not found']
+    });
   });
 
   it('reports Docker as unreachable, not the router as stopped, when Compose cannot talk to the daemon', async () => {
@@ -344,6 +723,16 @@ describe('RouterService.status and down', () => {
 
     await expect(w.router.ensure()).rejects.toThrow('Docker is not available: the `docker` command is not on PATH (ENOENT); is Docker installed?');
     await expect(w.router.status()).resolves.toMatchObject({ reachable: false, running: false });
+  });
+
+  it('takes the router down by project name alone, so a control home with no stack file can still free it', async () => {
+    const w = await world();
+
+    await w.router.down();
+
+    expect(w.fake.calls.find((c) => c.args.includes('down'))?.args)
+      .toEqual(['compose', '--project-name', PROJECT, 'down', '--remove-orphans']);
+    expect(await pathExists(w.layout.routerComposeFile)).toBe(false);   // nothing was written first
   });
 
   it('treats the shared network staying behind as the expected outcome of down', async () => {

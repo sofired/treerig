@@ -9,7 +9,7 @@ import { hookEnvironmentVariables, worktreeEnvironment } from '../hooks/protocol
 import { composeProjectName, worktreeHost, worktreeLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import type { CommandRunner, RunOptions, RunResult } from '../process-runner.ts';
-import { ROUTER_ENTRYPOINT } from '../router/stack.ts';
+import { ROUTED_BY_LABEL, ROUTER_ENTRYPOINT } from '../router/stack.ts';
 import type {
   Endpoint,
   OwnedResource,
@@ -192,6 +192,7 @@ function routeLabels(name: string, route: RouteSpec, network: string, host: stri
   return {
     'traefik.enable': 'true',
     'traefik.docker.network': network,
+    [ROUTED_BY_LABEL]: network,
     [`traefik.http.routers.${name}.rule`]: rule,
     [`traefik.http.routers.${name}.entrypoints`]: ROUTER_ENTRYPOINT,
     [`traefik.http.services.${name}.loadbalancer.server.port`]: String(port)

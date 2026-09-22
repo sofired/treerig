@@ -72,7 +72,7 @@ async function world(): Promise<World> {
     ''
   ].join('\n'));
   await chmod(hook, 0o755);
-  const shared = new MemoryRuntime();
+  const shared = new MemoryRuntime({ services: ['api', 'mail'] });
 
   return {
     base, root, controlHome, log, failFile, runner,
@@ -177,7 +177,7 @@ describe('up', () => {
     const w = await world();
     const fakeProcess = new FakeProcess();
     const runner = new ExecaRunner();
-    const memory = new MemoryRuntime();
+    const memory = new MemoryRuntime({ services: ['api', 'mail'] });
     // A backend that gets interrupted mid-start.
     const interrupted: Runtime = {
       kind: 'interrupted',
@@ -222,7 +222,7 @@ describe('down, status, urls', () => {
     await expect(context.registry.current()).resolves.toBeUndefined();   // read-only verbs never register
   });
 
-  it('stop services and report them stopped without touching the registry', async () => {
+  it('stop services and report them absent without touching the registry', async () => {
     const w = await world();
     await up(await w.context(), { services: ['api', 'mail'] });
     const context = await w.context();
@@ -231,13 +231,13 @@ describe('down, status, urls', () => {
     const statuses = await status(context);
 
     expect(statuses).toEqual([
-      { service: 'api', state: 'stopped' },
-      { service: 'mail', state: 'stopped' }
+      { service: 'api', state: 'absent' },
+      { service: 'mail', state: 'absent' }
     ]);
     expect(context.logger.printed).toEqual([
       'feature-login.acme.localhost',
-      '  api   stopped',
-      '  mail  stopped'
+      '  api   absent',
+      '  mail  absent'
     ]);
     expect(await urls(context)).toHaveLength(2);
   });

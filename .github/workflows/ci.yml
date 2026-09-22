@@ -5,10 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -35,5 +39,12 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # Real Git and real locks everywhere; the Docker suites skip themselves
+      # where no daemon answers (the macOS runners). On Linux they are required
+      # to run: that leg is the proof that the router and the Compose runtime
+      # work against a real Docker Engine, and a skipped proof must not read
+      # as a pass.
       - name: Integration tests
+        env:
+          BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
         run: pnpm test:integration

@@ -152,6 +152,16 @@ berth router up           # start it without starting a worktree
 berth router down         # stop it; worktree services keep running, unrouted
 ```
 
+Only containers whose `dev.berth.router` label holds the shared router
+network's name are routed. The override adds that label under the tool's own
+namespace, whatever `project.label-namespace` says, and Traefik is told to
+discover nothing else, so two router stacks on one machine (a real
+installation's and the test suite's, say) never route each other's
+containers. A new version that changes the router upgrades it on the next
+`up` and says so. When that upgrade is the one that introduced this label,
+worktrees that were already running stay unrouted until their own next `up`,
+and the run says that too.
+
 **Index.** `http://berth.localhost` (plus the port, if changed) lists every
 checkout on the machine across every project: branch, hostname, path, whether
 its services are running, and a link for each service that opted in with
@@ -204,6 +214,18 @@ Unknown keys are rejected, so a typo cannot silently disable a feature.
 `COMPOSE_*` keys in the Compose file's `.env` are honoured, except the
 project name and file list, which the tool sets. Do not set
 `COMPOSE_IGNORE_ORPHANS` there; `up` relies on `--remove-orphans`.
+
+The control home holds one more file for the shared router: `router/protocol`,
+the protocol of the last router known to have run for it, as best the tool can
+tell. `router down` deliberately leaves it, so a later `up` can still say what
+changed; deleting it hands the router to whichever version runs next, unless a
+newer one's containers are still there.
+
+The router itself belongs to whichever control home last started it: it serves
+that home's index page and watches that home's dynamic-configuration
+directory. A second control home on the same machine quietly takes it over on
+its next `up`, recreating the stack against its own directories. Point
+`BERTH_HOME` somewhere else only when you mean to take the router with you.
 
 The control home is `~/.berth`, overridable only through the `BERTH_HOME`
 environment variable, and the router's loopback port is 80, overridable only

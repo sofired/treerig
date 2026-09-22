@@ -48,7 +48,7 @@ describe('up after a concurrent removal', () => {
     // And the re-run the message asks for succeeds: only the record went, so the marker's identity is reused.
     const again = await up(world.context(), { services: ['api'] });
     expect(again.registration.worktreeId).toBe(registered.worktreeId);
-    await expect(world.runtime.inventory(ref(again.registration))).resolves.toHaveLength(1);
+    await expect(world.runtime.inventory(ref(again.registration))).resolves.toHaveLength(2);   // the api container and the data volume
   });
 
   it('creates nothing when the checkout\'s markers changed while the router was starting', async () => {
@@ -85,7 +85,7 @@ describe('up after a change of label namespace', () => {
       "This worktree's resources are labelled under dev.berth, but berth.toml now says dev.other. Run 'berth worktree remove' first"
     );
     await expect(world.context().registry.current()).resolves.toMatchObject({ labelNamespace: 'dev.berth' });   // record untouched
-    await expect(world.runtime.inventory(ref(started.registration))).resolves.toHaveLength(1);
+    await expect(world.runtime.inventory(ref(started.registration))).resolves.toHaveLength(2);
 
     await remove(world.context(), { approved: true });   // no flag needed: the record knows
     const relabelled = await up(adopting(), { services: ['api'] });
@@ -149,7 +149,7 @@ describe('worktree remove', () => {
 
     const result = await remove(context, { approved: true });
 
-    expect(result.resources.map((r) => r.service).sort()).toEqual(['api', 'mail']);
+    expect(result.resources.map((r) => r.kind)).toEqual(['container', 'container', 'volume']);   // what stopping removed and what reap found, in inventory order
     expect(result).toMatchObject({ home: true, registration: true, marker: true });
     await expect(world.runtime.inventory(ref(started.registration))).resolves.toEqual([]);
     expect(await pathExists(layout.home)).toBe(false);
@@ -157,7 +157,7 @@ describe('worktree remove', () => {
     await expect(context.registry.current()).resolves.toBeUndefined();
     await expect(context.registry.identities.inspect()).resolves.toBeUndefined();
     expect(context.logger.lines.at(-1)).toBe(
-      'info: Removed feature-login.acme.localhost: 2 containers, home directory, registration, identity marker.'
+      'info: Removed feature-login.acme.localhost: 2 containers, 1 volume, home directory, registration, identity marker.'
     );
 
     const again = await up(world.context(), { services: ['api'] });
@@ -172,7 +172,7 @@ describe('worktree remove', () => {
 
     await expect(remove(context)).rejects.toThrow('Interactive confirmation required: "feature-login.acme.localhost".');
 
-    await expect(world.runtime.inventory(ref(started.registration))).resolves.toHaveLength(1);
+    await expect(world.runtime.inventory(ref(started.registration))).resolves.toHaveLength(2);
     await expect(context.registry.current()).resolves.toMatchObject({ slug: 'feature-login' });
   });
 
@@ -195,7 +195,7 @@ describe('worktree remove', () => {
 
     await expect(remove(context, { approved: true })).rejects.toThrow('Refusing to touch volume v9');
 
-    await expect(honest.inventory(ref(started.registration))).resolves.toHaveLength(1);
+    await expect(honest.inventory(ref(started.registration))).resolves.toHaveLength(2);
     expect(await pathExists(layout.home)).toBe(true);
     await expect(context.registry.current()).resolves.toMatchObject({ slug: 'feature-login' });
     // Nothing was destroyed, so nothing is pending: the next `up` must not seed over intact data.
@@ -260,7 +260,7 @@ describe('worktree remove', () => {
     const result = await remove(world.context(), { identifier: orphan.registration.worktreeId, approved: true });
 
     expect(result).toMatchObject({ registration: true, home: true, marker: false });
-    expect(result.resources).toHaveLength(1);
+    expect(result.resources.map((r) => r.kind)).toEqual(['container', 'volume']);
     await expect(world.context().registry.list()).resolves.toHaveLength(1);
   });
 
@@ -350,7 +350,7 @@ describe('worktree remove', () => {
       labelNamespace: 'dev.predecessor', runner: world.runner, logger: silentLogger
     });
     await predecessor.ensure();
-    const theirs = new MemoryRuntime();
+    const theirs = new MemoryRuntime({ services: ['legacy-db'] });
     await theirs.up({ repositoryId, worktreeId, slug }, [{ name: 'legacy-db' }]);
     const asked: string[] = [];
     const context = {
@@ -361,9 +361,9 @@ describe('worktree remove', () => {
     const result = await remove(context, { approved: true });
 
     expect(asked).toEqual(['dev.predecessor']);
-    expect(result.resources.map((r) => r.service)).toEqual(['legacy-db']);
+    expect(result.resources.map((r) => r.kind)).toEqual(['container', 'volume']);
     await expect(theirs.inventory({ repositoryId, worktreeId, slug })).resolves.toEqual([]);
-    await expect(world.runtime.inventory({ repositoryId, worktreeId, slug })).resolves.toHaveLength(1);   // untouched
+    await expect(world.runtime.inventory({ repositoryId, worktreeId, slug })).resolves.toHaveLength(2);   // untouched
   });
 
   it('finds a foreign worktree\'s namespace in its registration even after an interrupted removal took its card', async () => {
@@ -411,7 +411,7 @@ describe('worktree remove', () => {
       'feature-login.acme.localhost records its resources as labelled under dev.berth, not dev.wrong. Drop --label-namespace, or pass the recorded one.'
     );
     await expect(world.context().registry.current()).resolves.toMatchObject({ slug: 'feature-login' });
-    await expect(world.runtime.inventory(ref(started.registration))).resolves.toHaveLength(1);
+    await expect(world.runtime.inventory(ref(started.registration))).resolves.toHaveLength(2);
     // The recorded one, spelled out, is fine.
     const result = await remove(world.context(), { approved: true, labelNamespace: 'dev.berth' });
     expect(result.registration).toBe(true);
@@ -476,7 +476,7 @@ describe('worktree remove', () => {
 
     await expect(remove(context, { approved: true })).rejects.toThrow("was re-labelled under dev.other while 'berth worktree remove' was waiting; run it again");
     await expect(context.registry.current()).resolves.toMatchObject({ labelNamespace: 'dev.other' });
-    await expect(honest.inventory(ref((await context.registry.current())!))).resolves.toHaveLength(1);   // nothing destroyed
+    await expect(honest.inventory(ref((await context.registry.current())!))).resolves.toHaveLength(2);   // nothing destroyed
   });
 
   it('names what it could not find', async () => {
