@@ -5,7 +5,7 @@ Thanks for looking. A few things that make contributions land smoothly.
 ## Before you open a pull request
 
 ```bash
-pnpm check                # lint, typecheck, unit tests — must be clean
+pnpm check                # lint, typecheck, unit and CLI tests — must be clean
 pnpm test:integration     # real Git and subprocesses — must pass on your platform
 ```
 
@@ -38,8 +38,13 @@ class is called directly, keep them and `void` each.
 ## Tests
 
 Unit tests are hermetic: no Docker, no real Git, no network. They mock at the
-`CommandRunner` seam. If you find yourself wanting a real subprocess, write an
-integration test under `tests/integration/` instead.
+`CommandRunner` seam.
+
+The one exception is `tests/cli/`, which spawns the CLI as a process. Which
+stream a line lands on is only a contract if it survives the entry point, and
+no mock at the `CommandRunner` seam can prove it. Those tests need `git` but no
+Docker, and they run with the unit suite. Anything that needs Docker, a real
+worktree, or a cross-process lock goes under `tests/integration/` instead.
 
 Every module with security-relevant behaviour — path containment, file modes,
 lock recovery, identity markers — has a dedicated test file. Keep it that way.

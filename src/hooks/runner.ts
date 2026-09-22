@@ -85,7 +85,9 @@ export interface LifecycleOptions extends Pick<HookRunOptions, 'cancelSignal' | 
 /**
  * Runs prepare → seed → verify in order, stopping at the first failure.
  * Returns the stages that actually ran (unconfigured stages are skipped).
- * A subset of stages still runs in lifecycle order: `seed` cannot precede `prepare`.
+ * A subset of stages still runs in lifecycle order: `seed` cannot precede
+ * `prepare`. `up` is the only caller today, and asks for `prepare` and `seed`,
+ * so `verify` is ordered here but never reached.
  */
 export async function runLifecycle(
   context: HookContext,

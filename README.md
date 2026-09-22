@@ -43,8 +43,8 @@ projects with different domains can both have a `feature-login`. A collision
 within one domain gets a short hash suffix rather than a surprise. Slugs are
 sticky: once allocated, a worktree keeps its slug — suffix included — across
 domain changes whenever it is free, so two clones can never swap hostnames
-underneath you. Reclaiming a bare name is an explicit rename, never a side
-effect.
+underneath you. Reclaiming a bare name would be an explicit rename — a verb
+the tool does not have yet — never a side effect.
 
 **Locks.** Every command that changes a worktree holds an advisory lock with
 an effectively infinite stale window and a heartbeat, so a twenty-minute build
@@ -70,18 +70,43 @@ at its mount point, so the parents are never traversed. Only the index page
 and route fragments are written there; nothing secret.
 
 **Hooks.** `prepare`, `seed`, `verify`, `backup`, and `restore` are
-executables you point at from the config file. `seed` never runs unless
-`prepare` exited zero. The tool never learns what they do.
+executables you point at from the config file. Only `prepare` and `seed` are
+invoked today: `seed` never runs before `prepare`, and not at all if a
+configured `prepare` exited non-zero. The other three are accepted and
+validated so a repository can commit them once, and a future `doctor`,
+`backup` and `restore` will run them. The tool never learns what they do.
 
 **Router.** One Traefik instance per machine, started on first `up`, shared
 by every worktree of every repository. It binds a single loopback port and
 routes by hostname. It never sees the Docker socket: it reads container
-labels through a proxy that exposes only the read-only subset of the API a
-router needs and refuses every write. All three containers — the proxy,
+labels through a proxy that denies every write; Traefik itself never holds the
+socket. What that proxy still allows is the whole container section, plus
+networks, events, ping and version — and the container section is as narrow
+as the API gets: enough to read every container's labels, and with them its
+environment, its logs, and its filesystem through the archive and export
+endpoints. As the stack is written, only the router is on the network the
+proxy is on, and that network is internal. All three containers — the proxy,
 Traefik, and the BusyBox `httpd` that serves the index page — run read-only
 with every capability dropped (Traefik gets back only the one it needs to bind
-port 80), pinned by image digest, and after every start the tool inspects
-them and refuses to continue if anything differs from what it asked for.
+port 80) and pinned by image digest; each is inspected after every start,
+recreated once if it has drifted, and refused if the drift survives that.
+
+## Install
+
+There is no published package and no binary yet — see [Roadmap](#roadmap).
+Today berth runs from a clone, on Node 24, with Docker and Docker Compose
+available:
+
+```bash
+git clone <this repository> berth && cd berth
+corepack enable && pnpm install
+ln -s "$PWD/src/cli/main.ts" ~/.local/bin/berth   # any directory on PATH
+```
+
+The entry point carries a `#!/usr/bin/env node` line and is executable, so the
+symlink is all there is to it; Node strips the types as it loads. Nothing is
+compiled and nothing is copied, so the symlink follows the clone — `git pull`
+is the upgrade.
 
 ## Quick start
 
@@ -110,7 +135,7 @@ subdomain = "mail"                 # mail.<slug>.acme.localhost
 [hooks]
 prepare = "./scripts/migrate.sh"   # services healthy, nothing seeded
 seed    = "./scripts/seed.py"      # only after prepare exits zero
-verify  = "./scripts/doctor"       # folded into `berth doctor`
+verify  = "./scripts/doctor"       # accepted, but nothing runs it yet
 ```
 
 Then:
@@ -125,6 +150,9 @@ berth worktree list       # every worktree of this repository, with state
 berth worktree remove     # tear it down, verified by ownership
 ```
 
+`up` runs the branch's own build and hooks. Read [Trust model](#trust-model)
+before bringing up a branch you did not write.
+
 `up` starts the Compose project under a name derived from the worktree's
 UUIDs, with every container, volume, network, and image it builds labelled
 `dev.berth.managed`, `dev.berth.repository-uuid`, and
@@ -134,10 +162,13 @@ exempting a resource from cleanup — is not possible. The Compose file sees
 the same `BERTH_*` variables hooks do, so `${BERTH_WORKTREE_HOME}` works in a
 bind mount exactly as it does in a seed script.
 
-`status` reports each declared service as `running`, `starting` (container
-running, health check pending), `stopped` (its container exists but has
-exited), `absent` (no container — the state after `down`), or `unknown`,
-with Compose's own state in parentheses.
+`status` reports each declared service as `running`, `starting` (Compose says
+`restarting`, or `running` with its health check still pending), `stopped`
+(Compose says `created`, `exited`, `dead`, `paused` or `removing` — the
+container exists but nothing is serving), `absent` (no container at all, the
+state after `down`), or `unknown` for any state Compose adds that this list
+does not name. `unknown` carries Compose's own word in parentheses, and a
+running service that is failing its health check carries `(unhealthy)`.
 
 Those five words are about one service. Two other vocabularies are about a
 whole checkout. `worktree list` reports each registration as `ready`,
@@ -147,9 +178,13 @@ be called missing — that needs Git, and `--all` lists records from other
 repositories as the registry knows them. The index page answers a different
 question — whether a checkout's services are up — with `Running`, `Partial`,
 `Stopped`, `Unknown`, and the same `Missing`, which means the same thing in
-both places. All three are pre-1.0. `worktree list --json` prints its three
-words verbatim and is the only machine-readable form; `status` and `index`
-print text.
+both places. All three are pre-1.0. `worktree list --json` is the only
+machine-readable form; `status` and `index` print text. It prints one array,
+`[]` when there is nothing, sorted by domain and then slug, each row carrying
+`repositoryId`, `worktreeId`, `slug`, `domain`, `host`, `state`, `current`,
+and — when they are known — `root`, `branch` and `labelNamespace`. Every
+non-ASCII character is escaped, so the text is ASCII and parses back to what
+it was.
 
 Each `[[service]]` becomes a route: the tool generates the Traefik labels and
 joins the container to the shared router network through the same override,
@@ -187,6 +222,11 @@ says so in the header when it has stopped being able to read the page, and
 pauses on request. Without scripting it falls back to reloading every 60
 seconds.
 
+`index` needs a `berth.toml` — the nearest one above the working directory,
+or the one `--config <path>` names — even though what it prints spans the
+machine. The same is true of `worktree list --all`, and of every verb that
+touches a project; only `router` works without one.
+
 `worktree remove` is the only destructive verb. It inventories everything
 the worktree owns, verifies the full ownership tuple on every resource, and
 refuses the whole operation if a single one fails — before it asks you to
@@ -202,13 +242,17 @@ The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
 
 ## Calling it something else
 
-Install or symlink the binary under whatever name you like. Help text, the
-log prefix, and every "run `X urls`" hint follow the invoked name:
+Name the symlink whatever you like. Help text, the log prefix, and every
+"run `X urls`" hint follow the name it was invoked as, which is read from
+`argv[1]` and from nowhere else:
 
 ```bash
-ln -s /usr/local/bin/berth /usr/local/bin/duke
+ln -s "$PWD/src/cli/main.ts" ~/.local/bin/duke
 duke --help               # Usage: duke [options] [command]
 ```
+
+Running the source by path (`node src/cli/main.ts`) has no name to read, so it
+says `berth`.
 
 What does **not** follow the name is anything written to disk: the config
 filename (`berth.toml`), the control-home directory, the environment variable
@@ -225,13 +269,16 @@ binary name, renaming a symlink would orphan state.
 | `project.label-namespace` | Optional. Only to adopt resources created by a predecessor tool. |
 | `compose.file` | Compose file, relative to `berth.toml`. Paths inside it (build contexts, bind mounts, `env_file`) and its `.env` resolve against the Compose file's directory, as with `docker compose -f`; `${BERTH_ROOT}` is still `berth.toml`'s directory. |
 | `[[service]]` | `name`, optional `subdomain` (empty = host root), optional `path` (route only that prefix, so services can share a host), optional `port` (defaults to the first port the service exposes), optional `index` presence. |
-| `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — commands relative to the config file. |
+| `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. Only `prepare` and `seed` run today. |
 
 Unknown keys are rejected, so a typo cannot silently disable a feature.
 
-`COMPOSE_*` keys in the Compose file's `.env` are honoured, except the
-project name and file list, which the tool sets. Do not set
-`COMPOSE_IGNORE_ORPHANS` there; `up` relies on `--remove-orphans`.
+Every invocation passes the project name and the file list as flags and sets
+`COMPOSE_PROGRESS`, so `COMPOSE_PROJECT_NAME`, `COMPOSE_FILE`,
+`COMPOSE_PATH_SEPARATOR` and `COMPOSE_PROGRESS` in the Compose file's `.env`
+have no effect. Other `COMPOSE_*` keys there still reach Compose — in
+particular `COMPOSE_IGNORE_ORPHANS`, which defeats the `--remove-orphans` that
+`up` and `down` rely on. Do not set it.
 
 The control home holds one more file for the shared router: `router/protocol`,
 the protocol of the last router known to have run for it, as best the tool can
@@ -252,13 +299,81 @@ config file is committed and shared; a path that is only correct on one
 machine has no business in it, and one developer pointing it at a synced
 folder would put the whole team's state on iCloud Drive.
 
-Every failure ends in a non-zero exit code and a `[berth] ERROR:` line saying
-why. Set `BERTH_DEBUG=1` to see the stack trace behind it.
-
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.berth-control-home` marker to
 recognise its own. Your home directory, anything above it, and the filesystem
 root are always refused.
+
+## Trust model
+
+Bringing up a worktree runs the branch's code. `up` builds whatever its
+`compose.yaml` builds and runs the hooks named in its `berth.toml`, as you,
+with your full environment — the same trust a `make` or an `npm install` in
+that checkout asks for. Do not bring up a branch you would not run.
+
+Three things follow from that, and this tool does not change them:
+
+- **Hooks and builds see your environment.** Nothing is allow-listed; a hook
+  is a program you pointed the config at, and it runs with everything you
+  have, `COMPOSE_*` included. Compose's own invocation is the one exception:
+  `COMPOSE_FILE`, `COMPOSE_PATH_SEPARATOR`, `COMPOSE_ENV_FILES` and
+  `COMPOSE_IGNORE_ORPHANS` are dropped from it, so a shell setting cannot
+  change which files it loads or whether orphans are swept. Dropping them from
+  the environment does not reach the Compose file's own `.env`, which Compose
+  reads for itself — see [Configuration](#configuration).
+- **Routed services share one network.** Every container you declare as a
+  `[[service]]` joins the router's network, so a routed service in one
+  checkout can reach a routed service in another. Containers you do not
+  declare stay on their project's own networks.
+- **The index page is machine-wide and unauthenticated.** It lists every
+  checkout's branch, path, hostnames and service links. Its only exposure to
+  the host is the router's loopback port, and everything on the router's
+  shared network — every routed container of every checkout — reaches it
+  too.
+
+What the tool does guarantee is ownership: every resource it creates carries
+its labels, and it refuses to touch anything whose full ownership tuple does
+not match. That is what keeps `worktree remove` from deleting something it did
+not create — not a claim about what your branch's code can do once it runs.
+
+## Output and exit codes
+
+The commands that produce data — `index`, `status`, `urls`, `router status`,
+`config show`, `config validate`, `worktree list` — write that data to stdout
+and nothing else, so `berth index > page.txt` and
+`berth worktree list --json | jq` get what they asked for. Progress, waiting
+notices, confirmation prompts, warnings and failures go to stderr.
+
+`up`, `down`, `router down` and `worktree remove` are the exception: they pass
+your hooks' and Compose's own stdout through as those programs wrote it, and
+`up` adds its URL table there.
+
+`router status` has a fourth vocabulary, about the shared router rather than
+any checkout: `running on <address>`, `not running (would use <address>)`,
+`degraded on <address>` when it is up but something about it is not what this
+version expects, and nothing at all on stdout when Docker could not be asked —
+that case is a `Router state unknown:` line on stderr. Each reported problem is
+its own `Router problem:` line on stderr. Both `running` and `not running` exit
+0, because "is it there?" is the question and both are answers; `degraded` and
+an unreachable Docker exit 1.
+
+Every failure the tool itself reports ends in a non-zero exit code and a
+`[berth] ERROR:` line on stderr saying why; a bad command line is answered by
+the argument parser in its own format. Set `BERTH_DEBUG=1` to see the stack
+trace behind a failure. A failing hook's own exit code becomes berth's — see
+[docs/hooks.md](docs/hooks.md) — and a verb that is registered but not
+implemented exits 2.
+
+The stream split and the state vocabulary above are both recent, and pre-1.0
+means neither is a promise yet. What changed: the notices moved off stdout;
+`config validate` lost its `[berth]` prefix there, counts only the hooks that
+run, and adds a line naming the ones nothing invokes; `router status` reports
+an unreachable Docker on stderr rather than as an `unknown:` line on stdout,
+and says `degraded` for a router that is running but not as expected — a word
+it did not have, and the one case where it exits non-zero while a router is up;
+`config show` escapes non-ASCII (the JSON still parses back identically); and
+`worktree list` renamed its `orphaned` state to `missing`. Anything scripted
+against the old shapes needs a look.
 
 ## Platform notes
 
@@ -308,13 +423,14 @@ the worktree — `<slug>.<domain>` and any `<subdomain>.<slug>.<domain>` — plu
 
 ## Development
 
-Node 24 or newer. The project uses pnpm; the `packageManager` field pins the
-version for Corepack.
+Node 24 — `engines` is `>=24.14.1 <25`, because the tool runs TypeScript
+directly on Node's own type stripping. The project uses pnpm; the
+`packageManager` field pins the version for Corepack.
 
 ```bash
 corepack enable
 pnpm install
-pnpm check                # lint + typecheck + unit tests
+pnpm check                # lint + typecheck + unit and CLI tests
 pnpm test:integration     # real Git worktrees and real subprocesses
 ```
 
@@ -337,8 +453,10 @@ src/
   operation-lock.ts     scoped locks and explicit stale recovery
   layout.ts             where everything lives under the control home
   files.ts              owner-only, symlink-refusing filesystem primitives
+  text.ts               the filter every printed line goes through
 tests/
   unit/                 hermetic; no Docker, no real Git
+  cli/                  the CLI as a real process: which stream carries what
   integration/          real Git worktrees, cross-process locks, and a real Docker daemon
 ```
 
@@ -363,7 +481,10 @@ Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
 - **Checkout index** — `berth.localhost`: every registered worktree on the
   machine, grouped by domain, with the projects on it named in the heading, with per-service links and status.
 
-Next, in order:
+Not built yet, in rough order. `dev` and `doctor` are registered and refuse by
+name rather than pretending; the rest are not commands at all. The config file
+already accepts the `verify`, `backup` and `restore` hooks, so a repository can
+commit them once.
 
 1. **`doctor`** — prerequisites, router verification, registry problems,
    hostname conflicts, and the `verify` hook, in one report.
@@ -380,6 +501,13 @@ Next, in order:
    the checkout, so removing a worktree never imports code from the branch
    being deleted.
 6. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
+7. **`init`** — write a starter `berth.toml`. Until then, copy
+   `berth.example.toml` to the repository root.
+8. **`backup` / `restore`** — invoke the hooks of the same name with a bundle
+   directory.
+9. **`rename`** — change a worktree's slug, or the product's own storage
+   names, by migrating the state that carries them. Both are migrations: a
+   control home, identity markers and Docker labels all embed the old name.
 
 ## License
 

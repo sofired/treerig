@@ -68,17 +68,16 @@ export async function loadConfig(file: string): Promise<LoadedConfig> {
 
 /**
  * Loads the nearest config file above `startDir`, or fails with a hint that
- * names the command the user actually invoked.
+ * names something that exists: there is no verb yet that writes one.
  */
-export async function loadNearestConfig(
-  startDir = process.cwd(),
-  commandName: string = BRAND.name
-): Promise<LoadedConfig> {
+export async function loadNearestConfig(startDir = process.cwd()): Promise<LoadedConfig> {
   const file = await findConfigFile(startDir);
   if (!file) {
     throw new CliError(
       `No ${BRAND.configFile} found in ${startDir} or any parent directory. ` +
-      `Run '${commandName} init' to create one.`
+      `Create it at the root of the repository you want to manage, or point at an existing one with --config <path>. ` +
+      `The Quick start in ${BRAND.name}'s README has a minimal template, and ${BRAND.exampleFile} in ` +
+      `${BRAND.name}'s own source tree is the annotated version.`
     );
   }
   return loadConfig(file);

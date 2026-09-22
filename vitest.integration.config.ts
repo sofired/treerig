@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
-// Integration tests spawn real subprocesses and hold real locks. They are kept
-// out of the default `pnpm test` run so the unit suite stays fast and hermetic.
+// Integration tests need a real Docker daemon, real Git worktrees or real
+// cross-process locks. They are kept out of the default `pnpm test` run, which
+// holds the hermetic unit suite and the CLI stream tests.
 export default defineConfig({
   test: {
     include: ['tests/integration/**/*.integration.test.ts'],

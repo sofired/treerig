@@ -7,7 +7,7 @@ import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
 import type { CommandRunner } from '../process-runner.ts';
 import { indexUrl } from '../router/stack.ts';
-import { printable } from './render.ts';
+import { printable } from '../text.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../worktree-registry.ts';
 import { readIndexCard, recordedLabelNamespace, type IndexCard } from './card.ts';
 import { renderIndexHtml } from './render.ts';

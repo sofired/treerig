@@ -1,5 +1,5 @@
 import { readIndexCard } from '../checkout-index/card.ts';
-import { printable } from '../checkout-index/render.ts';
+import { printable, safeJson } from '../text.ts';
 import { describeBranch } from '../checkout-index/snapshot.ts';
 import { worktreeHost } from '../layout.ts';
 import type { RegisteredWorktree } from '../worktree-registry.ts';
@@ -57,22 +57,24 @@ export async function list(context: CommandContext, options: ListOptions = {}): 
   rows.sort((left, right) => left.domain.localeCompare(right.domain, 'en') || left.slug.localeCompare(right.slug, 'en'));
 
   if (options.json) {
-    // Escaped rather than filtered: the values stay exactly what they are, and
-    // nothing a branch name carries can drive the terminal printing them.
-    logger.output(JSON.stringify(rows, null, 2).replaceAll(
-      /[\u007f-\uffff]/g,
-      (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
-    ));
+    logger.output(safeJson(rows));
+  } else if (rows.length === 0) {
+    // Prose, not data: stdout stays empty, the way `status` answers. `--json`
+    // is the scriptable form and says `[]`.
+    logger.info(emptyTable(options.all === true));
   } else {
     for (const line of formatTable(rows, options.all === true)) logger.output(line);
   }
   return rows;
 }
 
+/** What there is to say when there is no table. */
+export function emptyTable(all: boolean): string {
+  return all ? 'No worktrees are registered on this machine.' : 'No worktrees are registered for this repository.';
+}
+
 export function formatTable(rows: readonly ListedRegistration[], all: boolean): string[] {
-  if (rows.length === 0) {
-    return [all ? 'No worktrees are registered on this machine.' : 'No worktrees are registered for this repository.'];
-  }
+  if (rows.length === 0) return [emptyTable(all)];
   // `printable`, before the widths are measured: a branch or a path is whatever
   // a clone put there, and this table is printed to a terminal.
   const columns = [

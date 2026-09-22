@@ -3,11 +3,12 @@ import { recordedLabelNamespace, writeIndexCard } from '../checkout-index/card.t
 import type { ProjectConfig } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
 import { secureWorktreeDirectories } from '../files.ts';
-import { worktreeEnvironment } from '../hooks/protocol.ts';
+import { INVOKED_STAGES, LIFECYCLE_ORDER, worktreeEnvironment, type LifecycleStage } from '../hooks/protocol.ts';
 import { runLifecycle, type HookContext } from '../hooks/runner.ts';
 import { worktreeHost, worktreeLayout } from '../layout.ts';
 import { withScopedLock, worktreeLockTarget } from '../operation-lock.ts';
 import { withProgress } from '../progress.ts';
+import { printable } from '../text.ts';
 import type { ServiceStatus, WorktreeRef } from '../runtime/runtime.ts';
 import type { RegisteredWorktree, WorktreeRegistration } from '../worktree-registry.ts';
 import { labelNamespace, type CommandContext } from './context.ts';
@@ -42,6 +43,13 @@ export function worktreeUrls(
 export interface UpOptions {
   /** Compose service names to start; empty means all of them. */
   services?: readonly string[];
+}
+
+/** The invoked stages the lifecycle sequencer can be asked for, in its own terms. */
+export function lifecycleStages(firstTime: boolean): LifecycleStage[] {
+  return LIFECYCLE_ORDER.filter((stage) =>
+    INVOKED_STAGES.includes(stage) && (firstTime || stage !== 'seed')
+  );
 }
 
 export interface UpResult {
@@ -113,7 +121,10 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
       runtime.up(ref, services, { signal: runner.cancellationSignal })
     );
     const ran = await runLifecycle(hookContext(context, ref), {
-      stages: firstTime ? ['prepare', 'seed'] : ['prepare'],
+      // Everything invoked, or everything but the one that seeds once. The
+      // lifecycle sequencer only knows its own three stages, so the list is
+      // narrowed to those it can be asked for.
+      stages: lifecycleStages(firstTime),
       cancelSignal: runner.cancellationSignal
     });
     await store.completeInitialization(ref.worktreeId, ref.slug, logger);
@@ -147,19 +158,21 @@ export async function status(context: CommandContext): Promise<ServiceStatus[] |
   const { logger, runtime, registry } = context;
   const registration = await registry.current();
   if (!registration) {
-    logger.output(`not registered — run '${context.commandName} up' to create this worktree's environment`);
+    // Prose, not data: stdout stays empty, which is the honest answer.
+    logger.info(`Not registered — run '${context.commandName} up' to create this worktree's environment.`);
     return undefined;
   }
   const ref = toRef(registration);
   const statuses = await runtime.status(ref);
-  logger.output(worktreeHost(ref.slug, ref.domain));
+  logger.output(printable(worktreeHost(ref.slug, ref.domain)));
   if (statuses.length === 0) {
     logger.output('  (no services)');
   }
   const width = Math.max(0, ...statuses.map((entry) => entry.service.length));
   for (const entry of statuses) {
     const detail = entry.detail ? `  (${entry.detail})` : '';
-    logger.output(`  ${entry.service.padEnd(width)}  ${entry.state}${detail}`);
+    // The service names come from the branch's own compose file.
+    logger.output(printable(`  ${entry.service.padEnd(width)}  ${entry.state}${detail}`));
   }
   return statuses;
 }
@@ -244,6 +257,6 @@ function hookContext(context: CommandContext, ref: WorktreeRef & { domain: strin
 function printUrls(context: CommandContext, list: readonly ServiceUrl[]): void {
   const width = Math.max(0, ...list.map((entry) => entry.service.length));
   for (const entry of list) {
-    context.logger.output(`${entry.service.padEnd(width)}  ${entry.url}`);
+    context.logger.output(printable(`${entry.service.padEnd(width)}  ${entry.url}`));
   }
 }

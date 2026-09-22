@@ -55,11 +55,14 @@ export const hooksSchema = z.object({
   prepare: z.string().min(1).optional(),
   /** Runs only after `prepare` exits zero. */
   seed: z.string().min(1).optional(),
-  /** Folded into `doctor`. */
+  // The three below are accepted and validated now, and nothing invokes them
+  // yet: they are the contract a future `doctor`, `backup` and `restore` will
+  // call, declared early so a repository can commit them once.
+  /** Accepted and validated now; invoked by a future `doctor`. */
   verify: z.string().min(1).optional(),
-  /** Receives a bundle directory as its first argument. */
+  /** Accepted and validated now; invoked by a future `backup`, with a bundle directory as its first argument. */
   backup: z.string().min(1).optional(),
-  /** Receives a bundle directory as its first argument. */
+  /** Accepted and validated now; invoked by a future `restore`, with a bundle directory as its first argument. */
   restore: z.string().min(1).optional()
 }).strict();
 

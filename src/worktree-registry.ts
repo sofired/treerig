@@ -55,7 +55,12 @@ export interface RegisteredWorktree {
   worktreeId: string;
   /** Unique within `domain`; the worktree routes as `<slug>.<domain>`. */
   slug: string;
-  /** The project domain the slug was allocated under. */
+  /**
+   * The project domain the slug was allocated under. Looser than the config's
+   * hostname rule on purpose: this record is what removal reads to find a
+   * worktree's Docker resources, so a record that fails to parse strands them.
+   * Everything that prints it filters it instead.
+   */
   domain: string;
   /**
    * The Docker label namespace this worktree's resources carry. Kept here,
@@ -337,7 +342,8 @@ export function branchSlug(identity: Pick<WorktreeIdentity, 'branch' | 'root'>):
  * healed automatically even when the bare name is free again. "The bare name
  * is free" is exactly the transient state a domain rename passes through, and
  * healing at that moment is how two clones end up swapping hostnames under
- * their users. Reclaiming a bare name is an explicit rename, not a side effect.
+ * their users. Reclaiming a bare name would be an explicit rename — a verb
+ * this tool does not have yet — not a side effect of allocation.
  *
  * The suffix derives from the worktree's own identity, so whichever suffix a
  * worktree is given, it is the same one every time.
@@ -428,14 +434,12 @@ export class WorktreeStore {
   readonly controlHome: string;
   readonly repositoryId: string;
   readonly directory: string;
-  private readonly commandName: string;
   private readonly invocation: string;
 
   constructor(controlHome: string, repositoryId: string, commandName: string = BRAND.name, invocation: string = commandName) {
     this.controlHome = path.resolve(controlHome);
     this.repositoryId = uuidSchema.parse(repositoryId);
     this.directory = registryDirectory(this.controlHome, this.repositoryId);
-    this.commandName = commandName;
     this.invocation = invocation;
   }
 
@@ -600,7 +604,8 @@ export class WorktreeStore {
           const listing = scan.problems.map((problem) => `  ${problem.file}: ${problem.reason}`).join('\n');
           throw new CliError(
             `Refusing to allocate a hostname while the registry has unreadable records:\n${listing}\n` +
-            `Run '${this.commandName} doctor' to inspect them.`
+            'Each reason is beside its file above. Move a file aside once you know what it is: ' +
+            'a record that cannot be read is one whose Docker resources removal can no longer find.'
           );
         }
         const others = scan.records.filter((record) => record.worktreeId !== worktreeId);
@@ -846,7 +851,7 @@ export class WorktreeRegistry {
     return scan.records;
   }
 
-  /** The full picture for `doctor`: records, unreadable files, and hostname conflicts. */
+  /** Records, unreadable files, and hostname conflicts: what a `doctor` command would report, once there is one. */
   async scanAll(): Promise<RegistryScan> {
     return scanRegistrations(this.controlHome);
   }
@@ -872,7 +877,7 @@ export class WorktreeRegistry {
       const claimants = bySlug.map((record) => record.worktreeId).join(', ');
       throw new CliError(
         `Hostname ${worktreeHost(identifier, domains[0] ?? '')} is registered to more than one worktree (${claimants}); ` +
-        `address one by UUID or run '${this.commandName} doctor'.`
+        'address one by its UUID.'
       );
     }
     throw new CliError(`Slug ${identifier} exists under ${domains.join(', ')}; specify a domain.`);

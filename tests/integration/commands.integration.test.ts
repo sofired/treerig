@@ -219,7 +219,12 @@ describe('down, status, urls', () => {
     await expect(down(context)).rejects.toThrow("This worktree is not registered. Run 'berth up' first.");
     await expect(urls(context)).rejects.toThrow('not registered');
     await expect(status(context)).resolves.toBeUndefined();
-    expect(context.logger.printed).toEqual(["not registered — run 'berth up' to create this worktree's environment"]);
+    // Prose, not data: it goes to the notice stream, and stdout stays empty so
+    // `berth status | …` gets no rows rather than a sentence.
+    expect(context.logger.printed).toEqual([]);
+    expect(context.logger.lines).toContainEqual(
+      "info: Not registered — run 'berth up' to create this worktree's environment."
+    );
     await expect(context.registry.current()).resolves.toBeUndefined();   // read-only verbs never register
   });
 

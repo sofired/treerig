@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { CliError, invariant } from './errors.ts';
 import { atomicWrite } from './files.ts';
 import { shellQuote } from './shell.ts';
+import { oneLine } from './text.ts';
 import type { Logger } from './logger.ts';
 import { controlLayout, worktreeLayout } from './layout.ts';
 
@@ -84,11 +85,6 @@ interface LockHolder {
   heartbeatMs?: number;
   heldForMs?: number;
   record?: HolderRecord;
-}
-
-/** Free text another process wrote, made safe for one terminal line. */
-function printable(value: string): string {
-  return Array.from(value.replace(/\p{C}/gu, '?')).slice(0, 200).join('');
 }
 
 /**
@@ -280,7 +276,7 @@ export class ScopedLock {
     const record: HolderRecord = {
       pid: process.pid,
       host: hostname(),
-      command: printable(this.holderCommand ?? ''),
+      command: oneLine(this.holderCommand ?? ''),
       startedAt: new Date().toISOString()
     };
     try {
@@ -355,8 +351,10 @@ export class ScopedLock {
       return held === undefined ? 'An unidentified holder has it' : `An unidentified holder has held it for ${held}`;
     }
     const { record } = holder;
-    const where = `PID ${record.pid} on ${printable(record.host)}`;
-    const identity = record.command === '' ? where : `'${printable(record.command)}' (${where})`;
+    // Quoted like the command beside it: plain prose in a hostname would
+    // otherwise close the clause and append a sentence of its own.
+    const where = `PID ${record.pid} on ${JSON.stringify(oneLine(record.host))}`;
+    const identity = record.command === '' ? where : `${JSON.stringify(oneLine(record.command))} (${where})`;
     return held === undefined ? `The holder is ${identity}` : `The holder, ${identity}, has held it for ${held}`;
   }
 
@@ -374,7 +372,7 @@ export class ScopedLock {
     if (holder.state === 'stale') {
       const holderProcess = holder.record === undefined
         ? 'that process'
-        : `that process (\`ps -p ${holder.record.pid}\` on ${printable(holder.record.host)})`;
+        : `that process (\`ps -p ${holder.record.pid}\` on ${JSON.stringify(oneLine(holder.record.host))})`;
       const gone = `${holderProcess} is gone, and nothing it started (such as a \`docker compose\` command) is still running`;
       const removal = `remove the directory with \`rmdir ${shellQuote(holder.lockDirectory)}\``;
       if (confirmed) {

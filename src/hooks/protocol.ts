@@ -86,5 +86,12 @@ export function hookEnvironmentVariables(
 export const LIFECYCLE_ORDER = ['prepare', 'seed', 'verify'] as const satisfies readonly HookStage[];
 export type LifecycleStage = (typeof LIFECYCLE_ORDER)[number];
 
+/**
+ * The stages something actually calls today. Everything else in `HOOK_STAGES`
+ * is accepted and validated so a repository can commit it once, and is inert
+ * until a command invokes it; `config validate` reports the difference.
+ */
+export const INVOKED_STAGES: readonly HookStage[] = ['prepare', 'seed'];
+
 /** Stages that receive a bundle directory as their first argument. */
 export const BUNDLE_STAGES = ['backup', 'restore'] as const satisfies readonly HookStage[];

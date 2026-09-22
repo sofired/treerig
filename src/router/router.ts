@@ -76,6 +76,33 @@ export interface RouterStatus {
 
 const NOT_RUNNING = 'the router is not running';
 
+/**
+ * What `router status` says, and where. `running` only means a container
+ * exists, so a stack whose containers have exited or gone unhealthy must not
+ * read as running on the one stream a script is told to read; the reasons go
+ * to stderr, and they are what makes the command fail.
+ */
+export function routerStatusReport(status: RouterStatus): { output: string[]; errors: string[]; failed: boolean } {
+  const where = `127.0.0.1:${String(status.port)}, network ${status.network}`;
+  if (!status.reachable) {
+    return {
+      output: [],
+      errors: [`Router state unknown: ${status.problems.join('; ').replace(/\.$/, '')}`],
+      failed: true
+    };
+  }
+  // `verify()` answers `[NOT_RUNNING]` and nothing else when every container
+  // is gone, so there is no other reason to drop here.
+  if (!status.running) return { output: [`not running (would use ${where})`], errors: [], failed: false };
+  return {
+    output: [status.problems.length === 0
+      ? `running on ${where}`
+      : `degraded on ${where} (${String(status.problems.length)} problem(s) reported on stderr)`],
+    errors: status.problems.map((problem) => `Router problem: ${problem}`),
+    failed: status.problems.length > 0
+  };
+}
+
 export const DEFAULT_ROUTER_NAME = `${BRAND.name}-router`;
 
 /** What Docker accepts for a project or network name; nothing else may reach a Traefik predicate. */
@@ -452,8 +479,15 @@ export class RouterService implements Router {
    * would start. Throws `DockerUnavailableError` when Docker cannot say.
    */
   async verify(): Promise<string[]> {
-    const ids = await Promise.all([ROUTER_SERVICE, DOCKER_API_SERVICE, INDEX_SERVICE].map((service) => this.containerId(service)));
-    if (ids.some((id) => !id)) return [NOT_RUNNING];
+    const services = [ROUTER_SERVICE, DOCKER_API_SERVICE, INDEX_SERVICE];
+    const ids = await Promise.all(services.map((service) => this.containerId(service)));
+    // All three gone is a router that is not running. One or two gone is a
+    // router that is still bound to its port and still routing, with a hole in
+    // it — reporting that as "not running" would tell an operator the opposite
+    // of what is true.
+    if (ids.every((id) => !id)) return [NOT_RUNNING];
+    const missing = services.filter((_, index) => !ids[index]).map((service) => `${service}: container is missing`);
+    if (missing.length > 0) return missing;
     const [router, api, index] = await Promise.all(ids.map((id) => this.inspect(id ?? '')));
     if (!router || !api || !index) return ['the router could not be inspected'];
     return [...this.routerProblems(router), ...this.dockerApiProblems(api), ...this.indexProblems(index)];

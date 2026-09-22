@@ -12,13 +12,21 @@ import path from 'node:path';
 // inside `.git`. These are on-disk contracts. They deliberately do NOT follow
 // the binary name, because renaming a symlink must never orphan state.
 //
-// Renaming the product means changing `BRAND` and nothing else in `src/`.
+// Renaming the product means changing `BRAND` and nothing else in `src/` — but
+// it is not only a code change. Every installation already has a control home,
+// a config file, identity markers inside `.git`, and Docker resources labelled
+// under the old namespace; a new `BRAND` cannot see any of them. A rename is a
+// migration that has to move or adopt that state, and the tool has no verb for
+// it yet. `label-namespace` in config exists to adopt one predecessor's
+// resources, which is the closest thing available.
 
 export const BRAND = {
   /** Lower-case product name; every storage identifier derives from it. */
   name: 'berth',
   /** Committed per-repository configuration file, searched upward from cwd. */
   configFile: 'berth.toml',
+  /** The annotated copy in this repository, which the missing-config error points at. */
+  exampleFile: 'berth.example.toml',
   /** Environment variable that overrides the control home. */
   homeEnv: 'BERTH_HOME',
   /** Control-home directory name under `$HOME` when the override is unset. */
@@ -39,9 +47,9 @@ export const BRAND = {
 /**
  * The name this CLI was invoked as.
  *
- * Reads the basename of `argv[1]`, which is the binary or symlink for a
- * compiled executable and an installed launcher. When running the TypeScript
- * source directly (`node src/cli/main.ts`) there is no meaningful name, so the
+ * Reads the basename of `argv[1]`, which is the symlink an installation is
+ * reached through — and would be the binary if there were one. Running the
+ * source by path (`node src/cli/main.ts`) leaves no meaningful name, so the
  * product name is used instead.
  */
 export function cliName(argv: readonly string[]): string {

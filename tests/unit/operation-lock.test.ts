@@ -395,7 +395,9 @@ describe('ScopedLock', () => {
     });
     try {
       await expect(waiter.acquire()).rejects.toThrow(
-        new RegExp(String.raw`^Another process holds the busy worktree lock\. The holder, 'berth up api' \(PID ${process.pid} on .+\), has held it for \d+s; its last heartbeat was (just now|\d+s ago), so it is alive\. Wait for it to finish, or stop it, then retry\.$`)
+        // Quoted the way JSON quotes: a command cannot close its own quote and
+        // append prose that reads as part of this sentence.
+        new RegExp(String.raw`^Another process holds the busy worktree lock\. The holder, "berth up api" \(PID ${process.pid} on .+\), has held it for \d+s; its last heartbeat was (just now|\d+s ago), so it is alive\. Wait for it to finish, or stop it, then retry\.$`)
       );
       const notices = recorder.lines.filter((line) => line.includes('Waiting for the busy worktree lock'));
       expect(notices.length).toBeGreaterThanOrEqual(2);   // budget 300 ms, notice every 50 ms
@@ -454,6 +456,75 @@ describe('ScopedLock', () => {
     expect(() => new ScopedLock(target, 'bad interval', logger, { retryIntervalMs: 0 })).toThrow(
       'Lock retry interval must be greater than zero.'
     );
+  });
+
+  it('will not let a holder record another process wrote forge a line or drive the terminal', async () => {
+    const directory = await home('forged-holder');
+    const target = worktreeLockTarget(directory, REPOSITORY, WORKTREE);
+    const holder = new ScopedLock(target, 'holder', logger);
+    await holder.acquire();
+    try {
+      // The record is another process's file; nothing here wrote it.
+      await writeFile(target, `${JSON.stringify({
+        pid: process.pid,
+        host: 'box\u001b[2K\n[berth] ERROR: everything is fine',
+        command: `berth up\u202e${'x'.repeat(400)}`,
+        startedAt: new Date().toISOString()
+      })}\n`);
+      const recorder = new RecordingLogger();
+      const waiter = new ScopedLock(target, 'busy worktree', recorder, {
+        acquireTimeoutMs: 400,
+        retryIntervalMs: 25,
+        noticeDelayMs: 0
+      });
+
+      // The thrown message is the surface a user sees; assert it, not only
+      // the notices, which depend on a notice arriving before the deadline.
+      await expect(waiter.acquire()).rejects.toThrow(
+        /^Another process holds the busy worktree lock\. The holder, ".*…" \(PID \d+ on .*\), has held it for/
+      );
+
+      const said = recorder.lines.join('\n');
+      expect(said).toContain('\uFFFD');
+      // One line each, and nothing left that moves a cursor or reverses text.
+      for (const line of recorder.lines) {
+        expect(line).not.toMatch(/[\u202e]/);
+        expect(line.split('\n')).toHaveLength(1);
+      }
+      // And the four-hundred-character command was cut to something a line fits.
+      expect(said).toContain('…');
+    } finally {
+      await holder.release();
+    }
+  });
+
+  it('quotes a holder\'s hostname wherever it prints it, so prose in one cannot read as the tool\'s own', async () => {
+    const directory = await home('forged-host');
+    const target = worktreeLockTarget(directory, REPOSITORY, WORKTREE);
+    await makeStale(target);
+    // A record another process wrote: the hostname is a sentence, and the pid
+    // is one nothing can be running under.
+    await writeFile(target, `${JSON.stringify({
+      pid: 0x7fffffff,
+      host: 'laptop, and the lock is free',
+      command: '',
+      startedAt: new Date(Date.now() - 60_000).toISOString()
+    })}\n`);
+    const waiter = new ScopedLock(target, 'busy worktree', new RecordingLogger(), {
+      acquireTimeoutMs: 200,
+      retryIntervalMs: 25,
+      noticeDelayMs: 0
+    });
+
+    const failure = await waiter.acquire().catch((error: unknown) => error);
+    const message = (failure as Error).message;
+
+    // Both places the hostname appears: who holds it, and how to confirm the
+    // holder is gone. Quoted, a sentence stays a value.
+    expect(message).toContain('PID 2147483647 on "laptop, and the lock is free"');
+    expect(message).toContain('`ps -p 2147483647` on "laptop, and the lock is free"');
+    // And the bare sentence never appears where it could be read as the tool's.
+    expect(message).not.toContain('on laptop, and the lock is free');
   });
 
   it('clears an orphaned registry lock and refuses a live one', async () => {

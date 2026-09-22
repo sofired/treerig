@@ -7,9 +7,9 @@ import { BRAND } from '../brand.ts';
 // read-only, drops every capability (the router gets back only
 // NET_BIND_SERVICE), and cannot escalate.
 //
-// Traefik never sees the Docker socket. It talks to a proxy that exposes the
-// read-only subset of the API a router needs — containers, networks, events —
-// and refuses everything else, including every POST.
+// Traefik never sees the Docker socket: it talks to a proxy, which refuses
+// every POST. What that proxy still exposes is described on
+// `DOCKER_API_ACCESS` below, and it is wider than "what a router needs".
 
 /** Bumped whenever the stack changes shape; a newer router is never downgraded. */
 export const ROUTER_PROTOCOL = 3;
@@ -45,7 +45,18 @@ export const DOCKER_SOCKET = '/var/run/docker.sock';
 export const DYNAMIC_CONFIG_MOUNT = `/etc/${BRAND.name}/dynamic`;
 export const ROUTER_ENTRYPOINT = 'web';
 
-/** What the socket proxy lets through. Everything not listed here is denied. */
+/**
+ * What the socket proxy lets through. Everything not listed here is denied.
+ *
+ * `CONTAINERS=1` is not "what a router needs": it opens the whole container
+ * section of the API, which is read-only only in the sense that it makes no
+ * changes. Anything that can reach the proxy can list every container on the
+ * machine — not just this tool's — and read each one's environment (secrets
+ * passed to any of them), its logs, and its filesystem through the archive and
+ * export endpoints. Traefik needs labels and networks; the API has no narrower
+ * way to offer them. Reaching the proxy means being on its internal network,
+ * which only the router itself joins.
+ */
 export const DOCKER_API_ACCESS = {
   ALLOW_PAUSE: '0',
   ALLOW_RESTARTS: '0',

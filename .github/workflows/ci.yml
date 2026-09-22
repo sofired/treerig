@@ -36,7 +36,7 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests
+      - name: Unit and CLI tests
         run: pnpm test
 
       # Real Git and real locks everywhere; the Docker suites skip themselves

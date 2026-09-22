@@ -124,7 +124,9 @@ describe('worktree list', () => {
     world = await commandWorld();
     const context = world.context();
     await expect(list(context)).resolves.toEqual([]);
-    expect(context.logger.printed).toEqual(['No worktrees are registered for this repository.']);
+    // Nothing to pipe, so nothing on stdout: the sentence is a notice.
+    expect(context.logger.printed).toEqual([]);
+    expect(context.logger.lines).toContainEqual('info: No worktrees are registered for this repository.');
     expect(formatTable([], true)).toEqual(['No worktrees are registered on this machine.']);
   });
 });

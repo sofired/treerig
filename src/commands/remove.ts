@@ -3,6 +3,7 @@ import { recordedLabelNamespace } from '../checkout-index/card.ts';
 import { BRAND } from '../brand.ts';
 import { LABEL_NAMESPACE } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
+import { printable } from '../text.ts';
 import { assertSafeDirectoryPath, pathExists, removeWithin } from '../files.ts';
 import { worktreeHost, worktreeLayout, type WorktreeLayout } from '../layout.ts';
 import { withProgress } from '../progress.ts';
@@ -240,9 +241,11 @@ function countResources(resources: readonly OwnedResource[]): string {
     .join(', ');
 }
 
-function describePlan(host: string, planned: readonly OwnedResource[], hasHome: boolean): string {
+export function describePlan(host: string, planned: readonly OwnedResource[], hasHome: boolean): string {
   const lines = [
-    `This will permanently remove ${host}:`,
+    // Filtered here, where it is borrowed: a hostname that carried a line
+    // break would otherwise write its own line into this list.
+    `This will permanently remove ${printable(host)}:`,
     `  ${countResources(planned)}`,
     hasHome ? '  its home directory under the control home' : '  (no home directory)',
     '  its registration'

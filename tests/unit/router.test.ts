@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { pathExists, secureControlDirectories } from '../../src/files.ts';
 import { controlLayout } from '../../src/layout.ts';
 import { CommandStartError, type CommandRunner, type RunOptions, type RunResult } from '../../src/process-runner.ts';
-import { RouterService, type ContainerInspect } from '../../src/router/router.ts';
+import { RouterService, type ContainerInspect, routerStatusReport } from '../../src/router/router.ts';
 import {
   DOCKER_API_ACCESS,
   DOCKER_API_IMAGE,
@@ -652,6 +652,29 @@ describe('RouterService.status and down', () => {
     await expect(w.router.status()).resolves.toEqual({ reachable: true, running: false, problems: ['the router is not running'], port: 80, network: NETWORK });
   });
 
+  // A stack with a hole in it is still bound to its port and still routing
+  // whatever Traefik already discovered. Calling that "not running" would send
+  // an operator to `router up` when what they need to see is which container
+  // went away — and `routerStatusReport` maps `running: false` to exit 0.
+  it('names the containers a half-present stack is missing rather than calling it stopped', async () => {
+    const w = await world();
+    w.fake.ids = { router: 'router-1' };
+
+    await expect(w.router.status()).resolves.toEqual({
+      reachable: true,
+      running: true,
+      problems: ['docker-api: container is missing', 'index: container is missing'],
+      port: 80,
+      network: NETWORK
+    });
+  });
+
+  it('says nothing is missing when every container is there', async () => {
+    const w = await world();
+    const problems = await w.router.verify();
+    expect(problems.filter((problem) => problem.includes('container is missing'))).toEqual([]);
+  });
+
   it('reports Docker as unreachable when `compose ps` fails for a reason it does not recognize', async () => {
     const w = await world();
     w.fake.psExitCode = 125;
@@ -744,5 +767,49 @@ describe('RouterService.status and down', () => {
 
     w.fake.downStderr = 'permission denied';
     await expect(w.router.down()).rejects.toThrow('did not stop cleanly');
+  });
+});
+
+describe('what `router status` says, and where', () => {
+  const base = { port: 80, network: 'berth-router' };
+
+  it('says nothing on stdout when Docker could not be asked, and fails', () => {
+    expect(routerStatusReport({
+      ...base,
+      reachable: false,
+      running: false,
+      problems: ['Docker is not available: the `docker` command is not on PATH (ENOENT).']
+    })).toEqual({
+      output: [],
+      errors: ['Router state unknown: Docker is not available: the `docker` command is not on PATH (ENOENT)'],
+      failed: true
+    });
+  });
+
+  it('will not call a drifted stack running on the stream a script reads', () => {
+    // `running` only means a container exists; these two say it is not serving.
+    expect(routerStatusReport({
+      ...base,
+      reachable: true,
+      running: true,
+      problems: ['router: not running', 'router: not healthy']
+    })).toEqual({
+      output: ['degraded on 127.0.0.1:80, network berth-router (2 problem(s) reported on stderr)'],
+      errors: ['Router problem: router: not running', 'Router problem: router: not healthy'],
+      failed: true
+    });
+  });
+
+  it('reports a clean router, and a stopped one, without failing', () => {
+    expect(routerStatusReport({ ...base, reachable: true, running: true, problems: [] })).toEqual({
+      output: ['running on 127.0.0.1:80, network berth-router'],
+      errors: [],
+      failed: false
+    });
+    expect(routerStatusReport({ ...base, reachable: true, running: false, problems: ['the router is not running'] })).toEqual({
+      output: ['not running (would use 127.0.0.1:80, network berth-router)'],
+      errors: [],
+      failed: false
+    });
   });
 });

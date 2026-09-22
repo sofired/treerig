@@ -12,13 +12,14 @@ promise.
 | ----- | ------------ | -------- |
 | `prepare` | Services are up and healthy. Nothing has been seeded. | environment only |
 | `seed` | **Only after `prepare` exited zero.** | environment only |
-| `verify` | On demand, folded into `doctor`. | environment only |
-| `backup` | On demand. | environment + bundle directory as `$1` |
-| `restore` | On demand. | environment + bundle directory as `$1` |
+| `verify` | Accepted and validated now; nothing invokes it yet. A future `berth doctor` command will. | environment only |
+| `backup` | Accepted and validated now; nothing invokes it yet. A future `berth backup` command will. | environment + bundle directory as `$1` |
+| `restore` | Accepted and validated now; nothing invokes it yet. A future `berth restore` command will. | environment + bundle directory as `$1` |
 
-The lifecycle order is `prepare → seed → verify`. The sequencer stops at the
-first non-zero exit and reports which stage failed. A stage that is not
-configured is skipped, not failed.
+The lifecycle order is `prepare → seed → verify`. `up` is the only caller
+today and asks for `prepare` and `seed` only, so `verify` is ordered but never
+reached. The sequencer stops at the first non-zero exit and reports which stage
+failed. A stage that is not configured is skipped, not failed.
 
 The `prepare`/`seed` ordering is enforced by the runner, not by convention.
 Put migrations in `prepare` and data loading in `seed`, and it is impossible
@@ -58,7 +59,7 @@ hook scripts keep working however the tool is invoked.
 
 | Variable | Value |
 | -------- | ----- |
-| `BERTH_STAGE` | `prepare`, `seed`, `verify`, `backup`, or `restore` |
+| `BERTH_STAGE` | `prepare` or `seed` today; `verify`, `backup` and `restore` once something invokes them |
 | `BERTH_PROJECT` | `project.name` from the config |
 | `BERTH_REPOSITORY_ID` | UUID of the repository |
 | `BERTH_WORKTREE_ID` | UUID of this worktree |

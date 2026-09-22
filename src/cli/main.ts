@@ -7,16 +7,19 @@ import { list } from '../commands/list.ts';
 import { remove } from '../commands/remove.ts';
 import { down, status, up, urls } from '../commands/worktree.ts';
 import { loadConfig, loadNearestConfig } from '../config/load.ts';
+import type { HookStage } from '../config/schema.ts';
+import { INVOKED_STAGES } from '../hooks/protocol.ts';
 import { CliError } from '../errors.ts';
 import { createConsoleLogger } from '../logger.ts';
+import { printable, printableLines, safeJson } from '../text.ts';
 import { resolveControlHome, resolveRouterPort } from '../layout.ts';
 import { ExecaRunner } from '../process-runner.ts';
-import { RouterService } from '../router/router.ts';
+import { routerStatusReport, RouterService } from '../router/router.ts';
 
 const VERSION = '0.1.0';
 
 // The one place argv is read for a name. Everything downstream receives it as
-// a value, so a binary installed as `duke` says `duke` in every message.
+// a value, so an installation symlinked as `duke` says `duke` in every message.
 const commandName = cliName(process.argv);
 const logger = createConsoleLogger(commandName);
 
@@ -43,17 +46,27 @@ async function main(argv: readonly string[]): Promise<void> {
     .action(async () => {
       const loaded = await load(program.opts<{ config?: string }>().config);
       const services = loaded.config.service.length;
-      const hooks = Object.keys(loaded.config.hooks).length;
-      logger.info(`${loaded.file} is valid.`);
-      logger.info(`project ${loaded.config.project.name} · domain ${loaded.config.project.domain} · ${services} service(s) · ${hooks} hook(s)`);
-      logger.info(`control home: ${resolveControlHome(process.env)}`);
+      const configured = Object.keys(loaded.config.hooks) as HookStage[];
+      // Counted separately, because a report about what a file does must not
+      // count three hooks nothing invokes yet among the ones that run.
+      const inert = configured.filter((stage) => !INVOKED_STAGES.includes(stage));
+      const live = configured.length - inert.length;
+      // A validator's report is what was asked for, so it goes to stdout the
+      // way every other reporting tool's does.
+      logger.output(printable(`${loaded.file} is valid.`));
+      logger.output(printable(
+        `project ${loaded.config.project.name} · domain ${loaded.config.project.domain} · ` +
+        `${services} service(s) · ${live} hook(s)`
+      ));
+      if (inert.length > 0) logger.output(`accepted but not invoked yet: ${inert.join(', ')}`);
+      logger.output(printable(`control home: ${resolveControlHome(process.env)}`));
     });
 
   config.command('show')
     .description('print the resolved configuration as JSON')
     .action(async () => {
       const loaded = await load(program.opts<{ config?: string }>().config);
-      logger.output(JSON.stringify(loaded.config, null, 2));
+      logger.output(safeJson(loaded.config));
     });
 
   // What a waiter on one of this process's locks is told it is waiting for.
@@ -78,7 +91,7 @@ async function main(argv: readonly string[]): Promise<void> {
     commandName
   });
 
-  program.command('dev').description('start this worktree\'s environment and follow its logs').action(notYet('dev'));
+  program.command('dev').description('start this worktree\'s environment and follow its logs (not yet implemented)').action(notYet('dev'));
   program.command('up [services...]')
     .description('register this worktree, start its services, and run its hooks')
     .action(async (services: string[]) => {
@@ -105,7 +118,7 @@ async function main(argv: readonly string[]): Promise<void> {
       const current = await context();
       logger.output(formatIndexText(await current.index.refresh(), current.index.url));
     });
-  program.command('doctor').description('validate prerequisites and local state').action(notYet('doctor'));
+  program.command('doctor').description('validate prerequisites and local state (not yet implemented)').action(notYet('doctor'));
 
   const routerCommand = program.command('router').description('manage the shared local router');
   routerCommand.command('up')
@@ -118,17 +131,10 @@ async function main(argv: readonly string[]): Promise<void> {
   routerCommand.command('status')
     .description('report whether the shared router is running as expected')
     .action(async () => {
-      const status = await router().status();
-      if (!status.reachable) {
-        logger.output(`unknown: ${status.problems.join('; ').replace(/\.$/, '')}`);
-        process.exitCode = 1;
-        return;
-      }
-      logger.output(status.running
-        ? `running on 127.0.0.1:${status.port}, network ${status.network}`
-        : `not running (would use 127.0.0.1:${status.port}, network ${status.network})`);
-      for (const problem of status.problems) logger.output(`  problem: ${problem}`);
-      if (status.running && status.problems.length > 0) process.exitCode = 1;
+      const report = routerStatusReport(await router().status());
+      for (const line of report.output) logger.output(printable(line));
+      for (const line of report.errors) logger.error(line);
+      if (report.failed) process.exitCode = 1;
     });
   routerCommand.command('down')
     .description('stop the shared router; worktree services keep running but are no longer routed')
@@ -157,7 +163,7 @@ async function main(argv: readonly string[]): Promise<void> {
 }
 
 async function load(explicit: string | undefined) {
-  return explicit ? loadConfig(explicit) : loadNearestConfig(process.cwd(), commandName);
+  return explicit ? loadConfig(explicit) : loadNearestConfig(process.cwd());
 }
 
 /** A failure that hid others — a hook that failed while its lock could not be released, say — shows all of them. */
@@ -186,5 +192,6 @@ try {
     if (!debug) logger.error(`  (set ${BRAND.envPrefix}_DEBUG=1 to see the stack trace)`);
     process.exitCode = 1;
   }
-  if (debug) console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+  // Per line, so the frames keep their shape and nothing inside one drives the terminal.
+  if (debug) console.error(printableLines(error instanceof Error ? error.stack ?? error.message : String(error)));
 }

@@ -53,9 +53,10 @@ path      = "/latest"   # routes only this prefix; several services may share a 
 port      = 4000        # container port to route to; defaults to the first port the service exposes
 
 # ---------------------------------------------------------------------------
-# Hooks. Each is an executable — any language — resolved relative to this
-# file, run with this directory as its working directory, and handed the
-# BERTH_* environment described in docs/hooks.md. Exit zero means success.
+# Hooks. Each is an executable — any language. A command that starts with "."
+# or contains "/" is resolved relative to this file; anything else is looked up
+# on PATH. Each runs with this directory as its working directory and is handed
+# the BERTH_* environment described in docs/hooks.md. Exit zero means success.
 
 [hooks]
 # Services are up and healthy; nothing has been seeded. Migrations go here.
@@ -64,9 +65,11 @@ prepare = "./scripts/migrate.sh"
 # Runs only after `prepare` exits zero.
 seed = "./scripts/seed.py"
 
-# Folded into `berth doctor`.
+# Accepted and validated now; nothing invokes it yet. A future `berth doctor`
+# will.
 verify = "./scripts/doctor"
 
-# Both receive a bundle directory as their first argument.
+# Accepted and validated now; nothing invokes them yet. A future `berth backup`
+# and `berth restore` will, each with a bundle directory as its first argument.
 backup  = "./scripts/backup.sh"
 restore = "./scripts/restore.sh"

@@ -44,7 +44,9 @@ export async function withWorktreeMutation<T>(
       developmentLockTarget(controlHome, ref.repositoryId, ref.worktreeId),
       `${ref.slug} development session`,
       logger,
-      // A live `dev` session is not something to wait out; say so quickly.
+      // Held for the length of a `dev` session, so it is not something to wait
+      // out: say so quickly. Nothing takes it yet — `dev` does not exist — so
+      // today this only proves the worktree is not attached to one.
       { acquireTimeoutMs: 1_000, holder: context.invocation }
     ));
   }
