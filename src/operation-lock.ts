@@ -1,7 +1,12 @@
-import { lstat, mkdir, writeFile } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
+import { lstat, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import * as lockfile from 'proper-lockfile';
+import { z } from 'zod';
 import { CliError, invariant } from './errors.ts';
+import { atomicWrite } from './files.ts';
+import { shellQuote } from './shell.ts';
 import type { Logger } from './logger.ts';
 import { controlLayout, worktreeLayout } from './layout.ts';
 
@@ -10,6 +15,18 @@ const LOCK_STALE_MS = Number.MAX_SAFE_INTEGER;
 const LOCK_UPDATE_MS = 10_000;
 const LOCK_RECOVERY_STALE_MS = 30_000;
 const LOCK_RETRY_MAX_MS = 250;
+/** With neither a budget nor an interval: 50 ms doubling to 250 ms, twenty tries — about 4.6 s. */
+const DEFAULT_LOCK_BUDGET_MS = 4_600;
+/** A contended registry lock clears in milliseconds; only a longer wait is worth a line of output. */
+const LOCK_NOTICE_DELAY_MS = 2_000;
+const LOCK_NOTICE_INTERVAL_MS = 30_000;
+/**
+ * A holder whose heartbeat looks old may simply be on a machine that just
+ * woke up; its next heartbeat comes within one update period. Removal is
+ * advised only once a second look, this long after the first, finds the
+ * heartbeat unchanged.
+ */
+const LOCK_STALE_CONFIRMATION_MS = LOCK_UPDATE_MS + 2_000;
 /** How long an operation will wait for a busy worktree before giving up. */
 export const OPERATION_LOCK_TIMEOUT_MS = 25 * 60_000;
 /**
@@ -26,8 +43,96 @@ export interface ScopedLockOptions {
   acquireTimeoutMs?: number;
   /** Poll interval while waiting; defaults to a 250 ms ceiling. */
   retryIntervalMs?: number;
-  /** Shown to the user when the lock is held, e.g. `berth worktree unlock`. */
-  recoveryCommand?: string;
+  /** How long to wait before the first "waiting for the lock" notice. */
+  noticeDelayMs?: number;
+  /** How often to repeat it. */
+  noticeIntervalMs?: number;
+  /** How long a silent heartbeat must stay silent before removal is advised. */
+  staleConfirmationMs?: number;
+  /** How the holding process was invoked (`berth up`, say), for whoever waits on it. */
+  holder?: string;
+  /** The clock the wait is measured on; tests use it to simulate a suspended machine. */
+  clock?: () => number;
+}
+
+interface WaitPlan {
+  budgetMs: number;
+  firstIntervalMs: number;
+  maxIntervalMs: number;
+}
+
+/**
+ * What the holder wrote about itself into the lock target when it acquired.
+ * Read across versions of this tool, so unknown fields are ignored, not refused.
+ */
+const holderRecordSchema = z.object({
+  pid: z.number().int().positive(),
+  host: z.string().min(1),
+  command: z.string(),
+  startedAt: z.string()
+});
+type HolderRecord = z.infer<typeof holderRecordSchema>;
+/** A record is one short line; anything larger is not ours and is not read. */
+const HOLDER_RECORD_MAX_BYTES = 4_096;
+
+interface LockHolder {
+  state: LockRecoveryState;
+  lockDirectory: string;
+  /** Milliseconds since the holder last touched the lock. */
+  heartbeatAgeMs?: number;
+  /** The heartbeat's timestamp, to tell "still silent" from "silent again". */
+  heartbeatMs?: number;
+  heldForMs?: number;
+  record?: HolderRecord;
+}
+
+/** Free text another process wrote, made safe for one terminal line. */
+function printable(value: string): string {
+  return Array.from(value.replace(/\p{C}/gu, '?')).slice(0, 200).join('');
+}
+
+/**
+ * A lock target is a managed file of ours; a symlink there would put the
+ * holder record — and the `.lock` directory beside it — somewhere else.
+ */
+async function ensurePlainTarget(target: string, description: string): Promise<void> {
+  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  for (;;) {
+    let metadata: Stats | undefined;
+    try {
+      metadata = await lstat(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (metadata !== undefined) {
+      invariant(
+        metadata.isFile() && !metadata.isSymbolicLink(),
+        `Refusing to use ${target} for the ${description} lock: it is not a plain file ` +
+        '(a directory or symbolic link stands in its place). Inspect it before removing anything.'
+      );
+      return;
+    }
+    try {
+      await writeFile(target, '', { flag: 'wx', mode: 0o600 });
+      return;
+    } catch (error) {
+      // Another waiter created it in between; look at what it made before trusting it.
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+  }
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** `4s`, `12m 30s`, `2h 5m`, `3d 4h` — what a person at a terminal wants. */
+export function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
 /* ---- the four lock scopes ---- */
@@ -67,7 +172,10 @@ export function routerLockTarget(controlHome: string): string {
 /**
  * An advisory lock with an effectively infinite stale window and a heartbeat,
  * so a long-running holder is never silently stolen. Recovery from a genuinely
- * dead holder is explicit — see `clearStaleLock` — never automatic.
+ * dead holder is never automatic. A waiter is told what it is waiting for:
+ * which process has held the lock for how long, whether it is still
+ * heartbeating, and — only once the heartbeat has stayed silent across two
+ * looks — exactly what to remove after confirming the process is gone.
  */
 export class ScopedLock {
   private readonly target: string;
@@ -75,9 +183,16 @@ export class ScopedLock {
   private readonly logger: Logger;
   private readonly acquireTimeoutMs?: number;
   private readonly retryIntervalMs?: number;
-  private readonly recoveryCommand?: string;
+  private readonly noticeDelayMs: number;
+  private readonly noticeIntervalMs: number;
+  private readonly staleConfirmationMs: number;
+  private readonly holderCommand?: string;
+  private readonly clock: () => number;
+  private lockDirectory?: string;
   private releaseLock?: () => Promise<void>;
   private compromised?: Error;
+  /** The heartbeat first seen silent, and when; cleared as soon as it moves. */
+  private silentSince?: { at: number; heartbeatMs: number };
 
   constructor(
     target: string,
@@ -93,69 +208,251 @@ export class ScopedLock {
       options.retryIntervalMs === undefined || options.retryIntervalMs > 0,
       'Lock retry interval must be greater than zero.'
     );
+    invariant(
+      options.noticeDelayMs === undefined || options.noticeDelayMs >= 0,
+      'Lock notice delay must not be negative.'
+    );
+    invariant(
+      options.noticeIntervalMs === undefined || options.noticeIntervalMs > 0,
+      'Lock notice interval must be greater than zero.'
+    );
+    invariant(
+      options.staleConfirmationMs === undefined || options.staleConfirmationMs > 0,
+      'Lock stale confirmation window must be greater than zero.'
+    );
     this.target = path.resolve(target);
     this.description = description;
     this.logger = logger;
     this.acquireTimeoutMs = options.acquireTimeoutMs;
     this.retryIntervalMs = options.retryIntervalMs;
-    this.recoveryCommand = options.recoveryCommand;
+    this.noticeDelayMs = options.noticeDelayMs ?? LOCK_NOTICE_DELAY_MS;
+    this.noticeIntervalMs = options.noticeIntervalMs ?? LOCK_NOTICE_INTERVAL_MS;
+    this.staleConfirmationMs = options.staleConfirmationMs ?? LOCK_STALE_CONFIRMATION_MS;
+    this.holderCommand = options.holder;
+    this.clock = options.clock ?? Date.now;
   }
 
   /**
    * Three schedules, chosen by which options were given:
    *  - a budget: poll at a fixed interval until the budget is spent;
-   *  - an interval alone: poll at that fixed interval for the default number of tries;
-   *  - neither: the default short exponential backoff, unchanged.
+   *  - an interval alone: poll at that fixed interval for twenty tries;
+   *  - neither: a short exponential backoff, about 4.6 seconds in all.
    */
-  private retrySchedule() {
+  private waitPlan(): WaitPlan {
     if (this.acquireTimeoutMs !== undefined) {
       const interval = Math.min(this.retryIntervalMs ?? LOCK_RETRY_MAX_MS, this.acquireTimeoutMs);
-      return {
-        retries: Math.ceil(this.acquireTimeoutMs / interval),
-        minTimeout: interval,
-        maxTimeout: interval,
-        factor: 1,
-        randomize: false
-      };
+      return { budgetMs: this.acquireTimeoutMs, firstIntervalMs: interval, maxIntervalMs: interval };
     }
     if (this.retryIntervalMs !== undefined) {
-      return {
-        retries: 20,
-        minTimeout: this.retryIntervalMs,
-        maxTimeout: this.retryIntervalMs,
-        factor: 1,
-        randomize: false
-      };
+      return { budgetMs: 20 * this.retryIntervalMs, firstIntervalMs: this.retryIntervalMs, maxIntervalMs: this.retryIntervalMs };
     }
-    return { retries: 20, minTimeout: 50, maxTimeout: LOCK_RETRY_MAX_MS };
+    return { budgetMs: DEFAULT_LOCK_BUDGET_MS, firstIntervalMs: 50, maxIntervalMs: LOCK_RETRY_MAX_MS };
   }
 
-  async acquire(): Promise<void> {
-    invariant(!this.releaseLock, `${this.description} lock is already held by this process.`);
-    await mkdir(path.dirname(this.target), { recursive: true, mode: 0o700 });
-    await writeFile(this.target, '', { flag: 'a', mode: 0o600 });
+  /** One attempt; `ELOCKED` means somebody else has it, anything else is a real error. */
+  private async attempt(): Promise<boolean> {
     try {
       this.releaseLock = await lockfile.lock(this.target, {
         realpath: true,
         stale: LOCK_STALE_MS,
         update: LOCK_UPDATE_MS,
-        retries: this.retrySchedule(),
+        retries: 0,
         onCompromised: (error) => {
           this.compromised = error;
           this.logger.error(`${this.description} lock was compromised: ${error.message}`);
         }
       });
     } catch (error) {
-      const detail = error as NodeJS.ErrnoException;
-      if (detail.code === 'ELOCKED') {
-        const recovery = this.recoveryCommand
-          ? ` If the prior process terminated unexpectedly, run \`${this.recoveryCommand}\`.`
-          : '';
-        throw new CliError(
-          `Another process holds the ${this.description} lock.${recovery}`
-        );
-      }
+      if ((error as NodeJS.ErrnoException).code === 'ELOCKED') return false;
       throw error;
+    }
+    await this.recordHolder();
+    return true;
+  }
+
+  /**
+   * The `.lock` directory must stay empty (release is an rmdir), so the record
+   * goes into the target file, which is ours for as long as the lock is. It is
+   * advisory — a waiter without it still has the heartbeat — so failing to
+   * write it must not cost the lock just taken.
+   */
+  private async recordHolder(): Promise<void> {
+    const record: HolderRecord = {
+      pid: process.pid,
+      host: hostname(),
+      command: printable(this.holderCommand ?? ''),
+      startedAt: new Date().toISOString()
+    };
+    try {
+      await atomicWrite(this.target, `${JSON.stringify(record)}\n`);
+    } catch (error) {
+      this.logger.warn(
+        `Could not note this process as the holder of the ${this.description} lock: ` +
+        `${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private async holderRecord(): Promise<HolderRecord | undefined> {
+    try {
+      const { size } = await stat(this.target);
+      if (size === 0 || size > HOLDER_RECORD_MAX_BYTES) return undefined;
+      const parsed = holderRecordSchema.safeParse(JSON.parse(await readFile(this.target, 'utf8')));
+      return parsed.success ? parsed.data : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Who holds the lock, as far as the filesystem can tell. */
+  private async holder(): Promise<LockHolder> {
+    invariant(this.lockDirectory !== undefined, `${this.description} lock was inspected before acquisition began.`);
+    const lockDirectory = this.lockDirectory;
+    const state = await inspectLockForRecovery(this.target, this.description);
+    if (state === 'missing') return { state, lockDirectory };
+    let metadata: Stats;
+    try {
+      metadata = await lstat(lockDirectory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing', lockDirectory };
+      throw error;
+    }
+    const record = await this.holderRecord();
+    const now = this.clock();
+    const startedMs = record === undefined ? Number.NaN : Date.parse(record.startedAt);
+    // Filesystems without a birth time report the epoch or the change time; neither is a start.
+    const birthMs = metadata.birthtimeMs > 0 && metadata.birthtimeMs <= metadata.mtimeMs ? metadata.birthtimeMs : Number.NaN;
+    const sinceMs = Number.isFinite(startedMs) ? startedMs : birthMs;
+    return {
+      state,
+      lockDirectory,
+      heartbeatMs: metadata.mtimeMs,
+      heartbeatAgeMs: Math.max(0, now - metadata.mtimeMs),
+      ...(Number.isFinite(sinceMs) ? { heldForMs: Math.max(0, now - sinceMs) } : {}),
+      ...(record === undefined ? {} : { record })
+    };
+  }
+
+  /**
+   * Two silent looks at the same heartbeat, far enough apart that a resumed
+   * machine would have heartbeated in between. Any movement starts over.
+   */
+  private confirmStale(holder: LockHolder, now: number): boolean {
+    if (holder.state !== 'stale' || holder.heartbeatMs === undefined) {
+      this.silentSince = undefined;
+      return false;
+    }
+    if (this.silentSince === undefined || this.silentSince.heartbeatMs !== holder.heartbeatMs) {
+      this.silentSince = { at: now, heartbeatMs: holder.heartbeatMs };
+      return false;
+    }
+    return now - this.silentSince.at >= this.staleConfirmationMs;
+  }
+
+  private who(holder: LockHolder): string {
+    const held = holder.heldForMs === undefined ? undefined : formatDuration(holder.heldForMs);
+    if (holder.record === undefined) {
+      return held === undefined ? 'An unidentified holder has it' : `An unidentified holder has held it for ${held}`;
+    }
+    const { record } = holder;
+    const where = `PID ${record.pid} on ${printable(record.host)}`;
+    const identity = record.command === '' ? where : `'${printable(record.command)}' (${where})`;
+    return held === undefined ? `The holder is ${identity}` : `The holder, ${identity}, has held it for ${held}`;
+  }
+
+  /**
+   * What a waiter should know and, once a holder is confirmed silent, what to
+   * do. `final` is the giving-up message: it cannot promise another look.
+   */
+  private advice(holder: LockHolder, confirmed: boolean, final: boolean): string {
+    const ageMs = holder.heartbeatAgeMs ?? 0;
+    const age = ageMs < 1_000 ? 'just now' : `${formatDuration(ageMs)} ago`;
+    const who = this.who(holder);
+    if (holder.state === 'active') {
+      return `${who}; its last heartbeat was ${age}, so it is alive. Wait for it to finish, or stop it${final ? ', then retry' : ''}.`;
+    }
+    if (holder.state === 'stale') {
+      const holderProcess = holder.record === undefined
+        ? 'that process'
+        : `that process (\`ps -p ${holder.record.pid}\` on ${printable(holder.record.host)})`;
+      const gone = `${holderProcess} is gone, and nothing it started (such as a \`docker compose\` command) is still running`;
+      const removal = `remove the directory with \`rmdir ${shellQuote(holder.lockDirectory)}\``;
+      if (confirmed) {
+        return `${who}; its heartbeat has stayed silent for ${formatDuration(ageMs)}. Locks are never stolen automatically: ` +
+          `if ${gone}, ${removal}${final ? ' and retry.' : '; this command will then carry on by itself.'}`;
+      }
+      const wake = `If its machine only just woke up, the next heartbeat arrives within ${formatDuration(LOCK_UPDATE_MS)}`;
+      if (final) {
+        return `${who}; its last heartbeat was ${age}. ${wake}, so this is too soon to call it dead. ` +
+          'Locks are never stolen automatically: run this command again in a moment; if the heartbeat still has not moved and ' +
+          `${gone}, ${removal} and retry.`;
+      }
+      return `${who}; its last heartbeat was ${age}. ${wake}, so this may be nothing — ` +
+        `checking again in ${formatDuration(this.noticeIntervalMs)}.`;
+    }
+    invariant(holder.state !== 'missing', `${this.description} lock: no advice to give about nobody.`);
+    return holder.state;
+  }
+
+  private async notice(now: number): Promise<void> {
+    const holder = await this.holder();
+    if (holder.state === 'missing') return;
+    const confirmed = this.confirmStale(holder, now);
+    const line = `Waiting for the ${this.description} lock. ${this.advice(holder, confirmed, false)}`;
+    if (confirmed) this.logger.warn(line);
+    else this.logger.info(line);
+  }
+
+  async acquire(): Promise<void> {
+    invariant(!this.releaseLock, `${this.description} lock is already held by this process.`);
+    await ensurePlainTarget(this.target, this.description);
+    // proper-lockfile locks the real path; report the same one.
+    this.lockDirectory = `${await realpath(this.target)}.lock`;
+    this.silentSince = undefined;
+    this.compromised = undefined;
+    const plan = this.waitPlan();
+    const started = this.clock();
+    let deadline = started + plan.budgetMs;
+    let interval = plan.firstIntervalMs;
+    let nextNotice = started + this.noticeDelayMs;
+    let lastTick = started;
+    let slept = 0;
+    let handovers = 0;
+    for (;;) {
+      if (await this.attempt()) return;
+      const now = this.clock();
+      // Far more wall-clock time than the sleep means the machine was suspended
+      // (or the filesystem stalled): the wait did not really elapse, and the
+      // holder deserves a heartbeat's grace before anything is concluded about
+      // it. The deadline grows by exactly the gap, so a stall can only ever
+      // defer the deadline, never remove it.
+      const jump = now - lastTick - slept;
+      if (jump > LOCK_UPDATE_MS) {
+        deadline += jump;
+        nextNotice = Math.max(nextNotice, now + this.staleConfirmationMs);
+        this.silentSince = undefined;
+      }
+      lastTick = now;
+      if (now >= deadline) {
+        const holder = await this.holder();
+        if (holder.state === 'missing') {
+          // Released between the attempt and the look: one more go, not a contradiction.
+          if (handovers++ < 3) {
+            slept = 0;
+            continue;
+          }
+          throw new CliError(`The ${this.description} lock changed hands while this command was giving up; run it again.`);
+        }
+        const confirmed = this.confirmStale(holder, now);
+        throw new CliError(`Another process holds the ${this.description} lock. ${this.advice(holder, confirmed, true)}`);
+      }
+      if (now >= nextNotice) {
+        await this.notice(now);
+        nextNotice = this.clock() + this.noticeIntervalMs;
+      }
+      slept = Math.min(interval, deadline - now);
+      await sleep(slept);
+      interval = Math.min(interval * 2, plan.maxIntervalMs);
     }
   }
 
@@ -171,7 +468,19 @@ export class ScopedLock {
   async release(): Promise<void> {
     const release = this.releaseLock;
     this.releaseLock = undefined;
-    if (release) await release();
+    if (!release) return;
+    // A compromised lock already belongs to someone else, record included; and
+    // proper-lockfile has dropped it, so there is nothing left to release. The
+    // compromise can also land during the truncation, hence the second look.
+    if (this.compromised) return;
+    // Only a holder should be described; the record is wiped while the lock is still ours.
+    await writeFile(this.target, '', { mode: 0o600 }).catch(() => undefined);
+    if (this.compromised) return;
+    try {
+      await release();
+    } catch (error) {
+      if (!this.compromised) throw error;
+    }
   }
 
   async run<T>(action: () => Promise<T>): Promise<T> {
@@ -193,12 +502,11 @@ export async function inspectLockForRecovery(
 ): Promise<LockRecoveryState> {
   const resolvedTarget = path.resolve(target);
   const lockDirectory = `${resolvedTarget}.lock`;
+  const unexpected = `Refusing to touch the ${description} lock: ${lockDirectory} is not a plain directory ` +
+    '(a file or symbolic link stands in its place). Inspect it before removing anything.';
   try {
     const metadata = await lstat(lockDirectory);
-    invariant(
-      metadata.isDirectory() && !metadata.isSymbolicLink(),
-      `Refusing unexpected ${description} lock state.`
-    );
+    invariant(metadata.isDirectory() && !metadata.isSymbolicLink(), unexpected);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
     throw error;
@@ -213,10 +521,7 @@ export async function inspectLockForRecovery(
   // The owner may have released the lock between the initial lstat and check.
   try {
     const metadata = await lstat(lockDirectory);
-    invariant(
-      metadata.isDirectory() && !metadata.isSymbolicLink(),
-      `Refusing unexpected ${description} lock state.`
-    );
+    invariant(metadata.isDirectory() && !metadata.isSymbolicLink(), unexpected);
     return 'stale';
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
@@ -277,6 +582,8 @@ export async function clearStaleLock(
  * mutex, so two concurrent unlock attempts cannot interleave. The runtime
  * backend supplies `beforeOperationLockClear` to prove nothing owned by the
  * dead holder is still mutating state before the operation lock is released.
+ * `description` is the worktree's slug; the locks are named the way a waiter
+ * names them (`worktree main`, `main development session`).
  */
 export async function clearStaleWorktreeLocks(
   controlHome: string,
@@ -286,8 +593,7 @@ export async function clearStaleWorktreeLocks(
   options: { beforeOperationLockClear?: () => Promise<void> } = {}
 ): Promise<number> {
   const recoveryTarget = worktreeRecoveryLockTarget(controlHome, repositoryId, worktreeId);
-  await mkdir(path.dirname(recoveryTarget), { recursive: true, mode: 0o700 });
-  await writeFile(recoveryTarget, '', { flag: 'a', mode: 0o600 });
+  await ensurePlainTarget(recoveryTarget, `${description} recovery`);
 
   let recoveryCompromised: Error | undefined;
   let releaseRecovery: (() => Promise<void>) | undefined;
@@ -322,11 +628,11 @@ export async function clearStaleWorktreeLocks(
     const targets = [
       {
         path: developmentLockTarget(controlHome, repositoryId, worktreeId),
-        description: `development session for ${description}`
+        description: `${description} development session`
       },
       {
         path: worktreeLockTarget(controlHome, repositoryId, worktreeId),
-        description: `operation for ${description}`
+        description: `worktree ${description}`
       }
     ];
 

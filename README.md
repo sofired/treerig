@@ -46,10 +46,17 @@ domain changes whenever it is free, so two clones can never swap hostnames
 underneath you. Reclaiming a bare name is an explicit rename, never a side
 effect.
 
-**Locks.** Every operation on a worktree holds an advisory lock with an
-effectively infinite stale window and a heartbeat, so a twenty-minute build is
-never silently stolen. Recovery from a genuinely dead holder is an explicit
-command, never automatic.
+**Locks.** Every command that changes a worktree holds an advisory lock with
+an effectively infinite stale window and a heartbeat, so a twenty-minute build
+is never silently stolen. A command that finds the lock held waits for it — a
+worktree operation for up to 25 minutes — and after a couple of seconds, then
+every 30 seconds, says which process holds it, for how long, and how fresh its
+heartbeat is. Recovery from a genuinely dead holder is never automatic. The
+waiting command tells you to `rmdir` the lock directory only once the
+heartbeat has stayed silent across two looks — a command that has to give up
+before its second look tells you to run it again first — and always with the
+instruction to confirm beforehand that the process, and anything it started,
+is gone.
 
 **Homes.** Each worktree owns a directory under the control home
 (`~/.berth` by default) created owner-only, with path containment that refuses
@@ -301,8 +308,8 @@ Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
   as a label-filtered `docker ps` that verifies the full ownership tuple on
   every resource before returning any; `reap` that verifies again before
   removing.
-- **`up` / `down` / `status` / `urls`** — with the worktree lock held and
-  interrupts deferred until it can be released cleanly.
+- **`up` / `down` / `status` / `urls`** — `up` and `down` under the worktree
+  lock, `up` with interrupts deferred until it can be released cleanly.
 - **`worktree list` / `worktree remove`** — ownership-verified teardown
   in crash-safe order; orphan detection for checkouts Git no longer lists.
 - **Shared router** — one Traefik instance across every worktree of every
@@ -317,12 +324,19 @@ Next, in order:
 
 1. **`doctor`** — prerequisites, router verification, registry problems,
    hostname conflicts, and the `verify` hook, in one report.
-2. **Native routes** — `berth route` writing file-provider fragments for
+2. **`worktree unlock`** — the guarded removal of a dead holder's lock, after
+   proving nothing it started is still mutating the environment
+   (`clearStaleWorktreeLocks` exists; the command does not yet). Until then
+   the waiting command names the directory to remove by hand.
+3. **`dev`** — start the worktree and follow its services' logs, holding the
+   development-session lock so `worktree remove` refuses while a session is
+   attached.
+4. **Native routes** — `berth route` writing file-provider fragments for
    processes running outside Docker.
-3. **Standalone cleanup binary** — content-addressed, installed outside
+5. **Standalone cleanup binary** — content-addressed, installed outside
    the checkout, so removing a worktree never imports code from the branch
    being deleted.
-4. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
+6. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
 
 ## License
 

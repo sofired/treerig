@@ -26,6 +26,8 @@ export interface ProcessControl {
 
 export interface CommandContext {
   commandName: string;
+  /** The command line as invoked, arguments space-joined (`berth up api`); names this process to whoever waits on its locks. */
+  invocation: string;
   logger: Logger;
   runner: CommandRunner;
   loaded: LoadedConfig;
@@ -45,6 +47,8 @@ export interface CommandContextOptions {
   controlHome: string;
   routerPort: number;
   commandName: string;
+  /** Defaults to `commandName` alone. */
+  invocation?: string;
   logger: Logger;
   runner: CommandRunner;
   /** Defaults to the Compose runtime over `runner`; a test double serves every namespace. */
@@ -69,6 +73,7 @@ export function composeFilePath(loaded: LoadedConfig): string {
 
 export function createCommandContext(options: CommandContextOptions): CommandContext {
   const { loaded, controlHome, commandName, logger, runner } = options;
+  const invocation = options.invocation ?? commandName;
   const registry = new WorktreeRegistry({
     controlHome,
     root: loaded.root,
@@ -76,11 +81,12 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     labelNamespace: labelNamespace(loaded.config),
     runner,
     logger,
-    commandName
+    commandName,
+    invocation
   });
   // The router is machine-wide, so it keeps the tool's own label namespace
   // even when a project adopts a predecessor's for its worktree resources.
-  const router = options.router ?? new RouterService({ controlHome, port: options.routerPort, runner, logger });
+  const router = options.router ?? new RouterService({ controlHome, port: options.routerPort, runner, logger, invocation });
   const compose = (namespace: string): Runtime => new ComposeRuntime({
     composeFile: composeFilePath(loaded),
     projectRoot: loaded.root,
@@ -106,9 +112,10 @@ export function createCommandContext(options: CommandContextOptions): CommandCon
     if (options.runtimeFor) return options.runtimeFor(namespace);
     return options.runtime ?? compose(namespace);
   };
-  const index = options.index ?? new CheckoutIndexService({ controlHome, routerPort: options.routerPort, registry, runner, logger });
+  const index = options.index ?? new CheckoutIndexService({ controlHome, routerPort: options.routerPort, registry, runner, logger, invocation });
   return {
     commandName,
+    invocation,
     logger,
     runner,
     loaded,

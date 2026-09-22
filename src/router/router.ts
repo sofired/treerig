@@ -53,6 +53,8 @@ export interface RouterOptions {
   /** Overridable so tests can run a router beside a developer's real one. */
   projectName?: string;
   network?: string;
+  /** The command line as invoked, arguments space-joined; names this process to whoever waits on the router lock. */
+  invocation?: string;
 }
 
 export interface RouterStatus {
@@ -302,7 +304,7 @@ export class RouterService implements Router {
       if (remaining.length > 0) {
         throw new CliError(`The shared router could not be brought to its expected configuration:\n  ${remaining.join('\n  ')}`);
       }
-    }, { acquireTimeoutMs: ROUTER_LOCK_TIMEOUT_MS });
+    }, { acquireTimeoutMs: ROUTER_LOCK_TIMEOUT_MS, holder: this.options.invocation });
   }
 
   private async start(extra: readonly string[]): Promise<void> {

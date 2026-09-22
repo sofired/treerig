@@ -12,6 +12,7 @@ import type { OwnedResource, WorktreeRef } from '../runtime/runtime.ts';
 import type { RegisteredWorktree, WorktreeIdentity } from '../worktree-registry.ts';
 import { labelNamespace, type CommandContext } from './context.ts';
 import { withWorktreeMutation } from './mutation.ts';
+import { shellQuote } from '../shell.ts';
 
 // The destructive verb. Order matters for crash safety: Docker resources go
 // first, then the home, then the registration, then the identity marker — so
@@ -190,11 +191,6 @@ async function removeHome(layout: WorktreeLayout, commandName: string): Promise<
     removed = true;
   }
   return removed;
-}
-
-/** Single-quoted for a POSIX shell, so a pasted command survives any character in the path. */
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 /**

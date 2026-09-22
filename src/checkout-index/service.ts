@@ -37,6 +37,8 @@ export interface CheckoutIndexOptions {
   runner: CommandRunner;
   logger: Logger;
   now?: () => Date;
+  /** The command line as invoked, arguments space-joined; names this process to whoever waits on the router lock. */
+  invocation?: string;
 }
 
 const INDEX_LOCK_TIMEOUT_MS = 60_000;
@@ -124,7 +126,7 @@ export class CheckoutIndexService implements CheckoutIndex {
       // mount; the 0700 parents keep it off-limits to other users on disk.
       await atomicWrite(layout.indexFile, renderIndexHtml(snapshot), 0o644);
       return snapshot;
-    }, { acquireTimeoutMs: INDEX_LOCK_TIMEOUT_MS });
+    }, { acquireTimeoutMs: INDEX_LOCK_TIMEOUT_MS, holder: this.options.invocation });
   }
 
   async refreshBestEffort(context: string): Promise<void> {

@@ -23,8 +23,7 @@ const logger = createConsoleLogger(commandName);
 function notYet(command: string): () => never {
   return () => {
     throw new CliError(
-      `'${commandName} ${command}' is not implemented yet. ` +
-      'The router, checkout index, and cleanup are the next ports.',
+      `'${commandName} ${command}' is not implemented yet; see the Roadmap in README.md.`,
       2
     );
   };
@@ -57,11 +56,15 @@ async function main(argv: readonly string[]): Promise<void> {
       logger.output(JSON.stringify(loaded.config, null, 2));
     });
 
+  // What a waiter on one of this process's locks is told it is waiting for.
+  // It is persisted in lock records: redact here any flag that ever carries a secret.
+  const invocation = [commandName, ...argv.slice(2)].join(' ');
   const context = async (): Promise<CommandContext> => createCommandContext({
     loaded: await load(program.opts<{ config?: string }>().config),
     controlHome: resolveControlHome(process.env),
     routerPort: resolveRouterPort(process.env),
     commandName,
+    invocation,
     logger,
     runner: new ExecaRunner()
   });
@@ -70,7 +73,8 @@ async function main(argv: readonly string[]): Promise<void> {
     controlHome: resolveControlHome(process.env),
     port: resolveRouterPort(process.env),
     runner: new ExecaRunner(),
-    logger
+    logger,
+    invocation
   });
 
   program.command('dev').description('start this worktree\'s environment and follow its logs').action(notYet('dev'));
@@ -142,7 +146,6 @@ async function main(argv: readonly string[]): Promise<void> {
     .action(async (identifier: string | undefined, options: { domain?: string; labelNamespace?: string; yes?: boolean }) => {
       await remove(await context(), { identifier, domain: options.domain, labelNamespace: options.labelNamespace, approved: options.yes });
     });
-  worktree.command('unlock [slug]').description('clear stale locks for a worktree').action(notYet('worktree unlock'));
 
   await program.parseAsync([...argv]);
 }

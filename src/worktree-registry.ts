@@ -128,6 +128,8 @@ export interface WorktreeRegistryOptions {
   logger: Logger;
   /** The name the CLI was invoked as; appears in recovery hints. */
   commandName?: string;
+  /** The command line as invoked, arguments space-joined; names this process to whoever waits on a lock it holds. */
+  invocation?: string;
 }
 
 interface WorktreeInspectionOptions {
@@ -427,12 +429,14 @@ export class WorktreeStore {
   readonly repositoryId: string;
   readonly directory: string;
   private readonly commandName: string;
+  private readonly invocation: string;
 
-  constructor(controlHome: string, repositoryId: string, commandName: string = BRAND.name) {
+  constructor(controlHome: string, repositoryId: string, commandName: string = BRAND.name, invocation: string = commandName) {
     this.controlHome = path.resolve(controlHome);
     this.repositoryId = uuidSchema.parse(repositoryId);
     this.directory = registryDirectory(this.controlHome, this.repositoryId);
     this.commandName = commandName;
+    this.invocation = invocation;
   }
 
   private layout(worktreeId: string) {
@@ -448,7 +452,7 @@ export class WorktreeStore {
     return {
       acquireTimeoutMs: REGISTRY_LOCK_TIMEOUT_MS,
       retryIntervalMs: REGISTRY_LOCK_RETRY_MS,
-      recoveryCommand: `${this.commandName} worktree unlock`
+      holder: this.invocation
     };
   }
 
@@ -739,6 +743,7 @@ export class WorktreeRegistry {
   private readonly labelNamespace: string | undefined;
   private readonly logger: Logger;
   private readonly commandName: string;
+  private readonly invocation: string;
 
   constructor(options: WorktreeRegistryOptions) {
     this.controlHome = path.resolve(options.controlHome);
@@ -747,11 +752,12 @@ export class WorktreeRegistry {
     this.labelNamespace = options.labelNamespace;
     this.logger = options.logger;
     this.commandName = options.commandName ?? BRAND.name;
+    this.invocation = options.invocation ?? this.commandName;
     this.identities = new WorktreeIdentityService(options.root, options.runner);
   }
 
   store(repositoryId: string): WorktreeStore {
-    return new WorktreeStore(this.controlHome, repositoryId, this.commandName);
+    return new WorktreeStore(this.controlHome, repositoryId, this.commandName, this.invocation);
   }
 
   /**
@@ -765,9 +771,11 @@ export class WorktreeRegistry {
     await secureRegistrationDirectories(
       worktreeLayout(this.controlHome, identity.repositoryId, identity.worktreeId)
     );
+    // Named the way every later wait names it — by slug — once a record exists.
+    const known = await this.store(identity.repositoryId).find(identity.worktreeId).catch(() => undefined);
     return withScopedLock(
       worktreeLockTarget(this.controlHome, identity.repositoryId, identity.worktreeId),
-      `worktree ${identity.repositoryId}/${identity.worktreeId}`,
+      known ? `worktree ${known.slug}` : `worktree ${identity.root}`,
       this.logger,
       async () => {
         const currentIdentity = await this.identities.inspect(worktree);
@@ -805,10 +813,7 @@ export class WorktreeRegistry {
         }
         return ensured;
       },
-      {
-        acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS,
-        recoveryCommand: `${this.commandName} worktree unlock`
-      }
+      { acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS, holder: this.invocation }
     );
   }
 
