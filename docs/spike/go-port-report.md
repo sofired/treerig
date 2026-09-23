@@ -2,7 +2,7 @@
 
 ## Recommendation
 
-**Go.** Port berth to Go. Gate the first full-port work package on one macOS CI run of the lock layer.
+**Go.** Port berth to Go. Every hard gate has passed, including macOS on the draft PR's CI.
 
 The spike ported a vertical slice to Go and compared it against the TypeScript build:
 - **The slice:** the whole command tree, config, the registry, `worktree list`/`urls`/`status`/`down`/`worktree remove`, and the full lock and process lifecycle.
@@ -12,7 +12,7 @@ The spike ported a vertical slice to Go and compared it against the TypeScript b
 - **Lock issues:** the new design fixes three of the four open lock issues (#22, #23, #24). The fourth, #12 (a machine-wide router lock), becomes possible but is only done when the router is ported.
 - **Clean break:** Go's own `worktree remove` completely removes a worktree the TypeScript build created, verified against a real Docker daemon.
 
-Every hard gate that can run on Linux passed. The macOS gates cannot run without pushing, which was out of bounds for this spike; they are the one open gate. Two scored targets were missed (code and test size), and the accepted differences exceed their target; see [Scored targets](#scored-targets).
+Every hard gate passed: on Linux locally and in CI, and on macOS in the draft PR's CI (`macos-latest`). The first macOS runs found three test-portability problems and no product bugs; see the macOS gate below. Two scored targets were missed (code and test size), and the accepted differences exceed their target; see [Scored targets](#scored-targets).
 
 ## What was ported
 
@@ -99,8 +99,8 @@ Go's remaining time on `list` is git: one `git worktree list` plus a `rev-parse`
 | **Safety:** every decoy refuses removal | **Pass.** Unit tests with a stateful fake daemon, plus `TestDecoysOnARealDaemon` against real Docker. These are all refused before anything is touched: the wrong project, the wrong worktree, a missing project label on a non-image, and a resource in the project carrying none of the ownership labels. Another namespace is never even seen. |
 | **Safety:** a TypeScript-era worktree is fully removed | **Pass.** `TestTypeScriptWritesGoRemoves`: the TypeScript build's own modules bring a worktree up against real Docker, then the Go CLI removes it: container, volume, network, home, record and identity marker. The control-home marker is upgraded to the Go format, and the TypeScript `worktree list --all --json` then prints `[]`. |
 | **Safety:** no test path steals a lock | **Pass.** No acquisition path removes or bypasses a held lock. |
-| **Signals** | **Pass on Linux.** `TestInterruptedMutation`: `worktree remove` and `down`, interrupted by SIGINT or SIGTERM mid-`compose down`, die by that signal. The child's process group is gone, and the lock is free with its record released. Lock and lifecycle signal tests pass at `-count=20`. **macOS: not run.** |
-| **macOS:** flock inheritance, `kern.procargs2`, exact start time | **Open.** The code compiles and vets for darwin/amd64 and darwin/arm64 but has never run on a Mac. This is the gate for the first full-port work package. |
+| **Signals** | **Pass.** `TestInterruptedMutation`: `worktree remove` and `down`, interrupted by SIGINT or SIGTERM mid-`compose down`, die by that signal. The child's process group is gone, and the lock is free with its record released. Lock and lifecycle signal tests pass at `-count=20` on Linux. On macOS, CI runs them once with `-race` and once without cgo, and both runs pass; the `-count=20` stress has not been run there. |
+| **macOS:** flock inheritance, `kern.procargs2`, exact start time | **Pass** on `macos-latest` CI, under `-race` and without cgo:<br>- **Inheritance:** a grandchild keeps the lock after its parent is SIGKILLed, whether the descriptor reached it through `osrun` or through a plain `exec` chain.<br>- **Markers:** the `kern.procargs2` scan finds a survivor carrying the worktree's markers.<br>- **Identity:** a holder is judged alive from its machine ID, boot ID and microsecond start time, all read back exactly.<br>- **Stopped holders:** one is detected and gets the `kill -CONT` advice.<br>The first macOS runs found three test problems, all fixed, and no product bugs:<br>- test fixtures compared unresolved `/var` paths;<br>- one probe used `/proc`;<br>- helper processes waited with `select {}`, which Go's runtime kills as deadlocked unless cgo is linked.<br>**Not shown:** inheritance through a real `docker`, because the macOS runner has no Docker and those tests skip. |
 | **Parity:** help and parse errors | **Pass.** 71 cases byte-identical to the TypeScript CLI (stdout, stderr, exit code). |
 | **Parity:** config issues | **Pass.** 66 cases, identical paths and messages (TOML syntax-error detail excepted). |
 | **Parity:** `config show`, `list --json` | **Pass.** Byte-identical, hostile strings included. |
@@ -142,7 +142,7 @@ Go's remaining time on `list` is git: one `git worktree list` plus a `rev-parse`
 |---|---|
 | Process lifecycle: sessions, group kills, deferral, re-raising | **Retired on Linux.** Real bugs found and fixed:<br>- The re-raise raced `os.Exit` and exited 130 instead of dying by the signal.<br>- Abandoning a lock cancelled the action's context, which SIGTERMed children that had inherited the lock.<br>- A command that finished uninterrupted left its signal handler registered, which only matters where `Main` runs more than once in a process. |
 | Lock correctness under crashes, stops and PID reuse | **Retired on Linux.** Real-process scenarios run at `-count=20`. They cover a grandchild keeping the lock through an inherited descriptor, a Go chain, a survivor that closed it, the contradiction check, and abandoning when quiescence fails. Real bugs found and fixed:<br>- The first lock of a new repository failed its filesystem self-test.<br>- Releasing a lock the watchdog had found lost would have marked another holder's record released. |
-| flock on macOS (APFS), inheritance through `docker` | **Open.** Needs one macOS CI run. |
+| flock on macOS (APFS), inheritance through `docker` | **Retired**, apart from a real `docker`. On macOS CI, inheritance holds through `osrun` and a plain `exec` chain; see the macOS gate. The `docker` CLI's own handling of fd 3 is proven on Linux only, because the macOS runner has no Docker. |
 | A daemon with no markers | **Accepted; same as TypeScript.** Suppose a process started under the lock daemonizes out of berth's process tree, closes the lock's descriptor, and carries neither marker (the Compose project as an argv token, or `BERTH_WORKTREE_ID`/`COMPOSE_PROJECT_NAME` in its environment). Recovery cannot see it, and judges the lock free while it runs. The TypeScript marker scan has the same blind spot. |
 | Holders in a devcontainer and on the host sharing one control home | **Mitigated by refusal.** A holder recorded from another PID namespace or boot cannot be judged, so the next acquirer refuses rather than guess. Until `worktree unlock` is ported (work package 6), clearing such a lock means removing its `.holder` file by hand, after checking the holder is gone. |
 | A machine with no readable identity | **Mitigated by warning.** With no machine ID and no boot ID, a holder that dies cannot be proven gone, so its lock also needs clearing by hand. Berth says so once, when it takes the lock. |
