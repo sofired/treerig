@@ -1,12 +1,13 @@
 //go:build integration
 
 // Port of tests/integration/worktree-registry-git.integration.test.ts's
-// read-path titles: real Git, real worktrees, no fakes. WorktreeRegistry's
-// one write path (Ensure) is not part of this package — see registry.go's
-// package comment — so where the TypeScript suite calls `.ensure()` to set
-// a fixture up, this file uses registrytest.Register (identity markers via
-// the real, lock-free IdentityService.Ensure, plus a hand-written record)
-// to reach the same on-disk state, then exercises only read methods.
+// read-path titles: real Git, real worktrees, no fakes. Most of this file
+// predates WP2's Ensure, and still uses registrytest.Register (identity
+// markers via the real, lock-free IdentityService.Ensure, plus a
+// hand-written record) to reach an on-disk state for a read-only test to
+// exercise — that stays a fine shortcut wherever the test is about the read
+// path. TestWorktreeRegistryEnsureWithRealGit below is the one addition that
+// goes through Ensure itself, real git and the real registry lock included.
 package registry_test
 
 import (
@@ -286,6 +287,60 @@ func TestWorktreeRegistryWithRealGit(t *testing.T) {
 		}
 		if viaReal.RepositoryID != viaSymlink.RepositoryID || viaReal.WorktreeID != viaSymlink.WorktreeID {
 			t.Fatalf("expected the same identity through either spelling: symlink=%+v real=%+v", viaSymlink, viaReal)
+		}
+	})
+}
+
+// TestWorktreeRegistryEnsureWithRealGit exercises Ensure end to end — real
+// Git identity, the real worktree and registry locks, real allocation and
+// domain reconciliation — where the rest of this file uses fixtures.
+func TestWorktreeRegistryEnsureWithRealGit(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("registers a real Git worktree and reconciles it when the domain changes", func(t *testing.T) {
+		base, repoDir := repository(t)
+		worktreeDir := filepath.Join(base, "feature-worktree")
+		git(t, "-C", repoDir, "worktree", "add", "-b", "feature/real-ensure", worktreeDir)
+		controlHome := filepath.Join(base, "control")
+
+		first := newRegistry(controlHome, worktreeDir)
+		registered, err := first.Ensure(ctx, "")
+		if err != nil {
+			t.Fatalf("Ensure: %v", err)
+		}
+		if registered.Slug != "feature-real-ensure" || registered.Domain != integrationDomain {
+			t.Fatalf("unexpected registration: %+v", registered)
+		}
+
+		// A second Ensure from the same checkout is the read-heavy fast path:
+		// same domain, no allocation, no rewrite.
+		again, err := first.Ensure(ctx, "")
+		if err != nil {
+			t.Fatalf("Ensure (again): %v", err)
+		}
+		if again.WorktreeID != registered.WorktreeID || again.Slug != registered.Slug || again.PreviousHost != nil {
+			t.Fatalf("expected a stable re-ensure, got %+v", again)
+		}
+
+		const otherDomain = "acme.dev"
+		reconciled := registry.New(registry.Options{
+			ControlHome: controlHome, Root: worktreeDir, Domain: otherDomain,
+			Runner: execRunner{}, Logger: &logger.Recording{},
+		})
+		moved, err := reconciled.Ensure(ctx, "")
+		if err != nil {
+			t.Fatalf("Ensure (new domain): %v", err)
+		}
+		if moved.WorktreeID != registered.WorktreeID || moved.Domain != otherDomain || moved.Slug != registered.Slug {
+			t.Fatalf("expected the same identity reconciled under the new domain, got %+v", moved)
+		}
+		if moved.PreviousHost == nil || *moved.PreviousHost != registered.Slug+"."+integrationDomain {
+			t.Fatalf("expected the previous host reported, got %+v", moved)
+		}
+
+		list, err := reconciled.List(ctx)
+		if err != nil || len(list) != 1 {
+			t.Fatalf("expected exactly one registration on disk, got %+v, %v", list, err)
 		}
 	})
 }
