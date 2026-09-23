@@ -16,6 +16,7 @@ import {
   registryLockTarget,
   withScopedLock,
   worktreeLockTarget,
+  worktreeUnlockCommand,
   type ScopedLockOptions
 } from './operation-lock.ts';
 import type { CommandRunner } from './process-runner.ts';
@@ -818,7 +819,11 @@ export class WorktreeRegistry {
         }
         return ensured;
       },
-      { acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS, holder: this.invocation }
+      {
+        acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS,
+        holder: this.invocation,
+        recovery: worktreeUnlockCommand(this.commandName, identity.worktreeId)
+      }
     );
   }
 

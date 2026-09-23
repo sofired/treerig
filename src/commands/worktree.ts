@@ -147,7 +147,7 @@ export async function down(context: CommandContext): Promise<void> {
     `worktree ${ref.slug}`,
     logger,
     () => withProgress(logger, `Stopping ${worktreeHost(ref.slug, ref.domain)}`, () => runtime.down(ref)),
-    lockOptions(context)
+    lockOptions(context, ref)
   );
   await context.index.refreshBestEffort('down');
   logger.info(`${worktreeHost(ref.slug, ref.domain)} is down.`);

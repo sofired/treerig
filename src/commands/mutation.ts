@@ -3,14 +3,16 @@ import {
   OPERATION_LOCK_TIMEOUT_MS,
   ScopedLock,
   worktreeLockTarget,
+  worktreeUnlockCommand,
   type ScopedLockOptions
 } from '../operation-lock.ts';
 import type { WorktreeRef } from '../runtime/runtime.ts';
 import { runWithDeferredSignals } from '../signal-lifecycle.ts';
 import type { CommandContext } from './context.ts';
 
-export function lockOptions(context: Pick<CommandContext, 'invocation'>): ScopedLockOptions {
-  return { acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS, holder: context.invocation };
+/** The worktree lock as every mutation takes it: a long wait, a named holder, and the way to recover it. */
+export function lockOptions(context: Pick<CommandContext, 'invocation' | 'commandName'>, ref: Pick<WorktreeRef, 'worktreeId'>): ScopedLockOptions {
+  return { acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS, holder: context.invocation, recovery: worktreeUnlockCommand(context.commandName, ref.worktreeId) };
 }
 
 export interface MutationOptions {
@@ -36,7 +38,7 @@ export async function withWorktreeMutation<T>(
       worktreeLockTarget(controlHome, ref.repositoryId, ref.worktreeId),
       `worktree ${ref.slug}`,
       logger,
-      lockOptions(context)
+      lockOptions(context, ref)
     )
   ];
   if (options.exclusive) {
@@ -47,7 +49,7 @@ export async function withWorktreeMutation<T>(
       // Held for the length of a `dev` session, so it is not something to wait
       // out: say so quickly. Nothing takes it yet — `dev` does not exist — so
       // today this only proves the worktree is not attached to one.
-      { acquireTimeoutMs: 1_000, holder: context.invocation }
+      { acquireTimeoutMs: 1_000, holder: context.invocation, recovery: worktreeUnlockCommand(context.commandName, ref.worktreeId) }
     ));
   }
 

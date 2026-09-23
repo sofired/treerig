@@ -458,11 +458,11 @@ export class ComposeRuntime implements Runtime {
     return endpoints.sort((left, right) => left.service.localeCompare(right.service));
   }
 
-  private async list(type: ResourceType, labelFilters: readonly string[]): Promise<string[]> {
+  private async list(ref: WorktreeRef, type: ResourceType, labelFilters: readonly string[]): Promise<string[]> {
     const result = await runDocker(this.options.runner, [
       ...type.listArguments,
       ...labelFilters.flatMap((filter) => ['--filter', `label=${filter}`])
-    ]);
+    ], { env: this.environment(ref) });
     return [...new Set(result.stdout.split(/\s+/).filter(Boolean))].sort();
   }
 
@@ -483,7 +483,7 @@ export class ComposeRuntime implements Runtime {
     ].join('\t');
     const result = await runDocker(this.options.runner, [
       ...type.inspectCommand, '--format', format, id
-    ], { reject: false });
+    ], { reject: false, env: this.environment(ref) });
     invariant(
       result.exitCode === 0,
       `Refusing to touch ${type.kind} ${id}: its labels could not be inspected.`
@@ -526,8 +526,8 @@ export class ComposeRuntime implements Runtime {
       // verification would then refuse.
       const byProject = type.kind === 'image'
         ? []
-        : await this.list(type, [`${COMPOSE_PROJECT_LABEL}=${this.project(ref)}`]);
-      const byOwnership = await this.list(type, ownership);
+        : await this.list(ref, type, [`${COMPOSE_PROJECT_LABEL}=${this.project(ref)}`]);
+      const byOwnership = await this.list(ref, type, ownership);
       for (const id of [...new Set([...byProject, ...byOwnership])].sort()) {
         const service = await this.verify(ref, type, id);
         owned.push(service ? { kind: type.kind, id, service } : { kind: type.kind, id });
@@ -540,7 +540,9 @@ export class ComposeRuntime implements Runtime {
     const type = RESOURCE_TYPES.find((candidate) => candidate.kind === resource.kind);
     if (!type) throw new CliError(`Unknown resource kind: ${resource.kind}`);
     await this.verify(ref, type, resource.id);
-    await runDocker(this.options.runner, [...type.removeArguments, resource.id]);
+    // With the worktree's markers, like every call made for it: a long removal
+    // left running by a killed holder is then something `worktree unlock` can see.
+    await runDocker(this.options.runner, [...type.removeArguments, resource.id], { env: this.environment(ref) });
     this.options.logger.info(`Removed ${resource.kind} ${resource.id}.`);
   }
 }
