@@ -18,6 +18,8 @@ package files
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -328,9 +330,33 @@ func establishControlHome(controlHome string) error {
 	// marker with anything else in it — a later build's format, say — is not
 	// this build's to downgrade, and is left as it is.
 	if len(contents) == 0 {
-		return AtomicWrite(marker, []byte(ControlHomeFormat), 0o600)
+		// A direct write, like the TypeScript build's own touchSecure — not
+		// AtomicWrite's temp-then-rename: a concurrent adopter of this same
+		// brand new control home would otherwise see that temp file sitting
+		// in an empty directory and refuse it as not ours. The marker is nine
+		// bytes; a single write(2) of that size does not tear on any
+		// filesystem this tool supports.
+		return writeMarkerDirect(marker, []byte(ControlHomeFormat), 0o600)
 	}
 	return nil
+}
+
+// writeMarkerDirect creates or truncates file in place and writes contents,
+// with no temporary file: see establishControlHome for why the marker
+// specifically must never be written that way.
+func writeMarkerDirect(file string, contents []byte, mode fs.FileMode) error {
+	handle, err := os.OpenFile(file, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	_, writeErr := handle.Write(contents)
+	if chmodErr := handle.Chmod(mode); writeErr == nil {
+		writeErr = chmodErr
+	}
+	if closeErr := handle.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	return writeErr
 }
 
 // SecureControlDirectories creates and locks down the control home's
@@ -423,12 +449,29 @@ func SecureWorktreeDirectories(l layout.Worktree) error {
 	}, 0o700)
 }
 
+// randomSuffix is eight random hex characters, for a temp file name unique
+// across goroutines that share this process's PID.
+func randomSuffix() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand failing is unheard of on any platform this tool
+		// supports; the PID alone is still better than nothing.
+		return fmt.Sprintf("%d", os.Getpid())
+	}
+	return hex.EncodeToString(b[:])
+}
+
 // AtomicWrite writes via a temp file and rename, then fsyncs the directory.
+//
+// The temp name carries a random suffix, not just this process's PID: two
+// goroutines in the one process (never two processes, which always have
+// distinct PIDs) can otherwise race to the same temp path and have one's
+// rename fail with ENOENT once the other's has already moved it away.
 func AtomicWrite(destination string, contents []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 		return err
 	}
-	temporary := fmt.Sprintf("%s.tmp.%d", destination, os.Getpid())
+	temporary := fmt.Sprintf("%s.tmp.%d.%s", destination, os.Getpid(), randomSuffix())
 	handle, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
 		return err
