@@ -53,6 +53,31 @@ const (
 	downTimeout        = 1 * time.Minute
 )
 
+// Timeouts overrides the router's per-call timeouts; a zero field keeps this
+// port's own default. Production leaves it unset; tests use it to prove a
+// hung `docker` is caught in milliseconds rather than minutes.
+type Timeouts struct {
+	// Probe bounds containerID and inspect; default dockerProbeTimeout.
+	Probe time.Duration
+	// Start bounds `compose up`; default startTimeout.
+	Start time.Duration
+	// Down bounds `compose down`; default downTimeout.
+	Down time.Duration
+}
+
+func (t Timeouts) withDefaults() Timeouts {
+	if t.Probe <= 0 {
+		t.Probe = dockerProbeTimeout
+	}
+	if t.Start <= 0 {
+		t.Start = startTimeout
+	}
+	if t.Down <= 0 {
+		t.Down = downTimeout
+	}
+	return t
+}
+
 // notRunning is Verify's answer when every container is gone.
 const notRunning = "the router is not running"
 
@@ -102,6 +127,8 @@ type Options struct {
 	CommandName string
 	// Page returns the placeholder index page; defaults to defaultPlaceholderPage.
 	Page PlaceholderPage
+	// Timeouts overrides this router's per-call docker timeouts (#14).
+	Timeouts Timeouts
 }
 
 // Router is what the rest of the tool needs to know about the shared router.
@@ -119,6 +146,7 @@ type Router struct {
 	invocation     string
 	commandName    string
 	page           PlaceholderPage
+	timeouts       Timeouts
 }
 
 // New builds a Router. The network name is interpolated into Traefik's
@@ -159,6 +187,7 @@ func New(options Options) (*Router, error) {
 		invocation:     options.Invocation,
 		commandName:    options.CommandName,
 		page:           page,
+		timeouts:       options.Timeouts.withDefaults(),
 	}, nil
 }
 
@@ -257,7 +286,7 @@ func (r *Router) write(now time.Time) error {
 func (r *Router) containerID(ctx context.Context, service string) (string, error) {
 	result, err := docker.Run(ctx, r.runner, []string{
 		"compose", "--project-name", r.ProjectName, "ps", "--all", "--quiet", service,
-	}, run.Spec{AllowFailure: true, Env: docker.ComposeEnvironment(r.environ), Timeout: dockerProbeTimeout})
+	}, run.Spec{AllowFailure: true, Env: docker.ComposeEnvironment(r.environ), Timeout: r.timeouts.Probe})
 	if err != nil {
 		return "", err
 	}
@@ -270,7 +299,7 @@ func (r *Router) containerID(ctx context.Context, service string) (string, error
 }
 
 func (r *Router) inspect(ctx context.Context, container string) (*ContainerInspect, error) {
-	result, err := docker.Run(ctx, r.runner, []string{"inspect", container}, run.Spec{AllowFailure: true, Timeout: dockerProbeTimeout})
+	result, err := docker.Run(ctx, r.runner, []string{"inspect", container}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
 	if err != nil {
 		return nil, err
 	}
@@ -775,7 +804,7 @@ func (r *Router) Ensure(ctx context.Context) error {
 
 func (r *Router) start(ctx context.Context, extra []string) error {
 	args := append([]string{"up", "--detach", "--wait", "--remove-orphans"}, extra...)
-	result, err := r.compose(ctx, args, run.Spec{AllowFailure: true, Timeout: startTimeout})
+	result, err := r.compose(ctx, args, run.Spec{AllowFailure: true, Timeout: r.timeouts.Start})
 	if err != nil {
 		return err
 	}
@@ -866,7 +895,7 @@ func (r *Router) Down(ctx context.Context) error {
 	// run` containers of the project.
 	result, err := docker.Run(ctx, r.runner, []string{
 		"compose", "--project-name", r.ProjectName, "down", "--remove-orphans",
-	}, run.Spec{AllowFailure: true, Output: run.Tee, Env: docker.ComposeEnvironment(r.environ), Timeout: downTimeout})
+	}, run.Spec{AllowFailure: true, Output: run.Tee, Env: docker.ComposeEnvironment(r.environ), Timeout: r.timeouts.Down})
 	if err != nil {
 		return err
 	}
