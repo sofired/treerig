@@ -6,7 +6,7 @@ import { CliError, invariant } from '../errors.ts';
 import { shellQuote } from '../shell.ts';
 import { renderIndexHtml } from '../checkout-index/render.ts';
 import { placeholderSnapshot } from '../checkout-index/snapshot.ts';
-import { atomicWrite, pathExists, secureControlDirectories } from '../files.ts';
+import { assertNotGoManaged, atomicWrite, pathExists, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
@@ -494,6 +494,7 @@ export class RouterService implements Router {
   }
 
   async ensure(): Promise<void> {
+    await assertNotGoManaged(this.options.controlHome);
     // The lock file lands under the control home, so the home must be ours — and marked — before it is taken.
     await secureControlDirectories(this.layout);
     await withScopedLock(routerLockTarget(this.options.controlHome), 'shared router', this.options.logger, async () => {
@@ -552,6 +553,7 @@ export class RouterService implements Router {
    * the expected outcome.
    */
   async down(): Promise<void> {
+    await assertNotGoManaged(this.options.controlHome);
     // By project name alone, as `containerId` reads it: the router is
     // machine-wide, so it must be removable from a control home that never
     // wrote a stack file — the one a refusal tells the user to run this from.

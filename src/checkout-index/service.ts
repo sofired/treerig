@@ -1,7 +1,7 @@
 import { BRAND } from '../brand.ts';
 import { CliError } from '../errors.ts';
 import { DockerUnavailableError, dockerSaid, runDocker } from '../docker.ts';
-import { atomicWrite, secureControlDirectories } from '../files.ts';
+import { assertNotGoManaged, atomicWrite, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
@@ -178,6 +178,7 @@ export class CheckoutIndexService implements CheckoutIndex {
 
   async refresh(): Promise<IndexSnapshot> {
     const layout = controlLayout(this.options.controlHome);
+    await assertNotGoManaged(this.options.controlHome);
     // Before the lock, so a directory that is not ours is refused before a lock file lands in it.
     await secureControlDirectories(layout);
     return withScopedLock(routerLockTarget(this.options.controlHome), 'shared router', this.options.logger, async () => {

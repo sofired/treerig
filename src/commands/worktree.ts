@@ -2,7 +2,7 @@ import { BRAND } from '../brand.ts';
 import { recordedLabelNamespace, writeIndexCard } from '../checkout-index/card.ts';
 import type { ProjectConfig } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
-import { secureWorktreeDirectories } from '../files.ts';
+import { assertNotGoManaged, secureWorktreeDirectories } from '../files.ts';
 import { LIFECYCLE_ORDER, UP_STAGES, worktreeEnvironment, type LifecycleStage } from '../hooks/protocol.ts';
 import { runLifecycle, type HookContext } from '../hooks/runner.ts';
 import { worktreeHost, worktreeLayout } from '../layout.ts';
@@ -68,6 +68,7 @@ export interface UpResult {
  */
 export async function up(context: CommandContext, options: UpOptions = {}): Promise<UpResult> {
   const { logger, runner, runtime, registry } = context;
+  await assertNotGoManaged(context.controlHome);
   await refuseRelabelling(context);
   const registration = await registry.ensure();
   await context.router.ensure();
@@ -140,6 +141,7 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
 /** Stops the worktree's services. Data survives; `worktree remove` is the destructive verb. */
 export async function down(context: CommandContext): Promise<void> {
   const { logger, runtime } = context;
+  await assertNotGoManaged(context.controlHome);
   const registration = await requireRegistration(context);
   const ref = toRef(registration);
   await withScopedLock(

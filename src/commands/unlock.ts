@@ -1,5 +1,6 @@
 import { hostname } from 'node:os';
 import { CliError } from '../errors.ts';
+import { assertNotGoManaged } from '../files.ts';
 import { composeProjectName, worktreeHost } from '../layout.ts';
 import { unlockGuard, type UnlockProof, type UnlockProofOptions } from '../lock-recovery.ts';
 import { clearStaleWorktreeLocks, describeLock, formatDuration, holderLabel, lockedWorktrees, worktreeLocks, type WorktreeLock } from '../operation-lock.ts';
@@ -84,6 +85,7 @@ export async function unlock(
   dependencies: UnlockDependencies = {}
 ): Promise<UnlockResult> {
   const { logger } = context;
+  await assertNotGoManaged(context.controlHome);
   const target = await resolveTarget(context, options);
   const locks = worktreeLocks(context.controlHome, target.repositoryId, target.worktreeId, target.name);
   const label = target.host ?? target.name;

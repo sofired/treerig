@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { pathExists, secureControlDirectories } from '../../src/files.ts';
+import { CONTROL_HOME_MARKER, pathExists, secureControlDirectories } from '../../src/files.ts';
 import { controlLayout } from '../../src/layout.ts';
 import { CommandStartError, type CommandRunner, type RunOptions, type RunResult } from '../../src/process-runner.ts';
 import { RouterService, type ContainerInspect, routerStatusReport } from '../../src/router/router.ts';
@@ -593,6 +593,18 @@ describe('RouterService.ensure', () => {
     w.fake.upStderr = 'Error response from daemon: Bind for 127.0.0.1:8080 failed: port is already allocated';
     await expect(w.router.ensure()).rejects.toThrow(/127\.0\.0\.1:8080 is free, or choose another port with BERTH_ROUTER_PORT[\s\S]*port is already allocated/);
   });
+
+  it('refuses a control home the Go build marked, before writing the stack or asking Docker to start it', async () => {
+    const w = await world();
+    await writeFile(path.join(w.controlHome, CONTROL_HOME_MARKER), 'format 2\n');
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    expect(w.fake.calls).toEqual([]);
+    expect(await pathExists(w.layout.routerComposeFile)).toBe(false);
+  });
 });
 
 describe('RouterService.verify', () => {
@@ -767,6 +779,24 @@ describe('RouterService.status and down', () => {
 
     w.fake.downStderr = 'permission denied';
     await expect(w.router.down()).rejects.toThrow('did not stop cleanly');
+  });
+
+  it('refuses to take down a control home the Go build marked, without asking Docker', async () => {
+    const w = await world();
+    await writeFile(path.join(w.controlHome, CONTROL_HOME_MARKER), 'format 2\n');
+
+    await expect(w.router.down()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    expect(w.fake.calls).toEqual([]);
+  });
+
+  it('still reports status on a control home the Go build marked', async () => {
+    const w = await world();
+    await writeFile(path.join(w.controlHome, CONTROL_HOME_MARKER), 'format 2\n');
+
+    await expect(w.router.status()).resolves.toEqual({ reachable: true, running: true, problems: [], port: 80, network: NETWORK });
   });
 });
 

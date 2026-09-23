@@ -4,7 +4,7 @@ import { BRAND } from '../brand.ts';
 import { LABEL_NAMESPACE } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
 import { printable } from '../text.ts';
-import { assertSafeDirectoryPath, pathExists, removeWithin } from '../files.ts';
+import { assertNotGoManaged, assertSafeDirectoryPath, pathExists, removeWithin } from '../files.ts';
 import { worktreeHost, worktreeLayout, type WorktreeLayout } from '../layout.ts';
 import { withProgress } from '../progress.ts';
 import { confirm } from '../prompts.ts';
@@ -47,6 +47,7 @@ export interface RemoveResult {
 
 export async function remove(context: CommandContext, options: RemoveOptions = {}): Promise<RemoveResult> {
   const { logger, registry, controlHome } = context;
+  await assertNotGoManaged(controlHome);
   const target = await resolveTarget(context, options);
   const ref: WorktreeRef = { repositoryId: target.repositoryId, worktreeId: target.worktreeId, slug: target.slug };
   const host = worktreeHost(target.slug, target.domain);
