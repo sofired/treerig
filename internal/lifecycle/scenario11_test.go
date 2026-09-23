@@ -40,6 +40,18 @@ const (
 	forcedQuiesceMessage = "forced quiesce failure (test seam)"
 )
 
+// park blocks this helper until it is killed from outside. Not select{}: with
+// every goroutine blocked and no timer pending, Go's runtime declares the
+// process deadlocked and exits it. On Linux a cgo build (os/user links cgo)
+// has an extra thread that keeps that check from firing; on macOS, or on
+// Linux with CGO_ENABLED=0, nothing does, and a helper that exits closes the
+// very descriptor it was started to keep open.
+func park() {
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
 func TestMain(m *testing.M) {
 	if role := os.Getenv(helperRoleEnv); role != "" {
 		os.Exit(runScenario11Helper(role))
@@ -104,12 +116,13 @@ func runScenario11Helper(role string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		select {}
+		park()
 
 	default:
 		fmt.Fprintln(os.Stderr, "unknown role: "+role)
 		return 2
 	}
+	return 0 // not reached: a role that parks is only ever killed from outside
 }
 
 func filterHelperEnv(env []string) []string {

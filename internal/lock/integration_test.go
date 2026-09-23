@@ -59,6 +59,18 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// park blocks this helper until it is killed from outside. Not select{}: with
+// every goroutine blocked and no timer pending, Go's runtime declares the
+// process deadlocked and exits it. On Linux a cgo build (os/user links cgo)
+// has an extra thread that keeps that check from firing; on macOS, or on
+// Linux with CGO_ENABLED=0, nothing does, and a helper that exits closes the
+// very descriptor it was started to keep open.
+func park() {
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
 // runHelper dispatches by role. "hold" and "exit" acquire the lock named by
 // targetEnv directly and report their PID on fd 3, the pipe startHelper
 // gave them. Every other role has its own protocol, documented on its own
@@ -77,7 +89,7 @@ func runHelper(role string) int {
 		if role == "exit" {
 			return 0 // leaves the lock unreleased: os.Exit runs no deferred Release.
 		}
-		select {} // "hold": park until this process is signalled from outside.
+		park() // "hold": park until this process is signalled from outside.
 
 	case "hold-grandchild-inherit":
 		return runHolderWithGrandchild("grandchild-keep-fd")
@@ -89,7 +101,7 @@ func runHelper(role string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		select {}
+		park()
 	case "grandchild-close-fd":
 		// Drop the inherited descriptor before parking: the lock frees, but
 		// this process — carrying the worktree's markers — keeps running.
@@ -98,7 +110,7 @@ func runHelper(role string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		select {}
+		park()
 
 	case "chain-holder":
 		return runChainHolder()
@@ -109,12 +121,13 @@ func runHelper(role string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		select {} // never touches fd 3; it arrived non-close-on-exec through two plain execs.
+		park() // never touches fd 3; it arrived non-close-on-exec through two plain execs.
 
 	default:
 		fmt.Fprintln(os.Stderr, "unknown role: "+role)
 		return 2
 	}
+	return 0 // not reached: a role that parks is only ever killed from outside
 }
 
 func reportReadyFD3(pid int) {
@@ -153,7 +166,8 @@ func runHolderWithGrandchild(grandchildRole string) int {
 					Command: self, Env: childEnv, InheritLocks: true, AllowFailure: true,
 				})
 			}()
-			select {} // park: this call — and so Hold, and so this process — never returns on its own.
+			park() // this call — and so Hold, and so this process — never returns on its own.
+			return nil
 		})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -229,7 +243,8 @@ func runChainHolder() int {
 			Command: self, Env: middleEnv, InheritLocks: true, AllowFailure: true,
 		})
 	}()
-	select {}
+	park()
+	return 0 // not reached: killed from outside
 }
 
 // runChainMiddle receives the lock at fd 3 through osrun's InheritLocks, and
@@ -261,7 +276,8 @@ func runChainMiddle() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	select {}
+	park()
+	return 0 // not reached: killed from outside
 }
 
 // waitForReadyFile polls for path to hold a PID, written by reportReadyFile.

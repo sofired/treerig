@@ -40,6 +40,13 @@ The spike plan's intended outcome is a decision report. Everything not marked
 - **Real-process and Docker tests** carry `//go:build integration`. Docker tests skip unless `docker info` works, and fail instead when `BERTH_TEST_REQUIRE_DOCKER=1`.
 - **Exit codes and streams:** only `Logger.Output` writes stdout. Everything else goes to stderr as `[name] …`, `[name] WARNING: …` or `[name] ERROR: …`.
 
+## Go style
+
+Beyond gofmt, go vet and staticcheck:
+- **No naked returns.** A function with named results still returns them explicitly (`return n, err`, never a bare `return`). `internal/style`'s `TestNoNakedReturns` enforces this across the module, tests included.
+- **Temp directories that meet a path comparison are physical:** use `registrytest.TempDir`, as the TypeScript helpers use `realpath(mkdtemp(…))`. macOS's temp directory is under `/var`, a symbolic link to `/private/var`. To check this on Linux, point `TMPDIR` at a symbolic link.
+- **A helper process that must stay alive parks with `for { time.Sleep(time.Hour) }`, never `select {}`.** With nothing else runnable, Go's runtime declares the process deadlocked and exits it. A Linux cgo build hides this; macOS and `CGO_ENABLED=0` do not.
+
 ## Final report (your last message)
 
 Report on:

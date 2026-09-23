@@ -68,6 +68,18 @@ jobs:
           BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
         run: go test -race -count=1 -tags integration ./...
 
+      # Releases are built with CGO_ENABLED=0, but every run above links cgo:
+      # the race detector needs it, and os/user pulls it in on Linux. cgo
+      # changes how a Go program runs. Its extra thread, for one, stops Go's
+      # deadlock check from ever firing, which once hid a macOS-only failure.
+      - name: Tests without cgo, as released
+        env:
+          CGO_ENABLED: '0'
+          BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
+        run: |
+          go test -count=1 ./...
+          go test -count=1 -tags integration ./...
+
   cross:
     name: cross-compile
     runs-on: ubuntu-latest

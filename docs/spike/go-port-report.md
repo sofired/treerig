@@ -82,12 +82,12 @@ Go's remaining time on `list` is git: one `git worktree list` plus a `rev-parse`
 | darwin/arm64 | 3.5 MB | 1.5 MB |
 
 **Code size.** Every figure counts code lines only: non-blank and non-comment. With comments, the TypeScript the spike replaces is about 4,700 lines.
-- **Go product code: 7,751 lines.** The TypeScript it replaces is about 3,750, so 2.1×.
+- **Go product code: 7,752 lines.** The TypeScript it replaces is about 3,750, so 2.1×.
 - **The excess is mostly dependencies reimplemented in Go:** commander's parser and help (655 lines), zod's validator (424), an order-preserving TOML decoder, execa's process handling, and proper-lockfile. Without those, the ratio is about 1.6×.
-- **Go test code: 8,556 lines**, against 3,486 lines of TypeScript tests for the same behaviour (2.5×). Go's table-free subtests are verbose. The Go suite also adds tests the TypeScript one never had: real-process lock scenarios, a real-daemon decoy suite, TypeScript-versus-Go parity, and 217 generated oracle files.
+- **Go test code: 8,646 lines**, against 3,486 lines of TypeScript tests for the same behaviour (2.5×). Go's table-free subtests are verbose. The Go suite also adds tests the TypeScript one never had: real-process lock scenarios, a real-daemon decoy suite, TypeScript-versus-Go parity, and 217 generated oracle files.
 
-**Tests:** 753 Go tests pass under `-race`.
-- 716 are unit tests (`go test -race ./...`).
+**Tests:** 754 Go tests pass under `-race`.
+- 717 are unit tests (`go test -race ./...`).
 - 37 more need `-tags integration`: real git, real processes and signals, real Docker, and parity runs against the TypeScript build.
 - The lock, lifecycle and runner packages also pass at `-count=20 -race`.
 - The TypeScript suite still passes unchanged: 565 tests, on `main` as merged in.
