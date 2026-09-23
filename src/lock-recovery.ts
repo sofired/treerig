@@ -37,8 +37,12 @@ export async function judgeHolder(lock: LockDescription, judge: HolderJudge): Pr
   if (record === undefined) return { kind: 'unverifiable', reason: 'its holder left no record of who it is' };
   const who = `PID ${record.pid} on ${JSON.stringify(oneLine(record.host))}`;
   if (record.lock !== undefined && lock.ino !== undefined) {
-    const births = [record.lock.birthtimeMs, lock.birthtimeMs ?? 0];
-    const reborn = births.every((birth) => birth > 0) && births[0] !== births[1];
+    // A directory born after the one the record names is another one, whatever
+    // its inode. Not an earlier birth: macOS moves a directory's birth time back
+    // to its mtime whenever the mtime is set before it, as a heartbeat taken
+    // across a backward clock step does. Linux never changes a birth time.
+    const [recorded, current] = [record.lock.birthtimeMs, lock.birthtimeMs ?? 0];
+    const reborn = recorded > 0 && current > recorded;
     if (record.lock.ino !== lock.ino || reborn) {
       return { kind: 'unverifiable', reason: `its record, naming ${who}, belongs to an earlier lock, so its holder never identified itself` };
     }

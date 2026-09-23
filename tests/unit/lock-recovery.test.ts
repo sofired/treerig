@@ -116,6 +116,11 @@ describe('judgeHolder', () => {
     // A birth time the filesystem does not keep is no evidence either way.
     await expect(judgeHolder(described({ birthtimeMs: 0, record: record({ lock: { ino: '77', birthtimeMs: 5 } }) }), judge()))
       .resolves.toMatchObject({ kind: 'gone' });
+    await expect(judgeHolder(described({ birthtimeMs: 6, record: record({ lock: { ino: '77', birthtimeMs: 0 } }) }), judge()))
+      .resolves.toMatchObject({ kind: 'gone' });
+    // Nor is an earlier one: macOS moves a birth time back when the mtime is set before it.
+    await expect(judgeHolder(described({ birthtimeMs: 4, record: record({ lock: { ino: '77', birthtimeMs: 5 } }) }), judge()))
+      .resolves.toMatchObject({ kind: 'gone' });
     await expect(judgeHolder(described({ record: record({ lock: { ino: '77', birthtimeMs: 5 } }) }), judge()))
       .resolves.toMatchObject({ kind: 'gone' });
   });
