@@ -37,16 +37,18 @@ import (
 // order against what the TypeScript build would show for that one row.
 //
 // The oracle records only `sorted`, not the unsorted corpus too — the same
-// multiset, just reordered, would double the file for no extra signal. Each
-// entry also carries `tiedWithNext`: true where Node's own localeCompare
-// calls it and the following entry exactly equal, e.g. a precomposed letter
-// against its decomposed form. sortMismatches reverses `sorted` (a
-// deterministic permutation with no unsorted array to keep in step) and
-// sorts it again with Collate; since a stable sort only promises that tied
-// elements keep whatever relative order they arrive in, and reversing
-// deliberately scrambles that order, two elements in the same tied run may
-// swap places without counting as a disagreement — anything else must land
-// back exactly where Node put it.
+// multiset, just reordered, would double the file for no extra signal.
+// `tiedIndices` names every index i where sorted[i] and sorted[i+1] collate
+// exactly equal under Node's own localeCompare, e.g. a precomposed letter
+// against its decomposed form — a plain []int rather than a parallel array
+// of {value, tiedWithNext} objects, which cost more once JSON-serialized
+// than the corpus itself. sortMismatches reverses `sorted` (a deterministic
+// permutation with no unsorted array to keep in step) and sorts it again
+// with Collate; since a stable sort only promises that tied elements keep
+// whatever relative order they arrive in, and reversing deliberately
+// scrambles that order, two elements in the same tied run may swap places
+// without counting as a disagreement — anything else must land back exactly
+// where Node put it.
 type collationOracle struct {
 	ICU       string          `json:"icu"`
 	CLDR      string          `json:"cldr"`
@@ -56,13 +58,9 @@ type collationOracle struct {
 }
 
 type collationSubset struct {
-	Sorted []collationSortedEntry `json:"sorted"`
-	Pairs  []collationOraclePair  `json:"pairs"`
-}
-
-type collationSortedEntry struct {
-	Value        string `json:"value"`
-	TiedWithNext bool   `json:"tiedWithNext"`
+	Sorted      []string              `json:"sorted"`
+	TiedIndices []int                 `json:"tiedIndices"`
+	Pairs       []collationOraclePair `json:"pairs"`
 }
 
 type collationOraclePair struct {
@@ -99,7 +97,7 @@ func TestCollateOracleRealisticSortOrder(t *testing.T) {
 	t.Logf("Node ICU %s / CLDR %s / Unicode %s; golang.org/x/text/collate CLDR %s / Unicode %s",
 		oracle.ICU, oracle.CLDR, oracle.Unicode, collate.CLDRVersion, collate.UnicodeVersion)
 
-	mismatches, detail := sortMismatches(oracle.Realistic.Sorted)
+	mismatches, detail := sortMismatches(oracle.Realistic.Sorted, oracle.Realistic.TiedIndices)
 	for _, line := range detail {
 		t.Error(line)
 	}
@@ -127,7 +125,7 @@ func TestCollateOracleRealisticPairs(t *testing.T) {
 func TestCollateWideScriptsDiverge(t *testing.T) {
 	oracle := loadCollationOracle(t)
 
-	sortMismatchCount, _ := sortMismatches(oracle.Wide.Sorted)
+	sortMismatchCount, _ := sortMismatches(oracle.Wide.Sorted, oracle.Wide.TiedIndices)
 	if sortMismatchCount == 0 {
 		t.Fatal("x/text/collate now reproduces Node's order for CJK/Hangul/Kana/emoji/combining-mark strings; " +
 			"promote the wide corpus into the realistic gate and update divergence 8 in docs/port/divergences.md")
@@ -149,31 +147,32 @@ func TestCollateWideScriptsDiverge(t *testing.T) {
 		pairMismatches, len(oracle.Wide.Pairs))
 }
 
-// sortMismatches reverses want's values (a deterministic permutation) and
-// sorts the reversal with Collate, then compares the result back against
-// want run by run, where a run is a maximal stretch of entries want itself
-// marks TiedWithNext. Elements may land anywhere within their own run
+// sortMismatches reverses want (a deterministic permutation) and sorts the
+// reversal with Collate, then compares the result back against want run by
+// run, where a run is a maximal stretch of indices tiedIndices marks as each
+// tied with the next. Elements may land anywhere within their own run
 // without counting as a mismatch — a stable sort only promises that tied
 // elements keep whatever relative order they arrive in, and reversal
 // deliberately inverts that order for every tie — but every run's
 // *membership*, and every non-tied element's exact position, must match.
 // detail holds up to 25 human-readable descriptions of the runs that
 // disagree.
-func sortMismatches(want []collationSortedEntry) (mismatches int, detail []string) {
-	values := make([]string, len(want))
-	for i, entry := range want {
-		values[i] = entry.Value
+func sortMismatches(want []string, tiedIndices []int) (mismatches int, detail []string) {
+	tied := make(map[int]bool, len(tiedIndices))
+	for _, index := range tiedIndices {
+		tied[index] = true
 	}
-	got := reversedCopy(values)
+
+	got := reversedCopy(want)
 	slices.SortStableFunc(got, Collate)
 
 	i := 0
-	for i < len(values) {
+	for i < len(want) {
 		j := i + 1
-		for j-1 < len(want) && want[j-1].TiedWithNext {
+		for tied[j-1] {
 			j++
 		}
-		wantRun := values[i:j]
+		wantRun := want[i:j]
 		var gotRun []string
 		if j <= len(got) {
 			gotRun = got[i:j]

@@ -25,9 +25,11 @@
 // `sorted` is each category, independently, in Node's own
 // `localeCompare(…, 'en')` order — a stable sort, so two strings the
 // collator calls equal keep their input order, exactly as V8's
-// Array.prototype.sort and Go's slices.SortStableFunc both promise. `pairs`
-// is a curated, deterministic sample (no Math.random, so this file
-// reproduces byte-for-byte) of pairwise comparisons, tagged the same way.
+// Array.prototype.sort and Go's slices.SortStableFunc both promise.
+// `tiedIndices` names which adjacent pairs of `sorted` are exactly equal
+// under localeCompare (see SortedResult below). `pairs` is a curated,
+// deterministic sample (no Math.random, so this file reproduces
+// byte-for-byte) of pairwise comparisons, tagged the same way.
 //
 // The unsorted corpus itself is not recorded separately: it is the same
 // multiset as `sorted`, just reordered, so shipping both would double this
@@ -273,27 +275,29 @@ const byCategory = (category: Category): string[] => dedupe(cases.filter((c) => 
 const realistic = byCategory('realistic');
 const wide = byCategory('wide');
 
-interface SortedEntry {
-  value: string;
+interface SortedResult {
+  sorted: string[];
   /**
-   * True when this element and the next collate exactly equal under
+   * Indices i where sorted[i] and sorted[i + 1] collate exactly equal under
    * localeCompare('en') — a precomposed letter against its decomposed form,
-   * say. The Go test permutes this array before re-sorting it, and a stable
-   * sort only promises ties keep whatever order they arrive in, so it needs
-   * Node's own tie boundaries (not a boundary it infers from Collate itself,
-   * which would beg the question if Collate ever ties two strings
-   * differently than localeCompare does) to know which positions may
-   * legitimately swap.
+   * say — rather than a parallel array of {value, tiedWithNext} objects,
+   * which cost more than the corpus itself once JSON-serialized. The Go test
+   * permutes `sorted` before re-sorting it, and a stable sort only promises
+   * ties keep whatever order they arrive in, so it needs Node's own tie
+   * boundaries (not boundaries it infers from Collate itself, which would
+   * beg the question if Collate ever ties two strings differently than
+   * localeCompare does) to know which positions may legitimately swap.
    */
-  tiedWithNext: boolean;
+  tiedIndices: number[];
 }
 
-function sortedOf(values: string[]): SortedEntry[] {
+function sortedOf(values: string[]): SortedResult {
   const sorted = [...values].sort((a, b) => a.localeCompare(b, 'en'));
-  return sorted.map((value, i) => ({
-    value,
-    tiedWithNext: i + 1 < sorted.length && value.localeCompare(sorted[i + 1] ?? '', 'en') === 0
-  }));
+  const tiedIndices: number[] = [];
+  for (let i = 0; i + 1 < sorted.length; i += 1) {
+    if ((sorted[i] ?? '').localeCompare(sorted[i + 1] ?? '', 'en') === 0) tiedIndices.push(i);
+  }
+  return { sorted, tiedIndices };
 }
 
 function pairsOf(values: string[]): { left: string; right: string; sign: number }[] {
@@ -316,6 +320,6 @@ process.stdout.write(JSON.stringify({
   icu: process.versions.icu,
   cldr: process.versions.cldr,
   unicode: process.versions.unicode,
-  realistic: { sorted: sortedOf(realistic), pairs: [...pairsOf(realistic), ...probePairs] },
-  wide: { sorted: sortedOf(wide), pairs: pairsOf(wide) }
+  realistic: { ...sortedOf(realistic), pairs: [...pairsOf(realistic), ...probePairs] },
+  wide: { ...sortedOf(wide), pairs: pairsOf(wide) }
 }, null, 2) + '\n');
