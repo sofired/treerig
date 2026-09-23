@@ -15,8 +15,12 @@ export interface RunOptions {
   input?: string | Uint8Array;
   /** Throw on a non-zero exit. Defaults to true. */
   reject?: boolean;
-  /** Tee stdout/stderr to the terminal while still capturing them. */
-  printOutput?: boolean;
+  /**
+   * Tee stdout/stderr to the terminal while still capturing them. `'stderr'`
+   * sends both to this process's stderr, for a caller whose own stdout is a
+   * report that the child's output must not interleave with.
+   */
+  printOutput?: boolean | 'stderr';
   /** Hand the terminal to the child; nothing is captured. */
   interactive?: boolean;
   forceKillAfterDelayMs?: number;
@@ -187,7 +191,10 @@ export class ExecaRunner implements CommandRunner {
       killSignal: 'SIGTERM' as const,
       killDescendants: !options.interactive,
       ...(options.interactive ? { stdio: 'inherit' as const } : {}),
-      ...(!options.interactive && options.printOutput ? {
+      ...(!options.interactive && options.printOutput === 'stderr' ? {
+        stdout: [2, 'pipe'] as const,
+        stderr: [2, 'pipe'] as const
+      } : !options.interactive && options.printOutput ? {
         stdout: ['inherit', 'pipe'] as const,
         stderr: ['inherit', 'pipe'] as const
       } : {}),

@@ -3,7 +3,7 @@ import { recordedLabelNamespace, writeIndexCard } from '../checkout-index/card.t
 import type { ProjectConfig } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
 import { secureWorktreeDirectories } from '../files.ts';
-import { INVOKED_STAGES, LIFECYCLE_ORDER, worktreeEnvironment, type LifecycleStage } from '../hooks/protocol.ts';
+import { LIFECYCLE_ORDER, UP_STAGES, worktreeEnvironment, type LifecycleStage } from '../hooks/protocol.ts';
 import { runLifecycle, type HookContext } from '../hooks/runner.ts';
 import { worktreeHost, worktreeLayout } from '../layout.ts';
 import { withScopedLock, worktreeLockTarget } from '../operation-lock.ts';
@@ -45,10 +45,10 @@ export interface UpOptions {
   services?: readonly string[];
 }
 
-/** The invoked stages the lifecycle sequencer can be asked for, in its own terms. */
+/** The stages `up` asks the lifecycle sequencer for, in its own terms. */
 export function lifecycleStages(firstTime: boolean): LifecycleStage[] {
   return LIFECYCLE_ORDER.filter((stage) =>
-    INVOKED_STAGES.includes(stage) && (firstTime || stage !== 'seed')
+    UP_STAGES.includes(stage) && (firstTime || stage !== 'seed')
   );
 }
 
@@ -237,7 +237,10 @@ async function requireRegistration(context: CommandContext): Promise<WorktreeReg
   return registration;
 }
 
-function hookContext(context: CommandContext, ref: WorktreeRef & { domain: string }): HookContext {
+export function hookContext(
+  context: Pick<CommandContext, 'loaded' | 'controlHome' | 'logger' | 'runner'>,
+  ref: WorktreeRef & { domain: string }
+): HookContext {
   const { loaded } = context;
   return {
     environment: worktreeEnvironment({

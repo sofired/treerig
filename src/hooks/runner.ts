@@ -11,6 +11,8 @@ export interface HookRunOptions {
   argument?: string;
   cancelSignal?: AbortSignal;
   timeoutMs?: number;
+  /** Where the hook's output is streamed: the terminal as-is by default, or this process's stderr. */
+  printOutput?: 'stderr';
 }
 
 export interface HookContext {
@@ -49,7 +51,7 @@ export async function runHook(
       result = await context.runner.run(resolved, args, {
         cwd: context.environment.ROOT,
         env: { ...process.env, ...hookEnvironmentVariables({ ...context.environment, STAGE: stage }) },
-        printOutput: true,
+        printOutput: options.printOutput ?? true,
         reject: false,
         cancelSignal: options.cancelSignal,
         timeoutMs: options.timeoutMs
@@ -86,8 +88,8 @@ export interface LifecycleOptions extends Pick<HookRunOptions, 'cancelSignal' | 
  * Runs prepare → seed → verify in order, stopping at the first failure.
  * Returns the stages that actually ran (unconfigured stages are skipped).
  * A subset of stages still runs in lifecycle order: `seed` cannot precede
- * `prepare`. `up` is the only caller today, and asks for `prepare` and `seed`,
- * so `verify` is ordered here but never reached.
+ * `prepare`. `up` is the only caller today, and asks for `prepare` and `seed`;
+ * `verify` is ordered here, but only `doctor` runs it, on its own.
  */
 export async function runLifecycle(
   context: HookContext,

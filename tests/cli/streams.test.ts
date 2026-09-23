@@ -27,7 +27,7 @@ interface Invocation {
 async function berth(
   cwd: string,
   args: readonly string[],
-  options: { path?: string; debug?: boolean } = {}
+  options: { path?: string; debug?: boolean; env?: Record<string, string> } = {}
 ): Promise<Invocation> {
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
@@ -38,7 +38,8 @@ async function berth(
         // whether the tool can find `docker`.
         PATH: options.path ?? (process.env['PATH'] ?? ''),
         HOME: cwd,
-        ...(options.debug === true ? { BERTH_DEBUG: '1' } : {})
+        ...(options.debug === true ? { BERTH_DEBUG: '1' } : {}),
+        ...options.env
       }
     });
     return { stdout, stderr, code: 0 };
@@ -104,9 +105,9 @@ backup  = "./backup.sh"
 
     const result = await berth(cwd, ['config', 'validate']);
 
-    // Both invoked stages counted, including the one only a first `up` asks for.
-    expect(result.stdout).toContain('1 service(s) · 2 hook(s)');
-    expect(result.stdout).toContain('accepted but not invoked yet: verify, backup');
+    // Every invoked stage counted: the one only a first `up` asks for, and the one only `doctor` runs.
+    expect(result.stdout).toContain('1 service(s) · 3 hook(s)');
+    expect(result.stdout).toContain('accepted but not invoked yet: backup');
   });
 
   it('prints JSON a terminal cannot be driven by, that parses back exactly', async () => {
@@ -156,11 +157,64 @@ purpose = "surface"
   it('refuses a verb it does not have by name, on stderr', async () => {
     const cwd = await project(CONFIG);
 
-    const result = await berth(cwd, ['doctor']);
+    const result = await berth(cwd, ['dev']);
 
     expect(result.code).toBe(2);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain("'berth doctor' is not implemented yet");
+    expect(result.stderr).toContain("'berth dev' is not implemented yet");
+  });
+
+  it('prints the doctor\'s report on stdout and how it went on stderr', async () => {
+    const cwd = await project(CONFIG);
+    const empty = await mkdtemp(path.join(tmpdir(), 'berth-nopath-'));
+    temporary.push(empty);
+
+    // Neither `git` nor `docker` can be found: both are failures in the
+    // report, not a failure of the command.
+    const result = await berth(cwd, ['doctor'], { path: empty });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toMatch(/^Prerequisites\n/);
+    expect(result.stdout).toMatch(/^ {2}fail {2}Docker Engine +the `docker` command is not on PATH/m);
+    expect(result.stdout).toMatch(/^ {2}fail {2}Git +`git` could not be started/m);
+    expect(result.stdout).toContain('This checkout');
+    expect(result.stdout).not.toContain('[berth]');
+    expect(result.stderr).toMatch(/^\[berth\] ERROR: \d+ check\(s\) failed\.$/m);
+  });
+
+  it('says on stderr, as information, that nothing failed, and exits 0', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'berth-doctor-'));
+    temporary.push(cwd);
+    const bin = await mkdtemp(path.join(tmpdir(), 'berth-fakebin-'));
+    temporary.push(bin);
+    // Just enough of a Docker and a Git to pass: versions to report, and no
+    // router or routed containers to find.
+    await writeFile(path.join(bin, 'docker'), [
+      '#!/bin/sh',
+      'if [ "$1" = version ]; then echo 29.0.0; fi',
+      'if [ "$1" = compose ] && [ "$2" = version ]; then echo 2.30.0; fi',
+      'exit 0',
+      ''
+    ].join('\n'), { mode: 0o755 });
+    await writeFile(path.join(bin, 'git'), '#!/bin/sh\necho "git version 2.43.0"\n', { mode: 0o755 });
+
+    const result = await berth(cwd, ['doctor'], { path: bin });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/^ {2}ok {4}Docker Compose +2\.30\.0$/m);
+    expect(result.stdout).toMatch(/^ {2}ok {4}router +not running/m);
+    expect(result.stderr).toMatch(/^\[berth\] No checks failed \(1 skipped\)\.$/m);
+    expect(result.stderr).not.toContain('ERROR');
+  });
+
+  it('reports a router port it cannot use as a failed check, and still reports the rest', async () => {
+    const cwd = await project(CONFIG);
+
+    const result = await berth(cwd, ['doctor'], { env: { BERTH_ROUTER_PORT: 'eighty' } });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toMatch(/^ {2}fail {2}router +BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "eighty"\.$/m);
+    expect(result.stdout).toContain('This checkout');
   });
 
   it('leaves stdout empty when the answer is a notice, not data', async () => {

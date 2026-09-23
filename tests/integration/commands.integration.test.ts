@@ -4,11 +4,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { placeholderSnapshot } from '../../src/checkout-index/snapshot.ts';
 import { createCommandContext, type CommandContext, type ProcessControl } from '../../src/commands/context.ts';
+import { doctor, doctorExitCode, type Section } from '../../src/commands/doctor.ts';
 import { down, status, up, urls } from '../../src/commands/worktree.ts';
 import { loadConfig } from '../../src/config/load.ts';
 import { CliError, OperationCancelledError } from '../../src/errors.ts';
 import { ScopedLock, worktreeLockTarget } from '../../src/operation-lock.ts';
-import { ExecaRunner } from '../../src/process-runner.ts';
+import { ExecaRunner, type RunOptions, type RunResult } from '../../src/process-runner.ts';
 import { MemoryRuntime } from '../../src/runtime/memory.ts';
 import type { Runtime, ServiceSpec, WorktreeRef } from '../../src/runtime/runtime.ts';
 import { FakeProcess, RecordingLogger } from '../helpers/command-doubles.ts';
@@ -38,6 +39,7 @@ path = "/inbox"
 [hooks]
 prepare = "./hooks/record"
 seed = "./hooks/record"
+verify = "./hooks/record"
 `;
 
 interface World {
@@ -46,6 +48,8 @@ interface World {
   controlHome: string;
   log: string;
   failFile: string;
+  /** While it exists, the verify stage exits 5. */
+  failVerify: string;
   runner: ExecaRunner;
   context(overrides?: { runtime?: Runtime; process?: ProcessControl; runner?: ExecaRunner }): Promise<CommandContext & { logger: RecordingLogger; fakeProcess: FakeProcess }>;
 }
@@ -57,18 +61,21 @@ async function world(): Promise<World> {
   const controlHome = path.join(base, 'control');
   const log = path.join(base, 'hooks.log');
   const failFile = path.join(base, 'fail-prepare');
+  const failVerify = path.join(base, 'fail-verify');
   const runner = new ExecaRunner();
   await runner.run('git', ['init', '--initial-branch=feature/login', root]);
   await runner.run('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--allow-empty', '-m', 'initial']);
   await writeFile(path.join(root, 'berth.toml'), CONFIG);
   await mkdir(path.join(root, 'hooks'));
   const hook = path.join(root, 'hooks', 'record');
-  // Records what it saw; fails prepare with exit 7 while the fail file exists; proves WORKTREE_HOME is writable.
+  // Records what it saw; fails prepare with exit 7, and verify with exit 5, while their fail files exist;
+  // proves WORKTREE_HOME is writable.
   await writeFile(hook, [
     '#!/bin/sh',
     `echo "$BERTH_STAGE $BERTH_SLUG $BERTH_HOST $BERTH_PROJECT $(pwd)" >> "${log}"`,
     `touch "$BERTH_WORKTREE_HOME/touched-by-$BERTH_STAGE" || exit 9`,
     `if [ "$BERTH_STAGE" = prepare ] && [ -e "${failFile}" ]; then exit 7; fi`,
+    `if [ "$BERTH_STAGE" = verify ] && [ -e "${failVerify}" ]; then exit 5; fi`,
     'exit 0',
     ''
   ].join('\n'));
@@ -76,7 +83,7 @@ async function world(): Promise<World> {
   const shared = new MemoryRuntime({ services: ['api', 'mail'] });
 
   return {
-    base, root, controlHome, log, failFile, runner,
+    base, root, controlHome, log, failFile, failVerify, runner,
     async context(overrides = {}) {
       const logger = new RecordingLogger();
       const fakeProcess = new FakeProcess();
@@ -246,5 +253,71 @@ describe('down, status, urls', () => {
       '  mail  absent'
     ]);
     expect(await urls(context)).toHaveLength(2);
+  });
+});
+
+describe('doctor', () => {
+  // Real Git and a real hook; Docker is answered, since only the checkout is under test here
+  // (the router suite runs doctor against a real daemon): a version for each version query,
+  // and nothing routed.
+  class NoDocker extends ExecaRunner {
+    override run(command: string, args: readonly string[] = [], options?: RunOptions): Promise<RunResult> {
+      if (command !== 'docker') return super.run(command, args, options);
+      const stdout = args[0] === 'version' ? '29.0.0\n' : args[0] === 'compose' && args[1] === 'version' ? '2.38.2\n' : '';
+      return Promise.resolve({ stdout, stderr: '', exitCode: 0 });
+    }
+
+    // Found as well as answered: a runner without Docker on PATH (CI's macOS leg) must see the same.
+    override which(command: string): Promise<boolean> {
+      return command === 'docker' ? Promise.resolve(true) : super.which(command);
+    }
+  }
+
+  async function diagnose(w: World): Promise<Section[]> {
+    const context = await w.context();
+    return doctor({
+      commandName: 'berth',
+      controlHome: w.controlHome,
+      runner: new NoDocker(),
+      logger: context.logger,
+      router: { network: 'berth-router', status: () => Promise.resolve({ reachable: true, running: false, problems: [], port: 80, network: 'berth-router' }) },
+      checkout: { kind: 'loaded', loaded: context.loaded },
+      registryFor: () => context.registry
+    });
+  }
+
+  const checkout = (sections: readonly Section[]) => sections.find((s) => s.title === 'This checkout')?.checks ?? [];
+
+  it('runs the verify hook of a worktree up has registered, in the hook contract, and passes on exit 0', async () => {
+    const w = await world();
+    await up(await w.context());
+
+    const sections = await diagnose(w);
+
+    expect(checkout(sections).map((c) => `${c.status} ${c.subject}`)).toEqual(['ok berth.toml', 'ok this worktree', 'ok verify hook']);
+    expect((await hookLog(w)).at(-1)).toBe(`verify feature-login feature-login.acme.localhost acme ${w.root}`);
+    expect(doctorExitCode(sections)).toBe(0);
+  });
+
+  it('fails a verify hook that exits non-zero and makes its code the command\'s', async () => {
+    const w = await world();
+    await up(await w.context());
+    await writeFile(w.failVerify, '');
+
+    const sections = await diagnose(w);
+
+    expect(checkout(sections).at(-1)).toEqual({
+      status: 'fail', subject: 'verify hook', detail: 'The verify hook failed (exit 5).', exitCode: 5
+    });
+    expect(doctorExitCode(sections)).toBe(5);
+  });
+
+  it('does not run the verify hook before the worktree is registered', async () => {
+    const w = await world();
+
+    const sections = await diagnose(w);
+
+    expect(checkout(sections).map((c) => `${c.status} ${c.subject}`)).toEqual(['ok berth.toml', 'skip this worktree', 'skip verify hook']);
+    expect(await hookLog(w)).toEqual([]);
   });
 });

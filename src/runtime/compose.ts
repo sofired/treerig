@@ -79,8 +79,8 @@ export interface ComposeRuntimeOptions {
   waitTimeoutSeconds?: number;
 }
 
-const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
-const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service';
+export const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
+export const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service';
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 120;
 /**
  * Shell variables that would let the caller's environment change what Compose

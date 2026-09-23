@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { BRAND, cliName } from '../brand.ts';
 import { formatIndexText } from '../checkout-index/render.ts';
 import { createCommandContext, type CommandContext } from '../commands/context.ts';
+import { doctor, doctorExitCode, doctorSummary, findCheckout, formatDoctorReport } from '../commands/doctor.ts';
 import { list } from '../commands/list.ts';
 import { remove } from '../commands/remove.ts';
 import { down, status, up, urls } from '../commands/worktree.ts';
@@ -48,7 +49,7 @@ async function main(argv: readonly string[]): Promise<void> {
       const services = loaded.config.service.length;
       const configured = Object.keys(loaded.config.hooks) as HookStage[];
       // Counted separately, because a report about what a file does must not
-      // count three hooks nothing invokes yet among the ones that run.
+      // count the hooks nothing invokes yet among the ones that run.
       const inert = configured.filter((stage) => !INVOKED_STAGES.includes(stage));
       const live = configured.length - inert.length;
       // A validator's report is what was asked for, so it goes to stdout the
@@ -82,10 +83,10 @@ async function main(argv: readonly string[]): Promise<void> {
     runner: new ExecaRunner()
   });
   // The router is machine-wide: no config file needed.
-  const router = (): RouterService => new RouterService({
+  const router = (runner = new ExecaRunner()): RouterService => new RouterService({
     controlHome: resolveControlHome(process.env),
     port: resolveRouterPort(process.env),
-    runner: new ExecaRunner(),
+    runner,
     logger,
     invocation,
     commandName
@@ -118,7 +119,32 @@ async function main(argv: readonly string[]): Promise<void> {
       const current = await context();
       logger.output(formatIndexText(await current.index.refresh(), current.index.url));
     });
-  program.command('doctor').description('validate prerequisites and local state (not yet implemented)').action(notYet('doctor'));
+  program.command('doctor')
+    .description('check prerequisites, the registry, the router, and this checkout\'s verify hook')
+    .action(async () => {
+      const runner = new ExecaRunner();
+      let source: RouterService | Error;
+      try {
+        // One runner for the whole command, the router's queries included.
+        source = router(runner);
+      } catch (error) {
+        source = error instanceof Error ? error : new Error(String(error));
+      }
+      const sections = await doctor({
+        commandName,
+        controlHome: resolveControlHome(process.env),
+        runner,
+        logger,
+        router: source,
+        checkout: await findCheckout(program.opts<{ config?: string }>().config, process.cwd()),
+        invocation
+      });
+      // The report is the answer, so it is stdout's; how it went is one line on stderr.
+      for (const line of formatDoctorReport(sections)) logger.output(line);
+      const summary = doctorSummary(sections);
+      logger[summary.level](summary.message);
+      process.exitCode = doctorExitCode(sections);
+    });
 
   const routerCommand = program.command('router').description('manage the shared local router');
   routerCommand.command('up')

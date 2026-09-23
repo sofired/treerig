@@ -70,11 +70,11 @@ at its mount point, so the parents are never traversed. Only the index page
 and route fragments are written there; nothing secret.
 
 **Hooks.** `prepare`, `seed`, `verify`, `backup`, and `restore` are
-executables you point at from the config file. Only `prepare` and `seed` are
-invoked today: `seed` never runs before `prepare`, and not at all if a
-configured `prepare` exited non-zero. The other three are accepted and
-validated so a repository can commit them once, and a future `doctor`,
-`backup` and `restore` will run them. The tool never learns what they do.
+executables you point at from the config file. `up` invokes `prepare` and
+`seed`: `seed` never runs before `prepare`, and not at all if a configured
+`prepare` exited non-zero. `doctor` invokes `verify`. `backup` and `restore`
+are accepted and validated so a repository can commit them once, and future
+commands of the same names will run them. The tool never learns what they do.
 
 **Router.** One Traefik instance per machine, started on first `up`, shared
 by every worktree of every repository. It binds a single loopback port and
@@ -94,8 +94,12 @@ recreated once if it has drifted, and refused if the drift survives that.
 ## Install
 
 There is no published package and no binary yet — see [Roadmap](#roadmap).
-Today berth runs from a clone, on Node 24, with Docker and Docker Compose
-available:
+Today berth runs from a clone, on Node 24, with Git 2.36 or newer, Docker, and
+Docker Compose available; `berth doctor` checks each of them. A Node too old to
+run TypeScript at all stops before any of berth's code — `doctor` included —
+can say so, with Node's own error (`ERR_UNKNOWN_FILE_EXTENSION`, or a
+`SyntaxError` about an `import` statement); `node --version` is the check then.
+To install:
 
 ```bash
 git clone <this repository> berth && cd berth
@@ -110,8 +114,8 @@ is the upgrade.
 
 ## Quick start
 
-The tool is tested with Docker Compose 2.21 and newer (check with
-`docker compose version`). Commit a `berth.toml` at the root of your
+The tool is tested with Docker Compose 2.21 and newer (`berth doctor` checks,
+as does `docker compose version`). Commit a `berth.toml` at the root of your
 repository:
 
 ```toml
@@ -135,7 +139,7 @@ subdomain = "mail"                 # mail.<slug>.acme.localhost
 [hooks]
 prepare = "./scripts/migrate.sh"   # services healthy, nothing seeded
 seed    = "./scripts/seed.py"      # only after prepare exits zero
-verify  = "./scripts/doctor"       # accepted, but nothing runs it yet
+verify  = "./scripts/check.sh"     # run by doctor; exit 0 means healthy
 ```
 
 Then:
@@ -148,6 +152,7 @@ berth urls                # print its routed URLs
 berth down                # stop it; data is kept
 berth worktree list       # every worktree of this repository, with state
 berth worktree remove     # tear it down, verified by ownership
+berth doctor              # check prerequisites, registry, router; run verify
 ```
 
 `up` runs the branch's own build and hooks. Read [Trust model](#trust-model)
@@ -269,7 +274,7 @@ binary name, renaming a symlink would orphan state.
 | `project.label-namespace` | Optional. Only to adopt resources created by a predecessor tool. |
 | `compose.file` | Compose file, relative to `berth.toml`. Paths inside it (build contexts, bind mounts, `env_file`) and its `.env` resolve against the Compose file's directory, as with `docker compose -f`; `${BERTH_ROOT}` is still `berth.toml`'s directory. |
 | `[[service]]` | `name`, optional `subdomain` (empty = host root), optional `path` (route only that prefix, so services can share a host), optional `port` (defaults to the first port the service exposes), optional `index` presence. |
-| `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. Only `prepare` and `seed` run today. |
+| `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. `up` runs `prepare` and `seed`, `doctor` runs `verify`; `backup` and `restore` are accepted but nothing runs them yet. |
 
 Unknown keys are rejected, so a typo cannot silently disable a feature.
 
@@ -339,7 +344,7 @@ not create — not a claim about what your branch's code can do once it runs.
 ## Output and exit codes
 
 The commands that produce data — `index`, `status`, `urls`, `router status`,
-`config show`, `config validate`, `worktree list` — write that data to stdout
+`config show`, `config validate`, `worktree list`, `doctor` — write that data to stdout
 and nothing else, so `berth index > page.txt` and
 `berth worktree list --json | jq` get what they asked for. Progress, waiting
 notices, confirmation prompts, warnings and failures go to stderr.
@@ -356,6 +361,18 @@ that case is a `Router state unknown:` line on stderr. Each reported problem is
 its own `Router problem:` line on stderr. Both `running` and `not running` exit
 0, because "is it there?" is the question and both are answers; `degraded` and
 an unreachable Docker exit 1.
+
+`doctor` writes its report to stdout: one section per area (`Prerequisites`,
+`Registry`, `Router`, `This checkout`), one line per check, each marked `ok`,
+`warn`, `fail` or `skip`. How it went is one line on stderr, and so is the
+output of the `verify` hook it runs, so the report is alone on stdout. It exits
+0 when no check failed — warnings and skips do not count — with the `verify`
+hook's own exit code when that hook failed, and 1 when anything else failed.
+The exit code names one failure; the report names them all. A `verify` hook
+that exits 124 makes `doctor` exit 124 too — the code `timeout(1)` uses for a
+command it had to kill — so a script that wraps `doctor` in `timeout` cannot
+tell the two apart by exit code alone. It takes no lock, writes nothing, and
+repairs nothing; it reports.
 
 Every failure the tool itself reports ends in a non-zero exit code and a
 `[berth] ERROR:` line on stderr saying why; a bad command line is answered by
@@ -480,32 +497,36 @@ Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
   native-plus-container worktrees can be routed without touching the router.
 - **Checkout index** — `berth.localhost`: every registered worktree on the
   machine, grouped by domain, with the projects on it named in the heading, with per-service links and status.
+- **`doctor`** — one read-only report: Node, Git, Docker and Compose against
+  the versions this tool needs; the control home and every registration
+  (unreadable records, a hostname claimed twice, the index's own hostname);
+  the router's verification, and any rule two routed containers share, read
+  from Docker so it spans control homes; and, for this checkout, its `verify`
+  hook and any registration of its repository whose checkout Git no longer lists.
 
-Not built yet, in rough order. `dev` and `doctor` are registered and refuse by
-name rather than pretending; the rest are not commands at all. The config file
-already accepts the `verify`, `backup` and `restore` hooks, so a repository can
-commit them once.
+Not built yet, in rough order. `dev` is registered and refuses by name rather
+than pretending; the rest are not commands at all. The config file already
+accepts the `backup` and `restore` hooks, so a repository can commit them once.
 
-1. **`doctor`** — prerequisites, router verification, registry problems,
-   hostname conflicts, and the `verify` hook, in one report.
-2. **`worktree unlock`** — the guarded removal of a dead holder's lock, after
+1. **`worktree unlock`** — the guarded removal of a dead holder's lock, after
    proving nothing it started is still mutating the environment
-   (`clearStaleWorktreeLocks` exists; the command does not yet). Until then
-   the waiting command names the directory to remove by hand.
-3. **`dev`** — start the worktree and follow its services' logs, holding the
+   (`clearStaleWorktreeLocks` exists; the command does not yet), and a
+   `doctor` check that reports held and stale locks. Until then the waiting
+   command names the directory to remove by hand.
+2. **`dev`** — start the worktree and follow its services' logs, holding the
    development-session lock so `worktree remove` refuses while a session is
    attached.
-4. **Native routes** — `berth route` writing file-provider fragments for
+3. **Native routes** — `berth route` writing file-provider fragments for
    processes running outside Docker.
-5. **Standalone cleanup binary** — content-addressed, installed outside
+4. **Standalone cleanup binary** — content-addressed, installed outside
    the checkout, so removing a worktree never imports code from the branch
    being deleted.
-6. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
-7. **`init`** — write a starter `berth.toml`. Until then, copy
+5. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
+6. **`init`** — write a starter `berth.toml`. Until then, copy
    `berth.example.toml` to the repository root.
-8. **`backup` / `restore`** — invoke the hooks of the same name with a bundle
+7. **`backup` / `restore`** — invoke the hooks of the same name with a bundle
    directory.
-9. **`rename`** — change a worktree's slug, or the product's own storage
+8. **`rename`** — change a worktree's slug, or the product's own storage
    names, by migrating the state that carries them. Both are migrations: a
    control home, identity markers and Docker labels all embed the old name.
 
