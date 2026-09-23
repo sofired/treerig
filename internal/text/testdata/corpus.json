@@ -1,0 +1,1401 @@
+{
+  "cfCodePointCount": 170,
+  "printableCodePoints": [
+    {
+      "name": "C0 control U+0000",
+      "input": "\u0000",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0001",
+      "input": "\u0001",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0002",
+      "input": "\u0002",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0003",
+      "input": "\u0003",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0004",
+      "input": "\u0004",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0005",
+      "input": "\u0005",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0006",
+      "input": "\u0006",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0007",
+      "input": "\u0007",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0008",
+      "input": "\b",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0009",
+      "input": "\t",
+      "want": " "
+    },
+    {
+      "name": "C0 control U+000a",
+      "input": "\n",
+      "want": " "
+    },
+    {
+      "name": "C0 control U+000b",
+      "input": "\u000b",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+000c",
+      "input": "\f",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+000d",
+      "input": "\r",
+      "want": " "
+    },
+    {
+      "name": "C0 control U+000e",
+      "input": "\u000e",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+000f",
+      "input": "\u000f",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0010",
+      "input": "\u0010",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0011",
+      "input": "\u0011",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0012",
+      "input": "\u0012",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0013",
+      "input": "\u0013",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0014",
+      "input": "\u0014",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0015",
+      "input": "\u0015",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0016",
+      "input": "\u0016",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0017",
+      "input": "\u0017",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0018",
+      "input": "\u0018",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+0019",
+      "input": "\u0019",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+001a",
+      "input": "\u001a",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+001b",
+      "input": "\u001b",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+001c",
+      "input": "\u001c",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+001d",
+      "input": "\u001d",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+001e",
+      "input": "\u001e",
+      "want": "�"
+    },
+    {
+      "name": "C0 control U+001f",
+      "input": "\u001f",
+      "want": "�"
+    },
+    {
+      "name": "DEL U+007f",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0080",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0081",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0082",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0083",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0084",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0085",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0086",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0087",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0088",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0089",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+008a",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+008b",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+008c",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+008d",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+008e",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+008f",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0090",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0091",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0092",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0093",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0094",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0095",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0096",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0097",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0098",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+0099",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+009a",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+009b",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+009c",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+009d",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+009e",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "C1 control U+009f",
+      "input": "",
+      "want": "�"
+    },
+    {
+      "name": "LINE SEPARATOR U+2028",
+      "input": " ",
+      "want": "�"
+    },
+    {
+      "name": "PARAGRAPH SEPARATOR U+2029",
+      "input": " ",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+00ad",
+      "input": "­",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0600",
+      "input": "؀",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0601",
+      "input": "؁",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0602",
+      "input": "؂",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0603",
+      "input": "؃",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0604",
+      "input": "؄",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0605",
+      "input": "؅",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+061c",
+      "input": "؜",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+06dd",
+      "input": "۝",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+070f",
+      "input": "܏",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0890",
+      "input": "࢐",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+0891",
+      "input": "࢑",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+08e2",
+      "input": "࣢",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+180e",
+      "input": "᠎",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+200b",
+      "input": "​",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+200c",
+      "input": "‌",
+      "want": "‌"
+    },
+    {
+      "name": "Cf U+200d",
+      "input": "‍",
+      "want": "‍"
+    },
+    {
+      "name": "Cf U+200e",
+      "input": "‎",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+200f",
+      "input": "‏",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+202a",
+      "input": "‪",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+202b",
+      "input": "‫",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+202c",
+      "input": "‬",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+202d",
+      "input": "‭",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+202e",
+      "input": "‮",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2060",
+      "input": "⁠",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2061",
+      "input": "⁡",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2062",
+      "input": "⁢",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2063",
+      "input": "⁣",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2064",
+      "input": "⁤",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2066",
+      "input": "⁦",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2067",
+      "input": "⁧",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2068",
+      "input": "⁨",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+2069",
+      "input": "⁩",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+206a",
+      "input": "⁪",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+206b",
+      "input": "⁫",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+206c",
+      "input": "⁬",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+206d",
+      "input": "⁭",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+206e",
+      "input": "⁮",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+206f",
+      "input": "⁯",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+feff",
+      "input": "﻿",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+fff9",
+      "input": "￹",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+fffa",
+      "input": "￺",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+fffb",
+      "input": "￻",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+110bd",
+      "input": "𑂽",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+110cd",
+      "input": "𑃍",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13430",
+      "input": "𓐰",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13431",
+      "input": "𓐱",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13432",
+      "input": "𓐲",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13433",
+      "input": "𓐳",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13434",
+      "input": "𓐴",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13435",
+      "input": "𓐵",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13436",
+      "input": "𓐶",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13437",
+      "input": "𓐷",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13438",
+      "input": "𓐸",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+13439",
+      "input": "𓐹",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1343a",
+      "input": "𓐺",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1343b",
+      "input": "𓐻",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1343c",
+      "input": "𓐼",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1343d",
+      "input": "𓐽",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1343e",
+      "input": "𓐾",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1343f",
+      "input": "𓐿",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1bca0",
+      "input": "𛲠",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1bca1",
+      "input": "𛲡",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1bca2",
+      "input": "𛲢",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1bca3",
+      "input": "𛲣",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d173",
+      "input": "𝅳",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d174",
+      "input": "𝅴",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d175",
+      "input": "𝅵",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d176",
+      "input": "𝅶",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d177",
+      "input": "𝅷",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d178",
+      "input": "𝅸",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d179",
+      "input": "𝅹",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+1d17a",
+      "input": "𝅺",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0001",
+      "input": "󠀁",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0020",
+      "input": "󠀠",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0021",
+      "input": "󠀡",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0022",
+      "input": "󠀢",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0023",
+      "input": "󠀣",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0024",
+      "input": "󠀤",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0025",
+      "input": "󠀥",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0026",
+      "input": "󠀦",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0027",
+      "input": "󠀧",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0028",
+      "input": "󠀨",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0029",
+      "input": "󠀩",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e002a",
+      "input": "󠀪",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e002b",
+      "input": "󠀫",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e002c",
+      "input": "󠀬",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e002d",
+      "input": "󠀭",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e002e",
+      "input": "󠀮",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e002f",
+      "input": "󠀯",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0030",
+      "input": "󠀰",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0031",
+      "input": "󠀱",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0032",
+      "input": "󠀲",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0033",
+      "input": "󠀳",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0034",
+      "input": "󠀴",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0035",
+      "input": "󠀵",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0036",
+      "input": "󠀶",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0037",
+      "input": "󠀷",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0038",
+      "input": "󠀸",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0039",
+      "input": "󠀹",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e003a",
+      "input": "󠀺",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e003b",
+      "input": "󠀻",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e003c",
+      "input": "󠀼",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e003d",
+      "input": "󠀽",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e003e",
+      "input": "󠀾",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e003f",
+      "input": "󠀿",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0040",
+      "input": "󠁀",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0041",
+      "input": "󠁁",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0042",
+      "input": "󠁂",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0043",
+      "input": "󠁃",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0044",
+      "input": "󠁄",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0045",
+      "input": "󠁅",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0046",
+      "input": "󠁆",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0047",
+      "input": "󠁇",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0048",
+      "input": "󠁈",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0049",
+      "input": "󠁉",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e004a",
+      "input": "󠁊",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e004b",
+      "input": "󠁋",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e004c",
+      "input": "󠁌",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e004d",
+      "input": "󠁍",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e004e",
+      "input": "󠁎",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e004f",
+      "input": "󠁏",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0050",
+      "input": "󠁐",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0051",
+      "input": "󠁑",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0052",
+      "input": "󠁒",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0053",
+      "input": "󠁓",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0054",
+      "input": "󠁔",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0055",
+      "input": "󠁕",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0056",
+      "input": "󠁖",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0057",
+      "input": "󠁗",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0058",
+      "input": "󠁘",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0059",
+      "input": "󠁙",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e005a",
+      "input": "󠁚",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e005b",
+      "input": "󠁛",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e005c",
+      "input": "󠁜",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e005d",
+      "input": "󠁝",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e005e",
+      "input": "󠁞",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e005f",
+      "input": "󠁟",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0060",
+      "input": "󠁠",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0061",
+      "input": "󠁡",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0062",
+      "input": "󠁢",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0063",
+      "input": "󠁣",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0064",
+      "input": "󠁤",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0065",
+      "input": "󠁥",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0066",
+      "input": "󠁦",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0067",
+      "input": "󠁧",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0068",
+      "input": "󠁨",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0069",
+      "input": "󠁩",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e006a",
+      "input": "󠁪",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e006b",
+      "input": "󠁫",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e006c",
+      "input": "󠁬",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e006d",
+      "input": "󠁭",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e006e",
+      "input": "󠁮",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e006f",
+      "input": "󠁯",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0070",
+      "input": "󠁰",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0071",
+      "input": "󠁱",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0072",
+      "input": "󠁲",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0073",
+      "input": "󠁳",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0074",
+      "input": "󠁴",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0075",
+      "input": "󠁵",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0076",
+      "input": "󠁶",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0077",
+      "input": "󠁷",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0078",
+      "input": "󠁸",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e0079",
+      "input": "󠁹",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e007a",
+      "input": "󠁺",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e007b",
+      "input": "󠁻",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e007c",
+      "input": "󠁼",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e007d",
+      "input": "󠁽",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e007e",
+      "input": "󠁾",
+      "want": "�"
+    },
+    {
+      "name": "Cf U+e007f",
+      "input": "󠁿",
+      "want": "�"
+    },
+    {
+      "name": "ZERO WIDTH NON-JOINER U+200c (kept)",
+      "input": "‌",
+      "want": "‌"
+    },
+    {
+      "name": "ZERO WIDTH JOINER U+200d (kept)",
+      "input": "‍",
+      "want": "‍"
+    }
+  ],
+  "printableStrings": [
+    {
+      "name": "astral character amid ASCII",
+      "input": "a👨b",
+      "want": "a👨b"
+    },
+    {
+      "name": "emoji ZWJ sequence kept whole",
+      "input": "👨‍💻",
+      "want": "👨‍💻"
+    },
+    {
+      "name": "CSI without ESC (U+009B) amid text",
+      "input": "ab",
+      "want": "a�b"
+    },
+    {
+      "name": "RTL override reversing a line",
+      "input": "a‮b",
+      "want": "a�b"
+    },
+    {
+      "name": "soft hyphen amid text",
+      "input": "a­b",
+      "want": "a�b"
+    },
+    {
+      "name": "tab, newline, CR mixed with text",
+      "input": "one\ntwo\tthree\r",
+      "want": "one two three "
+    },
+    {
+      "name": "language tag character (astral Cf)",
+      "input": "a󠁁b",
+      "want": "a�b"
+    }
+  ],
+  "safeJson": [
+    {
+      "name": "astral character",
+      "valueJSON": "{\"emoji\":\"👨\"}",
+      "isUndefined": false,
+      "want": "{\n  \"emoji\": \"\\ud83d\\udc68\"\n}"
+    },
+    {
+      "name": "astral character alone (surrogate pair)",
+      "valueJSON": "\"👨\"",
+      "isUndefined": false,
+      "want": "\"\\ud83d\\udc68\""
+    },
+    {
+      "name": "U+007F DEL",
+      "valueJSON": "\"\"",
+      "isUndefined": false,
+      "want": "\"\\u007f\""
+    },
+    {
+      "name": "U+009B CSI",
+      "valueJSON": "\"\"",
+      "isUndefined": false,
+      "want": "\"\\u009b\""
+    },
+    {
+      "name": "U+00FF Latin-1 supplement boundary",
+      "valueJSON": "\"ÿ\"",
+      "isUndefined": false,
+      "want": "\"\\u00ff\""
+    },
+    {
+      "name": "U+FFFF top of BMP",
+      "valueJSON": "\"￿\"",
+      "isUndefined": false,
+      "want": "\"\\uffff\""
+    },
+    {
+      "name": "angle brackets and ampersand",
+      "valueJSON": "\"<script>&amp;</script>\"",
+      "isUndefined": false,
+      "want": "\"<script>&amp;</script>\""
+    },
+    {
+      "name": "RTL override plus ZWSP plus soft hyphen",
+      "valueJSON": "\"feature/‮x​note­\"",
+      "isUndefined": false,
+      "want": "\"feature/\\u202ex\\u200bnote\\u00ad\""
+    },
+    {
+      "name": "control characters",
+      "valueJSON": "\"a\\u0000b\\u0007c\\u001bd\"",
+      "isUndefined": false,
+      "want": "\"a\\u0000b\\u0007c\\u001bd\""
+    },
+    {
+      "name": "empty array",
+      "valueJSON": "[]",
+      "isUndefined": false,
+      "want": "[]"
+    },
+    {
+      "name": "empty object",
+      "valueJSON": "{}",
+      "isUndefined": false,
+      "want": "{}"
+    },
+    {
+      "name": "nested empty array and object",
+      "valueJSON": "{\"list\":[],\"obj\":{}}",
+      "isUndefined": false,
+      "want": "{\n  \"list\": [],\n  \"obj\": {}\n}"
+    },
+    {
+      "name": "undefined",
+      "valueJSON": null,
+      "isUndefined": true,
+      "want": "null"
+    },
+    {
+      "name": "plain ASCII object indents",
+      "valueJSON": "{\"a\":1}",
+      "isUndefined": false,
+      "want": "{\n  \"a\": 1\n}"
+    },
+    {
+      "name": "mixed emoji, note, control in one object",
+      "valueJSON": "{\"branch\":\"feature/‮x\",\"emoji\":\"👨‍💻\",\"note\":\"a​b\"}",
+      "isUndefined": false,
+      "want": "{\n  \"branch\": \"feature/\\u202ex\",\n  \"emoji\": \"\\ud83d\\udc68\\u200d\\ud83d\\udcbb\",\n  \"note\": \"a\\u200bb\\u007f\\u009b\"\n}"
+    }
+  ],
+  "lower": [
+    {
+      "name": "ASCII upper and lower mixed",
+      "input": "Hello, World! 123",
+      "want": "hello, world! 123"
+    },
+    {
+      "name": "Turkish dotted capital I (U+0130)",
+      "input": "İ",
+      "want": "i̇"
+    },
+    {
+      "name": "Turkish dotted capital I amid text",
+      "input": "feature/İssue-42",
+      "want": "feature/i̇ssue-42"
+    },
+    {
+      "name": "Turkish dotless lowercase i (U+0131) unaffected",
+      "input": "ıstanbul",
+      "want": "ıstanbul"
+    },
+    {
+      "name": "German sharp s (already lower-case)",
+      "input": "straße",
+      "want": "straße"
+    },
+    {
+      "name": "Latin-1 supplement uppercase",
+      "input": "ÀÉÎÕÜ",
+      "want": "àéîõü"
+    },
+    {
+      "name": "Latin Extended-A uppercase",
+      "input": "ĀĒĪŌŪ",
+      "want": "āēīōū"
+    },
+    {
+      "name": "Cyrillic uppercase",
+      "input": "АБВГД",
+      "want": "абвгд"
+    },
+    {
+      "name": "Greek uppercase (non-final)",
+      "input": "ΑΒΓΔΕ",
+      "want": "αβγδε"
+    },
+    {
+      "name": "Kelvin sign (U+212A) — canonically equivalent to K",
+      "input": "K",
+      "want": "k"
+    },
+    {
+      "name": "Angstrom sign (U+212B)",
+      "input": "Å",
+      "want": "å"
+    },
+    {
+      "name": "CJK is case-invariant",
+      "input": "日本語",
+      "want": "日本語"
+    },
+    {
+      "name": "emoji is case-invariant",
+      "input": "👨",
+      "want": "👨"
+    },
+    {
+      "name": "repeated U+0130",
+      "input": "İİİ",
+      "want": "i̇i̇i̇"
+    }
+  ]
+}

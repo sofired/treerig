@@ -1,0 +1,6 @@
+Usage: berth dev [options]
+
+start this worktree's environment and follow its logs (not yet implemented)
+
+Options:
+  -h, --help  display help for command

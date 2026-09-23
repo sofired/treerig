@@ -1,0 +1,8 @@
+Usage: berth worktree list [options]
+
+list registered worktrees
+
+Options:
+  --all       every repository and domain on this machine
+  --json      machine-readable output
+  -h, --help  display help for command

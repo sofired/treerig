@@ -1,0 +1,6 @@
+Usage: berth up [options] [services...]
+
+register this worktree, start its services, and run its hooks
+
+Options:
+  -h, --help  display help for command

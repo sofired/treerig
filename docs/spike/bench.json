@@ -1,0 +1,119 @@
+{
+  "machine": "linux/amd64",
+  "rows": [
+    {
+      "scenario": "--help",
+      "ts": {
+        "medianMs": 473.435,
+        "p90Ms": 529.318,
+        "maxRssKb": 107680,
+        "exit": 0
+      },
+      "go": {
+        "medianMs": 8.122,
+        "p90Ms": 9.364,
+        "maxRssKb": 6272,
+        "exit": 0
+      },
+      "sameOutput": true
+    },
+    {
+      "scenario": "config validate",
+      "ts": {
+        "medianMs": 492.115,
+        "p90Ms": 552.119,
+        "maxRssKb": 108312,
+        "exit": 0
+      },
+      "go": {
+        "medianMs": 8.308,
+        "p90Ms": 10.159,
+        "maxRssKb": 6272,
+        "exit": 0
+      },
+      "sameOutput": true
+    },
+    {
+      "scenario": "worktree list",
+      "ts": {
+        "medianMs": 678.41,
+        "p90Ms": 788.391,
+        "maxRssKb": 118820,
+        "exit": 0
+      },
+      "go": {
+        "medianMs": 67.857,
+        "p90Ms": 81.744,
+        "maxRssKb": 7552,
+        "exit": 0
+      },
+      "sameOutput": true
+    },
+    {
+      "scenario": "worktree list --json",
+      "ts": {
+        "medianMs": 744.148,
+        "p90Ms": 825.252,
+        "maxRssKb": 118688,
+        "exit": 0
+      },
+      "go": {
+        "medianMs": 69.64,
+        "p90Ms": 84.353,
+        "maxRssKb": 7552,
+        "exit": 0
+      },
+      "sameOutput": true
+    },
+    {
+      "scenario": "worktree list --all",
+      "ts": {
+        "medianMs": 710.653,
+        "p90Ms": 789.519,
+        "maxRssKb": 119908,
+        "exit": 0
+      },
+      "go": {
+        "medianMs": 61.914,
+        "p90Ms": 73.89,
+        "maxRssKb": 7680,
+        "exit": 0
+      },
+      "sameOutput": true
+    },
+    {
+      "scenario": "urls",
+      "ts": {
+        "medianMs": 538.705,
+        "p90Ms": 598.449,
+        "maxRssKb": 109984,
+        "exit": 0
+      },
+      "go": {
+        "medianMs": 20.827,
+        "p90Ms": 24.609,
+        "maxRssKb": 7552,
+        "exit": 0
+      },
+      "sameOutput": true
+    },
+    {
+      "scenario": "status (instant fake docker)",
+      "ts": {
+        "medianMs": 573.013,
+        "p90Ms": 684.171,
+        "maxRssKb": 111016,
+        "exit": 0
+      },
+      "go": {
+        "medianMs": 25.14,
+        "p90Ms": 29.906,
+        "maxRssKb": 7680,
+        "exit": 0
+      },
+      "sameOutput": true
+    }
+  ],
+  "runs": 50,
+  "warmup": 5
+}

@@ -1,0 +1,6 @@
+Usage: berth status [options]
+
+show service status for this worktree
+
+Options:
+  -h, --help  display help for command

@@ -1,0 +1,6 @@
+Usage: berth config validate [options]
+
+parse and validate berth.toml
+
+Options:
+  -h, --help  display help for command

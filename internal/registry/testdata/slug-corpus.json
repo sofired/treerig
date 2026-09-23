@@ -1,0 +1,74 @@
+[
+  {
+    "name": "plain branch",
+    "branch": "feature/login",
+    "root": "/repo/worktree",
+    "slug": "feature-login"
+  },
+  {
+    "name": "uppercase ASCII",
+    "branch": "FEATURE/LOGIN",
+    "root": "/repo/worktree",
+    "slug": "feature-login"
+  },
+  {
+    "name": "Turkish dotted capital I (U+0130)",
+    "branch": "İstanbul",
+    "root": "/repo/worktree",
+    "slug": "i-stanbul"
+  },
+  {
+    "name": "U+0130 repeated",
+    "branch": "İİİ",
+    "root": "/repo/worktree",
+    "slug": "i-i-i"
+  },
+  {
+    "name": "U+0130 amid ASCII",
+    "branch": "feature/İssue-42",
+    "root": "/repo/worktree",
+    "slug": "feature-i-ssue-42"
+  },
+  {
+    "name": "Turkish dotless lowercase i (U+0131) is unaffected",
+    "branch": "ıstanbul",
+    "root": "/repo/worktree",
+    "slug": "stanbul"
+  },
+  {
+    "name": "sharp s (already lower-case)",
+    "branch": "straße",
+    "root": "/repo/worktree",
+    "slug": "stra-e"
+  },
+  {
+    "name": "detached HEAD falls back to directory name",
+    "branch": "",
+    "root": "/work/my-tree",
+    "slug": "my-tree"
+  },
+  {
+    "name": "detached HEAD with non-ASCII directory name",
+    "branch": "",
+    "root": "/work/İstanbul",
+    "slug": "i-stanbul"
+  },
+  {
+    "name": "nothing survives",
+    "branch": "---",
+    "root": "/work/---",
+    "slug": "worktree"
+  },
+  {
+    "name": "only non-ASCII survives nothing",
+    "branch": "日本語",
+    "root": "/repo",
+    "slug": "worktree"
+  },
+  {
+    "name": "long branch name truncates before trimming",
+    "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-b",
+    "root": "/repo",
+    "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+]
