@@ -123,8 +123,8 @@ tests skip there.
 - Opening a target creates it `0600` (parent `0700`) if missing, opens it
   `O_RDWR`, and keeps a strong reference to the `*os.File` for the whole
   hold — the GC finalizer would otherwise close it. A target that is not a
-  plain file (a symlink, directory, named pipe, socket, or device) is
-  refused rather than followed or replaced.
+  plain file (a symlink, directory, named pipe, socket, device, or other
+  special file) is refused rather than followed or replaced.
 
 **Holder record.**
 - A sidecar file `<target>.holder`, written atomically (temp file, then

@@ -154,6 +154,7 @@ func CompareUTF16(a, b string) int {
 // units. A surrogate pair cut in half leaves a lone surrogate, which Node
 // writes out as U+FFFD, and so does this.
 func TruncateUTF16(value string, n int) string {
+	n = max(n, 0) // as slice(0, -1) gives "", never throws
 	units := utf16.Encode([]rune(value))
 	if len(units) <= n {
 		return value

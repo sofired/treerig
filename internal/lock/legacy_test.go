@@ -70,7 +70,7 @@ func TestRecoverLegacyLeftover(t *testing.T) {
 		lk := New(scope, opts)
 		_, err := lk.Acquire(context.Background(), "berth up")
 		want := "Not taking the worktree main lock: a TypeScript build of berth holds it, and PID 4242 on \"laptop\" is still running."
-		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "let that command finish, then run this again.") {
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "This build cannot wait on that build's locks, so run this again once that command is done.") {
 			t.Fatalf("err = %v, want one naming the TypeScript build", err)
 		}
 		if strings.Contains(err.Error(), "Locking does not work") {

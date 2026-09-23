@@ -165,6 +165,9 @@ var goldenCases = []goldenCase{
 }
 
 func TestGolden(t *testing.T) {
+	if *update {
+		requireOracleNode(t)
+	}
 	for _, tc := range goldenCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := filepath.Join("testdata", "golden", tc.name)
@@ -191,6 +194,26 @@ func TestGolden(t *testing.T) {
 				t.Errorf("exit code = %d, want %d", code, wantCode)
 			}
 		})
+	}
+}
+
+// requireOracleNode stops -update unless the node on PATH is the major
+// version .node-version pins: another would record its own errors, or a
+// different build's output, as every golden.
+func requireOracleNode(t *testing.T) {
+	t.Helper()
+	pinned, err := os.ReadFile(filepath.Join("..", "..", ".node-version"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMajor, _, _ := strings.Cut(strings.TrimSpace(string(pinned)), ".")
+	out, err := exec.Command("node", "--version").Output()
+	if err != nil {
+		t.Fatalf("-update needs node %s on PATH: %v", wantMajor, err)
+	}
+	gotMajor, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(string(out)), "v"), ".")
+	if gotMajor != wantMajor {
+		t.Fatalf("-update needs node %s, as .node-version pins; the node on PATH is %s", wantMajor, strings.TrimSpace(string(out)))
 	}
 }
 

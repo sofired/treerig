@@ -85,7 +85,7 @@ func (l *Lock) judgeLegacyHolder(rec *Record) error {
 	switch verdict.Kind {
 	case Alive:
 		return clierr.Newf("Not taking the %s lock: a TypeScript build of %s holds it, and %s. "+
-			"This build cannot wait on that build's locks; let that command finish, then run this again.",
+			"This build cannot wait on that build's locks, so run this again once that command is done.",
 			l.scope.Description, brand.Name, verdict.Reason)
 	case Unverifiable:
 		return l.refuse(verdict.Reason)

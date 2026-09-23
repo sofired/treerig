@@ -501,8 +501,7 @@ Shipping a self-contained binary is on the roadmap.
 
 A Go build is also under development, in `cmd/` and `internal/`; it is not
 yet the one to install. Don't use it on a machine where you use the
-TypeScript build: their locks do not exclude each other, and once the Go
-build has written a control home, the TypeScript build only reads it. See
+TypeScript build: their locks do not exclude each other. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to build and test it.
 
 ### Layout

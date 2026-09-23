@@ -107,6 +107,7 @@ jobs:
       - name: Compare
         run: |
           git status --porcelain
+          git --no-pager diff
           test -z "$(git status --porcelain)"
 
   cross:

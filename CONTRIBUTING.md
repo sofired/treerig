@@ -97,8 +97,9 @@ BERTH_CLI=$PWD/dist/berth BERTH_CLI_UNPORTED=doctor,router,unlock \
 `BERTH_CLI_UNPORTED` lists verbs the Go build does not have yet, whose cases
 skip instead of failing.
 
-**Regenerating oracles.** After a change to the command tree, help wording,
-or an error message:
+**Regenerating oracles** needs the Node version `.node-version` pins first
+on `PATH`; `-update` refuses any other. After a change to the command tree,
+help wording, or an error message:
 
 ```bash
 go test ./internal/cli -run TestGolden -update

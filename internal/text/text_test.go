@@ -42,6 +42,25 @@ func TestPrintable(t *testing.T) {
 	})
 }
 
+// Divergence 7 in docs/port/divergences.md: ill-formed UTF-8 becomes one
+// U+FFFD per invalid byte. Node's decoder gives one per maximal ill-formed
+// subsequence, so a truncated E2 82 is one replacement there and two here.
+func TestInvalidUTF8(t *testing.T) {
+	t.Run("replaces each invalid byte, not each ill-formed sequence", func(t *testing.T) {
+		if got, want := Printable("a\xe2\x82b\xffc"), "a\ufffd\ufffdb\ufffdc"; got != want {
+			t.Errorf("Printable = %q, want %q", got, want)
+		}
+		if got, want := TruncateUTF16("a\xe2\x82b\xffc", 3), "a\ufffd\ufffd"; got != want {
+			t.Errorf("TruncateUTF16 = %q, want %q", got, want)
+		}
+	})
+	t.Run("treats a negative limit as zero, as slice(0, n) does", func(t *testing.T) {
+		if got := TruncateUTF16("abc", -1); got != "" {
+			t.Errorf("TruncateUTF16(abc, -1) = %q, want empty", got)
+		}
+	})
+}
+
 func TestPrintableLines(t *testing.T) {
 	t.Run("keeps the line breaks it was given and nothing else that breaks a line", func(t *testing.T) {
 		if got, want := PrintableLines("a\nb\u001bc"), "a\nb\ufffdc"; got != want {

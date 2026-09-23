@@ -10,6 +10,7 @@ type fakeTable struct {
 	scans    []procid.Scan
 	scanned  int
 	inspects []int
+	holding  []procid.Proc
 }
 
 func newFakeTable(identity procid.Identity) *fakeTable {
@@ -39,4 +40,4 @@ func (f *fakeTable) Scan() (procid.Scan, error) {
 	return f.scans[idx], nil
 }
 
-func (f *fakeTable) Holding(dev, ino uint64) ([]procid.Proc, error) { return nil, nil }
+func (f *fakeTable) Holding(dev, ino uint64) ([]procid.Proc, error) { return f.holding, nil }
