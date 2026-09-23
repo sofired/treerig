@@ -2,8 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
@@ -11,6 +9,7 @@ import (
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/berth/internal/progress"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -53,38 +52,13 @@ func (c *CommandContext) requireRegistration(ctx context.Context) (*registry.Wor
 	return registration, nil
 }
 
-// progressHeartbeat is how often a long phase says it is still going.
-var progressHeartbeat = 10 * time.Second
-
-// withProgress logs a phase and an elapsed-time heartbeat while it runs.
+// withProgress logs a phase and an elapsed-time heartbeat while it runs. A
+// thin alias kept here so this package's own mutations read the way they
+// always have; internal/hooks calls internal/progress directly, since it
+// cannot import this package (this package will come to import it, for the
+// lifecycle hooks in `up`'s body).
 func withProgress(log logger.Logger, phase string, action func() error) error {
-	log.Info(phase + ".")
-	started := time.Now()
-	done := make(chan struct{})
-	ticker := time.NewTicker(progressHeartbeat)
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				log.Info(fmt.Sprintf("%s (%s elapsed).", phase, elapsed(started)))
-			}
-		}
-	}()
-	defer func() {
-		ticker.Stop()
-		close(done)
-	}()
-	return action()
-}
-
-func elapsed(started time.Time) string {
-	total := max(1, int(time.Since(started)/time.Second))
-	if total < 60 {
-		return fmt.Sprintf("%ds", total)
-	}
-	return fmt.Sprintf("%dm %02ds", total/60, total%60)
+	return progress.WithProgress(log, phase, action)
 }
 
 // Down is `down`.
