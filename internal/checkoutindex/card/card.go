@@ -114,7 +114,7 @@ func WriteIndexCard(controlHome, repositoryID, worktreeID string, card IndexCard
 	}
 	services := make([]cardServiceJSON, len(card.Services))
 	for i, service := range card.Services {
-		services[i] = cardServiceJSON{Name: service.Name, URL: service.URL, Label: service.Label, Purpose: service.Purpose}
+		services[i] = cardServiceJSON(service)
 	}
 	return files.AtomicJSON(IndexCardPath(controlHome, repositoryID, worktreeID), cardJSON{
 		Version:        1,
