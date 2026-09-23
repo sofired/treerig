@@ -89,11 +89,19 @@ func compactPath(target, home string) string {
 	return filepath.Join("~", rel)
 }
 
+// userHomeDir resolves the current user's home directory. A var, not a
+// direct call to os.UserHomeDir, so a test can pin it to a fixed value: a
+// test that both sets up the expectation and exercises the row-rendering
+// code by calling compactPath against the real environment's home directory
+// can never catch a regression in compactPath, since both sides would be
+// wrong together.
+var userHomeDir = os.UserHomeDir
+
 // homeDir is the current user's home directory, compactPath's default at
 // its two production call sites; "" (compactPath's harmless no-match) if it
 // cannot be read.
 func homeDir() string {
-	home, err := os.UserHomeDir()
+	home, err := userHomeDir()
 	if err != nil {
 		return ""
 	}

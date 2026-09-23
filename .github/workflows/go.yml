@@ -106,6 +106,7 @@ jobs:
           node tools/oracle/collation-corpus.ts > internal/text/testdata/collation-corpus.json
           node tools/oracle/index-assets.ts
           node tools/oracle/index-golden.ts > internal/checkoutindex/testdata/index-golden.json
+          node tools/oracle/index-url-filter.ts > internal/checkoutindex/testdata/url-filter.json
           go test -count=1 ./internal/cli -run TestGolden -update
       - name: Compare
         run: |

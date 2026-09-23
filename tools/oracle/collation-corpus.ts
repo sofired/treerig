@@ -28,6 +28,11 @@
 // Array.prototype.sort and Go's slices.SortStableFunc both promise. `pairs`
 // is a curated, deterministic sample (no Math.random, so this file
 // reproduces byte-for-byte) of pairwise comparisons, tagged the same way.
+//
+// The unsorted corpus itself is not recorded separately: it is the same
+// multiset as `sorted`, just reordered, so shipping both would double this
+// file for no extra signal. The Go test reverses `sorted` (a deterministic
+// permutation) before sorting it again with Collate.
 
 type Category = 'realistic' | 'wide';
 interface Case { value: string; category: Category }
@@ -268,8 +273,27 @@ const byCategory = (category: Category): string[] => dedupe(cases.filter((c) => 
 const realistic = byCategory('realistic');
 const wide = byCategory('wide');
 
-function sortedOf(values: string[]): string[] {
-  return [...values].sort((a, b) => a.localeCompare(b, 'en'));
+interface SortedEntry {
+  value: string;
+  /**
+   * True when this element and the next collate exactly equal under
+   * localeCompare('en') — a precomposed letter against its decomposed form,
+   * say. The Go test permutes this array before re-sorting it, and a stable
+   * sort only promises ties keep whatever order they arrive in, so it needs
+   * Node's own tie boundaries (not a boundary it infers from Collate itself,
+   * which would beg the question if Collate ever ties two strings
+   * differently than localeCompare does) to know which positions may
+   * legitimately swap.
+   */
+  tiedWithNext: boolean;
+}
+
+function sortedOf(values: string[]): SortedEntry[] {
+  const sorted = [...values].sort((a, b) => a.localeCompare(b, 'en'));
+  return sorted.map((value, i) => ({
+    value,
+    tiedWithNext: i + 1 < sorted.length && value.localeCompare(sorted[i + 1] ?? '', 'en') === 0
+  }));
 }
 
 function pairsOf(values: string[]): { left: string; right: string; sign: number }[] {
@@ -292,6 +316,6 @@ process.stdout.write(JSON.stringify({
   icu: process.versions.icu,
   cldr: process.versions.cldr,
   unicode: process.versions.unicode,
-  realistic: { input: realistic, sorted: sortedOf(realistic), pairs: [...pairsOf(realistic), ...probePairs] },
-  wide: { input: wide, sorted: sortedOf(wide), pairs: pairsOf(wide) }
+  realistic: { sorted: sortedOf(realistic), pairs: [...pairsOf(realistic), ...probePairs] },
+  wide: { sorted: sortedOf(wide), pairs: pairsOf(wide) }
 }, null, 2) + '\n');

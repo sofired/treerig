@@ -49,7 +49,28 @@ const renderTestURL = "http://berth.localhost"
 const dockerNoticeHTML = "Docker could not be asked about containers, so no service below has been checked. " +
 	"Rows show Unknown unless Git reports the checkout gone. Run <code>berth index</code> again once it answers."
 
+// pinHomeDir fixes what compactPath's production call sites (renderRow,
+// formatIndexRow) resolve as the current user's home, for the rest of the
+// test. Without this, an assertion that wants to check what the row-
+// rendering code does with a path under home would have to call compactPath
+// itself to build the expected value — the same call the code under test
+// makes — which could never catch a regression in compactPath, since both
+// sides would be wrong together.
+func pinHomeDir(t *testing.T, home string) {
+	t.Helper()
+	original := userHomeDir
+	userHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { userHomeDir = original })
+}
+
 func TestRendering(t *testing.T) {
+	// Fixed and deliberately unrelated to every fixture's root
+	// (/Users/dev/worktrees/feature-a), so compactPath leaves those roots
+	// untouched here regardless of the real machine's actual home
+	// directory; the dedicated "compacts paths under the home directory
+	// only" test below exercises the tilde branch itself.
+	pinHomeDir(t, "/home/berth-test")
+
 	t.Run("renders a link for available services, a disabled span otherwise, and escapes everything", func(t *testing.T) {
 		html := RenderIndexHTML(renderTestSnapshot())
 		for _, want := range []string{
@@ -100,7 +121,11 @@ func TestRendering(t *testing.T) {
 			"acme · acme.localhost",
 			"  [Partial]  feature/<a>",
 			"    host      feature-a.acme.localhost",
-			"    checkout  " + compactPath("/Users/dev/worktrees/feature-a", homeDir()),
+			// Not under the pinned home, so compactPath leaves it whole; a
+			// hardcoded literal, not a call to compactPath itself, so a
+			// regression there can't hide behind this test calling the same
+			// code it means to check.
+			"    checkout  /Users/dev/worktrees/feature-a",
 			"      API (REST surface)           http://feature-a.acme.localhost",
 			`    ! Mailpit (Captured "email")   http://mail.feature-a.acme.localhost`,
 		}
@@ -412,7 +437,11 @@ func TestRendering(t *testing.T) {
 		if !strings.Contains(html, `<span class="host-compact"><code>feature-a.acme.localhost</code></span>`) {
 			t.Error("missing host-compact span")
 		}
-		if !strings.Contains(html, `<span class="path-compact">`+escapeHTML(compactPath("/Users/dev/worktrees/feature-a", homeDir()))+`</span>`) {
+		// Not under the pinned home, so compactPath leaves it whole, and it
+		// carries no character escapeHTML would touch; a hardcoded literal
+		// rather than a call to either, so a regression in one can't hide
+		// behind this test calling the same code it means to check.
+		if !strings.Contains(html, `<span class="path-compact">/Users/dev/worktrees/feature-a</span>`) {
 			t.Error("missing path-compact span")
 		}
 	})

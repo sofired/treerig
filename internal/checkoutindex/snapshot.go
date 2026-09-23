@@ -351,6 +351,35 @@ func anyContainerAvailable(owned []ContainerRecord, service string) bool {
 // character set with no userinfo before it ever reaches here; this filter
 // runs anyway, since buildSnapshot is also exercised directly with cards
 // built in memory that skip that validation.
+//
+// TypeScript parses with the WHATWG `URL.parse`, which normalizes several
+// things Go's net/url does not; internal/checkoutindex/testdata/url-filter.json
+// (tools/oracle/index-url-filter.ts, run through the real buildSnapshot) is
+// what proves each of the following, rather than a comment asserting it:
+//   - scheme is lower-cased ("HTTP:" -> "http:"): net/url already does this,
+//     since url.Parse's Scheme field is normalized to lower case.
+//   - hostname is lower-cased ("Feature-A.Acme" -> "feature-a.acme"): net/url
+//     does not — Hostname() returns the string as written — so it is
+//     lower-cased explicitly below.
+//   - a port equal to the scheme's default (":80" for http) reads as ""
+//     (empty): net/url's Port() keeps the literal "80" instead, but since
+//     the comparison below treats an empty port the same as 80, an explicit
+//     ":80" and an omitted port compare equal either way — no code
+//     difference needed.
+//   - a port with a leading zero (":065") is renormalized to its plain
+//     decimal form ("65"): strconv.Atoi parses "065" as decimal 65 as well
+//     (it never treats a leading zero as octal), so the two already agree
+//     numerically.
+//   - a trailing dot on the hostname ("host.") is kept as written by both,
+//     so a card URL with one fails the host comparison identically in both
+//     builds (a registry host never ends in a dot).
+//   - an IPv6 literal's brackets ("[::1]") are kept in the WHATWG hostname
+//     but stripped by net/url's Hostname(); left alone, since neither value
+//     can ever equal or be a subdomain of a registry host, which is always
+//     a DNS name.
+//   - a non-ASCII hostname would be IDNA-encoded by WHATWG but is left as
+//     written by net/url; not reproduced, since urlPattern above refuses
+//     any non-ASCII byte in a URL before one reaches a real card.
 func serviceBelongsToHost(rawURL, host string, routerPort int) bool {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme != "http" {
@@ -369,7 +398,7 @@ func serviceBelongsToHost(rawURL, host string, routerPort int) bool {
 	if port != routerPort {
 		return false
 	}
-	hostname := parsed.Hostname()
+	hostname := strings.ToLower(parsed.Hostname())
 	return hostname == host || strings.HasSuffix(hostname, "."+host)
 }
 

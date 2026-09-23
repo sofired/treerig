@@ -7,15 +7,29 @@ import (
 	"golang.org/x/text/language"
 )
 
-// enCollator is shared across every call to Collate. golang.org/x/text's
-// Collator keeps its comparison state (a pair of iterators) on the struct
-// itself, so a single instance is not safe for concurrent use; enCollateMu
-// serialises access rather than paying for a fresh Collator — and the
-// MatchLang lookup and table load it repeats — on every pairwise comparison
-// a sort makes.
+// enCollatorOnce and enCollatorVal build the en collator once, on first use,
+// rather than at package initialization: every command imports internal/text,
+// but nothing before WP4b wires the checkout index actually calls Collate,
+// and golang.org/x/text/collate's tables add about 1.6 MB to a binary that
+// would otherwise pay for them on every startup, including `--help`.
+//
+// The closure that builds the collator is created inside Collate itself,
+// not captured by a package-level var: a package-level `var x =
+// sync.OnceValue(func() { ... })` still takes that closure's address at
+// package initialization — which every command reaches, since every command
+// imports this package — so the linker keeps it, and the collate tables it
+// references, whether or not Collate is ever called. Deferring the closure
+// into Collate's body means the tables are linked in only for a binary that
+// actually reaches Collate.
+//
+// golang.org/x/text's Collator keeps its comparison state (a pair of
+// iterators) on the struct itself, so a single instance is not safe for
+// concurrent use; enCollateMu serialises access rather than paying for a
+// fresh Collator on every pairwise comparison a sort makes.
 var (
-	enCollator  = collate.New(language.English)
-	enCollateMu sync.Mutex
+	enCollatorOnce sync.Once
+	enCollatorVal  *collate.Collator
+	enCollateMu    sync.Mutex
 )
 
 // Collate orders two strings the way the TypeScript build's
@@ -34,7 +48,8 @@ var (
 // that checks the two still agree on the strings berth actually sorts —
 // see TestCollateOracle.
 func Collate(a, b string) int {
+	enCollatorOnce.Do(func() { enCollatorVal = collate.New(language.English) })
 	enCollateMu.Lock()
 	defer enCollateMu.Unlock()
-	return enCollator.CompareString(a, b)
+	return enCollatorVal.CompareString(a, b)
 }

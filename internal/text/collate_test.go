@@ -2,6 +2,7 @@ package text
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -26,9 +27,26 @@ import (
 // thousand strings, and Collate must reproduce Node's order and every
 // pairwise sign on all of them, exactly. `wide` is CJK, Hangul, Kana, emoji,
 // and an exhaustive sweep of every combining diacritical mark: real
-// disagreements exist there (see TestCollateWideScriptsDiverge, and the
-// divergence ledger), because x/text/collate's tables predate most of it,
-// but berth's own fields never carry it, so it does not gate the port.
+// disagreements exist there (see TestCollateWideScriptsDiverge, and
+// divergence 8 in the ledger), because x/text/collate's tables predate most
+// of it. Domain, project, and slug never carry it — config and the registry
+// constrain them to ASCII — but a branch name comes straight from Git,
+// unconstrained, and the index's sort key falls back to it before the slug.
+// So a wide-script branch name is the one place this gap can actually show:
+// not a dropped row or a wrong label, only a possible difference in row
+// order against what the TypeScript build would show for that one row.
+//
+// The oracle records only `sorted`, not the unsorted corpus too — the same
+// multiset, just reordered, would double the file for no extra signal. Each
+// entry also carries `tiedWithNext`: true where Node's own localeCompare
+// calls it and the following entry exactly equal, e.g. a precomposed letter
+// against its decomposed form. sortMismatches reverses `sorted` (a
+// deterministic permutation with no unsorted array to keep in step) and
+// sorts it again with Collate; since a stable sort only promises that tied
+// elements keep whatever relative order they arrive in, and reversing
+// deliberately scrambles that order, two elements in the same tied run may
+// swap places without counting as a disagreement — anything else must land
+// back exactly where Node put it.
 type collationOracle struct {
 	ICU       string          `json:"icu"`
 	CLDR      string          `json:"cldr"`
@@ -38,9 +56,13 @@ type collationOracle struct {
 }
 
 type collationSubset struct {
-	Input  []string              `json:"input"`
-	Sorted []string              `json:"sorted"`
-	Pairs  []collationOraclePair `json:"pairs"`
+	Sorted []collationSortedEntry `json:"sorted"`
+	Pairs  []collationOraclePair  `json:"pairs"`
+}
+
+type collationSortedEntry struct {
+	Value        string `json:"value"`
+	TiedWithNext bool   `json:"tiedWithNext"`
 }
 
 type collationOraclePair struct {
@@ -59,43 +81,31 @@ func loadCollationOracle(t *testing.T) collationOracle {
 	if err := json.Unmarshal(data, &oracle); err != nil {
 		t.Fatalf("parsing oracle data: %v", err)
 	}
-	if len(oracle.Realistic.Input) == 0 || len(oracle.Wide.Input) == 0 {
+	if len(oracle.Realistic.Sorted) == 0 || len(oracle.Wide.Sorted) == 0 {
 		t.Fatal("empty oracle corpus")
 	}
 	return oracle
 }
 
-// TestCollateOracleRealisticSortOrder sorts the realistic subset with
-// Collate — stably, as Node's Array.prototype.sort and Collate's callers
-// both rely on — and requires the exact order Node's own localeCompare('en')
-// produced. A failure here means x/text/collate cannot stand in for
-// localeCompare on the strings berth actually sorts, and the rest of the
-// checkout-index renderer must not be ported until that is resolved.
+// TestCollateOracleRealisticSortOrder sorts a reversed copy of the realistic
+// subset with Collate and requires the exact order Node's own
+// localeCompare('en') produced, up to the reordering of ties that reversal
+// itself introduces (see sortMismatches). A failure here means
+// x/text/collate cannot stand in for localeCompare on the strings berth
+// actually sorts, and the rest of the checkout-index renderer must not be
+// ported until that is resolved.
 func TestCollateOracleRealisticSortOrder(t *testing.T) {
 	oracle := loadCollationOracle(t)
 	t.Logf("Node ICU %s / CLDR %s / Unicode %s; golang.org/x/text/collate CLDR %s / Unicode %s",
 		oracle.ICU, oracle.CLDR, oracle.Unicode, collate.CLDRVersion, collate.UnicodeVersion)
 
-	got := slices.Clone(oracle.Realistic.Input)
-	slices.SortStableFunc(got, Collate)
-
-	if slices.Equal(got, oracle.Realistic.Sorted) {
-		return
+	mismatches, detail := sortMismatches(oracle.Realistic.Sorted)
+	for _, line := range detail {
+		t.Error(line)
 	}
-	mismatches := 0
-	for i := range oracle.Realistic.Sorted {
-		if i >= len(got) || got[i] != oracle.Realistic.Sorted[i] {
-			mismatches++
-			if mismatches <= 25 {
-				var gotHere string
-				if i < len(got) {
-					gotHere = got[i]
-				}
-				t.Errorf("index %d: Collate sorts %q, localeCompare('en') sorts %q", i, gotHere, oracle.Realistic.Sorted[i])
-			}
-		}
+	if mismatches > 0 {
+		t.Fatalf("%d of %d realistic positions disagree with Node's localeCompare('en') order", mismatches, len(oracle.Realistic.Sorted))
 	}
-	t.Fatalf("%d of %d realistic positions disagree with Node's localeCompare('en') order", mismatches, len(oracle.Realistic.Sorted))
 }
 
 // TestCollateOracleRealisticPairs checks the pairwise sign Node's
@@ -117,20 +127,13 @@ func TestCollateOracleRealisticPairs(t *testing.T) {
 func TestCollateWideScriptsDiverge(t *testing.T) {
 	oracle := loadCollationOracle(t)
 
-	got := slices.Clone(oracle.Wide.Input)
-	slices.SortStableFunc(got, Collate)
-	sortMismatches := 0
-	for i := range oracle.Wide.Sorted {
-		if i >= len(got) || got[i] != oracle.Wide.Sorted[i] {
-			sortMismatches++
-		}
-	}
-	if sortMismatches == 0 {
+	sortMismatchCount, _ := sortMismatches(oracle.Wide.Sorted)
+	if sortMismatchCount == 0 {
 		t.Fatal("x/text/collate now reproduces Node's order for CJK/Hangul/Kana/emoji/combining-mark strings; " +
 			"promote the wide corpus into the realistic gate and update divergence 8 in docs/port/divergences.md")
 	}
 	t.Logf("%d of %d wide-script positions disagree with Node's localeCompare('en') order (expected, see divergence 8)",
-		sortMismatches, len(oracle.Wide.Sorted))
+		sortMismatchCount, len(oracle.Wide.Sorted))
 
 	pairMismatches := 0
 	for _, pair := range oracle.Wide.Pairs {
@@ -144,6 +147,76 @@ func TestCollateWideScriptsDiverge(t *testing.T) {
 	}
 	t.Logf("%d of %d wide-script pairs disagree with Node's localeCompare('en') sign (expected, see divergence 8)",
 		pairMismatches, len(oracle.Wide.Pairs))
+}
+
+// sortMismatches reverses want's values (a deterministic permutation) and
+// sorts the reversal with Collate, then compares the result back against
+// want run by run, where a run is a maximal stretch of entries want itself
+// marks TiedWithNext. Elements may land anywhere within their own run
+// without counting as a mismatch — a stable sort only promises that tied
+// elements keep whatever relative order they arrive in, and reversal
+// deliberately inverts that order for every tie — but every run's
+// *membership*, and every non-tied element's exact position, must match.
+// detail holds up to 25 human-readable descriptions of the runs that
+// disagree.
+func sortMismatches(want []collationSortedEntry) (mismatches int, detail []string) {
+	values := make([]string, len(want))
+	for i, entry := range want {
+		values[i] = entry.Value
+	}
+	got := reversedCopy(values)
+	slices.SortStableFunc(got, Collate)
+
+	i := 0
+	for i < len(values) {
+		j := i + 1
+		for j-1 < len(want) && want[j-1].TiedWithNext {
+			j++
+		}
+		wantRun := values[i:j]
+		var gotRun []string
+		if j <= len(got) {
+			gotRun = got[i:j]
+		}
+		if !sameMultiset(gotRun, wantRun) {
+			mismatches += j - i
+			if len(detail) < 25 {
+				detail = append(detail, fmt.Sprintf("positions %d..%d: Collate gives %q, localeCompare('en') gives %q", i, j-1, gotRun, wantRun))
+			}
+		}
+		i = j
+	}
+	return mismatches, detail
+}
+
+func reversedCopy(values []string) []string {
+	reversed := make([]string, len(values))
+	for i, v := range values {
+		reversed[len(values)-1-i] = v
+	}
+	return reversed
+}
+
+// sameMultiset reports whether a and b hold the same elements the same
+// number of times, regardless of order — exactly what "may swap places
+// within a tied run" means.
+func sameMultiset(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+	for _, v := range b {
+		counts[v]--
+	}
+	for _, c := range counts {
+		if c != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func checkPairs(t *testing.T, pairs []collationOraclePair) {
