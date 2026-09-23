@@ -6,6 +6,7 @@ import { createCommandContext, type CommandContext } from '../commands/context.t
 import { doctor, doctorExitCode, doctorSummary, findCheckout, formatDoctorReport } from '../commands/doctor.ts';
 import { list } from '../commands/list.ts';
 import { remove } from '../commands/remove.ts';
+import { unlock } from '../commands/unlock.ts';
 import { down, status, up, urls } from '../commands/worktree.ts';
 import { loadConfig, loadNearestConfig } from '../config/load.ts';
 import type { HookStage } from '../config/schema.ts';
@@ -183,6 +184,13 @@ async function main(argv: readonly string[]): Promise<void> {
     .option('--yes', 'skip the confirmation phrase')
     .action(async (identifier: string | undefined, options: { domain?: string; labelNamespace?: string; yes?: boolean }) => {
       await remove(await context(), { identifier, domain: options.domain, labelNamespace: options.labelNamespace, approved: options.yes });
+    });
+  worktree.command('unlock [identifier]')
+    .description('clear a dead holder\'s lock on a worktree, once the holder and every command it started on this machine are checked gone')
+    .option('--domain <domain>', 'narrow a slug registered under more than one domain')
+    .option('--holder-unverifiable', 'accept a holder this machine cannot check (another machine or container, or no record), once you have made sure it is gone')
+    .action(async (identifier: string | undefined, options: { domain?: string; holderUnverifiable?: boolean }) => {
+      await unlock(await context(), { identifier, domain: options.domain, allowUnverifiable: options.holderUnverifiable });
     });
 
   await program.parseAsync([...argv]);

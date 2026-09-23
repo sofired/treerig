@@ -217,6 +217,22 @@ purpose = "surface"
     expect(result.stdout).toContain('This checkout');
   });
 
+  it('keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice', async () => {
+    const cwd = await project(CONFIG);
+    await git(cwd, ['init', '--initial-branch=feature/login', '.']);
+    await git(cwd, ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--allow-empty', '-m', 'initial']);
+
+    const neverUp = await berth(cwd, ['worktree', 'unlock']);
+    expect(neverUp.code).toBe(1);
+    expect(neverUp.stdout).toBe('');
+    expect(neverUp.stderr).toContain("This checkout has never been brought up, so it holds no lock. Name another with 'berth worktree unlock <slug|uuid>'.");
+
+    const unknown = await berth(cwd, ['worktree', 'unlock', 'nobody']);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stdout).toBe('');
+    expect(unknown.stderr).toContain('No worktree is registered as nobody.');
+  });
+
   it('leaves stdout empty when the answer is a notice, not data', async () => {
     const cwd = await project(CONFIG);
     // `status` needs a worktree to be asked about, and this one was never

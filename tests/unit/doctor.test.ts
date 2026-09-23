@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -28,6 +28,7 @@ import { up } from '../../src/commands/worktree.ts';
 import { OperationCancelledError } from '../../src/errors.ts';
 import { CONTROL_HOME_MARKER } from '../../src/files.ts';
 import { silentLogger } from '../../src/logger.ts';
+import { developmentLockTarget, registryLockTarget, ScopedLock, worktreeLockTarget, worktreeRecoveryLockTarget } from '../../src/operation-lock.ts';
 import { CommandStartError, type CommandRunner, type RunOptions, type RunResult } from '../../src/process-runner.ts';
 import type { RouterStatus } from '../../src/router/router.ts';
 import { INDEX_HOST } from '../../src/router/stack.ts';
@@ -312,7 +313,7 @@ describe('doctor', () => {
   it('reports a healthy machine outside any checkout, and exits 0', async () => {
     const opts = await options();
     const sections = await doctor(opts);
-    expect(sections.map((s) => s.title)).toEqual(['Prerequisites', 'Registry', 'Router', 'This checkout']);
+    expect(sections.map((s) => s.title)).toEqual(['Prerequisites', 'Registry', 'Locks', 'Router', 'This checkout']);
     expect(statuses(sections, 'Prerequisites')).toEqual(['ok Node.js', 'ok Git', 'ok Docker Engine', 'ok Docker Compose']);
     expect(section(sections, 'Registry')[0]?.detail).toContain('not created yet');
     expect(statuses(sections, 'Router')).toEqual(['ok router', 'ok routes']);
@@ -733,5 +734,100 @@ describe('findCheckout', () => {
     await writeFile(elsewhere, valid.replace('acme', 'other'));
     await expect(findCheckout(elsewhere, project)).resolves.toMatchObject({ kind: 'loaded', loaded: { file: elsewhere } });
     await expect(findCheckout(path.join(project, 'missing.toml'), project)).resolves.toMatchObject({ kind: 'unloadable' });
+  });
+});
+
+describe('doctor Locks', () => {
+  const REPOSITORY = 'a08b4892-5111-49f1-a47a-5ab988c7f676';
+  const WORKTREE = '2b41d9d4-ed88-49c1-be9c-5439bdf6a431';
+
+  async function locksOf(controlHome: string): Promise<Section['checks']> {
+    return section(await doctor(await options({ controlHome })), 'Locks');
+  }
+
+  async function register(controlHome: string, slug: string): Promise<void> {
+    const directory = registryDirectory(controlHome, REPOSITORY);
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, `${WORKTREE}.json`), `${JSON.stringify({
+      version: 1, repositoryId: REPOSITORY, worktreeId: WORKTREE, slug, domain: 'acme.localhost', initialization: 'complete'
+    })}\n`);
+  }
+
+  async function silentLock(target: string, record?: object): Promise<void> {
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, record === undefined ? '' : `${JSON.stringify(record)}\n`);
+    await mkdir(`${target}.lock`);
+    const silent = new Date(Date.now() - 125_000);
+    await utimes(`${target}.lock`, silent, silent);
+  }
+
+  const holder = { pid: 4242, host: 'laptop', command: 'berth up', startedAt: 'x' };
+
+  it('reports none held when no lock is taken', async () => {
+    await expect(locksOf(await scratch())).resolves.toEqual([{ status: 'ok', subject: 'locks', detail: 'none held' }]);
+  });
+
+  it('reports a live holder as an answer, not a problem', async () => {
+    const controlHome = await scratch();
+    await register(controlHome, 'main');
+    const lock = new ScopedLock(worktreeLockTarget(controlHome, REPOSITORY, WORKTREE), 'worktree main', silentLogger, { holder: 'berth up' });
+    await lock.acquire();
+    try {
+      await expect(locksOf(controlHome)).resolves.toEqual([{
+        status: 'ok', subject: 'main.acme.localhost', detail: expect.stringMatching(new RegExp(`^held by "berth up" \\(PID ${process.pid} on "[^"]+"\\); heartbeat \\ds ago$`)) as string
+      }]);
+    } finally {
+      await lock.release();
+    }
+  });
+
+  it('fails a silent worktree lock, and names the command that clears it safely', async () => {
+    const controlHome = await scratch();
+    await register(controlHome, 'main');
+    await silentLock(worktreeLockTarget(controlHome, REPOSITORY, WORKTREE), holder);
+    await silentLock(developmentLockTarget(controlHome, REPOSITORY, WORKTREE));
+    const checks = await locksOf(controlHome);
+    expect(checks.map((check) => `${check.status} ${check.subject}`).sort()).toEqual(['fail main.acme.localhost', 'fail main.acme.localhost (development session)']);
+    expect(checks.find((check) => check.subject === 'main.acme.localhost')?.detail).toBe(
+      'held by "berth up" (PID 4242 on "laptop"), whose heartbeat has been silent for 2m 5s; every command that needs it waits. ' +
+      "Run 'berth worktree unlock main' to check that it, and every command it started on this machine, is gone, and to clear it."
+    );
+    expect(checks.find((check) => check.subject.endsWith('(development session)'))?.detail).toMatch(/^held by an unidentified holder, /);
+    expect(doctorExitCode(await doctor(await options({ controlHome })))).toBe(1);
+  });
+
+  it('finds a worktree whose only lock left is its development session\'s', async () => {
+    const controlHome = await scratch();
+    await register(controlHome, 'main');
+    await silentLock(developmentLockTarget(controlHome, REPOSITORY, WORKTREE), holder);
+    await expect(locksOf(controlHome)).resolves.toEqual([
+      expect.objectContaining({ status: 'fail', subject: 'main.acme.localhost (development session)' })
+    ]);
+  });
+
+  it('points at the checkout for a worktree lock nothing is registered under', async () => {
+    const controlHome = await scratch();
+    await silentLock(worktreeLockTarget(controlHome, REPOSITORY, WORKTREE), holder);
+    const [check] = await locksOf(controlHome);
+    expect(check).toMatchObject({ status: 'fail', subject: `worktree ${WORKTREE}` });
+    expect(check?.detail).toContain(`Run 'berth worktree unlock ${WORKTREE}' to check`);
+  });
+
+  it('keeps the hand-removal advice for the registry and router locks, which unlock does not clear', async () => {
+    const controlHome = await scratch();
+    await silentLock(registryLockTarget(controlHome), holder);
+    const [check] = await locksOf(controlHome);
+    expect(check).toMatchObject({ status: 'fail', subject: 'registry' });
+    expect(check?.detail).toContain(`If that process is gone and nothing it started is still running, remove '${registryLockTarget(controlHome)}.lock' with rmdir.`);
+  });
+
+  it('is not misled by recovery mutexes, temporary files or directories that are not a worktree\'s', async () => {
+    const controlHome = await scratch();
+    const worktreeLocksDirectory = path.dirname(worktreeLockTarget(controlHome, REPOSITORY, WORKTREE));
+    await silentLock(worktreeRecoveryLockTarget(controlHome, REPOSITORY, WORKTREE));
+    await mkdir(worktreeLocksDirectory, { recursive: true });
+    await writeFile(path.join(worktreeLocksDirectory, `${WORKTREE}.tmp.123`), '');
+    await mkdir(path.join(path.dirname(worktreeLocksDirectory), 'not-a-repository', `${WORKTREE}.lock`), { recursive: true });
+    await expect(locksOf(controlHome)).resolves.toEqual([{ status: 'ok', subject: 'locks', detail: 'none held' }]);
   });
 });

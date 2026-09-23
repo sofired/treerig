@@ -6,10 +6,12 @@ import { assertAdoptableControlHome, pathExists } from '../files.ts';
 import { runHook } from '../hooks/runner.ts';
 import { worktreeHost } from '../layout.ts';
 import type { Logger } from '../logger.ts';
+import { describeLock, formatDuration, holderLabel, lockedWorktrees, registryLockTarget, routerLockTarget, worktreeLocks } from '../operation-lock.ts';
 import type { CommandRunner, RunResult } from '../process-runner.ts';
 import { routerStatusReport, type RouterStatus } from '../router/router.ts';
 import { INDEX_HOST, ROUTED_BY_LABEL } from '../router/stack.ts';
 import { COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL } from '../runtime/compose.ts';
+import { shellQuote } from '../shell.ts';
 import { oneLine, printable } from '../text.ts';
 import { scanRegistrations, type RegistryScan, type WorktreeRegistration, type WorktreeRegistry } from '../worktree-registry.ts';
 import { checkoutRegistry } from './context.ts';
@@ -229,6 +231,76 @@ export function registryChecks(scan: RegistryScan, commandName: string): Check[]
     });
   }
   return checks;
+}
+
+/* --------------------------------------------------------------- locks ---- */
+
+interface HeldLock {
+  subject: string;
+  target: string;
+  description: string;
+  /** What to run once its holder is dead; absent where only the hand-removal advice applies. */
+  unlock?: string;
+}
+
+/**
+ * Every lock there is a `.lock` directory for: the registry's, the router's,
+ * and each worktree's operation and development locks. Leftover records,
+ * recovery mutexes and temporary files are not locks anyone waits on.
+ */
+async function heldLocks(controlHome: string, commandName: string, scan: RegistryScan): Promise<HeldLock[]> {
+  const found: HeldLock[] = [];
+  for (const [subject, target, description] of [
+    ['registry', registryLockTarget(controlHome), 'global worktree registry'],
+    ['router', routerLockTarget(controlHome), 'shared router']
+  ] as const) {
+    if (await pathExists(`${target}.lock`)) found.push({ subject, target, description });
+  }
+  const records = new Map(scan.records.map((record) => [`${record.repositoryId}/${record.worktreeId}`, record]));
+  for (const { repositoryId, worktreeId } of await lockedWorktrees(controlHome)) {
+    const record = records.get(`${repositoryId}/${worktreeId}`);
+    // Named as unlock names them, so a refusal here reads the same as one there.
+    const name = record?.slug ?? worktreeId;
+    const shown = record ? worktreeHost(record.slug, record.domain) : `worktree ${worktreeId}`;
+    for (const lock of worktreeLocks(controlHome, repositoryId, worktreeId, name)) {
+      if (!await pathExists(`${lock.target}.lock`)) continue;
+      found.push({
+        subject: lock.kind === 'operation' ? shown : `${shown} (development session)`,
+        target: lock.target,
+        description: lock.description,
+        unlock: `'${commandName} worktree unlock ${name}'`
+      });
+    }
+  }
+  return found;
+}
+
+/**
+ * Who holds what, read without taking or touching anything. A live holder is
+ * an answer, not a problem; a silent one blocks every command that needs its
+ * lock, and the report says how to clear it safely.
+ */
+async function lockChecks(controlHome: string, commandName: string, now: () => number = Date.now): Promise<Check[]> {
+  const checks: Check[] = [];
+  for (const lock of await heldLocks(controlHome, commandName, await scanRegistrations(controlHome))) {
+    const described = await describeLock(lock.target, lock.description);
+    if (described.state === 'missing') continue;   // released while looking
+    const holder = holderLabel(described.record);
+    const age = described.heartbeatMs === undefined ? 'unknown' : formatDuration(now() - described.heartbeatMs);
+    if (described.state === 'active') {
+      checks.push({ status: 'ok', subject: lock.subject, detail: `held by ${holder}; heartbeat ${age} ago` });
+      continue;
+    }
+    const remedy = lock.unlock === undefined
+      ? `If that process is gone and nothing it started is still running, remove ${shellQuote(described.lockDirectory)} with rmdir.`
+      : `Run ${lock.unlock} to check that it, and every command it started on this machine, is gone, and to clear it.`;
+    checks.push({
+      status: 'fail',
+      subject: lock.subject,
+      detail: `held by ${holder}, whose heartbeat has been silent for ${age}; every command that needs it waits. ${remedy}`
+    });
+  }
+  return checks.length === 0 ? [{ status: 'ok', subject: 'locks', detail: 'none held' }] : checks;
 }
 
 /* -------------------------------------------------------------- router ---- */
@@ -472,7 +544,9 @@ export async function doctor(options: DoctorOptions): Promise<Section[]> {
       ? [{ status: 'fail' as const, subject: BRAND.configFile, detail: checkout.error.message }]
       : await guarded('this worktree', () => checkoutChecks(options, checkout.loaded));
 
-  return [prerequisites, registry, router, { title: 'This checkout', checks }];
+  const locks: Section = { title: 'Locks', checks: await guarded('locks', () => lockChecks(controlHome, commandName)) };
+
+  return [prerequisites, registry, locks, router, { title: 'This checkout', checks }];
 }
 
 /** 0 when nothing failed; the verify hook's own code when it failed, as the hook contract promises; otherwise 1. */

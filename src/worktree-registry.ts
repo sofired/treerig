@@ -3,6 +3,7 @@ import type { Dirent } from 'node:fs';
 import { chmod, link, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { shellQuote } from './shell.ts';
 import { BRAND } from './brand.ts';
 import { LABEL_NAMESPACE } from './config/schema.ts';
 import { CliError, invariant } from './errors.ts';
@@ -818,7 +819,14 @@ export class WorktreeRegistry {
         }
         return ensured;
       },
-      { acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS, holder: this.invocation }
+      {
+        acquireTimeoutMs: OPERATION_LOCK_TIMEOUT_MS,
+        holder: this.invocation,
+        // Before its first registration the worktree has no slug; its markers still identify it from inside.
+        recovery: known
+          ? `${this.commandName} worktree unlock ${known.slug}`
+          : `cd ${shellQuote(identity.root)} && ${this.commandName} worktree unlock`
+      }
     );
   }
 

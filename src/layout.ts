@@ -13,6 +13,7 @@ import { CliError } from './errors.ts';
  *     locks/router                      routerLockPath
  *     locks/worktrees/<repo>/<wt>       worktree operation lock
  *     locks/worktrees/<repo>/<wt>.dev   development-session lock
+ *     locks/worktrees/<repo>/<wt>.recovery   serializes `worktree unlock` for one worktree
  *     router/compose.yaml               the shared router's stack file
  *     router/protocol                   the protocol of the last router that ran here
  *     router/index/index.html           the shared checkout index

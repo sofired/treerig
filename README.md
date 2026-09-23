@@ -51,12 +51,15 @@ an effectively infinite stale window and a heartbeat, so a twenty-minute build
 is never silently stolen. A command that finds the lock held waits for it — a
 worktree operation for up to 25 minutes — and after a couple of seconds, then
 every 30 seconds, says which process holds it, for how long, and how fresh its
-heartbeat is. Recovery from a genuinely dead holder is never automatic. The
-waiting command tells you to `rmdir` the lock directory only once the
-heartbeat has stayed silent across two looks — a command that has to give up
-before its second look tells you to run it again first — and always with the
-instruction to confirm beforehand that the process, and anything it started,
-is gone.
+heartbeat is. Recovery from a genuinely dead holder is never automatic. Once
+the heartbeat has stayed silent across two looks, the waiting command names
+`berth worktree unlock <slug>` (one that has to give up sooner names it too).
+That clears a worktree's locks only after checking, not assuming, that the
+holder and every command it started on this machine are gone, and refuses
+whenever it cannot tell; [Lock recovery](#lock-recovery) says what it checks
+and what it cannot see. The registry and router locks guard only moments of
+work and keep the older advice: `rmdir` the directory once the holder, and
+anything it started, is gone. `doctor` reports every held and stale lock.
 
 **Homes.** Each worktree owns a directory under the control home
 (`~/.berth` by default) created owner-only, with path containment that refuses
@@ -152,6 +155,7 @@ berth urls                # print its routed URLs
 berth down                # stop it; data is kept
 berth worktree list       # every worktree of this repository, with state
 berth worktree remove     # tear it down, verified by ownership
+berth worktree unlock     # clear a dead holder's lock, once it is checked gone
 berth doctor              # check prerequisites, registry, router; run verify
 ```
 
@@ -363,7 +367,7 @@ its own `Router problem:` line on stderr. Both `running` and `not running` exit
 an unreachable Docker exit 1.
 
 `doctor` writes its report to stdout: one section per area (`Prerequisites`,
-`Registry`, `Router`, `This checkout`), one line per check, each marked `ok`,
+`Registry`, `Locks`, `Router`, `This checkout`), one line per check, each marked `ok`,
 `warn`, `fail` or `skip`. How it went is one line on stderr, and so is the
 output of the `verify` hook it runs, so the report is alone on stdout. It exits
 0 when no check failed — warnings and skips do not count — with the `verify`
@@ -373,6 +377,11 @@ that exits 124 makes `doctor` exit 124 too — the code `timeout(1)` uses for a
 command it had to kill — so a script that wraps `doctor` in `timeout` cannot
 tell the two apart by exit code alone. It takes no lock, writes nothing, and
 repairs nothing; it reports.
+
+`worktree unlock` writes nothing to stdout: what it verified and what it
+cleared are notices on stderr. A refusal is an error that exits 1 and clears
+nothing: a holder that may be alive, a process it left running, or a lock that
+changed while it looked.
 
 Every failure the tool itself reports ends in a non-zero exit code and a
 `[berth] ERROR:` line on stderr saying why; a bad command line is answered by
@@ -438,6 +447,39 @@ means resolution worked and the router simply isn't running. Where it fails,
 the worktree — `<slug>.<domain>` and any `<subdomain>.<slug>.<domain>` — plus
 `berth.localhost`; or use `curl --resolve` / a `Host:` header.
 
+### Lock recovery
+
+`worktree unlock [slug|uuid]` clears a worktree's stale locks only when all of
+this holds:
+
+- the lock's record belongs to the lock directory beside it;
+- its holder ran on this machine, in this boot and this PID namespace;
+- the holder's PID no longer exists, or now belongs to a later process;
+- the lock stays silent through a second look of its own, about 12 seconds;
+- no command started for the worktree is still running on this machine:
+  nothing with its Compose project on the command line, or its
+  `BERTH_WORKTREE_ID` in the environment.
+
+A stopped holder (`Ctrl-Z`) is alive, and is refused. A holder it cannot
+check — on another machine or in a container, one that left no record, or one
+it cannot look past because other users' processes are hidden from you
+(`/proc` mounted with `hidepid`, say) — is refused too, unless you pass
+`--holder-unverifiable` once you have made sure yourself; that never overrides
+a running holder or a command left running. A worktree whose first `up` died
+before it registered can be named by its UUID, which `doctor` prints.
+
+It reads `/proc` on Linux and asks `ps` on macOS. Your own processes are
+checked by their command line and their environment; other users' only by
+their command line, since their environments are private to them. So it cannot
+see a command that left this machine's process table, or one that no longer
+carries the worktree's markers where it can look: a command a hook ran inside
+a container with `docker exec`, or a daemon handed to a service manager. A
+helper a hook ran as another user — through `sudo`, which clears the
+environment, or `sudo -E` — is missed too, unless its command line names the
+worktree's Compose project. The worktree's own containers are not commands: they are what
+`up` built, running or stopped as the holder left them, and the next `up` or
+`down` reconciles them. What it did check, it prints.
+
 ## Development
 
 Node 24 — `engines` is `>=24.14.1 <25`, because the tool runs TypeScript
@@ -497,6 +539,10 @@ Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
   native-plus-container worktrees can be routed without touching the router.
 - **Checkout index** — `berth.localhost`: every registered worktree on the
   machine, grouped by domain, with the projects on it named in the heading, with per-service links and status.
+- **`worktree unlock`** — clears a dead holder's worktree locks once the
+  holder, and every command it started on this machine, is checked gone (see
+  [Lock recovery](#lock-recovery)); `doctor`
+  reports every held and stale lock.
 - **`doctor`** — one read-only report: Node, Git, Docker and Compose against
   the versions this tool needs; the control home and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);
@@ -508,25 +554,20 @@ Not built yet, in rough order. `dev` is registered and refuses by name rather
 than pretending; the rest are not commands at all. The config file already
 accepts the `backup` and `restore` hooks, so a repository can commit them once.
 
-1. **`worktree unlock`** — the guarded removal of a dead holder's lock, after
-   proving nothing it started is still mutating the environment
-   (`clearStaleWorktreeLocks` exists; the command does not yet), and a
-   `doctor` check that reports held and stale locks. Until then the waiting
-   command names the directory to remove by hand.
-2. **`dev`** — start the worktree and follow its services' logs, holding the
+1. **`dev`** — start the worktree and follow its services' logs, holding the
    development-session lock so `worktree remove` refuses while a session is
    attached.
-3. **Native routes** — `berth route` writing file-provider fragments for
+2. **Native routes** — `berth route` writing file-provider fragments for
    processes running outside Docker.
-4. **Standalone cleanup binary** — content-addressed, installed outside
+3. **Standalone cleanup binary** — content-addressed, installed outside
    the checkout, so removing a worktree never imports code from the branch
    being deleted.
-5. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
-6. **`init`** — write a starter `berth.toml`. Until then, copy
+4. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
+5. **`init`** — write a starter `berth.toml`. Until then, copy
    `berth.example.toml` to the repository root.
-7. **`backup` / `restore`** — invoke the hooks of the same name with a bundle
+6. **`backup` / `restore`** — invoke the hooks of the same name with a bundle
    directory.
-8. **`rename`** — change a worktree's slug, or the product's own storage
+7. **`rename`** — change a worktree's slug, or the product's own storage
    names, by migrating the state that carries them. Both are migrations: a
    control home, identity markers and Docker labels all embed the old name.
 
