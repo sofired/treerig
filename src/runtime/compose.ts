@@ -491,7 +491,11 @@ export class ComposeRuntime implements Runtime {
     const [managed, project, repositoryId, worktreeId, service = ''] = result.stdout.trim().split('\t');
     invariant(
       managed === 'true' &&
-        project === this.project(ref) &&
+        // Compose's own project label is not promised on images: its bake
+        // builder, the default in some releases, leaves it off, while our
+        // `build.labels` always land. An image may lack it; one that carries it
+        // must carry ours.
+        (project === this.project(ref) || (type.kind === 'image' && project === '')) &&
         repositoryId === ref.repositoryId &&
         worktreeId === ref.worktreeId,
       `Refusing to touch ${type.kind} ${id}: its ownership labels do not match this worktree.`
@@ -516,9 +520,10 @@ export class ComposeRuntime implements Runtime {
     ];
     const owned: OwnedResource[] = [];
     for (const type of RESOURCE_TYPES) {
-      // Built images carry the Compose project label too, but they are found
-      // by ownership alone: a project-only match would sweep in images built
-      // before the override stamped them, which verification would then refuse.
+      // Built images are found by ownership alone: Compose stamps its project
+      // label on them only on some build paths, and a project-only match would
+      // sweep in images built before the override stamped them, which
+      // verification would then refuse.
       const byProject = type.kind === 'image'
         ? []
         : await this.list(type, [`${COMPOSE_PROJECT_LABEL}=${this.project(ref)}`]);
