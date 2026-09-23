@@ -1,0 +1,600 @@
+[
+  {
+    "name": "plain service, no routes, no volumes or networks declared",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox"
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  }\n}\n"
+  },
+  {
+    "name": "build labels reach only the services that build",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox"
+        },
+        "builder": {
+          "build": {
+            "context": "/work/acme/docker/builder"
+          }
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"builder\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      },\n      \"build\": {\n        \"labels\": {\n          \"dev.berth.managed\": \"true\",\n          \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n          \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n        }\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  }\n}\n"
+  },
+  {
+    "name": "default network is injected once, when a service uses it and it is not already declared",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox"
+        },
+        "worker": {
+          "image": "busybox"
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"worker\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  }\n}\n"
+  },
+  {
+    "name": "default network is not injected again when already declared",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox"
+        }
+      },
+      "volumes": {},
+      "networks": {
+        "default": {}
+      }
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  }\n}\n"
+  },
+  {
+    "name": "default network is not injected when no service uses it",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "networks": [
+            "backend"
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {
+        "backend": {}
+      }
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"backend\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  }\n}\n"
+  },
+  {
+    "name": "an externally declared volume (boolean form) is excluded",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {},
+      "volumes": {
+        "data": {
+          "external": true
+        },
+        "cache": {}
+      },
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {},\n  \"volumes\": {\n    \"cache\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"networks\": {}\n}\n"
+  },
+  {
+    "name": "an externally declared volume (named object form) is excluded",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {},
+      "volumes": {
+        "data": {
+          "external": {
+            "name": "shared-external"
+          }
+        }
+      },
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {},\n  \"volumes\": {},\n  \"networks\": {}\n}\n"
+  },
+  {
+    "name": "external: false is not external",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {},
+      "volumes": {
+        "data": {
+          "external": false
+        }
+      },
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {},\n  \"volumes\": {\n    \"data\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"networks\": {}\n}\n"
+  },
+  {
+    "name": "external: null is external, matching `!== false` exactly",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {},
+      "volumes": {
+        "data": {
+          "external": null
+        }
+      },
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {},\n  \"volumes\": {},\n  \"networks\": {}\n}\n"
+  },
+  {
+    "name": "a route with a subdomain, an explicit path, and an explicit port",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": "admin",
+        "path": "/v2",
+        "port": 9091
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox"
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`admin.feature-login.acme.localhost`) && PathPrefix(`/v2`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"9091\"\n      },\n      \"networks\": {\n        \"default\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "a route with no subdomain routes at the bare worktree host",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "expose": [
+            "8080/tcp"
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`feature-login.acme.localhost`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"8080\"\n      },\n      \"networks\": {\n        \"default\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "a route falls back to the first exposed port when none is given",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "expose": [
+            "8080/tcp",
+            "9090/tcp"
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`feature-login.acme.localhost`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"8080\"\n      },\n      \"networks\": {\n        \"default\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "a route falls back to the first ports[] entry that declares a target",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "ports": [
+            {
+              "mode": "ingress",
+              "protocol": "tcp"
+            },
+            {
+              "target": 9090
+            }
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`feature-login.acme.localhost`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"9090\"\n      },\n      \"networks\": {\n        \"default\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "routing an undefined service is refused",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "ghost",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox"
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "[[service]] ghost is not defined in /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "routing a service with no derivable port is refused",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "quiet",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "quiet": {
+          "image": "busybox"
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Service quiet declares no port: set port in its [[service]] entry, or expose one in /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a router network that collides with an already-declared network is overwritten in place, not duplicated",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "backend",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "expose": [
+            "80"
+          ],
+          "networks": [
+            "backend",
+            "frontend"
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {
+        "backend": {},
+        "frontend": {}
+      }
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"backend\",\n        \"dev.berth.router\": \"backend\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`feature-login.acme.localhost`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"80\"\n      },\n      \"networks\": {\n        \"backend\": {},\n        \"frontend\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"backend\": {\n      \"external\": true\n    },\n    \"frontend\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  }\n}\n"
+  },
+  {
+    "name": "a service's array-form networks are preserved in order alongside the router network",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "expose": [
+            "80"
+          ],
+          "networks": [
+            "zeta",
+            "alpha",
+            "middle"
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {
+        "zeta": {},
+        "alpha": {},
+        "middle": {}
+      }
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`feature-login.acme.localhost`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"80\"\n      },\n      \"networks\": {\n        \"zeta\": {},\n        \"alpha\": {},\n        \"middle\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"zeta\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"alpha\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"middle\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "a service's object-form networks are preserved in key order alongside the router network",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "expose": [
+            "80"
+          ],
+          "networks": {
+            "zeta": {},
+            "alpha": {},
+            "middle": {}
+          }
+        }
+      },
+      "volumes": {},
+      "networks": {
+        "zeta": {},
+        "alpha": {},
+        "middle": {}
+      }
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`feature-login.acme.localhost`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"80\"\n      },\n      \"networks\": {\n        \"zeta\": {},\n        \"alpha\": {},\n        \"middle\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"zeta\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"alpha\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"middle\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "hostile route names: quotes, backslashes, angle brackets, ampersands, and non-ASCII are not HTML-escaped",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "weird\"'\\<>&slug"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": "sub<script>&\"'\\",
+        "path": "/p\"'<>&\\ün"
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "expose": [
+            "80"
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`sub<script>&\\\"'\\\\.weird\\\"'\\\\<>&slug.acme.localhost`) && PathPrefix(`/p\\\"'<>&\\\\ün`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"80\"\n      },\n      \"networks\": {\n        \"default\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "a custom label namespace changes only the ownership and ROUTED_BY_LABEL values, never the label keys",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.custom-namespace",
+    "routerNetwork": "berth-router",
+    "routes": [
+      {
+        "service": "api",
+        "subdomain": ""
+      }
+    ],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "expose": [
+            "80"
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.custom-namespace.managed\": \"true\",\n        \"dev.custom-namespace.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.custom-namespace.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\",\n        \"traefik.enable\": \"true\",\n        \"traefik.docker.network\": \"berth-router\",\n        \"dev.berth.router\": \"berth-router\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.rule\": \"Host(`feature-login.acme.localhost`)\",\n        \"traefik.http.routers.berth-5ae52fc96f4e40fdd30f35b5-api.entrypoints\": \"web\",\n        \"traefik.http.services.berth-5ae52fc96f4e40fdd30f35b5-api.loadbalancer.server.port\": \"80\"\n      },\n      \"networks\": {\n        \"default\": {},\n        \"berth-router\": {}\n      }\n    }\n  },\n  \"volumes\": {},\n  \"networks\": {\n    \"default\": {\n      \"labels\": {\n        \"dev.custom-namespace.managed\": \"true\",\n        \"dev.custom-namespace.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.custom-namespace.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"berth-router\": {\n      \"external\": true\n    }\n  }\n}\n"
+  },
+  {
+    "name": "no routes at all: the router network branch is skipped entirely",
+    "ref": {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "slug": "feature-login"
+    },
+    "domain": "acme.localhost",
+    "labelNamespace": "dev.berth",
+    "routerNetwork": "berth-router",
+    "routes": [],
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox"
+        }
+      },
+      "volumes": {
+        "data": {}
+      },
+      "networks": {
+        "backend": {}
+      }
+    },
+    "bytes": "{\n  \"services\": {\n    \"api\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"volumes\": {\n    \"data\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  },\n  \"networks\": {\n    \"backend\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    },\n    \"default\": {\n      \"labels\": {\n        \"dev.berth.managed\": \"true\",\n        \"dev.berth.repository-uuid\": \"a08b4892-5111-49f1-a47a-5ab988c7f676\",\n        \"dev.berth.worktree-uuid\": \"2b41d9d4-ed88-49c1-be9c-5439bdf6a431\"\n      }\n    }\n  }\n}\n"
+  }
+]

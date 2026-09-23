@@ -103,6 +103,7 @@ jobs:
           node tools/oracle/locale-sort.ts > internal/registry/testdata/locale-sort.json
           node tools/oracle/slug-corpus.ts > internal/registry/testdata/slug-corpus.json
           node tools/oracle/text-corpus.ts > internal/text/testdata/corpus.json
+          node tools/oracle/override-corpus.ts > internal/backend/testdata/override-corpus.json
           go test -count=1 ./internal/cli -run TestGolden -update
       - name: Compare
         run: |
