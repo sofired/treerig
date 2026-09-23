@@ -174,6 +174,17 @@ type labelEntry struct {
 func labels(entries ...labelEntry) labelSet { return labelSet(entries) }
 func kv(key, value string) labelEntry       { return labelEntry{key: key, value: value} }
 
+// Map is the set as a plain map, for a caller that only needs to look values
+// up (tests building a fixture to compare against, mainly) and does not need
+// the order that makes this type worth having in the first place.
+func (s labelSet) Map() map[string]string {
+	m := make(map[string]string, len(s))
+	for _, entry := range s {
+		m[entry.key] = entry.value
+	}
+	return m
+}
+
 // MarshalJSON writes the set in insertion order.
 func (s labelSet) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
