@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -220,6 +221,68 @@ func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 		LockPath:            filepath.Join(repository.WorktreeLocksDir, worktreeID),
 		DevelopmentLockPath: filepath.Join(repository.WorktreeLocksDir, worktreeID+".dev"),
 	}
+}
+
+// RouterLayout is the shared router's on-disk layout: one router per user
+// account, outside every control home (#12, #13), so every control home on
+// this machine that resolves to the same account finds the same router
+// instead of taking turns recreating it. It holds the stack file, the
+// protocol record, the two directories the router bind-mounts, and the
+// router lock's own target file.
+type RouterLayout struct {
+	StateDir     string
+	ComposeFile  string
+	ProtocolFile string
+	// DynamicDir is bind-mounted read-only into the router; 0755, 0644 files, never secrets.
+	DynamicDir string
+	// IndexDir is bind-mounted read-only into the index server; 0755, 0644 files, never secrets.
+	IndexDir  string
+	IndexFile string
+	LockPath  string
+}
+
+// RouterStateDir is the directory the shared router's state and lock live
+// under: `$XDG_STATE_HOME/berth/router`, or `$HOME/.local/state/berth/router`
+// when that is unset, on Linux; `$HOME/Library/Application Support/berth/router`
+// on macOS. There is no Windows build (see docs/design/locks.md), so every
+// other GOOS takes the Linux path.
+func RouterStateDir(getenv Getenv) (string, error) {
+	return routerStateDirFor(runtime.GOOS, getenv)
+}
+
+// routerStateDirFor takes goos as a parameter so both branches can be tested
+// from either platform, the way Options.Clock lets a lock test simulate a
+// suspended machine.
+func routerStateDirFor(goos string, getenv Getenv) (string, error) {
+	home, err := HomeDir(getenv)
+	if err != nil {
+		return "", err
+	}
+	if goos == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", brand.Name, "router"), nil
+	}
+	if xdg, ok := getenv("XDG_STATE_HOME"); ok && xdg != "" {
+		return filepath.Join(xdg, brand.Name, "router"), nil
+	}
+	return filepath.Join(home, ".local", "state", brand.Name, "router"), nil
+}
+
+// RouterState derives the shared router's paths.
+func RouterState(getenv Getenv) (RouterLayout, error) {
+	dir, err := RouterStateDir(getenv)
+	if err != nil {
+		return RouterLayout{}, err
+	}
+	indexDir := filepath.Join(dir, "index")
+	return RouterLayout{
+		StateDir:     dir,
+		ComposeFile:  filepath.Join(dir, "compose.yaml"),
+		ProtocolFile: filepath.Join(dir, "protocol"),
+		DynamicDir:   filepath.Join(dir, "dynamic"),
+		IndexDir:     indexDir,
+		IndexFile:    filepath.Join(indexDir, "index.html"),
+		LockPath:     filepath.Join(dir, "lock"),
+	}, nil
 }
 
 // ComposeProjectName is stable for the (repository, worktree) pair and cannot
