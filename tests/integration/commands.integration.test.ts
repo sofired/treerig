@@ -266,6 +266,11 @@ describe('doctor', () => {
       const stdout = args[0] === 'version' ? '29.0.0\n' : args[0] === 'compose' && args[1] === 'version' ? '2.38.2\n' : '';
       return Promise.resolve({ stdout, stderr: '', exitCode: 0 });
     }
+
+    // Found as well as answered: a runner without Docker on PATH (CI's macOS leg) must see the same.
+    override which(command: string): Promise<boolean> {
+      return command === 'docker' ? Promise.resolve(true) : super.which(command);
+    }
   }
 
   async function diagnose(w: World): Promise<Section[]> {

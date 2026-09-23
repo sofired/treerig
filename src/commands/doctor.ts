@@ -310,8 +310,12 @@ async function routeChecks(runner: CommandRunner, network: string): Promise<Chec
   const inspected = await runDocker(runner, ['inspect', '--format', '{{.Name}}\t{{json .Config.Labels}}', ...ids], {
     reject: false, timeoutMs: DOCKER_PROBE_TIMEOUT_MS
   });
+  // Either way the output may stop part-way, and a partial list cannot show there is no conflict.
   if (inspected.outputOverflow) {
     return [{ status: 'fail', subject: 'routes', detail: '`docker inspect` produced more output than can be read, so routes were not checked' }];
+  }
+  if (inspected.timedOut) {
+    return [{ status: 'fail', subject: 'routes', detail: `\`docker inspect\` did not answer within ${DOCKER_PROBE_TIMEOUT_MS / 1000} s, so routes were not checked` }];
   }
   const containers = parseRoutedContainers(inspected.stdout);
   if (containers.length === 0 && inspected.exitCode !== 0) {

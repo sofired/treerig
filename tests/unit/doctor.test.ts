@@ -487,6 +487,16 @@ describe('doctor', () => {
     expect(claimed.endsWith('…')).toBe(true);
   });
 
+  it('fails rather than half-reads an inspect that ran out of time part-way', async () => {
+    const runner = new DoctorRunner();
+    runner.docker.set('ps', ok('c1\nc2\n'));
+    runner.docker.set('inspect', { stdout: '/one\t{"traefik.http.routers.one.rule":"Host(`a`)"}\n', stderr: '', exitCode: 1, timedOut: true });
+    const sections = await doctor(await options({ runner }));
+    expect(section(sections, 'Router')[1]).toEqual({
+      status: 'fail', subject: 'routes', detail: '`docker inspect` did not answer within 30 s, so routes were not checked'
+    });
+  });
+
   it('fails rather than half-reads an inspect whose output could not all be captured', async () => {
     const runner = new DoctorRunner();
     runner.docker.set('ps', ok('c1\n'));
