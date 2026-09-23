@@ -790,7 +790,7 @@ describe('doctor Locks', () => {
     expect(checks.map((check) => `${check.status} ${check.subject}`).sort()).toEqual(['fail main.acme.localhost', 'fail main.acme.localhost (development session)']);
     expect(checks.find((check) => check.subject === 'main.acme.localhost')?.detail).toBe(
       'held by "berth up" (PID 4242 on "laptop"), whose heartbeat has been silent for 2m 5s; every command that needs it waits. ' +
-      "Run 'berth worktree unlock main' to check that it, and every command it started on this machine, is gone, and to clear it."
+      `Run 'berth worktree unlock ${WORKTREE}' to check that it, and every command it started on this machine, is gone, and to clear it.`
     );
     expect(checks.find((check) => check.subject.endsWith('(development session)'))?.detail).toMatch(/^held by an unidentified holder, /);
     expect(doctorExitCode(await doctor(await options({ controlHome })))).toBe(1);
@@ -805,7 +805,7 @@ describe('doctor Locks', () => {
     ]);
   });
 
-  it('points at the checkout for a worktree lock nothing is registered under', async () => {
+  it('names a worktree nothing is registered under by its UUID', async () => {
     const controlHome = await scratch();
     await silentLock(worktreeLockTarget(controlHome, REPOSITORY, WORKTREE), holder);
     const [check] = await locksOf(controlHome);

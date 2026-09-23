@@ -57,7 +57,7 @@ export interface ScopedLockOptions {
   clock?: () => number;
   /**
    * The command that proves a silent holder is gone and clears its lock
-   * (`berth worktree unlock main`, say). Advice names it instead of an
+   * (`berth worktree unlock <uuid>`). Advice names it instead of an
    * `rmdir`, which would skip every check it makes.
    */
   recovery?: string;
@@ -222,6 +222,15 @@ export function worktreeRecoveryLockTarget(
   worktreeId: string
 ): string {
   return `${worktreeLockTarget(controlHome, repositoryId, worktreeId)}.recovery`;
+}
+
+/**
+ * How to clear a worktree's locks once their holder is dead, as every notice
+ * and `doctor` names it: by UUID, since a slug is unique only within its
+ * domain, and unlock finds a worktree by UUID whether it registered or not.
+ */
+export function worktreeUnlockCommand(commandName: string, worktreeId: string): string {
+  return `${commandName} worktree unlock ${worktreeId}`;
 }
 
 export function routerLockTarget(controlHome: string): string {

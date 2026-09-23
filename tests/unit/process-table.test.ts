@@ -85,11 +85,10 @@ describe('LinuxProcessTable', () => {
     await mkdir(path.join(directory, 'ns'), { recursive: true });
     if (fields.stat !== undefined) await writeFile(path.join(directory, 'stat'), fields.stat);
     await writeFile(path.join(directory, 'cmdline'), `${(fields.cmdline ?? []).join('\0')}\0`);
-    if (fields.environ !== undefined) {
-      const file = path.join(directory, 'environ');
-      await writeFile(file, fields.environ === 'unreadable' ? '' : `${fields.environ.join('\0')}\0`);
-      if (fields.environ === 'unreadable') await chmod(file, 0o000);
-    }
+    const environ = path.join(directory, 'environ');
+    // A directory: unreadable to root too, as a mode-000 file is not.
+    if (fields.environ === 'unreadable') await mkdir(environ);
+    else if (fields.environ !== undefined) await writeFile(environ, `${fields.environ.join('\0')}\0`);
     if (fields.ns !== undefined) await symlink(fields.ns, path.join(directory, 'ns', 'pid'));
   }
 
@@ -141,7 +140,8 @@ describe('LinuxProcessTable', () => {
 });
 
 describe('LinuxProcessTable under hidepid', () => {
-  it('notices when other users\' processes are hidden, and counts its own it cannot read rather than failing', async () => {
+  // hidepid binds only a non-root reader, and root reads a mode-000 file anyway.
+  it.skipIf(process.getuid?.() === 0)('notices when other users\' processes are hidden, and counts its own it cannot read rather than failing', async () => {
     const root = await realpath(await mkdtemp(path.join(tmpdir(), 'berth-hidepid-')));
     temporary.push(root);
     await mkdir(path.join(root, 'self', 'ns'), { recursive: true });
@@ -181,8 +181,7 @@ describe('LinuxProcessTable under hidepid', () => {
     await mkdir(path.join(root, '40', 'ns'), { recursive: true });
     await symlink('pid:[1]', path.join(root, '40', 'ns', 'pid'));
     await writeFile(path.join(root, '40', 'cmdline'), 'helper\0');
-    await writeFile(path.join(root, '40', 'environ'), '');
-    await chmod(path.join(root, '40', 'environ'), 0o000);
+    await mkdir(path.join(root, '40', 'environ'));   // unreadable, even to root
     await expect(new LinuxProcessTable(root, [], (process.getuid?.() ?? 1_000) + 1).scan())
       .resolves.toEqual({ processes: [{ pid: 40, args: ['helper'] }], unreadable: 0, othersHidden: false });
   });

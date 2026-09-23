@@ -6,7 +6,7 @@ import { assertAdoptableControlHome, pathExists } from '../files.ts';
 import { runHook } from '../hooks/runner.ts';
 import { worktreeHost } from '../layout.ts';
 import type { Logger } from '../logger.ts';
-import { describeLock, formatDuration, holderLabel, lockedWorktrees, registryLockTarget, routerLockTarget, worktreeLocks } from '../operation-lock.ts';
+import { describeLock, formatDuration, holderLabel, lockedWorktrees, registryLockTarget, routerLockTarget, worktreeLocks, worktreeUnlockCommand } from '../operation-lock.ts';
 import type { CommandRunner, RunResult } from '../process-runner.ts';
 import { routerStatusReport, type RouterStatus } from '../router/router.ts';
 import { INDEX_HOST, ROUTED_BY_LABEL } from '../router/stack.ts';
@@ -268,7 +268,7 @@ async function heldLocks(controlHome: string, commandName: string, scan: Registr
         subject: lock.kind === 'operation' ? shown : `${shown} (development session)`,
         target: lock.target,
         description: lock.description,
-        unlock: `'${commandName} worktree unlock ${name}'`
+        unlock: `'${worktreeUnlockCommand(commandName, worktreeId)}'`
       });
     }
   }

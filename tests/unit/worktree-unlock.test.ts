@@ -1,6 +1,7 @@
 import { lstat, mkdir, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { lockOptions } from '../../src/commands/mutation.ts';
 import { unlock, type UnlockDependencies } from '../../src/commands/unlock.ts';
 import { up } from '../../src/commands/worktree.ts';
 import { ScopedLock, worktreeLocks, type HolderRecord } from '../../src/operation-lock.ts';
@@ -57,6 +58,11 @@ async function killedHolder(controlHome: string, repositoryId: string, worktreeI
 const gone = async (target: string) => expect(lstat(`${target}.lock`)).rejects.toMatchObject({ code: 'ENOENT' });
 
 describe('worktree unlock', () => {
+  it('is named by UUID in every mutation\'s stale-lock notice: a slug is unique only within its domain', () => {
+    const options = lockOptions({ invocation: 'berth up', commandName: 'berth' }, { worktreeId: '2b41d9d4-ed88-49c1-be9c-5439bdf6a431' });
+    expect(options.recovery).toBe('berth worktree unlock 2b41d9d4-ed88-49c1-be9c-5439bdf6a431');
+  });
+
   it('says there is nothing to unlock when nothing holds the worktree', async () => {
     const w = await world();
     await up(w.context());

@@ -51,6 +51,7 @@ export interface ProcessScan {
 export interface ProcessTable {
   /** This process, as a lock record describes it. */
   self(): Promise<ProcessIdentity>;
+  /** Whether `pid` exists, and in what state, with its start to tell a reused PID apart. */
   inspect(pid: number): Promise<ProcessState>;
   /** Every other process in this PID namespace, with what could be read of it. */
   scan(): Promise<ProcessScan>;
@@ -244,6 +245,7 @@ export interface CommandResult {
 /** A clean environment: no `PS_FORMAT`, `COLUMNS` or locale to reshape `ps` output. */
 const QUIET_ENV = { PATH: '/bin:/usr/bin:/usr/sbin:/sbin', LC_ALL: 'C' };
 
+/** Runs a system tool in `QUIET_ENV`; its exit code is an answer, and only failing to run it at all is an error. */
 export function runQuietly(command: string, args: readonly string[]): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = execFile(command, [...args], { env: QUIET_ENV, timeout: 30_000, maxBuffer: 256 * 1024 * 1024 }, (error, stdout) => {
@@ -257,6 +259,7 @@ export function runQuietly(command: string, args: readonly string[]): Promise<Co
   });
 }
 
+/** Asks `ps`, `ioreg` and `sysctl`; macOS has no `/proc`. `run` and `now` are for tests. */
 export class DarwinProcessTable implements ProcessTable {
   private readonly run: (command: string, args: readonly string[]) => Promise<CommandResult>;
   private readonly now: () => number;
@@ -314,6 +317,7 @@ class UnsupportedProcessTable implements ProcessTable {
   }
 }
 
+/** This platform's process table; elsewhere, one that refuses rather than guesses. */
 export function processTableFor(platform: NodeJS.Platform = process.platform): ProcessTable {
   if (platform === 'linux') return new LinuxProcessTable();
   if (platform === 'darwin') return new DarwinProcessTable();

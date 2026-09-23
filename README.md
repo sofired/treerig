@@ -53,7 +53,7 @@ worktree operation for up to 25 minutes — and after a couple of seconds, then
 every 30 seconds, says which process holds it, for how long, and how fresh its
 heartbeat is. Recovery from a genuinely dead holder is never automatic. Once
 the heartbeat has stayed silent across two looks, the waiting command names
-`berth worktree unlock <slug>` (one that has to give up sooner names it too).
+`berth worktree unlock <uuid>` (one that has to give up sooner names it too).
 That clears a worktree's locks only after checking, not assuming, that the
 holder and every command it started on this machine are gone, and refuses
 whenever it cannot tell; [Lock recovery](#lock-recovery) says what it checks
@@ -453,7 +453,8 @@ the worktree — `<slug>.<domain>` and any `<subdomain>.<slug>.<domain>` — plu
 this holds:
 
 - the lock's record belongs to the lock directory beside it;
-- its holder ran on this machine, in this boot and this PID namespace;
+- its holder ran on this machine (known by its machine ID, or by its boot ID
+  in a container image that has none), in this boot and this PID namespace;
 - the holder's PID no longer exists, or now belongs to a later process;
 - the lock stays silent through a second look of its own, about 12 seconds;
 - no command started for the worktree is still running on this machine:
@@ -465,8 +466,9 @@ check — on another machine or in a container, one that left no record, or one
 it cannot look past because other users' processes are hidden from you
 (`/proc` mounted with `hidepid`, say) — is refused too, unless you pass
 `--holder-unverifiable` once you have made sure yourself; that never overrides
-a running holder or a command left running. A worktree whose first `up` died
-before it registered can be named by its UUID, which `doctor` prints.
+a running holder or a command left running. Lock notices and `doctor` name
+the worktree by its UUID: it never changes, no other worktree shares it, and it
+works even for a worktree whose first `up` died before it registered.
 
 It reads `/proc` on Linux and asks `ps` on macOS. Your own processes are
 checked by their command line and their environment; other users' only by

@@ -105,7 +105,9 @@ describe('judgeHolder', () => {
       [described({ record: record({ machineId: 'machine-2' }) }), SELF, 'another machine'],
       [described({ record: record({ pidNs: 'pid:[9]' }) }), SELF, 'another PID namespace'],
       [described({ record: record({ pidNs: undefined }) }), SELF, 'another PID namespace'],
-      [described(), { bootId: 'boot-1', pidNs: 'pid:[1]' }, "this machine's identity cannot be read"],
+      [described(), { pidNs: 'pid:[1]' }, "this machine's identity cannot be read"],
+      [described({ record: record({ bootId: undefined }) }), { bootId: 'boot-1', pidNs: 'pid:[1]' }, "this machine's identity cannot be read"],
+      [described({ record: record({ machineId: undefined, bootId: 'boot-0' }) }), SELF, 'with no machine ID to go on'],
       [described({ record: undefined }), SELF, 'left no record'],
       [described({ ino: '78', record: record({ lock: { ino: '77', birthtimeMs: 5 } }) }), SELF, 'belongs to an earlier lock'],
       [described({ birthtimeMs: 6, record: record({ lock: { ino: '77', birthtimeMs: 5 } }) }), SELF, 'belongs to an earlier lock']
@@ -123,6 +125,19 @@ describe('judgeHolder', () => {
       .resolves.toMatchObject({ kind: 'gone' });
     await expect(judgeHolder(described({ record: record({ lock: { ino: '77', birthtimeMs: 5 } }) }), judge()))
       .resolves.toMatchObject({ kind: 'gone' });
+  });
+
+  it('knows this machine by its boot where either side has no machine ID, as in a container image without one', async () => {
+    const noMachineId = { bootId: 'boot-1', pidNs: 'pid:[1]' };
+    await expect(judgeHolder(described(), judge(new FakeTable(), noMachineId))).resolves.toMatchObject({ kind: 'gone' });
+    await expect(judgeHolder(described({ record: record({ machineId: undefined }) }), judge())).resolves.toMatchObject({ kind: 'gone' });
+    const table = new FakeTable();
+    table.states.set(4242, { state: 'running', startTicks: 900 });
+    await expect(judgeHolder(described({ record: record({ machineId: undefined }) }), judge(table, noMachineId)))
+      .resolves.toMatchObject({ kind: 'alive' });
+    // The same kernel is not the same PID namespace: another container on it still cannot be checked.
+    await expect(judgeHolder(described({ record: record({ machineId: undefined, pidNs: 'pid:[9]' }) }), judge(table, noMachineId)))
+      .resolves.toMatchObject({ kind: 'unverifiable', reason: expect.stringContaining('another PID namespace') as string });
   });
 
   it('goes by hostname alone for a record an earlier version wrote, and never proves that holder gone', async () => {

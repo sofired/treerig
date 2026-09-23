@@ -48,7 +48,7 @@ export async function judgeHolder(lock: LockDescription, judge: HolderJudge): Pr
     }
   }
 
-  if (record.machineId === undefined) {
+  if (record.machineId === undefined && record.bootId === undefined) {
     // Written before holders said which machine they were on: only the hostname to go on.
     if (record.host !== judge.hostname) return { kind: 'unverifiable', reason: `its holder, ${who}, ran on another host` };
     const state = await judge.processes.inspect(record.pid);
@@ -60,14 +60,24 @@ export async function judgeHolder(lock: LockDescription, judge: HolderJudge): Pr
     }
     return { kind: 'alive', reason: `${who} is running, and its record, from an earlier version, cannot tell whether that is the holder` };
   }
-  if (judge.self.machineId === undefined) {
+  // This machine, by its machine ID where both sides have one. Where either
+  // has none (a container image without /etc/machine-id, say), by the boot:
+  // only the same running kernel has the same boot ID, and the PID namespace
+  // below tells its containers apart.
+  if (record.machineId !== undefined && judge.self.machineId !== undefined) {
+    if (record.machineId !== judge.self.machineId) {
+      return { kind: 'unverifiable', reason: `its holder, ${who}, ran on another machine` };
+    }
+    if (record.bootId !== undefined && judge.self.bootId !== undefined && record.bootId !== judge.self.bootId) {
+      return { kind: 'gone', reason: `this machine has restarted since ${who} took it` };
+    }
+  } else if (record.bootId === undefined || judge.self.bootId === undefined) {
     return { kind: 'unverifiable', reason: `this machine's identity cannot be read, so ${who} cannot be checked` };
-  }
-  if (record.machineId !== judge.self.machineId) {
-    return { kind: 'unverifiable', reason: `its holder, ${who}, ran on another machine` };
-  }
-  if (record.bootId !== undefined && judge.self.bootId !== undefined && record.bootId !== judge.self.bootId) {
-    return { kind: 'gone', reason: `this machine has restarted since ${who} took it` };
+  } else if (record.bootId !== judge.self.bootId) {
+    return {
+      kind: 'unverifiable',
+      reason: `its holder, ${who}, ran on another machine or before this one restarted, and with no machine ID to go on, this command cannot tell which`
+    };
   }
   if ((record.pidNs ?? judge.self.pidNs) !== undefined && record.pidNs !== judge.self.pidNs) {
     return { kind: 'unverifiable', reason: `its holder, ${who}, ran in another PID namespace (a container, say), which this command cannot see into` };
@@ -166,6 +176,7 @@ export function unlockGuard(options: UnlockProofOptions): UnlockGuard {
     throw new CliError(`Not clearing the ${lock.description} lock: ${reason}.`);
   };
 
+  /** Judges each lock's holder, refusing a live one — or one it cannot check, unless allowed — and remembers what it saw. */
   async function judgeAll(stale: readonly WorktreeLock[], judge: HolderJudge): Promise<Map<WorktreeLock, Verdict>> {
     const verdicts = new Map<WorktreeLock, Verdict>();
     for (const lock of stale) {
@@ -182,6 +193,7 @@ export function unlockGuard(options: UnlockProofOptions): UnlockGuard {
     return verdicts;
   }
 
+  /** Waits out the second look, and waits again if the wall clock and the monotonic clock disagree over it. */
   async function secondLook(): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       const [wall, mono] = [wallClock(), monotonic()];

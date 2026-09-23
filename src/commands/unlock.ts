@@ -37,6 +37,10 @@ interface Target {
   host?: string;
 }
 
+/**
+ * The worktree to unlock: one named by slug or UUID anywhere on this machine —
+ * by UUID even if it never registered — or else this checkout, by its markers.
+ */
 async function resolveTarget(context: CommandContext, options: UnlockOptions): Promise<Target> {
   const { registry } = context;
   if (options.identifier !== undefined) {
@@ -68,6 +72,12 @@ async function resolveTarget(context: CommandContext, options: UnlockOptions): P
     : { repositoryId: identity.repositoryId, worktreeId: identity.worktreeId, name: identity.root };
 }
 
+/**
+ * `worktree unlock`: refuses while either lock is active, does nothing when
+ * neither is held, and otherwise clears both once the guard has checked the
+ * holder, and every command it started on this machine, gone. Every refusal
+ * is a `CliError` that says why.
+ */
 export async function unlock(
   context: CommandContext,
   options: UnlockOptions = {},
