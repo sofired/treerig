@@ -54,6 +54,13 @@ type Options struct {
 	Logger         logger.Logger
 	// Environ is the environment Compose inherits; os.Environ() in production.
 	Environ []string
+	// Routes are the services to route, from [[service]] in config.
+	Routes []RouteSpec
+	// RouterNetwork is the shared router's network; routed services join it.
+	RouterNetwork string
+	// WaitTimeoutSeconds is how long `up --wait` waits for health before
+	// failing; zero uses DefaultWaitTimeoutSeconds.
+	WaitTimeoutSeconds int
 }
 
 // Compose is the Compose runtime.
@@ -100,15 +107,12 @@ type model struct {
 
 func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error) {
 	file := c.options.ComposeFile
-	result, err := c.compose(ctx, ref, []string{"config", "--format", "json"}, []string{file}, run.Spec{AllowFailure: true})
+	stdout, err := c.composeConfigJSON(ctx, ref)
 	if err != nil {
 		return model{}, err
 	}
-	if result.ExitCode != 0 {
-		return model{}, clierr.Newf("Compose could not read %s:\n%s", file, firstNonEmpty(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout)))
-	}
 	var raw any
-	if err := json.Unmarshal([]byte(result.Stdout), &raw); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
 		return model{}, clierr.Newf("Compose returned invalid JSON for %s.", file)
 	}
 	var parsed model
