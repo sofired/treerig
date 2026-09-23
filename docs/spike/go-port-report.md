@@ -171,7 +171,7 @@ The remaining work packages, in order:
 5. **`up`/`down` end to end.** The Go binary becomes daily-usable here.
 6. **`doctor` and `unlock` on flock,** plus doctor's line for TypeScript-era state.
 7. **Parity closure and releases.** Covers #8, and #7 via a binary installed outside the checkout.
-8. **Retire TypeScript.**
+8. **Retire TypeScript.** Help and error output then no longer need to match commander. Replace the hand-written commander-compatible parser with spf13/cobra (+0.95 MB, two modules), which deletes most of `internal/cli`'s 655 lines, and re-record the help and error test cases from Go's own output.
 
 The estimate is 1 to 1.5 times the spike's effort, well under the 5× threshold. The checkout index is the widest error bar.
 
