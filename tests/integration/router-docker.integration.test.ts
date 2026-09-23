@@ -7,6 +7,7 @@ import { execa } from 'execa';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { writeIndexCard } from '../../src/checkout-index/card.ts';
 import { CheckoutIndexService } from '../../src/checkout-index/service.ts';
+import { doctor, type Section } from '../../src/commands/doctor.ts';
 import { secureWorktreeDirectories } from '../../src/files.ts';
 import { composeProjectName, worktreeLayout } from '../../src/layout.ts';
 import { silentLogger } from '../../src/logger.ts';
@@ -210,6 +211,39 @@ describe.skipIf(!DOCKER)('the shared router', () => {
     const page = await eventually(() => get(INDEX_HOST), (r) => r.status === 200 && r.body.includes('feature-route.test.localhost'));
     expect(page.body).toContain(`href="http://feature-route.test.localhost:${PORT}"`);
     expect(page.body).toContain('status-running');
+  }, 120_000);
+
+  it('lets doctor read the running router and its routes from Docker, and see a second claim on a worktree host', async () => {
+    const routerSection = async (): Promise<Section['checks']> => (await doctor({
+      commandName: 'berth',
+      controlHome,
+      runner: new ExecaRunner(),
+      logger: silentLogger,
+      router,
+      checkout: { kind: 'none', searchedFrom: controlHome }
+    })).find((section) => section.title === 'Router')?.checks ?? [];
+
+    // The worktree the routing case left up: its api and worker, and the index, are what is routed.
+    expect(await routerSection()).toEqual([
+      { status: 'ok', subject: 'router', detail: `running on 127.0.0.1:${PORT}, network ${PROJECT}` },
+      { status: 'ok', subject: 'routes', detail: '3 routed container(s); no two routers share a rule' }
+    ]);
+
+    // Not a Compose service, so not a replica of anything: a second claim on the worktree's host.
+    const impostor = (await docker(['run', '--detach', '--name', `impostor-${SUFFIX}`,
+      '--label', `${NS}.component=impostor`,   // so a killed run leaves it for the sweep
+      '--label', `${ROUTED_BY_LABEL}=${PROJECT}`,
+      '--label', 'traefik.http.routers.impostor.rule=Host(`feature-route.test.localhost`)',
+      'busybox:1.37.0', 'sleep', '300'])).stdout.trim();
+    intruders.push(impostor);
+    try {
+      const routes = (await routerSection())[1];
+      expect(routes).toMatchObject({ status: 'fail', subject: 'routes' });
+      expect(routes?.detail).toMatch(/^Host\(`feature-route\.test\.localhost`\) is claimed by /);
+      expect(routes?.detail).toContain(`impostor-${SUFFIX}`);
+    } finally {
+      await docker(['rm', '--force', impostor], false);
+    }
   }, 120_000);
 
   it('exposes only the read-only Docker API through the proxy', async () => {

@@ -71,19 +71,27 @@ export function composeFilePath(loaded: LoadedConfig): string {
   return path.resolve(loaded.root, loaded.config.compose.file);
 }
 
-export function createCommandContext(options: CommandContextOptions): CommandContext {
-  const { loaded, controlHome, commandName, logger, runner } = options;
-  const invocation = options.invocation ?? commandName;
-  const registry = new WorktreeRegistry({
-    controlHome,
+/** The registry every command uses for the checkout a config belongs to. */
+export function checkoutRegistry(
+  options: Pick<CommandContextOptions, 'loaded' | 'controlHome' | 'commandName' | 'logger' | 'runner'> & { invocation: string }
+): WorktreeRegistry {
+  const { loaded } = options;
+  return new WorktreeRegistry({
+    controlHome: options.controlHome,
     root: loaded.root,
     domain: loaded.config.project.domain,
     labelNamespace: labelNamespace(loaded.config),
-    runner,
-    logger,
-    commandName,
-    invocation
+    runner: options.runner,
+    logger: options.logger,
+    commandName: options.commandName,
+    invocation: options.invocation
   });
+}
+
+export function createCommandContext(options: CommandContextOptions): CommandContext {
+  const { loaded, controlHome, commandName, logger, runner } = options;
+  const invocation = options.invocation ?? commandName;
+  const registry = checkoutRegistry({ loaded, controlHome, commandName, logger, runner, invocation });
   // The router is machine-wide, so it keeps the tool's own label namespace
   // even when a project adopts a predecessor's for its worktree resources.
   const router = options.router ?? new RouterService({ controlHome, port: options.routerPort, runner, logger, invocation, commandName });

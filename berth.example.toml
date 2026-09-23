@@ -65,9 +65,9 @@ prepare = "./scripts/migrate.sh"
 # Runs only after `prepare` exits zero.
 seed = "./scripts/seed.py"
 
-# Accepted and validated now; nothing invokes it yet. A future `berth doctor`
-# will.
-verify = "./scripts/doctor"
+# Run by `berth doctor` for a registered worktree: is this environment healthy?
+# Its output goes to stderr, since doctor's stdout is its report.
+verify = "./scripts/check.sh"
 
 # Accepted and validated now; nothing invokes them yet. A future `berth backup`
 # and `berth restore` will, each with a bundle directory as its first argument.

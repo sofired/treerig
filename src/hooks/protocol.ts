@@ -91,7 +91,10 @@ export type LifecycleStage = (typeof LIFECYCLE_ORDER)[number];
  * is accepted and validated so a repository can commit it once, and is inert
  * until a command invokes it; `config validate` reports the difference.
  */
-export const INVOKED_STAGES: readonly HookStage[] = ['prepare', 'seed'];
+export const INVOKED_STAGES: readonly HookStage[] = ['prepare', 'seed', 'verify'];
+
+/** The stages `up` runs. `verify` is not among them: `doctor` runs it, on its own. */
+export const UP_STAGES: readonly LifecycleStage[] = ['prepare', 'seed'];
 
 /** Stages that receive a bundle directory as their first argument. */
 export const BUNDLE_STAGES = ['backup', 'restore'] as const satisfies readonly HookStage[];
