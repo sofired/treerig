@@ -1,0 +1,196 @@
+{
+  "services": {
+    "docker-api": {
+      "image": "tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459",
+      "restart": "unless-stopped",
+      "environment": {
+        "ALLOW_PAUSE": "0",
+        "ALLOW_RESTARTS": "0",
+        "ALLOW_START": "0",
+        "ALLOW_STOP": "0",
+        "ALLOW_UNPAUSE": "0",
+        "AUTH": "0",
+        "BUILD": "0",
+        "COMMIT": "0",
+        "CONFIGS": "0",
+        "CONTAINERS": "1",
+        "DISTRIBUTION": "0",
+        "EVENTS": "1",
+        "EXEC": "0",
+        "GRPC": "0",
+        "IMAGES": "0",
+        "INFO": "0",
+        "NETWORKS": "1",
+        "NODES": "0",
+        "PING": "1",
+        "PLUGINS": "0",
+        "POST": "0",
+        "SECRETS": "0",
+        "SERVICES": "0",
+        "SESSION": "0",
+        "SWARM": "0",
+        "SYSTEM": "0",
+        "TASKS": "0",
+        "VERSION": "1",
+        "VOLUMES": "0"
+      },
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/run",
+        "/tmp"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/var/run/docker.sock",
+          "target": "/var/run/docker.sock",
+          "read_only": true
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:2375/_ping | grep -qx OK"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 30
+      },
+      "labels": {
+        "dev.berth.component": "docker-api",
+        "dev.berth.router-protocol": "3"
+      },
+      "networks": [
+        "docker-api"
+      ]
+    },
+    "router": {
+      "image": "traefik:v3.7.9@sha256:652929a140a32d7cafafb13c6cdfab5376cfeff800f51397b87b524501ed02a8",
+      "restart": "unless-stopped",
+      "command": [
+        "--entrypoints.web.address=:80",
+        "--providers.docker=true",
+        "--providers.docker.endpoint=tcp://docker-api:2375",
+        "--providers.docker.exposedbydefault=false",
+        "--providers.docker.constraints=Label(`dev.berth.router`,`berth-router`)",
+        "--providers.docker.network=berth-router",
+        "--providers.file.directory=/etc/berth/dynamic",
+        "--providers.file.watch=true",
+        "--api.dashboard=false",
+        "--ping=true"
+      ],
+      "ports": [
+        "127.0.0.1:80:80"
+      ],
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_add": [
+        "NET_BIND_SERVICE"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/home/dev/.berth/router/dynamic",
+          "target": "/etc/berth/dynamic",
+          "read_only": true
+        }
+      ],
+      "depends_on": {
+        "docker-api": {
+          "condition": "service_healthy"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "traefik",
+          "healthcheck",
+          "--ping"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 30
+      },
+      "labels": {
+        "dev.berth.component": "router",
+        "dev.berth.router-protocol": "3"
+      },
+      "networks": [
+        "router",
+        "docker-api"
+      ]
+    },
+    "index": {
+      "image": "busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0",
+      "restart": "unless-stopped",
+      "command": [
+        "httpd",
+        "-f",
+        "-p",
+        "8080",
+        "-h",
+        "/srv/index"
+      ],
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/home/dev/.berth/router/index",
+          "target": "/srv/index",
+          "read_only": true
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-qO-",
+          "http://127.0.0.1:8080/index.html"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 30
+      },
+      "labels": {
+        "dev.berth.component": "index",
+        "dev.berth.router-protocol": "3",
+        "traefik.enable": "true",
+        "dev.berth.router": "berth-router",
+        "traefik.http.routers.berth-index.rule": "Host(`berth.localhost`)",
+        "traefik.http.routers.berth-index.entrypoints": "web",
+        "traefik.http.services.berth-index.loadbalancer.server.port": "8080"
+      },
+      "networks": [
+        "router"
+      ]
+    }
+  },
+  "networks": {
+    "router": {
+      "name": "berth-router"
+    },
+    "docker-api": {
+      "internal": true
+    }
+  }
+}
