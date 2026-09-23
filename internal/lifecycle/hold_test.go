@@ -64,6 +64,27 @@ func TestHold(t *testing.T) {
 		}
 	})
 
+	t.Run("takes a router request alone, with its own timeout", func(t *testing.T) {
+		dir := t.TempDir()
+		router := lock.Scope{Target: filepath.Join(dir, "router"), Description: "shared router"}
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		ran := false
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth router up"},
+			Requests{Router: &router},
+			func(ctx context.Context) error { ran = true; return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ran {
+			t.Fatal("expected the action to run")
+		}
+		probe := lock.New(router, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
+		if _, err := probe.Acquire(context.Background(), "probe"); err != nil {
+			t.Fatalf("expected the router lock to have been released: %v", err)
+		}
+		_ = probe.Release()
+	})
+
 	t.Run("releases whatever it already holds when a later lock cannot be acquired", func(t *testing.T) {
 		op, dev, _ := testScopes(t)
 		blocker := lock.New(dev, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
