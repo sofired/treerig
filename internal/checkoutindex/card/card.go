@@ -1,23 +1,22 @@
-// Package card is the read side of what a worktree publishes about itself
-// for the machine-wide index. The registry record is deliberately minimal
-// and crash-safe; the card is the human-facing complement, written by `up`
-// into the worktree's own home and gone when the home goes. Anything the
-// index cannot read is simply absent.
-//
-// Writing a card (`up`'s job) is out of scope here: it needs atomicJson and
-// the worktree's own home to already exist, and nothing in the read path
-// needs it.
+// Package card is what a worktree publishes about itself for the
+// machine-wide index. The registry record is deliberately minimal and
+// crash-safe; the card is the human-facing complement, written by `up` into
+// the worktree's own home and gone when the home goes. Anything the index
+// cannot read is simply absent.
 package card
 
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 )
 
@@ -69,6 +68,114 @@ type IndexCard struct {
 // IndexCardPath is where a worktree's card lives.
 func IndexCardPath(controlHome, repositoryID, worktreeID string) string {
 	return filepath.Join(layout.WorktreeLayout(controlHome, repositoryID, worktreeID).Home, IndexCardFile)
+}
+
+// Timestamp is now, as an ISO string to the millisecond with a trailing Z —
+// what `up` records as a card's updatedAt, matching `new Date().toISOString()`.
+func Timestamp(now time.Time) string {
+	return now.UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+// cardServiceJSON is one routed service, in the schema's key order.
+type cardServiceJSON struct {
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Label   string `json:"label"`
+	Purpose string `json:"purpose"`
+}
+
+// cardJSON is the card as written, in the schema's key order:
+// version, project, domain, slug, host, root, branch, labelNamespace,
+// services[{name,url,label,purpose}], updatedAt.
+type cardJSON struct {
+	Version        int               `json:"version"`
+	Project        string            `json:"project"`
+	Domain         string            `json:"domain"`
+	Slug           string            `json:"slug"`
+	Host           string            `json:"host"`
+	Root           string            `json:"root"`
+	Branch         string            `json:"branch"`
+	LabelNamespace string            `json:"labelNamespace"`
+	Services       []cardServiceJSON `json:"services"`
+	UpdatedAt      string            `json:"updatedAt"`
+}
+
+// WriteIndexCard writes card into the worktree's own home, which must
+// already exist — `up` creates it before calling this. card is checked
+// against the same bounds ReadIndexCardAt enforces on the way back in, so a
+// card this package writes is always one it can read; a caller that manages
+// to violate them (every field here comes from already-validated config and
+// registration data) gets a plain error, not a *clierr.Error: like the
+// TypeScript build's zod parse, this is an assertion on this package's own
+// caller, never a user-facing failure.
+func WriteIndexCard(controlHome, repositoryID, worktreeID string, card IndexCard) error {
+	if err := validateForWrite(card); err != nil {
+		return err
+	}
+	services := make([]cardServiceJSON, len(card.Services))
+	for i, service := range card.Services {
+		services[i] = cardServiceJSON{Name: service.Name, URL: service.URL, Label: service.Label, Purpose: service.Purpose}
+	}
+	return files.AtomicJSON(IndexCardPath(controlHome, repositoryID, worktreeID), cardJSON{
+		Version:        1,
+		Project:        card.Project,
+		Domain:         card.Domain,
+		Slug:           card.Slug,
+		Host:           card.Host,
+		Root:           card.Root,
+		Branch:         card.Branch,
+		LabelNamespace: card.LabelNamespace,
+		Services:       services,
+		UpdatedAt:      card.UpdatedAt,
+	})
+}
+
+// validateForWrite applies exactly the bounds ReadIndexCardAt checks coming
+// back in (validText, validURL, brand.LabelNamespacePattern), so a card this
+// package writes is always one it can read.
+func validateForWrite(card IndexCard) error {
+	if !validText(&card.Project, 1, maxTextLength) {
+		return fmt.Errorf("card: project must be 1-%d characters", maxTextLength)
+	}
+	if !validText(&card.Domain, 1, maxTextLength) {
+		return fmt.Errorf("card: domain must be 1-%d characters", maxTextLength)
+	}
+	if !validText(&card.Slug, 1, maxTextLength) {
+		return fmt.Errorf("card: slug must be 1-%d characters", maxTextLength)
+	}
+	if !validText(&card.Host, 1, maxTextLength) {
+		return fmt.Errorf("card: host must be 1-%d characters", maxTextLength)
+	}
+	if !validText(&card.Root, 0, maxPathTextLength) {
+		return fmt.Errorf("card: root must be at most %d characters", maxPathTextLength)
+	}
+	if !validText(&card.Branch, 0, maxPathTextLength) {
+		return fmt.Errorf("card: branch must be at most %d characters", maxPathTextLength)
+	}
+	if !validText(&card.LabelNamespace, 0, maxLabelNamespaceLength) || !brand.LabelNamespacePattern.MatchString(card.LabelNamespace) {
+		return fmt.Errorf("card: labelNamespace %q is not a valid label namespace", card.LabelNamespace)
+	}
+	if !validText(&card.UpdatedAt, 0, maxTextLength) {
+		return fmt.Errorf("card: updatedAt must be at most %d characters", maxTextLength)
+	}
+	if len(card.Services) > maxServices {
+		return fmt.Errorf("card: at most %d services, got %d", maxServices, len(card.Services))
+	}
+	for _, service := range card.Services {
+		if !validText(&service.Name, 1, maxTextLength) {
+			return fmt.Errorf("card: service name must be 1-%d characters", maxTextLength)
+		}
+		if !validText(&service.Label, 1, maxTextLength) {
+			return fmt.Errorf("card: service label must be 1-%d characters", maxTextLength)
+		}
+		if !validText(&service.Purpose, 0, maxTextLength) {
+			return fmt.Errorf("card: service purpose must be at most %d characters", maxTextLength)
+		}
+		if !validURL(service.URL) {
+			return fmt.Errorf("card: service url %q is not a valid routable URL", service.URL)
+		}
+	}
+	return nil
 }
 
 // ReadIndexCard is ReadIndexCardAt for a worktree's usual home.

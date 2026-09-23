@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/berth/internal/checkoutindex/card"
 	"github.com/sofired/berth/internal/layout"
@@ -189,6 +190,105 @@ func TestRecordedLabelNamespace(t *testing.T) {
 		got := card.RecordedLabelNamespace(t.TempDir(), card.Registration{RepositoryID: repositoryID, WorktreeID: worktreeID})
 		if got != nil {
 			t.Fatalf("expected nil, got %v", got)
+		}
+	})
+}
+
+func TestTimestamp(t *testing.T) {
+	got := card.Timestamp(time.Date(2026, 1, 2, 3, 4, 5, 6_000_000, time.FixedZone("test", 3600)))
+	if want := "2026-01-02T02:04:05.006Z"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestWriteIndexCard(t *testing.T) {
+	const repositoryID = "a08b4892-5111-49f1-a47a-5ab988c7f676"
+	const worktreeID = "2b41d9d4-ed88-49c1-be9c-5439bdf6a431"
+
+	validWrite := func() card.IndexCard {
+		return card.IndexCard{
+			Project: "acme", Domain: "acme.localhost", Slug: "feature-login",
+			Host: "feature-login.acme.localhost", Root: "/repo/worktree", Branch: "feature/login",
+			LabelNamespace: "dev.berth",
+			Services: []card.IndexService{
+				{Name: "api", URL: "http://feature-login.acme.localhost", Label: "API", Purpose: "REST surface"},
+			},
+			UpdatedAt: "2026-01-01T00:00:00.000Z",
+		}
+	}
+
+	t.Run("writes a card that reads back exactly, in the schema's key order", func(t *testing.T) {
+		controlHome := t.TempDir()
+		home := layout.WorktreeLayout(controlHome, repositoryID, worktreeID).Home
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := card.WriteIndexCard(controlHome, repositoryID, worktreeID, validWrite()); err != nil {
+			t.Fatalf("WriteIndexCard: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(home, card.IndexCardFile))
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		text := string(data)
+		orderedKeys := []string{
+			`"version"`, `"project"`, `"domain"`, `"slug"`, `"host"`, `"root"`, `"branch"`,
+			`"labelNamespace"`, `"services"`, `"name"`, `"url"`, `"label"`, `"purpose"`, `"updatedAt"`,
+		}
+		last := -1
+		for _, key := range orderedKeys {
+			index := strings.Index(text, key)
+			if index < 0 {
+				t.Fatalf("expected %s in written card:\n%s", key, text)
+			}
+			if index < last {
+				t.Fatalf("key %s out of order in written card:\n%s", key, text)
+			}
+			last = index
+		}
+		if !strings.HasSuffix(text, "\n") {
+			t.Fatalf("expected a trailing newline, got %q", text)
+		}
+
+		got := card.ReadIndexCardAt(filepath.Join(home, card.IndexCardFile))
+		if got == nil {
+			t.Fatalf("expected the written card to read back")
+		}
+		if got.Project != "acme" || got.Slug != "feature-login" || len(got.Services) != 1 {
+			t.Fatalf("unexpected round trip: %+v", got)
+		}
+	})
+
+	t.Run("does not escape '<', '>' or '&' the way encoding/json would by default", func(t *testing.T) {
+		controlHome := t.TempDir()
+		home := layout.WorktreeLayout(controlHome, repositoryID, worktreeID).Home
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		hostile := validWrite()
+		hostile.Branch = "feature/<a>&b"
+		if err := card.WriteIndexCard(controlHome, repositoryID, worktreeID, hostile); err != nil {
+			t.Fatalf("WriteIndexCard: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(home, card.IndexCardFile))
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if !strings.Contains(string(data), `feature/<a>&b`) {
+			t.Fatalf("expected the branch to be written unescaped, got:\n%s", data)
+		}
+	})
+
+	t.Run("refuses a card outside the schema's bounds", func(t *testing.T) {
+		controlHome := t.TempDir()
+		home := layout.WorktreeLayout(controlHome, repositoryID, worktreeID).Home
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		invalid := validWrite()
+		invalid.Project = ""
+		if err := card.WriteIndexCard(controlHome, repositoryID, worktreeID, invalid); err == nil {
+			t.Fatalf("expected an error for an empty project")
 		}
 	})
 }
