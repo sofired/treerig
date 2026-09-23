@@ -74,6 +74,7 @@ var goldenCases = []goldenCase{
 	{"help-worktree-short", []string{"worktree", "-h"}},
 	{"help-worktree-list", []string{"worktree", "list", "--help"}},
 	{"help-worktree-remove", []string{"worktree", "remove", "--help"}},
+	{"help-worktree-unlock", []string{"worktree", "unlock", "--help"}},
 
 	// --- the "help [command]" form, including its one-word-only quirk ---
 	{"help-cmd-config", []string{"help", "config"}},
@@ -118,6 +119,7 @@ var goldenCases = []goldenCase{
 	{"err-unknown-option-long-suggest", []string{"--hepl"}},
 	{"err-unknown-option-long-suggest-nested", []string{"worktree", "list", "--al"}},
 	{"err-unknown-option-long-suggest-domain", []string{"worktree", "remove", "--domai", "foo"}},
+	{"err-unknown-option-long-suggest-unlock", []string{"worktree", "unlock", "--holder-unverifable"}},
 	{"err-unknown-option-short", []string{"-x"}},
 	{"err-unknown-option-short-nested", []string{"worktree", "list", "-x"}},
 	{"err-unknown-option-short-leaf", []string{"worktree", "remove", "-x"}},

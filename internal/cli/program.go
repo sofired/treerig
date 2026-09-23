@@ -87,6 +87,13 @@ func buildProgram(commandName, version string) *node {
 		})
 	})
 	worktree.addChild(remove)
+
+	unlock := newCommand("unlock", "clear a dead holder's lock on a worktree, once the holder and every command it started on this machine are checked gone")
+	unlock.addArgument("[identifier]", "")
+	unlock.addOption("--domain <domain>", "narrow a slug registered under more than one domain")
+	unlock.addOption("--holder-unverifiable", "accept a holder this machine cannot check (another machine or container, or no record), once you have made sure it is gone")
+	unlock.setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "worktree unlock") })
+	worktree.addChild(unlock)
 	root.addChild(worktree)
 
 	return root

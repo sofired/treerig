@@ -222,7 +222,7 @@ purpose = "surface"
     expect(result.stdout).toContain('This checkout');
   });
 
-  it('keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice', async () => {
+  it.skipIf(UNPORTED.has('unlock'))('keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice', async () => {
     const cwd = await project(CONFIG);
     await git(cwd, ['init', '--initial-branch=feature/login', '.']);
     await git(cwd, ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--allow-empty', '-m', 'initial']);

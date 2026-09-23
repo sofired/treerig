@@ -56,7 +56,7 @@ jobs:
       - name: Streams contract, against the Go binary
         env:
           BERTH_CLI: ${{ github.workspace }}/dist/berth
-          BERTH_CLI_UNPORTED: doctor,router
+          BERTH_CLI_UNPORTED: doctor,router,unlock
         run: pnpm exec vitest run tests/cli/streams.test.ts
 
       # Real git, real processes and signals (flock inheritance, group kills,

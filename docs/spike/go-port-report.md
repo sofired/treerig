@@ -26,10 +26,10 @@ Every hard gate that can run on Linux passed. The macOS gates cannot run without
 | Verbs | `internal/commands` | `list`, `urls`, `status`, `down`, `worktree remove`, `config validate`/`show`, the prompt |
 
 **Not ported:**
-- the verbs `up`, `index`, `doctor`, `router *` and `dev`: they are stubs that exit 2 and name the TypeScript berth (`worktree unlock` is not on `main` yet, so neither build has it);
+- the verbs `up`, `index`, `doctor`, `router *`, `worktree unlock` and `dev`: they are stubs that exit 2 and name the TypeScript berth, with help identical to TypeScript's;
 - registry `ensure`, the hooks runner, compose override generation, the router and the checkout index.
 
-The spike branched from `main`, which does not include the unlock PR (#4). The Go lock layer ports that PR's holder judgement anyway, as the design required.
+The spike branched from `main` before the unlock PR (#4) merged, and `main` was merged in afterwards. The Go lock layer ports that PR's holder judgement, as the design required; the `unlock` command itself waits for work package 6.
 
 ## The lock redesign
 
@@ -82,15 +82,15 @@ Go's remaining time on `list` is git: one `git worktree list` plus a `rev-parse`
 | darwin/arm64 | 3.5 MB | 1.5 MB |
 
 **Code size.** Every figure counts code lines only: non-blank and non-comment. With comments, the TypeScript the spike replaces is about 4,700 lines.
-- **Go product code: 7,745 lines.** The TypeScript it replaces is about 3,750, so 2.1×.
+- **Go product code: 7,751 lines.** The TypeScript it replaces is about 3,750, so 2.1×.
 - **The excess is mostly dependencies reimplemented in Go:** commander's parser and help (655 lines), zod's validator (424), an order-preserving TOML decoder, execa's process handling, and proper-lockfile. Without those, the ratio is about 1.6×.
-- **Go test code: 8,551 lines**, against 3,434 lines of TypeScript tests for the same behaviour (2.5×). Go's table-free subtests are verbose. The Go suite also adds tests the TypeScript one never had: real-process lock scenarios, a real-daemon decoy suite, TypeScript-versus-Go parity, and 211 generated oracle files.
+- **Go test code: 8,556 lines**, against 3,486 lines of TypeScript tests for the same behaviour (2.5×). Go's table-free subtests are verbose. The Go suite also adds tests the TypeScript one never had: real-process lock scenarios, a real-daemon decoy suite, TypeScript-versus-Go parity, and 217 generated oracle files.
 
-**Tests:** 750 Go tests pass under `-race`.
-- 713 are unit tests (`go test -race ./...`).
+**Tests:** 753 Go tests pass under `-race`.
+- 716 are unit tests (`go test -race ./...`).
 - 37 more need `-tags integration`: real git, real processes and signals, real Docker, and parity runs against the TypeScript build.
 - The lock, lifecycle and runner packages also pass at `-count=20 -race`.
-- The TypeScript suite still passes unchanged: 498 tests.
+- The TypeScript suite still passes unchanged: 565 tests, on `main` as merged in.
 
 ## Hard gates
 
@@ -101,10 +101,10 @@ Go's remaining time on `list` is git: one `git worktree list` plus a `rev-parse`
 | **Safety:** no test path steals a lock | **Pass.** No acquisition path removes or bypasses a held lock. |
 | **Signals** | **Pass on Linux.** `TestInterruptedMutation`: `worktree remove` and `down`, interrupted by SIGINT or SIGTERM mid-`compose down`, die by that signal. The child's process group is gone, and the lock is free with its record released. Lock and lifecycle signal tests pass at `-count=20`. **macOS: not run.** |
 | **macOS:** flock inheritance, `kern.procargs2`, exact start time | **Open.** The code compiles and vets for darwin/amd64 and darwin/arm64 but has never run on a Mac. This is the gate for the first full-port work package. |
-| **Parity:** help and parse errors | **Pass.** 69 cases byte-identical to the TypeScript CLI (stdout, stderr, exit code). |
+| **Parity:** help and parse errors | **Pass.** 71 cases byte-identical to the TypeScript CLI (stdout, stderr, exit code). |
 | **Parity:** config issues | **Pass.** 66 cases, identical paths and messages (TOML syntax-error detail excepted). |
 | **Parity:** `config show`, `list --json` | **Pass.** Byte-identical, hostile strings included. |
-| **Parity:** streams contract | **Pass.** The TypeScript `tests/cli/streams.test.ts`, run against the Go binary: 9 pass, 5 skipped (unported verbs and the shebang check). |
+| **Parity:** streams contract | **Pass.** The TypeScript `tests/cli/streams.test.ts`, run against the Go binary: 9 pass, 6 skipped (unported verbs and the shebang check). |
 | **Parity:** docker argv transcripts | **Pass.** `TestParityWithTheTypeScriptBuild`: `status`, `urls`, `list`, `down`, `remove` and five failure modes of `remove` run on the same fixture with the same fake `docker`. Stdout, stderr, exit code and every `docker` call match; `remove` alone makes 29. |
 
 ## Scored targets
@@ -155,13 +155,13 @@ Go's remaining time on `list` is git: one `git worktree list` plus a `rev-parse`
 
 ## Projection
 
-The TypeScript build is about 6,200 code lines, counting the lock code from PR #4. The spike replaced about 3,750 of them, so about 2,450 remain. The largest pieces are:
+The TypeScript build on `main` is about 6,500 code lines. The spike replaced about 3,750 of them, so about 2,750 remain. The largest pieces are:
 - the checkout index (about 800 lines);
 - the router (about 570);
-- `doctor` (about 400);
+- `doctor` (about 460) and `worktree unlock` (about 100);
 - the write paths of the registry and the Compose runtime (about 330).
 
-That is about two-thirds the size of what the spike covered, and its hardest parts carry forward: the lock layer, lifecycle, runner and parity harness are done.
+That is about three-quarters the size of what the spike covered, and its hardest parts carry forward: the lock layer, lifecycle, runner and parity harness are done.
 
 The remaining work packages, in order:
 1. **Harden and merge the spike.**
@@ -181,7 +181,7 @@ The estimate is 1 to 1.5 times the spike's effort, well under the 5× threshold.
 go build -o dist/berth ./cmd/berth
 go test -race ./...                                   # unit
 go test -race -tags integration ./...                 # real git, processes, signals, Docker, parity (needs node 24)
-BERTH_CLI=$PWD/dist/berth BERTH_CLI_UNPORTED=doctor,router pnpm exec vitest run tests/cli/streams.test.ts
+BERTH_CLI=$PWD/dist/berth BERTH_CLI_UNPORTED=doctor,router,unlock pnpm exec vitest run tests/cli/streams.test.ts
 go run ./tools/spikebench -go dist/berth              # timings
 go run ./tools/spikebench -sizes                      # binary sizes
 ```
