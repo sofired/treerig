@@ -401,10 +401,3 @@ func mustNotContain(t *testing.T, lines []string, want string) {
 		t.Fatalf("expected lines not to contain %q; got %v", want, lines)
 	}
 }
-
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
