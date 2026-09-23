@@ -8,7 +8,7 @@
 // filesystem entirely for the config half — exactly what the assignment
 // asks unit tests to do until config loading lands.
 //
-// SPIKE: Dispose is unnecessary here (New uses t.TempDir(), cleaned up by
+// SPIKE: Dispose is unnecessary here (New uses a t.TempDir, cleaned up by
 // the testing package automatically), unlike the TypeScript helper, which
 // needs an explicit rm because Vitest has no equivalent.
 package commandstest
@@ -66,7 +66,7 @@ type TestContext struct {
 // New is a world with one worktree (Root) already registered with Git, on branch.
 func New(t *testing.T, branch, domain string) *World {
 	t.Helper()
-	base := t.TempDir()
+	base := registrytest.TempDir(t)
 	w := &World{
 		Base:        base,
 		ControlHome: filepath.Join(base, "control"),

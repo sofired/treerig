@@ -26,7 +26,7 @@ type registryFixture struct {
 
 func newRegistryFixture(t *testing.T, branch, domain string) registryFixture {
 	t.Helper()
-	base := t.TempDir()
+	base := registrytest.TempDir(t)
 	controlHome := filepath.Join(base, "control")
 	root := filepath.Join(base, "worktree")
 	common := filepath.Join(base, "common")

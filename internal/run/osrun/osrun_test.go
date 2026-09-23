@@ -373,7 +373,7 @@ func TestInheritLocks(t *testing.T) {
 	// fd 3 is the first ExtraFiles entry; a shell can only "test -e" a
 	// descriptor that is actually open.
 	result, err := New().Run(heldCtx, run.Spec{
-		Command: "sh", Args: []string{"-c", "test -e /proc/self/fd/3 && echo inherited"},
+		Command: "sh", Args: []string{"-c", "test -e /dev/fd/3 && echo inherited"},
 		InheritLocks: true,
 	})
 	if err != nil {
@@ -385,7 +385,7 @@ func TestInheritLocks(t *testing.T) {
 
 	// Without InheritLocks, the child gets no such descriptor.
 	result, err = New().Run(heldCtx, run.Spec{
-		Command: "sh", Args: []string{"-c", "test -e /proc/self/fd/3 && echo inherited || echo absent"},
+		Command: "sh", Args: []string{"-c", "test -e /dev/fd/3 && echo inherited || echo absent"},
 	})
 	if err != nil {
 		t.Fatal(err)

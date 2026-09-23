@@ -20,7 +20,7 @@ type identityFixture struct {
 
 func newIdentityFixture(t *testing.T, branch string) identityFixture {
 	t.Helper()
-	base := t.TempDir()
+	base := registrytest.TempDir(t)
 	root := filepath.Join(base, "worktree")
 	common := filepath.Join(base, "common")
 	if err := os.MkdirAll(root, 0o700); err != nil {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
-	"syscall"
 	"testing"
 	"time"
+
+	"github.com/sofired/berth/internal/logger"
 )
 
 // TestWaiterReopensAReplacedTarget is scenario 13 from the design doc: a
@@ -26,24 +26,35 @@ func TestWaiterReopensAReplacedTarget(t *testing.T) {
 	}
 	beforeID := holder.fileID
 
+	// The waiter notices at once, and it can only notice once it has opened
+	// the current (soon to be stale) inode and found it held. Replaced any
+	// earlier, it would simply open the new file, and the test would pass
+	// without exercising the reopen at all.
+	noticed := &logger.Recording{}
+	noNoticeDelay := time.Duration(0)
 	waiter := New(scope, testOptions(t))
-	waiter.opts.Timeout = 3 * time.Second
+	waiter.opts.Timeout = 10 * time.Second
 	waiter.opts.Retry = 10 * time.Millisecond
+	waiter.opts.NoticeDelay = &noNoticeDelay
+	waiter.opts.Logger = noticed
 	result := make(chan error, 1)
 	go func() {
 		_, err := waiter.Acquire(context.Background(), "waiter")
 		result <- err
 	}()
-
-	// Only once the waiter has its own descriptor on the current (soon to be
-	// stale) inode: replaced any earlier, it would simply open the new file,
-	// and the test would pass without exercising the reopen at all.
-	deadline := time.Now().Add(3 * time.Second)
-	for descriptorsOn(beforeID) < 2 {
-		if time.Now().After(deadline) {
-			t.Fatal("the waiter never opened the target")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if lines, _ := noticed.Snapshot(); len(lines) > 0 {
+			break
 		}
-		time.Sleep(5 * time.Millisecond)
+		select {
+		case err := <-result:
+			t.Fatalf("the waiter stopped waiting before the target was replaced: %v", err)
+		case <-time.After(5 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the waiter never reported waiting on the target")
+		}
 	}
 
 	if err := os.Remove(target); err != nil {
@@ -77,30 +88,6 @@ func TestWaiterReopensAReplacedTarget(t *testing.T) {
 		t.Fatalf("waiter ended up holding %+v, want the replaced target's %+v", waiter.fileID, newID)
 	}
 	_ = waiter.Release()
-}
-
-// descriptorsOn counts this process's open descriptors on id: the holder's,
-// and the waiter's once it has opened the target to poll it.
-func descriptorsOn(id FileID) int {
-	entries, err := os.ReadDir("/dev/fd")
-	if err != nil {
-		return 0
-	}
-	count := 0
-	for _, entry := range entries {
-		fd, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue
-		}
-		var st syscall.Stat_t
-		if syscall.Fstat(fd, &st) != nil {
-			continue
-		}
-		if uint64(st.Dev) == id.Dev && uint64(st.Ino) == id.Ino {
-			count++
-		}
-	}
-	return count
 }
 
 func statFileID(path string) (FileID, error) {

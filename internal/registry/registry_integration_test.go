@@ -79,7 +79,7 @@ func git(t *testing.T, args ...string) string {
 // repository is a fresh Git repository with one empty commit on main.
 func repository(t *testing.T) (base, repoDir string) {
 	t.Helper()
-	base = t.TempDir()
+	base = registrytest.TempDir(t)
 	repoDir = filepath.Join(base, "repository")
 	git(t, "init", "--initial-branch=main", repoDir)
 	git(t, "-C", repoDir, "commit", "--allow-empty", "-m", "initial")
