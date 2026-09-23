@@ -1,0 +1,37 @@
+// Package hooks is the other half of the public contract src/hooks/runner.ts
+// and src/hooks/protocol.ts describe: hooks are ordinary executables, the
+// tool never learns what they do, and everything a hook needs to know
+// arrives as environment variables — its exit code is its only answer back.
+package hooks
+
+import "github.com/sofired/berth/internal/config"
+
+// LifecycleOrder is the order stages run in: seed never runs unless prepare
+// exited zero. The lifecycle stops at the first failure and reports which
+// stage failed.
+var LifecycleOrder = []config.HookStage{config.Prepare, config.Seed, config.Verify}
+
+// UpStages are the stages `up` runs; verify is not among them — `doctor`
+// runs it, on its own.
+var UpStages = []config.HookStage{config.Prepare, config.Seed}
+
+// BundleStages receive a bundle directory as their first argument.
+var BundleStages = []config.HookStage{config.Backup, config.Restore}
+
+// commandFor is the configured command for stage, or nil if none is.
+func commandFor(hooks config.Hooks, stage config.HookStage) *string {
+	switch stage {
+	case config.Prepare:
+		return hooks.Prepare
+	case config.Seed:
+		return hooks.Seed
+	case config.Verify:
+		return hooks.Verify
+	case config.Backup:
+		return hooks.Backup
+	case config.Restore:
+		return hooks.Restore
+	default:
+		return nil
+	}
+}
