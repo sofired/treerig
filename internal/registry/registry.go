@@ -8,8 +8,11 @@ import (
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/run"
 )
 
@@ -91,6 +94,113 @@ func registration(identity WorktreeIdentity, record RegisteredWorktree) Worktree
 		Root:   identity.Root,
 		Branch: identity.Branch,
 	}
+}
+
+// Ensure registers this checkout (or reconciles its record with the current
+// config domain) and reports a hostname or label-namespace change so the
+// caller can re-route. A worktree whose home already exists on disk is
+// adopted as complete; otherwise it is pending until initialization ends.
+//
+// worktree == "" means r.root, the checkout this Registry answers for.
+//
+// Lock order: this worktree's own operation lock is held for the whole
+// call — never its development-session lock, so `dev` is unaffected — with
+// the registry lock Store.Ensure takes nested inside it, on the machine-wide
+// registry file, a different flock target entirely.
+func (r *Registry) Ensure(ctx context.Context, worktree string) (*EnsuredRegistration, error) {
+	if worktree == "" {
+		worktree = r.root
+	}
+	identity, err := r.Identities.Ensure(ctx, worktree)
+	if err != nil {
+		return nil, err
+	}
+	if err := files.SecureRegistrationDirectories(
+		layout.WorktreeLayout(r.ControlHome, identity.RepositoryID, identity.WorktreeID),
+	); err != nil {
+		return nil, err
+	}
+
+	// Named the way every later wait names it — by slug — once a record exists.
+	name := identity.Root
+	if known, findErr := r.Store(identity.RepositoryID).Find(identity.WorktreeID); findErr == nil && known != nil {
+		name = known.Slug
+	}
+	markers := procid.Markers{
+		Project:    layout.ComposeProjectName(identity.RepositoryID, identity.WorktreeID),
+		WorktreeID: identity.WorktreeID,
+	}
+	operation, _ := lock.WorktreeScopes(r.ControlHome, identity.RepositoryID, identity.WorktreeID, name, markers)
+	writer := Writer{Logger: r.logger, Invocation: r.invocation}
+
+	var labelNamespace *string
+	if r.labelNamespace != "" {
+		ns := r.labelNamespace
+		labelNamespace = &ns
+	}
+
+	var ensured *EnsuredRegistration
+	err = withWorktreeLock(ctx, operation, writer, func(ctx context.Context) error {
+		currentIdentity, err := r.Identities.Inspect(ctx, worktree, InspectOptions{})
+		if err != nil {
+			return err
+		}
+		if currentIdentity == nil || currentIdentity.RepositoryID != identity.RepositoryID || currentIdentity.WorktreeID != identity.WorktreeID {
+			return clierr.Newf("Worktree identity changed while registering %s; retry the command.", identity.Root)
+		}
+		record, err := r.Store(identity.RepositoryID).Ensure(
+			ctx, identity.WorktreeID, r.domain,
+			// The identity captured before the lock, not currentIdentity: the
+			// branch a slug is derived from is the one that led here, not
+			// whatever a race might have changed it to in between.
+			func(others []RegisteredWorktree, preferred string) (string, error) {
+				return AllocateSlug(*identity, r.domain, others, preferred)
+			},
+			writer,
+			func() (WorktreeInitialization, error) {
+				exists, err := files.PathExists(WorktreeHome(r.ControlHome, identity.RepositoryID, identity.WorktreeID))
+				if err != nil {
+					return "", err
+				}
+				if exists {
+					return Complete, nil
+				}
+				return Pending, nil
+			},
+			labelNamespace,
+		)
+		if err != nil {
+			return err
+		}
+
+		result := EnsuredRegistration{WorktreeRegistration: registration(*currentIdentity, record.RegisteredWorktree)}
+		if record.PreviousLabelNamespace != nil {
+			result.PreviousLabelNamespace = record.PreviousLabelNamespace
+			namespace := ""
+			if record.LabelNamespace != nil {
+				namespace = *record.LabelNamespace
+			}
+			// `up` only lets this happen once nothing is left under the old
+			// namespace, so nothing is orphaned.
+			r.logger.Info(fmt.Sprintf(
+				"Now labelling this worktree's resources under %s (was %s; nothing remained under it).",
+				namespace, *record.PreviousLabelNamespace,
+			))
+		}
+		if record.PreviousHost != nil {
+			result.PreviousHost = record.PreviousHost
+			r.logger.Warn(fmt.Sprintf(
+				"This worktree moved from %s to %s. Run '%s up' to route it at its new hostname.",
+				*record.PreviousHost, layout.WorktreeHost(record.Slug, record.Domain), r.commandName,
+			))
+		}
+		ensured = &result
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ensured, nil
 }
 
 // Current is this checkout's own registration, read-only. Warns when the

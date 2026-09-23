@@ -39,6 +39,24 @@ type WorktreeRegistration struct {
 	Branch string
 }
 
+// EnsuredWorktree is what Store.Ensure returns: the record, plus where it
+// was before if it moved.
+type EnsuredWorktree struct {
+	RegisteredWorktree
+	PreviousHost *string
+	// PreviousLabelNamespace is the namespace the record carried before this
+	// call rewrote it.
+	PreviousLabelNamespace *string
+}
+
+// EnsuredRegistration is what Registry.Ensure returns: a registration
+// together with where it was before if it moved.
+type EnsuredRegistration struct {
+	WorktreeRegistration
+	PreviousHost           *string
+	PreviousLabelNamespace *string
+}
+
 // RegistryProblem is a registry file that could not be read as a record.
 // Reported, never thrown.
 type RegistryProblem struct {
