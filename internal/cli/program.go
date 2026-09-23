@@ -57,11 +57,20 @@ func buildProgram(commandName, version string) *node {
 
 	router := newCommand("router", "manage the shared local router")
 	router.addChild(newCommand("up", "start the shared router and verify its hardened configuration").
-		setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "router up") }))
+		setAction(func(rc *runContext) error { return commands.RouterUp(rc.ctx, rc.env) }))
 	router.addChild(newCommand("status", "report whether the shared router is running as expected").
-		setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "router status") }))
+		setAction(func(rc *runContext) error {
+			failed, err := commands.RouterStatus(rc.ctx, rc.env)
+			if err != nil {
+				return err
+			}
+			if failed {
+				rc.exit(1)
+			}
+			return nil
+		}))
 	router.addChild(newCommand("down", "stop the shared router; worktree services keep running but are no longer routed").
-		setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "router down") }))
+		setAction(func(rc *runContext) error { return commands.RouterDown(rc.ctx, rc.env) }))
 	root.addChild(router)
 
 	worktree := newCommand("worktree", "manage registered worktrees")
