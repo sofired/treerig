@@ -1,7 +1,7 @@
 // Registers the benchmark's worktrees the way the TypeScript build does, so
 // both builds are measured against identical, genuinely registered state.
 //
-//   node tools/spikebench/fixture.ts <controlHome> <extraRecords> <worktree>...
+//   node tools/bench/fixture.ts <controlHome> <extraRecords> <worktree>...
 //
 // Each <worktree> is a git checkout with berth.toml at its root; it is
 // registered with WorktreeRegistry.ensure (markers, slug, record, under the

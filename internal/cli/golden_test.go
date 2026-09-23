@@ -5,10 +5,8 @@ package cli_test
 // cli.Main.
 //
 // Regenerate after a change to the command tree, help wording or an error
-// message:
+// message, with Node 24 on PATH:
 //
-//	export PATH=/usr/local/go/bin:$PATH
-//	export PATH=$HOME/.local/opt/node-v24.14.1-linux-x64/bin:$PATH
 //	go test ./internal/cli/... -run TestGolden -update
 //
 // -update runs `node src/cli/main.ts <args>` for every case below in a
@@ -23,10 +21,9 @@ package cli_test
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
 // depend on a command's own body. Two specific exceptions are documented at
-// their case below. The verbs this package wires to a still-stubbed
-// commands.* function (see internal/commands' SPIKE comments) are covered
-// separately in wiring_test.go, against the stub's own known message rather
-// than the oracle, since the oracle runs the real thing.
+// their case below. The verbs not yet in the Go build are covered separately
+// in wiring_test.go, against commands.NotPorted's own message rather than the
+// oracle, since the oracle runs the real thing.
 
 import (
 	"bytes"

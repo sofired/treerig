@@ -3,6 +3,7 @@ package text
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -164,6 +165,8 @@ type corpus struct {
 	PrintableStrings    []codePointCase `json:"printableStrings"`
 	SafeJSON            []safeJSONCase  `json:"safeJson"`
 	Lower               []lowerCase     `json:"lower"`
+	Sort                []sortCase      `json:"sort"`
+	Slice               []sliceCase     `json:"slice"`
 }
 
 type codePointCase struct {
@@ -183,6 +186,53 @@ type lowerCase struct {
 	Name  string `json:"name"`
 	Input string `json:"input"`
 	Want  string `json:"want"`
+}
+
+type sortCase struct {
+	Name  string   `json:"name"`
+	Input []string `json:"input"`
+	Want  []string `json:"want"`
+}
+
+type sliceCase struct {
+	Name  string `json:"name"`
+	Input string `json:"input"`
+	Limit int    `json:"limit"`
+	Want  string `json:"want"`
+}
+
+// TestCompareUTF16Oracle sorts as Array.prototype.sort() does with no
+// comparator, including where that differs from byte order.
+func TestCompareUTF16Oracle(t *testing.T) {
+	c := loadCorpus(t)
+	if len(c.Sort) == 0 {
+		t.Fatal("no sort cases; regenerate testdata/corpus.json")
+	}
+	for _, tc := range c.Sort {
+		t.Run(tc.Name, func(t *testing.T) {
+			got := slices.Clone(tc.Input)
+			slices.SortFunc(got, CompareUTF16)
+			if !slices.Equal(got, tc.Want) {
+				t.Errorf("sorted %q = %q, want %q", tc.Input, got, tc.Want)
+			}
+		})
+	}
+}
+
+// TestTruncateUTF16Oracle slices as String.prototype.slice(0, n) does,
+// including through a surrogate pair.
+func TestTruncateUTF16Oracle(t *testing.T) {
+	c := loadCorpus(t)
+	if len(c.Slice) == 0 {
+		t.Fatal("no slice cases; regenerate testdata/corpus.json")
+	}
+	for _, tc := range c.Slice {
+		t.Run(tc.Name, func(t *testing.T) {
+			if got := TruncateUTF16(tc.Input, tc.Limit); got != tc.Want {
+				t.Errorf("TruncateUTF16(%q, %d) = %q, want %q", tc.Input, tc.Limit, got, tc.Want)
+			}
+		})
+	}
 }
 
 func loadCorpus(t *testing.T) corpus {

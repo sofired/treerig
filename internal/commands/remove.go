@@ -165,8 +165,8 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	if err != nil {
 		return nil, err
 	}
-	// SPIKE: the checkout index refresh after a removal is not ported; the
-	// TypeScript build prints nothing when that best-effort refresh succeeds.
+	// TODO(#41): refresh the checkout index here, best effort, as the
+	// TypeScript build does; it prints nothing when that refresh succeeds.
 	if !result.AlreadyGone {
 		cctx.Logger.Info(fmt.Sprintf("Removed %s: %s.", host, summarize(result)))
 	}

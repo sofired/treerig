@@ -12,10 +12,8 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
-// newRunner is the seam internal/run/osrun plugs into once it exists: nil
-// here means every leaf action runs with commands.Env.Runner unset. A
-// command whose body needs to run a subprocess is not usable until the
-// coordinator sets this.
+// newRunner builds the runner every leaf action gets as commands.Env.Runner;
+// wiring.go sets it to osrun.New.
 var newRunner func() run.Runner
 
 // runContext is what a leaf action runs with: its own parsed arguments and

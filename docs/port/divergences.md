@@ -1,0 +1,20 @@
+# Divergence ledger
+
+Until TypeScript is retired (#46), the Go build's output must be
+byte-identical to the TypeScript build's. Every accepted exception is
+recorded here: what TypeScript does, what Go does instead, why, and which
+test pins the Go behaviour so it cannot drift further without notice. A new
+entry is proposed in the pull request that introduces the difference, with
+its reason and a pinning test where one exists, and the owner approves it
+before that PR merges.
+
+| ID | Work package | TypeScript behaviour | Go behaviour | Reason | Pinning test | Approved |
+|----|--------------|----------------------|---------------|--------|---------------|----------|
+| 1 | WP1 | `BERTH_DEBUG=1` prints the JavaScript stack trace. | Prints the error's chain of causes instead; an error with no cause adds nothing. | Go has no stack trace. | `internal/cli/debug_test.go` (`TestErrorChain`) | 2026-09-23 (PR #36) |
+| 2 | WP1 | A TOML syntax error's detail, after `is not valid TOML:`, is smol-toml's wording, with a source excerpt and a caret. | The detail is BurntSushi's wording instead; no excerpt or caret. | Different TOML libraries report syntax errors differently. | `internal/config/corpus_test.go` (`TestConfigCorpus`) | 2026-09-23 (PR #36) |
+| 3 | WP1 | Lock notices read a heartbeat's age ("its last heartbeat was…"), a two-look staleness confirmation, and `rmdir` recovery instructions. | Notices name the current holder and, on Linux, the processes holding the lock, with `kill -CONT`/`kill <pid>` advice; a broken filesystem or unreadable machine identity gets its own wording. | The heartbeat design is gone; `flock(2)` needs none of its wording. | `internal/lock/lock_test.go` (`TestLockAcquireRelease`) | 2026-09-23 (PR #36) |
+| 4 | WP1 | The confirmation prompt reads a line through Node's `readline`: arrow keys and history work. | Reads a line through the terminal's own line editing: backspace, Ctrl-U, and Ctrl-W work; arrow keys insert an escape sequence instead of moving the cursor, and the mismatched answer is refused safely. | Go's standard library has no line-editing reader; the terminal driver still supplies the basics. | none yet | 2026-09-23 (PR #36) |
+| 5 | WP1 | An unexpected file error reads as Node words it (`EACCES: permission denied, open '/x'`). | Reads as Go words it (`open /x: permission denied`) — the same error, same place, different wording. | Go's `os` package formats its own errors. | none yet | 2026-09-23 (PR #36) |
+| 6a | WP1 | Sorts non-ASCII service names in UTF-16 order (`Array.prototype.sort()`). | **Resolved.** `internal/backend/compose.go` now sorts with `text.CompareUTF16`, reproducing JavaScript's order. | Originally byte order; no fixture reached the difference until it was closed. | `internal/text/text_test.go` (`TestCompareUTF16Oracle`) | 2026-09-23 (PR #36); resolved |
+| 6b | WP1 | `Unrecognized key` quotes a key containing a control character however `JSON.stringify` does. | Quotes it with Go's `%q`. | No fixture reaches a config key with a control character in it. | `internal/shape/shape_test.go` (`TestUnrecognizedKeysSingularAndPlural`) | 2026-09-23 (PR #36) |
+| 6c | WP1 | A hook with no `#!` line runs anyway, under `/bin/sh`, because Node's `execvp` falls back to the shell. | Fails to start: exit 126, `ENOEXEC`. | Go's `exec` has no shell fallback for a script missing its interpreter line. Hooks are not ported yet, so no fixture reaches this through the hooks runner. | `internal/run/osrun/osrun_test.go` ("tells a script without a #! line what it is missing") | 2026-09-23 (PR #36) |

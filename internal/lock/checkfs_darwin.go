@@ -8,9 +8,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// refusedTypeName is every statfs f_fstypename CheckFS refuses. Unverified —
-// there is no macOS in this spike — so this follows the names macOS's own
-// mount(8) and Finder use for these filesystems. The cluster filesystems the
+// refusedTypeName is every statfs f_fstypename CheckFS refuses, by the names
+// macOS's own mount(8) and Finder use for these filesystems. CI runs on APFS,
+// so these refusals are checked only by name. The cluster filesystems the
 // Linux list refuses have no native macOS clients; the ones reachable at all
 // (CephFS, say) come through FUSE, which is refused here. OpenAFS is the
 // exception, and is listed.

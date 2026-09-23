@@ -1397,5 +1397,107 @@
       "input": "İİİ",
       "want": "i̇i̇i̇"
     }
+  ],
+  "sort": [
+    {
+      "name": "ASCII, by code unit rather than case",
+      "input": [
+        "web",
+        "api",
+        "Worker",
+        "db",
+        "_x",
+        "9lives"
+      ],
+      "want": [
+        "9lives",
+        "Worker",
+        "_x",
+        "api",
+        "db",
+        "web"
+      ]
+    },
+    {
+      "name": "private use and specials sort after astral characters",
+      "input": [
+        "",
+        "😀",
+        "a",
+        "�",
+        "𐀀"
+      ],
+      "want": [
+        "a",
+        "𐀀",
+        "😀",
+        "",
+        "�"
+      ]
+    },
+    {
+      "name": "fullwidth letters sort after mathematical alphanumerics",
+      "input": [
+        "Ａ",
+        "𝐀",
+        "é",
+        "e"
+      ],
+      "want": [
+        "e",
+        "é",
+        "𝐀",
+        "Ａ"
+      ]
+    },
+    {
+      "name": "shared prefixes",
+      "input": [
+        "ab",
+        "a",
+        "abc",
+        "a😀",
+        "a￿"
+      ],
+      "want": [
+        "a",
+        "ab",
+        "abc",
+        "a😀",
+        "a￿"
+      ]
+    }
+  ],
+  "slice": [
+    {
+      "name": "shorter than the limit",
+      "input": "short",
+      "limit": 10,
+      "want": "short"
+    },
+    {
+      "name": "ASCII cut",
+      "input": "abcdefghij",
+      "limit": 4,
+      "want": "abcd"
+    },
+    {
+      "name": "cut between two astral characters",
+      "input": "😀😁",
+      "limit": 2,
+      "want": "😀"
+    },
+    {
+      "name": "cut through a surrogate pair",
+      "input": "ab😀cd",
+      "limit": 3,
+      "want": "ab\ud83d"
+    },
+    {
+      "name": "multi-byte characters inside the Basic Multilingual Plane",
+      "input": "héllo wörld",
+      "limit": 5,
+      "want": "héllo"
+    }
   ]
 }

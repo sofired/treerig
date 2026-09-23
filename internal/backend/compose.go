@@ -27,6 +27,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -164,9 +165,8 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	for name := range config.Services {
 		names = append(names, name)
 	}
-	// SPIKE: byte order; JavaScript's default sort is UTF-16 order, which
-	// differs only between astral characters and U+E000–U+FFFF.
-	slices.Sort(names)
+	// JavaScript's default sort, as the TypeScript build lists them.
+	slices.SortFunc(names, text.CompareUTF16)
 	statuses := make([]worktree.ServiceStatus, len(names))
 	for i, name := range names {
 		if status, ok := seen[name]; ok {
@@ -209,15 +209,14 @@ func serviceState(record psRecord) (worktree.ServiceState, string) {
 // rather than read as "every service is absent": an empty list is a complete
 // answer, garbage is not.
 func parsePsOutput(stdout string) ([]psRecord, error) {
-	text := strings.TrimSpace(stdout)
-	if text == "" {
+	output := strings.TrimSpace(stdout)
+	if output == "" {
 		return nil, nil
 	}
 	unreadable := func() error {
-		shown := text
-		if len(shown) > 400 {
-			// SPIKE: bytes, not UTF-16 units; identical for ASCII output.
-			shown = shown[:400] + "\n…"
+		shown := output
+		if text.JSLen(shown) > 400 {
+			shown = text.TruncateUTF16(shown, 400) + "\n…"
 		}
 		return clierr.Newf("Compose returned service state in a form this version of %s cannot read. "+
 			"Run `docker compose version` and report it with the output below:\n%s", brand.Name, shown)
@@ -244,7 +243,7 @@ func parsePsOutput(stdout string) ([]psRecord, error) {
 	}
 
 	var whole any
-	decoder := json.NewDecoder(bytes.NewReader([]byte(text)))
+	decoder := json.NewDecoder(bytes.NewReader([]byte(output)))
 	if err := decoder.Decode(&whole); err == nil && !decoder.More() {
 		switch value := whole.(type) {
 		case nil:
@@ -269,7 +268,7 @@ func parsePsOutput(stdout string) ([]psRecord, error) {
 	}
 	// One document per line; every non-blank line must be a record.
 	var records []psRecord
-	for _, line := range strings.Split(text, "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}

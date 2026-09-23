@@ -34,7 +34,7 @@ func TestConfigCorpus(t *testing.T) {
 		t.Fatalf("parsing testdata/config-corpus.json: %v", err)
 	}
 	if len(cases) < 40 {
-		t.Fatalf("only %d corpus cases; the spike asked for 40+", len(cases))
+		t.Fatalf("only %d corpus cases, expected at least 40; regenerate testdata/config-corpus.json", len(cases))
 	}
 
 	for _, c := range cases {

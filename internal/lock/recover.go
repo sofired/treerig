@@ -6,8 +6,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/berth/internal/text"
 )
 
 // judgeDelay is how long the second look waits, both for a contradiction
@@ -24,7 +26,7 @@ func (l *Lock) recoverPreviousHolder() error {
 		return l.refuse(fmt.Sprintf("its holder record %s could not be read (%s), so whether its holder is gone cannot be told", l.recordPath(), err))
 	}
 	if rec != nil && rec.ReleasedAt == nil {
-		if err := l.judgeAndHandle(rec, false); err != nil {
+		if err := l.judgeAndHandle(rec); err != nil {
 			return err
 		}
 	}
@@ -34,21 +36,21 @@ func (l *Lock) recoverPreviousHolder() error {
 // judgeAndHandle ports step 4 of the design: judge, refuse on doubt, and
 // catch a contradiction — the flock is free, yet the record's identity
 // checks say its holder is still running.
-func (l *Lock) judgeAndHandle(rec *Record, skipFileIdentity bool) error {
+func (l *Lock) judgeAndHandle(rec *Record) error {
 	self, err := l.opts.Table.Self()
 	if err != nil {
 		self = procid.Identity{}
 	}
 	hostname, _ := os.Hostname()
 
-	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, skipFileIdentity)
+	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, false)
 	if err != nil {
 		return err
 	}
 
 	if verdict.Kind == Alive {
 		time.Sleep(judgeDelay)
-		verdict, err = judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, skipFileIdentity)
+		verdict, err = judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, false)
 		if err != nil {
 			return err
 		}
@@ -63,6 +65,31 @@ func (l *Lock) judgeAndHandle(rec *Record, skipFileIdentity bool) error {
 	}
 	// Gone: judged dead. Still scan for anything it started before trusting
 	// the lock is really free of its work.
+	return l.scanSurvivors()
+}
+
+// judgeLegacyHolder judges a TypeScript-era holder. Unlike a holder of this
+// build's own lock, one found alive is no contradiction: the TypeScript build
+// never takes the flock, so a free flock says nothing about it. It is simply
+// running, and this build cannot wait on its lock.
+func (l *Lock) judgeLegacyHolder(rec *Record) error {
+	self, err := l.opts.Table.Self()
+	if err != nil {
+		self = procid.Identity{}
+	}
+	hostname, _ := os.Hostname()
+	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, true)
+	if err != nil {
+		return err
+	}
+	switch verdict.Kind {
+	case Alive:
+		return clierr.Newf("Not taking the %s lock: a TypeScript build of %s holds it, and %s. "+
+			"This build cannot wait on that build's locks; let that command finish, then run this again.",
+			l.scope.Description, brand.Name, verdict.Reason)
+	case Unverifiable:
+		return l.refuse(verdict.Reason)
+	}
 	return l.scanSurvivors()
 }
 
@@ -183,9 +210,15 @@ func (l *Lock) recoverLegacyLeftover() error {
 		return err
 	}
 	if legacy == nil {
-		return nil // nothing to judge; an unidentified directory is left alone
+		// A TypeScript berth takes its lock directory first and writes its
+		// record a moment later; one that died in between leaves the same
+		// sight. Taking the lock now could run beside a live one, and the
+		// two builds' locks cannot see each other, so refuse either way.
+		return clierr.Newf("Not taking the %s lock: %s exists but names no holder, so a TypeScript build of %s may be taking it right now. "+
+			"If none is running, remove it with `rmdir %s` and run this again.",
+			l.scope.Description, text.Printable(lockDir), brand.Name, text.Printable(text.ShellQuote(lockDir)))
 	}
-	if err := l.judgeAndHandle(legacy, true); err != nil {
+	if err := l.judgeLegacyHolder(legacy); err != nil {
 		return err
 	}
 	if err := os.Remove(lockDir); err != nil && !os.IsNotExist(err) {

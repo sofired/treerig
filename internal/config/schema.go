@@ -16,8 +16,7 @@ import (
 //
 // Ported from src/config/schema.ts field for field, message for message; see
 // that file for the reasoning behind each shape. The struct this decodes
-// into, Config, is coordinator-owned (config.go) and already carries the
-// field order zod's own output uses.
+// into, Config (config.go), carries the field order zod's own output uses.
 
 var (
 	slugPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)

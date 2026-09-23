@@ -490,7 +490,7 @@ func TestHolderExitsWhileHolding(t *testing.T) {
 // grandchild's exact PID on Linux, and Acquire succeeds once it too is
 // killed. The holder gets there through lifecycle.Hold + osrun +
 // InheritLocks end to end — not by calling lock.WithHeld itself — so this
-// covers the coordinator fix that wires held locks into the action context.
+// covers how Hold wires held locks into the action context.
 func TestGrandchildInheritsDescriptorKeepsLockHeld(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "worktree")

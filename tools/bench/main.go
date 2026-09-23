@@ -1,8 +1,9 @@
-// Command spikebench measures the TypeScript and Go builds of berth side by
-// side on the same registered state, for the Go port spike's decision report.
+// Command bench measures the TypeScript and Go builds of berth side by
+// side on the same registered state: the numbers in
+// docs/decisions/0001-port-to-go.md, and the CI benchmark job.
 //
-//	go run ./tools/spikebench -go dist/berth              # timing table
-//	go run ./tools/spikebench -sizes                       # cross-compiled binary sizes
+//	go run ./tools/bench -go dist/berth              # timing table
+//	go run ./tools/bench -sizes                       # cross-compiled binary sizes
 //
 // Every scenario runs WarmUp times unmeasured, then Runs times measured: the
 // median and 90th percentile of wall time, the peak resident set size, and
@@ -128,7 +129,7 @@ type fixtureState struct {
 // three through the TypeScript build's own registry, adds 17 records for two
 // other repositories, and puts a docker on PATH that answers instantly.
 func buildFixture(repoRoot, node string) fixtureState {
-	root, err := os.MkdirTemp("", "spikebench-")
+	root, err := os.MkdirTemp("", "bench-")
 	check(err)
 	cleanups = append(cleanups, func() { _ = os.RemoveAll(root) })
 	root, err = filepath.EvalSymlinks(root)
@@ -189,7 +190,7 @@ exit 0
 		"HOME=" + root,
 		"BERTH_HOME=" + home,
 	}
-	cmd := exec.Command(node, filepath.Join(repoRoot, "tools", "spikebench", "fixture.ts"), home, "17",
+	cmd := exec.Command(node, filepath.Join(repoRoot, "tools", "bench", "fixture.ts"), home, "17",
 		repo, filepath.Join(root, "wt-login"), filepath.Join(root, "wt-crash"))
 	cmd.Dir = repoRoot
 	cmd.Env = append(env, gitEnv...)
@@ -295,7 +296,7 @@ func printTable(rows []row, runs int) {
 // reportSizes cross-compiles cmd/berth for the four supported targets,
 // stripped as a release would be, and prints raw and gzip sizes.
 func reportSizes(repoRoot string) {
-	dir, err := os.MkdirTemp("", "spikebench-sizes-")
+	dir, err := os.MkdirTemp("", "bench-sizes-")
 	check(err)
 	cleanups = append(cleanups, func() { _ = os.RemoveAll(dir) })
 	defer cleanUp()
@@ -353,7 +354,7 @@ func cleanUp() {
 }
 
 func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "spikebench: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "bench: "+format+"\n", args...)
 	cleanUp()
 	os.Exit(1)
 }

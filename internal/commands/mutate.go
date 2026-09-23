@@ -112,8 +112,8 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	}); err != nil {
 		return err
 	}
-	// SPIKE: the checkout index refresh after `down` is not ported; the
-	// TypeScript build prints nothing when that best-effort refresh succeeds.
+	// TODO(#41): refresh the checkout index here, best effort, as the
+	// TypeScript build does; it prints nothing when that refresh succeeds.
 	cctx.Logger.Info(host + " is down.")
 	return nil
 }

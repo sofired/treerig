@@ -6,9 +6,9 @@ package lifecycle
 // Quiescer seam. Abandon must leave the record unreleased, and a real child
 // that inherited the lock's descriptor must keep it held after the helper
 // itself is torn down by a real os.Exit(1) — proving Hold's forceExit path
-// end to end, including the coordinator's two fixes: WithHeld wiring the
-// lock into the action's context (so InheritLocks has something to give the
-// child), and the reason logged before abandoning and exiting.
+// end to end, including WithHeld wiring the lock into the action's context
+// (so InheritLocks has something to give the child), and the reason logged
+// before abandoning and exiting.
 //
 // The test binary re-executes itself as a helper, chosen by
 // BERTH_LIFECYCLE_HELPER_ROLE. Cleanup kills exact PIDs only.

@@ -73,7 +73,8 @@ func (l *Lock) holdingProcs(fileID FileID) []procid.Proc {
 // advice is what a waiter should know, and — kept from the heartbeat design,
 // because a stopped holder still keeps the OS lock exactly as a running one
 // does — what to do about a holder judged stopped. Wording changes from
-// src/operation-lock.ts's advice() are listed in the final report: there is
+// src/operation-lock.ts's advice() are accepted difference 3 in
+// docs/decisions/0001-port-to-go.md: there is
 // no more "last heartbeat"/"so it is alive" language (flock itself proves
 // it), no more staleness confirmation across two looks, and no more `rmdir`
 // removal advice (recovery is automatic; a lock is never removed by hand).

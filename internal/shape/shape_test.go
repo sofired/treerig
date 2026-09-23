@@ -6,8 +6,8 @@ import (
 )
 
 // These exercise the generic engine directly — independent of internal/config
-// — against zod 4.4.3 behaviour verified interactively under Node (see the
-// spike's final report for the probe transcripts). internal/config's own
+// — against zod 4.4.3 behaviour verified interactively under Node when the
+// engine was written. internal/config's own
 // corpus_test.go is the larger byte-for-byte check, through a real schema;
 // these pin down shape's own contract so a future caller (a registry record,
 // an index card, Compose JSON) can trust it without re-deriving each rule.
@@ -82,6 +82,15 @@ func TestUnrecognizedKeysSingularAndPlural(t *testing.T) {
 	issue = mustIssue(t, issues, "(root)", CodeUnrecognizedKeys)
 	if want := `Unrecognized keys: "zeta", "alpha"`; issue.Message != want {
 		t.Errorf("message = %q, want %q (zod lists them in source order)", issue.Message, want)
+	}
+
+	// Divergence 6b in docs/port/divergences.md: a key with a control
+	// character in it is quoted by Go's %q, where zod's JSON.stringify would
+	// write \u0001.
+	_, issues = Parse(schema, NewObj().Set("a", "x").Set("b\x01d", 1))
+	issue = mustIssue(t, issues, "(root)", CodeUnrecognizedKeys)
+	if want := `Unrecognized key: "b\x01d"`; issue.Message != want {
+		t.Errorf("message = %q, want %q", issue.Message, want)
 	}
 }
 

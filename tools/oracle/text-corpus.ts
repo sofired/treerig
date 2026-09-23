@@ -153,10 +153,37 @@ const lowerResults = lowerCases.map((c) => ({
   want: c.input.toLowerCase()
 }));
 
+// --- JavaScript's default sort and String.prototype.slice both work in UTF-16
+// code units. They part from Go's byte order and byte slicing only beyond the
+// Basic Multilingual Plane, where these cases go: a surrogate (U+D800–U+DFFF)
+// sorts before U+E000–U+FFFF, and a slice can cut a surrogate pair in half.
+// JSON.stringify writes a lone surrogate as a \udXXX escape, which Go decodes
+// to U+FFFD, exactly what Node writes to a terminal for one.
+const sortCases: { name: string; input: string[] }[] = [
+  { name: 'ASCII, by code unit rather than case', input: ['web', 'api', 'Worker', 'db', '_x', '9lives'] },
+  { name: 'private use and specials sort after astral characters', input: ['\u{E000}', '\u{1F600}', 'a', '\u{FFFD}', '\u{10000}'] },
+  { name: 'fullwidth letters sort after mathematical alphanumerics', input: ['\u{FF21}', '\u{1D400}', '\u{E9}', 'e'] },
+  { name: 'shared prefixes', input: ['ab', 'a', 'abc', 'a\u{1F600}', 'a\u{FFFF}'] }
+];
+
+const sortResults = sortCases.map((c) => ({ name: c.name, input: c.input, want: [...c.input].sort() }));
+
+const sliceCases: { name: string; input: string; limit: number }[] = [
+  { name: 'shorter than the limit', input: 'short', limit: 10 },
+  { name: 'ASCII cut', input: 'abcdefghij', limit: 4 },
+  { name: 'cut between two astral characters', input: '\u{1F600}\u{1F601}', limit: 2 },
+  { name: 'cut through a surrogate pair', input: 'ab\u{1F600}cd', limit: 3 },
+  { name: 'multi-byte characters inside the Basic Multilingual Plane', input: 'h\u{E9}llo w\u{F6}rld', limit: 5 }
+];
+
+const sliceResults = sliceCases.map((c) => ({ ...c, want: c.input.slice(0, c.limit) }));
+
 process.stdout.write(JSON.stringify({
   cfCodePointCount: cfCount,
   printableCodePoints: printableResults,
   printableStrings: printableStringResults,
   safeJson: safeJsonResults,
-  lower: lowerResults
+  lower: lowerResults,
+  sort: sortResults,
+  slice: sliceResults
 }, null, 2) + '\n');

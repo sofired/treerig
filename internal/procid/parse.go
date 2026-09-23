@@ -139,9 +139,9 @@ func parsePsScan(text string, exclude map[int]bool) []Proc {
 // parseProcArgs2 reads the buffer kern.procargs2 returns for one PID: a
 // little-endian argc, the saved exec path (NUL-terminated, then NUL-padded to
 // the next word), argv, each NUL-terminated, and finally the environment,
-// each entry NUL-terminated, running to the end of the buffer. Unverified
-// against a real kernel — there is no macOS in this spike — so this follows
-// the layout documented by libtop and reproduced by `ps` and `top`.
+// each entry NUL-terminated, running to the end of the buffer: the layout
+// libtop documents and `ps` and `top` rely on. The macOS CI job reads real
+// buffers through the lock layer's marker scan.
 func parseProcArgs2(raw []byte) (argv, envp []string, ok bool) {
 	if len(raw) < 4 {
 		return nil, nil, false

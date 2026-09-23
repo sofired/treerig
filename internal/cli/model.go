@@ -4,10 +4,11 @@
 // framework the TypeScript build parses with, for exactly the command tree
 // src/cli/main.ts defines — not as a general-purpose replacement for it.
 //
-// commander itself is not used: the spike's conventions call for no CLI
-// framework dependency, so the slice of its parsing, help and suggestion
-// behaviour this tree exercises is ported by hand. Where this package's
-// comments describe commander's own behaviour, they paraphrase
+// Until the TypeScript build is retired, help and errors must match
+// commander's byte for byte, which no Go CLI framework does; so the slice of
+// its parsing, help and suggestion behaviour this tree exercises is ported by
+// hand, and moves to spf13/cobra once that constraint lifts (#46). Where this
+// package's comments describe commander's own behaviour, they paraphrase
 // node_modules/commander/lib/{command,help,option,argument,suggestSimilar}.js
 // (MIT licensed, Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>).
 package cli

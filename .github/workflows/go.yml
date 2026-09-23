@@ -80,6 +80,35 @@ jobs:
           go test -count=1 ./...
           go test -count=1 -tags integration ./...
 
+  # Everything under testdata/ that the TypeScript build generates is
+  # regenerated from it here: a difference means a file was edited by hand,
+  # or the TypeScript behaviour it records has changed without it.
+  oracles:
+    name: oracle drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Install the TypeScript build
+        run: corepack enable && pnpm install --frozen-lockfile
+      - name: Regenerate
+        run: |
+          node tools/oracle/config-corpus.ts > internal/config/testdata/config-corpus.json
+          node tools/oracle/locale-sort.ts > internal/registry/testdata/locale-sort.json
+          node tools/oracle/slug-corpus.ts > internal/registry/testdata/slug-corpus.json
+          node tools/oracle/text-corpus.ts > internal/text/testdata/corpus.json
+          go test -count=1 ./internal/cli -run TestGolden -update
+      - name: Compare
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+
   cross:
     name: cross-compile
     runs-on: ubuntu-latest
@@ -90,7 +119,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build every target
-        run: go run ./tools/spikebench -sizes >> "$GITHUB_STEP_SUMMARY"
+        run: go run ./tools/bench -sizes >> "$GITHUB_STEP_SUMMARY"
 
   # Informational: shared runners are too noisy to gate on, so the numbers the
   # report quotes come from a quiet machine; this keeps the comparison visible
@@ -113,4 +142,4 @@ jobs:
       - name: Build
         run: go build -o dist/berth ./cmd/berth
       - name: Measure
-        run: go run ./tools/spikebench -node node -runs 20 >> "$GITHUB_STEP_SUMMARY"
+        run: go run ./tools/bench -node node -runs 20 >> "$GITHUB_STEP_SUMMARY"

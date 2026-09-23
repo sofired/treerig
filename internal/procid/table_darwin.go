@@ -17,9 +17,9 @@ const (
 	szomb = 5
 )
 
-// DarwinTable asks the kernel through sysctl; macOS has no /proc. Every
-// method here is exercised only by vet on this spike's Linux box — see the
-// final report for what is unverified.
+// DarwinTable asks the kernel through sysctl; macOS has no /proc. The macOS
+// CI job exercises it through the lock layer's real-process tests: identity,
+// exact start times, stopped holders and the marker scan.
 type DarwinTable struct{}
 
 // Platform is this platform's process table.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,11 +69,41 @@ func TestRecoverLegacyLeftover(t *testing.T) {
 		scope := Scope{Target: target, Description: "worktree main"}
 		lk := New(scope, opts)
 		_, err := lk.Acquire(context.Background(), "berth up")
-		if err == nil {
-			t.Fatal("expected a refusal")
+		want := "Not taking the worktree main lock: a TypeScript build of berth holds it, and PID 4242 on \"laptop\" is still running."
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "let that command finish, then run this again.") {
+			t.Fatalf("err = %v, want one naming the TypeScript build", err)
+		}
+		if strings.Contains(err.Error(), "Locking does not work") {
+			t.Fatalf("a live TypeScript holder is no contradiction: %v", err)
 		}
 		if _, statErr := os.Lstat(target + ".lock"); statErr != nil {
 			t.Fatalf("expected the .lock directory to survive a refusal, got %v", statErr)
 		}
+	})
+
+	t.Run("refuses a lock directory that names no holder, which a TypeScript berth may be taking", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "worktree")
+		if err := os.Mkdir(target+".lock", 0o700); err != nil {
+			t.Fatal(err)
+		}
+		lk := New(Scope{Target: target, Description: "worktree main"}, testOptions(t))
+		_, err := lk.Acquire(context.Background(), "berth up")
+		if err == nil || !strings.Contains(err.Error(), target+".lock exists but names no holder") ||
+			!strings.Contains(err.Error(), "rmdir '"+target+".lock'") {
+			t.Fatalf("err = %v, want a refusal with rmdir advice", err)
+		}
+		if _, statErr := os.Lstat(target + ".lock"); statErr != nil {
+			t.Fatalf("expected the .lock directory to survive a refusal, got %v", statErr)
+		}
+		// The refusal gave the flock back.
+		again := New(Scope{Target: target, Description: "worktree main"}, testOptions(t))
+		if err := os.Remove(target + ".lock"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := again.Acquire(context.Background(), "berth up"); err != nil {
+			t.Fatalf("after the directory is gone: %v", err)
+		}
+		_ = again.Release()
 	})
 }

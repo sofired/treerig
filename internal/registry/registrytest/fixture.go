@@ -42,9 +42,9 @@ func WriteRecord(controlHome string, rec RecordJSON) (string, error) {
 }
 
 // Register creates worktree's identity markers (via IdentityService.Ensure,
-// which needs no lock) and then writes a fixture record for it, as if a
-// (not yet ported) `up` had registered it. Returns the identity so the
-// caller can assert on its UUIDs.
+// which needs no lock) and then writes a fixture record for it, as if `up`
+// had registered it. Returns the identity so the caller can assert on its
+// UUIDs.
 func Register(
 	ctx context.Context, controlHome string, identities *registry.IdentityService,
 	worktree, domain, slug string, labelNamespace *string, initialization string,

@@ -1,18 +1,15 @@
 package cli_test
 
-// Wiring checks for the verbs this package hands to commands.NotPorted, or
-// to a commands.* function that is still a SPIKE stub returning it (see
-// internal/commands' own "SPIKE: skeleton" comments) — not to the oracle,
-// since node runs the real thing for every one of these and would not
-// agree with a stub. What is checked instead is that cli.Main reaches the
-// right verb string, in the right shape (exit 2, the exact message
-// commands.NotPorted builds), which is what would tell us if this
-// package's own dispatch — not the stub — were wrong.
+// Wiring checks for the verbs this package hands to commands.NotPorted —
+// not against the oracle, since node runs the real thing for every one of
+// these and would not agree with a stub. What is checked instead is that
+// cli.Main reaches the right verb string, in the right shape (exit 2, the
+// exact message commands.NotPorted builds), which is what would tell us if
+// this package's own dispatch were wrong.
 //
-// up, index, doctor and router up/status/down are wired to
-// commands.NotPorted for this spike. The ported verbs (config, worktree
-// list/remove, urls, status, down) are covered by their own packages' tests
-// and by the parity scripts, not here.
+// A verb leaves this list as it is ported (see docs/port/process.md); the
+// ported verbs are covered by their own packages' tests and by the parity
+// tests, not here.
 
 import (
 	"bytes"
@@ -64,7 +61,7 @@ func TestNotPortedVerbs(t *testing.T) {
 // TestDevNotImplemented checks the one verb whose "not yet" message is
 // fixed directly in this package (see program.go) rather than built by
 // commands.NotPorted, since it is worded and exit-coded differently
-// ('%s dev' is not implemented yet...", not "...is not yet ported...").
+// ("'%s dev' is not implemented yet...", not "...is not in the Go build yet.").
 // Its wording is also covered end to end, against the oracle, by
 // TestGolden's dev-not-implemented case; this one exists to pin the exit
 // code and stream by name.

@@ -2,15 +2,10 @@
 // minus the runtime, router and checkout index: a hermetic world for
 // command tests, with a fake Git runner and a real filesystem control home.
 //
-// Since internal/config's Load/LoadNearest are not yet implemented (another
-// work package), World.Context builds a commands.CommandContext directly
-// from a hand-built config.Config, bypassing Context(env) and the
-// filesystem entirely for the config half — exactly what the assignment
-// asks unit tests to do until config loading lands.
-//
-// SPIKE: Dispose is unnecessary here (New uses a t.TempDir, cleaned up by
-// the testing package automatically), unlike the TypeScript helper, which
-// needs an explicit rm because Vitest has no equivalent.
+// World.Context builds a commands.CommandContext directly from a hand-built
+// config.Config rather than loading a berth.toml, so a test states its
+// config in Go. There is no Dispose: New uses a t.TempDir, which the testing
+// package removes, where the TypeScript helper needs an explicit rm.
 package commandstest
 
 import (
@@ -177,9 +172,8 @@ type indexCardFixture struct {
 	UpdatedAt      string   `json:"updatedAt"`
 }
 
-// WriteIndexCard writes a fixture index card directly, bypassing
-// writeIndexCard (which needs atomicJson and lives with `up`, out of this
-// spike's read-only command scope) — mirroring registrytest.WriteRecord.
+// WriteIndexCard writes a fixture index card directly, as `up` would have
+// left it — mirroring registrytest.WriteRecord.
 // This is what gives `list` a "last seen" branch and root for a
 // registration whose live Git identity is gone.
 func (w *World) WriteIndexCard(repositoryID, worktreeID, project, domain, slug, host, root, branch string) {

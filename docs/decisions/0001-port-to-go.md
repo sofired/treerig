@@ -1,5 +1,10 @@
 # Go port spike: decision report
 
+**Status: accepted**, 2026-09-23, in PR #36. The owner decided to port berth
+to Go and approved the six accepted differences below. Later changes are
+tracked in [`docs/port/divergences.md`](../port/divergences.md) and issues
+#37–#46.
+
 ## Recommendation
 
 **Go.** Port berth to Go. Every hard gate has passed, including macOS on the draft PR's CI.
@@ -39,7 +44,7 @@ Locks are kernel `flock(2)` locks on the existing target files, with a sidecar h
 - the `.recovery` mutex and the `.lock` directories;
 - the macOS birth-time workaround.
 
-The design is in [lock-design.md](lock-design.md). How it behaves:
+The design is in [lock-design.md](../design/locks.md). How it behaves:
 - **A holder that dies frees the lock.** The kernel releases it immediately, even on SIGKILL. The next acquirer finds the record not marked released and judges the old holder by machine, boot, PID namespace, and whether the PID is gone or reused. It then scans for processes still carrying the worktree's markers. If in doubt, it refuses and never steals the lock.
 - **Docker children keep the lock.** `docker` and `docker compose` inherit the lock's descriptor, so the lock outlives a killed berth for exactly as long as they run. Hooks do not inherit it, by your decision: a helper a hook left running would otherwise hold the worktree. A standing test fails if anything but the Docker wrapper asks for inheritance.
 - **Every command is covered.** One process-wide lifecycle defers SIGINT and SIGTERM for every mutation, including `down` (#23). It proves children have quiesced before releasing, and re-raises the signal so the process dies by it.
@@ -52,7 +57,7 @@ The design is in [lock-design.md](lock-design.md). How it behaves:
 
 ## Measurements
 
-Measured on an idle 8-core Linux 6.8 x86_64 machine with `go run ./tools/spikebench`: 50 runs after 5 warm-up runs, on identical registered state. That state is three git worktrees registered through the TypeScript build's own registry, plus 17 records for other repositories. The raw results are in [bench.json](bench.json).
+Measured on an idle 8-core Linux 6.8 x86_64 machine with `go run ./tools/bench`: 50 runs after 5 warm-up runs, on identical registered state. That state is three git worktrees registered through the TypeScript build's own registry, plus 17 records for other repositories. The raw results are in [bench.json](0001-port-to-go-bench.json).
 
 | Scenario | TS median | TS p90 | Go median | Go p90 | Saved | TS RSS | Go RSS | Same output |
 |---|---:|---:|---:|---:|---:|---:|---:|:---:|
@@ -132,7 +137,7 @@ Go's remaining time on `list` is git: one `git worktree list` plus a `rev-parse`
 4. **The confirmation prompt** reads a line through the terminal's own line editing: backspace, Ctrl-U and Ctrl-W work, but arrow keys and history do not. Node's `readline` supports both. The answer is the worktree's hostname, typed exactly, so a typo can still be erased before Enter. An arrow key inserts an escape sequence instead of moving the cursor, and the mismatched answer is refused safely.
 5. **Operating-system error wording.** An unexpected file error reads as Go words it (`open /x: permission denied`), not as Node does (`EACCES: permission denied, open '/x'`). This is the same error in the same place; only the words differ.
 6. **Edge cases no fixture reaches:**
-   - Sorting of non-ASCII service names: byte order instead of UTF-16 order.
+   - Sorting of non-ASCII service names: byte order instead of UTF-16 order. **Resolved:** `internal/backend/compose.go` now sorts with `text.CompareUTF16`, JavaScript's own order.
    - `Unrecognized key` quoting for a key containing a control character: Go's `%q`.
    - A hook with no `#!` line: 126 in Go, where Node's `execvp` would have run it with `/bin/sh`. Hooks are not ported yet.
 
@@ -182,6 +187,6 @@ go build -o dist/berth ./cmd/berth
 go test -race ./...                                   # unit
 go test -race -tags integration ./...                 # real git, processes, signals, Docker, parity (needs node 24)
 BERTH_CLI=$PWD/dist/berth BERTH_CLI_UNPORTED=doctor,router,unlock pnpm exec vitest run tests/cli/streams.test.ts
-go run ./tools/spikebench -go dist/berth              # timings
-go run ./tools/spikebench -sizes                      # binary sizes
+go run ./tools/bench -go dist/berth              # timings
+go run ./tools/bench -sizes                      # binary sizes
 ```

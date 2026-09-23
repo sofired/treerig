@@ -185,7 +185,7 @@ func TestDownStatus(t *testing.T) {
 			t.Fatal("down read the model")
 		}
 	})
-	// Adapted: the TypeScript titles check `up`, which the spike does not port; `down` gets the same environment.
+	// Adapted until `up` is ported (#38): the TypeScript titles check `up`; `down` gets the same environment.
 	t.Run("hands Compose the same BERTH_* vocabulary hooks receive, plus the project name", func(t *testing.T) {
 		fake := newFake()
 		rt, controlHome := newRuntime(t, fake)

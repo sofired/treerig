@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf16"
@@ -139,6 +140,25 @@ func JSLower(value string) string {
 		b.WriteRune(unicode.ToLower(r))
 	}
 	return b.String()
+}
+
+// CompareUTF16 orders two strings as JavaScript's default sort does, by
+// UTF-16 code units. That is byte order everywhere but one place: a character
+// from U+E000 to U+FFFF sorts after one beyond U+FFFF, whose surrogates
+// (U+D800–U+DFFF) come first in UTF-16 and last in UTF-8.
+func CompareUTF16(a, b string) int {
+	return slices.Compare(utf16.Encode([]rune(a)), utf16.Encode([]rune(b)))
+}
+
+// TruncateUTF16 is JavaScript's value.slice(0, n): its first n UTF-16 code
+// units. A surrogate pair cut in half leaves a lone surrogate, which Node
+// writes out as U+FFFD, and so does this.
+func TruncateUTF16(value string, n int) string {
+	units := utf16.Encode([]rune(value))
+	if len(units) <= n {
+		return value
+	}
+	return string(utf16.Decode(units[:n]))
 }
 
 // ShellQuote single-quotes a value for a POSIX shell, so a pasted command

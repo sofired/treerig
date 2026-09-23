@@ -19,9 +19,8 @@ import (
 // fixtures) commandstest.
 //
 // This is the Go counterpart of src/commands/context.ts's CommandContext,
-// trimmed to what the read-only verbs (list, urls) need. The coordinator
-// grows it for status, down and worktree remove: a runtime, a router, and
-// the checkout index, none of which a read-only verb touches.
+// carrying what the verbs ported so far need; the router and the checkout
+// index join it as they are ported.
 type CommandContext struct {
 	CommandName string
 	// Invocation is the command line as invoked, arguments space-joined;

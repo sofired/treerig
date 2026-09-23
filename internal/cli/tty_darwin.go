@@ -4,9 +4,9 @@ package cli
 
 import "golang.org/x/sys/unix"
 
-// stdinIsTTY reports whether the process's real stdin (fd 0) is a terminal.
-// SPIKE: written to match tty_linux.go's contract but not run on macOS in
-// this spike; see the CLI agent's final report.
+// stdinIsTTY reports whether the process's real stdin (fd 0) is a terminal:
+// the TIOCGETA probe golang.org/x/term uses on macOS. CI runs it only without
+// a terminal, where it reports false.
 func stdinIsTTY() bool {
 	_, err := unix.IoctlGetTermios(0, unix.TIOCGETA)
 	return err == nil

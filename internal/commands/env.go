@@ -54,7 +54,8 @@ type RemoveOptions struct {
 	Yes bool
 }
 
-// NotPorted is what a verb the Go build does not have yet answers with.
+// NotPorted is what a verb the Go build does not have yet answers with. It
+// points nowhere else: the Go and TypeScript builds must not share a machine.
 func NotPorted(commandName, verb string) error {
-	return clierr.WithCode("'"+commandName+" "+verb+"' is not yet ported to the Go build; use the TypeScript berth.", 2)
+	return clierr.WithCode("'"+commandName+" "+verb+"' is not in the Go build yet.", 2)
 }
