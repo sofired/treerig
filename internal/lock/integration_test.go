@@ -17,10 +17,12 @@ package lock_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -280,6 +282,29 @@ func runChainMiddle() int {
 	return 0 // not reached: killed from outside
 }
 
+// requireListedAsHolding asserts procid's Holding names pid among the
+// processes with a descriptor on target. Linux must answer. Elsewhere Holding
+// may be unsupported, as on macOS, which has no /proc to read descriptors
+// from; the lock's notices then go without the list, and so does this check.
+func requireListedAsHolding(t *testing.T, target string, pid int) {
+	t.Helper()
+	dev, ino := statFileID(t, target)
+	holding, err := procid.Platform().Holding(dev, ino)
+	if errors.Is(err, errors.ErrUnsupported) && runtime.GOOS != "linux" {
+		t.Logf("Holding is not supported on %s, so which process holds the lock is not checked", runtime.GOOS)
+		return
+	}
+	if err != nil {
+		t.Fatalf("Holding: %v", err)
+	}
+	for _, p := range holding {
+		if p.PID == pid {
+			return
+		}
+	}
+	t.Fatalf("expected Holding to list %d, got %v", pid, holding)
+}
+
 // waitForReadyFile polls for path to hold a PID, written by reportReadyFile.
 func waitForReadyFile(t *testing.T, path string) int {
 	t.Helper()
@@ -484,20 +509,7 @@ func TestGrandchildInheritsDescriptorKeepsLockHeld(t *testing.T) {
 		t.Fatal("expected the lock to still be held by the surviving grandchild")
 	}
 
-	dev, ino := statFileID(t, target)
-	holding, err := procid.Platform().Holding(dev, ino)
-	if err != nil {
-		t.Fatalf("Holding: %v", err)
-	}
-	found := false
-	for _, p := range holding {
-		if p.PID == grandchildPID {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected Holding to list the grandchild %d, got %v", grandchildPID, holding)
-	}
+	requireListedAsHolding(t, target, grandchildPID)
 
 	killPID(grandchildPID, syscall.SIGKILL)
 	waitForGone(t, grandchildPID)
@@ -578,20 +590,7 @@ func TestGoChainKeepsDescriptorAcrossExecWithoutExtraFiles(t *testing.T) {
 		t.Fatal("expected the lock to still be held by the surviving grandchild")
 	}
 
-	dev, ino := statFileID(t, target)
-	holding, err := procid.Platform().Holding(dev, ino)
-	if err != nil {
-		t.Fatalf("Holding: %v", err)
-	}
-	found := false
-	for _, p := range holding {
-		if p.PID == grandchildPID {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected Holding to list the grandchild %d, got %v", grandchildPID, holding)
-	}
+	requireListedAsHolding(t, target, grandchildPID)
 
 	killPID(grandchildPID, syscall.SIGKILL)
 	waitForGone(t, grandchildPID)
