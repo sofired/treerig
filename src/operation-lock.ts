@@ -1,11 +1,12 @@
-import type { Stats } from 'node:fs';
-import { lstat, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { readFileSync, writeFileSync, type Stats } from 'node:fs';
+import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import path from 'node:path';
 import * as lockfile from 'proper-lockfile';
 import { z } from 'zod';
 import { CliError, invariant } from './errors.ts';
 import { atomicWrite } from './files.ts';
+import { currentIdentity, type ProcessIdentity } from './process-table.ts';
 import { shellQuote } from './shell.ts';
 import { oneLine } from './text.ts';
 import type { Logger } from './logger.ts';
@@ -54,6 +55,14 @@ export interface ScopedLockOptions {
   holder?: string;
   /** The clock the wait is measured on; tests use it to simulate a suspended machine. */
   clock?: () => number;
+  /**
+   * The command that proves a silent holder is gone and clears its lock
+   * (`berth worktree unlock <uuid>`). Advice names it instead of an
+   * `rmdir`, which would skip every check it makes.
+   */
+  recovery?: string;
+  /** Who this process is, for its record; tests supply one. */
+  identity?: () => Promise<ProcessIdentity>;
 }
 
 interface WaitPlan {
@@ -70,11 +79,65 @@ const holderRecordSchema = z.object({
   pid: z.number().int().positive(),
   host: z.string().min(1),
   command: z.string(),
-  startedAt: z.string()
+  startedAt: z.string(),
+  // What a later reader checks the holder against. Records written before
+  // `worktree unlock` existed have none of these.
+  /** The `.lock` directory this record describes: a lock taken again is a different directory. */
+  lock: z.object({ ino: z.string().regex(/^\d+$/), birthtimeMs: z.number() }).optional(),
+  machineId: z.string().min(1).optional(),
+  bootId: z.string().min(1).optional(),
+  pidNs: z.string().min(1).optional(),
+  startTicks: z.number().int().nonnegative().optional(),
+  processStartedAtMs: z.number().optional()
 });
-type HolderRecord = z.infer<typeof holderRecordSchema>;
+export type HolderRecord = z.infer<typeof holderRecordSchema>;
 /** A record is one short line; anything larger is not ours and is not read. */
 const HOLDER_RECORD_MAX_BYTES = 4_096;
+
+/** The record in a lock target, and the exact text it was read from. */
+async function readHolderRecord(target: string): Promise<{ record?: HolderRecord; text?: string }> {
+  try {
+    const { size } = await stat(target);
+    if (size === 0 || size > HOLDER_RECORD_MAX_BYTES) return {};
+    const text = await readFile(target, 'utf8');
+    const parsed = holderRecordSchema.safeParse(JSON.parse(text));
+    return parsed.success ? { record: parsed.data, text } : { text };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Targets whose record this process wrote and still holds. A process that
+ * exits holding one empties it on the way out, as proper-lockfile removes the
+ * `.lock` directory. A fatal signal can still leave a record beside a lock
+ * that is gone; the next holder writes its own over it, and until then the
+ * record's `lock` binding shows it describes an earlier directory.
+ */
+const heldRecords = new Set<string>();
+let exitHandlerInstalled = false;
+
+/** Exported for tests: what the exit handler does. */
+export function forgetRecordsOnExit(): void {
+  for (const target of heldRecords) {
+    try {
+      const parsed = holderRecordSchema.safeParse(JSON.parse(readFileSync(target, 'utf8')));
+      // Only our own: someone may already have taken the lock and written theirs.
+      if (parsed.success && parsed.data.pid === process.pid) writeFileSync(target, '');
+    } catch {
+      // Nothing more can be done on the way out.
+    }
+  }
+}
+
+/** Exported for tests: what acquiring does once its record is written. */
+export function rememberHeldRecord(target: string): void {
+  heldRecords.add(target);
+  if (!exitHandlerInstalled) {
+    exitHandlerInstalled = true;
+    process.on('exit', forgetRecordsOnExit);
+  }
+}
 
 interface LockHolder {
   state: LockRecoveryState;
@@ -161,6 +224,15 @@ export function worktreeRecoveryLockTarget(
   return `${worktreeLockTarget(controlHome, repositoryId, worktreeId)}.recovery`;
 }
 
+/**
+ * How to clear a worktree's locks once their holder is dead, as every notice
+ * and `doctor` names it: by UUID, since a slug is unique only within its
+ * domain, and unlock finds a worktree by UUID whether it registered or not.
+ */
+export function worktreeUnlockCommand(commandName: string, worktreeId: string): string {
+  return `${commandName} worktree unlock ${worktreeId}`;
+}
+
 export function routerLockTarget(controlHome: string): string {
   return controlLayout(controlHome).routerLockPath;
 }
@@ -184,6 +256,8 @@ export class ScopedLock {
   private readonly staleConfirmationMs: number;
   private readonly holderCommand?: string;
   private readonly clock: () => number;
+  private readonly recovery?: string;
+  private readonly identity: () => Promise<ProcessIdentity>;
   private lockDirectory?: string;
   private releaseLock?: () => Promise<void>;
   private compromised?: Error;
@@ -226,6 +300,8 @@ export class ScopedLock {
     this.staleConfirmationMs = options.staleConfirmationMs ?? LOCK_STALE_CONFIRMATION_MS;
     this.holderCommand = options.holder;
     this.clock = options.clock ?? Date.now;
+    this.recovery = options.recovery;
+    this.identity = options.identity ?? currentIdentity;
   }
 
   /**
@@ -255,6 +331,8 @@ export class ScopedLock {
         retries: 0,
         onCompromised: (error) => {
           this.compromised = error;
+          // The lock, and whatever record is in it now, belongs to someone else.
+          heldRecords.delete(this.target);
           this.logger.error(`${this.description} lock was compromised: ${error.message}`);
         }
       });
@@ -268,36 +346,43 @@ export class ScopedLock {
 
   /**
    * The `.lock` directory must stay empty (release is an rmdir), so the record
-   * goes into the target file, which is ours for as long as the lock is. It is
-   * advisory — a waiter without it still has the heartbeat — so failing to
-   * write it must not cost the lock just taken.
+   * goes into the target file, which is ours for as long as the lock is. It
+   * says which directory it describes and who this process is in terms a
+   * later reader can check, so `worktree unlock` can prove a silent holder
+   * gone. A holder that cannot say who it is could never be shown to be gone, so
+   * it gives the lock back rather than hold it unidentified.
    */
   private async recordHolder(): Promise<void> {
-    const record: HolderRecord = {
-      pid: process.pid,
-      host: hostname(),
-      command: oneLine(this.holderCommand ?? ''),
-      startedAt: new Date().toISOString()
-    };
     try {
+      invariant(this.lockDirectory !== undefined, `${this.description} lock recorded before acquisition began.`);
+      const [identity, directory] = await Promise.all([this.identity(), lstat(this.lockDirectory, { bigint: true })]);
+      const record: HolderRecord = {
+        pid: process.pid,
+        host: hostname(),
+        command: oneLine(this.holderCommand ?? ''),
+        startedAt: new Date().toISOString(),
+        lock: { ino: directory.ino.toString(), birthtimeMs: Number(directory.birthtimeMs) },
+        ...(identity.machineId === undefined ? {} : { machineId: identity.machineId }),
+        ...(identity.bootId === undefined ? {} : { bootId: identity.bootId }),
+        ...(identity.pidNs === undefined ? {} : { pidNs: identity.pidNs }),
+        ...(identity.startTicks === undefined ? {} : { startTicks: identity.startTicks }),
+        ...(identity.startedAtMs === undefined ? {} : { processStartedAtMs: identity.startedAtMs })
+      };
       await atomicWrite(this.target, `${JSON.stringify(record)}\n`);
+      rememberHeldRecord(this.target);
     } catch (error) {
-      this.logger.warn(
-        `Could not note this process as the holder of the ${this.description} lock: ` +
+      const release = this.releaseLock;
+      this.releaseLock = undefined;
+      await release?.().catch(() => undefined);
+      throw new CliError(
+        `Could not record this process as the holder of the ${this.description} lock, so it was given back: ` +
         `${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
 
   private async holderRecord(): Promise<HolderRecord | undefined> {
-    try {
-      const { size } = await stat(this.target);
-      if (size === 0 || size > HOLDER_RECORD_MAX_BYTES) return undefined;
-      const parsed = holderRecordSchema.safeParse(JSON.parse(await readFile(this.target, 'utf8')));
-      return parsed.success ? parsed.data : undefined;
-    } catch {
-      return undefined;
-    }
+    return (await readHolderRecord(this.target)).record;
   }
 
   /** Who holds the lock, as far as the filesystem can tell. */
@@ -370,6 +455,19 @@ export class ScopedLock {
       return `${who}; its last heartbeat was ${age}, so it is alive. Wait for it to finish, or stop it${final ? ', then retry' : ''}.`;
     }
     if (holder.state === 'stale') {
+      if (this.recovery !== undefined) {
+        const recover = `run \`${this.recovery}\`, which clears it only once it has checked that the holder, ` +
+          'and every command it started on this machine, is gone';
+        if (confirmed) {
+          return `${who}; its heartbeat has stayed silent for ${formatDuration(ageMs)}. Locks are never stolen automatically: ` +
+            `${recover}${final ? ', then retry.' : '; this command will then carry on by itself.'}`;
+        }
+        if (final) {
+          return `${who}; its last heartbeat was ${age}. If its machine only just woke up, the next heartbeat arrives within ` +
+            `${formatDuration(LOCK_UPDATE_MS)}, so this is too soon to call it dead. Locks are never stolen automatically: ` +
+            `${recover}, then retry.`;
+        }
+      }
       const holderProcess = holder.record === undefined
         ? 'that process'
         : `that process (\`ps -p ${holder.record.pid}\` on ${JSON.stringify(oneLine(holder.record.host))})`;
@@ -472,6 +570,7 @@ export class ScopedLock {
     // compromise can also land during the truncation, hence the second look.
     if (this.compromised) return;
     // Only a holder should be described; the record is wiped while the lock is still ours.
+    heldRecords.delete(this.target);
     await writeFile(this.target, '', { mode: 0o600 }).catch(() => undefined);
     if (this.compromised) return;
     try {
@@ -510,10 +609,23 @@ export async function inspectLockForRecovery(
     throw error;
   }
 
-  const active = await lockfile.check(resolvedTarget, {
-    realpath: true,
-    stale: LOCK_RECOVERY_STALE_MS
-  });
+  let active: boolean;
+  try {
+    active = await lockfile.check(resolvedTarget, {
+      realpath: true,
+      stale: LOCK_RECOVERY_STALE_MS
+    });
+  } catch (error) {
+    // A lock directory whose target file is gone: proper-lockfile cannot
+    // resolve the target, but the heartbeat is still the directory's mtime.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    try {
+      active = Date.now() - (await lstat(lockDirectory)).mtimeMs <= LOCK_RECOVERY_STALE_MS;
+    } catch (inner) {
+      if ((inner as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
+      throw inner;
+    }
+  }
   if (active) return 'active';
 
   // The owner may have released the lock between the initial lstat and check.
@@ -525,6 +637,52 @@ export async function inspectLockForRecovery(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
     throw error;
   }
+}
+
+/** A holder as every report names it: `"berth up" (PID 42 on "laptop")`. */
+export function holderLabel(record: HolderRecord | undefined): string {
+  if (record === undefined) return 'an unidentified holder';
+  const where = `PID ${record.pid} on ${JSON.stringify(oneLine(record.host))}`;
+  return record.command === '' ? where : `${JSON.stringify(oneLine(record.command))} (${where})`;
+}
+
+/** Everything a reader can learn about a lock without taking or changing anything. */
+export interface LockDescription {
+  state: LockRecoveryState;
+  lockDirectory: string;
+  /** The heartbeat: the directory's modification time. */
+  heartbeatMs?: number;
+  /** The directory's identity; a lock taken again is a different directory. */
+  ino?: string;
+  birthtimeMs?: number;
+  record?: HolderRecord;
+  /** The record file's exact content, to tell "unchanged" from "rewritten". */
+  recordText?: string;
+}
+
+/** Read-only: never creates the target, never touches the `.lock` directory. */
+export async function describeLock(target: string, description: string): Promise<LockDescription> {
+  const resolvedTarget = path.resolve(target);
+  const lockDirectory = `${resolvedTarget}.lock`;
+  const state = await inspectLockForRecovery(resolvedTarget, description);
+  if (state === 'missing') return { state, lockDirectory };
+  let metadata;
+  try {
+    metadata = await lstat(lockDirectory, { bigint: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing', lockDirectory };
+    throw error;
+  }
+  const { record, text } = await readHolderRecord(resolvedTarget);
+  return {
+    state,
+    lockDirectory,
+    heartbeatMs: Number(metadata.mtimeMs),
+    ino: metadata.ino.toString(),
+    birthtimeMs: Number(metadata.birthtimeMs),
+    ...(record === undefined ? {} : { record }),
+    ...(text === undefined ? {} : { recordText: text })
+  };
 }
 
 const STILL_ACTIVE = (description: string): string =>
@@ -557,6 +715,8 @@ export async function clearStaleLock(
     );
   }
 
+  // proper-lockfile claims through the target's real path, so it must exist.
+  await ensurePlainTarget(resolvedTarget, description);
   let release: (() => Promise<void>) | undefined;
   try {
     release = await lockfile.lock(resolvedTarget, {
@@ -571,25 +731,60 @@ export async function clearStaleLock(
     }
     throw error;
   }
+  // The dead holder's record goes with its lock, while the claim is ours:
+  // left behind, the next holder's lock would carry it until that holder wrote its own.
+  await writeFile(resolvedTarget, '', { mode: 0o600 }).catch(() => undefined);
   await release();
   return true;
 }
 
+export type WorktreeLockKind = 'development' | 'operation';
+
+export interface WorktreeLock {
+  kind: WorktreeLockKind;
+  target: string;
+  /** As a waiter names it: `worktree main`, `main development session`. */
+  description: string;
+}
+
 /**
- * Clears a worktree's stale operation and development locks under a recovery
- * mutex, so two concurrent unlock attempts cannot interleave. The runtime
- * backend supplies `beforeOperationLockClear` to prove nothing owned by the
- * dead holder is still mutating state before the operation lock is released.
- * `description` is the worktree's slug; the locks are named the way a waiter
- * names them (`worktree main`, `main development session`).
+ * A worktree's two locks, in the order they are cleared. Every operation takes
+ * the operation lock first, so while it stays in place nothing can start; and
+ * an exclusive operation waiting on it will not then trip over a development
+ * lock left behind by the same dead holder.
+ */
+export function worktreeLocks(controlHome: string, repositoryId: string, worktreeId: string, description: string): WorktreeLock[] {
+  return [
+    { kind: 'development', target: developmentLockTarget(controlHome, repositoryId, worktreeId), description: `${description} development session` },
+    { kind: 'operation', target: worktreeLockTarget(controlHome, repositoryId, worktreeId), description: `worktree ${description}` }
+  ];
+}
+
+export interface WorktreeRecoveryOptions {
+  /**
+   * Runs once, under the recovery mutex, with every stale lock, before any is
+   * claimed: the check that the holder, and every command it started on this machine, is gone.
+   * Throwing clears nothing.
+   */
+  verify?: (stale: readonly WorktreeLock[]) => Promise<void>;
+  /** Runs immediately before each claim; throwing stops there. */
+  beforeClear?: (lock: WorktreeLock) => Promise<void>;
+}
+
+/**
+ * Clears a worktree's stale development and operation locks under a recovery
+ * mutex, so two concurrent unlock attempts cannot interleave. Nothing is
+ * cleared while either lock is active, and nothing until `verify` has proven
+ * the holder gone; each claim is then guarded again. `description` is the
+ * worktree's slug. Returns the locks it cleared.
  */
 export async function clearStaleWorktreeLocks(
   controlHome: string,
   repositoryId: string,
   worktreeId: string,
   description: string,
-  options: { beforeOperationLockClear?: () => Promise<void> } = {}
-): Promise<number> {
+  options: WorktreeRecoveryOptions = {}
+): Promise<WorktreeLock[]> {
   const recoveryTarget = worktreeRecoveryLockTarget(controlHome, repositoryId, worktreeId);
   await ensurePlainTarget(recoveryTarget, `${description} recovery`);
 
@@ -622,51 +817,80 @@ export async function clearStaleWorktreeLocks(
     }
   };
 
-  try {
-    const targets = [
-      {
-        path: developmentLockTarget(controlHome, repositoryId, worktreeId),
-        description: `${description} development session`
-      },
-      {
-        path: worktreeLockTarget(controlHome, repositoryId, worktreeId),
-        description: `worktree ${description}`
-      }
-    ];
+  const recover = async (): Promise<WorktreeLock[]> => {
+    const locks = worktreeLocks(controlHome, repositoryId, worktreeId, description);
 
-    // The recovery mutex excludes another manual unlock before any runtime
-    // mutation. Re-read both locks while holding it so a queued recovery does
-    // not act on state observed before the prior recovery completed.
-    const states = await Promise.all(
-      targets.map((target) => inspectLockForRecovery(target.path, target.description))
-    );
+    // The recovery mutex excludes another unlock before anything is proven.
+    // Re-read both locks while holding it so a queued recovery does not act
+    // on state observed before the prior recovery completed.
+    const states = await Promise.all(locks.map((lock) => inspectLockForRecovery(lock.target, lock.description)));
     assertRecoveryHealthy();
-    const activeIndex = states.findIndex((state) => state === 'active');
-    if (activeIndex >= 0) {
-      throw new CliError(STILL_ACTIVE(targets[activeIndex]?.description ?? description));
-    }
+    const active = locks.find((_, index) => states[index] === 'active');
+    if (active) throw new CliError(STILL_ACTIVE(active.description));
+    const stale = locks.filter((_, index) => states[index] === 'stale');
+    if (stale.length > 0) await options.verify?.(stale);
 
-    let cleared = 0;
-    // Recover the guarded operation lock first so a runtime ambiguity leaves
-    // the complete stale lock set intact for diagnosis and retry.
-    for (const index of [1, 0]) {
-      const target = targets[index];
-      if (!target) continue;
-      if (states[index] !== 'stale') continue;
+    const cleared: WorktreeLock[] = [];
+    for (const lock of stale) {
       assertRecoveryHealthy();
-      const beforeClear = index === 1
-        ? async (): Promise<void> => {
-            assertRecoveryHealthy();
-            await options.beforeOperationLockClear?.();
-            assertRecoveryHealthy();
-          }
-        : undefined;
-      if (await clearStaleLock(target.path, target.description, { beforeClear })) cleared += 1;
+      const beforeClear = async (): Promise<void> => {
+        assertRecoveryHealthy();
+        await options.beforeClear?.(lock);
+        assertRecoveryHealthy();
+      };
+      if (await clearStaleLock(lock.target, lock.description, { beforeClear })) cleared.push(lock);
     }
     assertRecoveryHealthy();
     return cleared;
-  } finally {
+  };
+
+  let cleared: WorktreeLock[];
+  try {
+    cleared = await recover();
+  } catch (error) {
+    // A compromised mutex cannot be released cleanly; the failure already
+    // being reported must not be replaced by that one.
+    await releaseRecovery().catch(() => undefined);
+    throw error;
+  }
+  try {
     await releaseRecovery();
+  } catch (error) {
+    // The locks are already cleared; only the recovery mutex went wrong.
+    throw new CliError(
+      `Cleared the stale locks of ${description}, but its recovery lock could not be released: ` +
+      `${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  return cleared;
+}
+
+/**
+ * Every worktree with a `.lock` directory for its operation or development
+ * lock — registered or not — read without touching anything.
+ */
+export async function lockedWorktrees(controlHome: string): Promise<{ repositoryId: string; worktreeId: string }[]> {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  const worktrees = path.join(controlLayout(controlHome).locksDir, 'worktrees');
+  const found: { repositoryId: string; worktreeId: string }[] = [];
+  for (const repositoryId of await entriesOf(worktrees)) {
+    if (!uuid.test(repositoryId)) continue;
+    const ids = new Set<string>();
+    for (const entry of await entriesOf(path.join(worktrees, repositoryId))) {
+      const worktreeId = /^(.+?)(?:\.dev)?\.lock$/.exec(entry)?.[1];
+      if (worktreeId !== undefined && uuid.test(worktreeId)) ids.add(worktreeId);
+    }
+    for (const worktreeId of [...ids].sort()) found.push({ repositoryId, worktreeId });
+  }
+  return found;
+}
+
+async function entriesOf(directory: string): Promise<string[]> {
+  try {
+    return await readdir(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
   }
 }
 

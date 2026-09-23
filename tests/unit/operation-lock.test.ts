@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -8,8 +8,12 @@ import {
   clearStaleLock,
   clearStaleRegistryLock,
   clearStaleWorktreeLocks,
+  describeLock,
+  forgetRecordsOnExit,
+  rememberHeldRecord,
   developmentLockTarget,
   formatDuration,
+  holderLabel,
   inspectLockForRecovery,
   OPERATION_LOCK_TIMEOUT_MS,
   REGISTRY_LOCK_RETRY_MS,
@@ -160,7 +164,7 @@ describe('ScopedLock', () => {
       REPOSITORY,
       WORKTREE,
       'guarded',
-      { beforeOperationLockClear: () => Promise.reject(new Error('ambiguous runtime')) }
+      { verify: () => Promise.reject(new Error('ambiguous runtime')) }
     )).rejects.toThrow('ambiguous runtime');
     await expect(stat(`${target}.lock`)).resolves.toBeDefined();
     await expect(stat(`${development}.lock`)).resolves.toBeDefined();
@@ -183,7 +187,7 @@ describe('ScopedLock', () => {
         REPOSITORY,
         WORKTREE,
         'active',
-        { beforeOperationLockClear: guard }
+        { verify: guard }
       )).rejects.toThrow('The worktree active lock is still active');
       expect(guard).not.toHaveBeenCalled();
       await expect(stat(`${development}.lock`)).resolves.toBeDefined();
@@ -211,7 +215,7 @@ describe('ScopedLock', () => {
     });
     const secondGuard = vi.fn(() => Promise.resolve());
     const first = clearStaleWorktreeLocks(directory, REPOSITORY, WORKTREE, 'serialized', {
-      beforeOperationLockClear: firstGuard
+      verify: firstGuard
     });
     await firstEntered;
 
@@ -220,12 +224,12 @@ describe('ScopedLock', () => {
       REPOSITORY,
       WORKTREE,
       'serialized',
-      { beforeOperationLockClear: secondGuard }
+      { verify: secondGuard }
     )).rejects.toThrow('Another recovery is active');
     expect(secondGuard).not.toHaveBeenCalled();
 
     finishFirst?.();
-    await expect(first).resolves.toBe(1);
+    expect((await first).map((lock) => lock.kind)).toEqual(['operation']);
     const active = new ScopedLock(target, 'new worktree owner', logger);
     await active.acquire();
     const afterActiveGuard = vi.fn(() => Promise.resolve());
@@ -235,7 +239,7 @@ describe('ScopedLock', () => {
         REPOSITORY,
         WORKTREE,
         'serialized',
-        { beforeOperationLockClear: afterActiveGuard }
+        { verify: afterActiveGuard }
       )).rejects.toThrow('The worktree serialized lock is still active');
       expect(afterActiveGuard).not.toHaveBeenCalled();
     } finally {
@@ -255,7 +259,7 @@ describe('ScopedLock', () => {
       REPOSITORY,
       WORKTREE,
       'recoverable'
-    )).resolves.toBe(1);
+    )).resolves.toHaveLength(1);
     await expect(stat(`${recovery}.lock`)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
@@ -269,7 +273,7 @@ describe('ScopedLock', () => {
 
     await expect(
       clearStaleWorktreeLocks(directory, REPOSITORY, WORKTREE, 'orphaned-clone')
-    ).resolves.toBe(2);
+    ).resolves.toEqual([expect.objectContaining({ kind: 'development' }), expect.objectContaining({ kind: 'operation' })]);
     for (const target of targets) {
       await expect(stat(`${target}.lock`)).rejects.toMatchObject({ code: 'ENOENT' });
     }
@@ -373,6 +377,24 @@ describe('ScopedLock', () => {
     const fresh = afterwards.findIndex((line) => line.startsWith('info:'));
     expect(fresh).toBeGreaterThanOrEqual(0);
     expect(afterwards[fresh]).not.toContain('rmdir');
+  });
+
+  it('names the recovery command instead of rmdir, once one exists for the lock', async () => {
+    const target = path.join(await home('recoverable-holder'), 'worktree');
+    await makeStale(target);
+    const recorder = new RecordingLogger();
+    const waiter = new ScopedLock(target, 'stale worktree', recorder, {
+      acquireTimeoutMs: 400, retryIntervalMs: 25, noticeDelayMs: 0, noticeIntervalMs: 50, staleConfirmationMs: 120,
+      recovery: 'duke worktree unlock main'
+    });
+    const unlock = 'run \x60duke worktree unlock main\x60, which clears it only once it has checked that the holder, and every command it started on this machine, is gone';
+
+    await expect(waiter.acquire()).rejects.toThrow(new RegExp(String.raw`its heartbeat has stayed silent for [^.]+\. Locks are never stolen automatically: ${unlock}, then retry\.$`));
+    expect(recorder.lines.some((line) => line.startsWith('warn:') && line.endsWith(`${unlock.replaceAll('\\x60', '`')}; this command will then carry on by itself.`))).toBe(true);
+    expect(recorder.lines.join('\n')).not.toContain('rmdir');
+
+    const brief = new ScopedLock(target, 'brief worktree', new RecordingLogger(), { acquireTimeoutMs: 100, retryIntervalMs: 25, recovery: 'duke worktree unlock main' });
+    await expect(brief.acquire()).rejects.toThrow(new RegExp(String.raw`so this is too soon to call it dead\. Locks are never stolen automatically: ${unlock}, then retry\.$`));
   });
 
   it('gives up on an unconfirmed silence without promising a look it cannot take', async () => {
@@ -559,4 +581,123 @@ describe('ScopedLock', () => {
       await active.release();
     }
   });
+
+  it('records who it is in terms a later reader can check, and ties the record to its own lock directory', async () => {
+    const target = path.join(await home('identified'), 'worktree');
+    const lock = new ScopedLock(target, 'identified', logger, {
+      holder: 'duke up',
+      identity: () => Promise.resolve({ machineId: 'm', bootId: 'b', pidNs: 'pid:[1]', startTicks: 7, startedAtMs: 1_000 })
+    });
+    await lock.acquire();
+    try {
+      const recorded = JSON.parse(await readFile(target, 'utf8')) as Record<string, unknown>;
+      const directory = await lstat(`${target}.lock`, { bigint: true });
+      expect(recorded).toMatchObject({
+        pid: process.pid, command: 'duke up', machineId: 'm', bootId: 'b', pidNs: 'pid:[1]', startTicks: 7, processStartedAtMs: 1_000,
+        lock: { ino: directory.ino.toString(), birthtimeMs: Number(directory.birthtimeMs) }
+      });
+      await expect(describeLock(target, 'identified')).resolves.toMatchObject({ state: 'active', ino: directory.ino.toString(), record: { pid: process.pid } });
+    } finally {
+      await lock.release();
+    }
+  });
+
+  it('gives a lock back rather than hold it unidentified', async () => {
+    const target = path.join(await home('unidentified'), 'worktree');
+    const lock = new ScopedLock(target, 'shy', logger, { identity: () => Promise.reject(new Error('no /proc here')) });
+    await expect(lock.acquire()).rejects.toThrow('Could not record this process as the holder of the shy lock, so it was given back: no /proc here');
+    await expect(stat(`${target}.lock`)).rejects.toMatchObject({ code: 'ENOENT' });
+    const next = new ScopedLock(target, 'shy', logger);
+    await next.acquire();
+    await next.release();
+  });
+
+  it('empties its own record on the way out, and never one someone else has written since', async () => {
+    const directory = await home('exit-records');
+    const mine = path.join(directory, 'mine');
+    const theirs = path.join(directory, 'theirs');
+    await writeFile(mine, `${JSON.stringify({ pid: process.pid, host: 'h', command: 'berth up', startedAt: 'x' })}\n`);
+    await writeFile(theirs, `${JSON.stringify({ pid: process.pid + 1, host: 'h', command: 'berth up', startedAt: 'x' })}\n`);
+    rememberHeldRecord(mine);
+    rememberHeldRecord(theirs);
+    forgetRecordsOnExit();
+    await expect(readFile(mine, 'utf8')).resolves.toBe('');
+    await expect(readFile(theirs, 'utf8')).resolves.toContain(`"pid":${process.pid + 1}`);
+  });
+
+  it('takes the dead holder\'s record away with its lock', async () => {
+    const target = path.join(await home('record-cleared'), 'worktree');
+    await makeStale(target);
+    await writeFile(target, `${JSON.stringify({ pid: 99, host: 'h', command: 'berth up', startedAt: 'x' })}\n`);
+    await expect(clearStaleLock(target, 'record')).resolves.toBe(true);
+    await expect(readFile(target, 'utf8')).resolves.toBe('');
+  });
+
+  it('reads a lock whose target file is gone by its directory\'s heartbeat, without failing', async () => {
+    const target = path.join(await home('no-target'), 'worktree');
+    await makeStale(target);
+    await rm(target);
+    await expect(inspectLockForRecovery(target, 'orphaned')).resolves.toBe('stale');
+    await expect(describeLock(target, 'orphaned')).resolves.toMatchObject({ state: 'stale' });
+    const now = new Date();
+    await utimes(`${target}.lock`, now, now);
+    await expect(inspectLockForRecovery(target, 'orphaned')).resolves.toBe('active');
+    const old = new Date(Date.now() - 60_000);
+    await utimes(`${target}.lock`, old, old);
+    await expect(clearStaleLock(target, 'orphaned')).resolves.toBe(true);
+  });
+
+  it('describes nobody when nothing holds the lock, and names holders the same way everywhere', async () => {
+    const target = path.join(await home('described'), 'worktree');
+    await expect(describeLock(target, 'free')).resolves.toEqual({ state: 'missing', lockDirectory: `${target}.lock` });
+    await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' });   // looking wrote nothing
+    expect(holderLabel(undefined)).toBe('an unidentified holder');
+    expect(holderLabel({ pid: 7, host: 'h', command: '', startedAt: 'x' })).toBe('PID 7 on "h"');
+    expect(holderLabel({ pid: 7, host: 'h', command: 'berth up', startedAt: 'x' })).toBe('"berth up" (PID 7 on "h")');
+  });
+
+  it('proves both locks together, then clears the development lock before the operation lock, each guarded', async () => {
+    const directory = await home('ordered-recovery');
+    await makeStale(worktreeLockTarget(directory, REPOSITORY, WORKTREE));
+    await makeStale(developmentLockTarget(directory, REPOSITORY, WORKTREE));
+    const events: string[] = [];
+    const cleared = await clearStaleWorktreeLocks(directory, REPOSITORY, WORKTREE, 'ordered', {
+      verify: (stale) => {
+        events.push(`verify ${stale.map((lock) => lock.kind).join(',')}`);
+        return Promise.resolve();
+      },
+      beforeClear: (lock) => {
+        events.push(`clear ${lock.kind}`);
+        return Promise.resolve();
+      }
+    });
+    expect(events).toEqual(['verify development,operation', 'clear development', 'clear operation']);
+    expect(cleared.map((lock) => lock.description)).toEqual(['ordered development session', 'worktree ordered']);
+  });
+
+  it('stops at the lock whose guard fails, keeping the operation lock that holds everything else back', async () => {
+    const directory = await home('stopped-recovery');
+    const operation = worktreeLockTarget(directory, REPOSITORY, WORKTREE);
+    const development = developmentLockTarget(directory, REPOSITORY, WORKTREE);
+    await makeStale(operation);
+    await makeStale(development);
+    await expect(clearStaleWorktreeLocks(directory, REPOSITORY, WORKTREE, 'stopped', {
+      beforeClear: (lock) => lock.kind === 'operation' ? Promise.reject(new Error('changed')) : Promise.resolve()
+    })).rejects.toThrow('changed');
+    await expect(stat(`${development}.lock`)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(`${operation}.lock`)).resolves.toBeDefined();
+  });
+
+  it('proves nothing and clears nothing when no lock is stale', async () => {
+    const directory = await home('nothing-stale');
+    let verified = false;
+    await expect(clearStaleWorktreeLocks(directory, REPOSITORY, WORKTREE, 'idle', {
+      verify: () => {
+        verified = true;
+        return Promise.resolve();
+      }
+    })).resolves.toEqual([]);
+    expect(verified).toBe(false);
+  });
 });
+
