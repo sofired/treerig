@@ -422,6 +422,7 @@ func (f *sequencedFake) Run(_ context.Context, spec run.Spec) (run.Result, error
 // subprocess — found only through this test's own PATH override — so the
 // real timeout-and-kill machinery in internal/run/osrun is what is exercised.
 func TestRouterUpTimesOutOnAHungDocker(t *testing.T) {
+	id := suffix(t)
 	dir := t.TempDir()
 	fakeDocker := filepath.Join(dir, "docker")
 	if err := os.WriteFile(fakeDocker, []byte("#!/bin/sh\nsleep 999999\n"), 0o755); err != nil {
@@ -430,7 +431,8 @@ func TestRouterUpTimesOutOnAHungDocker(t *testing.T) {
 
 	state := newState(registrytest.TempDir(t))
 	svc, err := router.New(router.Options{
-		State: state, Port: 80, Runner: osrun.New(), Logger: logger.Silent{},
+		State: state, Port: freePortForTest(t), Runner: osrun.New(), Logger: logger.Silent{},
+		ProjectName: "berth-router-test-" + id, Network: "berth-router-test-" + id,
 		Environ:  []string{"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")},
 		Timeouts: router.Timeouts{Probe: 300 * time.Millisecond, Start: 300 * time.Millisecond},
 	})
