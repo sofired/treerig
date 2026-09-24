@@ -102,14 +102,14 @@ type cardJSON struct {
 
 // WriteIndexCard writes card into the worktree's own home, which must
 // already exist — `up` creates it before calling this. card is checked
-// against the same bounds ReadIndexCardAt enforces on the way back in, so a
-// card this package writes is always one it can read; a caller that manages
-// to violate them (every field here comes from already-validated config and
-// registration data) gets a plain error, not a *clierr.Error: like the
-// TypeScript build's zod parse, this is an assertion on this package's own
-// caller, never a user-facing failure.
+// against cardBounds, the same bounds ReadIndexCardAt enforces on the way
+// back in, so a card this package writes is always one it can read; a
+// caller that manages to violate them (every field here comes from
+// already-validated config and registration data) gets a plain error, not a
+// *clierr.Error: like the TypeScript build's zod parse, this is an
+// assertion on this package's own caller, never a user-facing failure.
 func WriteIndexCard(controlHome, repositoryID, worktreeID string, card IndexCard) error {
-	if err := validateForWrite(card); err != nil {
+	if err := cardBounds(card); err != nil {
 		return err
 	}
 	services := make([]cardServiceJSON, len(card.Services))
@@ -130,10 +130,14 @@ func WriteIndexCard(controlHome, repositoryID, worktreeID string, card IndexCard
 	})
 }
 
-// validateForWrite applies exactly the bounds ReadIndexCardAt checks coming
-// back in (validText, validURL, brand.LabelNamespacePattern), so a card this
-// package writes is always one it can read.
-func validateForWrite(card IndexCard) error {
+// cardBounds is the one definition of every bound a card must satisfy —
+// length ranges, the label namespace pattern, the service count, and each
+// service's own bounds and URL shape — matching the TypeScript build's one
+// cardSchema. WriteIndexCard checks a card against it before writing;
+// parseCardJSON checks one against it after confirming every required key
+// is present, on the way back in. Neither can drift from the other, because
+// there is only the one definition.
+func cardBounds(card IndexCard) error {
 	if !validText(&card.Project, 1, maxTextLength) {
 		return fmt.Errorf("card: project must be 1-%d characters", maxTextLength)
 	}
@@ -254,6 +258,11 @@ type rawIndexCard struct {
 	UpdatedAt      *string           `json:"updatedAt"`
 }
 
+// validText is cardBounds' one length check: min and max are in bytes, and
+// (unlike a plain length comparison) it also refuses a field cardBounds is
+// handed a nil pointer for — never true for WriteIndexCard, which starts
+// from a value-typed IndexCard, but always meant to fail closed if that
+// ever changes.
 func validText(s *string, min, max int) bool {
 	return s != nil && len(*s) >= min && len(*s) <= max
 }
@@ -269,6 +278,20 @@ func validURL(raw string) bool {
 	return parsed.User == nil
 }
 
+// requiredCardKeysPresent reports whether every key cardSchema requires is
+// present (JSON decode leaves an absent or null key's pointer nil) —
+// checked before cardBounds, which only ever sees a fully-populated
+// IndexCard and so has no way to tell "absent" from "present but empty"
+// apart on its own.
+func requiredCardKeysPresent(raw rawIndexCard) bool {
+	return raw.Project != nil && raw.Domain != nil && raw.Slug != nil && raw.Host != nil &&
+		raw.Root != nil && raw.Branch != nil && raw.LabelNamespace != nil && raw.UpdatedAt != nil
+}
+
+func requiredServiceKeysPresent(s rawIndexService) bool {
+	return s.Name != nil && s.URL != nil && s.Label != nil && s.Purpose != nil
+}
+
 func parseCardJSON(data []byte) (IndexCard, bool) {
 	var raw rawIndexCard
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -276,42 +299,29 @@ func parseCardJSON(data []byte) (IndexCard, bool) {
 	if err := decoder.Decode(&raw); err != nil {
 		return IndexCard{}, false
 	}
-
 	if raw.Version == nil || *raw.Version != 1 {
 		return IndexCard{}, false
 	}
-	if !validText(raw.Project, 1, maxTextLength) || !validText(raw.Domain, 1, maxTextLength) ||
-		!validText(raw.Slug, 1, maxTextLength) || !validText(raw.Host, 1, maxTextLength) {
-		return IndexCard{}, false
-	}
-	if !validText(raw.Root, 0, maxPathTextLength) || !validText(raw.Branch, 0, maxPathTextLength) {
-		return IndexCard{}, false
-	}
-	if !validText(raw.LabelNamespace, 0, maxLabelNamespaceLength) || !brand.LabelNamespacePattern.MatchString(*raw.LabelNamespace) {
-		return IndexCard{}, false
-	}
-	if !validText(raw.UpdatedAt, 0, maxTextLength) {
-		return IndexCard{}, false
-	}
-	if len(raw.Services) > maxServices {
+	if !requiredCardKeysPresent(raw) {
 		return IndexCard{}, false
 	}
 	services := make([]IndexService, 0, len(raw.Services))
 	for _, s := range raw.Services {
-		if !validText(s.Name, 1, maxTextLength) || !validText(s.Label, 1, maxTextLength) || !validText(s.Purpose, 0, maxTextLength) {
-			return IndexCard{}, false
-		}
-		if s.URL == nil || !validURL(*s.URL) {
+		if !requiredServiceKeysPresent(s) {
 			return IndexCard{}, false
 		}
 		services = append(services, IndexService{Name: *s.Name, URL: *s.URL, Label: *s.Label, Purpose: *s.Purpose})
 	}
 
-	return IndexCard{
+	card := IndexCard{
 		Project: *raw.Project, Domain: *raw.Domain, Slug: *raw.Slug, Host: *raw.Host,
 		Root: *raw.Root, Branch: *raw.Branch, LabelNamespace: *raw.LabelNamespace,
 		Services: services, UpdatedAt: *raw.UpdatedAt,
-	}, true
+	}
+	if cardBounds(card) != nil {
+		return IndexCard{}, false
+	}
+	return card, true
 }
 
 // rawNamespaceOnly is deliberately not `.strict()`: a card the full schema
