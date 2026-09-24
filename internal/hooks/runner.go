@@ -31,10 +31,12 @@ const (
 	Stderr
 )
 
-// Context is what one worktree's hooks need to run: the environment
+// HookContext is what one worktree's hooks need to run: the environment
 // (built once, shared with Compose — see worktree.Environment), and where to
-// run and log them.
-type Context struct {
+// run and log them. Named HookContext, not Context, so a call site holding
+// both this and a context.Context — every RunHook and RunLifecycle caller —
+// never has to tell them apart by squinting at "ctx" versus "hctx".
+type HookContext struct {
 	Source worktree.EnvironmentSource
 	Ref    worktree.Ref
 	Hooks  config.Hooks
@@ -58,7 +60,7 @@ type RunOptions struct {
 // environment is the BERTH_* vocabulary Compose receives, plus this stage's
 // own STAGE, laid over the inherited environment — never a replacement of
 // it, so a hook that calls other tools still sees a normal PATH and HOME.
-func environment(hctx Context, stage config.HookStage) []string {
+func environment(hctx HookContext, stage config.HookStage) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{"STAGE", string(stage)})
 	return mergeEnviron(hctx.Environ, worktree.Variables(pairs)...)
 }
@@ -121,7 +123,7 @@ func resolveHookPath(root, executable string) string {
 // non-zero exit is a failure attributed to the stage — and so, distinctly,
 // is a hook that never ran at all or was ended by a signal. Reports whether
 // the stage was configured at all.
-func RunHook(ctx context.Context, stage config.HookStage, hctx Context, opts RunOptions) (bool, error) {
+func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts RunOptions) (bool, error) {
 	command := commandFor(hctx.Hooks, stage)
 	if command == nil {
 		return false, nil
@@ -191,8 +193,8 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx Context, opts Run
 // LifecycleOptions configures RunLifecycle.
 type LifecycleOptions struct {
 	// Stages are which lifecycle stages to run; always in lifecycle order
-	// regardless of how they are listed here. Nil means every stage in
-	// LifecycleOrder.
+	// regardless of how they are listed here. Nil means every stage
+	// LifecycleOrder returns.
 	Stages   []config.HookStage
 	Argument *string
 	Output   OutputMode
@@ -204,17 +206,18 @@ type LifecycleOptions struct {
 // stages are skipped). A subset of stages still runs in lifecycle order:
 // seed cannot precede prepare. `up` asks for prepare and seed; verify is
 // ordered here, but only `doctor` runs it, on its own.
-func RunLifecycle(ctx context.Context, hctx Context, opts LifecycleOptions) ([]config.HookStage, error) {
+func RunLifecycle(ctx context.Context, hctx HookContext, opts LifecycleOptions) ([]config.HookStage, error) {
+	order := LifecycleOrder()
 	wanted := opts.Stages
 	if wanted == nil {
-		wanted = LifecycleOrder
+		wanted = order
 	}
 	wantedSet := make(map[config.HookStage]bool, len(wanted))
 	for _, stage := range wanted {
 		wantedSet[stage] = true
 	}
 	var ran []config.HookStage
-	for _, stage := range LifecycleOrder {
+	for _, stage := range order {
 		if !wantedSet[stage] {
 			continue
 		}

@@ -29,8 +29,8 @@ var (
 	}
 )
 
-func newContext(runner run.Runner, hooksCfg config.Hooks) hooks.Context {
-	return hooks.Context{Source: testSrc, Ref: testRef, Hooks: hooksCfg, Logger: logger.Silent{}, Runner: runner}
+func newContext(runner run.Runner, hooksCfg config.Hooks) hooks.HookContext {
+	return hooks.HookContext{Source: testSrc, Ref: testRef, Hooks: hooksCfg, Logger: logger.Silent{}, Runner: runner}
 }
 
 func str(s string) *string { return &s }

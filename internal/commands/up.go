@@ -13,7 +13,6 @@ import (
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/hooks"
 	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/progress"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -90,14 +89,21 @@ func upRuntime(cctx *CommandContext, namespace string, router Router) *backend.C
 	})
 }
 
-// upStages is which lifecycle stages `up` asks the sequencer for: prepare
-// always, seed only the first time this worktree comes up. Verify is never
-// among them — `doctor` runs it, on its own.
+// upStages is which lifecycle stages `up` asks the sequencer for: every
+// stage hooks.UpStages names, except seed on a worktree that has already
+// come up once — derived from that single source rather than a hard-coded
+// copy, the way TypeScript's own lifecycleStages filters LIFECYCLE_ORDER by
+// UP_STAGES instead of hard-coding a list of its own. Verify is never among
+// them: it is not part of UpStages at all — `doctor` runs it, on its own.
 func upStages(firstTime bool) []config.HookStage {
-	if firstTime {
-		return []config.HookStage{config.Prepare, config.Seed}
+	var stages []config.HookStage
+	for _, stage := range hooks.UpStages() {
+		if stage == config.Seed && !firstTime {
+			continue
+		}
+		stages = append(stages, stage)
 	}
-	return []config.HookStage{config.Prepare}
+	return stages
 }
 
 // UpWithContext is worktree.ts's `up`, operating directly on a
@@ -191,13 +197,13 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, router Router, ind
 			what = strings.Join(options.Services, ", ")
 		}
 		runtime := upRuntime(cctx, ownNamespace, router)
-		if err := progress.WithProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
+		if err := withProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
 			return runtime.Up(ctx, ref, options.Services)
 		}); err != nil {
 			return err
 		}
 
-		ran, err := hooks.RunLifecycle(ctx, hooks.Context{
+		ran, err := hooks.RunLifecycle(ctx, hooks.HookContext{
 			Source: worktree.EnvironmentSource{
 				ProjectName: cctx.Loaded.Config.Project.Name,
 				// The registered domain, not the config's: hooks address the

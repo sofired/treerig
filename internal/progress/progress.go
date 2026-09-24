@@ -12,16 +12,26 @@ import (
 	"github.com/sofired/berth/internal/logger"
 )
 
-// Heartbeat is how often a long phase says it is still going.
-var Heartbeat = 10 * time.Second
+// heartbeat is how often a long phase says it is still going.
+var heartbeat = 10 * time.Second
 
-// WithProgress logs phase, then an elapsed-time heartbeat every Heartbeat
+// SetHeartbeatForTest overrides how often WithProgress reports a
+// still-going heartbeat, for a test that needs to observe one without
+// waiting out the real interval. Returns a func that restores the previous
+// value; callers defer it so an override never leaks into another test.
+func SetHeartbeatForTest(d time.Duration) (restore func()) {
+	previous := heartbeat
+	heartbeat = d
+	return func() { heartbeat = previous }
+}
+
+// WithProgress logs phase, then an elapsed-time heartbeat every heartbeat
 // while action runs.
 func WithProgress(log logger.Logger, phase string, action func() error) error {
 	log.Info(phase + ".")
 	started := time.Now()
 	done := make(chan struct{})
-	ticker := time.NewTicker(Heartbeat)
+	ticker := time.NewTicker(heartbeat)
 	go func() {
 		for {
 			select {

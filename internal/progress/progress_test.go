@@ -20,9 +20,8 @@ func (recordingLogger) Output(string)         {}
 
 func TestWithProgress(t *testing.T) {
 	t.Run("reports elapsed time while a phase is still running and stops after completion", func(t *testing.T) {
-		original := progress.Heartbeat
-		progress.Heartbeat = 15 * time.Millisecond
-		defer func() { progress.Heartbeat = original }()
+		testHeartbeat := 15 * time.Millisecond
+		defer progress.SetHeartbeatForTest(testHeartbeat)()
 
 		log := recordingLogger{lines: make(chan string, 16)}
 		release := make(chan struct{})
@@ -64,7 +63,7 @@ func TestWithProgress(t *testing.T) {
 		select {
 		case line := <-log.lines:
 			t.Fatalf("unexpected message after completion: %q", line)
-		case <-time.After(3 * progress.Heartbeat):
+		case <-time.After(3 * testHeartbeat):
 		}
 	})
 }
