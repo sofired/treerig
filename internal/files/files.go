@@ -31,6 +31,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/text"
 )
 
 // ControlHomeMarker marks a directory as one the tool created, so it may be
@@ -509,6 +510,12 @@ func AtomicWrite(destination string, contents []byte, mode fs.FileMode) error {
 // AtomicJSON is AtomicWrite of value marshalled the way the TypeScript build
 // does: JSON.stringify(value, null, 2) + "\n". Key order follows the Go
 // struct's field order, which callers keep matched to the TypeScript schema.
+//
+// encoding/json already matches JSON.stringify's own string escaping except
+// for one case: it always escapes the JavaScript line separators U+2028 and
+// U+2029, which JSON.stringify writes raw. text.FixJSONLineSeparators
+// corrects exactly that, byte for byte, on the encoded output — a record's
+// domain or a card's branch is free-form enough to carry either.
 func AtomicJSON(destination string, value any) error {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
@@ -518,7 +525,7 @@ func AtomicJSON(destination string, value any) error {
 		return err
 	}
 	// Encode already appends the trailing "\n", matching `${...}\n` in the TypeScript build.
-	return AtomicWrite(destination, buffer.Bytes(), 0o600)
+	return AtomicWrite(destination, text.FixJSONLineSeparators(buffer.Bytes()), 0o600)
 }
 
 // RemoveWithin is a recursive removal that refuses anything not strictly

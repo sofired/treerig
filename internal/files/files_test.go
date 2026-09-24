@@ -1,6 +1,7 @@
 package files_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,6 +97,26 @@ func TestAtomicWrite(t *testing.T) {
 		}
 		if !strings.HasSuffix(string(contents), "\n") {
 			t.Fatalf("expected a trailing newline")
+		}
+	})
+
+	t.Run("writes the JavaScript line separators raw, unlike encoding/json's own default", func(t *testing.T) {
+		root := t.TempDir()
+		file := filepath.Join(root, "state.json")
+		lineSeparator := string(rune(0x2028))
+		paragraphSeparator := string(rune(0x2029))
+
+		requireNoError(t, files.AtomicJSON(file, map[string]any{"branch": "feature/" + lineSeparator + "x" + paragraphSeparator}))
+
+		contents, err := os.ReadFile(file)
+		requireNoError(t, err)
+		if !strings.Contains(string(contents), lineSeparator) || !strings.Contains(string(contents), paragraphSeparator) {
+			t.Fatalf("expected the raw separators in the written bytes, got %q", contents)
+		}
+		var decoded map[string]string
+		requireNoError(t, json.Unmarshal(contents, &decoded))
+		if decoded["branch"] != "feature/"+lineSeparator+"x"+paragraphSeparator {
+			t.Fatalf("round trip: got %q", decoded["branch"])
 		}
 	})
 }

@@ -279,6 +279,35 @@ func TestWriteIndexCard(t *testing.T) {
 		}
 	})
 
+	t.Run("writes the JavaScript line separator raw and a C0 control escaped, matching JSON.stringify", func(t *testing.T) {
+		controlHome := t.TempDir()
+		home := layout.WorktreeLayout(controlHome, repositoryID, worktreeID).Home
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		lineSeparator := string(rune(0x2028))
+		controlOne := string(rune(0x0001))
+		hostile := validWrite()
+		hostile.Branch = "feature/" + lineSeparator + "x" + controlOne + "y"
+		if err := card.WriteIndexCard(controlHome, repositoryID, worktreeID, hostile); err != nil {
+			t.Fatalf("WriteIndexCard: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(home, card.IndexCardFile))
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if !strings.Contains(string(data), lineSeparator) {
+			t.Fatalf("expected the raw U+2028 separator in the written bytes, got:\n%s", data)
+		}
+		if !strings.Contains(string(data), "\\u0001") {
+			t.Fatalf("expected U+0001 escaped as \\u0001, got:\n%s", data)
+		}
+		got := card.ReadIndexCardAt(filepath.Join(home, card.IndexCardFile))
+		if got == nil || got.Branch != hostile.Branch {
+			t.Fatalf("expected the branch to read back exactly, got %+v", got)
+		}
+	})
+
 	t.Run("refuses a card outside the schema's bounds", func(t *testing.T) {
 		controlHome := t.TempDir()
 		home := layout.WorktreeLayout(controlHome, repositoryID, worktreeID).Home

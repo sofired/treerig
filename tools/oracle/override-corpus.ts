@@ -180,6 +180,20 @@ const cases: Case[] = [
       volumes: { data: {} },
       networks: { backend: {} }
     }
+  },
+  {
+    // Built with fromCharCode, deliberately, rather than a \u escape typed
+    // literally in this file: that literal text is exactly the shape a
+    // JSON-based tool transport can silently decode to the real character
+    // on the way to disk, which would defeat the point of this case.
+    name: 'a service and route name carrying the JavaScript line separator (U+2028) is not escaped',
+    ref: { ...REF, slug: 'feature' + String.fromCharCode(0x2028) + 'login' },
+    routes: [{ service: 'api' + String.fromCharCode(0x2028) + 'svc', subdomain: 'sub' + String.fromCharCode(0x2029) + 'dom' }],
+    routerNetwork: 'berth-router',
+    config: {
+      services: { ['api' + String.fromCharCode(0x2028) + 'svc']: { image: 'busybox', expose: ['80'] } },
+      volumes: {}, networks: {}
+    }
   }
 ];
 

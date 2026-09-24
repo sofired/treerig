@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
+
+	"github.com/sofired/berth/internal/text"
 )
 
 // jsonKV is an ordered JSON object. TypeScript builds the override document
@@ -142,7 +143,7 @@ func writeOrdered(buf *bytes.Buffer, value any) error {
 			buf.WriteString("false")
 		}
 	case string:
-		return writeJSONString(buf, v)
+		writeJSONString(buf, v)
 	case *jsonKV:
 		return writeOrderedObject(buf, v)
 	default:
@@ -157,9 +158,7 @@ func writeOrderedObject(buf *bytes.Buffer, o *jsonKV) error {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		if err := writeJSONString(buf, key); err != nil {
-			return err
-		}
+		writeJSONString(buf, key)
 		buf.WriteByte(':')
 		if err := writeOrdered(buf, o.values[key]); err != nil {
 			return err
@@ -169,18 +168,12 @@ func writeOrderedObject(buf *bytes.Buffer, o *jsonKV) error {
 	return nil
 }
 
-// writeJSONString quotes s the way JSON.stringify does: encoding/json's own
-// string quoting (correct Unicode and control-character escaping), minus
-// the HTML escaping it adds by default — the same rule files.AtomicJSON and
-// text.SafeJSON apply, here per string since jsonKV has no single Encoder to
-// configure.
-func writeJSONString(buf *bytes.Buffer, s string) error {
-	var scratch bytes.Buffer
-	encoder := json.NewEncoder(&scratch)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(s); err != nil {
-		return err
-	}
-	buf.WriteString(strings.TrimSuffix(scratch.String(), "\n"))
-	return nil
+// writeJSONString quotes s exactly as JSON.stringify does — see
+// text.JSONString, the one shared quoter every TypeScript-parity JSON
+// writer in this codebase uses. Not encoding/json: even with
+// SetEscapeHTML(false), it still escapes U+2028 and U+2029 unconditionally,
+// which JSON.stringify writes raw, and a route or a branch name can carry
+// either.
+func writeJSONString(buf *bytes.Buffer, s string) {
+	buf.WriteString(text.JSONString(s))
 }
