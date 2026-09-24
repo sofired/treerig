@@ -89,10 +89,17 @@ func (c *Compose) readOrderedModel(ctx context.Context, ref worktree.Ref) (servi
 // decodeOrderedComposeModel is the ordered decode of one `docker compose
 // config --format json` document into its services, volumes, and networks
 // sections, each defaulting to an empty object when absent, as the
-// TypeScript build's zod schema defaults them. Every entry within a section
-// must itself be an object, matching that schema's own service/volume/
-// network shape; anything else is the same "unrecognized document" refusal
-// readModel already gives.
+// TypeScript build's composeConfigSchema defaults them. Every entry within a
+// section must itself be an object, and every field overrideDocument reads
+// off it must match that schema's own nested shape — a service's build (an
+// object, if present), expose (an array of strings and/or numbers, if
+// present), and ports (an array of objects whose target, if present, is a
+// number); a volume's or network's external (a boolean or an object, if
+// present; z.union has no room for null, a string, or a number). Anything
+// else is the same "unrecognized document" refusal readModel gives, which
+// zod's own safeParse would have failed with before overrideDocument ever
+// saw the data — a mismatch here must refuse just as completely, not read
+// the malformed field as whatever isExternal or firstPort would make of it.
 func decodeOrderedComposeModel(data []byte, file string) (services, volumes, networks *jsonKV, err error) {
 	root, decodeErr := decodeOrdered(data)
 	if decodeErr != nil {
@@ -102,15 +109,38 @@ func decodeOrderedComposeModel(data []byte, file string) (services, volumes, net
 	if !ok {
 		return nil, nil, nil, clierr.Newf("Compose returned an unrecognized document for %s.", file)
 	}
+	unrecognized := clierr.Newf("Compose returned an unrecognized document for %s.", file)
+
 	if services, err = orderedSection(obj, "services", file); err != nil {
 		return nil, nil, nil, err
 	}
+	for _, name := range services.keys {
+		service, _ := services.values[name].(*jsonKV)
+		if !validateServiceShape(service) {
+			return nil, nil, nil, unrecognized
+		}
+	}
+
 	if volumes, err = orderedSection(obj, "volumes", file); err != nil {
 		return nil, nil, nil, err
 	}
+	for _, name := range volumes.keys {
+		volume, _ := volumes.values[name].(*jsonKV)
+		if !validateExternalShape(volume) {
+			return nil, nil, nil, unrecognized
+		}
+	}
+
 	if networks, err = orderedSection(obj, "networks", file); err != nil {
 		return nil, nil, nil, err
 	}
+	for _, name := range networks.keys {
+		network, _ := networks.values[name].(*jsonKV)
+		if !validateExternalShape(network) {
+			return nil, nil, nil, unrecognized
+		}
+	}
+
 	return services, volumes, networks, nil
 }
 
@@ -129,6 +159,71 @@ func orderedSection(obj *jsonKV, key, file string) (*jsonKV, error) {
 		}
 	}
 	return section, nil
+}
+
+// validateServiceShape checks one service entry against the subset of
+// composeConfigSchema's per-service shape that overrideDocument and
+// firstPort read: build (z.record: an object, if present), expose (z.array
+// of z.union([z.string(), z.number()]), if present), and ports (z.array of
+// objects whose target, z.number().optional(), is numeric when present).
+// Every other field is z.unknown() or passthrough and needs no check.
+func validateServiceShape(service *jsonKV) bool {
+	if buildValue, present := service.get("build"); present {
+		if _, ok := buildValue.(*jsonKV); !ok {
+			return false
+		}
+	}
+	if exposeValue, present := service.get("expose"); present {
+		array, ok := exposeValue.([]any)
+		if !ok {
+			return false
+		}
+		for _, item := range array {
+			switch item.(type) {
+			case string, json.Number:
+			default:
+				return false
+			}
+		}
+	}
+	if portsValue, present := service.get("ports"); present {
+		array, ok := portsValue.([]any)
+		if !ok {
+			return false
+		}
+		for _, item := range array {
+			entry, ok := item.(*jsonKV)
+			if !ok {
+				return false
+			}
+			if target, present := entry.get("target"); present {
+				if _, ok := target.(json.Number); !ok {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// validateExternalShape checks one volume or network entry's external
+// field against z.union([z.boolean(), z.object({}).passthrough()]).
+// optional(): absent is fine (undefined), and so is a boolean or an object,
+// but nothing else — notably not null, which zod's object branch refuses
+// same as any other non-object, non-undefined value.
+func validateExternalShape(resource *jsonKV) bool {
+	value, present := resource.get("external")
+	if !present {
+		return true
+	}
+	switch value.(type) {
+	case bool:
+		return true
+	case *jsonKV:
+		return true
+	default:
+		return false
+	}
 }
 
 // isExternal ports the TypeScript build's own: the external key must be

@@ -104,6 +104,7 @@ jobs:
           node tools/oracle/slug-corpus.ts > internal/registry/testdata/slug-corpus.json
           node tools/oracle/text-corpus.ts > internal/text/testdata/corpus.json
           node tools/oracle/override-corpus.ts > internal/backend/testdata/override-corpus.json
+          node tools/oracle/compose-config-corpus.ts > internal/backend/testdata/compose-config-corpus.json
           go test -count=1 ./internal/cli -run TestGolden -update
       - name: Compare
         run: |

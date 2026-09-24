@@ -1,0 +1,168 @@
+[
+  {
+    "name": "a well-formed document is accepted, as a control case",
+    "config": {
+      "services": {
+        "api": {
+          "image": "busybox",
+          "build": {
+            "context": "."
+          },
+          "expose": [
+            "80"
+          ],
+          "ports": [
+            {
+              "target": 80
+            }
+          ]
+        }
+      },
+      "volumes": {
+        "data": {
+          "external": true
+        }
+      },
+      "networks": {
+        "backend": {
+          "external": {
+            "name": "x"
+          }
+        }
+      }
+    },
+    "ok": true
+  },
+  {
+    "name": "a service build that is not an object is refused",
+    "config": {
+      "services": {
+        "api": {
+          "build": "./builder"
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a service expose entry that is neither string nor number is refused",
+    "config": {
+      "services": {
+        "api": {
+          "expose": [
+            {
+              "weird": true
+            }
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a service ports entry with a non-numeric target is refused",
+    "config": {
+      "services": {
+        "api": {
+          "ports": [
+            {
+              "target": "8080"
+            }
+          ]
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a service ports field that is not an array is refused",
+    "config": {
+      "services": {
+        "api": {
+          "ports": {}
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a service expose field that is not an array is refused",
+    "config": {
+      "services": {
+        "api": {
+          "expose": "8080"
+        }
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a volume external of null is refused, unlike false",
+    "config": {
+      "services": {},
+      "volumes": {
+        "data": {
+          "external": null
+        }
+      },
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a network external that is a string is refused",
+    "config": {
+      "services": {},
+      "volumes": {},
+      "networks": {
+        "backend": {
+          "external": "yes"
+        }
+      }
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a network external that is a number is refused",
+    "config": {
+      "services": {},
+      "volumes": {},
+      "networks": {
+        "backend": {
+          "external": 1
+        }
+      }
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a service entry that is not an object is refused",
+    "config": {
+      "services": {
+        "api": "busybox"
+      },
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  },
+  {
+    "name": "a top-level services section that is not an object is refused",
+    "config": {
+      "services": [],
+      "volumes": {},
+      "networks": {}
+    },
+    "error": "Compose returned an unrecognized document for /work/acme/docker/compose.yaml."
+  }
+]
