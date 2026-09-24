@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -14,12 +15,35 @@ import (
 	"github.com/sofired/berth/internal/layout"
 )
 
+// isoTimestampPattern matches an ISO-8601 instant to the millisecond, the
+// shape both builds' `new Date().toISOString()`/time.Format print for
+// IndexSnapshot.GeneratedAt — the one thing that legitimately differs
+// between two separate process invocations of otherwise-identical builds,
+// since each reads the real clock at the moment it runs. Nothing else in
+// either build's output or the page it writes takes this shape (every
+// fixture UUID, host and path is fixed), so this is narrow by construction,
+// not by exclusion of a known-differing field.
+var isoTimestampPattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z`)
+
+// normalizeTimestamp replaces every real-time instant in s with a fixed
+// placeholder, so two runs that differ only in when they happened compare
+// equal. Applied to a run's stdout/stderr and to the index page it wrote,
+// never to the docker transcript (which carries no timestamp at all) or to
+// the exit code.
+func normalizeTimestamp(s string) string {
+	return isoTimestampPattern.ReplaceAllString(s, "TIMESTAMP")
+}
+
 // The TypeScript build and the Go build, run one after the other on the same
 // fixture — same paths, same UUIDs, the same fake docker — must print the
-// same thing, exit the same way, and ask docker the same questions. The
-// TypeScript build refreshes the checkout index after `down` and `remove`,
-// which the Go build does not port yet; those calls are left out of the
-// transcript comparison, and succeed silently in the TypeScript run.
+// same thing, exit the same way, ask docker the same questions, and (where a
+// case's own comment says so) write the same checkout index page. Both
+// builds refresh the index after `down`, `worktree remove`, and `index`
+// itself (#41), so every docker call each makes is compared, with no
+// exclusion. The one thing that can never match byte for byte between two
+// separate process invocations is real wall-clock time: normalizeTimestamp
+// scrubs it, narrowly, everywhere a run's own output or the page it wrote
+// could carry one.
 
 const (
 	parityRepo = "a08b4892-5111-49f1-a47a-5ab988c7f676"
@@ -30,6 +54,11 @@ type parityRun struct {
 	Stdout, Stderr string
 	Exit           int
 	Docker         []string
+	// IndexPage is the checkout index page on disk after the run, timestamp
+	// normalized, for a case that asks readIndexPage to read it (down and
+	// worktree remove both refresh it as a side effect; "" for a case that
+	// does not check it, so cases that never touch the index need no change).
+	IndexPage string
 }
 
 type parityFixture struct {
@@ -119,7 +148,13 @@ exit 0
 	return f
 }
 
-func (f parityFixture) run(t *testing.T, command []string) parityRun {
+// run executes command against this fixture and reports what it did.
+// checkIndexPage additionally reads the checkout index page HOME's router
+// state directory holds afterward (a case whose verb refreshes the index as
+// a side effect — down, worktree remove, or index itself); a case that never
+// touches the index passes false, so IndexPage stays "" for both builds and
+// contributes nothing to the comparison.
+func (f parityFixture) run(t *testing.T, command []string, checkIndexPage bool) parityRun {
 	t.Helper()
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Dir = f.checkout
@@ -141,13 +176,52 @@ func (f parityFixture) run(t *testing.T, command []string) parityRun {
 	transcript, _ := os.ReadFile(filepath.Join(f.state, "argv"))
 	var calls []string
 	for _, line := range strings.Split(strings.TrimSpace(string(transcript)), "\n") {
-		// The TypeScript build's index refresh, which the Go build does not port.
-		if line == "" || strings.Contains(line, "label=dev.berth.managed=true --format") {
+		if line == "" {
 			continue
 		}
 		calls = append(calls, line)
 	}
-	return parityRun{Stdout: stdout.String(), Stderr: stderr.String(), Exit: exit, Docker: calls}
+	run := parityRun{
+		Stdout: normalizeTimestamp(stdout.String()), Stderr: normalizeTimestamp(stderr.String()),
+		Exit: exit, Docker: calls,
+	}
+	if checkIndexPage {
+		run.IndexPage = normalizeTimestamp(string(f.readIndexPage(t)))
+	}
+	return run
+}
+
+// readIndexPage reads whichever build's own index page this fixture's last
+// run wrote. The two builds keep it at different paths — row 9 in the
+// divergence ledger: the TypeScript build still writes it under its control
+// home (controlLayout(controlHome).indexFile, src/layout.ts), while the Go
+// build writes it to the machine-wide router state layout.RouterState
+// resolves from HOME alone — so this checks both and returns whichever one
+// exists. Each call to run() rebuilds the fixture from scratch first (see
+// newParityFixture), so only the build that actually ran can have left a
+// file at either path; "" if neither did.
+func (f parityFixture) readIndexPage(t *testing.T) []byte {
+	t.Helper()
+	tsPath := filepath.Join(f.controlHome, "router", "index", "index.html")
+	if page, err := os.ReadFile(tsPath); err == nil {
+		return page
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("reading the TypeScript build's index page: %v", err)
+	}
+	state, err := layout.RouterState(func(key string) (string, bool) {
+		if key == "HOME" {
+			return f.base, true
+		}
+		return "", false
+	})
+	if err != nil {
+		t.Fatalf("resolving the Go build's router state: %v", err)
+	}
+	page, err := os.ReadFile(state.IndexFile)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("reading the Go build's index page: %v", err)
+	}
+	return page
 }
 
 func TestParityWithTheTypeScriptBuild(t *testing.T) {
@@ -165,24 +239,33 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		name  string
 		args  []string
 		decoy bool
+		// checkIndexPage additionally compares the checkout index page on
+		// disk (timestamp normalized) for a case whose verb refreshes it.
+		checkIndexPage bool
 	}{
-		{"status", []string{"status"}, false},
-		{"urls", []string{"urls"}, false},
-		{"worktree list", []string{"worktree", "list"}, false},
-		{"worktree list --json", []string{"worktree", "list", "--json"}, false},
-		{"down", []string{"down"}, false},
-		{"worktree remove --yes", []string{"worktree", "remove", "--yes"}, false},
-		{"worktree remove without --yes, not a terminal", []string{"worktree", "remove"}, false},
-		{"worktree remove --yes, refusing a decoy", []string{"worktree", "remove", "--yes"}, true},
-		{"worktree remove of an unknown slug", []string{"worktree", "remove", "--yes", "nope"}, false},
-		{"worktree remove --label-namespace that disagrees", []string{"worktree", "remove", "--yes", "--label-namespace", "dev.wrong"}, false},
-		{"worktree remove --label-namespace that is not one", []string{"worktree", "remove", "--yes", "--label-namespace", "Not One"}, false},
+		{"status", []string{"status"}, false, false},
+		{"urls", []string{"urls"}, false, false},
+		// index's own stdout embeds snapshot.GeneratedAt, real wall-clock
+		// time at the moment each build's own process ran; normalizeTimestamp
+		// scrubs it (both here and in the page below) rather than excluding
+		// the case, so the rest of index's output and every docker call it
+		// makes are still compared exactly.
+		{"index", []string{"index"}, false, true},
+		{"worktree list", []string{"worktree", "list"}, false, false},
+		{"worktree list --json", []string{"worktree", "list", "--json"}, false, false},
+		{"down", []string{"down"}, false, true},
+		{"worktree remove --yes", []string{"worktree", "remove", "--yes"}, false, true},
+		{"worktree remove without --yes, not a terminal", []string{"worktree", "remove"}, false, false},
+		{"worktree remove --yes, refusing a decoy", []string{"worktree", "remove", "--yes"}, true, false},
+		{"worktree remove of an unknown slug", []string{"worktree", "remove", "--yes", "nope"}, false, false},
+		{"worktree remove --label-namespace that disagrees", []string{"worktree", "remove", "--yes", "--label-namespace", "dev.wrong"}, false, false},
+		{"worktree remove --label-namespace that is not one", []string{"worktree", "remove", "--yes", "--label-namespace", "Not One"}, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := filepath.Join(base, "fixture")
-			want := newParityFixture(t, fixture, tc.decoy).run(t, append(append([]string{}, ts...), tc.args...))
-			got := newParityFixture(t, fixture, tc.decoy).run(t, append([]string{binary}, tc.args...))
+			want := newParityFixture(t, fixture, tc.decoy).run(t, append(append([]string{}, ts...), tc.args...), tc.checkIndexPage)
+			got := newParityFixture(t, fixture, tc.decoy).run(t, append([]string{binary}, tc.args...), tc.checkIndexPage)
 			t.Logf("exit %d, %d docker calls, stdout %q, stderr %q", want.Exit, len(want.Docker), want.Stdout, want.Stderr)
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("TypeScript (-) and Go (+) differ:\n%s", diff)

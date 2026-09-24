@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,6 +158,35 @@ name = "api"
 subdomain = "b"
 `), "test.toml")
 		requireErrorContains(t, err, `duplicate service name "api"`)
+	})
+
+	// (#16, row 16 in the divergence ledger) Since `up` now records every
+	// declared service on the checkout index card, not only the ones with a
+	// [service.index] block, the config's own [[service]] array must not
+	// outgrow what a card can hold (internal/checkoutindex/card's own
+	// maxServices). TypeScript has no such limit — this is a deliberate,
+	// Go-only bound.
+	t.Run("rejects more than 64 declared services", func(t *testing.T) {
+		var services strings.Builder
+		for i := 0; i < 65; i++ {
+			fmt.Fprintf(&services, "[[service]]\nname = \"s%d\"\nsubdomain = \"s%d\"\n", i, i)
+		}
+		_, err := Parse([]byte(minimalTOML+services.String()), "test.toml")
+		requireErrorContains(t, err, "at most 64 [[service]] entries")
+	})
+
+	t.Run("accepts exactly 64 declared services", func(t *testing.T) {
+		var services strings.Builder
+		for i := 0; i < 64; i++ {
+			fmt.Fprintf(&services, "[[service]]\nname = \"s%d\"\nsubdomain = \"s%d\"\n", i, i)
+		}
+		cfg, err := Parse([]byte(minimalTOML+services.String()), "test.toml")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if len(cfg.Service) != 64 {
+			t.Fatalf("Service has %d entries, want 64", len(cfg.Service))
+		}
 	})
 
 	t.Run("rejects unknown keys so typos do not silently disable features", func(t *testing.T) {

@@ -9,9 +9,10 @@ import (
 
 // enCollatorOnce and enCollatorVal build the en collator once, on first use,
 // rather than at package initialization: every command imports internal/text,
-// but nothing before WP4b wires the checkout index actually calls Collate,
-// and golang.org/x/text/collate's tables add about 1.6 MB to a binary that
-// would otherwise pay for them on every startup, including `--help`.
+// but only the checkout index (internal/checkoutindex) actually calls
+// Collate, and golang.org/x/text/collate's tables add about 1.6 MB to a
+// binary that would otherwise pay for them on every startup, including
+// `--help`.
 //
 // The closure that builds the collator is created inside Collate itself,
 // not captured by a package-level var: a package-level `var x =

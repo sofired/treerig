@@ -184,6 +184,52 @@ func TestRouterUp(t *testing.T) {
 		}
 	})
 
+	// #15: `router up` never regenerated the real page — Ensure's own write()
+	// writes the placeholder only when the index file is missing outright,
+	// for the index container's health check, and nothing after Ensure ever
+	// replaced it. Deleting the page and running `router up` again must show
+	// every checkout again, not leave the placeholder in place.
+	t.Run("refreshes a missing index page once the router has started, showing every checkout again", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		controlHome := registrytest.TempDir(t)
+		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_HOME": controlHome})
+		state, err := layout.RouterState(getenv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
+			Version: 1, RepositoryID: "11111111-1111-4111-8111-111111111111",
+			WorktreeID: "22222222-2222-4222-8222-222222222221",
+			Slug:       "feature-a", Domain: "acme.localhost", Initialization: "complete",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rec := &logger.Recording{}
+		env := &commands.Env{
+			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv, Cwd: registrytest.TempDir(t),
+			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80},
+		}
+
+		if err := commands.RouterUp(context.Background(), env); err != nil {
+			t.Fatalf("RouterUp: %v", err)
+		}
+		if err := os.Remove(state.IndexFile); err != nil {
+			t.Fatalf("removing the index page: %v", err)
+		}
+
+		if err := commands.RouterUp(context.Background(), env); err != nil {
+			t.Fatalf("second RouterUp: %v", err)
+		}
+
+		page, err := os.ReadFile(state.IndexFile)
+		if err != nil {
+			t.Fatalf("reading the regenerated index page: %v", err)
+		}
+		if !strings.Contains(string(page), "feature-a.acme.localhost") {
+			t.Errorf("expected the regenerated page to list feature-a.acme.localhost, got:\n%s", page)
+		}
+	})
+
 	t.Run("migrates a control home's earlier router state once the new router has verified", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		controlHome := registrytest.TempDir(t)

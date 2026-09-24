@@ -28,7 +28,6 @@ func TestNotPortedVerbs(t *testing.T) {
 		verb string
 	}{
 		{"up", []string{"up"}, "up"},
-		{"index", []string{"index"}, "index"},
 		{"doctor", []string{"doctor"}, "doctor"},
 		{"worktree-unlock", []string{"worktree", "unlock", "feature-login", "--holder-unverifiable"}, "worktree unlock"},
 	}

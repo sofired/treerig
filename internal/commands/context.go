@@ -34,7 +34,12 @@ type CommandContext struct {
 	// routed services on. It is the same value a running RouterService would
 	// report as its own `port`, without needing one built.
 	RouterPort int
-	Registry   *registry.Registry
+	// RouterState is the shared router's own on-disk layout — where its
+	// lock and its index page live (row 9 in the divergence ledger: neither
+	// is under ControlHome any more). Resolved once here so
+	// newCheckoutIndex needs no Getenv of its own.
+	RouterState layout.RouterLayout
+	Registry    *registry.Registry
 	// Environ is what Compose inherits.
 	Environ []string
 	// Lifecycle holds mutations' locks and defers signals; nil builds one that never listens.
@@ -89,6 +94,10 @@ func Context(env *Env) (*CommandContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	routerState, err := layout.RouterState(env.Getenv)
+	if err != nil {
+		return nil, err
+	}
 
 	reg := registry.New(registry.Options{
 		ControlHome:    controlHome,
@@ -109,6 +118,7 @@ func Context(env *Env) (*CommandContext, error) {
 		Loaded:      loaded,
 		ControlHome: controlHome,
 		RouterPort:  routerPort,
+		RouterState: routerState,
 		Registry:    reg,
 		Environ:     env.Environ,
 		Lifecycle:   env.Lifecycle,
