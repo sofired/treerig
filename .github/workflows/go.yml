@@ -108,6 +108,8 @@ jobs:
           node tools/oracle/index-assets.ts
           node tools/oracle/index-golden.ts > internal/checkoutindex/testdata/index-golden.json
           node tools/oracle/index-url-filter.ts > internal/checkoutindex/testdata/url-filter.json
+          node tools/oracle/override-corpus.ts > internal/backend/testdata/override-corpus.json
+          node tools/oracle/compose-config-corpus.ts > internal/backend/testdata/compose-config-corpus.json
           go test -count=1 ./internal/cli -run TestGolden -update
       - name: Compare
         run: |

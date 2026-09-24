@@ -18,17 +18,23 @@ package files
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/text"
 )
 
 // ControlHomeMarker marks a directory as one the tool created, so it may be
@@ -175,6 +181,8 @@ func createSecureDirectories(controlHome string, directories []string, mode fs.F
 	return nil
 }
 
+// canonical is target with every symlink resolved, falling back to
+// layout.Resolve (lexical only) for a target that does not exist yet.
 func canonical(target string) (string, error) {
 	if resolved, err := filepath.EvalSymlinks(target); err == nil {
 		return resolved, nil
@@ -182,10 +190,13 @@ func canonical(target string) (string, error) {
 	return layout.Resolve(target)
 }
 
+// processHomeDir is this process's home directory, read the same way layout.HomeDir does.
 func processHomeDir() (string, error) {
 	return layout.HomeDir(func(key string) (string, bool) { return os.LookupEnv(key) })
 }
 
+// lowerFirst lowercases value's first byte, for splicing a refusal reason
+// into the middle of a sentence.
 func lowerFirst(value string) string {
 	if value == "" {
 		return value
@@ -270,6 +281,7 @@ func AssertAdoptableControlHome(controlHome string) error {
 	return refusal(fmt.Sprintf("it is not empty (%s) and was not created by %s", shown, brand.Name), true)
 }
 
+// contains reports whether target is in values.
 func contains(values []string, target string) bool {
 	for _, v := range values {
 		if v == target {
@@ -279,6 +291,7 @@ func contains(values []string, target string) bool {
 	return false
 }
 
+// firstN is the first n values, or all of them if there are n or fewer.
 func firstN(values []string, n int) []string {
 	if len(values) <= n {
 		return values
@@ -332,12 +345,31 @@ func establishControlHome(controlHome string) error {
 	if err := createSecureDirectories(controlHome, []string{controlHome}, 0o700); err != nil {
 		return err
 	}
-	marker := filepath.Join(controlHome, ControlHomeMarker)
-	if err := AssertSafeFilePath(controlHome, marker); err != nil {
+
+	// Opened once as a directory handle, and used for both the marker's read
+	// and its write below, via openat(2): a path-based check followed by a
+	// path-based open (the previous shape here) is two separate resolutions
+	// of the same name, each its own window for a symlink — or, if the
+	// control home's parent is writable by someone else, the control home
+	// itself — to be swapped in between. A descriptor already open on the
+	// directory is unaffected by what happens to the path afterwards.
+	//
+	// os.Root is not enough here on its own: per `go doc os.Root`, its
+	// methods follow a symlink whose target stays inside the root, and the
+	// marker must be refused outright, wherever it points — so it is opened
+	// directly against this directory's descriptor instead, with O_NOFOLLOW.
+	if beforeOpenControlHomeForTest != nil {
+		beforeOpenControlHomeForTest(controlHome)
+	}
+	dir, err := openControlHomeNoFollow(controlHome)
+	if err != nil {
 		return err
 	}
-	contents, err := os.ReadFile(marker)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	defer dir.Close()
+
+	marker := filepath.Join(controlHome, ControlHomeMarker)
+	contents, err := readMarkerDirect(dir, marker)
+	if err != nil {
 		return err
 	}
 	// New, or left empty by the TypeScript build: from now on a Go build has
@@ -346,9 +378,174 @@ func establishControlHome(controlHome string) error {
 	// marker with anything else in it — a later build's format, say — is not
 	// this build's to downgrade, and is left as it is.
 	if len(contents) == 0 {
-		return AtomicWrite(marker, []byte(ControlHomeFormat), 0o600)
+		// A direct write, like the TypeScript build's own touchSecure — not
+		// AtomicWrite's temp-then-rename: a concurrent adopter of this same
+		// brand new control home would otherwise see that temp file sitting
+		// in an empty directory and refuse it as not ours. The marker is nine
+		// bytes; a single write(2) of that size does not tear on any
+		// filesystem this tool supports.
+		return writeMarkerRacingCreators(dir, marker)
 	}
 	return nil
+}
+
+// beforeOpenControlHomeForTest runs, if set, just after
+// createSecureDirectories' own checks and just before establishControlHome
+// opens the control home itself — the one window in which a same-parent
+// attacker could swap it out from under those checks. Tests only; nil in
+// production, where establishControlHome's call is a no-op.
+var beforeOpenControlHomeForTest func(controlHome string)
+
+// openControlHomeNoFollow opens controlHome as a directory, with O_NOFOLLOW:
+// os.Open would follow a symlink at controlHome's own final path component,
+// reintroducing exactly the race the directory handle this returns exists to
+// close (see establishControlHome). Refused the same way
+// AssertSafeDirectoryPath refuses one in a managed path's chain.
+func openControlHomeNoFollow(controlHome string) (*os.File, error) {
+	fd, err := unix.Open(controlHome, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) {
+			return nil, clierr.Newf("Refusing symlinked or non-directory managed path: %s", controlHome)
+		}
+		return nil, &fs.PathError{Op: "open", Path: controlHome, Err: err}
+	}
+	return os.NewFile(uintptr(fd), controlHome), nil
+}
+
+// markerCreateAttempts bounds writeMarkerRacingCreators' retries: generous
+// headroom for a transient race, not a loop meant to run for long.
+const markerCreateAttempts = 10
+
+// writeMarkerRacingCreators writes the control home's marker, tolerating
+// another goroutine's own concurrent create of the same name.
+//
+// macOS CI (run 35984111281, "Tests without cgo, as released") showed
+// writeMarkerDirect's O_CREAT|O_NOFOLLOW|O_NONBLOCK open fail with ENOENT
+// while 20 goroutines raced to create this same marker in
+// TestConcurrentControlHomeEstablishment, intermittently, though the same
+// test had passed on macOS before. createSecureDirectories never replaces
+// the control home directory itself, so nothing here removes the marker's
+// name out from under an O_CREAT open; this comment does not claim to know
+// what in the kernel produced that ENOENT, only that it was observed. If the
+// create-open fails with ENOENT, the marker is read again: another goroutine
+// may have already written it, in which case there is nothing left to do;
+// otherwise the create is retried, up to markerCreateAttempts times.
+func writeMarkerRacingCreators(dir *os.File, marker string) error {
+	var lastErr error
+	for attempt := 0; attempt < markerCreateAttempts; attempt++ {
+		err := writeMarkerDirect(dir, marker, []byte(ControlHomeFormat), 0o600)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		lastErr = err
+		contents, readErr := readMarkerDirect(dir, marker)
+		if readErr != nil {
+			return readErr
+		}
+		if len(contents) != 0 {
+			// Another goroutine's own create-and-write won the race; this one's marker is already in place.
+			return nil
+		}
+	}
+	return clierr.Newf("Could not create the control home marker at %s after %d attempts: %s",
+		marker, markerCreateAttempts, lastErr)
+}
+
+// openMarkerNoFollow opens name (the marker's own base name) through dir's
+// descriptor via openat(2), with O_NOFOLLOW: a symlink at that name is
+// refused rather than followed, wherever it points, unlike os.Root's own
+// symlink handling (see establishControlHome). O_NONBLOCK is set for the
+// open call too, so a FIFO planted at that name cannot block it — a blocking
+// O_RDONLY open waits for a writer, and O_WRONLY for a reader, either of
+// which would otherwise hang this call forever; opened non-blocking, a read
+// open of a FIFO returns at once and a write open with no reader fails with
+// ENXIO. The descriptor is put back into blocking mode before it is handed
+// back, so a regular file — the only thing ever actually read or written
+// here — is read and written exactly as any other file in this codebase.
+func openMarkerNoFollow(dir *os.File, name string, flag int, mode fs.FileMode) (*os.File, error) {
+	fd, err := unix.Openat(int(dir.Fd()), name, flag|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, uint32(mode))
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.SetNonblock(fd, false); err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), filepath.Join(dir.Name(), name)), nil
+}
+
+// refusedMarker is the same wording AssertSafeFilePath uses for a symlinked
+// or non-regular managed path, for a marker refused after opening rather
+// than before.
+func refusedMarker(marker string) error {
+	return clierr.Newf("Refusing symlinked or non-file managed path: %s", marker)
+}
+
+// readMarkerDirect reads the control home's marker through dir: no error and
+// no content for a marker that does not exist yet (a brand new control
+// home), and a refusal for anything opened that turns out not to be a
+// regular file. O_NOFOLLOW already refuses a symlink at open; the Stat below
+// catches a device planted at the same path, and — because
+// openMarkerNoFollow opens non-blocking — a FIFO too, opened at once rather
+// than left blocking this call on a writer that may never come.
+func readMarkerDirect(dir *os.File, marker string) ([]byte, error) {
+	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), unix.O_RDONLY, 0)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		if errors.Is(err, unix.ELOOP) {
+			return nil, refusedMarker(marker)
+		}
+		return nil, &fs.PathError{Op: "open", Path: marker, Err: err}
+	}
+	defer handle.Close()
+	info, err := handle.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, refusedMarker(marker)
+	}
+	return io.ReadAll(handle)
+}
+
+// writeMarkerDirect creates or truncates the control home's marker in place
+// through dir and writes contents, with no temporary file: see
+// establishControlHome for why the marker specifically must never be
+// written that way. Refused the same way readMarkerDirect is if it is not,
+// or could not be made, a regular file — and, because openMarkerNoFollow
+// opens non-blocking, a FIFO planted at the marker's name cannot block this
+// call on a reader either: with one present the open succeeds and the Stat
+// below then refuses it; with none, the open itself fails with ENXIO.
+func writeMarkerDirect(dir *os.File, marker string, contents []byte, mode fs.FileMode) error {
+	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), unix.O_CREAT|unix.O_TRUNC|unix.O_WRONLY, mode)
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) {
+			return refusedMarker(marker)
+		}
+		return &fs.PathError{Op: "open", Path: marker, Err: err}
+	}
+	info, err := handle.Stat()
+	if err != nil {
+		handle.Close()
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		handle.Close()
+		return refusedMarker(marker)
+	}
+	_, writeErr := handle.Write(contents)
+	if chmodErr := handle.Chmod(mode); writeErr == nil {
+		writeErr = chmodErr
+	}
+	if closeErr := handle.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	return writeErr
 }
 
 // SecureControlDirectories creates and locks down the control home's
@@ -423,12 +620,29 @@ func SecureWorktreeDirectories(l layout.Worktree) error {
 	}, 0o700)
 }
 
+// randomSuffix is eight random hex characters, for a temp file name unique
+// across goroutines that share this process's PID.
+func randomSuffix() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand failing is unheard of on any platform this tool
+		// supports; the PID alone is still better than nothing.
+		return fmt.Sprintf("%d", os.Getpid())
+	}
+	return hex.EncodeToString(b[:])
+}
+
 // AtomicWrite writes via a temp file and rename, then fsyncs the directory.
+//
+// The temp name carries a random suffix, not just this process's PID: two
+// goroutines in the one process (never two processes, which always have
+// distinct PIDs) can otherwise race to the same temp path and have one's
+// rename fail with ENOENT once the other's has already moved it away.
 func AtomicWrite(destination string, contents []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 		return err
 	}
-	temporary := fmt.Sprintf("%s.tmp.%d", destination, os.Getpid())
+	temporary := fmt.Sprintf("%s.tmp.%d.%s", destination, os.Getpid(), randomSuffix())
 	handle, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
 		return err
@@ -466,6 +680,12 @@ func AtomicWrite(destination string, contents []byte, mode fs.FileMode) error {
 // AtomicJSON is AtomicWrite of value marshalled the way the TypeScript build
 // does: JSON.stringify(value, null, 2) + "\n". Key order follows the Go
 // struct's field order, which callers keep matched to the TypeScript schema.
+//
+// encoding/json already matches JSON.stringify's own string escaping except
+// for one case: it always escapes the JavaScript line separators U+2028 and
+// U+2029, which JSON.stringify writes raw. text.FixJSONLineSeparators
+// corrects exactly that, byte for byte, on the encoded output — a record's
+// domain or a card's branch is free-form enough to carry either.
 func AtomicJSON(destination string, value any) error {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
@@ -475,7 +695,7 @@ func AtomicJSON(destination string, value any) error {
 		return err
 	}
 	// Encode already appends the trailing "\n", matching `${...}\n` in the TypeScript build.
-	return AtomicWrite(destination, buffer.Bytes(), 0o600)
+	return AtomicWrite(destination, text.FixJSONLineSeparators(buffer.Bytes()), 0o600)
 }
 
 // RemoveWithin is a recursive removal that refuses anything not strictly

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -95,6 +96,47 @@ func TestWatchdog(t *testing.T) {
 		}
 		if lk.Lost() {
 			t.Fatal("did not expect the lock to be lost")
+		}
+	})
+
+	t.Run("reports a loss found only at release, after the watchdog's own last check missed it", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "worktree")
+		scope := Scope{Target: target, Description: "worktree main"}
+		opts := testOptions(t)
+		opts.Watchdog = -1 // disabled: nothing here catches the swap before Release does
+		lk := New(scope, opts)
+		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Replaced atomically, in the same directory — a temp file then
+		// os.Rename over the target, never a remove followed by a separate
+		// create, so nothing observing target in between ever finds it
+		// briefly missing.
+		replacement, err := os.CreateTemp(dir, "replacement-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		temp := replacement.Name()
+		if err := replacement.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(temp, target); err != nil {
+			t.Fatal(err)
+		}
+
+		if lk.Lost() {
+			t.Fatal("did not expect the disabled watchdog to have found anything on its own")
+		}
+		if err := lk.Release(); err != nil {
+			t.Fatal(err)
+		}
+		if !lk.Lost() || lk.Err() == nil {
+			t.Fatalf("Lost() = %v, Err() = %v", lk.Lost(), lk.Err())
+		}
+		if !strings.Contains(lk.Err().Error(), "was replaced while this command held it") {
+			t.Fatalf("got %v", lk.Err())
 		}
 	})
 }

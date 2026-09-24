@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/lock"
@@ -41,8 +42,9 @@ type Requests struct {
 	Router      *lock.Scope
 }
 
-// ordered is every requested scope, in Hold's fixed acquisition order,
-// skipping whichever were not requested.
+// ordered is r's requested scopes in the fixed acquisition order: operation,
+// then development, then registry, then router, skipping whichever were not
+// requested.
 func (r Requests) ordered() []*lock.Scope {
 	var scopes []*lock.Scope
 	for _, s := range []*lock.Scope{r.Operation, r.Development, r.Registry, r.Router} {
@@ -53,10 +55,27 @@ func (r Requests) ordered() []*lock.Scope {
 	return scopes
 }
 
-// optionsFor is the lock.Options for scope, timed for whichever of
-// requests's fields it is.
+// watchdogForTest overrides every lock Hold acquires with a short watchdog
+// interval, for tests only; zero (its default) leaves lock.Options'
+// withDefaults own 5 s default in place. Unexported, and reached only
+// through SetWatchdogForTest, the way progress.heartbeat is reached only
+// through progress.SetHeartbeatForTest.
+var watchdogForTest time.Duration
+
+// SetWatchdogForTest shortens every lock Hold acquires to interval for the
+// life of a test, so a lost lock can be observed without waiting on the real
+// 5 s default. It is not safe for tests that run in parallel with each
+// other.
+func SetWatchdogForTest(interval time.Duration) (restore func()) {
+	previous := watchdogForTest
+	watchdogForTest = interval
+	return func() { watchdogForTest = previous }
+}
+
+// optionsFor is the lock.Options for scope: its timeout (and, for the
+// registry, its retry interval) fixed by which of requests' fields it is.
 func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
-	opts := lock.Options{Holder: env.Invocation, Logger: env.Logger}
+	opts := lock.Options{Holder: env.Invocation, Logger: env.Logger, Watchdog: watchdogForTest}
 	switch scope {
 	case requests.Operation:
 		opts.Timeout = lock.OperationTimeout
@@ -131,17 +150,35 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 			releaseErrs = append(releaseErrs, err)
 		}
 	}
+
+	// A lock the watchdog found lost during action was only closed above,
+	// never marked released — its record may belong to whoever holds it
+	// now — and Release itself reports no error for that case. Left
+	// unchecked, an action that returned nil despite the loss (one that
+	// does not itself watch ctx.Done()) would make this whole Hold call
+	// report success. This checks explicitly, the way
+	// src/operation-lock.ts's assertHealthy did, rather than leaving
+	// actionErr alone to speak for it.
+	for _, lk := range held {
+		if lk.Lost() {
+			releaseErrs = append(releaseErrs, lk.Err())
+		}
+	}
 	return attach(actionErr, releaseErrs)
 }
 
-// releaseAll releases every held lock, in reverse acquisition order.
+// releaseAll releases every lock in held, last acquired first, ignoring any
+// error: used only when Hold itself is giving up before running action, so
+// there is nothing yet for a release failure to be attached to.
 func releaseAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Release()
 	}
 }
 
-// abandonAll abandons every held lock, in reverse acquisition order.
+// abandonAll abandons every lock in held, last acquired first: their records
+// stay unreleased, for the next acquirer to judge, because whatever they
+// guarded may still be running.
 func abandonAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Abandon()

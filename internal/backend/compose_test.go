@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
@@ -34,6 +35,14 @@ var composeModel = map[string]any{
 		"worker":  map[string]any{"image": "busybox", "ports": []any{map[string]any{"mode": "ingress", "target": 9090, "protocol": "tcp"}}},
 		"quiet":   map[string]any{"image": "busybox", "networks": map[string]any{"backend": nil}},
 		"builder": map[string]any{"build": map[string]any{"context": "/work/acme/docker/builder"}, "expose": []any{"7000"}},
+	},
+	"volumes": map[string]any{
+		"data":   map[string]any{"name": project + "_data"},
+		"shared": map[string]any{"name": "shared-external", "external": true},
+	},
+	"networks": map[string]any{
+		"backend": map[string]any{"name": project + "_backend"},
+		"corp":    map[string]any{"name": "corp", "external": true},
 	},
 }
 
@@ -160,6 +169,15 @@ func newRuntime(t *testing.T, fake *dockerFake) (*Compose, string) {
 	}), controlHome
 }
 
+// ensureHome creates a worktree's home directory, as the command layer does
+// before `up`; the runtime itself never creates it.
+func ensureHome(t *testing.T, controlHome string) {
+	t.Helper()
+	if err := os.MkdirAll(layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID).Home, 0o700); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+}
+
 func environ(spec run.Spec) map[string]string {
 	values := map[string]string{}
 	for _, entry := range spec.Env {
@@ -185,14 +203,14 @@ func TestDownStatus(t *testing.T) {
 			t.Fatal("down read the model")
 		}
 	})
-	// Adapted until `up` is ported (#38): the TypeScript titles check `up`; `down` gets the same environment.
 	t.Run("hands Compose the same BERTH_* vocabulary hooks receive, plus the project name", func(t *testing.T) {
 		fake := newFake()
 		rt, controlHome := newRuntime(t, fake)
-		if err := rt.Down(ctx, ref); err != nil {
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
 			t.Fatal(err)
 		}
-		got := environ(fake.composeCalls("down")[0])
+		got := environ(fake.composeCalls("up")[0])
 		want := map[string]string{
 			"BERTH_PROJECT":        "acme",
 			"BERTH_REPOSITORY_ID":  ref.RepositoryID,
@@ -216,11 +234,12 @@ func TestDownStatus(t *testing.T) {
 	})
 	t.Run("keeps the shell from redirecting Compose to other files", func(t *testing.T) {
 		fake := newFake()
-		rt, _ := newRuntime(t, fake)
-		if err := rt.Down(ctx, ref); err != nil {
+		rt, controlHome := newRuntime(t, fake)
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
 			t.Fatal(err)
 		}
-		got := environ(fake.composeCalls("down")[0])
+		got := environ(fake.composeCalls("up")[0])
 		for _, name := range []string{"COMPOSE_FILE", "COMPOSE_PATH_SEPARATOR", "COMPOSE_ENV_FILES", "COMPOSE_IGNORE_ORPHANS"} {
 			if _, ok := got[name]; ok {
 				t.Errorf("%s reached Compose", name)

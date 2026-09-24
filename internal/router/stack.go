@@ -12,11 +12,11 @@ package router
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/text"
 )
 
 // Protocol is bumped whenever the stack changes shape; a newer router is
@@ -159,11 +159,8 @@ func RouterCommand(network string) []string {
 // order stack.ts builds it: JSON.stringify keeps insertion order, but Go's
 // encoding/json sorts a map's keys instead, and this order is not
 // alphabetical (dev.berth.router-protocol before traefik.enable, entrypoints
-// before rule). Its entries are always plain, restricted vocabulary — a
-// namespace, a service name, a network name, a digest-pinned image — never
-// borrowed text, so marshalling its strings with encoding/json's own default
-// escaping (unlike text.SafeJSON or files.AtomicJSON) is safe: nothing here
-// can carry a `<`, `>` or `&` for it to treat differently.
+// before rule). Its strings are quoted with text.JSONString, JSON.stringify's
+// own escaping, so the bytes match TypeScript's whatever a label holds.
 type labelSet []labelEntry
 
 // labelEntry is one key/value pair of a labelSet, in the position it was given.
@@ -197,17 +194,9 @@ func (s labelSet) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		key, err := json.Marshal(entry.key)
-		if err != nil {
-			return nil, err
-		}
-		value, err := json.Marshal(entry.value)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(key)
+		b.WriteString(text.JSONString(entry.key))
 		b.WriteByte(':')
-		b.Write(value)
+		b.WriteString(text.JSONString(entry.value))
 	}
 	b.WriteByte('}')
 	return b.Bytes(), nil

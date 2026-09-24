@@ -54,6 +54,16 @@ type Options struct {
 	Logger         logger.Logger
 	// Environ is the environment Compose inherits; os.Environ() in production.
 	Environ []string
+	// Routes are the services to route, from [[service]] in config.
+	Routes []RouteSpec
+	// RouterNetwork is the shared router's network; routed services join it.
+	RouterNetwork string
+	// WaitTimeoutSeconds is how long `up --wait` waits for health before
+	// failing; nil uses DefaultWaitTimeoutSeconds. A pointer, matching
+	// TypeScript's own `options.waitTimeoutSeconds ?? DEFAULT...`: `??` only
+	// substitutes the default for null or undefined, so an explicit 0 (unlike
+	// a plain zero-value int) is not mistaken for "unset".
+	WaitTimeoutSeconds *int
 }
 
 // Compose is the Compose runtime.
@@ -64,6 +74,8 @@ type Compose struct {
 // NewCompose makes a runtime.
 func NewCompose(options Options) *Compose { return &Compose{options: options} }
 
+// project is the Compose project name a worktree's own resources are stamped
+// and looked up with.
 func (c *Compose) project(ref worktree.Ref) string {
 	return layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID)
 }
@@ -98,17 +110,17 @@ type model struct {
 	Services map[string]json.RawMessage `json:"services"`
 }
 
+// readModel runs `docker compose config` and decodes just enough of it —
+// the service names — to report status; a document Compose does not shape
+// the way model expects is refused rather than partially read.
 func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error) {
 	file := c.options.ComposeFile
-	result, err := c.compose(ctx, ref, []string{"config", "--format", "json"}, []string{file}, run.Spec{AllowFailure: true})
+	stdout, err := c.composeConfigJSON(ctx, ref)
 	if err != nil {
 		return model{}, err
 	}
-	if result.ExitCode != 0 {
-		return model{}, clierr.Newf("Compose could not read %s:\n%s", file, firstNonEmpty(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout)))
-	}
 	var raw any
-	if err := json.Unmarshal([]byte(result.Stdout), &raw); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
 		return model{}, clierr.Newf("Compose returned invalid JSON for %s.", file)
 	}
 	var parsed model
@@ -184,6 +196,9 @@ type psRecord struct {
 	Health  string
 }
 
+// serviceState reads one `docker compose ps` record into a ServiceState, with
+// a detail string for the cases (unhealthy, or a state this build does not
+// otherwise name) that need one.
 func serviceState(record psRecord) (worktree.ServiceState, string) {
 	state := strings.ToLower(record.State)
 	switch {
@@ -303,6 +318,8 @@ var resourceTypes = []resourceType{
 	{kind: "image", listArguments: []string{"image", "ls", "-q"}, inspectCommand: []string{"image", "inspect"}, removeArgs: []string{"image", "rm"}, labelPrefix: ".Config"},
 }
 
+// list is every kind's ID matching all of filters, deduplicated and sorted:
+// the raw material Inventory verifies before trusting any of it.
 func (c *Compose) list(ctx context.Context, kind resourceType, filters []string) ([]string, error) {
 	args := slices.Clone(kind.listArguments)
 	for _, filter := range filters {
@@ -423,6 +440,7 @@ func (c *Compose) Reap(ctx context.Context, ref worktree.Ref, resource worktree.
 	return nil
 }
 
+// firstNonEmpty is the first non-empty value, or "" if every one is empty.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
