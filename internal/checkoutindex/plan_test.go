@@ -13,6 +13,9 @@ import (
 // block. "survives the round trip through the page as plain JavaScript" is
 // left out; see render_test.go's package comment for why.
 
+// planTestPage is the TypeScript suite's `page` fixture: a minimal document
+// carrying the four fields planIndexUpdate reads, defaulting title, shell,
+// and body when titleShellBody omits them.
 func planTestPage(stamp, main string, titleShellBody ...string) string {
 	title, shell, body := "Checkouts (1)", "shell-1", "body-1"
 	if len(titleShellBody) > 0 {
@@ -32,6 +35,9 @@ func planTestPage(stamp, main string, titleShellBody ...string) string {
 	)
 }
 
+// planTestEntry is the TypeScript suite's module-level `entryFixture`: a
+// plain running checkout with no services, used only by the fingerprinting
+// test below.
 var planTestEntry = func() IndexEntry {
 	return IndexEntry{
 		RepositoryID: testRepo, WorktreeID: testWorktreeIDs[0], Project: "acme", Domain: "acme.localhost", Slug: "feature-a",
@@ -40,6 +46,8 @@ var planTestEntry = func() IndexEntry {
 	}
 }
 
+// TestPlanIndexUpdate ports tests/unit/checkout-index.test.ts's
+// `planIndexUpdate` describe block.
 func TestPlanIndexUpdate(t *testing.T) {
 	t.Run("reports the stamp, title, fingerprints and table of a page whose stamp has moved", func(t *testing.T) {
 		current := "2026-09-21T12:00:00.000Z"
@@ -188,6 +196,8 @@ func TestPlanIndexUpdate(t *testing.T) {
 	})
 }
 
+// stripAttr removes every match of pattern from html, for knocking an
+// attribute like data-shell="…" out of a rendered page.
 func stripAttr(html, pattern string) string {
 	return regexp.MustCompile(pattern).ReplaceAllString(html, "")
 }

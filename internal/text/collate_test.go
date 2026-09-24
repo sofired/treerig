@@ -29,10 +29,13 @@ import (
 // and an exhaustive sweep of every combining diacritical mark: real
 // disagreements exist there (see TestCollateWideScriptsDiverge, and
 // divergence 8 in the ledger), because x/text/collate's tables predate most
-// of it. Domain, project, and slug never carry it — config and the registry
-// constrain them to ASCII — but a branch name comes straight from Git,
-// unconstrained, and the index's sort key falls back to it before the slug.
-// So a wide-script branch name is the one place this gap can actually show:
+// of it. Domain, project, and slug are ASCII only when `up` writes them from
+// a validated config — the card schema itself accepts any non-empty text for
+// all three, so a hand-edited or third-party-written card can carry any
+// script in any field. In practice, branch names are what actually carry
+// these scripts: they come straight from Git, entirely unconstrained, and
+// the index's sort key falls back to the branch before the slug. So a
+// wide-script branch name is the one place this gap most plausibly shows:
 // not a dropped row or a wrong label, only a possible difference in row
 // order against what the TypeScript build would show for that one row.
 //
@@ -69,6 +72,8 @@ type collationOraclePair struct {
 	Sign  int    `json:"sign"`
 }
 
+// loadCollationOracle reads and parses testdata/collation-corpus.json,
+// failing the test if it is missing, malformed, or empty.
 func loadCollationOracle(t *testing.T) collationOracle {
 	t.Helper()
 	data, err := os.ReadFile("testdata/collation-corpus.json")
@@ -188,6 +193,8 @@ func sortMismatches(want []string, tiedIndices []int) (mismatches int, detail []
 	return mismatches, detail
 }
 
+// reversedCopy is a new slice holding values back to front, leaving values
+// itself untouched.
 func reversedCopy(values []string) []string {
 	reversed := make([]string, len(values))
 	for i, v := range values {
@@ -218,6 +225,8 @@ func sameMultiset(a, b []string) bool {
 	return true
 }
 
+// checkPairs requires Collate's sign to match Node's localeCompare('en')
+// sign for every pair, reporting up to 25 disagreements before failing.
 func checkPairs(t *testing.T, pairs []collationOraclePair) {
 	t.Helper()
 	mismatches := 0
@@ -235,6 +244,7 @@ func checkPairs(t *testing.T, pairs []collationOraclePair) {
 	}
 }
 
+// sign is JavaScript's Math.sign, clamped to -1, 0, or 1.
 func sign(n int) int {
 	switch {
 	case n < 0:

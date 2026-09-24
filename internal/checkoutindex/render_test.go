@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,12 +23,19 @@ import (
 // (internal/checkoutindex/assets/script.js), not of this package's Go code,
 // and not something a Go test can check.
 
+// strPtr takes a string literal's address, for the *string fields Branch
+// tests build fixtures with.
 func strPtr(s string) *string { return &s }
 
+// countMatches is how many non-overlapping times re matches s, standing in
+// for JavaScript's (s.match(re) ?? []).length.
 func countMatches(s string, re *regexp.Regexp) int {
 	return len(re.FindAllString(s, -1))
 }
 
+// renderTestEntry is the `entry` fixture the TypeScript suite's rendering
+// tests share: one partial checkout with two services, one available and one
+// not.
 func renderTestEntry() IndexEntry {
 	return IndexEntry{
 		RepositoryID: testRepo, WorktreeID: testWorktreeIDs[0], Project: "acme", Domain: "acme.localhost", Slug: "feature-a",
@@ -40,6 +48,8 @@ func renderTestEntry() IndexEntry {
 	}
 }
 
+// renderTestSnapshot is the TypeScript suite's shared `snapshot` fixture:
+// renderTestEntry alone, Docker reachable.
 func renderTestSnapshot() IndexSnapshot {
 	return IndexSnapshot{Entries: []IndexEntry{renderTestEntry()}, GeneratedAt: "2026-09-21T12:00:00.000Z", DockerReachable: true}
 }
@@ -63,6 +73,8 @@ func pinHomeDir(t *testing.T, home string) {
 	t.Cleanup(func() { userHomeDir = original })
 }
 
+// TestRendering ports tests/unit/checkout-index.test.ts's `rendering`
+// describe block.
 func TestRendering(t *testing.T) {
 	// Fixed and deliberately unrelated to every fixture's root
 	// (/Users/dev/worktrees/feature-a), so compactPath leaves those roots
@@ -517,10 +529,10 @@ func TestRendering(t *testing.T) {
 				t.Errorf("line exceeds 80 columns: %q", line)
 			}
 		}
-		if !slicesContain(lines, "      Postgres admin (schema browser and query console)") {
+		if !slices.Contains(lines, "      Postgres admin (schema browser and query console)") {
 			t.Error("missing wrapped service name line")
 		}
-		if !slicesContain(lines, "        http://admin.feature-a.acme.localhost/console") {
+		if !slices.Contains(lines, "        http://admin.feature-a.acme.localhost/console") {
 			t.Error("missing indented URL line")
 		}
 	})
@@ -684,7 +696,7 @@ func TestRendering(t *testing.T) {
 		for i, m := range matches {
 			headings[i] = m[1]
 		}
-		if want := []string{"alpha, beta · b.localhost", "zeta · a.localhost"}; !slicesEqual(headings, want) {
+		if want := []string{"alpha, beta · b.localhost", "zeta · a.localhost"}; !slices.Equal(headings, want) {
 			t.Errorf("headings = %v, want %v", headings, want)
 		}
 		if !strings.Contains(FormatIndexText(rowsSnapshot, renderTestURL), "alpha, beta · b.localhost") {
@@ -704,27 +716,6 @@ func TestRendering(t *testing.T) {
 			t.Errorf("compactPath = %q, want %q", got, want)
 		}
 	})
-}
-
-func slicesContain(lines []string, want string) bool {
-	for _, line := range lines {
-		if line == want {
-			return true
-		}
-	}
-	return false
-}
-
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // hiddenCharacters mirrors the TypeScript test's `hidden` helper: whatever a

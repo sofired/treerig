@@ -36,6 +36,8 @@ func testRegistrations() []registry.RegisteredWorktree {
 	}
 }
 
+// testIdentity is the TypeScript suite's `identity` fixture: a live Git
+// worktree for record, checked out at branch.
 func testIdentity(record registry.RegisteredWorktree, branch string) registry.WorktreeIdentity {
 	return registry.WorktreeIdentity{
 		Branch:       branch,
@@ -47,6 +49,8 @@ func testIdentity(record registry.RegisteredWorktree, branch string) registry.Wo
 	}
 }
 
+// testCard is the TypeScript suite's `card` fixture: a well-formed card for
+// record, naming project and carrying services.
 func testCard(record registry.RegisteredWorktree, project string, services ...card.IndexService) card.IndexCard {
 	if services == nil {
 		services = []card.IndexService{}
@@ -85,6 +89,9 @@ func hosted(record registry.RegisteredWorktree, services ...card.IndexService) [
 	return result
 }
 
+// testLine is the TypeScript suite's `line` fixture: one `docker ps` row for
+// record's service, defaulting to a healthy, running container when
+// stateAndStatus is omitted.
 func testLine(record registry.RegisteredWorktree, service string, stateAndStatus ...string) string {
 	state, status := "running", "Up 20 seconds (healthy)"
 	if len(stateAndStatus) > 0 {
@@ -96,6 +103,8 @@ func testLine(record registry.RegisteredWorktree, service string, stateAndStatus
 	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service}, "\t")
 }
 
+// mustParseInventory is ParseContainerInventory over lines joined with
+// newlines, failing the test on any parse error.
 func mustParseInventory(t *testing.T, lines ...string) []ContainerRecord {
 	t.Helper()
 	records, err := ParseContainerInventory(strings.Join(lines, "\n"))
@@ -105,6 +114,8 @@ func mustParseInventory(t *testing.T, lines ...string) []ContainerRecord {
 	return records
 }
 
+// TestParseContainerInventory ports tests/unit/checkout-index.test.ts's
+// `parseContainerInventory` describe block.
 func TestParseContainerInventory(t *testing.T) {
 	regs := testRegistrations()
 	r0, r1 := regs[0], regs[1]
@@ -193,6 +204,7 @@ func baseSnapshotInput(t *testing.T) SnapshotInput {
 	}
 }
 
+// findBySlug is the entry named slug, or nil if none is.
 func findBySlug(entries []IndexEntry, slug string) *IndexEntry {
 	for i, entry := range entries {
 		if entry.Slug == slug {
@@ -211,6 +223,8 @@ func branchText(entry IndexEntry) string {
 	return *entry.Branch
 }
 
+// servicePairs is each service's label and availability, for assertions
+// that only care about those two fields.
 func servicePairs(services []IndexServiceLink) [][2]any {
 	pairs := make([][2]any, len(services))
 	for i, service := range services {
@@ -219,6 +233,8 @@ func servicePairs(services []IndexServiceLink) [][2]any {
 	return pairs
 }
 
+// TestBuildSnapshot ports tests/unit/checkout-index.test.ts's `buildSnapshot`
+// describe block.
 func TestBuildSnapshot(t *testing.T) {
 	t.Run("derives running, partial, stopped, and missing, sorted by project with missing last", func(t *testing.T) {
 		snapshot := BuildSnapshot(baseSnapshotInput(t))
@@ -444,6 +460,7 @@ func TestBuildSnapshot(t *testing.T) {
 	})
 }
 
+// availabilities is each service's Available flag, in order.
 func availabilities(services []IndexServiceLink) []bool {
 	result := make([]bool, len(services))
 	for i, s := range services {

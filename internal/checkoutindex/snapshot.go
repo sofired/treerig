@@ -326,6 +326,8 @@ func entryStatus(local, hasIdentity, dockerReachable bool, identityError *Identi
 	}
 }
 
+// containersFor is every container among owned carrying the named service,
+// which may be more than one for a scaled service.
 func containersFor(owned []ContainerRecord, service string) []ContainerRecord {
 	var containers []ContainerRecord
 	for _, container := range owned {
@@ -336,6 +338,8 @@ func containersFor(owned []ContainerRecord, service string) []ContainerRecord {
 	return containers
 }
 
+// anyContainerAvailable reports whether any container among owned carrying
+// the named service is available.
 func anyContainerAvailable(owned []ContainerRecord, service string) bool {
 	for _, container := range owned {
 		if container.Service == service && container.Available {
@@ -426,6 +430,8 @@ func sortEntries(entries []IndexEntry) {
 	})
 }
 
+// missingRank is 1 for a missing entry and 0 otherwise, so subtracting one
+// rank from another sorts missing entries last.
 func missingRank(status IndexStatus) int {
 	if status == StatusMissing {
 		return 1

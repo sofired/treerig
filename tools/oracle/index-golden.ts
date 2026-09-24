@@ -12,6 +12,14 @@
 import { renderIndexHtml, formatIndexText } from '../../src/checkout-index/render.ts';
 import { placeholderSnapshot, type IndexEntry, type IndexSnapshot } from '../../src/checkout-index/snapshot.ts';
 
+// compactPath's default parameter (`home = homedir()`) reads this at every
+// call render.ts makes, so fixing it here — rather than leaving it to
+// whatever regenerates this file — means the golden bytes below don't depend
+// on who runs this script or what their own home directory is. Fixed, and
+// deliberately unrelated to every fixture root below (all under /work/…), so
+// compactPath never compacts one of them.
+process.env.HOME = '/home/berth-test';
+
 const INDEX_URL = 'http://berth.localhost:8080';
 
 function entry(fields: Omit<IndexEntry, 'services'> & { services?: IndexEntry['services'] }): IndexEntry {

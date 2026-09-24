@@ -24,6 +24,13 @@ import (
 // build's own optional-property semantics), and so on with no translation
 // layer needed.
 func TestIndexGolden(t *testing.T) {
+	// Every fixture root is under /work/…, but pin it anyway: RenderIndexHTML
+	// and FormatIndexText compact each root against the real home directory,
+	// and this test should not depend on what that happens to be wherever it
+	// runs (a runner with HOME=/ would otherwise compact every root to
+	// "~/work/…" and fail every fixture that carries one).
+	pinHomeDir(t, "/home/berth-test")
+
 	data, err := os.ReadFile("testdata/index-golden.json")
 	if err != nil {
 		t.Fatalf("reading golden data: %v", err)

@@ -56,6 +56,8 @@ var (
 	shellFingerprint = base64.RawURLEncoding.EncodeToString(sum256(styles + script))[:16]
 )
 
+// sum256 is the raw SHA-256 digest of value, as a byte slice ready for a
+// base64 encoder.
 func sum256(value string) []byte {
 	sum := sha256.Sum256([]byte(value))
 	return sum[:]
@@ -138,6 +140,10 @@ func groupAndHeadSections(entries []IndexEntry) []indexSection {
 	return result
 }
 
+// domainHeading is the project's name beside its domain — or the domain
+// alone, when no card has named a project other than the domain itself.
+// Every distinct project on the domain is listed, sorted and joined with
+// ", ", so a domain shared by several projects names all of them.
 func domainHeading(domain string, entries []IndexEntry) string {
 	seen := make(map[string]struct{}, len(entries))
 	var named []string
@@ -168,6 +174,11 @@ func sections(entries []IndexEntry) []indexSection {
 	return result
 }
 
+// renderRow is one <tr> of the checkout index: the branch (or a placeholder
+// when nothing recorded one), the host, the checkout path, the status pill
+// with missing-checkout guidance, and every declared service. unchecked
+// means Docker could not be asked, so a service link is shown live rather
+// than greyed out — nothing has actually confirmed it is unavailable.
 func renderRow(entry IndexEntry, unchecked bool) string {
 	// Nothing was asked of a checkout Git says is gone; its services are
 	// not "not answering", they are not there.
@@ -265,6 +276,9 @@ type indexUpdate struct {
 	Body  string
 }
 
+// indexOfFrom is JavaScript's String.prototype.indexOf(substr, from): the
+// first index of substr at or after from, or -1, exactly as planIndexUpdate
+// in the TypeScript build calls html.indexOf(tag, from).
 func indexOfFrom(s, substr string, from int) int {
 	if from < 0 {
 		from = 0
@@ -353,6 +367,9 @@ func dockerNotice(reason *string) string {
 		fmt.Sprintf("Rows show Unknown unless Git reports the checkout gone. Run `%s index` again once it answers.", brand.Name)
 }
 
+// identityNotice explains what a failed Git lookup cost the page: whether
+// the affected rows show Unknown, or whether none could be called missing at
+// all, depending on what failure says was checked.
 func identityNotice(failure IdentityFailure) string {
 	// Whatever Git said is prose, not markup: its own backticks would
 	// otherwise pair with this sentence's and wrap the wrong span in a code
@@ -366,6 +383,7 @@ func identityNotice(failure IdentityFailure) string {
 		"Run `%s index` from one of its checkouts once Git can list them again.", reason, consequence, brand.Name)
 }
 
+// emptyState is what there is to say when no checkout has ever been indexed.
 func emptyState() string {
 	return fmt.Sprintf("No checkouts have been indexed yet. Run `%s up` in a worktree.", brand.Name)
 }
@@ -531,6 +549,9 @@ func FormatIndexText(snapshot IndexSnapshot, url string) string {
 	return head + "\n" + notices.String() + legendText + groups
 }
 
+// formatIndexRow is one entry's block of the plain-text twin: its status and
+// branch, host, checkout path, missing-checkout guidance, and every declared
+// service with its own state marker.
 func formatIndexRow(entry IndexEntry, dockerReachable bool) string {
 	unchecked := !dockerReachable && entry.Status != StatusMissing
 	services := "    (no services)"
@@ -596,6 +617,8 @@ func formatIndexRow(entry IndexEntry, dockerReachable bool) string {
 	return strings.Join(parts, "\n")
 }
 
+// checkoutLine is the text twin's "checkout" line: "-" when nothing recorded
+// a root, otherwise the root compacted under the current home.
 func checkoutLine(entry IndexEntry) string {
 	if entry.Root == "" {
 		return "    checkout  -"
