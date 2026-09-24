@@ -1,6 +1,7 @@
 package progress_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,29 @@ func (r recordingLogger) Info(message string) { r.lines <- message }
 func (recordingLogger) Warn(string)           {}
 func (recordingLogger) Error(string)          {}
 func (recordingLogger) Output(string)         {}
+
+// syncLogger records every Info message behind a mutex instead of a channel,
+// so it never blocks a heartbeat goroutine that is racing to shut down —
+// unlike recordingLogger, it is safe to leave completely undrained.
+type syncLogger struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (s *syncLogger) Info(message string) {
+	s.mu.Lock()
+	s.lines = append(s.lines, message)
+	s.mu.Unlock()
+}
+func (*syncLogger) Warn(string)   {}
+func (*syncLogger) Error(string)  {}
+func (*syncLogger) Output(string) {}
+
+func (s *syncLogger) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.lines)
+}
 
 func TestWithProgress(t *testing.T) {
 	t.Run("reports elapsed time while a phase is still running and stops after completion", func(t *testing.T) {
@@ -64,6 +88,28 @@ func TestWithProgress(t *testing.T) {
 		case line := <-log.lines:
 			t.Fatalf("unexpected message after completion: %q", line)
 		case <-time.After(3 * testHeartbeat):
+		}
+	})
+
+	t.Run("logs no heartbeat once WithProgress has returned, racing a very short heartbeat", func(t *testing.T) {
+		defer progress.SetHeartbeatForTest(200 * time.Microsecond)()
+
+		log := &syncLogger{}
+		// Long enough, next to a 200µs heartbeat, that several ticks are
+		// reliably pending right as action returns — the exact window the
+		// fix's second, non-blocking done check and the wait for the
+		// heartbeat goroutine to actually exit are both there for.
+		if err := progress.WithProgress(log, "Preparing services", func() error {
+			time.Sleep(5 * time.Millisecond)
+			return nil
+		}); err != nil {
+			t.Fatalf("WithProgress: %v", err)
+		}
+
+		settled := log.count()
+		time.Sleep(20 * time.Millisecond)
+		if after := log.count(); after != settled {
+			t.Fatalf("%d message(s) logged after WithProgress returned (had %d, now %d)", after-settled, settled, after)
 		}
 	})
 }

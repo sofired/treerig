@@ -26,18 +26,33 @@ func SetHeartbeatForTest(d time.Duration) (restore func()) {
 }
 
 // WithProgress logs phase, then an elapsed-time heartbeat every heartbeat
-// while action runs.
+// while action runs. No heartbeat is ever logged once WithProgress has
+// returned: the deferred cleanup waits for the heartbeat goroutine to have
+// actually stopped, not just for it to have been told to, since a tick ready
+// at the same moment as done being closed is not guaranteed to lose a select
+// — TypeScript's clearInterval, by contrast, never fires again once called.
 func WithProgress(log logger.Logger, phase string, action func() error) error {
 	log.Info(phase + ".")
 	started := time.Now()
 	done := make(chan struct{})
+	stopped := make(chan struct{})
 	ticker := time.NewTicker(heartbeat)
 	go func() {
+		defer close(stopped)
 		for {
 			select {
 			case <-done:
 				return
 			case <-ticker.C:
+				// select does not prefer done over a tick that became ready
+				// at the same time; this second, non-blocking check is what
+				// actually keeps a heartbeat from logging once action has
+				// returned.
+				select {
+				case <-done:
+					return
+				default:
+				}
 				log.Info(fmt.Sprintf("%s (%s elapsed).", phase, elapsed(started)))
 			}
 		}
@@ -45,10 +60,13 @@ func WithProgress(log logger.Logger, phase string, action func() error) error {
 	defer func() {
 		ticker.Stop()
 		close(done)
+		<-stopped
 	}()
 	return action()
 }
 
+// elapsed is the time since started, rounded down to whole seconds (never
+// below 1s) and formatted as "Ns" under a minute or "Mm SSs" at or above it.
 func elapsed(started time.Time) string {
 	total := max(1, int(time.Since(started)/time.Second))
 	if total < 60 {
