@@ -17,6 +17,8 @@ import (
 
 // routedRuntime is newRuntime plus routes and a router network, matching the
 // TypeScript suite's own runtime(fake, routes) helper.
+func intPtr(n int) *int { return &n }
+
 func routedRuntime(t *testing.T, fake *dockerFake, routes []RouteSpec) (*Compose, string) {
 	t.Helper()
 	controlHome := t.TempDir()
@@ -24,7 +26,7 @@ func routedRuntime(t *testing.T, fake *dockerFake, routes []RouteSpec) (*Compose
 		ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
 		ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
 		ControlHome: controlHome, LabelNamespace: ns, Routes: routes, RouterNetwork: "berth-router",
-		Runner: fake, Logger: logger.Silent{}, WaitTimeoutSeconds: 45,
+		Runner: fake, Logger: logger.Silent{}, WaitTimeoutSeconds: intPtr(45),
 	})
 	return rt, controlHome
 }
@@ -230,6 +232,52 @@ func TestComposeUp(t *testing.T) {
 		}
 		if up[0].Output != run.Tee {
 			t.Fatalf("expected the up call to tee output, got %v", up[0].Output)
+		}
+	})
+
+	t.Run("an unset wait timeout emits the 120-second default, matching TypeScript's ?? — not any zero value", func(t *testing.T) {
+		fake := newFake()
+		controlHome := t.TempDir()
+		// Built directly, not through routedRuntime, which always sets one:
+		// this is specifically about leaving WaitTimeoutSeconds nil.
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns, RouterNetwork: "berth-router",
+			Runner: fake, Logger: logger.Silent{},
+		})
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
+			t.Fatal(err)
+		}
+		up := fake.composeCalls("up")
+		if len(up) != 1 {
+			t.Fatalf("expected one up call, got %d", len(up))
+		}
+		if !slices.Contains(up[0].Args, "120") {
+			t.Fatalf("expected --wait-timeout 120 in %v", up[0].Args)
+		}
+	})
+
+	t.Run("an explicit zero wait timeout passes through, unlike an unset one", func(t *testing.T) {
+		fake := newFake()
+		controlHome := t.TempDir()
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns, RouterNetwork: "berth-router",
+			Runner: fake, Logger: logger.Silent{}, WaitTimeoutSeconds: intPtr(0),
+		})
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
+			t.Fatal(err)
+		}
+		up := fake.composeCalls("up")
+		if len(up) != 1 {
+			t.Fatalf("expected one up call, got %d", len(up))
+		}
+		if !slices.Contains(up[0].Args, "0") {
+			t.Fatalf("expected --wait-timeout 0 (not the 120 default) in %v", up[0].Args)
 		}
 	})
 

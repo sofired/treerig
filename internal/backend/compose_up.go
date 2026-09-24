@@ -562,9 +562,9 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	if err != nil {
 		return err
 	}
-	timeout := c.options.WaitTimeoutSeconds
-	if timeout <= 0 {
-		timeout = DefaultWaitTimeoutSeconds
+	timeout := DefaultWaitTimeoutSeconds
+	if c.options.WaitTimeoutSeconds != nil {
+		timeout = *c.options.WaitTimeoutSeconds
 	}
 	args := []string{"up", "--detach", "--build", "--remove-orphans", "--wait", "--wait-timeout", strconv.Itoa(timeout)}
 	args = append(args, services...)

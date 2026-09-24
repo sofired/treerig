@@ -125,7 +125,7 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 		ComposeFile: composeFile, ProjectRoot: fixture, ConfigFile: filepath.Join(fixture, "berth.toml"),
 		ProjectName: "berth-test", Domain: "test.localhost", ControlHome: controlHome,
 		LabelNamespace: composeNamespace, Runner: osrun.New(), Logger: logger.Silent{},
-		RouterNetwork: "berth-router-unused", WaitTimeoutSeconds: 60, Environ: os.Environ(),
+		RouterNetwork: "berth-router-unused", WaitTimeoutSeconds: intPtr(60), Environ: os.Environ(),
 	})
 	ctx := context.Background()
 

@@ -59,8 +59,11 @@ type Options struct {
 	// RouterNetwork is the shared router's network; routed services join it.
 	RouterNetwork string
 	// WaitTimeoutSeconds is how long `up --wait` waits for health before
-	// failing; zero uses DefaultWaitTimeoutSeconds.
-	WaitTimeoutSeconds int
+	// failing; nil uses DefaultWaitTimeoutSeconds. A pointer, matching
+	// TypeScript's own `options.waitTimeoutSeconds ?? DEFAULT...`: `??` only
+	// substitutes the default for null or undefined, so an explicit 0 (unlike
+	// a plain zero-value int) is not mistaken for "unset".
+	WaitTimeoutSeconds *int
 }
 
 // Compose is the Compose runtime.
