@@ -335,6 +335,13 @@ func establishControlHome(controlHome string) error {
 
 // SecureControlDirectories creates and locks down the control home's
 // machine-wide directories.
+//
+// As of protocol 4, this no longer includes the shared router's directories
+// or files (RouterDir and everything under it): those live in the router's
+// own machine-wide state directory, resolved by layout.RouterState and
+// secured by internal/router (#12, #13). Creating them here would recreate,
+// on this control home's very next command, exactly what a control home's
+// router migration just removed.
 func SecureControlDirectories(l layout.Control) error {
 	if err := establishControlHome(l.ControlHome); err != nil {
 		return err
@@ -343,35 +350,10 @@ func SecureControlDirectories(l layout.Control) error {
 		l.ControlHome,
 		l.RepositoriesDir,
 		l.LocksDir,
-		l.RouterDir,
 	}, 0o700); err != nil {
 		return err
 	}
-	// Bind-mounted into cap-dropped containers; see the package comment. The
-	// 0700 parents are created first because a recursive mkdir gives every
-	// directory it creates the leaf's mode: the end state would be the same
-	// either way (the chmod is unconditional), but a fresh install would pass
-	// through a moment with a 0755 control home.
-	if err := createSecureDirectories(l.ControlHome, []string{l.IndexDir, l.RouterDynamicDir}, 0o755); err != nil {
-		return err
-	}
-	if err := AssertSafeFilePath(l.ControlHome, l.RegistryLockPath); err != nil {
-		return err
-	}
-	if err := AssertSafeFilePath(l.ControlHome, l.RouterLockPath); err != nil {
-		return err
-	}
-	if err := AssertSafeFilePath(l.ControlHome, l.IndexFile); err != nil {
-		return err
-	}
-	// Both are read back, not only written: a symlink at either would send the read elsewhere.
-	if err := AssertSafeFilePath(l.ControlHome, l.RouterComposeFile); err != nil {
-		return err
-	}
-	if err := AssertSafeFilePath(l.ControlHome, l.RouterProtocolFile); err != nil {
-		return err
-	}
-	return nil
+	return AssertSafeFilePath(l.ControlHome, l.RegistryLockPath)
 }
 
 // SecureRegistrationDirectories are the directories a worktree needs before

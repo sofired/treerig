@@ -155,17 +155,6 @@ func TestPathContainment(t *testing.T) {
 }
 
 func TestSecureDirectoryCreation(t *testing.T) {
-	t.Run("refuses a symlink where the router reads its own files back", func(t *testing.T) {
-		for _, name := range []string{"router/compose.yaml", "router/protocol"} {
-			home := t.TempDir()
-			layoutControl := layout.ControlLayout(home)
-			requireNoError(t, files.SecureControlDirectories(layoutControl)) // established and marked, as on any real run
-			requireNoError(t, os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), filepath.Join(home, name)))
-
-			requireErrorContains(t, files.SecureControlDirectories(layoutControl), "Refusing symlinked or non-file managed path")
-		}
-	})
-
 	t.Run("adopts an empty directory and marks it, adopts an older install, and refuses a stranger's directory", func(t *testing.T) {
 		empty := filepath.Join(t.TempDir(), "control")
 		requireNoError(t, files.SecureControlDirectories(layout.ControlLayout(empty)))
@@ -225,46 +214,24 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		requireNoError(t, files.AssertAdoptableControlHome(filepath.Join(home, ".berth-does-not-exist-test")))
 	})
 
-	t.Run("creates the control layout owner-only, except the two directories containers must read", func(t *testing.T) {
+	t.Run("creates the control layout owner-only", func(t *testing.T) {
 		controlHome := filepath.Join(t.TempDir(), "control")
 		l := layout.ControlLayout(controlHome)
 
 		requireNoError(t, files.SecureControlDirectories(l))
 
-		for _, directory := range []string{l.ControlHome, l.RepositoriesDir, l.LocksDir, l.RouterDir} {
+		for _, directory := range []string{l.ControlHome, l.RepositoriesDir, l.LocksDir} {
 			if mode := fileMode(t, directory); mode != 0o700 {
 				t.Fatalf("expected %s to be 0700, got %o", directory, mode)
 			}
 		}
-		for _, directory := range []string{l.IndexDir, l.RouterDynamicDir} {
-			if mode := fileMode(t, directory); mode != 0o755 {
-				t.Fatalf("expected %s to be 0755, got %o", directory, mode)
-			}
-		}
-	})
-
-	t.Run("widens both mounted directories an older install created owner-only, without widening their parent", func(t *testing.T) {
-		controlHome := filepath.Join(t.TempDir(), "control")
-		l := layout.ControlLayout(controlHome)
-		// An older install: every command took a lock, so locks/ is there alongside router/.
-		requireNoError(t, os.MkdirAll(l.LocksDir, 0o700))
-		for _, directory := range []string{l.IndexDir, l.RouterDynamicDir} {
-			requireNoError(t, os.MkdirAll(directory, 0o700))
-			if mode := fileMode(t, directory); mode != 0o700 {
-				t.Fatalf("expected %s to start 0700, got %o", directory, mode)
-			}
-		}
-
-		requireNoError(t, files.SecureControlDirectories(l))
-
-		if mode := fileMode(t, l.IndexDir); mode != 0o755 {
-			t.Fatalf("expected indexDir to be 0755, got %o", mode)
-		}
-		if mode := fileMode(t, l.RouterDynamicDir); mode != 0o755 {
-			t.Fatalf("expected routerDynamicDir to be 0755, got %o", mode)
-		}
-		if mode := fileMode(t, l.RouterDir); mode != 0o700 {
-			t.Fatalf("expected routerDir to stay 0700, got %o", mode)
+		// The router's own directories are no longer created here: they live
+		// in the router's machine-wide state directory (internal/router,
+		// #12, #13), not under any control home.
+		exists, err := files.PathExists(l.RouterDir)
+		requireNoError(t, err)
+		if exists {
+			t.Fatalf("expected %s not to be created", l.RouterDir)
 		}
 	})
 
