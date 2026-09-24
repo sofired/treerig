@@ -20,6 +20,7 @@ import path from 'node:path';
 import { BRAND } from './brand.ts';
 import { CliError, invariant } from './errors.ts';
 import type { ControlLayout, WorktreeLayout } from './layout.ts';
+import { printable } from './text.ts';
 
 // Everything under the control home is created owner-only (0700 directories,
 // 0600 files) and every path is verified to sit inside the control home with
@@ -166,6 +167,23 @@ async function establishControlHome(controlHome: string): Promise<void> {
   const marker = path.join(controlHome, CONTROL_HOME_MARKER);
   await assertSafeFilePath(controlHome, marker);
   if (!(await pathExists(marker))) await touchSecure(marker);
+}
+
+/**
+ * The Go build writes `format 2\n` into the marker; this build leaves it
+ * empty. The two builds' locks do not exclude each other — flock against
+ * proper-lockfile directories — so a control home the marker says the Go
+ * build manages must never be changed here, not even to widen a directory's
+ * mode. A missing or empty marker is ours to manage, exactly as before the
+ * Go build existed. Called before any lock is taken or anything is written.
+ */
+export async function assertNotGoManaged(controlHome: string): Promise<void> {
+  const marker = path.join(controlHome, CONTROL_HOME_MARKER);
+  if (!(await nonemptyFile(marker))) return;
+  throw new CliError(
+    `This control home (${printable(controlHome)}) is managed by the Go build of ${BRAND.name}; ` +
+    'this TypeScript build does not change it.'
+  );
 }
 
 export async function secureControlDirectories(layout: ControlLayout): Promise<void> {
