@@ -72,8 +72,10 @@ type healthyRouterDocker struct {
 	port    int
 }
 
+// Which always answers true.
 func (d *healthyRouterDocker) Which(string) bool { return true }
 
+// Run answers as a healthy, current-protocol router.
 func (d *healthyRouterDocker) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	args := spec.Args
 	switch {
@@ -97,6 +99,8 @@ func (d *healthyRouterDocker) Run(_ context.Context, spec run.Spec) (run.Result,
 	}
 }
 
+// docFor is what `docker inspect` answers for one healthy, current-protocol
+// service container.
 func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 	labels := map[string]string{
 		"com.docker.compose.project": router.DefaultName,
@@ -374,6 +378,7 @@ func TestRouterDown(t *testing.T) {
 	})
 }
 
+// slicesContainsLine reports whether want is one of lines, exactly.
 func slicesContainsLine(lines []string, want string) bool {
 	for _, line := range lines {
 		if line == want {
@@ -383,6 +388,7 @@ func slicesContainsLine(lines []string, want string) bool {
 	return false
 }
 
+// containsSubstringLine reports whether any of lines contains substr.
 func containsSubstringLine(lines []string, substr string) bool {
 	for _, line := range lines {
 		if strings.Contains(line, substr) {

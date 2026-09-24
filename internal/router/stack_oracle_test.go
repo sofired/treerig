@@ -17,6 +17,10 @@ import (
 	"github.com/sofired/berth/internal/router"
 )
 
+// oldDynamicDir/oldIndexDir are the oracle fixture's own (pre-protocol-4,
+// control-home-rooted) mount sources; newDynamicDir/newIndexDir are what
+// TestStackOracle substitutes for them, and what it builds Go's own stack
+// document with, to prove parity apart from the ledgered protocol-4 changes.
 const (
 	oldDynamicDir = "/home/dev/.berth/router/dynamic"
 	oldIndexDir   = "/home/dev/.berth/router/index"
@@ -24,6 +28,8 @@ const (
 	newIndexDir   = "/home/dev/.local/state/berth/router/index"
 )
 
+// marshalIndented is v encoded the way files.AtomicJSON encodes a stack
+// document: no HTML escaping, two-space indent, trailing newline.
 func marshalIndented(v any) (string, error) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)

@@ -7,6 +7,8 @@ import (
 	"github.com/sofired/berth/internal/lock"
 )
 
+// mapGetenv returns a getenv function backed by a fixed map, for tests that
+// need to control which environment variables are set.
 func mapGetenv(values map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		v, ok := values[key]

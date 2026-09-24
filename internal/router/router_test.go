@@ -25,6 +25,9 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
+// testProject, testNetwork and testNS are the default router's own name,
+// network and label namespace (router.DefaultName and brand.LabelNamespace),
+// spelled out literally so a fixture can build them without importing brand.
 const (
 	testProject = "berth-router"
 	testNetwork = "berth-router"
@@ -33,6 +36,7 @@ const (
 
 /* --------------------------------------------------------------- the fake */
 
+// call is one recorded invocation of dockerFake.Run.
 type call struct {
 	args []string
 	env  []string
@@ -61,6 +65,9 @@ type dockerFake struct {
 	onRecreate func()
 }
 
+// newDockerFake is a dockerFake with a healthy stack already "running":
+// every service has a container id, and its own docs entry is left for the
+// caller to set.
 func newDockerFake() *dockerFake {
 	return &dockerFake{
 		ids:  map[string]string{"router": "router-1", "docker-api": "api-1", "index": "index-1"},
@@ -68,8 +75,10 @@ func newDockerFake() *dockerFake {
 	}
 }
 
+// containsArg reports whether want is one of args.
 func containsArg(args []string, want string) bool { return slices.Contains(args, want) }
 
+// Run answers one `docker` call, the way run.Runner requires.
 func (d *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Lock()
 	d.calls = append(d.calls, call{args: append([]string(nil), spec.Args...), env: append([]string(nil), spec.Env...)})
@@ -123,26 +132,32 @@ func (d *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	}
 }
 
+// Which always answers true: this fake never needs `docker` to be missing
+// except through dockerMissing.
 func (d *dockerFake) Which(string) bool { return true }
 
+// snapshotCalls is every call recorded so far, safe to read while Run still runs.
 func (d *dockerFake) snapshotCalls() []call {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return append([]call(nil), d.calls...)
 }
 
+// setDoc is what `docker inspect id` answers from now on.
 func (d *dockerFake) setDoc(id string, doc router.ContainerInspect) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.docs[id] = doc
 }
 
+// deleteDoc makes `docker inspect id` answer "no such object".
 func (d *dockerFake) deleteDoc(id string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.docs, id)
 }
 
+// clearDocs makes every `docker inspect` answer "no such object".
 func (d *dockerFake) clearDocs() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -151,6 +166,8 @@ func (d *dockerFake) clearDocs() {
 
 /* --------------------------------------------------------------- fixtures */
 
+// testLabels is the component and protocol labels, plus Compose's own,
+// every container in a healthy default-named stack carries.
 func testLabels(service string) map[string]string {
 	return map[string]string{
 		"com.docker.compose.project": testProject,
@@ -188,6 +205,8 @@ func routerDoc(dynamicDir string, port int) router.ContainerInspect {
 	}
 }
 
+// apiDoc is what Docker reports for a docker-api proxy started exactly as
+// the stack asks.
 func apiDoc() router.ContainerInspect {
 	access := router.DockerAPIAccess()
 	names := make([]string, 0, len(access))
@@ -215,6 +234,8 @@ func apiDoc() router.ContainerInspect {
 	}
 }
 
+// indexDoc is what Docker reports for an index container started exactly as
+// the stack asks.
 func indexDoc(indexDir string) router.ContainerInspect {
 	labels := testLabels("index")
 	for key, value := range router.IndexRouteLabels(testNetwork).Map() {
@@ -238,6 +259,9 @@ func indexDoc(indexDir string) router.ContainerInspect {
 
 /* ------------------------------------------------------------------ world */
 
+// newState is a layout.RouterLayout rooted directly at dir, bypassing
+// layout.RouterState's own HOME/XDG resolution — dir is whatever a test
+// already has (a symlink, say), not derived from an environment.
 func newState(dir string) layout.RouterLayout {
 	indexDir := filepath.Join(dir, "index")
 	return layout.RouterLayout{
@@ -251,6 +275,7 @@ func newState(dir string) layout.RouterLayout {
 	}
 }
 
+// testWorld is one hermetic router.Router plus its fake docker and logger.
 type testWorld struct {
 	t      *testing.T
 	Dir    string
@@ -261,6 +286,8 @@ type testWorld struct {
 	Port   int
 }
 
+// setHealthy stages docs for all three services exactly as the stack asks,
+// under their default fake ids.
 func (w *testWorld) setHealthy() {
 	w.Fake.setDoc("router-1", routerDoc(w.State.DynamicDir, w.Port))
 	w.Fake.setDoc("api-1", apiDoc())
@@ -294,6 +321,7 @@ func newWorldOpts(t *testing.T, existing string, port int, extra func(*router.Op
 	return w
 }
 
+// newWorld is newWorldOpts with the default Router options.
 func newWorld(t *testing.T, port int, existing string) *testWorld {
 	t.Helper()
 	return newWorldOpts(t, existing, port, nil)
@@ -326,6 +354,7 @@ func taken(t *testing.T, w *testWorld, protocol *int) {
 	w.Fake.mu.Unlock()
 }
 
+// protocolPtr is a pointer to v, for taken's optional protocol argument.
 func protocolPtr(v int) *int { return &v }
 
 // ups is every `compose … up …` call so far, as raw argv.
@@ -339,6 +368,8 @@ func (w *testWorld) ups() [][]string {
 	return result
 }
 
+// firstUp is the first `compose … up …` call so far, or the zero call if
+// there was none.
 func (w *testWorld) firstUp() call {
 	for _, c := range w.Fake.snapshotCalls() {
 		if len(c.args) > 0 && c.args[0] == "compose" && containsArg(c.args, "up") {
@@ -352,6 +383,8 @@ func (w *testWorld) firstUp() call {
 // its absence cannot go vacuous.
 const unrouted = "warn: Worktrees already up elsewhere stay unrouted until their next 'duke up'."
 
+// skipIfRoot skips t when running as root, which bypasses the file
+// permissions a symlink/mode-based test stages.
 func skipIfRoot(t *testing.T) {
 	t.Helper()
 	// Root reads a 0000 file regardless, so there would be nothing to refuse or warn about.
@@ -360,6 +393,7 @@ func skipIfRoot(t *testing.T) {
 	}
 }
 
+// fileMode is file's permission bits.
 func fileMode(t *testing.T, file string) os.FileMode {
 	t.Helper()
 	info, err := os.Stat(file)
@@ -369,6 +403,7 @@ func fileMode(t *testing.T, file string) os.FileMode {
 	return info.Mode().Perm()
 }
 
+// linesWithPrefix is every line of lines starting with prefix.
 func linesWithPrefix(lines []string, prefix string) []string {
 	var out []string
 	for _, line := range lines {
@@ -379,6 +414,7 @@ func linesWithPrefix(lines []string, prefix string) []string {
 	return out
 }
 
+// containsSubstring reports whether any line of lines contains substr.
 func containsSubstring(lines []string, substr string) bool {
 	for _, line := range lines {
 		if strings.Contains(line, substr) {
@@ -388,6 +424,7 @@ func containsSubstring(lines []string, substr string) bool {
 	return false
 }
 
+// mustContain fails t unless want is one of lines, exactly.
 func mustContain(t *testing.T, lines []string, want string) {
 	t.Helper()
 	if !slices.Contains(lines, want) {
@@ -395,6 +432,7 @@ func mustContain(t *testing.T, lines []string, want string) {
 	}
 }
 
+// mustNotContain fails t if want is one of lines, exactly.
 func mustNotContain(t *testing.T, lines []string, want string) {
 	t.Helper()
 	if slices.Contains(lines, want) {

@@ -55,6 +55,8 @@ func freePortForTest(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// requireDocker skips t (or fails it, under BERTH_TEST_REQUIRE_DOCKER=1)
+// when no Docker daemon is reachable.
 func requireDocker(t *testing.T) {
 	t.Helper()
 	if err := exec.Command("docker", "info").Run(); err != nil {
@@ -65,6 +67,7 @@ func requireDocker(t *testing.T) {
 	}
 }
 
+// suffix is a short random hex string, for names unique to one test run.
 func suffix(t *testing.T) string {
 	t.Helper()
 	b := make([]byte, 4)
@@ -74,6 +77,7 @@ func suffix(t *testing.T) string {
 	return fmt.Sprintf("%x", b)
 }
 
+// dockerOutput runs a real `docker` command, failing t if it exits non-zero.
 func dockerOutput(t *testing.T, args ...string) string {
 	t.Helper()
 	out, err := exec.Command("docker", args...).CombinedOutput()
@@ -83,6 +87,10 @@ func dockerOutput(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// fetchThroughRouter is a GET to 127.0.0.1:port with an explicit Host
+// header, the way a request actually reaches the router by hostname. Returns
+// the status and body, or 0 and the error's own message when the request
+// itself failed (a connection refusal, say).
 func fetchThroughRouter(t *testing.T, port int, host, path string) (int, string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), nil)
@@ -384,8 +392,11 @@ type sequencedFake struct {
 	port   int
 }
 
+// Which always answers true.
 func (f *sequencedFake) Which(string) bool { return true }
 
+// Run answers as a healthy, current-protocol router, recording when its `up`
+// call starts and ends around a sleep of f.hold.
 func (f *sequencedFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	args := spec.Args
 	switch {

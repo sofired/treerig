@@ -12,16 +12,20 @@ import (
 	"github.com/sofired/berth/internal/logger"
 )
 
+// fakeQuiescer is a Runner that counts its calls and returns a fixed error.
 type fakeQuiescer struct {
 	err   error
 	calls int
 }
 
+// Quiesce records the call and returns the fake's configured error.
 func (f *fakeQuiescer) Quiesce(ctx context.Context) error {
 	f.calls++
 	return f.err
 }
 
+// testScopes returns three distinct lock.Scope values, rooted in a fresh
+// temp directory, for the three request kinds Hold coordinates.
 func testScopes(t *testing.T) (operation, development, registry lock.Scope) {
 	t.Helper()
 	dir := t.TempDir()

@@ -241,6 +241,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 	})
 }
 
+// statusEqual reports whether got and want are the same RouterStatus.
 func statusEqual(got, want router.RouterStatus) bool {
 	if got.Reachable != want.Reachable || got.Running != want.Running || got.Port != want.Port || got.Network != want.Network {
 		return false
@@ -317,6 +318,7 @@ func TestRouterStatusReport(t *testing.T) {
 	})
 }
 
+// reportEqual reports whether got and want are the same Report.
 func reportEqual(got, want router.Report) bool {
 	if got.Failed != want.Failed {
 		return false

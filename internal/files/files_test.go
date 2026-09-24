@@ -20,6 +20,7 @@ func fileMode(t *testing.T, file string) os.FileMode {
 	return info.Mode().Perm()
 }
 
+// requireNoError fails t immediately if err is non-nil.
 func requireNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
@@ -27,6 +28,7 @@ func requireNoError(t *testing.T, err error) {
 	}
 }
 
+// requireErrorContains fails t unless err is non-nil and its message contains substr.
 func requireErrorContains(t *testing.T, err error, substr string) {
 	t.Helper()
 	if err == nil {
