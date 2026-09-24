@@ -108,4 +108,55 @@ func TestMigrateLegacyState(t *testing.T) {
 			t.Errorf("expected the legacy router directory to be gone, stat err = %v", err)
 		}
 	})
+
+	t.Run("never overwrites a same-named file already at the shared destination", func(t *testing.T) {
+		controlHome := registrytest.TempDir(t)
+		state := newRouterState(t, registrytest.TempDir(t))
+
+		legacyDynamic := filepath.Join(controlHome, "router", "dynamic")
+		if err := os.MkdirAll(legacyDynamic, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		source := filepath.Join(legacyDynamic, "worktree.yaml")
+		if err := os.WriteFile(source, []byte("routers: {mine: true}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// As if another control home's file of the same name won the race already.
+		if err := os.MkdirAll(state.DynamicDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		destination := filepath.Join(state.DynamicDir, "worktree.yaml")
+		if err := os.WriteFile(destination, []byte("routers: {theirs: true}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		rec := &logger.Recording{}
+		if err := router.MigrateLegacyState(controlHome, state, rec); err != nil {
+			t.Fatalf("MigrateLegacyState: %v", err)
+		}
+
+		kept, err := os.ReadFile(destination)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(kept) != "routers: {theirs: true}\n" {
+			t.Errorf("expected the destination to survive untouched, got %q", kept)
+		}
+		survived, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatalf("expected the source to survive rather than be lost, got: %v", err)
+		}
+		if string(survived) != "routers: {mine: true}\n" {
+			t.Errorf("expected the source's own contents to survive, got %q", survived)
+		}
+		// Migration is unfinished (a collision needs a person), so the
+		// legacy directory must not have been removed out from under it.
+		if _, err := os.Stat(filepath.Join(controlHome, "router")); err != nil {
+			t.Errorf("expected the legacy router directory to survive, stat err = %v", err)
+		}
+		lines, _ := rec.Snapshot()
+		if !containsSubstring(lines, "Kept "+source) || !containsSubstring(lines, destination) {
+			t.Errorf("expected a warning naming both paths, got %v", lines)
+		}
+	})
 }

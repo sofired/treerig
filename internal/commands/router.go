@@ -74,15 +74,24 @@ func RouterUp(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
-	if err := routerHold(ctx, env, svc.ProjectName, svc.Ensure); err != nil {
+	err = routerHold(ctx, env, svc.ProjectName, func(ctx context.Context) error {
+		if err := svc.Ensure(ctx); err != nil {
+			return err
+		}
+		// New to the Go port (#12, #13): hand this control home's
+		// TypeScript-era router state over to the now machine-wide one, now
+		// that it has verified. Run under the same lock as Ensure, so two
+		// homes migrating at once — or two `up` runs racing from the same
+		// home — never step on each other's rename. Best effort: a router
+		// that just came up clean must not be reported as a failure over
+		// cleanup of state nothing needs any more.
+		if err := router.MigrateLegacyState(controlHome, state, env.Logger); err != nil {
+			env.Logger.Warn(fmt.Sprintf("Could not finish migrating this control home's earlier router state: %s", err))
+		}
+		return nil
+	})
+	if err != nil {
 		return err
-	}
-	// New to the Go port (#12, #13): hand this control home's TypeScript-era
-	// router state over to the now machine-wide one, now that it has
-	// verified. Best effort: a router that just came up clean must not be
-	// reported as a failure over cleanup of state nothing needs any more.
-	if err := router.MigrateLegacyState(controlHome, state, env.Logger); err != nil {
-		env.Logger.Warn(fmt.Sprintf("Could not finish migrating this control home's earlier router state: %s", err))
 	}
 	env.Logger.Info(fmt.Sprintf("Router is up on 127.0.0.1:%d (network %s); index at %s.", svc.Port, svc.Network, svc.IndexURL))
 	return nil
