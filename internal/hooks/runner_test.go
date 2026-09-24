@@ -147,6 +147,20 @@ func TestRunHook(t *testing.T) {
 		_, err := hooks.RunHook(ctx, config.Seed, newContext(runner, config.Hooks{Seed: str("./seed.py")}), hooks.RunOptions{})
 		requireExit(t, err, 3, "The seed hook failed (exit 3)")
 	})
+
+	t.Run("a hook body of a single quoted empty string is refused as empty, not as a missing command", func(t *testing.T) {
+		// TypeScript destructures [executable, ...args] and checks
+		// `!executable`, a falsy check: splitCommand('""') answers ['']
+		// (one empty-string token), and an empty string is falsy, so this is
+		// refused the same way a whitespace-only command is — never spawned,
+		// never reported as "not on PATH".
+		runner := recordingRunner(nil)
+		_, err := hooks.RunHook(ctx, config.Prepare, newContext(runner, config.Hooks{Prepare: str(`""`)}), hooks.RunOptions{})
+		requireExit(t, err, 1, `Hook "prepare" is empty.`)
+		if len(runner.Calls()) != 0 {
+			t.Fatalf("expected no calls, got %v", runner.Calls())
+		}
+	})
 }
 
 func TestRunHookWhenTheHookNeverRuns(t *testing.T) {

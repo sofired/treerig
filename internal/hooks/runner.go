@@ -127,7 +127,11 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx Context, opts Run
 		return false, nil
 	}
 	parts := splitCommand(*command)
-	if len(parts) == 0 {
+	// TypeScript destructures `[executable, ...args]` and checks `!executable`
+	// — a falsy check, so a command that is only whitespace (splitCommand
+	// returns no parts at all) and one that is a single empty-string token
+	// (a quoted "" as the whole command) are refused the same way.
+	if len(parts) == 0 || parts[0] == "" {
 		return false, clierr.Newf("Hook %q is empty.", stage)
 	}
 	executable, args := parts[0], slices.Clone(parts[1:])
