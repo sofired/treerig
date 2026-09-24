@@ -295,6 +295,9 @@ export class RouterService implements Router {
     // promotion at the end: `write()` would fail on the same directory two
     // steps later, so there is no run this could have cost a router.
     if (recorded !== previous) {
+      // `containerId()` and `inspect()` above asked Docker; checked again
+      // here, immediately before the write that evidence gates.
+      await assertNotGoManaged(this.options.controlHome);
       await atomicWrite(this.layout.routerProtocolFile, `${previous}\n`).catch((error: unknown) => {
         throw new CliError(
           `Could not record the router protocol in ${this.layout.routerProtocolFile}: ` +
@@ -518,6 +521,10 @@ export class RouterService implements Router {
       // even if recording the new protocol fails.
       this.noteUnroutedAfterUpgrade(previous);
       if (previous !== ROUTER_PROTOCOL) {
+        // `start()` above waited on `compose up`, which can take minutes, and
+        // may have waited again on a force-recreate and a second `verify()`;
+        // checked again here, immediately before the record is promoted.
+        await assertNotGoManaged(this.options.controlHome);
         // A record that will not write costs a repeated announcement next
         // time, not a router: never fail a verified `up` over it.
         await atomicWrite(this.layout.routerProtocolFile, `${ROUTER_PROTOCOL}\n`).catch((error: unknown) => {

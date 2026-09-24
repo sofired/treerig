@@ -626,6 +626,59 @@ describe('RouterService.ensure', () => {
     expect(w.fake.calls.some((c) => c.args.includes('up'))).toBe(false);
     expect(await pathExists(w.layout.routerComposeFile)).toBe(false);
   });
+
+  it('refuses when the marker turns up while previousProtocol() is asking Docker, so no protocol file is written', async () => {
+    const w = await world();
+    await taken(w, undefined);   // no record, as on every control home from before this version
+    await writeFile(w.layout.routerComposeFile, JSON.stringify({
+      services: { router: { labels: { [`${NS}.router-protocol`]: String(ROUTED_BY_SINCE_PROTOCOL - 1) } } }
+    }));
+    const marker = path.join(w.controlHome, CONTROL_HOME_MARKER);
+    const stackBefore = await readFile(w.layout.routerComposeFile, 'utf8');
+    const originalRun = w.fake.run.bind(w.fake);
+    // `containerId()`, inside `previousProtocol()`, asks Docker (`compose
+    // ps`) before that method records the oldest evidence it found; writing
+    // the marker from inside that call stands in for the Go build claiming
+    // the control home during it, before `previousProtocol()`'s own write —
+    // which the check right before `write()` runs too late to catch.
+    w.fake.run = async (command, args = [], options) => {
+      if (args[0] === 'compose' && args.includes('ps')) await writeFile(marker, 'format 2\n');
+      return originalRun(command, args, options);
+    };
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    expect(await pathExists(w.layout.routerProtocolFile)).toBe(false);
+    expect(await readFile(w.layout.routerComposeFile, 'utf8')).toBe(stackBefore);   // `write()` was never reached
+    expect(w.fake.calls.some((c) => c.args.includes('up'))).toBe(false);
+  });
+
+  it('refuses when the marker turns up while start() is waiting on compose up, promoting no record and recreating nothing', async () => {
+    const w = await world();
+    await taken(w, ROUTED_BY_SINCE_PROTOCOL - 1);
+    const marker = path.join(w.controlHome, CONTROL_HOME_MARKER);
+    const originalRun = w.fake.run.bind(w.fake);
+    // `start()` waits on `compose up --wait`, which can take minutes; writing
+    // the marker from inside it stands in for the Go build claiming the
+    // control home during that wait — after the stack was already written
+    // (the earlier check having passed), but before the protocol record is
+    // promoted.
+    w.fake.run = async (command, args = [], options) => {
+      if (args[0] === 'compose' && args.includes('up')) await writeFile(marker, 'format 2\n');
+      return originalRun(command, args, options);
+    };
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    // The router genuinely came up and verified clean; only the record was refused.
+    expect(w.logger.lines.some((line) => line.includes('not configured as expected'))).toBe(false);
+    expect(w.ups()).toHaveLength(1);   // no recreate: verify() never ran again after the throw
+    expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTED_BY_SINCE_PROTOCOL - 1}\n`);   // not promoted
+  });
 });
 
 describe('RouterService.verify', () => {
