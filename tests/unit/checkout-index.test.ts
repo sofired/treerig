@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runInNewContext, Script } from 'node:vm';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,7 +9,7 @@ import { compactPath, formatIndexText, liveUpdateScript, planIndexUpdate, render
 import { printable } from '../../src/text.ts';
 import { CheckoutIndexService } from '../../src/checkout-index/service.ts';
 import { buildSnapshot, describeBranch, entryKey, parseContainerInventory, placeholderSnapshot, type IndexEntry, type IndexSnapshot } from '../../src/checkout-index/snapshot.ts';
-import { secureControlDirectories } from '../../src/files.ts';
+import { CONTROL_HOME_MARKER, secureControlDirectories } from '../../src/files.ts';
 import { controlLayout, worktreeLayout } from '../../src/layout.ts';
 import { OperationCancelledError } from '../../src/errors.ts';
 import { CommandStartError, type CommandRunner, type RunResult } from '../../src/process-runner.ts';
@@ -1087,5 +1087,67 @@ describe('CheckoutIndexService', () => {
     const s = await service();
     await expect(readIndexCard(s.controlHome, s.a.repositoryId, s.a.worktreeId)).resolves.toMatchObject({ slug: 'feature-a' });
     await expect(readIndexCard(s.controlHome, s.b.repositoryId, s.b.worktreeId)).resolves.toBeUndefined();
+  });
+
+  it('refuses to refresh a control home the Go build marked, before creating anything there or asking Docker', async () => {
+    const controlHome = await mkdtemp(path.join(tmpdir(), 'berth-index-'));
+    temporary.push(controlHome);
+    await writeFile(path.join(controlHome, CONTROL_HOME_MARKER), 'format 2\n');
+    const docker = new DockerFake();
+    const index = new CheckoutIndexService({
+      controlHome,
+      routerPort: 80,
+      registry: {
+        listAll: () => Promise.resolve([]),
+        identities: { root: '/work/acme', activeIdentities: () => Promise.resolve([]), repositoryId: () => Promise.resolve(undefined) }
+      },
+      runner: docker,
+      logger: new RecordingLogger()
+    });
+
+    await expect(index.refresh()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    expect(docker.calls).toEqual([]);
+    expect(await readdir(controlHome)).toEqual([CONTROL_HOME_MARKER]);
+  });
+
+  it('refuses to write the page when the marker turns up while `docker ps` was answering, leaving the old page alone', async () => {
+    const controlHome = await mkdtemp(path.join(tmpdir(), 'berth-index-'));
+    temporary.push(controlHome);
+    const marker = path.join(controlHome, CONTROL_HOME_MARKER);
+    // `docker ps` can take up to 30 seconds per namespace in production;
+    // writing the marker from inside it stands in for the Go build claiming
+    // the control home during that wait, well before the page is written.
+    // Disarmed for the first call, which only establishes an old page to
+    // prove is left untouched.
+    let armed = false;
+    const runner: CommandRunner = {
+      run: async (_command, args = []) => {
+        if (armed && args[0] === 'ps') await writeFile(marker, 'format 2\n');
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+      which: () => Promise.resolve(true)
+    };
+    const index = new CheckoutIndexService({
+      controlHome,
+      routerPort: 80,
+      registry: {
+        listAll: () => Promise.resolve([]),
+        identities: { root: '/work/acme', activeIdentities: () => Promise.resolve([]), repositoryId: () => Promise.resolve(undefined) }
+      },
+      runner,
+      logger: new RecordingLogger()
+    });
+    await index.refresh();
+    const before = await readFile(controlLayout(controlHome).indexFile, 'utf8');
+    armed = true;
+
+    await expect(index.refresh()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    expect(await readFile(controlLayout(controlHome).indexFile, 'utf8')).toBe(before);
   });
 });

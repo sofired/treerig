@@ -15,6 +15,7 @@ import (
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -25,10 +26,10 @@ import (
 // left, and running `remove` again finishes the job. Nothing is deleted until
 // every resource has been verified as owned by the target; a single resource
 // that fails verification stops the whole thing before it starts.
-
-// indexImage is the digest-pinned image the router stack already pulled; the
-// ownership-recovery hint runs it.
-const indexImage = "busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+//
+// The ownership-recovery hint below runs router.IndexImage: the digest-pinned
+// image the router stack already pulled, so no second image needs fetching
+// just to fix an ownership mistake.
 
 // RemoveResult is what a removal did.
 type RemoveResult struct {
@@ -305,7 +306,7 @@ func deleteQuarantine(paths layout.Worktree, commandName string) error {
 		"  docker run --rm --network none -v %s %s "+
 		"sh -c \"chown -R %s /d && chmod -R u+rwX /d\"\n\n"+
 		"then run '%s worktree remove' again to finish.",
-		paths.QuarantinePath, where, text.ShellQuote(paths.QuarantinePath+":/d"), indexImage, owner, commandName)
+		paths.QuarantinePath, where, text.ShellQuote(paths.QuarantinePath+":/d"), router.IndexImage, owner, commandName)
 }
 
 func anyExists(paths ...string) (bool, error) {

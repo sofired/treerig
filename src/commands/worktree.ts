@@ -2,7 +2,7 @@ import { BRAND } from '../brand.ts';
 import { recordedLabelNamespace, writeIndexCard } from '../checkout-index/card.ts';
 import type { ProjectConfig } from '../config/schema.ts';
 import { CliError } from '../errors.ts';
-import { secureWorktreeDirectories } from '../files.ts';
+import { assertNotGoManaged, secureWorktreeDirectories } from '../files.ts';
 import { LIFECYCLE_ORDER, UP_STAGES, worktreeEnvironment, type LifecycleStage } from '../hooks/protocol.ts';
 import { runLifecycle, type HookContext } from '../hooks/runner.ts';
 import { worktreeHost, worktreeLayout } from '../layout.ts';
@@ -68,6 +68,7 @@ export interface UpResult {
  */
 export async function up(context: CommandContext, options: UpOptions = {}): Promise<UpResult> {
   const { logger, runner, runtime, registry } = context;
+  await assertNotGoManaged(context.controlHome);
   await refuseRelabelling(context);
   const registration = await registry.ensure();
   await context.router.ensure();
@@ -101,6 +102,11 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
       );
     }
     const firstTime = await store.initialization(ref.worktreeId, ref.slug) === 'pending';
+    // `registry.ensure()` and `router.ensure()` ran minutes ago, outside this
+    // lock: the Go build could have taken the control home over meanwhile.
+    // Checked again here, right before the first write under the lock — the
+    // reads above are local and fast, so this is the last point it matters.
+    await assertNotGoManaged(context.controlHome);
     await secureWorktreeDirectories(worktreeLayout(context.controlHome, ref.repositoryId, ref.worktreeId));
     await writeIndexCard(context.controlHome, ref.repositoryId, ref.worktreeId, {
       version: 1,
@@ -140,13 +146,20 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
 /** Stops the worktree's services. Data survives; `worktree remove` is the destructive verb. */
 export async function down(context: CommandContext): Promise<void> {
   const { logger, runtime } = context;
+  await assertNotGoManaged(context.controlHome);
   const registration = await requireRegistration(context);
   const ref = toRef(registration);
   await withScopedLock(
     worktreeLockTarget(context.controlHome, ref.repositoryId, ref.worktreeId),
     `worktree ${ref.slug}`,
     logger,
-    () => withProgress(logger, `Stopping ${worktreeHost(ref.slug, ref.domain)}`, () => runtime.down(ref)),
+    async () => {
+      // The lock above may have waited on another holder; checked again here,
+      // immediately before the write, since that wait is the gap between the
+      // check above and this one.
+      await assertNotGoManaged(context.controlHome);
+      await withProgress(logger, `Stopping ${worktreeHost(ref.slug, ref.domain)}`, () => runtime.down(ref));
+    },
     lockOptions(context, ref)
   );
   await context.index.refreshBestEffort('down');

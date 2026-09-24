@@ -322,7 +322,10 @@ func (ps *parseState) run(n *node, operands, unknown []string) (int, error) {
 			return 0, err
 		}
 		rc := &runContext{ctx: ps.ctx, env: env, positional: positional, values: n.values}
-		return 0, n.action(rc)
+		if err := n.action(rc); err != nil {
+			return 0, err
+		}
+		return rc.exitCode, nil
 	}
 
 	// A group with nothing matched: a real unknown command name, or stray

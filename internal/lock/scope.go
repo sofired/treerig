@@ -27,6 +27,16 @@ const (
 	// DevelopmentTimeout is held for the length of a dev session, so it is
 	// not something to wait out: say so quickly.
 	DevelopmentTimeout = 1 * time.Second
+	// RouterTimeout is how long `router up` waits for another control home's
+	// ensure to finish before giving up. It must cover Ensure's own worst
+	// case, or a waiter could give up on a holder that is still working
+	// within its own budget: previousProtocol's probe pair (2 * 30s), a
+	// `compose up --wait` (5m), a full verify pass across all three
+	// services (6 * 30s = 3m), one recreate-and-reverify when it drifted
+	// (5m + 3m), and a protocol write. 60s + 5m + 3m + 5m + 3m = 17m, so
+	// 20m leaves comfortable room. (The probe and start timeouts referenced
+	// here are internal/router's dockerProbeTimeout and startTimeout.)
+	RouterTimeout = 20 * time.Minute
 )
 
 // RegistryScope is the machine-wide worktree registry lock.
@@ -35,6 +45,23 @@ func RegistryScope(controlHome string) Scope {
 		Target:      layout.ControlLayout(controlHome).RegistryLockPath,
 		Description: "global worktree registry",
 	}
+}
+
+// RouterScope is the shared router's lock (#12): one per user account, in
+// the router's own state directory rather than any control home, so two
+// control homes on the same machine wait on each other instead of taking
+// turns recreating the router (#13). projectName marks this lock's own
+// Compose children for recovery, the way a worktree's markers do.
+func RouterScope(getenv layout.Getenv, projectName string) (Scope, error) {
+	state, err := layout.RouterState(getenv)
+	if err != nil {
+		return Scope{}, err
+	}
+	return Scope{
+		Target:      state.LockPath,
+		Description: "shared router",
+		Markers:     procid.Markers{Project: projectName},
+	}, nil
 }
 
 // WorktreeScopes is one worktree's operation and development-session locks,

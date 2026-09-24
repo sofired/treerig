@@ -19,11 +19,13 @@ This removes the mtime heartbeat and its stale windows, the twelve-second
 second look and clock-drift checks, the `.recovery` mutex and `.lock`
 directories, and the macOS birth-time workaround the heartbeat design needed.
 
-It also fixes three known bugs directly: #22 (a compromised lock did not
+It also fixes four known bugs directly: #22 (a compromised lock did not
 cancel in-flight work), #23 (`down` did not defer signals), #24 (`forceExit`
-let an exit hook remove the lock directory). A fourth, #12 (the router lock
-was per control home), becomes possible once the router is ported — the
-router lock itself is future work, #39.
+let an exit hook remove the lock directory), and #12 (the router lock was per
+control home): #39 ported the router onto this design, in its own
+machine-wide state directory rather than any control home, so every control
+home sharing a user account now waits on the same lock instead of each
+holding its own.
 
 Docker children inherit the lock: `docker` and `docker compose` get the
 worktree lock's descriptor through `ExtraFiles`, as fd 3. Hooks do not — a
@@ -117,9 +119,13 @@ tests skip there.
 - Target files: the registry lock at `<home>/locks/registry`; a worktree's
   operation lock at `<home>/locks/worktrees/<repo>/<wt>`; its
   development-session lock at `…/<wt>.dev`.
-- The router lock is machine-wide, per user and project, in the user's
-  runtime directory rather than the control home — future work, once the
-  router verbs are ported (#39).
+- The router lock's target is machine-wide per user account, at
+  `layout.RouterState`'s `LockPath` (`$XDG_STATE_HOME/berth/router/lock`, or
+  `$HOME/.local/state/berth/router/lock` when that is unset, on Linux;
+  `$HOME/Library/Application Support/berth/router/lock` on macOS) — never any
+  control home's own `locks/`, so every control home sharing a user account
+  waits on the same lock (#12, #13). `router up` takes it alone, never
+  alongside a worktree's own locks (`lifecycle.Requests.Router`).
 - Opening a target creates it `0600` (parent `0700`) if missing, opens it
   `O_RDWR`, and keeps a strong reference to the `*os.File` for the whole
   hold — the GC finalizer would otherwise close it. A target that is not a
@@ -140,7 +146,10 @@ tests skip there.
 1. Polls `LOCK_EX|LOCK_NB` at a fixed interval bounded by the scope's
    timeout: the worktree operation lock polls every 250 ms for up to 25
    minutes; the registry lock every 50 ms for up to 60 s; the development
-   lock every 250 ms for up to 1 s. (A `Lock` used with neither a timeout nor
+   lock every 250 ms for up to 1 s; the router lock every 250 ms for up to
+   20 minutes — enough to cover `router up`'s own worst case: a plain start,
+   one recreate if it drifted, and every probe around them. (A `Lock` used
+   with neither a timeout nor
    a retry interval set instead backs off from 50 ms to a 250 ms ceiling
    over about 4.6 s.) While it waits, a notice fires after 2 s and then every
    30 s, naming the holder and how long it has held the lock — a stopped

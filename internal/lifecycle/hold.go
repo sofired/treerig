@@ -32,18 +32,22 @@ type Env struct {
 
 // Requests is which locks one Hold call needs. Lock order is fixed
 // everywhere: operation, then development, then registry; a nil field is
-// simply not requested.
+// simply not requested. Router is taken alone — a router request never
+// appears alongside a worktree's own locks, since the router is machine-wide
+// rather than scoped to any one repository or control home.
 type Requests struct {
 	Operation   *lock.Scope
 	Development *lock.Scope
 	Registry    *lock.Scope
+	Router      *lock.Scope
 }
 
 // ordered is r's requested scopes in the fixed acquisition order: operation,
-// then development, then registry, skipping whichever were not requested.
+// then development, then registry, then router, skipping whichever were not
+// requested.
 func (r Requests) ordered() []*lock.Scope {
 	var scopes []*lock.Scope
-	for _, s := range []*lock.Scope{r.Operation, r.Development, r.Registry} {
+	for _, s := range []*lock.Scope{r.Operation, r.Development, r.Registry, r.Router} {
 		if s != nil {
 			scopes = append(scopes, s)
 		}
@@ -80,6 +84,8 @@ func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
 	case requests.Registry:
 		opts.Timeout = lock.RegistryTimeout
 		opts.Retry = lock.RegistryRetry
+	case requests.Router:
+		opts.Timeout = lock.RouterTimeout
 	}
 	return opts
 }
