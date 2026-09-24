@@ -103,6 +103,10 @@ jobs:
           node tools/oracle/locale-sort.ts > internal/registry/testdata/locale-sort.json
           node tools/oracle/slug-corpus.ts > internal/registry/testdata/slug-corpus.json
           node tools/oracle/text-corpus.ts > internal/text/testdata/corpus.json
+          node tools/oracle/collation-corpus.ts > internal/text/testdata/collation-corpus.json
+          node tools/oracle/index-assets.ts
+          node tools/oracle/index-golden.ts > internal/checkoutindex/testdata/index-golden.json
+          node tools/oracle/index-url-filter.ts > internal/checkoutindex/testdata/url-filter.json
           go test -count=1 ./internal/cli -run TestGolden -update
       - name: Compare
         run: |

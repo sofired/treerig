@@ -1,0 +1,111 @@
+
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; color: #18212b; background: #f4f6f8; }
+    header { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px 24px; padding: 28px 32px 20px; border-bottom: 1px solid #cbd2d9; background: #fff; }
+    /* The margin, not justify-content: when the button wraps to its own line it
+       must stay under the timestamp rather than jumping to the far corner. */
+    h1 { margin: 0 auto 0 0; font-size: 24px; line-height: 1.2; }
+    /* A domain, a project name or a path in a notice can be one long word;
+       neither may push the page sideways. */
+    h2 { margin: 28px 0 10px; font-size: 15px; color: #52606d; overflow-wrap: anywhere; }
+    .updated { margin: 0; color: #52606d; font-size: 13px; }
+    /* A visible border: this is the page's only control, and has to read as one. */
+    .pause { padding: 5px 10px; border: 1px solid #7b8794; border-radius: 6px; background: #f4f6f8; color: #3e4c59; font: inherit; font-size: 12px; cursor: pointer; }
+    .pause:hover { background: #e4e7eb; }
+    main { padding: 4px 32px 32px; }
+    /* A fixed layout with percentage columns always fits, so this is a net for
+       content that somehow does not; the script keeps it keyboard-reachable
+       if it ever catches something. */
+    .table-wrap { overflow-x: auto; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; }
+    .table-wrap:focus-visible { outline: 2px solid #075985; outline-offset: -2px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    thead th { padding: 10px 14px; color: #52606d; background: #eef1f4; font-size: 12px; font-weight: 700; text-align: left; text-transform: uppercase; }
+    td, tbody th { padding: 14px; border-top: 1px solid #e4e7eb; font-size: 14px; font-weight: 400; text-align: left; vertical-align: top; }
+    /* A long branch name has to break inside its fixed column, not run over the host. */
+    tbody th { color: inherit; overflow-wrap: break-word; }
+    /* Status is wide enough for the missing-checkout remedy to wrap at spaces, not mid-word. */
+    thead th:nth-child(1) { width: 16%; } thead th:nth-child(2) { width: 21%; } thead th:nth-child(3) { width: 18%; } thead th:nth-child(4) { width: 17%; } thead th:nth-child(5) { width: 28%; }
+    /* Fixed columns: a host with no hyphen must still break rather than overflow its cell. */
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+    .path { display: block; overflow-wrap: anywhere; }
+    .path-compact, .host-compact { display: none; }
+    .stale { color: #7f1d1d; font-weight: 650; }
+    .waiting { color: #52606d; font-weight: 650; }
+    .legend { margin: 18px 2px 0; color: #52606d; font-size: 12px; }
+    .muted { color: #5f6b7a; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .services ul { margin: 0; padding: 0; list-style: none; }
+    /* Stacked by default: two columns inside a quarter of the table starve each
+       other, and a service name can be one unbreakable word. The min-width on
+       the items is what lets them shrink at all — a grid item's own floor is
+       its min-content width otherwise. */
+    .service-link { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0 -6px; padding: 4px 6px; border-radius: 4px; color: inherit; line-height: 1.35; text-decoration: none; }
+    a.service-link:hover, a.service-link:focus-visible { background: #eef6f9; }
+    /* Break anywhere in a service name, which can be one unbreakable word;
+       prose has break opportunities a browser should be allowed to find. */
+    .service-label { min-width: 0; overflow-wrap: anywhere; }
+    .service-purpose { min-width: 0; overflow-wrap: break-word; hyphens: auto; }
+    .service-label { color: #075985; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+    .service-purpose { color: #52606d; font-size: 12px; }
+    .service-disabled .service-label, .service-disabled .service-purpose { color: #5f6b7a; text-decoration: none; }
+    .status { display: inline-block; min-width: 68px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; text-align: center; }
+    .status-running { color: #14532d; background: #dcfce7; }
+    .status-partial { color: #713f12; background: #fef3c7; }
+    .status-stopped { color: #374151; background: #e5e7eb; }
+    .status-missing { color: #7f1d1d; background: #fee2e2; }
+    .status-unknown { color: #4c1d95; background: #ede9fe; }
+    .guidance { margin-top: 7px; color: #7f1d1d; font-size: 11px; }
+    /* The remedy is there to be read and copied: wrap between words where it can. */
+    .guidance code { overflow-wrap: break-word; }
+    .empty { padding: 36px; color: #52606d; text-align: center; }
+    .notice { margin: 16px 0 0; padding: 10px 14px; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; color: #78350f; font-size: 13px; overflow-wrap: anywhere; }
+    /* Where the two service columns start starving each other the table no
+       longer fits either: shed the checkout column — it comes back under the
+       branch, so nothing is unreachable — and stack the service text. */
+    @media (max-width: 900px) {
+      .checkout { display: none; }
+      .path-compact { display: block; margin-top: 4px; color: #5f6b7a; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; overflow-wrap: anywhere; }
+      thead th:nth-child(1) { width: 26%; } thead th:nth-child(2) { width: 22%; } thead th:nth-child(4) { width: 22%; } thead th:nth-child(5) { width: 30%; }
+      .service-purpose { font-size: 11px; }
+    }
+    @media (max-width: 640px) {
+      header, main { padding-left: 16px; padding-right: 16px; }
+      thead th { padding-left: 8px; padding-right: 8px; }
+      td, tbody th { padding: 10px 8px; }
+      thead th:nth-child(1) { width: 28%; } thead th:nth-child(2) { width: 22%; } thead th:nth-child(4) { width: 24%; } thead th:nth-child(5) { width: 26%; }
+      /* The pill has to fit inside its cell at phone widths, not spill into the services. */
+      .status { min-width: 0; padding: 3px 6px; }
+    }
+    /* The narrowest the page claims to support, which is also 400% zoom on a
+       1280px window: the status word needs most of what the path gives up. */
+    @media (max-width: 400px) {
+      /* A hostname in a 35px column reads four characters at a time; under the
+         branch it reads whole, and nothing has to scroll to it. */
+      .host { display: none; }
+      .host-compact { display: block; margin-top: 4px; }
+      thead th:nth-child(1) { width: 42%; } thead th:nth-child(4) { width: 30%; } thead th:nth-child(5) { width: 28%; }
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e5e7eb; background: #111827; }
+      header, .table-wrap { background: #1f2937; border-color: #374151; }
+      thead th { color: #9ca3af; background: #111827; }
+      td, tbody th { border-color: #374151; }
+      h2, .updated, .legend, .service-purpose { color: #9ca3af; }
+      .muted, .service-disabled .service-label, .service-disabled .service-purpose, .path-compact { color: #9ca3af; }
+      .pause { background: #111827; border-color: #7b8794; color: #e5e7eb; }
+      .pause:hover { background: #374151; }
+      .service-label { color: #7dd3fc; }
+      a.service-link:hover, a.service-link:focus-visible { background: #0c4a6e; }
+      a.service-link:hover .service-purpose, a.service-link:focus-visible .service-purpose { color: #cbd5e1; }
+      .status-running { color: #bbf7d0; background: #14532d; }
+      .status-partial { color: #fde68a; background: #713f12; }
+      .status-stopped { color: #e5e7eb; background: #374151; }
+      .status-missing { color: #fecaca; background: #7f1d1d; }
+      .status-unknown { color: #ddd6fe; background: #4c1d95; }
+      .guidance, .stale { color: #fca5a5; }
+      .waiting { color: #9ca3af; }
+      .table-wrap:focus-visible { outline-color: #7dd3fc; }
+      .empty { color: #9ca3af; }
+      .notice { background: #451a03; border-color: #92400e; color: #fde68a; }
+    }
