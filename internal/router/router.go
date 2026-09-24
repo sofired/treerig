@@ -42,11 +42,12 @@ import (
 // timed the same as doctor.ts's own docker inspect probes
 // (DOCKER_PROBE_TIMEOUT_MS). start and Down have no TypeScript precedent, so
 // these are this port's own sensible choices: starting the router may pull
-// three images on a bare machine and wait for every health check, so its
-// budget matches the router lock's own acquire timeout (lock.RouterTimeout)
-// — a waiter's patience is never shorter than what a first start may need.
-// Stopping it is ordinarily fast; a minute is generous room for a slow
-// network teardown without leaving a hung `docker` unnoticed for long.
+// three images on a bare machine and wait for every health check, hence the
+// generous 5 minutes; lock.RouterTimeout is sized to cover Ensure's worst
+// case in terms of these three constants, so a waiter's patience is never
+// shorter than what a first start may need — see its own comment. Stopping
+// it is ordinarily fast; a minute is generous room for a slow network
+// teardown without leaving a hung `docker` unnoticed for long.
 const (
 	dockerProbeTimeout = 30 * time.Second
 	startTimeout       = 5 * time.Minute
@@ -222,22 +223,39 @@ func (r *Router) compose(ctx context.Context, args []string, spec run.Spec) (run
 // package owns it because, as of protocol 4, that directory is no longer
 // part of any control home (#12, #13).
 func secureState(state layout.RouterLayout) error {
-	if err := os.MkdirAll(state.StateDir, 0o700); err != nil {
+	if err := secureDirectories(state.StateDir, []string{state.StateDir}, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(state.StateDir, 0o700); err != nil {
+	if err := secureDirectories(state.StateDir, []string{state.DynamicDir, state.IndexDir}, 0o755); err != nil {
 		return err
-	}
-	for _, dir := range []string{state.DynamicDir, state.IndexDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		if err := os.Chmod(dir, 0o755); err != nil {
-			return err
-		}
 	}
 	for _, file := range []string{state.LockPath, state.IndexFile, state.ComposeFile, state.ProtocolFile} {
 		if err := files.AssertSafeFilePath(state.StateDir, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// secureDirectories mirrors files.go's own createSecureDirectories exactly,
+// one directory at a time: checked before anything touches it, created,
+// checked again — closing the time-of-check-to-time-of-use window a symlink
+// planted between the two checks could otherwise use — and chmod'd only
+// once both checks have passed. A planted symlink at root (or at any dir) is
+// refused by the first check, before MkdirAll or Chmod ever runs, so nothing
+// in whatever it points to is created or has its mode changed.
+func secureDirectories(root string, dirs []string, mode os.FileMode) error {
+	for _, dir := range dirs {
+		if err := files.AssertSafeDirectoryPath(root, dir); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(dir, mode); err != nil {
+			return err
+		}
+		if err := files.AssertSafeDirectoryPath(root, dir); err != nil {
+			return err
+		}
+		if err := os.Chmod(dir, mode); err != nil {
 			return err
 		}
 	}
