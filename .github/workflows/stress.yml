@@ -1,0 +1,33 @@
+name: Stress
+
+# The lock layer's real-process tests, repeated. Every change runs them once
+# per platform (go.yml); this repeats them to catch what fails rarely, on the
+# platforms where the lock layer's kernel interfaces differ.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  locks:
+    name: locks ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Locks, lifecycle and runner, 20 times over
+        run: go test -race -count=20 -tags integration ./internal/lock/ ./internal/lifecycle/ ./internal/run/...
+      - name: The same without cgo, as released
+        env:
+          CGO_ENABLED: '0'
+        run: go test -count=20 -tags integration ./internal/lock/ ./internal/lifecycle/ ./internal/run/...

@@ -1,0 +1,24 @@
+Usage: berth [options] [command]
+
+Give every Git worktree a durable identity, an isolated home, and a routed URL.
+
+Options:
+  -V, --version     output the version number
+  --config <path>   path to berth.toml (default: nearest above cwd)
+  -h, --help        display help for command
+
+Commands:
+  config            inspect the project configuration
+  dev               start this worktree's environment and follow its logs (not
+                    yet implemented)
+  up [services...]  register this worktree, start its services, and run its
+                    hooks
+  down              stop this worktree's services; data is kept
+  status            show service status for this worktree
+  urls              print this worktree's routed URLs
+  index             refresh the machine-wide checkout index and print it
+  doctor            check prerequisites, the registry, the router, and this
+                    checkout's verify hook
+  router            manage the shared local router
+  worktree          manage registered worktrees
+  help [command]    display help for command

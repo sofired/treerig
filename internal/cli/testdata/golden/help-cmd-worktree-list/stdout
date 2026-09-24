@@ -1,0 +1,16 @@
+Usage: berth worktree [options] [command]
+
+manage registered worktrees
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  list [options]                 list registered worktrees
+  remove [options] [identifier]  remove a worktree's environment: containers,
+                                 volumes, networks, images, home, and
+                                 registration
+  unlock [options] [identifier]  clear a dead holder's lock on a worktree, once
+                                 the holder and every command it started on this
+                                 machine are checked gone
+  help [command]                 display help for command

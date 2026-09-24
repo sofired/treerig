@@ -1,0 +1,6 @@
+Usage: berth urls [options]
+
+print this worktree's routed URLs
+
+Options:
+  -h, --help  display help for command

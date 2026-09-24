@@ -1,0 +1,13 @@
+Usage: berth router [options] [command]
+
+manage the shared local router
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  up              start the shared router and verify its hardened configuration
+  status          report whether the shared router is running as expected
+  down            stop the shared router; worktree services keep running but are
+                  no longer routed
+  help [command]  display help for command

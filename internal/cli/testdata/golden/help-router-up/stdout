@@ -1,0 +1,6 @@
+Usage: berth router up [options]
+
+start the shared router and verify its hardened configuration
+
+Options:
+  -h, --help  display help for command

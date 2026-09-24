@@ -1,0 +1,11 @@
+Usage: berth worktree unlock [options] [identifier]
+
+clear a dead holder's lock on a worktree, once the holder and every command it
+started on this machine are checked gone
+
+Options:
+  --domain <domain>      narrow a slug registered under more than one domain
+  --holder-unverifiable  accept a holder this machine cannot check (another
+                         machine or container, or no record), once you have made
+                         sure it is gone
+  -h, --help             display help for command
