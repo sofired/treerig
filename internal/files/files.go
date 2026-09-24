@@ -381,9 +381,51 @@ func establishControlHome(controlHome string) error {
 		// in an empty directory and refuse it as not ours. The marker is nine
 		// bytes; a single write(2) of that size does not tear on any
 		// filesystem this tool supports.
-		return writeMarkerDirect(dir, marker, []byte(ControlHomeFormat), 0o600)
+		return writeMarkerRacingCreators(dir, marker)
 	}
 	return nil
+}
+
+// markerCreateAttempts bounds writeMarkerRacingCreators' retries: generous
+// headroom for a transient race, not a loop meant to run for long.
+const markerCreateAttempts = 10
+
+// writeMarkerRacingCreators writes the control home's marker, tolerating
+// another goroutine's own concurrent create of the same name.
+//
+// macOS CI (run 35984111281, "Tests without cgo, as released") showed
+// writeMarkerDirect's O_CREAT|O_NOFOLLOW|O_NONBLOCK open fail with ENOENT
+// while 20 goroutines raced to create this same marker in
+// TestConcurrentControlHomeEstablishment, intermittently, though the same
+// test had passed on macOS before. createSecureDirectories never replaces
+// the control home directory itself, so nothing here removes the marker's
+// name out from under an O_CREAT open; this comment does not claim to know
+// what in the kernel produced that ENOENT, only that it was observed. If the
+// create-open fails with ENOENT, the marker is read again: another goroutine
+// may have already written it, in which case there is nothing left to do;
+// otherwise the create is retried, up to markerCreateAttempts times.
+func writeMarkerRacingCreators(dir *os.File, marker string) error {
+	var lastErr error
+	for attempt := 0; attempt < markerCreateAttempts; attempt++ {
+		err := writeMarkerDirect(dir, marker, []byte(ControlHomeFormat), 0o600)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		lastErr = err
+		contents, readErr := readMarkerDirect(dir, marker)
+		if readErr != nil {
+			return readErr
+		}
+		if len(contents) != 0 {
+			// Another goroutine's own create-and-write won the race; this one's marker is already in place.
+			return nil
+		}
+	}
+	return clierr.Newf("Could not create the control home marker at %s after %d attempts: %s",
+		marker, markerCreateAttempts, lastErr)
 }
 
 // openMarkerNoFollow opens name (the marker's own base name) through dir's
