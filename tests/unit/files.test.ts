@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CliError } from '../../src/errors.ts';
 import {
   assertAdoptableControlHome,
+  assertNotGoManaged,
   assertSafeDirectoryPath,
   CONTROL_HOME_MARKER,
   atomicJson,
@@ -319,5 +320,39 @@ describe('secure directory creation', () => {
 
     await mkdir(layout.quarantinePath, { recursive: true });
     await expect(secureWorktreeDirectories(layout)).rejects.toThrow('was interrupted; retry the removal');
+  });
+});
+
+describe('assertNotGoManaged', () => {
+  it('passes when the control home does not exist yet, or its marker is missing or empty', async () => {
+    const root = await scratch();
+    await expect(assertNotGoManaged(path.join(root, 'nonexistent'))).resolves.toBeUndefined();
+
+    const noMarker = path.join(await scratch(), 'no-marker');
+    await mkdir(noMarker, { recursive: true });
+    await expect(assertNotGoManaged(noMarker)).resolves.toBeUndefined();
+
+    const emptyMarker = path.join(await scratch(), 'empty-marker');
+    await mkdir(emptyMarker, { recursive: true });
+    await writeFile(path.join(emptyMarker, CONTROL_HOME_MARKER), '');
+    await expect(assertNotGoManaged(emptyMarker)).resolves.toBeUndefined();
+  });
+
+  it('refuses a control home whose marker the Go build wrote, naming the path and changing nothing', async () => {
+    const controlHome = path.join(await scratch(), 'control');
+    await mkdir(controlHome, { recursive: true });
+    const marker = path.join(controlHome, CONTROL_HOME_MARKER);
+    await writeFile(marker, 'format 2\n');
+    const before = await mode(marker);
+
+    await expect(assertNotGoManaged(controlHome)).rejects.toBeInstanceOf(CliError);
+    await expect(assertNotGoManaged(controlHome)).rejects.toThrow(
+      `This control home (${controlHome}) is managed by the Go build of berth; this TypeScript build does not change it.`
+    );
+
+    // Only read, never touched: no chmod, no other entry created beside it.
+    expect(await readFile(marker, 'utf8')).toBe('format 2\n');
+    expect(await mode(marker)).toBe(before);
+    expect(await readdir(controlHome)).toEqual([CONTROL_HOME_MARKER]);
   });
 });

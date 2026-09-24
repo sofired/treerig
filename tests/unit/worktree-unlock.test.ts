@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { lockOptions } from '../../src/commands/mutation.ts';
 import { unlock, type UnlockDependencies } from '../../src/commands/unlock.ts';
 import { up } from '../../src/commands/worktree.ts';
+import { CONTROL_HOME_MARKER } from '../../src/files.ts';
 import { ScopedLock, worktreeLocks, type HolderRecord } from '../../src/operation-lock.ts';
 import type { ProcessIdentity, ProcessScan, ProcessState, ProcessTable } from '../../src/process-table.ts';
 import { commandWorld, type CommandWorld } from '../helpers/command-world.ts';
@@ -167,5 +168,33 @@ describe('worktree unlock', () => {
       expect.stringMatching(/^warn: Not verified, on your word \(--holder-unverifiable\): feature-login development session: its holder, PID 4242 on "laptop", ran on another machine/),
       expect.stringMatching(/^warn: Not verified, on your word \(--holder-unverifiable\): worktree feature-login: its holder/)
     ]);
+  });
+
+  it('refuses when the marker turns up during the second look, clearing nothing', async () => {
+    const w = await world();
+    const { registration } = await up(w.context());
+    await killedHolder(w.controlHome, registration.repositoryId, registration.worktreeId, registration.slug);
+    const context = w.context();
+    const marker = path.join(w.controlHome, CONTROL_HOME_MARKER);
+
+    // The second look is the ~12-second wait `unlockGuard` takes before it
+    // judges the holder gone a second time; writing the marker from the
+    // `sleep` it awaits stands in for the Go build claiming the control home
+    // during that wait, well before any lock is actually cleared.
+    let slept = false;
+    const sleep = async (): Promise<void> => {
+      if (!slept) {
+        slept = true;
+        await writeFile(marker, 'format 2\n');
+      }
+    };
+
+    await expect(unlock(context, {}, { ...fast(), sleep })).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    for (const lock of worktreeLocks(w.controlHome, registration.repositoryId, registration.worktreeId, registration.slug)) {
+      await expect(lstat(`${lock.target}.lock`)).resolves.toBeDefined();
+    }
   });
 });

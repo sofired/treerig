@@ -1,7 +1,7 @@
 import { BRAND } from '../brand.ts';
 import { CliError } from '../errors.ts';
 import { DockerUnavailableError, dockerSaid, runDocker } from '../docker.ts';
-import { atomicWrite, secureControlDirectories } from '../files.ts';
+import { assertNotGoManaged, atomicWrite, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
@@ -176,14 +176,23 @@ export class CheckoutIndexService implements CheckoutIndex {
     });
   }
 
+  /** Rebuilds the snapshot from current state and writes it to the served page, under the shared router lock. */
   async refresh(): Promise<IndexSnapshot> {
     const layout = controlLayout(this.options.controlHome);
+    await assertNotGoManaged(this.options.controlHome);
     // Before the lock, so a directory that is not ours is refused before a lock file lands in it.
     await secureControlDirectories(layout);
     return withScopedLock(routerLockTarget(this.options.controlHome), 'shared router', this.options.logger, async () => {
+      // The lock above may have waited on another holder; checked again here,
+      // right before directory setup runs under it.
+      await assertNotGoManaged(this.options.controlHome);
       // Under the lock, so directory setup is serialised with the router's own `write()`.
       await secureControlDirectories(layout);
       const snapshot = await this.snapshot();
+      // `snapshot()` asks Docker about every namespace in use, up to 30
+      // seconds each; checked again here, immediately before the write it
+      // gates, rather than only before that wait began.
+      await assertNotGoManaged(this.options.controlHome);
       // 0644 on purpose: readable by the cap-dropped index container through its bind
       // mount; the 0700 parents keep it off-limits to other users on disk.
       await atomicWrite(layout.indexFile, renderIndexHtml(snapshot), 0o644);

@@ -311,7 +311,9 @@ folder would put the whole team's state on iCloud Drive.
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.berth-control-home` marker to
 recognise its own. Your home directory, anything above it, and the filesystem
-root are always refused.
+root are always refused. A control home the Go build of berth manages — its
+marker is non-empty — is read-only to this build: every mutating command
+refuses rather than touch it.
 
 ## Trust model
 
