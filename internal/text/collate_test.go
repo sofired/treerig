@@ -34,10 +34,17 @@ import (
 // all three, so a hand-edited or third-party-written card can carry any
 // script in any field. In practice, branch names are what actually carry
 // these scripts: they come straight from Git, entirely unconstrained, and
-// the index's sort key falls back to the branch before the slug. So a
-// wide-script branch name is the one place this gap most plausibly shows:
-// not a dropped row or a wrong label, only a possible difference in row
-// order against what the TypeScript build would show for that one row.
+// the index's sort key falls back to the branch before the slug. Collate
+// orders every comparison the checkout index makes, in both RenderIndexHTML
+// (the HTML page) and FormatIndexText (the `berth index` text output), since
+// both read the same sorted entries and call the same sections: row order
+// within a table (by project, then by branch or slug); the project names
+// domainHeading joins into a table's heading; and the tables themselves,
+// since sections sorts by heading. A table's checkouts-N id, assigned by its
+// position among the sorted tables, can as a result also differ — in the
+// HTML page only, since the text output carries no such id. Each of these
+// differs only where the specific strings being compared carry a wide
+// script; no row, name, or table is ever added, dropped, or renamed.
 //
 // The oracle records only `sorted`, not the unsorted corpus too — the same
 // multiset, just reordered, would double the file for no extra signal.
