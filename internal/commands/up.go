@@ -28,8 +28,8 @@ type Router interface {
 	Ensure(ctx context.Context) error
 }
 
-// Index is what `up` needs from the checkout index. The index package
-// (#40) will satisfy this.
+// Index is what `up` needs from the checkout index; checkoutindex.Service
+// (#41) satisfies this.
 type Index interface {
 	// RefreshBestEffort regenerates the shared index page, warning rather
 	// than failing the caller if it cannot — a stale index is an
@@ -173,16 +173,23 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, router Router, ind
 			return err
 		}
 
-		services := make([]card.IndexService, 0, len(urls))
-		for _, entry := range urls {
-			if entry.Label == nil {
-				continue
+		// Every declared service is recorded, not only the ones with a
+		// [service.index] block (#16): Label (and Purpose alongside it) is
+		// "" for one that never opted in, which keeps it off the page as a
+		// link but still lets the index count it — a stopped, unindexed
+		// service must still turn a Running row into Partial, since it is a
+		// real declared service that is not answering, not one the page
+		// simply never knew about. See card.IndexService's own comment.
+		services := make([]card.IndexService, len(urls))
+		for i, entry := range urls {
+			var label, purpose string
+			if entry.Label != nil {
+				label = *entry.Label
 			}
-			purpose := ""
 			if entry.Purpose != nil {
 				purpose = *entry.Purpose
 			}
-			services = append(services, card.IndexService{Name: entry.Service, URL: entry.URL, Label: *entry.Label, Purpose: purpose})
+			services[i] = card.IndexService{Name: entry.Service, URL: entry.URL, Label: label, Purpose: purpose}
 		}
 		if err := card.WriteIndexCard(cctx.ControlHome, ref.RepositoryID, ref.WorktreeID, card.IndexCard{
 			Project: cctx.Loaded.Config.Project.Name, Domain: registration.Domain,

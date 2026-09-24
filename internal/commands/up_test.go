@@ -85,7 +85,10 @@ func TestUpWithContext(t *testing.T) {
 			t.Fatalf("expected exactly one compose up call, got %d in %v", upCalls, w.Docker.Calls())
 		}
 
-		got := card.ReadIndexCard(w.ControlHome, result.Registration.RepositoryID, result.Registration.WorktreeID)
+		got, err := card.ReadIndexCard(w.ControlHome, result.Registration.RepositoryID, result.Registration.WorktreeID)
+		if err != nil {
+			t.Fatalf("ReadIndexCard: %v", err)
+		}
 		if got == nil || got.Project != tc.Loaded.Config.Project.Name || got.Slug != "feature-login" || got.Domain != acme {
 			t.Fatalf("unexpected index card: %+v", got)
 		}

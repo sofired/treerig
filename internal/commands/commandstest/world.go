@@ -43,6 +43,10 @@ type World struct {
 	t           *testing.T
 	Base        string
 	ControlHome string
+	// RouterState is a fake shared router's own state directory: the
+	// checkout index writes its page and takes its lock under here, never
+	// under ControlHome (row 9 in the divergence ledger).
+	RouterState layout.RouterLayout
 	// Root is the primary worktree's root — the first one New creates.
 	Root   string
 	common string
@@ -62,11 +66,21 @@ type TestContext struct {
 func New(t *testing.T, branch, domain string) *World {
 	t.Helper()
 	base := registrytest.TempDir(t)
+	routerDir := filepath.Join(base, "router")
 	w := &World{
 		Base:        base,
 		ControlHome: filepath.Join(base, "control"),
-		common:      filepath.Join(base, "common"),
-		t:           t,
+		RouterState: layout.RouterLayout{
+			StateDir:     routerDir,
+			ComposeFile:  filepath.Join(routerDir, "compose.yaml"),
+			ProtocolFile: filepath.Join(routerDir, "protocol"),
+			DynamicDir:   filepath.Join(routerDir, "dynamic"),
+			IndexDir:     filepath.Join(routerDir, "index"),
+			IndexFile:    filepath.Join(routerDir, "index", "index.html"),
+			LockPath:     filepath.Join(routerDir, "lock"),
+		},
+		common: filepath.Join(base, "common"),
+		t:      t,
 	}
 	w.Runner, w.Git = registrytest.NewFakeRunner()
 	w.Docker = NewDocker("api", "mail")
@@ -145,6 +159,7 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 			Loaded:      loaded,
 			ControlHome: w.ControlHome,
 			RouterPort:  80,
+			RouterState: w.RouterState,
 			Registry:    reg,
 		},
 		Logger: log,

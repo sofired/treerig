@@ -1,10 +1,10 @@
-// Package checkoutindex is the pure port of src/checkout-index/{snapshot,
-// render}.ts: registry records + cards + Git identities + a container
+// Package checkoutindex is the port of src/checkout-index/{snapshot,render,
+// service}.ts: registry records + cards + Git identities + a container
 // inventory in, one sorted snapshot out, and the HTML and plain-text pages
-// rendered from it. No I/O here, so every state a row can be in is reachable
-// from a unit test. The `docker ps` call that produces a []ContainerRecord,
-// and the service that ties this package to disk and the router lock, are
-// WP4b's (#41).
+// rendered from it. snapshot.go and render.go are pure, so every state a row
+// can be in is reachable from a unit test; service.go is what runs the
+// `docker ps` call that produces a []ContainerRecord and ties this package
+// to disk and the router lock (#41).
 package checkoutindex
 
 import (
@@ -63,6 +63,18 @@ type IndexEntry struct {
 
 // IdentityFailure is what it cost the page that Git could not be asked which
 // worktrees of a repository exist.
+//
+// (#17) RowsUnknown is exported so render.go can read it, but nothing
+// outside this package may set it: whether it is true depends entirely on
+// whether the repository itself was identified, which SnapshotInput already
+// says on its own (CurrentRepositoryID). A second, independently-settable
+// bool that is supposed to always agree with that is exactly what let a
+// caller build a SnapshotInput naming a known CurrentRepositoryID together
+// with RowsUnknown: false — a combination entryStatus's own logic reads as
+// "this repository is not the local one", which marks every local row
+// Missing instead of Unknown. BuildSnapshot is the only place that
+// constructs one, from CurrentRepositoryID directly, so the combination
+// cannot arise: see identityFailure below.
 type IdentityFailure struct {
 	Reason string
 	// RowsUnknown is true when the repository was identified and only its
@@ -86,6 +98,11 @@ type IndexSnapshot struct {
 	// DockerError says why, when it could not be: the page is read by
 	// people who did not run the command.
 	DockerError *string
+	// CardReadFailures (#18) is how many registrations' index cards could
+	// not be read for a reason other than the card never having been
+	// written — see SnapshotInput's own field. Zero means every card that
+	// exists was read; render.go shows a notice whenever it is not.
+	CardReadFailures int
 }
 
 // ContainerRecord is one managed container, as `docker ps` reports it.
@@ -106,8 +123,8 @@ var unhealthyPattern = regexp.MustCompile(`(?i)\((?:unhealthy|health: starting)\
 // index service asks for. It never returns a nil slice on success — even
 // for empty output, which means Docker answered and named no containers —
 // since SnapshotInput.Containers uses nil specifically to mean Docker could
-// not be asked at all, and WP4b's caller may pass this return value straight
-// through or merge several of them together.
+// not be asked at all, and service.go's caller may pass this return value
+// straight through or merge several of them together.
 func ParseContainerInventory(output string) ([]ContainerRecord, error) {
 	records := make([]ContainerRecord, 0, strings.Count(output, "\n")+1)
 	for _, line := range strings.Split(output, "\n") {
@@ -155,7 +172,15 @@ type SnapshotInput struct {
 	// repository; when it can name the rows, they are unknown rather than
 	// missing.
 	IdentityError *IdentityFailure
-	GeneratedAt   string
+	// CardReadFailures (#18) is keyed by EntryKey, for a registration whose
+	// card could not be read for a reason other than it never having been
+	// written — most pointedly EMFILE, once thousands of registrations have
+	// exhausted this process's file descriptors. Distinguishing this from
+	// "no card" matters: a checkout that has never come up correctly reads
+	// Stopped or Missing, but one whose card merely could not be opened this
+	// time must not be reported with the same confidence — see entryStatus.
+	CardReadFailures map[string]struct{}
+	GeneratedAt      string
 }
 
 // EntryKey is the map key a registration's card and identity are found
@@ -172,6 +197,18 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 		identities[EntryKey(identity.RepositoryID, identity.WorktreeID)] = identity
 	}
 	dockerReachable := input.Containers != nil
+
+	// (#17) RowsUnknown is recomputed here rather than trusted from
+	// input.IdentityError: see IdentityFailure's own comment. Whatever a
+	// caller set it to, the one fact that actually decides it —  whether
+	// the repository itself was identified — is CurrentRepositoryID, so
+	// this is the only value entryStatus and the returned snapshot ever see.
+	identityError := input.IdentityError
+	if identityError != nil {
+		corrected := *identityError
+		corrected.RowsUnknown = input.CurrentRepositoryID != nil
+		identityError = &corrected
+	}
 
 	entries := make([]IndexEntry, len(input.Registrations))
 	for i, record := range input.Registrations {
@@ -203,14 +240,24 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 			}
 		}
 
-		status := entryStatus(local, hasIdentity, dockerReachable, input.IdentityError, declared, owned)
+		_, cardReadFailed := input.CardReadFailures[key]
+		status := entryStatus(local, hasIdentity, dockerReachable, cardReadFailed, identityError, declared, owned)
 
-		services := make([]IndexServiceLink, len(declared))
-		for i, service := range declared {
-			services[i] = IndexServiceLink{
+		// (#16) declared is every service the config declared for this
+		// checkout, whether or not it opted into [service.index] — see
+		// entryStatus below and card.IndexService's own comment — but only
+		// the ones that did get a Label are shown as a link: an unlabelled
+		// entry has no href text or purpose to publish, only a name that
+		// still needs counting toward the row's status.
+		services := make([]IndexServiceLink, 0, len(declared))
+		for _, service := range declared {
+			if service.Label == "" {
+				continue
+			}
+			services = append(services, IndexServiceLink{
 				Name: service.Name, Label: service.Label, Purpose: service.Purpose, URL: service.URL,
 				Available: status != StatusMissing && anyContainerAvailable(owned, service.Name),
-			}
+			})
 		}
 
 		// A pointer, not `||`: a detached HEAD reports an empty branch,
@@ -259,17 +306,24 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 	sortEntries(entries)
 
 	return IndexSnapshot{
-		Entries:         entries,
-		GeneratedAt:     input.GeneratedAt,
-		IdentityError:   input.IdentityError,
-		DockerReachable: dockerReachable,
-		DockerError:     input.DockerError,
+		Entries:          entries,
+		GeneratedAt:      input.GeneratedAt,
+		IdentityError:    identityError,
+		DockerReachable:  dockerReachable,
+		DockerError:      input.DockerError,
+		CardReadFailures: len(input.CardReadFailures),
 	}
 }
 
 // entryStatus mirrors buildSnapshot's status derivation exactly.
-func entryStatus(local, hasIdentity, dockerReachable bool, identityError *IdentityFailure, declared []card.IndexService, owned []ContainerRecord) IndexStatus {
+func entryStatus(local, hasIdentity, dockerReachable, cardReadFailed bool, identityError *IdentityFailure, declared []card.IndexService, owned []ContainerRecord) IndexStatus {
 	switch {
+	// (#18) Checked first: a card that could not be read is not evidence of
+	// anything about the checkout itself, so it must outrank every other
+	// answer below, including a live Git identity that would otherwise call
+	// it Running or Partial from containers alone.
+	case cardReadFailed:
+		return StatusUnknown
 	case local && identityError != nil && identityError.RowsUnknown:
 		return StatusUnknown
 	case local && !hasIdentity:
@@ -277,11 +331,14 @@ func entryStatus(local, hasIdentity, dockerReachable bool, identityError *Identi
 	case !dockerReachable:
 		return StatusUnknown
 	}
-	// Counted per service the card names — which is every service that
-	// opted into the index — union the containers that exist. A service
-	// that never got a container at all is exactly the one a `Running`
-	// pill would lie about. A checkout that names none and has none reads
-	// Stopped, which is what a registration that has never been up is.
+	// Counted per service the card names — every service the config
+	// declares, whether or not it also opted into [service.index] (#16) —
+	// union the containers that exist. A service that never got a container
+	// at all is exactly the one a `Running` pill would lie about, and that
+	// is as true of one with no [service.index] block as one with: a
+	// stopped, unindexed service still keeps its checkout from reading
+	// Running. A checkout that names none and has none reads Stopped, which
+	// is what a registration that has never been up is.
 	names := make(map[string]struct{}, len(declared)+len(owned))
 	for _, service := range declared {
 		names[service.Name] = struct{}{}
