@@ -605,6 +605,27 @@ describe('RouterService.ensure', () => {
     expect(w.fake.calls).toEqual([]);
     expect(await pathExists(w.layout.routerComposeFile)).toBe(false);
   });
+
+  it('refuses when the marker turns up while the previous protocol was being read under the lock, without writing the stack', async () => {
+    const w = await world();
+    const marker = path.join(w.controlHome, CONTROL_HOME_MARKER);
+    const originalRun = w.fake.run.bind(w.fake);
+    // `previousProtocol()` is the first thing `ensure()` does once it holds
+    // the router lock; writing the marker from inside its `compose ps` call
+    // stands in for the Go build claiming the control home while another
+    // `router up` held that lock, well before the stack is written.
+    w.fake.run = async (command, args = [], options) => {
+      if (args[0] === 'compose' && args.includes('ps')) await writeFile(marker, 'format 2\n');
+      return originalRun(command, args, options);
+    };
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    expect(w.fake.calls.some((c) => c.args.includes('up'))).toBe(false);
+    expect(await pathExists(w.layout.routerComposeFile)).toBe(false);
+  });
 });
 
 describe('RouterService.verify', () => {

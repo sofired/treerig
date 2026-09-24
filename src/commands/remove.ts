@@ -45,6 +45,7 @@ export interface RemoveResult {
   alreadyGone: boolean;
 }
 
+/** Removes a worktree end to end: stops and reaps its Docker resources, then its home, its registration, and its identity marker. */
 export async function remove(context: CommandContext, options: RemoveOptions = {}): Promise<RemoveResult> {
   const { logger, registry, controlHome } = context;
   await assertNotGoManaged(controlHome);
@@ -63,6 +64,11 @@ export async function remove(context: CommandContext, options: RemoveOptions = {
   await confirm({ nonInteractive: false }, describePlan(host, planned, hasHome), host, options.approved);
 
   const result = await withWorktreeMutation(context, ref, async () => {
+    // The prompt was open for as long as a person took to answer it, and the
+    // lock above may then have waited on another holder: checked again here,
+    // right before the first write below, since the reads that follow are
+    // local and fast.
+    await assertNotGoManaged(controlHome);
     // The lock was free while the prompt was up: another removal may have
     // finished, or an `up` may have re-labelled the worktree's resources.
     const found = await registry.store(target.repositoryId).find(target.worktreeId);

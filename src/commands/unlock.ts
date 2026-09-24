@@ -3,7 +3,7 @@ import { CliError } from '../errors.ts';
 import { assertNotGoManaged } from '../files.ts';
 import { composeProjectName, worktreeHost } from '../layout.ts';
 import { unlockGuard, type UnlockProof, type UnlockProofOptions } from '../lock-recovery.ts';
-import { clearStaleWorktreeLocks, describeLock, formatDuration, holderLabel, lockedWorktrees, worktreeLocks, type WorktreeLock } from '../operation-lock.ts';
+import { clearStaleWorktreeLocks, describeLock, formatDuration, holderLabel, lockedWorktrees, worktreeLocks, type WorktreeLock, type WorktreeRecoveryOptions } from '../operation-lock.ts';
 import { processTableFor, type ProcessTable } from '../process-table.ts';
 import type { CommandContext } from './context.ts';
 
@@ -118,7 +118,17 @@ export async function unlock(
     ...(dependencies.monotonic === undefined ? {} : { monotonic: dependencies.monotonic })
   });
   logger.info(`Checking that the holder of ${label}'s lock, and every command it started on this machine, is gone; this takes about 15 seconds.`);
-  const cleared = await clearStaleWorktreeLocks(context.controlHome, target.repositoryId, target.worktreeId, target.name, guard);
+  // `verify`'s second look alone takes about 12 seconds; checked again here,
+  // immediately before each lock is actually cleared, rather than only
+  // before that wait began.
+  const recheckedGuard: WorktreeRecoveryOptions = {
+    verify: guard.verify,
+    beforeClear: async (lock) => {
+      await assertNotGoManaged(context.controlHome);
+      await guard.beforeClear(lock);
+    }
+  };
+  const cleared = await clearStaleWorktreeLocks(context.controlHome, target.repositoryId, target.worktreeId, target.name, recheckedGuard);
   if (cleared.length === 0) {
     logger.info(`Nothing to unlock: the lock on ${label} was released while it was being checked.`);
     return { name: target.name, cleared, proof: guard.proof };

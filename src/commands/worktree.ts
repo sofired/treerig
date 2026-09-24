@@ -102,6 +102,11 @@ export async function up(context: CommandContext, options: UpOptions = {}): Prom
       );
     }
     const firstTime = await store.initialization(ref.worktreeId, ref.slug) === 'pending';
+    // `registry.ensure()` and `router.ensure()` ran minutes ago, outside this
+    // lock: the Go build could have taken the control home over meanwhile.
+    // Checked again here, right before the first write under the lock — the
+    // reads above are local and fast, so this is the last point it matters.
+    await assertNotGoManaged(context.controlHome);
     await secureWorktreeDirectories(worktreeLayout(context.controlHome, ref.repositoryId, ref.worktreeId));
     await writeIndexCard(context.controlHome, ref.repositoryId, ref.worktreeId, {
       version: 1,
@@ -148,7 +153,13 @@ export async function down(context: CommandContext): Promise<void> {
     worktreeLockTarget(context.controlHome, ref.repositoryId, ref.worktreeId),
     `worktree ${ref.slug}`,
     logger,
-    () => withProgress(logger, `Stopping ${worktreeHost(ref.slug, ref.domain)}`, () => runtime.down(ref)),
+    async () => {
+      // The lock above may have waited on another holder; checked again here,
+      // immediately before the write, since that wait is the gap between the
+      // check above and this one.
+      await assertNotGoManaged(context.controlHome);
+      await withProgress(logger, `Stopping ${worktreeHost(ref.slug, ref.domain)}`, () => runtime.down(ref));
+    },
     lockOptions(context, ref)
   );
   await context.index.refreshBestEffort('down');
