@@ -358,7 +358,10 @@ func establishControlHome(controlHome string) error {
 	// methods follow a symlink whose target stays inside the root, and the
 	// marker must be refused outright, wherever it points — so it is opened
 	// directly against this directory's descriptor instead, with O_NOFOLLOW.
-	dir, err := os.Open(controlHome)
+	if beforeOpenControlHomeForTest != nil {
+		beforeOpenControlHomeForTest(controlHome)
+	}
+	dir, err := openControlHomeNoFollow(controlHome)
 	if err != nil {
 		return err
 	}
@@ -384,6 +387,40 @@ func establishControlHome(controlHome string) error {
 		return writeMarkerRacingCreators(dir, marker)
 	}
 	return nil
+}
+
+// beforeOpenControlHomeForTest runs, if set, just after
+// createSecureDirectories' own checks and just before establishControlHome
+// opens the control home itself — the one window in which a same-parent
+// attacker could swap it out from under those checks. Tests only; nil in
+// production, where establishControlHome's call is a no-op.
+var beforeOpenControlHomeForTest func(controlHome string)
+
+// SetBeforeOpenControlHomeForTest installs hook to run just before
+// establishControlHome opens the control home directory itself, for a test
+// that needs to swap something in during that exact window. Returns a func
+// that restores the previous hook; callers defer it so an override never
+// leaks into another test.
+func SetBeforeOpenControlHomeForTest(hook func(controlHome string)) (restore func()) {
+	previous := beforeOpenControlHomeForTest
+	beforeOpenControlHomeForTest = hook
+	return func() { beforeOpenControlHomeForTest = previous }
+}
+
+// openControlHomeNoFollow opens controlHome as a directory, with O_NOFOLLOW:
+// os.Open would follow a symlink at controlHome's own final path component,
+// reintroducing exactly the race the directory handle this returns exists to
+// close (see establishControlHome). Refused the same way
+// AssertSafeDirectoryPath refuses one in a managed path's chain.
+func openControlHomeNoFollow(controlHome string) (*os.File, error) {
+	fd, err := unix.Open(controlHome, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) {
+			return nil, clierr.Newf("Refusing symlinked or non-directory managed path: %s", controlHome)
+		}
+		return nil, &fs.PathError{Op: "open", Path: controlHome, Err: err}
+	}
+	return os.NewFile(uintptr(fd), controlHome), nil
 }
 
 // markerCreateAttempts bounds writeMarkerRacingCreators' retries: generous

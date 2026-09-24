@@ -146,6 +146,41 @@ func TestControlHomeFormat(t *testing.T) {
 		}
 	})
 
+	t.Run("refuses a control home swapped for a symlink to a directory between the checks and the open, leaving the target unmarked", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "control")
+		elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+		if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		// createSecureDirectories has already created and Lstat-checked home as
+		// a real directory by the time this hook runs; swapping it for a
+		// symlink here is the one window os.Open's own following would have
+		// missed.
+		restore := files.SetBeforeOpenControlHomeForTest(func(controlHome string) {
+			if err := os.Remove(controlHome); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, controlHome); err != nil {
+				t.Fatal(err)
+			}
+		})
+		defer restore()
+
+		err := files.SecureControlDirectories(layout.ControlLayout(home))
+		if err == nil || !strings.Contains(err.Error(), "Refusing symlinked or non-directory managed path") {
+			t.Fatalf("got %v", err)
+		}
+
+		exists, existsErr := files.PathExists(filepath.Join(elsewhere, files.ControlHomeMarker))
+		if existsErr != nil {
+			t.Fatal(existsErr)
+		}
+		if exists {
+			t.Fatal("expected the swapped-to directory to get no marker")
+		}
+	})
+
 	t.Run("recognizes an install from before the marker by the tool's own directories", func(t *testing.T) {
 		home := filepath.Join(t.TempDir(), "control")
 		for _, name := range []string{"repositories", "locks"} {
