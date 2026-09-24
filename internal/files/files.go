@@ -396,17 +396,6 @@ func establishControlHome(controlHome string) error {
 // production, where establishControlHome's call is a no-op.
 var beforeOpenControlHomeForTest func(controlHome string)
 
-// SetBeforeOpenControlHomeForTest installs hook to run just before
-// establishControlHome opens the control home directory itself, for a test
-// that needs to swap something in during that exact window. Returns a func
-// that restores the previous hook; callers defer it so an override never
-// leaks into another test.
-func SetBeforeOpenControlHomeForTest(hook func(controlHome string)) (restore func()) {
-	previous := beforeOpenControlHomeForTest
-	beforeOpenControlHomeForTest = hook
-	return func() { beforeOpenControlHomeForTest = previous }
-}
-
 // openControlHomeNoFollow opens controlHome as a directory, with O_NOFOLLOW:
 // os.Open would follow a symlink at controlHome's own final path component,
 // reintroducing exactly the race the directory handle this returns exists to
