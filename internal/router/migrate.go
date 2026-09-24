@@ -19,6 +19,31 @@ import (
 	"github.com/sofired/berth/internal/logger"
 )
 
+// legacyRouterLayout is what a TypeScript-era control home laid the shared
+// router out as, before protocol 4 moved it to a machine-wide state
+// directory (#12, #13): src/layout.ts's own routerDir and everything under
+// it. layout.Control no longer carries these — nothing else reads them — so
+// this is the one place that writes down what that layout was.
+type legacyRouterLayout struct {
+	RouterDir    string
+	ComposeFile  string
+	ProtocolFile string
+	DynamicDir   string
+	LockPath     string
+}
+
+// legacyRouter derives a TypeScript-era control home's router layout.
+func legacyRouter(controlHome string) legacyRouterLayout {
+	routerDir := filepath.Join(controlHome, "router")
+	return legacyRouterLayout{
+		RouterDir:    routerDir,
+		ComposeFile:  filepath.Join(routerDir, "compose.yaml"),
+		ProtocolFile: filepath.Join(routerDir, "protocol"),
+		DynamicDir:   filepath.Join(routerDir, "dynamic"),
+		LockPath:     filepath.Join(controlHome, "locks", "router"),
+	}
+}
+
 // MigrateLegacyState moves what this control home left under <home>/router
 // into the shared router's own state directory, then removes both the old
 // router directory and the old router lock file, so this control home stops
@@ -35,10 +60,9 @@ import (
 // came up clean, so callers are expected to log it and carry on rather than
 // fail the command.
 func MigrateLegacyState(controlHome string, state layout.RouterLayout, log logger.Logger) error {
-	legacyRouterDir := filepath.Join(controlHome, "router")
-	legacyDynamicDir := filepath.Join(legacyRouterDir, "dynamic")
+	legacy := legacyRouter(controlHome)
 
-	entries, err := os.ReadDir(legacyDynamicDir)
+	entries, err := os.ReadDir(legacy.DynamicDir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -56,7 +80,7 @@ func MigrateLegacyState(controlHome string, state layout.RouterLayout, log logge
 			return err
 		}
 		for _, name := range candidates {
-			source := filepath.Join(legacyDynamicDir, name)
+			source := filepath.Join(legacy.DynamicDir, name)
 			destination := filepath.Join(state.DynamicDir, name)
 			// Never overwrite: a name already at the shared destination —
 			// another control home's file of the same name, migrated
@@ -84,7 +108,7 @@ func MigrateLegacyState(controlHome string, state layout.RouterLayout, log logge
 	if moved > 0 {
 		log.Warn(fmt.Sprintf(
 			"Moved %d file(s) from this control home's router configuration (%s) to the shared router at %s.",
-			moved, legacyDynamicDir, state.DynamicDir))
+			moved, legacy.DynamicDir, state.DynamicDir))
 	}
 	if kept {
 		// Migration is not finished: removing the legacy directory now
@@ -92,11 +116,10 @@ func MigrateLegacyState(controlHome string, state layout.RouterLayout, log logge
 		return nil
 	}
 
-	if err := files.RemoveWithin(controlHome, legacyRouterDir); err != nil {
+	if err := files.RemoveWithin(controlHome, legacy.RouterDir); err != nil {
 		return err
 	}
-	legacyLock := filepath.Join(controlHome, "locks", "router")
-	if err := os.Remove(legacyLock); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := os.Remove(legacy.LockPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return nil

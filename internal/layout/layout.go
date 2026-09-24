@@ -3,14 +3,16 @@
 //
 //	<controlHome>/
 //	  locks/registry                    RegistryLockPath
-//	  locks/router                      RouterLockPath
 //	  locks/worktrees/<repo>/<wt>       worktree operation lock
 //	  locks/worktrees/<repo>/<wt>.dev   development-session lock
-//	  router/compose.yaml               the shared router's stack file
-//	  router/protocol                   the protocol of the last router that ran here
 //	  router/index/index.html           the shared checkout index
 //	  repositories/<repo>/worktrees/    registry records, one JSON per worktree
 //	  repositories/<repo>/instances/<wt>/   the worktree's home
+//
+// The shared router's own stack file, protocol record, dynamic directory and
+// lock no longer live under the control home (#12, #13): see RouterState.
+// What a TypeScript-era control home once laid them out as is recorded in
+// internal/router/migrate.go, the one place that still needs it.
 package layout
 
 import (
@@ -29,19 +31,13 @@ import (
 
 // Control is the machine-wide part of the layout.
 type Control struct {
-	ControlHome        string
-	RouterDir          string
-	RouterComposeFile  string
-	RouterProtocolFile string
-	// RouterDynamicDir is bind-mounted read-only into the router; 0755, 0644 files, never secrets.
-	RouterDynamicDir string
+	ControlHome string
 	// IndexDir is bind-mounted read-only into the index server; 0755, 0644 files, never secrets.
 	IndexDir         string
 	IndexFile        string
 	RepositoriesDir  string
 	LocksDir         string
 	RegistryLockPath string
-	RouterLockPath   string
 }
 
 // Repository adds one repository's directories.
@@ -179,20 +175,17 @@ func ControlLayout(controlHome string) Control {
 		resolved = filepath.Clean(controlHome)
 	}
 	locksDir := filepath.Join(resolved, "locks")
-	routerDir := filepath.Join(resolved, "router")
-	indexDir := filepath.Join(routerDir, "index")
+	// index/ is still under router/ for on-disk backward compatibility with
+	// what a TypeScript-era control home laid out; the router's own stack
+	// file, protocol record, dynamic directory and lock are not (RouterState).
+	indexDir := filepath.Join(resolved, "router", "index")
 	return Control{
-		ControlHome:        resolved,
-		RouterDir:          routerDir,
-		RouterComposeFile:  filepath.Join(routerDir, "compose.yaml"),
-		RouterProtocolFile: filepath.Join(routerDir, "protocol"),
-		RouterDynamicDir:   filepath.Join(routerDir, "dynamic"),
-		IndexDir:           indexDir,
-		IndexFile:          filepath.Join(indexDir, "index.html"),
-		RepositoriesDir:    filepath.Join(resolved, "repositories"),
-		LocksDir:           locksDir,
-		RegistryLockPath:   filepath.Join(locksDir, "registry"),
-		RouterLockPath:     filepath.Join(locksDir, "router"),
+		ControlHome:      resolved,
+		IndexDir:         indexDir,
+		IndexFile:        filepath.Join(indexDir, "index.html"),
+		RepositoriesDir:  filepath.Join(resolved, "repositories"),
+		LocksDir:         locksDir,
+		RegistryLockPath: filepath.Join(locksDir, "registry"),
 	}
 }
 

@@ -227,11 +227,15 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		}
 		// The router's own directories are no longer created here: they live
 		// in the router's machine-wide state directory (internal/router,
-		// #12, #13), not under any control home.
-		exists, err := files.PathExists(l.RouterDir)
+		// #12, #13), not under any control home. layout.Control no longer
+		// even names it (internal/router/migrate.go is the one place that
+		// still needs a TypeScript-era control home's router path), so this
+		// checks the literal path a real one would have used.
+		routerDir := filepath.Join(controlHome, "router")
+		exists, err := files.PathExists(routerDir)
 		requireNoError(t, err)
 		if exists {
-			t.Fatalf("expected %s not to be created", l.RouterDir)
+			t.Fatalf("expected %s not to be created", routerDir)
 		}
 	})
 
