@@ -82,6 +82,8 @@ func (r *Registry) Store(repositoryID string) *Store {
 	return NewStore(r.ControlHome, repositoryID)
 }
 
+// registration combines identity's own identifying fields with record's
+// registered ones into the WorktreeRegistration Ensure reports.
 func registration(identity WorktreeIdentity, record RegisteredWorktree) WorktreeRegistration {
 	return WorktreeRegistration{
 		RegisteredWorktree: RegisteredWorktree{

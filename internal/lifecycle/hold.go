@@ -39,6 +39,8 @@ type Requests struct {
 	Registry    *lock.Scope
 }
 
+// ordered is r's requested scopes in the fixed acquisition order: operation,
+// then development, then registry, skipping whichever were not requested.
 func (r Requests) ordered() []*lock.Scope {
 	var scopes []*lock.Scope
 	for _, s := range []*lock.Scope{r.Operation, r.Development, r.Registry} {
@@ -66,6 +68,8 @@ func SetWatchdogForTest(interval time.Duration) (restore func()) {
 	return func() { watchdogForTest = previous }
 }
 
+// optionsFor is the lock.Options for scope: its timeout (and, for the
+// registry, its retry interval) fixed by which of requests' fields it is.
 func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
 	opts := lock.Options{Holder: env.Invocation, Logger: env.Logger, Watchdog: watchdogForTest}
 	switch scope {
@@ -157,12 +161,18 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 	return attach(actionErr, releaseErrs)
 }
 
+// releaseAll releases every lock in held, last acquired first, ignoring any
+// error: used only when Hold itself is giving up before running action, so
+// there is nothing yet for a release failure to be attached to.
 func releaseAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Release()
 	}
 }
 
+// abandonAll abandons every lock in held, last acquired first: their records
+// stay unreleased, for the next acquirer to judge, because whatever they
+// guarded may still be running.
 func abandonAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Abandon()

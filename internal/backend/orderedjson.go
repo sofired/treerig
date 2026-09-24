@@ -25,8 +25,12 @@ type jsonKV struct {
 	values map[string]any
 }
 
+// newJSONKV is an empty ordered object.
 func newJSONKV() *jsonKV { return &jsonKV{values: map[string]any{}} }
 
+// set assigns key, exactly as a JavaScript property assignment would: a key
+// already present keeps its position and only its value changes; a new key
+// is appended. Returns o, so a value can be built up in a chain of calls.
 func (o *jsonKV) set(key string, value any) *jsonKV {
 	if _, exists := o.values[key]; !exists {
 		o.keys = append(o.keys, key)
@@ -35,6 +39,8 @@ func (o *jsonKV) set(key string, value any) *jsonKV {
 	return o
 }
 
+// get is key's value, or false if it is not set. A nil receiver reads as not
+// set, so a lookup on an absent optional section needs no nil check first.
 func (o *jsonKV) get(key string) (any, bool) {
 	if o == nil {
 		return nil, false
@@ -43,6 +49,7 @@ func (o *jsonKV) get(key string) (any, bool) {
 	return v, ok
 }
 
+// has reports whether key is set.
 func (o *jsonKV) has(key string) bool {
 	_, ok := o.get(key)
 	return ok
@@ -67,6 +74,8 @@ func decodeOrdered(data []byte) (any, error) {
 	return value, nil
 }
 
+// decodeOrderedValue is the next complete JSON value off decoder: a scalar,
+// or an object or array read recursively by decodeOrderedToken.
 func decodeOrderedValue(decoder *json.Decoder) (any, error) {
 	token, err := decoder.Token()
 	if err != nil {
@@ -75,6 +84,9 @@ func decodeOrderedValue(decoder *json.Decoder) (any, error) {
 	return decodeOrderedToken(decoder, token)
 }
 
+// decodeOrderedToken finishes decoding the value token already started:
+// itself, if it is a scalar, or the rest of the object or array it opens,
+// with every object built as a *jsonKV in its own key order.
 func decodeOrderedToken(decoder *json.Decoder, token json.Token) (any, error) {
 	delim, isDelim := token.(json.Delim)
 	if !isDelim {
@@ -132,6 +144,8 @@ func marshalOrdered(value any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// writeOrdered writes value's compact JSON encoding to buf: marshalOrdered's
+// own recursive step, one *jsonKV, string, bool or nil at a time.
 func writeOrdered(buf *bytes.Buffer, value any) error {
 	switch v := value.(type) {
 	case nil:
@@ -152,6 +166,7 @@ func writeOrdered(buf *bytes.Buffer, value any) error {
 	return nil
 }
 
+// writeOrderedObject writes o to buf as a compact JSON object, its keys in o's own set order.
 func writeOrderedObject(buf *bytes.Buffer, o *jsonKV) error {
 	buf.WriteByte('{')
 	for i, key := range o.keys {

@@ -95,6 +95,10 @@ type recordJSON struct {
 	Initialization string  `json:"initialization"`
 }
 
+// setInitialization writes state into worktreeID's record under the registry
+// lock, refusing if the record is missing or its slug no longer matches
+// expectedSlug — the same reconciliation guard Ensure itself applies —
+// and doing nothing if the record already names state.
 func (s *Store) setInitialization(ctx context.Context, worktreeID, expectedSlug string, writer Writer, state WorktreeInitialization) error {
 	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID)); err != nil {
 		return err

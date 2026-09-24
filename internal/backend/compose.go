@@ -74,6 +74,8 @@ type Compose struct {
 // NewCompose makes a runtime.
 func NewCompose(options Options) *Compose { return &Compose{options: options} }
 
+// project is the Compose project name a worktree's own resources are stamped
+// and looked up with.
 func (c *Compose) project(ref worktree.Ref) string {
 	return layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID)
 }
@@ -108,6 +110,9 @@ type model struct {
 	Services map[string]json.RawMessage `json:"services"`
 }
 
+// readModel runs `docker compose config` and decodes just enough of it —
+// the service names — to report status; a document Compose does not shape
+// the way model expects is refused rather than partially read.
 func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error) {
 	file := c.options.ComposeFile
 	stdout, err := c.composeConfigJSON(ctx, ref)
@@ -191,6 +196,9 @@ type psRecord struct {
 	Health  string
 }
 
+// serviceState reads one `docker compose ps` record into a ServiceState, with
+// a detail string for the cases (unhealthy, or a state this build does not
+// otherwise name) that need one.
 func serviceState(record psRecord) (worktree.ServiceState, string) {
 	state := strings.ToLower(record.State)
 	switch {
@@ -310,6 +318,8 @@ var resourceTypes = []resourceType{
 	{kind: "image", listArguments: []string{"image", "ls", "-q"}, inspectCommand: []string{"image", "inspect"}, removeArgs: []string{"image", "rm"}, labelPrefix: ".Config"},
 }
 
+// list is every kind's ID matching all of filters, deduplicated and sorted:
+// the raw material Inventory verifies before trusting any of it.
 func (c *Compose) list(ctx context.Context, kind resourceType, filters []string) ([]string, error) {
 	args := slices.Clone(kind.listArguments)
 	for _, filter := range filters {
@@ -430,6 +440,7 @@ func (c *Compose) Reap(ctx context.Context, ref worktree.Ref, resource worktree.
 	return nil
 }
 
+// firstNonEmpty is the first non-empty value, or "" if every one is empty.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {

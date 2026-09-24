@@ -40,6 +40,7 @@ type RouteSpec struct {
 	Port *int
 }
 
+// home is the worktree's own directory, where its override document is written.
 func (c *Compose) home(ref worktree.Ref) string {
 	return layout.WorktreeLayout(c.options.ControlHome, ref.RepositoryID, ref.WorktreeID).Home
 }
@@ -51,6 +52,8 @@ func (c *Compose) overridePath(ref worktree.Ref) string {
 	return filepath.Join(c.home(ref), brand.Name+".override.yaml")
 }
 
+// ownershipLabels are the three labels stamped onto every resource this
+// worktree's Compose file creates, so Inventory can find and verify them later.
 func (c *Compose) ownershipLabels(ref worktree.Ref) *jsonKV {
 	namespace := c.options.LabelNamespace
 	return newJSONKV().
@@ -144,6 +147,9 @@ func decodeOrderedComposeModel(data []byte, file string) (services, volumes, net
 	return services, volumes, networks, nil
 }
 
+// orderedSection is obj's key as a *jsonKV of *jsonKV entries — services,
+// volumes or networks, say — or an empty one if key is absent. Anything else
+// shaped there is refused as an unrecognized document.
 func orderedSection(obj *jsonKV, key, file string) (*jsonKV, error) {
 	value, present := obj.get(key)
 	if !present {
@@ -286,6 +292,9 @@ func serviceNetworks(service *jsonKV) *jsonKV {
 	return newJSONKV().set("default", newJSONKV())
 }
 
+// networkNameString is value the way JavaScript's String() would stringify a
+// decoded JSON value used as a network name: "null" for null, "true"/"false"
+// for a boolean, and the value itself for anything already a string.
 func networkNameString(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -332,6 +341,8 @@ func firstPort(service *jsonKV) (int, bool) {
 	return 0, false
 }
 
+// stringifyJSONValue is value the way JavaScript's String() would: a string
+// passes through unchanged, everything else falls to networkNameString.
 func stringifyJSONValue(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -341,6 +352,9 @@ func stringifyJSONValue(value any) string {
 	}
 }
 
+// numberToInt reads value as a whole number: a decoded JSON number directly,
+// or anything else by parsing its leading digits the way firstPort's own
+// Number.parseInt port does.
 func numberToInt(value any) (int, bool) {
 	switch v := value.(type) {
 	case json.Number:
@@ -493,6 +507,8 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 	return newJSONKV().set("services", outServices).set("volumes", outVolumes).set("networks", outNetworks), nil
 }
 
+// resolvePort is route's explicit port if it named one, otherwise the
+// service's own first port, the way firstPort finds it.
 func resolvePort(route RouteSpec, service *jsonKV) (int, bool) {
 	if route.Port != nil {
 		return *route.Port, true

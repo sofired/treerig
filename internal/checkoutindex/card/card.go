@@ -267,6 +267,8 @@ func validText(s *string, min, max int) bool {
 	return s != nil && len(*s) >= min && len(*s) <= max
 }
 
+// validURL reports whether raw is short enough, matches urlPattern, parses,
+// and carries no userinfo — cardBounds' check for every URL field.
 func validURL(raw string) bool {
 	if len(raw) > maxURLLength || !urlPattern.MatchString(raw) {
 		return false
@@ -288,10 +290,14 @@ func requiredCardKeysPresent(raw rawIndexCard) bool {
 		raw.Root != nil && raw.Branch != nil && raw.LabelNamespace != nil && raw.UpdatedAt != nil
 }
 
+// requiredServiceKeysPresent is requiredCardKeysPresent for one service entry.
 func requiredServiceKeysPresent(s rawIndexService) bool {
 	return s.Name != nil && s.URL != nil && s.Label != nil && s.Purpose != nil
 }
 
+// parseCardJSON decodes data as one index card: version 1, every required
+// key present, and its bounds satisfied via cardBounds — the read side's
+// half of the schema WriteIndexCard's own cardBounds call enforces on write.
 func parseCardJSON(data []byte) (IndexCard, bool) {
 	var raw rawIndexCard
 	decoder := json.NewDecoder(bytes.NewReader(data))

@@ -29,9 +29,14 @@ func NewFakeRouter(port int, network string) *FakeRouter {
 	return &FakeRouter{port: port, network: network}
 }
 
-func (r *FakeRouter) Port() int       { return r.port }
+// Port is the fixed port NewFakeRouter was given.
+func (r *FakeRouter) Port() int { return r.port }
+
+// Network is the fixed network name NewFakeRouter was given.
 func (r *FakeRouter) Network() string { return r.network }
 
+// Ensure runs BeforeEnsure's hook, if one is set, then answers FailEnsure's
+// error, if one is set, or nil otherwise. Every call counts toward Ensures.
 func (r *FakeRouter) Ensure(context.Context) error {
 	r.mu.Lock()
 	before, err := r.before, r.err
@@ -72,6 +77,7 @@ type FakeIndex struct {
 	reasons []string
 }
 
+// RefreshBestEffort records reason instead of touching a real checkout index; see Reasons.
 func (i *FakeIndex) RefreshBestEffort(_ context.Context, reason string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
