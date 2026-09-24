@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/checkoutindex"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/docker"
 	"github.com/sofired/berth/internal/files"
@@ -96,16 +97,13 @@ const DefaultName = brand.Name + "-router"
 // PlaceholderPage returns the bytes of the placeholder index page Ensure
 // writes before the index container's first `compose up --wait`, because
 // that container's health check fetches it (router.ts:198-201 in the
-// TypeScript build, ported as write() below). WP4a (#40) is porting the real
-// renderer (renderIndexHtml(placeholderSnapshot(now))) in parallel; tests use
-// a stub, and production wiring supplies the real one once both land.
+// TypeScript build, ported as write() below). Tests may supply a stub.
 type PlaceholderPage func(now time.Time) ([]byte, error)
 
-// TODO(#40): replace with WP4a's renderIndexHtml(placeholderSnapshot(now))
-// once it lands; see PlaceholderPage.
-func defaultPlaceholderPage(time.Time) ([]byte, error) {
-	return []byte("<!doctype html>\n<title>" + brand.Name + " index</title>\n" +
-		"<p>No checkouts have been indexed yet.</p>\n"), nil
+// defaultPlaceholderPage is the checkout index's own placeholder:
+// renderIndexHtml(placeholderSnapshot(now)), as the TypeScript build writes.
+func defaultPlaceholderPage(now time.Time) ([]byte, error) {
+	return []byte(checkoutindex.PlaceholderHTML(now)), nil
 }
 
 // Options configure a Router.
@@ -432,8 +430,8 @@ func (r *Router) recordedProtocol() (int, bool, error) {
 	if !ok {
 		r.logger.Warn(fmt.Sprintf(
 			"Ignoring %s: it does not name a router protocol. This run takes the previous protocol from the "+
-				"router itself, or from %s, if either is still there.",
-			r.state.ProtocolFile, r.state.ComposeFile))
+				"router itself, if it is still there.",
+			r.state.ProtocolFile))
 	}
 	return recorded, ok, nil
 }

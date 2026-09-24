@@ -321,7 +321,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 
 		lines, _ := w.Logger.Snapshot()
 		mustContain(t, lines, "warn: Ignoring "+w.State.ProtocolFile+": it does not name a router protocol. "+
-			"This run takes the previous protocol from the router itself, or from "+w.State.ComposeFile+", if either is still there.")
+			"This run takes the previous protocol from the router itself, if it is still there.")
 		if containsSubstring(lines, "protocol 16") {
 			t.Errorf("did not expect the corrupted value to be treated as protocol 16, got %v", lines)
 		}
