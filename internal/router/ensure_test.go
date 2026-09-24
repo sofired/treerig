@@ -245,7 +245,8 @@ func TestRouterServiceEnsure(t *testing.T) {
 		// so previousProtocol now has only two sources; a control home with
 		// neither a record nor a stale-labelled container has no way to learn
 		// it is behind, and there is nothing left this test could exercise.
-		t.Skip("legacyProtocol is dropped past protocol 3 (WP3 brief); its third evidence source no longer exists")
+		t.Skip("the owner decided to drop legacyProtocol (docs/port/divergences.md, row 10); " +
+			"the per-home record this test was about no longer exists")
 	})
 
 	t.Run("does not let a newer version's stack file, which never started, poison the record", func(t *testing.T) {
