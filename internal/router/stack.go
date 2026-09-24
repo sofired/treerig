@@ -166,13 +166,17 @@ func RouterCommand(network string) []string {
 // can carry a `<`, `>` or `&` for it to treat differently.
 type labelSet []labelEntry
 
+// labelEntry is one key/value pair of a labelSet, in the position it was given.
 type labelEntry struct {
 	key   string
 	value string
 }
 
+// labels builds a labelSet from entries, in the order given.
 func labels(entries ...labelEntry) labelSet { return labelSet(entries) }
-func kv(key, value string) labelEntry       { return labelEntry{key: key, value: value} }
+
+// kv is one labelEntry.
+func kv(key, value string) labelEntry { return labelEntry{key: key, value: value} }
 
 // Map is the set as a plain map, for a caller that only needs to look values
 // up (tests building a fixture to compare against, mainly) and does not need
@@ -211,6 +215,7 @@ func (s labelSet) MarshalJSON() ([]byte, error) {
 
 /* ---------------------------------------------------------------- the stack */
 
+// mount is one Compose bind mount, in stack.ts's own field order.
 type mount struct {
 	Type     string `json:"type"`
 	Source   string `json:"source"`
@@ -218,6 +223,7 @@ type mount struct {
 	ReadOnly bool   `json:"read_only"`
 }
 
+// healthcheck is one service's Compose healthcheck.
 type healthcheck struct {
 	Test     []string `json:"test"`
 	Interval string   `json:"interval"`
@@ -225,18 +231,24 @@ type healthcheck struct {
 	Retries  int      `json:"retries"`
 }
 
+// newHealthcheck is a healthcheck running test, with every service's shared
+// interval, timeout and retry count (stack.ts's HEALTHCHECK).
 func newHealthcheck(test []string) healthcheck {
 	return healthcheck{Test: test, Interval: "2s", Timeout: "3s", Retries: 30}
 }
 
+// dependsOnEntry is one Compose depends_on condition.
 type dependsOnEntry struct {
 	Condition string `json:"condition"`
 }
 
+// dependsOn is the router service's own depends_on: the docker-api proxy healthy.
 type dependsOn struct {
 	DockerAPI dependsOnEntry `json:"docker-api"`
 }
 
+// dockerAPIServiceDoc is the docker-api service's Compose document, in
+// stack.ts's own field order.
 type dockerAPIServiceDoc struct {
 	Image       string            `json:"image"`
 	Restart     string            `json:"restart"`
@@ -251,6 +263,8 @@ type dockerAPIServiceDoc struct {
 	Networks    []string          `json:"networks"`
 }
 
+// routerServiceDoc is the router (Traefik) service's Compose document, in
+// stack.ts's own field order.
 type routerServiceDoc struct {
 	Image       string      `json:"image"`
 	Restart     string      `json:"restart"`
@@ -268,6 +282,8 @@ type routerServiceDoc struct {
 	Networks    []string    `json:"networks"`
 }
 
+// indexServiceDoc is the index service's Compose document, in stack.ts's own
+// field order.
 type indexServiceDoc struct {
 	Image       string      `json:"image"`
 	Restart     string      `json:"restart"`
@@ -281,20 +297,24 @@ type indexServiceDoc struct {
 	Networks    []string    `json:"networks"`
 }
 
+// stackServices is the stack's three services, in stack.ts's own field order.
 type stackServices struct {
 	DockerAPI dockerAPIServiceDoc `json:"docker-api"`
 	Router    routerServiceDoc    `json:"router"`
 	Index     indexServiceDoc     `json:"index"`
 }
 
+// namedNetwork is a Compose network declared under a fixed name.
 type namedNetwork struct {
 	Name string `json:"name"`
 }
 
+// internalNetwork is a Compose network with no external connectivity.
 type internalNetwork struct {
 	Internal bool `json:"internal"`
 }
 
+// stackNetworks is the stack's two networks, in stack.ts's own field order.
 type stackNetworks struct {
 	Router    namedNetwork    `json:"router"`
 	DockerAPI internalNetwork `json:"docker-api"`
@@ -311,7 +331,10 @@ type StackDocument struct {
 	Networks stackNetworks `json:"networks"`
 }
 
+// hardenedCapDrop is every service's own cap_drop (stack.ts's HARDENED).
 var hardenedCapDrop = []string{"ALL"}
+
+// hardenedSecurityOpt is every service's own security_opt (stack.ts's HARDENED).
 var hardenedSecurityOpt = []string{"no-new-privileges:true"}
 
 // Stack builds the stack document for options.
