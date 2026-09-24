@@ -109,7 +109,11 @@ func (DarwinTable) Scan() (Scan, error) {
 		for _, pid := range fallback {
 			if proc, ok := found[pid]; ok {
 				procs = append(procs, proc)
-			} else {
+				continue
+			}
+			// Missing from ps: hidden only if it is still there. A process
+			// that exited between kern.proc.all and ps is simply gone.
+			if _, err := unix.SysctlKinfoProc("kern.proc.pid", pid); err == nil {
 				othersHidden = true
 			}
 		}
