@@ -273,14 +273,21 @@ func TestRouterUp(t *testing.T) {
 		controlHome := registrytest.TempDir(t)
 		markAsControlHome(t, controlHome)
 
-		// layout.RouterStateDir resolves to $HOME/.local/state/berth/router
-		// on Linux; plant a symlink at exactly that path. RouterUp must
-		// refuse before commands.routerHold ever takes the router lock
-		// (which would create <target>/lock and its holder record) or
-		// Ensure's previousProtocol ever writes a protocol record into it.
+		// Resolved through layout.RouterStateDir itself — production's own
+		// function — so the symlink lands wherever this platform actually
+		// puts the state directory (~/.local/state/berth/router on Linux,
+		// ~/Library/Application Support/berth/router on macOS), not a
+		// hand-built guess that would miss on the platform it guessed wrong
+		// for. RouterUp must refuse before commands.routerHold ever takes
+		// the router lock (which would create <target>/lock and its holder
+		// record) or Ensure's previousProtocol ever writes a protocol
+		// record into it.
 		target := registrytest.TempDir(t)
 		fakeHome := registrytest.TempDir(t)
-		plantedStateDir := filepath.Join(fakeHome, ".local", "state", "berth", "router")
+		plantedStateDir, err := layout.RouterStateDir(routerEnvGetenv(map[string]string{"HOME": fakeHome}))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := os.MkdirAll(filepath.Dir(plantedStateDir), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -295,8 +302,17 @@ func TestRouterUp(t *testing.T) {
 			Runner: &healthyRouterDocker{network: router.DefaultName, port: 80},
 		}
 
-		if err := commands.RouterUp(context.Background(), env); err == nil {
+		err = commands.RouterUp(context.Background(), env)
+		if err == nil {
 			t.Fatal("expected RouterUp to refuse a symlinked state directory")
+		}
+		// Matched by message, not merely non-nil: Ensure can fail for other
+		// reasons too (the fake docker above carries no state, so a router
+		// that got past secureState would fail verification instead), and
+		// only this message proves the symlink is what stopped it.
+		const wantRefusal = "Refusing symlinked or non-directory managed path"
+		if !strings.Contains(err.Error(), wantRefusal) {
+			t.Fatalf("expected the symlink refusal (%q), got: %v", wantRefusal, err)
 		}
 
 		entries, err := os.ReadDir(target)
