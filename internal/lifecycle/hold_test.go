@@ -215,14 +215,28 @@ func TestHold(t *testing.T) {
 				// something outside berth doing so, the way
 				// internal/lock/watchdog_test.go's own "cancels the
 				// action's context" case does, but here end to end
-				// through Hold.
-				if err := os.Remove(op.Target); err != nil {
+				// through Hold. Written to a temp file in the same
+				// directory and renamed over the target, atomically,
+				// rather than removed and then recreated: the watchdog
+				// runs concurrently with this and must never be able to
+				// see the target briefly missing, which reports removed
+				// rather than replaced.
+				replacement, err := os.CreateTemp(filepath.Dir(op.Target), "replacement-*")
+				if err != nil {
 					return err
 				}
-				if err := os.WriteFile(op.Target, nil, 0o600); err != nil {
+				temp := replacement.Name()
+				if err := replacement.Close(); err != nil {
 					return err
 				}
-				<-ctx.Done()
+				if err := os.Rename(temp, op.Target); err != nil {
+					return err
+				}
+				select {
+				case <-ctx.Done():
+				case <-time.After(10 * time.Second):
+					t.Fatal("the watchdog never cancelled the action's context after the target was replaced")
+				}
 				// Deliberately ignores the cancellation and reports
 				// success anyway, as an action that never watches its
 				// own context would: Hold itself must still catch the
