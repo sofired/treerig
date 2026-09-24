@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { rename, writeFile } from 'node:fs/promises';
 import { silentLogger as logger } from '../../../src/logger.ts';
 import { ScopedLock, worktreeLockTarget } from '../../../src/operation-lock.ts';
 
@@ -27,6 +27,9 @@ if (mode === 'grandchild') {
   grandchild = child.pid;
 }
 
-await writeFile(readyFile, JSON.stringify({ pid: process.pid, grandchild }), { mode: 0o600 });
+// Written aside and renamed into place: the test polls for the ready file to
+// exist and then parses it, so it must never see one half-written.
+await writeFile(`${readyFile}.partial`, JSON.stringify({ pid: process.pid, grandchild }), { mode: 0o600 });
+await rename(`${readyFile}.partial`, readyFile);
 if (mode === 'exit') process.exit(0);
 setInterval(() => undefined, 1_000);
