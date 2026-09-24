@@ -28,8 +28,15 @@ const (
 	// not something to wait out: say so quickly.
 	DevelopmentTimeout = 1 * time.Second
 	// RouterTimeout is how long `router up` waits for another control home's
-	// ensure to finish before giving up.
-	RouterTimeout = 5 * time.Minute
+	// ensure to finish before giving up. It must cover Ensure's own worst
+	// case, or a waiter could give up on a holder that is still working
+	// within its own budget: previousProtocol's probe pair (2 * 30s), a
+	// `compose up --wait` (5m), a full verify pass across all three
+	// services (6 * 30s = 3m), one recreate-and-reverify when it drifted
+	// (5m + 3m), and a protocol write. 60s + 5m + 3m + 5m + 3m = 17m, so
+	// 20m leaves comfortable room. (The probe and start timeouts referenced
+	// here are internal/router's dockerProbeTimeout and startTimeout.)
+	RouterTimeout = 20 * time.Minute
 )
 
 // RegistryScope is the machine-wide worktree registry lock.
