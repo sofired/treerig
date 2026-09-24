@@ -30,9 +30,6 @@ func TestNotPortedVerbs(t *testing.T) {
 		{"up", []string{"up"}, "up"},
 		{"index", []string{"index"}, "index"},
 		{"doctor", []string{"doctor"}, "doctor"},
-		{"router-up", []string{"router", "up"}, "router up"},
-		{"router-status", []string{"router", "status"}, "router status"},
-		{"router-down", []string{"router", "down"}, "router down"},
 		{"worktree-unlock", []string{"worktree", "unlock", "feature-login", "--holder-unverifiable"}, "worktree unlock"},
 	}
 

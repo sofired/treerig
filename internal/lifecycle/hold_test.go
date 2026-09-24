@@ -12,16 +12,20 @@ import (
 	"github.com/sofired/berth/internal/logger"
 )
 
+// fakeQuiescer is a Runner that counts its calls and returns a fixed error.
 type fakeQuiescer struct {
 	err   error
 	calls int
 }
 
+// Quiesce records the call and returns the fake's configured error.
 func (f *fakeQuiescer) Quiesce(ctx context.Context) error {
 	f.calls++
 	return f.err
 }
 
+// testScopes returns three distinct lock.Scope values, rooted in a fresh
+// temp directory, for the three request kinds Hold coordinates.
 func testScopes(t *testing.T) (operation, development, registry lock.Scope) {
 	t.Helper()
 	dir := t.TempDir()
@@ -62,6 +66,27 @@ func TestHold(t *testing.T) {
 			_ = ctx
 			_ = lk.Release()
 		}
+	})
+
+	t.Run("takes a router request alone, with its own timeout", func(t *testing.T) {
+		dir := t.TempDir()
+		router := lock.Scope{Target: filepath.Join(dir, "router"), Description: "shared router"}
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		ran := false
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth router up"},
+			Requests{Router: &router},
+			func(ctx context.Context) error { ran = true; return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ran {
+			t.Fatal("expected the action to run")
+		}
+		probe := lock.New(router, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
+		if _, err := probe.Acquire(context.Background(), "probe"); err != nil {
+			t.Fatalf("expected the router lock to have been released: %v", err)
+		}
+		_ = probe.Release()
 	})
 
 	t.Run("releases whatever it already holds when a later lock cannot be acquired", func(t *testing.T) {

@@ -31,16 +31,21 @@ type Env struct {
 
 // Requests is which locks one Hold call needs. Lock order is fixed
 // everywhere: operation, then development, then registry; a nil field is
-// simply not requested.
+// simply not requested. Router is taken alone — a router request never
+// appears alongside a worktree's own locks, since the router is machine-wide
+// rather than scoped to any one repository or control home.
 type Requests struct {
 	Operation   *lock.Scope
 	Development *lock.Scope
 	Registry    *lock.Scope
+	Router      *lock.Scope
 }
 
+// ordered is every requested scope, in Hold's fixed acquisition order,
+// skipping whichever were not requested.
 func (r Requests) ordered() []*lock.Scope {
 	var scopes []*lock.Scope
-	for _, s := range []*lock.Scope{r.Operation, r.Development, r.Registry} {
+	for _, s := range []*lock.Scope{r.Operation, r.Development, r.Registry, r.Router} {
 		if s != nil {
 			scopes = append(scopes, s)
 		}
@@ -48,6 +53,8 @@ func (r Requests) ordered() []*lock.Scope {
 	return scopes
 }
 
+// optionsFor is the lock.Options for scope, timed for whichever of
+// requests's fields it is.
 func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
 	opts := lock.Options{Holder: env.Invocation, Logger: env.Logger}
 	switch scope {
@@ -58,6 +65,8 @@ func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
 	case requests.Registry:
 		opts.Timeout = lock.RegistryTimeout
 		opts.Retry = lock.RegistryRetry
+	case requests.Router:
+		opts.Timeout = lock.RouterTimeout
 	}
 	return opts
 }
@@ -125,12 +134,14 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 	return attach(actionErr, releaseErrs)
 }
 
+// releaseAll releases every held lock, in reverse acquisition order.
 func releaseAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Release()
 	}
 }
 
+// abandonAll abandons every held lock, in reverse acquisition order.
 func abandonAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Abandon()

@@ -3,14 +3,15 @@
 //
 //	<controlHome>/
 //	  locks/registry                    RegistryLockPath
-//	  locks/router                      RouterLockPath
 //	  locks/worktrees/<repo>/<wt>       worktree operation lock
 //	  locks/worktrees/<repo>/<wt>.dev   development-session lock
-//	  router/compose.yaml               the shared router's stack file
-//	  router/protocol                   the protocol of the last router that ran here
-//	  router/index/index.html           the shared checkout index
 //	  repositories/<repo>/worktrees/    registry records, one JSON per worktree
 //	  repositories/<repo>/instances/<wt>/   the worktree's home
+//
+// The shared router's own stack file, protocol record, dynamic and index
+// directories, and lock no longer live under the control home (#12, #13):
+// see RouterState. What a TypeScript-era control home once laid them out as
+// is recorded in internal/router/migrate.go, the one place that still needs it.
 package layout
 
 import (
@@ -18,6 +19,7 @@ import (
 	"encoding/hex"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,19 +30,10 @@ import (
 
 // Control is the machine-wide part of the layout.
 type Control struct {
-	ControlHome        string
-	RouterDir          string
-	RouterComposeFile  string
-	RouterProtocolFile string
-	// RouterDynamicDir is bind-mounted read-only into the router; 0755, 0644 files, never secrets.
-	RouterDynamicDir string
-	// IndexDir is bind-mounted read-only into the index server; 0755, 0644 files, never secrets.
-	IndexDir         string
-	IndexFile        string
+	ControlHome      string
 	RepositoriesDir  string
 	LocksDir         string
 	RegistryLockPath string
-	RouterLockPath   string
 }
 
 // Repository adds one repository's directories.
@@ -159,6 +152,8 @@ func parseJSInteger(raw string) (int, error) {
 	return int(value), nil
 }
 
+// trimJSWhitespace trims what JavaScript's Number() treats as whitespace
+// around a numeric string, the way String.prototype.trim() would.
 func trimJSWhitespace(value string) string {
 	start, end := 0, len(value)
 	isSpace := func(b byte) bool { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\v' || b == '\f' }
@@ -178,20 +173,11 @@ func ControlLayout(controlHome string) Control {
 		resolved = filepath.Clean(controlHome)
 	}
 	locksDir := filepath.Join(resolved, "locks")
-	routerDir := filepath.Join(resolved, "router")
-	indexDir := filepath.Join(routerDir, "index")
 	return Control{
-		ControlHome:        resolved,
-		RouterDir:          routerDir,
-		RouterComposeFile:  filepath.Join(routerDir, "compose.yaml"),
-		RouterProtocolFile: filepath.Join(routerDir, "protocol"),
-		RouterDynamicDir:   filepath.Join(routerDir, "dynamic"),
-		IndexDir:           indexDir,
-		IndexFile:          filepath.Join(indexDir, "index.html"),
-		RepositoriesDir:    filepath.Join(resolved, "repositories"),
-		LocksDir:           locksDir,
-		RegistryLockPath:   filepath.Join(locksDir, "registry"),
-		RouterLockPath:     filepath.Join(locksDir, "router"),
+		ControlHome:      resolved,
+		RepositoriesDir:  filepath.Join(resolved, "repositories"),
+		LocksDir:         locksDir,
+		RegistryLockPath: filepath.Join(locksDir, "registry"),
 	}
 }
 
@@ -220,6 +206,73 @@ func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 		LockPath:            filepath.Join(repository.WorktreeLocksDir, worktreeID),
 		DevelopmentLockPath: filepath.Join(repository.WorktreeLocksDir, worktreeID+".dev"),
 	}
+}
+
+// RouterLayout is the shared router's on-disk layout: one router per user
+// account, outside every control home (#12, #13), so every control home on
+// this machine that resolves to the same account finds the same router
+// instead of taking turns recreating it. It holds the stack file, the
+// protocol record, the two directories the router bind-mounts, and the
+// router lock's own target file.
+type RouterLayout struct {
+	StateDir     string
+	ComposeFile  string
+	ProtocolFile string
+	// DynamicDir is bind-mounted read-only into the router; 0755, 0644 files, never secrets.
+	DynamicDir string
+	// IndexDir is bind-mounted read-only into the index server; 0755, 0644 files, never secrets.
+	IndexDir  string
+	IndexFile string
+	LockPath  string
+}
+
+// RouterStateDir is the directory the shared router's state and lock live
+// under: `$XDG_STATE_HOME/berth/router`, or `$HOME/.local/state/berth/router`
+// when that is unset, on Linux; `$HOME/Library/Application Support/berth/router`
+// on macOS. There is no Windows build (see docs/design/locks.md), so every
+// other GOOS takes the Linux path.
+func RouterStateDir(getenv Getenv) (string, error) {
+	return routerStateDirFor(runtime.GOOS, getenv)
+}
+
+// routerStateDirFor takes goos as a parameter so both branches can be tested
+// from either platform, the way Options.Clock lets a lock test simulate a
+// suspended machine.
+func routerStateDirFor(goos string, getenv Getenv) (string, error) {
+	home, err := HomeDir(getenv)
+	if err != nil {
+		return "", err
+	}
+	if goos == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", brand.Name, "router"), nil
+	}
+	// The XDG Base Directory spec requires every path in these variables to
+	// be absolute, and says a relative one must be treated as unset: skip it
+	// (rather than joining it to something like the working directory),
+	// or every working directory would resolve its own state and lock,
+	// defeating the one-router-per-account point of this whole layout (#12).
+	if xdg, ok := getenv("XDG_STATE_HOME"); ok && xdg != "" && filepath.IsAbs(xdg) {
+		return filepath.Join(xdg, brand.Name, "router"), nil
+	}
+	return filepath.Join(home, ".local", "state", brand.Name, "router"), nil
+}
+
+// RouterState derives the shared router's paths.
+func RouterState(getenv Getenv) (RouterLayout, error) {
+	dir, err := RouterStateDir(getenv)
+	if err != nil {
+		return RouterLayout{}, err
+	}
+	indexDir := filepath.Join(dir, "index")
+	return RouterLayout{
+		StateDir:     dir,
+		ComposeFile:  filepath.Join(dir, "compose.yaml"),
+		ProtocolFile: filepath.Join(dir, "protocol"),
+		DynamicDir:   filepath.Join(dir, "dynamic"),
+		IndexDir:     indexDir,
+		IndexFile:    filepath.Join(indexDir, "index.html"),
+		LockPath:     filepath.Join(dir, "lock"),
+	}, nil
 }
 
 // ComposeProjectName is stable for the (repository, worktree) pair and cannot

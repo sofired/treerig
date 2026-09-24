@@ -90,7 +90,7 @@ The streams contract, against a built Go binary:
 
 ```bash
 go build -o dist/berth ./cmd/berth
-BERTH_CLI=$PWD/dist/berth BERTH_CLI_UNPORTED=doctor,router,unlock \
+BERTH_CLI=$PWD/dist/berth BERTH_CLI_UNPORTED=doctor,unlock \
   pnpm exec vitest run tests/cli/streams.test.ts
 ```
 

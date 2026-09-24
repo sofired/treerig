@@ -20,6 +20,7 @@ func fileMode(t *testing.T, file string) os.FileMode {
 	return info.Mode().Perm()
 }
 
+// requireNoError fails t immediately if err is non-nil.
 func requireNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
@@ -27,6 +28,7 @@ func requireNoError(t *testing.T, err error) {
 	}
 }
 
+// requireErrorContains fails t unless err is non-nil and its message contains substr.
 func requireErrorContains(t *testing.T, err error, substr string) {
 	t.Helper()
 	if err == nil {
@@ -152,20 +154,24 @@ func TestPathContainment(t *testing.T) {
 
 		requireErrorContains(t, files.AssertSafeDirectoryPath(root, filepath.Join(root, "linked", "child")), "Refusing symlinked or non-directory managed path")
 	})
+
+	t.Run("names a caller's own root in the outside-of-root refusal, for one that is not a control home", func(t *testing.T) {
+		root := t.TempDir()
+		requireErrorContains(t,
+			files.AssertSafeDirectoryPathNamed(root, filepath.Dir(root), "the shared router's state directory"),
+			"Refusing directory outside the shared router's state directory")
+		requireErrorContains(t,
+			files.AssertSafeFilePathNamed(root, filepath.Join(filepath.Dir(root), "sibling", "file"), "the shared router's state directory"),
+			"Refusing directory outside the shared router's state directory")
+		// The default (AssertSafeDirectoryPath/AssertSafeFilePath) still says
+		// "the control home", byte-identical to what every existing caller —
+		// and TypeScript's own equivalent — has always said.
+		requireErrorContains(t, files.AssertSafeDirectoryPath(root, filepath.Dir(root)), "Refusing directory outside the control home")
+		requireErrorContains(t, files.AssertSafeFilePath(root, filepath.Join(filepath.Dir(root), "sibling", "file")), "Refusing directory outside the control home")
+	})
 }
 
 func TestSecureDirectoryCreation(t *testing.T) {
-	t.Run("refuses a symlink where the router reads its own files back", func(t *testing.T) {
-		for _, name := range []string{"router/compose.yaml", "router/protocol"} {
-			home := t.TempDir()
-			layoutControl := layout.ControlLayout(home)
-			requireNoError(t, files.SecureControlDirectories(layoutControl)) // established and marked, as on any real run
-			requireNoError(t, os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), filepath.Join(home, name)))
-
-			requireErrorContains(t, files.SecureControlDirectories(layoutControl), "Refusing symlinked or non-file managed path")
-		}
-	})
-
 	t.Run("adopts an empty directory and marks it, adopts an older install, and refuses a stranger's directory", func(t *testing.T) {
 		empty := filepath.Join(t.TempDir(), "control")
 		requireNoError(t, files.SecureControlDirectories(layout.ControlLayout(empty)))
@@ -225,46 +231,28 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		requireNoError(t, files.AssertAdoptableControlHome(filepath.Join(home, ".berth-does-not-exist-test")))
 	})
 
-	t.Run("creates the control layout owner-only, except the two directories containers must read", func(t *testing.T) {
+	t.Run("creates the control layout owner-only", func(t *testing.T) {
 		controlHome := filepath.Join(t.TempDir(), "control")
 		l := layout.ControlLayout(controlHome)
 
 		requireNoError(t, files.SecureControlDirectories(l))
 
-		for _, directory := range []string{l.ControlHome, l.RepositoriesDir, l.LocksDir, l.RouterDir} {
+		for _, directory := range []string{l.ControlHome, l.RepositoriesDir, l.LocksDir} {
 			if mode := fileMode(t, directory); mode != 0o700 {
 				t.Fatalf("expected %s to be 0700, got %o", directory, mode)
 			}
 		}
-		for _, directory := range []string{l.IndexDir, l.RouterDynamicDir} {
-			if mode := fileMode(t, directory); mode != 0o755 {
-				t.Fatalf("expected %s to be 0755, got %o", directory, mode)
-			}
-		}
-	})
-
-	t.Run("widens both mounted directories an older install created owner-only, without widening their parent", func(t *testing.T) {
-		controlHome := filepath.Join(t.TempDir(), "control")
-		l := layout.ControlLayout(controlHome)
-		// An older install: every command took a lock, so locks/ is there alongside router/.
-		requireNoError(t, os.MkdirAll(l.LocksDir, 0o700))
-		for _, directory := range []string{l.IndexDir, l.RouterDynamicDir} {
-			requireNoError(t, os.MkdirAll(directory, 0o700))
-			if mode := fileMode(t, directory); mode != 0o700 {
-				t.Fatalf("expected %s to start 0700, got %o", directory, mode)
-			}
-		}
-
-		requireNoError(t, files.SecureControlDirectories(l))
-
-		if mode := fileMode(t, l.IndexDir); mode != 0o755 {
-			t.Fatalf("expected indexDir to be 0755, got %o", mode)
-		}
-		if mode := fileMode(t, l.RouterDynamicDir); mode != 0o755 {
-			t.Fatalf("expected routerDynamicDir to be 0755, got %o", mode)
-		}
-		if mode := fileMode(t, l.RouterDir); mode != 0o700 {
-			t.Fatalf("expected routerDir to stay 0700, got %o", mode)
+		// The router's own directories are no longer created here: they live
+		// in the router's machine-wide state directory (internal/router,
+		// #12, #13), not under any control home. layout.Control no longer
+		// even names it (internal/router/migrate.go is the one place that
+		// still needs a TypeScript-era control home's router path), so this
+		// checks the literal path a real one would have used.
+		routerDir := filepath.Join(controlHome, "router")
+		exists, err := files.PathExists(routerDir)
+		requireNoError(t, err)
+		if exists {
+			t.Fatalf("expected %s not to be created", routerDir)
 		}
 	})
 
