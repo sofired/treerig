@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
@@ -110,6 +113,36 @@ func TestControlHomeFormat(t *testing.T) {
 		data, readErr := os.ReadFile(target)
 		if readErr != nil || string(data) != "also not berth's to touch" {
 			t.Fatalf("target = %q, %v", data, readErr)
+		}
+	})
+
+	t.Run("refuses a marker planted as a FIFO promptly, instead of hanging waiting for a reader or writer", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "control")
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(home, files.ControlHomeMarker)
+		if err := unix.Mkfifo(marker, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		done := make(chan error, 1)
+		go func() {
+			done <- files.SecureControlDirectories(layout.ControlLayout(home))
+		}()
+
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "Refusing symlinked or non-file managed path") {
+				t.Fatalf("got %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("establishControlHome hung on the FIFO instead of refusing it promptly")
+		}
+
+		info, err := os.Lstat(marker)
+		if err != nil || info.Mode()&os.ModeNamedPipe == 0 {
+			t.Fatalf("expected the marker to remain a FIFO: %v, %v", info, err)
 		}
 	})
 

@@ -371,10 +371,21 @@ func establishControlHome(controlHome string) error {
 // openMarkerNoFollow opens name (the marker's own base name) through dir's
 // descriptor via openat(2), with O_NOFOLLOW: a symlink at that name is
 // refused rather than followed, wherever it points, unlike os.Root's own
-// symlink handling (see establishControlHome).
+// symlink handling (see establishControlHome). O_NONBLOCK is set for the
+// open call too, so a FIFO planted at that name cannot block it — a blocking
+// O_RDONLY open waits for a writer, and O_WRONLY for a reader, either of
+// which would otherwise hang this call forever; opened non-blocking, a read
+// open of a FIFO returns at once and a write open with no reader fails with
+// ENXIO. The descriptor is put back into blocking mode before it is handed
+// back, so a regular file — the only thing ever actually read or written
+// here — is read and written exactly as any other file in this codebase.
 func openMarkerNoFollow(dir *os.File, name string, flag int, mode fs.FileMode) (*os.File, error) {
-	fd, err := unix.Openat(int(dir.Fd()), name, flag|unix.O_NOFOLLOW|unix.O_CLOEXEC, uint32(mode))
+	fd, err := unix.Openat(int(dir.Fd()), name, flag|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, uint32(mode))
 	if err != nil {
+		return nil, err
+	}
+	if err := unix.SetNonblock(fd, false); err != nil {
+		unix.Close(fd)
 		return nil, err
 	}
 	return os.NewFile(uintptr(fd), filepath.Join(dir.Name(), name)), nil
@@ -390,9 +401,10 @@ func refusedMarker(marker string) error {
 // readMarkerDirect reads the control home's marker through dir: no error and
 // no content for a marker that does not exist yet (a brand new control
 // home), and a refusal for anything opened that turns out not to be a
-// regular file. O_NOFOLLOW already refuses a symlink at open; the Stat
-// catches what O_CREAT would otherwise open without complaint — a FIFO or
-// device planted at the same path.
+// regular file. O_NOFOLLOW already refuses a symlink at open; the Stat below
+// catches a device planted at the same path, and — because
+// openMarkerNoFollow opens non-blocking — a FIFO too, opened at once rather
+// than left blocking this call on a writer that may never come.
 func readMarkerDirect(dir *os.File, marker string) ([]byte, error) {
 	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), unix.O_RDONLY, 0)
 	if err != nil {
@@ -419,7 +431,10 @@ func readMarkerDirect(dir *os.File, marker string) ([]byte, error) {
 // through dir and writes contents, with no temporary file: see
 // establishControlHome for why the marker specifically must never be
 // written that way. Refused the same way readMarkerDirect is if it is not,
-// or could not be made, a regular file.
+// or could not be made, a regular file — and, because openMarkerNoFollow
+// opens non-blocking, a FIFO planted at the marker's name cannot block this
+// call on a reader either: with one present the open succeeds and the Stat
+// below then refuses it; with none, the open itself fails with ENXIO.
 func writeMarkerDirect(dir *os.File, marker string, contents []byte, mode fs.FileMode) error {
 	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), unix.O_CREAT|unix.O_TRUNC|unix.O_WRONLY, mode)
 	if err != nil {
