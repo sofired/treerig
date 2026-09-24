@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/lock"
@@ -172,6 +174,41 @@ func TestHold(t *testing.T) {
 		}
 		if !sameAsOp {
 			t.Fatal("expected the operation lock's file first (fd 3)")
+		}
+	})
+
+	t.Run("reports a lock lost during the action instead of releasing it as if nothing happened", func(t *testing.T) {
+		restore := SetWatchdogForTest(20 * time.Millisecond)
+		defer restore()
+
+		op, _, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"},
+			Requests{Operation: &op},
+			func(ctx context.Context) error {
+				// Berth itself never unlinks a lock target; this simulates
+				// something outside berth doing so, the way
+				// internal/lock/watchdog_test.go's own "cancels the
+				// action's context" case does, but here end to end
+				// through Hold.
+				if err := os.Remove(op.Target); err != nil {
+					return err
+				}
+				if err := os.WriteFile(op.Target, nil, 0o600); err != nil {
+					return err
+				}
+				<-ctx.Done()
+				// Deliberately ignores the cancellation and reports
+				// success anyway, as an action that never watches its
+				// own context would: Hold itself must still catch the
+				// loss.
+				return nil
+			})
+		if err == nil {
+			t.Fatal("expected the lost lock to be reported")
+		}
+		if !strings.Contains(err.Error(), "was replaced while this command held it") {
+			t.Fatalf("got %v", err)
 		}
 	})
 }

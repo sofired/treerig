@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/lock"
@@ -48,8 +49,25 @@ func (r Requests) ordered() []*lock.Scope {
 	return scopes
 }
 
+// watchdogForTest overrides every lock Hold acquires with a short watchdog
+// interval, for tests only; zero (its default) leaves lock.Options'
+// withDefaults own 5 s default in place. Unexported, and reached only
+// through SetWatchdogForTest, the way progress.heartbeat is reached only
+// through progress.SetHeartbeatForTest.
+var watchdogForTest time.Duration
+
+// SetWatchdogForTest shortens every lock Hold acquires to interval for the
+// life of a test, so a lost lock can be observed without waiting on the real
+// 5 s default. It is not safe for tests that run in parallel with each
+// other.
+func SetWatchdogForTest(interval time.Duration) (restore func()) {
+	previous := watchdogForTest
+	watchdogForTest = interval
+	return func() { watchdogForTest = previous }
+}
+
 func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
-	opts := lock.Options{Holder: env.Invocation, Logger: env.Logger}
+	opts := lock.Options{Holder: env.Invocation, Logger: env.Logger, Watchdog: watchdogForTest}
 	switch scope {
 	case requests.Operation:
 		opts.Timeout = lock.OperationTimeout
@@ -120,6 +138,20 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 	for i := len(held) - 1; i >= 0; i-- {
 		if err := held[i].Release(); err != nil {
 			releaseErrs = append(releaseErrs, err)
+		}
+	}
+
+	// A lock the watchdog found lost during action was only closed above,
+	// never marked released — its record may belong to whoever holds it
+	// now — and Release itself reports no error for that case. Left
+	// unchecked, an action that returned nil despite the loss (one that
+	// does not itself watch ctx.Done()) would make this whole Hold call
+	// report success. This checks explicitly, the way
+	// src/operation-lock.ts's assertHealthy did, rather than leaving
+	// actionErr alone to speak for it.
+	for _, lk := range held {
+		if lk.Lost() {
+			releaseErrs = append(releaseErrs, lk.Err())
 		}
 	}
 	return attach(actionErr, releaseErrs)
