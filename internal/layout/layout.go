@@ -5,14 +5,13 @@
 //	  locks/registry                    RegistryLockPath
 //	  locks/worktrees/<repo>/<wt>       worktree operation lock
 //	  locks/worktrees/<repo>/<wt>.dev   development-session lock
-//	  router/index/index.html           the shared checkout index
 //	  repositories/<repo>/worktrees/    registry records, one JSON per worktree
 //	  repositories/<repo>/instances/<wt>/   the worktree's home
 //
-// The shared router's own stack file, protocol record, dynamic directory and
-// lock no longer live under the control home (#12, #13): see RouterState.
-// What a TypeScript-era control home once laid them out as is recorded in
-// internal/router/migrate.go, the one place that still needs it.
+// The shared router's own stack file, protocol record, dynamic and index
+// directories, and lock no longer live under the control home (#12, #13):
+// see RouterState. What a TypeScript-era control home once laid them out as
+// is recorded in internal/router/migrate.go, the one place that still needs it.
 package layout
 
 import (
@@ -31,10 +30,7 @@ import (
 
 // Control is the machine-wide part of the layout.
 type Control struct {
-	ControlHome string
-	// IndexDir is bind-mounted read-only into the index server; 0755, 0644 files, never secrets.
-	IndexDir         string
-	IndexFile        string
+	ControlHome      string
 	RepositoriesDir  string
 	LocksDir         string
 	RegistryLockPath string
@@ -156,6 +152,8 @@ func parseJSInteger(raw string) (int, error) {
 	return int(value), nil
 }
 
+// trimJSWhitespace trims what JavaScript's Number() treats as whitespace
+// around a numeric string, the way String.prototype.trim() would.
 func trimJSWhitespace(value string) string {
 	start, end := 0, len(value)
 	isSpace := func(b byte) bool { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\v' || b == '\f' }
@@ -175,14 +173,8 @@ func ControlLayout(controlHome string) Control {
 		resolved = filepath.Clean(controlHome)
 	}
 	locksDir := filepath.Join(resolved, "locks")
-	// index/ is still under router/ for on-disk backward compatibility with
-	// what a TypeScript-era control home laid out; the router's own stack
-	// file, protocol record, dynamic directory and lock are not (RouterState).
-	indexDir := filepath.Join(resolved, "router", "index")
 	return Control{
 		ControlHome:      resolved,
-		IndexDir:         indexDir,
-		IndexFile:        filepath.Join(indexDir, "index.html"),
 		RepositoriesDir:  filepath.Join(resolved, "repositories"),
 		LocksDir:         locksDir,
 		RegistryLockPath: filepath.Join(locksDir, "registry"),
@@ -254,7 +246,12 @@ func routerStateDirFor(goos string, getenv Getenv) (string, error) {
 	if goos == "darwin" {
 		return filepath.Join(home, "Library", "Application Support", brand.Name, "router"), nil
 	}
-	if xdg, ok := getenv("XDG_STATE_HOME"); ok && xdg != "" {
+	// The XDG Base Directory spec requires every path in these variables to
+	// be absolute, and says a relative one must be treated as unset: skip it
+	// (rather than joining it to something like the working directory),
+	// or every working directory would resolve its own state and lock,
+	// defeating the one-router-per-account point of this whole layout (#12).
+	if xdg, ok := getenv("XDG_STATE_HOME"); ok && xdg != "" && filepath.IsAbs(xdg) {
 		return filepath.Join(xdg, brand.Name, "router"), nil
 	}
 	return filepath.Join(home, ".local", "state", brand.Name, "router"), nil

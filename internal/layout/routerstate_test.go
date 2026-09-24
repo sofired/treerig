@@ -45,10 +45,16 @@ func TestRouterStateDirFor(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to ~/.local/state on Linux when XDG_STATE_HOME is unset or empty", func(t *testing.T) {
+	t.Run("falls back to ~/.local/state on Linux when XDG_STATE_HOME is unset, empty, or not absolute", func(t *testing.T) {
 		for _, env := range []map[string]string{
 			{"HOME": "/home/dev"},
 			{"HOME": "/home/dev", "XDG_STATE_HOME": ""},
+			// The XDG Base Directory spec requires every path in these
+			// variables to be absolute; a relative one must be treated as
+			// unset, not joined to something like the working directory —
+			// which would give every working directory its own router (#12).
+			{"HOME": "/home/dev", "XDG_STATE_HOME": "relative/state"},
+			{"HOME": "/home/dev", "XDG_STATE_HOME": "."},
 		} {
 			got, err := routerStateDirFor("linux", getenv(env))
 			if err != nil {
@@ -56,7 +62,7 @@ func TestRouterStateDirFor(t *testing.T) {
 			}
 			want := filepath.Join("/home/dev", ".local", "state", "berth", "router")
 			if got != want {
-				t.Fatalf("got %q, want %q", got, want)
+				t.Fatalf("XDG_STATE_HOME=%q: got %q, want %q", env["XDG_STATE_HOME"], got, want)
 			}
 		}
 	})
