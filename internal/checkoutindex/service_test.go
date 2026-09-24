@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"sort"
@@ -38,6 +39,7 @@ type fakeRegistry struct {
 	err           error
 }
 
+// ListAll answers f.registrations, or f.err.
 func (f *fakeRegistry) ListAll(context.Context) ([]registry.RegisteredWorktree, error) {
 	return f.registrations, f.err
 }
@@ -51,10 +53,12 @@ type fakeIdentities struct {
 	identitiesErr       error
 }
 
+// RepositoryID answers the fixed values f was built with.
 func (f *fakeIdentities) RepositoryID(context.Context, string) (string, bool, error) {
 	return f.repositoryID, f.repositoryIDPresent, f.repositoryIDErr
 }
 
+// ActiveIdentities answers f.identities, or f.identitiesErr.
 func (f *fakeIdentities) ActiveIdentities(context.Context) ([]registry.WorktreeIdentity, error) {
 	return f.identities, f.identitiesErr
 }
@@ -71,6 +75,9 @@ type dockerFake struct {
 	timeout bool
 }
 
+// Run records spec and answers per whichever of d.failure, d.missing, or
+// d.stdout/d.exit/d.timeout was set, mirroring DockerFake.run from the
+// TypeScript suite.
 func (d *dockerFake) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Lock()
 	d.calls = append(d.calls, spec)
@@ -84,8 +91,10 @@ func (d *dockerFake) Run(ctx context.Context, spec run.Spec) (run.Result, error)
 	return run.Result{Stdout: d.stdout, ExitCode: d.exit, TimedOut: d.timeout}, nil
 }
 
+// Which always answers true: every test here assumes docker is on PATH.
 func (d *dockerFake) Which(string) bool { return true }
 
+// Calls is every run.Spec recorded so far, in call order.
 func (d *dockerFake) Calls() []run.Spec {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -101,6 +110,8 @@ type serviceHarness struct {
 	service     *Service
 }
 
+// newServiceHarness builds a Service wired to docker, registrations, and
+// identities, under a fresh temp control home, index file, and lock.
 func newServiceHarness(t *testing.T, docker *dockerFake, registrations []registry.RegisteredWorktree, identities []registry.WorktreeIdentity) *serviceHarness {
 	t.Helper()
 	controlHome := t.TempDir()
@@ -122,6 +133,8 @@ func newServiceHarness(t *testing.T, docker *dockerFake, registrations []registr
 	return &serviceHarness{controlHome: controlHome, docker: docker, logger: log, service: svc}
 }
 
+// writeTestCard writes a valid index card for record under controlHome, with
+// the fixed branch/root/labelNamespace values every test in this file shares.
 func writeTestCard(t *testing.T, controlHome string, record registry.RegisteredWorktree, services []card.IndexService) {
 	t.Helper()
 	home := filepath.Dir(card.IndexCardPath(controlHome, record.RepositoryID, record.WorktreeID))
@@ -174,10 +187,16 @@ func filterArgs(calls []run.Spec) []string {
 	return args
 }
 
+// dockerLine is one `docker ps --format` row for record's own repository and
+// worktree IDs.
 func dockerLine(record registry.RegisteredWorktree, service, state, status string) string {
 	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service}, "\t")
 }
 
+// TestServiceRefresh ports tests/unit/checkout-index.test.ts's
+// CheckoutIndexService describe block, one t.Run per "it" title (see the
+// file's own top comment for what is and is not portable), plus this port's
+// own #1 (lock timeout) addition.
 func TestServiceRefresh(t *testing.T) {
 	regs := testRegistrations()
 	a, b := regs[0], regs[1]
@@ -582,40 +601,65 @@ func containsSubstring(lines []string, want string) bool {
 // trust a caller-supplied RowsUnknown that disagrees with whether
 // CurrentRepositoryID is known — it recomputes it instead, so a
 // SnapshotInput built the "wrong" way still renders correctly.
+// TestBuildSnapshotIdentityFailureInvariant is #17: BuildSnapshot computes
+// IndexSnapshot.IdentityError.RowsUnknown itself, from CurrentRepositoryID —
+// the input type gives a caller no RowsUnknown to set at all (see
+// IdentityFailureInput and TestSnapshotInputIdentityErrorHasNoRowsUnknown,
+// which pins that at the type level), so this only has correctness left to
+// check, not the bad-combination case a previous round of this fix ran at
+// runtime.
 func TestBuildSnapshotIdentityFailureInvariant(t *testing.T) {
 	regs := testRegistrations()
 	a := regs[0]
 	repositoryID := testRepo
 
-	t.Run("a known repository forces RowsUnknown true, whatever the caller passed", func(t *testing.T) {
+	t.Run("a known repository's own identity failure computes RowsUnknown true", func(t *testing.T) {
 		snapshot := BuildSnapshot(SnapshotInput{
 			Registrations:       []registry.RegisteredWorktree{a},
 			CurrentRepositoryID: &repositoryID,
 			Containers:          []ContainerRecord{},
-			// A caller (or a bug) says RowsUnknown: false despite naming a
-			// known repository — the combination #17 is about.
-			IdentityError: &IdentityFailure{Reason: "boom", RowsUnknown: false},
+			IdentityError:       &IdentityFailureInput{Reason: "boom"},
 		})
 		if snapshot.IdentityError == nil || !snapshot.IdentityError.RowsUnknown {
 			t.Fatalf("IdentityError = %+v, want RowsUnknown true", snapshot.IdentityError)
 		}
-		// Had the bad RowsUnknown been trusted, this row would read Missing
-		// instead of Unknown.
+		// A row with no live identity of a repository this build could not
+		// even identify is not "missing" — it was never comparable in the
+		// first place — so it reads Unknown instead.
 		if snapshot.Entries[0].Status != StatusUnknown {
 			t.Fatalf("status = %v, want unknown", snapshot.Entries[0].Status)
 		}
 	})
 
-	t.Run("an unknown repository forces RowsUnknown false, whatever the caller passed", func(t *testing.T) {
+	t.Run("an unidentified repository's own identity failure computes RowsUnknown false", func(t *testing.T) {
 		snapshot := BuildSnapshot(SnapshotInput{
 			Registrations: []registry.RegisteredWorktree{a},
 			Containers:    []ContainerRecord{},
-			IdentityError: &IdentityFailure{Reason: "boom", RowsUnknown: true},
+			IdentityError: &IdentityFailureInput{Reason: "boom"},
 		})
 		if snapshot.IdentityError == nil || snapshot.IdentityError.RowsUnknown {
 			t.Fatalf("IdentityError = %+v, want RowsUnknown false", snapshot.IdentityError)
 		}
 	})
+}
+
+// TestSnapshotInputIdentityErrorHasNoRowsUnknown pins #17's type-level fix:
+// the issue's own done-when asked for the bad combination (a known
+// CurrentRepositoryID together with RowsUnknown: false) to fail to
+// type-check, not merely to be recomputed correctly at runtime. There is no
+// Go language construct that asserts "this field does not exist" other than
+// checking it by reflection — this test exists so that a future change
+// which re-adds a RowsUnknown field to SnapshotInput's identity-failure type
+// (IdentityFailureInput) fails a test immediately, rather than silently
+// reopening the door #17 closed.
+func TestSnapshotInputIdentityErrorHasNoRowsUnknown(t *testing.T) {
+	inputType := reflect.TypeOf(IdentityFailureInput{})
+	if _, ok := inputType.FieldByName("RowsUnknown"); ok {
+		t.Fatalf("%s must not have a RowsUnknown field: only BuildSnapshot may decide it, from CurrentRepositoryID (#17)", inputType)
+	}
+	if _, ok := inputType.FieldByName("Reason"); !ok {
+		t.Fatalf("%s is missing its own Reason field", inputType)
+	}
 }
 
 // TestReadCardsBoundsConcurrency is #18, made deterministic: a fake
@@ -824,4 +868,49 @@ func TestServiceRefreshTimesOutOnAHungDocker(t *testing.T) {
 	if !strings.Contains(string(page), "did not answer within") {
 		t.Fatalf("page does not say the states are unknown: %s", page)
 	}
+}
+
+// TestReadCardsWarnsOnceHoweverManyCardsFailed is a pinning test for review
+// round 2's item 1: thousands of failed reads (#18's own EMFILE scenario)
+// must not flood stderr with one warning per read. readCards emits exactly
+// one, naming the count and the first failure (in registration order).
+func TestReadCardsWarnsOnceHoweverManyCardsFailed(t *testing.T) {
+	regs := testRegistrations()
+	a, b := regs[0], regs[1]
+	failure := errors.New("simulated EMFILE")
+
+	t.Run("one failure reads as singular, naming it", func(t *testing.T) {
+		log := &logger.Recording{}
+		svc := NewService(Options{Logger: log})
+		svc.readCard = func(_, repositoryID, worktreeID string) (*card.IndexCard, error) {
+			if worktreeID == a.WorktreeID {
+				return nil, failure
+			}
+			return nil, nil
+		}
+
+		svc.readCards([]registry.RegisteredWorktree{a, b})
+
+		want := "warn: Could not read one checkout's index card: feature-a.acme.localhost: simulated EMFILE"
+		lines := snapshotLines(log)
+		if len(lines) != 1 || lines[0] != want {
+			t.Fatalf("lines = %v, want exactly [%q]", lines, want)
+		}
+	})
+
+	t.Run("several failures read as plural, naming the count and the first", func(t *testing.T) {
+		log := &logger.Recording{}
+		svc := NewService(Options{Logger: log})
+		svc.readCard = func(_, repositoryID, worktreeID string) (*card.IndexCard, error) {
+			return nil, failure
+		}
+
+		svc.readCards([]registry.RegisteredWorktree{a, b})
+
+		want := "warn: Could not read 2 checkouts' index cards; the first was feature-a.acme.localhost: simulated EMFILE"
+		lines := snapshotLines(log)
+		if len(lines) != 1 || lines[0] != want {
+			t.Fatalf("lines = %v, want exactly [%q]", lines, want)
+		}
+	})
 }

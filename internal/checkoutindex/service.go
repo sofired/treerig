@@ -158,6 +158,11 @@ type cardRead struct {
 	record registry.RegisteredWorktree
 	card   *card.IndexCard
 	failed bool
+	// err is failed's own reason; nil unless failed. Kept off the result
+	// consumers outside this file read (they only ever branch on failed),
+	// and set only on the copy readCards collects into failures, for
+	// warnCardReadFailures to report.
+	err error
 }
 
 // readCards reads every registration's index card, bounded to at most
@@ -178,22 +183,58 @@ func (s *Service) readCards(registrations []registry.RegisteredWorktree) []cardR
 	semaphore := make(chan struct{}, s.opts.CardConcurrency)
 	var wg sync.WaitGroup
 	wg.Add(len(registrations))
+	// A warning is collected, not issued, inside each goroutine (#18's own
+	// scenario — thousands of registrations, an EMFILE-style exhaustion — is
+	// exactly the case that would otherwise flood stderr with one line per
+	// failed read): warnCardReadFailures below emits exactly one, after
+	// every goroutine has finished, scanning results in registration order
+	// so "the first failure" it names is deterministic — not whichever
+	// goroutine happened to finish first.
 	for i, record := range registrations {
 		semaphore <- struct{}{}
 		go func(i int, record registry.RegisteredWorktree) {
 			defer wg.Done()
 			defer func() { <-semaphore }()
 			read, err := s.readCard(s.opts.ControlHome, record.RepositoryID, record.WorktreeID)
-			results[i] = cardRead{record: record, card: read, failed: err != nil}
-			if err != nil {
-				s.opts.Logger.Warn(fmt.Sprintf(
-					"Could not read the index card for %s.%s: %s", record.Slug, record.Domain, err,
-				))
-			}
+			results[i] = cardRead{record: record, card: read, failed: err != nil, err: err}
 		}(i, record)
 	}
 	wg.Wait()
+	s.warnCardReadFailures(results)
 	return results
+}
+
+// warnCardReadFailures is readCards' one warning for however many of results
+// failed to read: singular or plural to match cardReadFailureNotice's own
+// house style, naming the count and the first failure (in registration
+// order) with its own checkout and error — enough to start investigating
+// without one line per failed read.
+func (s *Service) warnCardReadFailures(results []cardRead) {
+	count := 0
+	var first cardRead
+	for _, result := range results {
+		if !result.failed {
+			continue
+		}
+		if count == 0 {
+			first = result
+		}
+		count++
+	}
+	switch count {
+	case 0:
+		return
+	case 1:
+		s.opts.Logger.Warn(fmt.Sprintf(
+			"Could not read one checkout's index card: %s.%s: %s",
+			first.record.Slug, first.record.Domain, first.err,
+		))
+	default:
+		s.opts.Logger.Warn(fmt.Sprintf(
+			"Could not read %d checkouts' index cards; the first was %s.%s: %s",
+			count, first.record.Slug, first.record.Domain, first.err,
+		))
+	}
 }
 
 // namespaces is every label namespace Snapshot must ask Docker about: this
@@ -345,12 +386,12 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 
 	var identities []registry.WorktreeIdentity
 	var currentRepositoryID *string
-	var identityError *IdentityFailure
+	var identityError *IdentityFailureInput
 	repositoryID, present, err := s.opts.Identities.RepositoryID(ctx, s.opts.IdentityRoot)
 	switch {
 	case err != nil:
 		reason := fmt.Sprintf("Git could not identify the repository at %s: %s", s.opts.IdentityRoot, err)
-		identityError = &IdentityFailure{Reason: reason}
+		identityError = &IdentityFailureInput{Reason: reason}
 		s.opts.Logger.Warn(reason + ". The index cannot tell which of its checkouts are missing.")
 	case present:
 		currentRepositoryID = &repositoryID
@@ -358,7 +399,7 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 		if err != nil {
 			identities = nil
 			reason := fmt.Sprintf("Git could not list the worktrees of %s: %s", s.opts.IdentityRoot, err)
-			identityError = &IdentityFailure{Reason: reason}
+			identityError = &IdentityFailureInput{Reason: reason}
 			s.opts.Logger.Warn(reason + ". The index shows its checkouts as unknown.")
 		}
 	}

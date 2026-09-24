@@ -7,6 +7,7 @@ package commands
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sofired/berth/internal/checkoutindex"
 	"github.com/sofired/berth/internal/layout"
@@ -43,7 +44,17 @@ func routerLockScope(state layout.RouterLayout, projectName string) lock.Scope {
 // no better answer than router.DefaultName for the lock's own project-name
 // marker (routerLockScope's own default) — nothing in this build ever
 // configures a different one anyway (see router.go's newRouterService).
-func newCheckoutIndex(cctx *CommandContext) *checkoutindex.Service {
+//
+// router.SecureState is called first, the way RouterUp calls it before ever
+// taking the router lock (router.go:78): a symlinked router state directory
+// must be refused before this path creates the lock file or writes the
+// index page into whatever the symlink points at — RouterUp's own "refuses a
+// symlinked state directory" test is exactly this check; newCheckoutIndex
+// used to skip it entirely.
+func newCheckoutIndex(cctx *CommandContext) (*checkoutindex.Service, error) {
+	if err := router.SecureState(cctx.RouterState); err != nil {
+		return nil, err
+	}
 	return checkoutindex.NewService(checkoutindex.Options{
 		ControlHome:  cctx.ControlHome,
 		RouterPort:   cctx.RouterPort,
@@ -55,17 +66,40 @@ func newCheckoutIndex(cctx *CommandContext) *checkoutindex.Service {
 		Runner:       cctx.Runner,
 		Logger:       cctx.Logger,
 		Invocation:   cctx.Invocation,
-	})
+	}), nil
+}
+
+// refreshIndexBestEffort is what down and worktree remove call instead of
+// newCheckoutIndex directly: a refresh is best-effort everywhere else in
+// this build (RefreshBestEffort's own doc comment), and newCheckoutIndex
+// failing — a symlinked router state directory, most pointedly — is no
+// different: warn in the same wording RefreshBestEffort itself uses for a
+// refresh that built fine but failed midway, and skip the refresh, rather
+// than failing the command that asked for it.
+func refreshIndexBestEffort(ctx context.Context, cctx *CommandContext, reason string) {
+	index, err := newCheckoutIndex(cctx)
+	if err != nil {
+		cctx.Logger.Warn(fmt.Sprintf("Could not refresh the checkout index after %s: %s", reason, err))
+		return
+	}
+	index.RefreshBestEffort(ctx, reason)
 }
 
 // RefreshIndex is `index`: refresh the machine-wide checkout index and print
-// it, the way src/cli/main.ts's own `index` command does.
+// it, the way src/cli/main.ts's own `index` command does. Unlike down and
+// worktree remove, a refresh newCheckoutIndex itself could not even start —
+// a symlinked router state directory, say — fails this command outright:
+// `index` exists to refresh and show the page, so silently skipping that
+// would leave it reporting success while doing nothing.
 func RefreshIndex(ctx context.Context, env *Env) error {
 	cctx, err := Context(env)
 	if err != nil {
 		return err
 	}
-	index := newCheckoutIndex(cctx)
+	index, err := newCheckoutIndex(cctx)
+	if err != nil {
+		return err
+	}
 	snapshot, err := index.Refresh(ctx)
 	if err != nil {
 		return err

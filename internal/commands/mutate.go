@@ -89,7 +89,7 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	// Best effort, as src/commands/worktree.ts's own `down` does: a stale
 	// index is an inconvenience, a failed `down` because of it would not
 	// be. Prints nothing when the refresh succeeds.
-	newCheckoutIndex(cctx).RefreshBestEffort(ctx, "down")
+	refreshIndexBestEffort(ctx, cctx, "down")
 	cctx.Logger.Info(host + " is down.")
 	return nil
 }

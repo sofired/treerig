@@ -168,7 +168,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	}
 	// Best effort, as src/commands/remove.ts's own `worktree remove` does:
 	// prints nothing when the refresh succeeds.
-	newCheckoutIndex(cctx).RefreshBestEffort(ctx, "worktree remove")
+	refreshIndexBestEffort(ctx, cctx, "worktree remove")
 	if !result.AlreadyGone {
 		cctx.Logger.Info(fmt.Sprintf("Removed %s: %s.", host, summarize(result)))
 	}

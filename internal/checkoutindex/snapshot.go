@@ -62,19 +62,10 @@ type IndexEntry struct {
 }
 
 // IdentityFailure is what it cost the page that Git could not be asked which
-// worktrees of a repository exist.
-//
-// (#17) RowsUnknown is exported so render.go can read it, but nothing
-// outside this package may set it: whether it is true depends entirely on
-// whether the repository itself was identified, which SnapshotInput already
-// says on its own (CurrentRepositoryID). A second, independently-settable
-// bool that is supposed to always agree with that is exactly what let a
-// caller build a SnapshotInput naming a known CurrentRepositoryID together
-// with RowsUnknown: false — a combination entryStatus's own logic reads as
-// "this repository is not the local one", which marks every local row
-// Missing instead of Unknown. BuildSnapshot is the only place that
-// constructs one, from CurrentRepositoryID directly, so the combination
-// cannot arise: see identityFailure below.
+// worktrees of a repository exist. It is an output type: it appears on
+// IndexSnapshot, for render.go to read, but never on SnapshotInput — see
+// IdentityFailureInput below for why, and TestSnapshotInputIdentityErrorHasNoRowsUnknown
+// for what pins it.
 type IdentityFailure struct {
 	Reason string
 	// RowsUnknown is true when the repository was identified and only its
@@ -83,6 +74,26 @@ type IdentityFailure struct {
 	// on the page is its own, and none of them was going to be called
 	// missing anyway.
 	RowsUnknown bool
+}
+
+// IdentityFailureInput is what a SnapshotInput may say about a failed
+// identity lookup: Reason alone.
+//
+// (#17) IndexSnapshot's own IdentityFailure carries RowsUnknown too, but
+// that is BuildSnapshot's own answer to give, not a caller's: whether it is
+// true depends entirely on whether the repository itself was identified,
+// which SnapshotInput already says on its own (CurrentRepositoryID). Giving
+// the input type a second, independently-settable RowsUnknown that was
+// merely supposed to always agree with that is exactly what once let a
+// caller build a SnapshotInput naming a known CurrentRepositoryID together
+// with RowsUnknown: false — a combination entryStatus's own logic read as
+// "this repository is not the local one", marking every local row Missing
+// instead of Unknown. The issue's own done-when asked for this to fail to
+// type-check, not merely to run correctly: IdentityFailureInput has no
+// RowsUnknown field at all, so the combination cannot be constructed, not
+// just "is recomputed if you get it wrong."
+type IdentityFailureInput struct {
+	Reason string
 }
 
 // IndexSnapshot is what one render of the page is built from.
@@ -169,9 +180,10 @@ type SnapshotInput struct {
 	// other port is not this checkout's.
 	RouterPort int
 	// IdentityError is set when Git could not be asked about this
-	// repository; when it can name the rows, they are unknown rather than
-	// missing.
-	IdentityError *IdentityFailure
+	// repository. Its type carries only a Reason (#17): whether the rows it
+	// affects are Unknown rather than Missing is for BuildSnapshot alone to
+	// decide, from CurrentRepositoryID — see IdentityFailureInput.
+	IdentityError *IdentityFailureInput
 	// CardReadFailures (#18) is keyed by EntryKey, for a registration whose
 	// card could not be read for a reason other than it never having been
 	// written — most pointedly EMFILE, once thousands of registrations have
@@ -198,16 +210,15 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 	}
 	dockerReachable := input.Containers != nil
 
-	// (#17) RowsUnknown is recomputed here rather than trusted from
-	// input.IdentityError: see IdentityFailure's own comment. Whatever a
-	// caller set it to, the one fact that actually decides it —  whether
-	// the repository itself was identified — is CurrentRepositoryID, so
-	// this is the only value entryStatus and the returned snapshot ever see.
-	identityError := input.IdentityError
-	if identityError != nil {
-		corrected := *identityError
-		corrected.RowsUnknown = input.CurrentRepositoryID != nil
-		identityError = &corrected
+	// (#17) RowsUnknown is BuildSnapshot's own answer, computed here from
+	// CurrentRepositoryID — the one fact that actually decides it — since
+	// IdentityFailureInput carries no such field for a caller to set at all.
+	var identityError *IdentityFailure
+	if input.IdentityError != nil {
+		identityError = &IdentityFailure{
+			Reason:      input.IdentityError.Reason,
+			RowsUnknown: input.CurrentRepositoryID != nil,
+		}
 	}
 
 	entries := make([]IndexEntry, len(input.Registrations))
