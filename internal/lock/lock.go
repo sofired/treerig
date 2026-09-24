@@ -313,6 +313,31 @@ func (l *Lock) Release() error {
 	if l.Lost() {
 		return file.Close()
 	}
+	// The watchdog's own last tick can be arbitrarily out of date by the
+	// time it actually stops — ownership can change in exactly that window,
+	// with nothing left running to catch it. One synchronous check here, the
+	// same one the watchdog itself makes, closes that gap: found lost, it is
+	// recorded exactly as a watchdog-detected loss is, so a caller like
+	// Hold, checking Lost() after release, still sees it.
+	//
+	// Whether the record below is still this process's to mark released is
+	// judged separately from that: checkStillOurs also fails when only the
+	// target's own file identity has changed — TestWaiterReopensAReplacedTarget
+	// is exactly this, a target replaced while held, with nothing else ever
+	// having raced in to claim the record — and there marking it released is
+	// not just safe but needed, for whatever reopens the replaced target
+	// next to recover cleanly. A record that no longer names this process at
+	// all is different: it may already belong to whoever holds the lock now,
+	// and it is not this process's to overwrite, exactly as the existing
+	// Lost() check above already declines to.
+	if err := l.checkStillOurs(); err != nil {
+		l.mu.Lock()
+		l.lost, l.lostErr = true, err
+		l.mu.Unlock()
+		if current, readErr := readRecord(l.recordPath()); readErr != nil || current == nil || current.PID != os.Getpid() {
+			return file.Close()
+		}
+	}
 
 	if held {
 		now := l.opts.Clock()
