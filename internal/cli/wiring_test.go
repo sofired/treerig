@@ -29,8 +29,6 @@ func TestNotPortedVerbs(t *testing.T) {
 	}{
 		{"up", []string{"up"}, "up"},
 		{"index", []string{"index"}, "index"},
-		{"doctor", []string{"doctor"}, "doctor"},
-		{"worktree-unlock", []string{"worktree", "unlock", "feature-login", "--holder-unverifiable"}, "worktree unlock"},
 	}
 
 	for _, tc := range cases {

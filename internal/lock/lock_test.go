@@ -20,6 +20,16 @@ func testOptions(t *testing.T) Options {
 	return Options{Table: newFakeTable(procid.Identity{MachineID: "m", BootID: "b", PIDNS: "pid:[1]"}), Logger: logger.Silent{}, Watchdog: -1}
 }
 
+// skipIfRoot skips t when running as root, which bypasses the file
+// permissions a mode-based test stages — mirrors internal/router's own
+// helper (router_test.go).
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Getuid() == 0 {
+		t.Skip("running as root bypasses the file permissions this test tampers with")
+	}
+}
+
 func TestLockAcquireRelease(t *testing.T) {
 	t.Run("acquires an uncontended lock and writes a holder record", func(t *testing.T) {
 		dir := t.TempDir()

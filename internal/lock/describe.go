@@ -2,6 +2,7 @@ package lock
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"golang.org/x/sys/unix"
@@ -48,9 +49,13 @@ type Description struct {
 	Record *Record
 }
 
-// Describe is a read-only probe (LOCK_SH|LOCK_NB, then close at once) for
-// doctor. table is accepted for a future judgement of the record it reads;
-// Describe itself never acts on what it learns.
+// Describe is a read-only probe for doctor: LOCK_SH|LOCK_NB, then close at
+// once. A shared lock, not LOCK_EX like ProbeHeld and Clear take: Describe
+// never mutates anything, so it only needs to prove nobody holds the flock
+// exclusively, not to hold it exclusively itself — and a shared probe can
+// run alongside another shared probe (another `doctor`, say) without either
+// waiting on the other. table is accepted for a future judgement of the
+// record it reads; Describe itself never acts on what it learns.
 func Describe(scope Scope, table procid.Table) (Description, error) {
 	_ = table
 	file, err := os.OpenFile(scope.Target, os.O_RDWR, 0o600)
@@ -64,7 +69,7 @@ func Describe(scope Scope, table procid.Table) (Description, error) {
 
 	state := Free
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
-		if err != unix.EWOULDBLOCK && err != unix.EAGAIN {
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
 			return Description{}, err
 		}
 		state = Held

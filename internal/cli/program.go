@@ -53,7 +53,16 @@ func buildProgram(commandName, version string) *node {
 		setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "index") }))
 
 	root.addChild(newCommand("doctor", "check prerequisites, the registry, the router, and this checkout's verify hook").
-		setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "doctor") }))
+		setAction(func(rc *runContext) error {
+			code, err := commands.Doctor(rc.ctx, rc.env)
+			if err != nil {
+				return err
+			}
+			if code != 0 {
+				rc.exit(code)
+			}
+			return nil
+		}))
 
 	router := newCommand("router", "manage the shared local router")
 	router.addChild(newCommand("up", "start the shared router and verify its hardened configuration").
@@ -101,7 +110,13 @@ func buildProgram(commandName, version string) *node {
 	unlock.addArgument("[identifier]", "")
 	unlock.addOption("--domain <domain>", "narrow a slug registered under more than one domain")
 	unlock.addOption("--holder-unverifiable", "accept a holder this machine cannot check (another machine or container, or no record), once you have made sure it is gone")
-	unlock.setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "worktree unlock") })
+	unlock.setAction(func(rc *runContext) error {
+		return commands.Unlock(rc.ctx, rc.env, commands.UnlockOptions{
+			Identifier:        rc.arg(0),
+			Domain:            rc.string("--domain"),
+			AllowUnverifiable: rc.bool("--holder-unverifiable"),
+		})
+	})
 	worktree.addChild(unlock)
 	root.addChild(worktree)
 
