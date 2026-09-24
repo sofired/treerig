@@ -383,6 +383,20 @@ func identityNotice(failure IdentityFailure) string {
 		"Run `%s index` from one of its checkouts once Git can list them again.", reason, consequence, brand.Name)
 }
 
+// cardReadFailureNotice explains what #18's distinguishable read failures
+// cost the page: count checkouts show Unknown not because they never
+// published a card, but because theirs could not be read this time.
+func cardReadFailureNotice(count int) string {
+	if count == 1 {
+		return fmt.Sprintf("One checkout's index card could not be read, so its state shows Unknown rather than "+
+			"Missing. Run `%s index` again once whatever blocked the read (often too many open files "+
+			"at once) has cleared.", brand.Name)
+	}
+	return fmt.Sprintf("%d checkouts' index cards could not be read, so their state shows Unknown rather than "+
+		"Missing. Run `%s index` again once whatever blocked the read (often too many open files "+
+		"at once) has cleared.", count, brand.Name)
+}
+
 // emptyState is what there is to say when no checkout has ever been indexed.
 func emptyState() string {
 	return fmt.Sprintf("No checkouts have been indexed yet. Run `%s up` in a worktree.", brand.Name)
@@ -430,6 +444,9 @@ func RenderIndexHTML(snapshot IndexSnapshot) string {
 	}
 	if snapshot.IdentityError != nil {
 		notices = append(notices, identityNotice(*snapshot.IdentityError))
+	}
+	if snapshot.CardReadFailures > 0 {
+		notices = append(notices, cardReadFailureNotice(snapshot.CardReadFailures))
 	}
 	var noticesHTML strings.Builder
 	for _, notice := range notices {
@@ -544,6 +561,9 @@ func FormatIndexText(snapshot IndexSnapshot, url string) string {
 	}
 	if snapshot.IdentityError != nil {
 		fmt.Fprintf(&notices, "%s\n\n", wrapText(text.Printable(identityNotice(*snapshot.IdentityError)), textWidth))
+	}
+	if snapshot.CardReadFailures > 0 {
+		fmt.Fprintf(&notices, "%s\n\n", wrapText(text.Printable(cardReadFailureNotice(snapshot.CardReadFailures)), textWidth))
 	}
 	legendText := wrapText(legend, textWidth) + "\nServices: ! not answering, ? not checked, - checkout gone.\n\n"
 	return head + "\n" + notices.String() + legendText + groups

@@ -28,7 +28,6 @@ func TestNotPortedVerbs(t *testing.T) {
 		verb string
 	}{
 		{"up", []string{"up"}, "up"},
-		{"index", []string{"index"}, "index"},
 	}
 
 	for _, tc := range cases {

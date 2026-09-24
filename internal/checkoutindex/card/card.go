@@ -40,6 +40,13 @@ const maxServices = 64
 var urlPattern = regexp.MustCompile(`^https?://[A-Za-z0-9\-._~%!$&'()*+,;=:@/?#\[\]]+$`)
 
 // IndexService is one routed service a card advertises on the shared index.
+//
+// Label is "" for a service the config never opted into `[service.index]`
+// for: `up` still records its name so the index can count it — a stopped,
+// unindexed service is exactly what should turn a Running row into
+// Partial (#16) — but it never becomes a link, since there is no label or
+// purpose to show for it. Purpose is meaningless without a Label and is
+// always "" alongside one.
 type IndexService struct {
 	Name string
 	// URL becomes an href on the index page; see urlPattern and the refusal
@@ -169,8 +176,10 @@ func cardBounds(card IndexCard) error {
 		if !validText(&service.Name, 1, maxTextLength) {
 			return fmt.Errorf("card: service name must be 1-%d characters", maxTextLength)
 		}
-		if !validText(&service.Label, 1, maxTextLength) {
-			return fmt.Errorf("card: service label must be 1-%d characters", maxTextLength)
+		// "" is a declared service the config never gave a [service.index]
+		// block, not an absent field: see IndexService's own comment (#16).
+		if !validText(&service.Label, 0, maxTextLength) {
+			return fmt.Errorf("card: service label must be at most %d characters", maxTextLength)
 		}
 		if !validText(&service.Purpose, 0, maxTextLength) {
 			return fmt.Errorf("card: service purpose must be at most %d characters", maxTextLength)
@@ -183,27 +192,50 @@ func cardBounds(card IndexCard) error {
 }
 
 // ReadIndexCard is ReadIndexCardAt for a worktree's usual home.
-func ReadIndexCard(controlHome, repositoryID, worktreeID string) *IndexCard {
+func ReadIndexCard(controlHome, repositoryID, worktreeID string) (*IndexCard, error) {
 	return ReadIndexCardAt(IndexCardPath(controlHome, repositoryID, worktreeID))
 }
 
-// ReadIndexCardAt reads the card at file — a quarantined home, say. Missing,
-// unreadable, oversized, or unrecognized all read as "no card": nothing here
-// ever fails, matching what a page built from many worktrees' cards needs.
-func ReadIndexCardAt(file string) *IndexCard {
+// ReadIndexCardAt reads the card at file — a quarantined home, say. A
+// genuinely absent file, an oversized one, or one that does not parse as a
+// card all read as "no card": (nil, nil). Nothing about the file's own
+// content ever fails this call, matching what a page built from many
+// worktrees' cards needs — an unknown key or a URL past its bound is simply
+// not a card, the same as one that was never written.
+//
+// (#18) A real I/O failure reading or stat-ing a file that does exist — most
+// pointedly EMFILE, when thousands of registrations have exhausted this
+// process's file descriptors — is different from either of those, and is
+// reported as an error rather than folded into "no card": a worktree whose
+// card could not be read is not the same as one that never published a card
+// at all, and snapshot.go's caller renders the two differently (Unknown,
+// not Missing or Stopped).
+func ReadIndexCardAt(file string) (*IndexCard, error) {
 	info, err := os.Stat(file)
-	if err != nil || info.Size() > maxCardBytes {
-		return nil
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if info.Size() > maxCardBytes {
+		return nil, nil
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			// Raced: gone between the Stat above and this Read (a
+			// concurrent `worktree remove`, say). Still "no card", not a
+			// failure — nothing is actually unreadable.
+			return nil, nil
+		}
+		return nil, err
 	}
 	card, ok := parseCardJSON(data)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	return &card
+	return &card, nil
 }
 
 // Registration is the subset of a registry record RecordedLabelNamespace needs.

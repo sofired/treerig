@@ -274,11 +274,11 @@ func TestWorktreeUnlock(t *testing.T) {
 	// a lock reclaimed in between is still caught. lock.Clear has no second
 	// look to race: flock(2) is held for the judging, marking-released and
 	// legacy-leftover cleanup in one call, so nothing else can reclaim the
-	// lock in between (docs/port/divergences.md, row 18).
+	// lock in between (docs/port/divergences.md, row 19).
 	t.Run("refuses when the marker turns up during the second look, clearing nothing", func(t *testing.T) {
 		t.Skip("unlockGuard's ~12 second second look — and the race this test wins against it — has no Go counterpart: " +
 			"lock.Clear holds the flock for the whole judge-then-clear sequence, so nothing can reclaim the lock in between " +
-			"(docs/port/divergences.md, row 18)")
+			"(docs/port/divergences.md, row 19)")
 	})
 }
 

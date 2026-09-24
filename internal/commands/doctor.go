@@ -16,12 +16,12 @@ package commands
 // its exit code into what the CLI reports.
 //
 // The Node.js version check has no Go counterpart and is dropped outright
-// (divergence ledger row 16): there is no Go runtime version for a Go build
+// (divergence ledger row 17): there is no Go runtime version for a Go build
 // to be running under. The Locks section, and the wording a stuck holder's
-// line uses, are Go's own in the specific, narrow ways row 17 records: see
-// internal/lock's package comment and docs/port/divergences.md rows 3, 17, 19
-// and 21 (19 being run.Runner.Which's own inability to fail the way
-// TypeScript's does; 21 being the Registry section's own line for a control
+// line uses, are Go's own in the specific, narrow ways row 18 records: see
+// internal/lock's package comment and docs/port/divergences.md rows 3, 18, 20
+// and 22 (20 being run.Runner.Which's own inability to fail the way
+// TypeScript's does; 22 being the Registry section's own line for a control
 // home a TypeScript build last used, planned from the start of WP6).
 
 import (

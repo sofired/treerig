@@ -15,9 +15,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sofired/berth/internal/checkoutindex"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/lock"
+	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/text"
 )
@@ -99,6 +101,34 @@ func RouterUp(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
+	// (#15) Neither the TypeScript build nor Ensure itself ever regenerates
+	// the real page: Ensure's own write() writes the placeholder
+	// (PlaceholderHTML) only when the index file is missing outright, so the
+	// index container's health check has something to fetch before the
+	// router's first `compose up --wait` — deleting the page and running
+	// `router up` again would otherwise leave that placeholder in place
+	// rather than showing every checkout again. Refreshed here, once the
+	// router is confirmed up and its own lock released, the same way `up`,
+	// `down` and `worktree remove` do (best effort: a stale or still-missing
+	// index must not turn a clean router start into a failure).
+	//
+	// This checkout index is bound to whatever repository env.Cwd happens to
+	// be in, only for the "is this row local" distinction a snapshot makes;
+	// `router up` needs no project config, and the machine-wide page it
+	// writes covers every registered checkout regardless of cwd.
+	reg := registry.New(registry.Options{
+		ControlHome: controlHome, Root: env.Cwd, Runner: env.Runner, Logger: env.Logger,
+		CommandName: env.CommandName, Invocation: env.Invocation,
+	})
+	index := checkoutindex.NewService(checkoutindex.Options{
+		ControlHome: controlHome,
+		RouterPort:  svc.Port,
+		IndexFile:   state.IndexFile,
+		Lock:        routerLockScope(state, svc.ProjectName),
+		Registry:    reg, Identities: reg.Identities, IdentityRoot: reg.Identities.Root,
+		Runner: env.Runner, Logger: env.Logger, Invocation: env.Invocation,
+	})
+	index.RefreshBestEffort(ctx, "router up")
 	env.Logger.Info(fmt.Sprintf("Router is up on 127.0.0.1:%d (network %s); index at %s.", svc.Port, svc.Network, svc.IndexURL))
 	return nil
 }

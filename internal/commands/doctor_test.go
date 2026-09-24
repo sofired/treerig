@@ -122,7 +122,7 @@ func runDoctor(t *testing.T, env *commands.Env) (int, string, *logger.Recording)
 }
 
 func TestDoctor(t *testing.T) {
-	// Pins divergence ledger row 16: TypeScript's Prerequisites section
+	// Pins divergence ledger row 17: TypeScript's Prerequisites section
 	// checks Node.js against package.json's engines range; the Go build has
 	// no runtime version of its own to check, and drops that check entirely
 	// rather than reporting on something that does not exist.
@@ -349,7 +349,7 @@ func TestDoctorLocks(t *testing.T) {
 		}
 	})
 
-	// Pins divergence ledger row 17's hand-removal fallback (#21): the
+	// Pins divergence ledger row 18's hand-removal fallback (#21): the
 	// registry and router locks have no `unlock` of their own, so doctor
 	// still names the one way out today, unlike a worktree lock's line.
 	t.Run("keeps the hand-removal advice for the registry lock, which unlock does not clear", func(t *testing.T) {

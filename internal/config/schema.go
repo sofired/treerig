@@ -35,6 +35,16 @@ const (
 	// domainMax: a routed hostname is <subdomain>.<slug>.<domain>; with two
 	// 63-character labels ahead of it, the domain gets the rest of 253.
 	domainMax = 253 - (dnsLabelMax+1)*2
+	// maxServiceEntries mirrors internal/checkoutindex/card's own
+	// maxServices: #16 made `up` record every declared service on the
+	// checkout index card, not only the ones with a [service.index] block,
+	// so the config's own [[service]] array must not outgrow what the card
+	// can hold. Hardcoded rather than imported from that package: config is
+	// foundational and every command depends on it, while the checkout
+	// index is one feature among several that read it — the dependency
+	// belongs pointing the other way. Row 16 in the divergence ledger: this
+	// bound has no TypeScript equivalent.
+	maxServiceEntries = 64
 )
 
 // hostnameSchema validates project.domain.
@@ -134,7 +144,17 @@ func rootSchema() *shape.ObjectSchema {
 	return shape.Object(
 		shape.F("project", project),
 		shape.F("compose", compose),
-		shape.F("service", shape.Array(serviceSchema()).Default([]any{})),
+		// maxServiceEntries (#16): every declared service is now recorded on
+		// the checkout index's card, whether or not it opted into
+		// [service.index] (internal/checkoutindex/card's own maxServices,
+		// which bounds the card's services array the same way) — so the
+		// config itself must not declare more than a card can hold. Before
+		// #16 this could not be reached from config alone: only the services
+		// that opted into [service.index] ever reached the card, and berth
+		// never validated how many of those there could be either; #16 makes
+		// every declared service count, so the config needs its own limit.
+		shape.F("service", shape.Array(serviceSchema()).Default([]any{}).Max(maxServiceEntries,
+			fmt.Sprintf("at most %d [[service]] entries; the checkout index's card can name at most that many declared services", maxServiceEntries))),
 		shape.F("hooks", hooksSchema()),
 	).Strict().SuperRefine(duplicateServiceCheck)
 }
@@ -180,6 +200,10 @@ func duplicateServiceCheck(value *shape.Obj, addIssue func(path []string, messag
 	}
 }
 
+// stringField reads key from o as a string, reporting whether it was
+// present at all; a present-but-wrong-typed value reads as "", true, since
+// the schema itself already refused that shape before duplicateServiceCheck
+// ever runs.
 func stringField(o *shape.Obj, key string) (string, bool) {
 	raw, ok := o.Get(key)
 	if !ok {

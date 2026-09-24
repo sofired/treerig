@@ -208,6 +208,32 @@ func TestArrayDefaultAndElementPaths(t *testing.T) {
 	mustIssue(t, issues, "1", CodeTooSmall)
 }
 
+// TestArrayMax pins ArraySchema.Max, added for internal/config's own
+// [[service]] limit (#16, row 16 in the divergence ledger): a custom message
+// is reported verbatim, and the check runs whether or not an element itself
+// also failed, matching StringSchema.Max's own "every check runs" contract.
+func TestArrayMax(t *testing.T) {
+	schema := Array(String()).Max(2, "at most 2 items")
+
+	if _, issues := Parse(schema, []any{"a", "b"}); len(issues) != 0 {
+		t.Fatalf("at the limit: unexpected issues: %#v", issues)
+	}
+
+	_, issues := Parse(schema, []any{"a", "b", "c"})
+	if len(issues) != 1 || issues[0].Message != "at most 2 items" || issues[0].Code != CodeTooBig {
+		t.Fatalf("over the limit: issues = %#v, want one CodeTooBig \"at most 2 items\"", issues)
+	}
+
+	// Elements are parsed before Max applies, so an over-long array with a
+	// bad element reports both.
+	_, issues = Parse(schema, []any{"a", 7, "c"})
+	if len(issues) != 2 {
+		t.Fatalf("over the limit with a bad element: issues = %#v, want an element error and CodeTooBig", issues)
+	}
+	mustIssue(t, issues, "1", CodeInvalidType)
+	mustIssue(t, issues, "(root)", CodeTooBig)
+}
+
 func TestObjMarshalJSONPreservesOrder(t *testing.T) {
 	obj := NewObj().Set("z", 1).Set("a", 2)
 	got, err := obj.MarshalJSON()

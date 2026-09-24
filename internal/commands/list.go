@@ -107,7 +107,14 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 		var seenRoot, seenBranch *string
 		if identity != nil {
 			seenRoot, seenBranch = &identity.Root, &identity.Branch
-		} else if seen := card.ReadIndexCard(cctx.ControlHome, record.RepositoryID, record.WorktreeID); seen != nil {
+		} else if seen, err := card.ReadIndexCard(cctx.ControlHome, record.RepositoryID, record.WorktreeID); err == nil && seen != nil {
+			// A read error (as opposed to a genuinely absent card) is
+			// swallowed here rather than surfaced, matching list.ts's own
+			// readIndexCard call, which carries no error path at all: unlike
+			// the checkout index (row 15 in the divergence ledger), `list`
+			// has no per-row Unknown state to report one into, so the
+			// worktree's root/branch simply stay unset for this row, same as
+			// if it had no card at all.
 			seenRoot, seenBranch = &seen.Root, &seen.Branch
 		}
 

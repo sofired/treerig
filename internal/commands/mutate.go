@@ -86,8 +86,10 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	}); err != nil {
 		return err
 	}
-	// TODO(#41): refresh the checkout index here, best effort, as the
-	// TypeScript build does; it prints nothing when that refresh succeeds.
+	// Best effort, as src/commands/worktree.ts's own `down` does: a stale
+	// index is an inconvenience, a failed `down` because of it would not
+	// be. Prints nothing when the refresh succeeds.
+	refreshIndexBestEffort(ctx, cctx, "down")
 	cctx.Logger.Info(host + " is down.")
 	return nil
 }

@@ -50,7 +50,7 @@ func buildProgram(commandName, version string) *node {
 		setAction(func(rc *runContext) error { return commands.Urls(rc.ctx, rc.env) }))
 
 	root.addChild(newCommand("index", "refresh the machine-wide checkout index and print it").
-		setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "index") }))
+		setAction(func(rc *runContext) error { return commands.RefreshIndex(rc.ctx, rc.env) }))
 
 	root.addChild(newCommand("doctor", "check prerequisites, the registry, the router, and this checkout's verify hook").
 		setAction(func(rc *runContext) error {

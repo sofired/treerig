@@ -36,6 +36,13 @@ const (
 	// (5m + 3m), and a protocol write. 60s + 5m + 3m + 5m + 3m = 17m, so
 	// 20m leaves comfortable room. (The probe and start timeouts referenced
 	// here are internal/router's dockerProbeTimeout and startTimeout.)
+	//
+	// Not every caller of this same lock scope waits this long: the checkout
+	// index (internal/checkoutindex.Service) shares RouterScope's target but
+	// times its own wait far shorter (60s, matching TypeScript's own
+	// INDEX_LOCK_TIMEOUT_MS), since it is best-effort and must never make
+	// `down`, `worktree remove`, or `up` itself stall behind a daemon that
+	// will not answer.
 	RouterTimeout = 20 * time.Minute
 )
 
@@ -52,6 +59,8 @@ func RegistryScope(controlHome string) Scope {
 // control homes on the same machine wait on each other instead of taking
 // turns recreating the router (#13). projectName marks this lock's own
 // Compose children for recovery, the way a worktree's markers do.
+// internal/commands' routerLockScope builds the same scope from an
+// already-resolved layout; keep the two in step.
 func RouterScope(getenv layout.Getenv, projectName string) (Scope, error) {
 	state, err := layout.RouterState(getenv)
 	if err != nil {

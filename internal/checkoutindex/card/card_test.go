@@ -27,6 +27,28 @@ const validCard = `{
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }`
 
+// mustReadIndexCardAt is card.ReadIndexCardAt for every test in this file
+// that expects a successful read or a genuine "no card" — never the new
+// (#18) I/O-failure case, which its own test exercises directly.
+func mustReadIndexCardAt(t *testing.T, file string) *card.IndexCard {
+	t.Helper()
+	got, err := card.ReadIndexCardAt(file)
+	if err != nil {
+		t.Fatalf("ReadIndexCardAt: unexpected error: %v", err)
+	}
+	return got
+}
+
+// mustReadIndexCard is card.ReadIndexCard, likewise.
+func mustReadIndexCard(t *testing.T, controlHome, repositoryID, worktreeID string) *card.IndexCard {
+	t.Helper()
+	got, err := card.ReadIndexCard(controlHome, repositoryID, worktreeID)
+	if err != nil {
+		t.Fatalf("ReadIndexCard: unexpected error: %v", err)
+	}
+	return got
+}
+
 func writeCard(t *testing.T, dir, contents string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -42,7 +64,7 @@ func writeCard(t *testing.T, dir, contents string) string {
 func TestReadIndexCardAt(t *testing.T) {
 	t.Run("reads a well-formed card", func(t *testing.T) {
 		file := writeCard(t, t.TempDir(), validCard)
-		got := card.ReadIndexCardAt(file)
+		got := mustReadIndexCardAt(t, file)
 		if got == nil {
 			t.Fatalf("expected a card")
 		}
@@ -55,7 +77,7 @@ func TestReadIndexCardAt(t *testing.T) {
 	})
 
 	t.Run("a missing file reads as no card", func(t *testing.T) {
-		got := card.ReadIndexCardAt(filepath.Join(t.TempDir(), "index.json"))
+		got := mustReadIndexCardAt(t, filepath.Join(t.TempDir(), "index.json"))
 		if got != nil {
 			t.Fatalf("expected nil, got %+v", got)
 		}
@@ -65,7 +87,7 @@ func TestReadIndexCardAt(t *testing.T) {
 		dir := t.TempDir()
 		huge := strings.Repeat("x", 128*1024+1)
 		file := writeCard(t, dir, huge)
-		got := card.ReadIndexCardAt(file)
+		got := mustReadIndexCardAt(t, file)
 		if got != nil {
 			t.Fatalf("expected nil for an oversized file, got %+v", got)
 		}
@@ -73,14 +95,14 @@ func TestReadIndexCardAt(t *testing.T) {
 
 	t.Run("invalid JSON reads as no card", func(t *testing.T) {
 		file := writeCard(t, t.TempDir(), "{ not json")
-		if got := card.ReadIndexCardAt(file); got != nil {
+		if got := mustReadIndexCardAt(t, file); got != nil {
 			t.Fatalf("expected nil, got %+v", got)
 		}
 	})
 
 	t.Run("an unknown key reads as no card", func(t *testing.T) {
 		file := writeCard(t, t.TempDir(), strings.Replace(validCard, `"version": 1,`, `"version": 1, "bogus": true,`, 1))
-		if got := card.ReadIndexCardAt(file); got != nil {
+		if got := mustReadIndexCardAt(t, file); got != nil {
 			t.Fatalf("expected nil, got %+v", got)
 		}
 	})
@@ -88,7 +110,7 @@ func TestReadIndexCardAt(t *testing.T) {
 	t.Run("a URL carrying userinfo reads as no card", func(t *testing.T) {
 		hostile := strings.Replace(validCard, `"url": "http://feature-login.acme.localhost"`, `"url": "http://trusted@elsewhere.example"`, 1)
 		file := writeCard(t, t.TempDir(), hostile)
-		if got := card.ReadIndexCardAt(file); got != nil {
+		if got := mustReadIndexCardAt(t, file); got != nil {
 			t.Fatalf("expected nil for a URL with userinfo, got %+v", got)
 		}
 	})
@@ -96,7 +118,7 @@ func TestReadIndexCardAt(t *testing.T) {
 	t.Run("a non-http(s) URL reads as no card", func(t *testing.T) {
 		hostile := strings.Replace(validCard, `"url": "http://feature-login.acme.localhost"`, `"url": "javascript:alert(1)"`, 1)
 		file := writeCard(t, t.TempDir(), hostile)
-		if got := card.ReadIndexCardAt(file); got != nil {
+		if got := mustReadIndexCardAt(t, file); got != nil {
 			t.Fatalf("expected nil for a non-http(s) URL, got %+v", got)
 		}
 	})
@@ -113,7 +135,7 @@ func TestReadIndexCardAt(t *testing.T) {
     {"name": "api", "url": "http://feature-login.acme.localhost", "label": "API", "purpose": "REST surface"}
   ],`, `"services": [`+services.String()+`],`, 1)
 		file := writeCard(t, t.TempDir(), hostile)
-		if got := card.ReadIndexCardAt(file); got != nil {
+		if got := mustReadIndexCardAt(t, file); got != nil {
 			t.Fatalf("expected nil for too many services, got %+v", got)
 		}
 	})
@@ -121,14 +143,14 @@ func TestReadIndexCardAt(t *testing.T) {
 	t.Run("root and branch may be empty (detached HEAD), but the required text fields may not", func(t *testing.T) {
 		empty := strings.Replace(strings.Replace(validCard, `"root": "/repo/worktree",`, `"root": "",`, 1), `"branch": "feature/login",`, `"branch": "",`, 1)
 		file := writeCard(t, t.TempDir(), empty)
-		got := card.ReadIndexCardAt(file)
+		got := mustReadIndexCardAt(t, file)
 		if got == nil || got.Root != "" || got.Branch != "" {
 			t.Fatalf("expected root/branch to be allowed empty, got %+v", got)
 		}
 
 		noProject := strings.Replace(validCard, `"project": "acme",`, `"project": "",`, 1)
 		file = writeCard(t, t.TempDir(), noProject)
-		if got := card.ReadIndexCardAt(file); got != nil {
+		if got := mustReadIndexCardAt(t, file); got != nil {
 			t.Fatalf("expected nil for an empty project, got %+v", got)
 		}
 	})
@@ -182,7 +204,7 @@ func TestRecordedLabelNamespace(t *testing.T) {
 		if got == nil || *got != "dev.berth" {
 			t.Fatalf("expected dev.berth despite the broken card, got %v", got)
 		}
-		if full := card.ReadIndexCard(controlHome, repositoryID, worktreeID); full != nil {
+		if full := mustReadIndexCard(t, controlHome, repositoryID, worktreeID); full != nil {
 			t.Fatalf("expected the full card read to still refuse it, got %+v", full)
 		}
 	})
@@ -251,7 +273,7 @@ func TestWriteIndexCard(t *testing.T) {
 			t.Fatalf("expected a trailing newline, got %q", text)
 		}
 
-		got := card.ReadIndexCardAt(filepath.Join(home, card.IndexCardFile))
+		got := mustReadIndexCardAt(t, filepath.Join(home, card.IndexCardFile))
 		if got == nil {
 			t.Fatalf("expected the written card to read back")
 		}
@@ -303,7 +325,7 @@ func TestWriteIndexCard(t *testing.T) {
 		if !strings.Contains(string(data), "\\u0001") {
 			t.Fatalf("expected U+0001 escaped as \\u0001, got:\n%s", data)
 		}
-		got := card.ReadIndexCardAt(filepath.Join(home, card.IndexCardFile))
+		got := mustReadIndexCardAt(t, filepath.Join(home, card.IndexCardFile))
 		if got == nil || got.Branch != hostile.Branch {
 			t.Fatalf("expected the branch to read back exactly, got %+v", got)
 		}
@@ -375,7 +397,7 @@ func TestCardBoundsSharedByReadAndWrite(t *testing.T) {
 		if err := os.WriteFile(file, data, 0o600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		got := card.ReadIndexCardAt(file)
+		got := mustReadIndexCardAt(t, file)
 		if valid && got == nil {
 			t.Fatalf("ReadIndexCardAt: expected a card, got nil (wrote %s)", data)
 		}
@@ -422,6 +444,15 @@ func TestCardBoundsSharedByReadAndWrite(t *testing.T) {
 			"a service name one character over the limit", func(c *card.IndexCard) {
 				c.Services = []card.IndexService{{Name: repeat(513), URL: "http://x.example", Label: "L", Purpose: ""}}
 			}, false,
+		},
+		{
+			// (#16) A declared service the config never gave a
+			// [service.index] block still gets a card entry, with "" for its
+			// label and purpose — counted toward the checkout's status, but
+			// never shown as a link. See card.IndexService's own comment.
+			"a service with no [service.index] block: an empty label and purpose", func(c *card.IndexCard) {
+				c.Services = []card.IndexService{{Name: "N", URL: "http://x.example", Label: "", Purpose: ""}}
+			}, true,
 		},
 		{
 			"a service label at the limit", func(c *card.IndexCard) {

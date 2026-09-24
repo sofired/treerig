@@ -303,7 +303,7 @@ func TestClear(t *testing.T) {
 	// comment promises every ScopeResult decided so far in that case,
 	// rather than discarding what was actually cleared; internal/commands's
 	// UnlockWithContext is what turns that into the "Already cleared..."
-	// sentence a person sees (divergence ledger row 20).
+	// sentence a person sees (divergence ledger row 21).
 	t.Run("reports what it already cleared when a later commit in the same batch fails", func(t *testing.T) {
 		skipIfRoot(t)
 		firstDir := t.TempDir()

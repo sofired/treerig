@@ -128,7 +128,7 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 	// promise (src/commands/unlock.ts): that clause named the second look its
 	// own heartbeat design always took. flock(2) proves a lock free the
 	// instant it is probed, so there is no such wait to promise here — see
-	// divergence ledger row 18.
+	// divergence ledger row 19.
 	cctx.Logger.Info(fmt.Sprintf("Checking that the holder of %s's lock, and every command it started on this machine, is gone.", label))
 
 	if env, ok := cctx.environWorktreeID(); ok && env == target.worktreeID {
@@ -201,7 +201,7 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 // here. TypeScript's own clearStaleWorktreeLocks has nothing to compare this
 // wording against: the same kind of mid-batch failure simply propagates
 // there, uncredited (src/operation-lock.ts:826-840), so this note is Go's own
-// wording (divergence ledger row 20). err is returned unchanged when cleared
+// wording (divergence ledger row 21). err is returned unchanged when cleared
 // is empty: lock.Clear never got as far as committing anything, so there is
 // nothing to preface.
 func wrapPartialClearFailure(cleared []ClearedLock, err error) error {

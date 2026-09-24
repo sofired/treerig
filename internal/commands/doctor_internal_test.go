@@ -377,17 +377,17 @@ func TestVersions(t *testing.T) {
 	// "holds Node to the engines range: the floor included, the next major
 	// excluded" and "checks Node against exactly the range package.json
 	// declares" have no Go counterpart: satisfiesEngine, NODE_ENGINE and
-	// nodeCheck do not exist here at all (divergence ledger row 16). "names
+	// nodeCheck do not exist here at all (divergence ledger row 17). "names
 	// the command and the range when Node is outside it" is the same story.
 	t.Run("holds Node to the engines range: the floor included, the next major excluded", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 16); " +
+		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17); " +
 			"there is no Go runtime version for a Go build to be running under, so satisfiesEngine has no Go counterpart")
 	})
 	t.Run("checks Node against exactly the range package.json declares", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 16); no NODE_ENGINE constant exists to check")
+		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17); no NODE_ENGINE constant exists to check")
 	})
 	t.Run("names the command and the range when Node is outside it", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 16); nodeCheck has no Go counterpart")
+		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17); nodeCheck has no Go counterpart")
 	})
 
 	t.Run("passes a tool at the minimum, fails one below it, and fails output it cannot read", func(t *testing.T) {
@@ -706,7 +706,7 @@ func TestDoctorSections(t *testing.T) {
 				t.Fatalf("titles = %v, want %v", got, want)
 			}
 		}
-		// No Node.js check (divergence ledger row 16): Prerequisites is Git, Docker Engine, Docker Compose.
+		// No Node.js check (divergence ledger row 17): Prerequisites is Git, Docker Engine, Docker Compose.
 		wantPrereq := []string{"ok Git", "ok Docker Engine", "ok Docker Compose"}
 		gotPrereq := statuses(sections, "Prerequisites")
 		if len(gotPrereq) != len(wantPrereq) {
@@ -736,7 +736,7 @@ func TestDoctorSections(t *testing.T) {
 
 	// TypeScript never prints this line: it is Go's own, for state a
 	// TypeScript build left behind (docs/decisions/0001-port-to-go.md:177,
-	// "plus doctor's line for TypeScript-era state"; divergence ledger row 21).
+	// "plus doctor's line for TypeScript-era state"; divergence ledger row 22).
 	t.Run("reports a control home a TypeScript build last used, and that the next command here upgrades it", func(t *testing.T) {
 		controlHome := t.TempDir() + "/control"
 		if err := os.MkdirAll(controlHome, 0o700); err != nil {
@@ -821,7 +821,7 @@ func TestDoctorSections(t *testing.T) {
 	// nothing to catch here.
 	t.Run("reports Docker checks that could not even be made, and skips the router rather than guessing", func(t *testing.T) {
 		t.Skip("run.Runner.Which returns a plain bool (internal/run/run.go) and cannot fail the way " +
-			"TypeScript's own which() can reject; dockerChecks has nothing to catch (docs/port/divergences.md, row 19)")
+			"TypeScript's own which() can reject; dockerChecks has nothing to catch (docs/port/divergences.md, row 20)")
 	})
 
 	t.Run("fails Docker off PATH, skips Compose and the router, and never asks the router", func(t *testing.T) {
@@ -934,9 +934,9 @@ func TestDoctorSections(t *testing.T) {
 	})
 
 	// "fails Node outside the engines range" has no Go counterpart: there is
-	// no Node.js check at all (divergence ledger row 16).
+	// no Node.js check at all (divergence ledger row 17).
 	t.Run("fails Node outside the engines range", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 16)")
+		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17)")
 	})
 
 	t.Run("refuses a control home berth did not create, and reads registry problems from it", func(t *testing.T) {
@@ -1690,7 +1690,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 	// needed (a directory made silent by backdating its mtime); the flock
 	// design instead needs the flock actually let go while its record stays
 	// unreleased (see internal/lock/recover.go's recoverPreviousHolder and
-	// docs/port/divergences.md row 17).
+	// docs/port/divergences.md row 18).
 	silentUnreleased := func(t *testing.T, scope lock.Scope, deadPID int) {
 		t.Helper()
 		lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
@@ -1734,12 +1734,12 @@ func TestDoctorLocksInternal(t *testing.T) {
 	// "fails a silent worktree lock, and names the command that clears it
 	// safely" has no Go counterpart to fail: a silent (unreleased-but-gone)
 	// lock self-heals the next time it is taken, so doctor reports it ok,
-	// not fail, and names no command (docs/port/divergences.md row 17). See
+	// not fail, and names no command (docs/port/divergences.md row 18). See
 	// "reports an unreleased-but-gone worktree lock as recovered
 	// automatically" below for the Go-accurate version of this scenario.
 	t.Run("fails a silent worktree lock, and names the command that clears it safely", func(t *testing.T) {
 		t.Skip("a silent lock self-heals the next time it is taken in the flock design, so doctor reports it ok, " +
-			"not fail, and names no recovery command (docs/port/divergences.md, row 17); " +
+			"not fail, and names no recovery command (docs/port/divergences.md, row 18); " +
 			"see \"reports an unreleased-but-gone worktree lock as recovered automatically\"")
 	})
 
