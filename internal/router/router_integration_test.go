@@ -310,33 +310,40 @@ func TestRouterLockContention(t *testing.T) {
 		mu.Unlock()
 	}
 
-	holdRouter := func(t *testing.T, label string, hold time.Duration) error {
+	// acquired is closed the instant a holdRouter call actually holds the
+	// lock, so a second caller can be started exactly then — never a guess
+	// at how long the first will take to get there.
+	holdRouter := func(label string, hold time.Duration, acquired chan<- struct{}) error {
 		fake := &sequencedFake{label: label, hold: hold, record: record, state: state, port: 80}
 		svc, err := router.New(router.Options{State: state, Port: 80, Runner: fake, Logger: logger.Silent{}})
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
 		lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Timeout: 10 * time.Second})
 		ctx, err := lk.Acquire(context.Background(), "test router up "+label)
 		if err != nil {
 			return err
 		}
+		if acquired != nil {
+			close(acquired)
+		}
 		defer lk.Release()
 		return svc.Ensure(ctx)
 	}
 
+	aAcquired := make(chan struct{})
 	var wg sync.WaitGroup
 	var errA, errB error
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		errA = holdRouter(t, "A", 300*time.Millisecond)
+		errA = holdRouter("A", 300*time.Millisecond, aAcquired)
 	}()
-	time.Sleep(50 * time.Millisecond) // give A a head start on the lock
+	<-aAcquired // B only starts once A genuinely holds the lock, not after a guessed delay
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		errB = holdRouter(t, "B", 0)
+		errB = holdRouter("B", 0, nil)
 	}()
 	wg.Wait()
 
