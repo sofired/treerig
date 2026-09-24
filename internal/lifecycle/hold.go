@@ -41,6 +41,8 @@ type Requests struct {
 	Router      *lock.Scope
 }
 
+// ordered is every requested scope, in Hold's fixed acquisition order,
+// skipping whichever were not requested.
 func (r Requests) ordered() []*lock.Scope {
 	var scopes []*lock.Scope
 	for _, s := range []*lock.Scope{r.Operation, r.Development, r.Registry, r.Router} {
@@ -51,6 +53,8 @@ func (r Requests) ordered() []*lock.Scope {
 	return scopes
 }
 
+// optionsFor is the lock.Options for scope, timed for whichever of
+// requests's fields it is.
 func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
 	opts := lock.Options{Holder: env.Invocation, Logger: env.Logger}
 	switch scope {
@@ -130,12 +134,14 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 	return attach(actionErr, releaseErrs)
 }
 
+// releaseAll releases every held lock, in reverse acquisition order.
 func releaseAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Release()
 	}
 }
 
+// abandonAll abandons every held lock, in reverse acquisition order.
 func abandonAll(held []*lock.Lock) {
 	for i := len(held) - 1; i >= 0; i-- {
 		_ = held[i].Abandon()
