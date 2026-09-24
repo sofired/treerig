@@ -70,6 +70,12 @@ func RouterUp(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
+	// Before the router lock is ever taken: lock.New creates <StateDir>/lock
+	// and its holder record the moment it is acquired, so a symlinked state
+	// directory must be refused first, not found out about via a failed Ensure.
+	if err := router.SecureState(state); err != nil {
+		return err
+	}
 	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
 	if err != nil {
 		return err

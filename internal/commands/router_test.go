@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/sofired/berth/internal/commands"
+	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/registry/registrytest"
@@ -26,6 +27,9 @@ import (
 	"github.com/sofired/berth/internal/run/fakerun"
 )
 
+// routerEnvGetenv is a layout.Getenv backed by a fixed map, "ok" following
+// whether the key is present the way os.LookupEnv reports a variable that
+// was set (even to "").
 func routerEnvGetenv(values map[string]string) layout.Getenv {
 	return func(key string) (string, bool) {
 		v, ok := values[key]
@@ -33,6 +37,7 @@ func routerEnvGetenv(values map[string]string) layout.Getenv {
 	}
 }
 
+// sliceContainsArg reports whether want is one of args.
 func sliceContainsArg(args []string, want string) bool {
 	for _, a := range args {
 		if a == want {
@@ -40,6 +45,18 @@ func sliceContainsArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// markAsControlHome stages the marker RouterUp's migration step requires
+// before it will touch controlHome, as a real one already carries.
+func markAsControlHome(t *testing.T, controlHome string) {
+	t.Helper()
+	if err := os.MkdirAll(controlHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(controlHome, files.ControlHomeMarker), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // healthyRouterDocker answers as though the shared router were already up,
@@ -166,6 +183,7 @@ func TestRouterUp(t *testing.T) {
 	t.Run("migrates a control home's earlier router state once the new router has verified", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		controlHome := registrytest.TempDir(t)
+		markAsControlHome(t, controlHome)
 		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_HOME": controlHome})
 		state, err := layout.RouterState(getenv)
 		if err != nil {
@@ -193,6 +211,100 @@ func TestRouterUp(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(controlHome, "router")); !os.IsNotExist(err) {
 			t.Errorf("expected the legacy router directory to be gone, stat err = %v", err)
+		}
+	})
+
+	t.Run("does not touch a project directory used as BERTH_HOME when berth did not create it, including BERTH_HOME set empty", func(t *testing.T) {
+		// An empty BERTH_HOME resolves to the current directory
+		// (layout.ResolveControlHome), and any directory can happen to have
+		// a "router" subdirectory of its own — a checkout of this very
+		// project, say. Only files.ControlHomeMarker (plus a pass of
+		// AssertAdoptableControlHome) proves a directory is safe to migrate,
+		// let alone delete from; see internal/router's own migrate_test.go
+		// for that check in isolation.
+		project := registrytest.TempDir(t)
+		importantDir := filepath.Join(project, "router", "dynamic")
+		if err := os.MkdirAll(importantDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		importantFile := filepath.Join(importantDir, "not-berths.yaml")
+		if err := os.WriteFile(importantFile, []byte("someone else's file\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		originalWd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir(project); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := os.Chdir(originalWd); err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		home := registrytest.TempDir(t)
+		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_HOME": ""})
+		state, err := layout.RouterState(getenv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := &logger.Recording{}
+		env := &commands.Env{
+			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
+			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80},
+		}
+
+		if err := commands.RouterUp(context.Background(), env); err != nil {
+			t.Fatalf("RouterUp: %v", err)
+		}
+
+		if _, err := os.Stat(importantFile); err != nil {
+			t.Errorf("expected the project's own file to survive untouched, got: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(project, "router")); err != nil {
+			t.Errorf("expected the project's router directory to still exist, got: %v", err)
+		}
+	})
+
+	t.Run("refuses a symlinked state directory before the lock or the protocol record ever touch its target", func(t *testing.T) {
+		controlHome := registrytest.TempDir(t)
+		markAsControlHome(t, controlHome)
+
+		// layout.RouterStateDir resolves to $HOME/.local/state/berth/router
+		// on Linux; plant a symlink at exactly that path. RouterUp must
+		// refuse before commands.routerHold ever takes the router lock
+		// (which would create <target>/lock and its holder record) or
+		// Ensure's previousProtocol ever writes a protocol record into it.
+		target := registrytest.TempDir(t)
+		fakeHome := registrytest.TempDir(t)
+		plantedStateDir := filepath.Join(fakeHome, ".local", "state", "berth", "router")
+		if err := os.MkdirAll(filepath.Dir(plantedStateDir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, plantedStateDir); err != nil {
+			t.Fatal(err)
+		}
+		getenv := routerEnvGetenv(map[string]string{"HOME": fakeHome, "BERTH_HOME": controlHome})
+
+		rec := &logger.Recording{}
+		env := &commands.Env{
+			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
+			Runner: &healthyRouterDocker{network: router.DefaultName, port: 80},
+		}
+
+		if err := commands.RouterUp(context.Background(), env); err == nil {
+			t.Fatal("expected RouterUp to refuse a symlinked state directory")
+		}
+
+		entries, err := os.ReadDir(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("expected nothing created in the symlink's target — no lock, no protocol record — got %v", entries)
 		}
 	})
 }

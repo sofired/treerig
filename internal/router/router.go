@@ -66,6 +66,8 @@ type Timeouts struct {
 	Down time.Duration
 }
 
+// withDefaults fills every unset (zero or negative) field with this
+// package's own default.
 func (t Timeouts) withDefaults() Timeouts {
 	if t.Probe <= 0 {
 		t.Probe = dockerProbeTimeout
@@ -192,6 +194,8 @@ func New(options Options) (*Router, error) {
 	}, nil
 }
 
+// commandNameOr is r.commandName, falling back to the brand name when it was
+// never given, so advice always names something to run.
 func (r *Router) commandNameOr() string {
 	if r.commandName != "" {
 		return r.commandName
@@ -199,12 +203,16 @@ func (r *Router) commandNameOr() string {
 	return brand.Name
 }
 
-// componentLabel and protocolLabelName are the two labels every service carries.
+// componentLabel is the label naming which service a container is.
 func (r *Router) componentLabel() string { return r.labelNamespace + ".component" }
+
+// protocolLabelName is the label naming a container's router protocol.
 func (r *Router) protocolLabelName() string {
 	return r.labelNamespace + ".router-protocol"
 }
 
+// compose runs one `docker compose` call against this router's own stack
+// file and project directory.
 func (r *Router) compose(ctx context.Context, args []string, spec run.Spec) (run.Result, error) {
 	full := append([]string{
 		"compose",
@@ -216,18 +224,28 @@ func (r *Router) compose(ctx context.Context, args []string, spec run.Spec) (run
 	return docker.Run(ctx, r.runner, full, spec)
 }
 
-// secureState creates and locks down the router's state directory: owner-only
-// except the two directories a container mounts, which cannot be 0700
-// without CAP_DAC_OVERRIDE (see internal/files's package comment for why the
-// same exception applies to a control home's router directories). This
-// package owns it because, as of protocol 4, that directory is no longer
-// part of any control home (#12, #13).
 // stateNoun is this package's root for files.*Named's outside-of-root
 // refusal: the state directory is not a control home, so it must not be
 // called one if that refusal ever actually fires (today it cannot: every
 // path secureState touches is built as a child of state.StateDir).
 const stateNoun = "the shared router's state directory"
 
+// SecureState is secureState, exported so a caller can secure the state
+// directory before taking the router's lock: lock.New creates <StateDir>/lock
+// and its holder record the moment it is acquired, so the directory must
+// already be safe by then. commands.RouterUp calls this before routerHold;
+// Ensure calls the same check again as its own first step, since it must
+// not depend on every caller remembering to call this first.
+func SecureState(state layout.RouterLayout) error {
+	return secureState(state)
+}
+
+// secureState creates and locks down the router's state directory: owner-only
+// except the two directories a container mounts, which cannot be 0700
+// without CAP_DAC_OVERRIDE (see internal/files's package comment for why the
+// same exception applies to a control home's router directories). This
+// package owns it because, as of protocol 4, that directory is no longer
+// part of any control home (#12, #13).
 func secureState(state layout.RouterLayout) error {
 	if err := secureDirectories(state.StateDir, []string{state.StateDir}, 0o700); err != nil {
 		return err
@@ -322,6 +340,10 @@ func (r *Router) containerID(ctx context.Context, service string) (string, error
 	return first, nil
 }
 
+// inspect is `docker inspect` for one container, parsed as ContainerInspect.
+// Returns nil, nil rather than an error when it cannot be read — gone, not
+// yet started, or an unparseable answer — since none of that is fatal to a
+// caller that is only checking whether the container matches what was asked for.
 func (r *Router) inspect(ctx context.Context, container string) (*ContainerInspect, error) {
 	result, err := docker.Run(ctx, r.runner, []string{"inspect", container}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
 	if err != nil {
@@ -370,6 +392,8 @@ var errnoNames = map[syscall.Errno]string{
 	syscall.ELOOP:   "ELOOP",
 }
 
+// errnoName is err's errno symbol (from errnoNames), or its own message when
+// it does not wrap a plain errno.
 func errnoName(err error) string {
 	var errno syscall.Errno
 	if errors.As(err, &errno) {
@@ -534,6 +558,8 @@ func (r *Router) noteUnroutedAfterUpgrade(previous int, hadHistory bool) {
 
 /* ---- verification: every property the stack asked for, checked on the running container */
 
+// commonProblems is every check shared by all three services: ownership,
+// the component and protocol labels, and the hardening every container carries.
 func (r *Router) commonProblems(inspected ContainerInspect, service string) []string {
 	var problems []string
 	labels := inspected.Config.Labels
@@ -589,6 +615,8 @@ func sortedPortKeys(ports map[string][]InspectPortBinding) []string {
 	return keys
 }
 
+// sortedNetworkKeys is networks' own keys, sorted for the same reason
+// sortedPortKeys is.
 func sortedNetworkKeys(networks map[string]json.RawMessage) []string {
 	keys := make([]string, 0, len(networks))
 	for key := range networks {
@@ -598,6 +626,9 @@ func sortedNetworkKeys(networks map[string]json.RawMessage) []string {
 	return keys
 }
 
+// routerProblems is every way the router container can differ from what the
+// stack asked for: its port binding, networks, command line, image,
+// capabilities and mount, on top of commonProblems.
 func (r *Router) routerProblems(inspected ContainerInspect) []string {
 	problems := r.commonProblems(inspected, RouterService)
 	bindings := inspected.NetworkSettings.Ports["80/tcp"]
@@ -643,6 +674,9 @@ func (r *Router) routerProblems(inspected ContainerInspect) []string {
 	return problems
 }
 
+// dockerAPIProblems is every way the docker-api proxy container can differ
+// from what the stack asked for: its API access, network, image,
+// capabilities and mount, on top of commonProblems.
 func (r *Router) dockerAPIProblems(inspected ContainerInspect) []string {
 	problems := r.commonProblems(inspected, DockerAPIService)
 	environment := map[string]string{}
@@ -689,6 +723,9 @@ func (r *Router) dockerAPIProblems(inspected ContainerInspect) []string {
 	return problems
 }
 
+// indexProblems is every way the index container can differ from what the
+// stack asked for: its image, command, routing labels, network, capabilities
+// and mount, on top of commonProblems.
 func (r *Router) indexProblems(inspected ContainerInspect) []string {
 	problems := r.commonProblems(inspected, IndexService)
 	if inspected.Config.Image != IndexImage {
@@ -785,7 +822,14 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 // Ensure is idempotent: starts the router if needed, verifies it, and fails
 // loudly if it cannot be made right. The caller holds the router's lock
 // around this call (see lock.RouterScope and lifecycle.Requests.Router).
+//
+// secureState runs first, before previousProtocol's own possible write of
+// the protocol record: a symlinked state directory must be refused before
+// anything — this call included — ever touches whatever it points to.
 func (r *Router) Ensure(ctx context.Context) error {
+	if err := secureState(r.state); err != nil {
+		return err
+	}
 	previous, hadHistory, err := r.previousProtocol(ctx)
 	if err != nil {
 		return err
@@ -826,6 +870,9 @@ func (r *Router) Ensure(ctx context.Context) error {
 	return nil
 }
 
+// start runs `compose up --detach --wait --remove-orphans`, plus extra
+// (`--force-recreate` on a recreate), reporting a failed start in terms of the
+// port most likely to blame.
 func (r *Router) start(ctx context.Context, extra []string) error {
 	args := append([]string{"up", "--detach", "--wait", "--remove-orphans"}, extra...)
 	result, err := r.compose(ctx, args, run.Spec{AllowFailure: true, Timeout: r.timeouts.Start})
@@ -952,6 +999,7 @@ type ContainerInspect struct {
 	State           InspectState
 }
 
+// InspectConfig is `docker inspect`'s .Config.
 type InspectConfig struct {
 	Cmd    []string
 	Env    []string
@@ -959,6 +1007,7 @@ type InspectConfig struct {
 	Labels map[string]string
 }
 
+// InspectHostConfig is `docker inspect`'s .HostConfig.
 type InspectHostConfig struct {
 	CapAdd         []string
 	CapDrop        []string
@@ -966,6 +1015,7 @@ type InspectHostConfig struct {
 	SecurityOpt    []string
 }
 
+// InspectMount is one entry of `docker inspect`'s .Mounts.
 type InspectMount struct {
 	Destination string
 	RW          bool
@@ -973,21 +1023,25 @@ type InspectMount struct {
 	Type        string
 }
 
+// InspectPortBinding is one published port's host binding.
 type InspectPortBinding struct {
 	HostIP   string `json:"HostIp"`
 	HostPort string
 }
 
+// InspectNetworkSettings is `docker inspect`'s .NetworkSettings.
 type InspectNetworkSettings struct {
 	Networks map[string]json.RawMessage
 	Ports    map[string][]InspectPortBinding
 }
 
+// InspectState is `docker inspect`'s .State.
 type InspectState struct {
 	Health InspectHealth
 	Status string
 }
 
+// InspectHealth is `docker inspect`'s .State.Health.
 type InspectHealth struct {
 	Status string
 }
