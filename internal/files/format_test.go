@@ -3,6 +3,7 @@ package files_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/files"
@@ -58,6 +59,57 @@ func TestControlHomeFormat(t *testing.T) {
 		}
 		if data, _ := os.ReadFile(marker); string(data) != "format 3\n" {
 			t.Fatalf("marker rewritten to %q", data)
+		}
+	})
+
+	t.Run("refuses a marker planted as a symlink, leaving its target unchanged", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "control")
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "elsewhere")
+		if err := os.WriteFile(target, []byte("not berth's to touch"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(home, files.ControlHomeMarker)
+		if err := os.Symlink(target, marker); err != nil {
+			t.Fatal(err)
+		}
+
+		err := files.SecureControlDirectories(layout.ControlLayout(home))
+		if err == nil || !strings.Contains(err.Error(), "Refusing symlinked or non-file managed path") {
+			t.Fatalf("got %v", err)
+		}
+		data, readErr := os.ReadFile(target)
+		if readErr != nil || string(data) != "not berth's to touch" {
+			t.Fatalf("target = %q, %v", data, readErr)
+		}
+		if info, lstatErr := os.Lstat(marker); lstatErr != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("expected the marker itself to remain a symlink: %v, %v", info, lstatErr)
+		}
+	})
+
+	t.Run("refuses a marker symlinked to another file inside the same control home, not just one escaping it", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "control")
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(home, "sibling")
+		if err := os.WriteFile(target, []byte("also not berth's to touch"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(home, files.ControlHomeMarker)
+		if err := os.Symlink(target, marker); err != nil {
+			t.Fatal(err)
+		}
+
+		err := files.SecureControlDirectories(layout.ControlLayout(home))
+		if err == nil || !strings.Contains(err.Error(), "Refusing symlinked or non-file managed path") {
+			t.Fatalf("got %v", err)
+		}
+		data, readErr := os.ReadFile(target)
+		if readErr != nil || string(data) != "also not berth's to touch" {
+			t.Fatalf("target = %q, %v", data, readErr)
 		}
 	})
 

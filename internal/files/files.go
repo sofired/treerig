@@ -23,10 +23,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
@@ -160,6 +163,8 @@ func createSecureDirectories(controlHome string, directories []string, mode fs.F
 	return nil
 }
 
+// canonical is target with every symlink resolved, falling back to
+// layout.Resolve (lexical only) for a target that does not exist yet.
 func canonical(target string) (string, error) {
 	if resolved, err := filepath.EvalSymlinks(target); err == nil {
 		return resolved, nil
@@ -167,10 +172,13 @@ func canonical(target string) (string, error) {
 	return layout.Resolve(target)
 }
 
+// processHomeDir is this process's home directory, read the same way layout.HomeDir does.
 func processHomeDir() (string, error) {
 	return layout.HomeDir(func(key string) (string, bool) { return os.LookupEnv(key) })
 }
 
+// lowerFirst lowercases value's first byte, for splicing a refusal reason
+// into the middle of a sentence.
 func lowerFirst(value string) string {
 	if value == "" {
 		return value
@@ -255,6 +263,7 @@ func AssertAdoptableControlHome(controlHome string) error {
 	return refusal(fmt.Sprintf("it is not empty (%s) and was not created by %s", shown, brand.Name), true)
 }
 
+// contains reports whether target is in values.
 func contains(values []string, target string) bool {
 	for _, v := range values {
 		if v == target {
@@ -264,6 +273,7 @@ func contains(values []string, target string) bool {
 	return false
 }
 
+// firstN is the first n values, or all of them if there are n or fewer.
 func firstN(values []string, n int) []string {
 	if len(values) <= n {
 		return values
@@ -317,12 +327,28 @@ func establishControlHome(controlHome string) error {
 	if err := createSecureDirectories(controlHome, []string{controlHome}, 0o700); err != nil {
 		return err
 	}
-	marker := filepath.Join(controlHome, ControlHomeMarker)
-	if err := AssertSafeFilePath(controlHome, marker); err != nil {
+
+	// Opened once as a directory handle, and used for both the marker's read
+	// and its write below, via openat(2): a path-based check followed by a
+	// path-based open (the previous shape here) is two separate resolutions
+	// of the same name, each its own window for a symlink — or, if the
+	// control home's parent is writable by someone else, the control home
+	// itself — to be swapped in between. A descriptor already open on the
+	// directory is unaffected by what happens to the path afterwards.
+	//
+	// os.Root is not enough here on its own: per `go doc os.Root`, its
+	// methods follow a symlink whose target stays inside the root, and the
+	// marker must be refused outright, wherever it points — so it is opened
+	// directly against this directory's descriptor instead, with O_NOFOLLOW.
+	dir, err := os.Open(controlHome)
+	if err != nil {
 		return err
 	}
-	contents, err := os.ReadFile(marker)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	defer dir.Close()
+
+	marker := filepath.Join(controlHome, ControlHomeMarker)
+	contents, err := readMarkerDirect(dir, marker)
+	if err != nil {
 		return err
 	}
 	// New, or left empty by the TypeScript build: from now on a Go build has
@@ -337,18 +363,79 @@ func establishControlHome(controlHome string) error {
 		// in an empty directory and refuse it as not ours. The marker is nine
 		// bytes; a single write(2) of that size does not tear on any
 		// filesystem this tool supports.
-		return writeMarkerDirect(marker, []byte(ControlHomeFormat), 0o600)
+		return writeMarkerDirect(dir, marker, []byte(ControlHomeFormat), 0o600)
 	}
 	return nil
 }
 
-// writeMarkerDirect creates or truncates file in place and writes contents,
-// with no temporary file: see establishControlHome for why the marker
-// specifically must never be written that way.
-func writeMarkerDirect(file string, contents []byte, mode fs.FileMode) error {
-	handle, err := os.OpenFile(file, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+// openMarkerNoFollow opens name (the marker's own base name) through dir's
+// descriptor via openat(2), with O_NOFOLLOW: a symlink at that name is
+// refused rather than followed, wherever it points, unlike os.Root's own
+// symlink handling (see establishControlHome).
+func openMarkerNoFollow(dir *os.File, name string, flag int, mode fs.FileMode) (*os.File, error) {
+	fd, err := unix.Openat(int(dir.Fd()), name, flag|unix.O_NOFOLLOW|unix.O_CLOEXEC, uint32(mode))
 	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), filepath.Join(dir.Name(), name)), nil
+}
+
+// refusedMarker is the same wording AssertSafeFilePath uses for a symlinked
+// or non-regular managed path, for a marker refused after opening rather
+// than before.
+func refusedMarker(marker string) error {
+	return clierr.Newf("Refusing symlinked or non-file managed path: %s", marker)
+}
+
+// readMarkerDirect reads the control home's marker through dir: no error and
+// no content for a marker that does not exist yet (a brand new control
+// home), and a refusal for anything opened that turns out not to be a
+// regular file. O_NOFOLLOW already refuses a symlink at open; the Stat
+// catches what O_CREAT would otherwise open without complaint — a FIFO or
+// device planted at the same path.
+func readMarkerDirect(dir *os.File, marker string) ([]byte, error) {
+	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), unix.O_RDONLY, 0)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		if errors.Is(err, unix.ELOOP) {
+			return nil, refusedMarker(marker)
+		}
+		return nil, &fs.PathError{Op: "open", Path: marker, Err: err}
+	}
+	defer handle.Close()
+	info, err := handle.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, refusedMarker(marker)
+	}
+	return io.ReadAll(handle)
+}
+
+// writeMarkerDirect creates or truncates the control home's marker in place
+// through dir and writes contents, with no temporary file: see
+// establishControlHome for why the marker specifically must never be
+// written that way. Refused the same way readMarkerDirect is if it is not,
+// or could not be made, a regular file.
+func writeMarkerDirect(dir *os.File, marker string, contents []byte, mode fs.FileMode) error {
+	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), unix.O_CREAT|unix.O_TRUNC|unix.O_WRONLY, mode)
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) {
+			return refusedMarker(marker)
+		}
+		return &fs.PathError{Op: "open", Path: marker, Err: err}
+	}
+	info, err := handle.Stat()
+	if err != nil {
+		handle.Close()
 		return err
+	}
+	if !info.Mode().IsRegular() {
+		handle.Close()
+		return refusedMarker(marker)
 	}
 	_, writeErr := handle.Write(contents)
 	if chmodErr := handle.Chmod(mode); writeErr == nil {
