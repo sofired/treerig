@@ -152,6 +152,21 @@ func TestPathContainment(t *testing.T) {
 
 		requireErrorContains(t, files.AssertSafeDirectoryPath(root, filepath.Join(root, "linked", "child")), "Refusing symlinked or non-directory managed path")
 	})
+
+	t.Run("names a caller's own root in the outside-of-root refusal, for one that is not a control home", func(t *testing.T) {
+		root := t.TempDir()
+		requireErrorContains(t,
+			files.AssertSafeDirectoryPathNamed(root, filepath.Dir(root), "the shared router's state directory"),
+			"Refusing directory outside the shared router's state directory")
+		requireErrorContains(t,
+			files.AssertSafeFilePathNamed(root, filepath.Join(filepath.Dir(root), "sibling", "file"), "the shared router's state directory"),
+			"Refusing directory outside the shared router's state directory")
+		// The default (AssertSafeDirectoryPath/AssertSafeFilePath) still says
+		// "the control home", byte-identical to what every existing caller —
+		// and TypeScript's own equivalent — has always said.
+		requireErrorContains(t, files.AssertSafeDirectoryPath(root, filepath.Dir(root)), "Refusing directory outside the control home")
+		requireErrorContains(t, files.AssertSafeFilePath(root, filepath.Join(filepath.Dir(root), "sibling", "file")), "Refusing directory outside the control home")
+	})
 }
 
 func TestSecureDirectoryCreation(t *testing.T) {

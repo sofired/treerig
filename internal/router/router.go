@@ -222,6 +222,12 @@ func (r *Router) compose(ctx context.Context, args []string, spec run.Spec) (run
 // same exception applies to a control home's router directories). This
 // package owns it because, as of protocol 4, that directory is no longer
 // part of any control home (#12, #13).
+// stateNoun is this package's root for files.*Named's outside-of-root
+// refusal: the state directory is not a control home, so it must not be
+// called one if that refusal ever actually fires (today it cannot: every
+// path secureState touches is built as a child of state.StateDir).
+const stateNoun = "the shared router's state directory"
+
 func secureState(state layout.RouterLayout) error {
 	if err := secureDirectories(state.StateDir, []string{state.StateDir}, 0o700); err != nil {
 		return err
@@ -230,7 +236,7 @@ func secureState(state layout.RouterLayout) error {
 		return err
 	}
 	for _, file := range []string{state.LockPath, state.IndexFile, state.ComposeFile, state.ProtocolFile} {
-		if err := files.AssertSafeFilePath(state.StateDir, file); err != nil {
+		if err := files.AssertSafeFilePathNamed(state.StateDir, file, stateNoun); err != nil {
 			return err
 		}
 	}
@@ -246,13 +252,13 @@ func secureState(state layout.RouterLayout) error {
 // in whatever it points to is created or has its mode changed.
 func secureDirectories(root string, dirs []string, mode os.FileMode) error {
 	for _, dir := range dirs {
-		if err := files.AssertSafeDirectoryPath(root, dir); err != nil {
+		if err := files.AssertSafeDirectoryPathNamed(root, dir, stateNoun); err != nil {
 			return err
 		}
 		if err := os.MkdirAll(dir, mode); err != nil {
 			return err
 		}
-		if err := files.AssertSafeDirectoryPath(root, dir); err != nil {
+		if err := files.AssertSafeDirectoryPathNamed(root, dir, stateNoun); err != nil {
 			return err
 		}
 		if err := os.Chmod(dir, mode); err != nil {

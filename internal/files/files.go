@@ -75,8 +75,18 @@ func relativeJS(root, candidate string) (string, error) {
 // AssertSafeDirectoryPath refuses a candidate outside root, and refuses a
 // symlink or non-directory anywhere in the chain between them. A candidate
 // that does not exist yet is fine, all the way from the first missing
-// segment down.
+// segment down. Its outside-of-root refusal names root "the control home",
+// matching what this tool's every control-home-rooted caller has always
+// said; a caller whose root is something else wants
+// AssertSafeDirectoryPathNamed instead.
 func AssertSafeDirectoryPath(root, candidate string) error {
+	return AssertSafeDirectoryPathNamed(root, candidate, "the control home")
+}
+
+// AssertSafeDirectoryPathNamed is AssertSafeDirectoryPath with noun in its
+// outside-of-root refusal in place of "the control home" — for a root that
+// is not one, such as the shared router's own state directory.
+func AssertSafeDirectoryPathNamed(root, candidate, noun string) error {
 	resolvedRoot, err := layout.Resolve(root)
 	if err != nil {
 		return err
@@ -90,7 +100,7 @@ func AssertSafeDirectoryPath(root, candidate string) error {
 		return err
 	}
 	if !(relative == "" || (!strings.HasPrefix(relative, "..") && !filepath.IsAbs(relative))) {
-		return clierr.Newf("Refusing directory outside the control home: %s", resolvedCandidate)
+		return clierr.Newf("Refusing directory outside %s: %s", noun, resolvedCandidate)
 	}
 	var segments []string
 	if relative != "" {
@@ -116,9 +126,17 @@ func AssertSafeDirectoryPath(root, candidate string) error {
 }
 
 // AssertSafeFilePath is AssertSafeDirectoryPath for candidate's parent, plus
-// a check that candidate itself, if it exists, is a regular non-symlinked file.
+// a check that candidate itself, if it exists, is a regular non-symlinked
+// file. Its outside-of-root refusal names root "the control home"; a caller
+// whose root is something else wants AssertSafeFilePathNamed instead.
 func AssertSafeFilePath(root, candidate string) error {
-	if err := AssertSafeDirectoryPath(root, filepath.Dir(candidate)); err != nil {
+	return AssertSafeFilePathNamed(root, candidate, "the control home")
+}
+
+// AssertSafeFilePathNamed is AssertSafeFilePath with noun in its
+// outside-of-root refusal in place of "the control home".
+func AssertSafeFilePathNamed(root, candidate, noun string) error {
+	if err := AssertSafeDirectoryPathNamed(root, filepath.Dir(candidate), noun); err != nil {
 		return err
 	}
 	info, err := os.Lstat(candidate)
