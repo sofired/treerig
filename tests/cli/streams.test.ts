@@ -12,6 +12,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const run = promisify(execFile);
 const CLI = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url));
+// Another build of the same CLI — the Go port, say — can be held to these
+// same contracts: BERTH_CLI is its executable, and BERTH_CLI_UNPORTED names the
+// verbs it does not have yet, whose tests are skipped rather than failed.
+const BINARY = process.env['BERTH_CLI'] || undefined;
+const UNPORTED = new Set((process.env['BERTH_CLI_UNPORTED'] ?? '').split(',').map((verb) => verb.trim()).filter(Boolean));
 
 const temporary: string[] = [];
 afterEach(async () => {
@@ -30,7 +35,7 @@ async function berth(
   options: { path?: string; debug?: boolean; env?: Record<string, string> } = {}
 ): Promise<Invocation> {
   try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], {
+    const { stdout, stderr } = await run(BINARY ?? process.execPath, BINARY === undefined ? [CLI, ...args] : [...args], {
       cwd,
       env: {
         BERTH_HOME: path.join(cwd, 'control-home'),
@@ -164,7 +169,7 @@ purpose = "surface"
     expect(result.stderr).toContain("'berth dev' is not implemented yet");
   });
 
-  it('prints the doctor\'s report on stdout and how it went on stderr', async () => {
+  it.skipIf(UNPORTED.has('doctor'))('prints the doctor\'s report on stdout and how it went on stderr', async () => {
     const cwd = await project(CONFIG);
     const empty = await mkdtemp(path.join(tmpdir(), 'berth-nopath-'));
     temporary.push(empty);
@@ -182,7 +187,7 @@ purpose = "surface"
     expect(result.stderr).toMatch(/^\[berth\] ERROR: \d+ check\(s\) failed\.$/m);
   });
 
-  it('says on stderr, as information, that nothing failed, and exits 0', async () => {
+  it.skipIf(UNPORTED.has('doctor'))('says on stderr, as information, that nothing failed, and exits 0', async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), 'berth-doctor-'));
     temporary.push(cwd);
     const bin = await mkdtemp(path.join(tmpdir(), 'berth-fakebin-'));
@@ -207,7 +212,7 @@ purpose = "surface"
     expect(result.stderr).not.toContain('ERROR');
   });
 
-  it('reports a router port it cannot use as a failed check, and still reports the rest', async () => {
+  it.skipIf(UNPORTED.has('doctor'))('reports a router port it cannot use as a failed check, and still reports the rest', async () => {
     const cwd = await project(CONFIG);
 
     const result = await berth(cwd, ['doctor'], { env: { BERTH_ROUTER_PORT: 'eighty' } });
@@ -217,7 +222,7 @@ purpose = "surface"
     expect(result.stdout).toContain('This checkout');
   });
 
-  it('keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice', async () => {
+  it.skipIf(UNPORTED.has('unlock'))('keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice', async () => {
     const cwd = await project(CONFIG);
     await git(cwd, ['init', '--initial-branch=feature/login', '.']);
     await git(cwd, ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--allow-empty', '-m', 'initial']);
@@ -259,7 +264,7 @@ purpose = "surface"
     expect(JSON.parse(result.stdout)).toEqual([]);
   });
 
-  it('reports an unreachable router as a failure rather than as output', async () => {
+  it.skipIf(UNPORTED.has('router'))('reports an unreachable router as a failure rather than as output', async () => {
     const cwd = await project(CONFIG);
     const empty = await mkdtemp(path.join(tmpdir(), 'berth-nopath-'));
     temporary.push(empty);
@@ -279,7 +284,8 @@ purpose = "surface"
 // claims about a file mode and about `argv[1]`, and neither survives a commit
 // that drops the executable bit.
 describe('the entry point as an installed command', () => {
-  it('is executable and starts with a shebang', async () => {
+  // A compiled build has no source to carry a shebang.
+  it.skipIf(BINARY !== undefined)('is executable and starts with a shebang', async () => {
     const source = await readFile(CLI, 'utf8');
     expect(source.startsWith('#!/usr/bin/env node\n')).toBe(true);
     // Mode 0755 for everyone, not just the owner: a clone is installed by
@@ -290,7 +296,7 @@ describe('the entry point as an installed command', () => {
   it('answers to the name it was symlinked as, and to the product name otherwise', async () => {
     const cwd = await project(CONFIG);
     const link = path.join(cwd, 'duke');
-    await symlink(CLI, link);
+    await symlink(BINARY ?? CLI, link);
 
     const named = await run(link, ['--help'], { env: { PATH: process.env['PATH'] ?? '' } });
     expect(named.stdout).toContain('Usage: duke [options] [command]');

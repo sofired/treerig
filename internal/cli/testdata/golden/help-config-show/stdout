@@ -1,0 +1,6 @@
+Usage: berth config show [options]
+
+print the resolved configuration as JSON
+
+Options:
+  -h, --help  display help for command

@@ -1,0 +1,13 @@
+Usage: berth worktree remove [options] [identifier]
+
+remove a worktree's environment: containers, volumes, networks, images, home,
+and registration
+
+Options:
+  --domain <domain>              narrow a slug registered under more than one
+                                 domain
+  --label-namespace <namespace>  supply the Docker label namespace when nothing
+                                 on disk records it (a worktree of another
+                                 repository)
+  --yes                          skip the confirmation phrase
+  -h, --help                     display help for command

@@ -1,0 +1,146 @@
+name: Go
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Format
+        run: test -z "$(gofmt -l cmd internal tools)"
+
+      # Both builds: the integration tests are files the default build never compiles.
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags integration ./...
+
+      - name: Staticcheck
+        run: |
+          go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+          go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags integration ./...
+
+      - name: Unit tests
+        run: go test -race -count=1 ./...
+
+      - name: Build
+        run: go build -o dist/berth ./cmd/berth
+
+      # The TypeScript build is the oracle the parity tests compare against,
+      # and the streams contract is run against the Go binary.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Install the TypeScript build
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Streams contract, against the Go binary
+        env:
+          BERTH_CLI: ${{ github.workspace }}/dist/berth
+          BERTH_CLI_UNPORTED: doctor,router,unlock
+        run: pnpm exec vitest run tests/cli/streams.test.ts
+
+      # Real git, real processes and signals (flock inheritance, group kills,
+      # death by the re-raised signal), parity runs against the TypeScript
+      # build, and on Linux a real Docker daemon. The macOS leg is the one
+      # that proves the lock layer on APFS and the kern.proc sysctls.
+      - name: Integration tests
+        env:
+          BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
+        run: go test -race -count=1 -tags integration ./...
+
+      # Releases are built with CGO_ENABLED=0, but every run above links cgo:
+      # the race detector needs it, and os/user pulls it in on Linux. cgo
+      # changes how a Go program runs. Its extra thread, for one, stops Go's
+      # deadlock check from ever firing, which once hid a macOS-only failure.
+      - name: Tests without cgo, as released
+        env:
+          CGO_ENABLED: '0'
+          BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
+        run: |
+          go test -count=1 ./...
+          go test -count=1 -tags integration ./...
+
+  # Everything under testdata/ that the TypeScript build generates is
+  # regenerated from it here: a difference means a file was edited by hand,
+  # or the TypeScript behaviour it records has changed without it.
+  oracles:
+    name: oracle drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Install the TypeScript build
+        run: corepack enable && pnpm install --frozen-lockfile
+      - name: Regenerate
+        run: |
+          node tools/oracle/config-corpus.ts > internal/config/testdata/config-corpus.json
+          node tools/oracle/locale-sort.ts > internal/registry/testdata/locale-sort.json
+          node tools/oracle/slug-corpus.ts > internal/registry/testdata/slug-corpus.json
+          node tools/oracle/text-corpus.ts > internal/text/testdata/corpus.json
+          go test -count=1 ./internal/cli -run TestGolden -update
+      - name: Compare
+        run: |
+          git status --porcelain
+          git --no-pager diff
+          test -z "$(git status --porcelain)"
+
+  cross:
+    name: cross-compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build every target
+        run: go run ./tools/bench -sizes >> "$GITHUB_STEP_SUMMARY"
+
+  # Informational: shared runners are too noisy to gate on, so the numbers the
+  # report quotes come from a quiet machine; this keeps the comparison visible
+  # on every change.
+  bench:
+    name: benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Install the TypeScript build
+        run: corepack enable && pnpm install --frozen-lockfile
+      - name: Build
+        run: go build -o dist/berth ./cmd/berth
+      - name: Measure
+        run: go run ./tools/bench -node node -runs 20 >> "$GITHUB_STEP_SUMMARY"

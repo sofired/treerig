@@ -1,0 +1,6 @@
+Usage: berth index [options]
+
+refresh the machine-wide checkout index and print it
+
+Options:
+  -h, --help  display help for command

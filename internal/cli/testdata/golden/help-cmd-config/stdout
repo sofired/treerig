@@ -1,0 +1,11 @@
+Usage: berth config [options] [command]
+
+inspect the project configuration
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  validate        parse and validate berth.toml
+  show            print the resolved configuration as JSON
+  help [command]  display help for command
