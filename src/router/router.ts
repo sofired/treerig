@@ -520,11 +520,15 @@ export class RouterService implements Router {
       // The warning is about what `verify()` just established, so it is said
       // even if recording the new protocol fails.
       this.noteUnroutedAfterUpgrade(previous);
+      // `start()` above waited on `compose up`, which can take minutes, and
+      // may have waited again on a force-recreate and a second `verify()`;
+      // checked again here, once, regardless of whether a promotion follows —
+      // otherwise a marker that appeared during either wait would go
+      // unnoticed whenever `previous` already equals `ROUTER_PROTOCOL`, and
+      // `ensure()` would report success on a control home the Go build now
+      // manages.
+      await assertNotGoManaged(this.options.controlHome);
       if (previous !== ROUTER_PROTOCOL) {
-        // `start()` above waited on `compose up`, which can take minutes, and
-        // may have waited again on a force-recreate and a second `verify()`;
-        // checked again here, immediately before the record is promoted.
-        await assertNotGoManaged(this.options.controlHome);
         // A record that will not write costs a repeated announcement next
         // time, not a router: never fail a verified `up` over it.
         await atomicWrite(this.layout.routerProtocolFile, `${ROUTER_PROTOCOL}\n`).catch((error: unknown) => {

@@ -679,6 +679,26 @@ describe('RouterService.ensure', () => {
     expect(w.ups()).toHaveLength(1);   // no recreate: verify() never ran again after the throw
     expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTED_BY_SINCE_PROTOCOL - 1}\n`);   // not promoted
   });
+
+  it('refuses when the marker turns up while start() is waiting on compose up, even when the recorded protocol already matches', async () => {
+    const w = await world();
+    await taken(w, ROUTER_PROTOCOL);   // already current: the promotion write below never runs
+    const marker = path.join(w.controlHome, CONTROL_HOME_MARKER);
+    const originalRun = w.fake.run.bind(w.fake);
+    // With `previous === ROUTER_PROTOCOL`, the `if` guarding the promotion
+    // write is skipped entirely; the check right after `verify()` — not one
+    // inside that `if` — is what has to catch this.
+    w.fake.run = async (command, args = [], options) => {
+      if (args[0] === 'compose' && args.includes('up')) await writeFile(marker, 'format 2\n');
+      return originalRun(command, args, options);
+    };
+
+    await expect(w.router.ensure()).rejects.toThrow(
+      'is managed by the Go build of berth; this TypeScript build does not change it.'
+    );
+
+    expect(await readFile(w.layout.routerProtocolFile, 'utf8')).toBe(`${ROUTER_PROTOCOL}\n`);   // unchanged
+  });
 });
 
 describe('RouterService.verify', () => {
