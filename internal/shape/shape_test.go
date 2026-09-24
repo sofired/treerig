@@ -223,6 +223,15 @@ func TestArrayMax(t *testing.T) {
 	if len(issues) != 1 || issues[0].Message != "at most 2 items" || issues[0].Code != CodeTooBig {
 		t.Fatalf("over the limit: issues = %#v, want one CodeTooBig \"at most 2 items\"", issues)
 	}
+
+	// Elements are parsed before Max applies, so an over-long array with a
+	// bad element reports both.
+	_, issues = Parse(schema, []any{"a", 7, "c"})
+	if len(issues) != 2 {
+		t.Fatalf("over the limit with a bad element: issues = %#v, want an element error and CodeTooBig", issues)
+	}
+	mustIssue(t, issues, "1", CodeInvalidType)
+	mustIssue(t, issues, "(root)", CodeTooBig)
 }
 
 func TestObjMarshalJSONPreservesOrder(t *testing.T) {
