@@ -39,6 +39,32 @@ func newTestUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
+// equalStringPtr compares two *string by value, not by address: a plain !=
+// on two structs holding *string fields — EnsuredRegistration's
+// LabelNamespace, PreviousHost and PreviousLabelNamespace among them —
+// compares pointers, which two separate Ensure calls building equal but
+// separately allocated strings would fail even when their content matches.
+func equalStringPtr(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// equalEnsuredRegistrations compares two results field by field, comparing
+// every *string field by value via equalStringPtr instead of by address.
+func equalEnsuredRegistrations(a, b *registry.EnsuredRegistration) bool {
+	return a.RepositoryID == b.RepositoryID &&
+		a.WorktreeID == b.WorktreeID &&
+		a.Slug == b.Slug &&
+		a.Domain == b.Domain &&
+		equalStringPtr(a.LabelNamespace, b.LabelNamespace) &&
+		a.Root == b.Root &&
+		a.Branch == b.Branch &&
+		equalStringPtr(a.PreviousHost, b.PreviousHost) &&
+		equalStringPtr(a.PreviousLabelNamespace, b.PreviousLabelNamespace)
+}
+
 func TestWorktreeRegistryEnsure(t *testing.T) {
 	ctx := context.Background()
 
@@ -151,7 +177,7 @@ func TestWorktreeRegistryEnsure(t *testing.T) {
 		if errs[0] != nil || errs[1] != nil {
 			t.Fatalf("errors: %v, %v", errs[0], errs[1])
 		}
-		if *results[0] != *results[1] {
+		if !equalEnsuredRegistrations(results[0], results[1]) {
 			t.Fatalf("expected equal results, got %+v and %+v", results[0], results[1])
 		}
 		list, err := f.registry.List(ctx)
