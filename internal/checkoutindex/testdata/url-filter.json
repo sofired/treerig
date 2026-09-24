@@ -1,0 +1,138 @@
+{
+  "host": "feature-a.acme.localhost",
+  "cases": [
+    {
+      "name": "exact host, matching port",
+      "url": "http://feature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": true,
+      "keptUrl": "http://feature-a.acme.localhost:8080/"
+    },
+    {
+      "name": "uppercase scheme",
+      "url": "HTTP://feature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": true,
+      "keptUrl": "HTTP://feature-a.acme.localhost:8080/"
+    },
+    {
+      "name": "uppercase host",
+      "url": "http://FEATURE-A.ACME.LOCALHOST:8080/",
+      "routerPort": 8080,
+      "kept": true,
+      "keptUrl": "http://FEATURE-A.ACME.LOCALHOST:8080/"
+    },
+    {
+      "name": "mixed-case scheme and host, with a path",
+      "url": "HtTp://FEATURE-A.ACME.LOCALHOST:8080/console",
+      "routerPort": 8080,
+      "kept": true,
+      "keptUrl": "HtTp://FEATURE-A.ACME.LOCALHOST:8080/console"
+    },
+    {
+      "name": "default port dropped by WHATWG, matches routerPort 80",
+      "url": "http://feature-a.acme.localhost:80/",
+      "routerPort": 80,
+      "kept": true,
+      "keptUrl": "http://feature-a.acme.localhost:80/"
+    },
+    {
+      "name": "port omitted, matches routerPort 80",
+      "url": "http://feature-a.acme.localhost/",
+      "routerPort": 80,
+      "kept": true,
+      "keptUrl": "http://feature-a.acme.localhost/"
+    },
+    {
+      "name": "default port dropped by WHATWG, does not match routerPort 8080",
+      "url": "http://feature-a.acme.localhost:80/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "explicit non-default port matches routerPort",
+      "url": "http://feature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": true,
+      "keptUrl": "http://feature-a.acme.localhost:8080/"
+    },
+    {
+      "name": "explicit non-default port does not match routerPort",
+      "url": "http://feature-a.acme.localhost:9999/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "port with a leading zero normalizes the same as without one",
+      "url": "http://feature-a.acme.localhost:065/",
+      "routerPort": 65,
+      "kept": true,
+      "keptUrl": "http://feature-a.acme.localhost:065/"
+    },
+    {
+      "name": "subdomain of host",
+      "url": "http://mail.feature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": true,
+      "keptUrl": "http://mail.feature-a.acme.localhost:8080/"
+    },
+    {
+      "name": "uppercase subdomain of host",
+      "url": "http://MAIL.feature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": true,
+      "keptUrl": "http://MAIL.feature-a.acme.localhost:8080/"
+    },
+    {
+      "name": "unrelated host",
+      "url": "http://evil.localhost:8080/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "lookalike host is not a subdomain",
+      "url": "http://evilfeature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "https scheme is rejected regardless of port",
+      "url": "https://feature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "https default port dropped by WHATWG, still rejected: not http",
+      "url": "https://feature-a.acme.localhost/",
+      "routerPort": 443,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "non-http(s) scheme is rejected",
+      "url": "ftp://feature-a.acme.localhost:8080/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "trailing dot on the hostname does not match",
+      "url": "http://feature-a.acme.localhost.:8080/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    },
+    {
+      "name": "an IPv6 literal host never matches a DNS-shaped host",
+      "url": "http://[::1]:8080/",
+      "routerPort": 8080,
+      "kept": false,
+      "keptUrl": null
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import { CliError, invariant } from '../errors.ts';
 import { shellQuote } from '../shell.ts';
 import { renderIndexHtml } from '../checkout-index/render.ts';
 import { placeholderSnapshot } from '../checkout-index/snapshot.ts';
-import { atomicWrite, pathExists, secureControlDirectories } from '../files.ts';
+import { assertNotGoManaged, atomicWrite, pathExists, secureControlDirectories } from '../files.ts';
 import { controlLayout } from '../layout.ts';
 import type { Logger } from '../logger.ts';
 import { routerLockTarget, withScopedLock } from '../operation-lock.ts';
@@ -295,6 +295,9 @@ export class RouterService implements Router {
     // promotion at the end: `write()` would fail on the same directory two
     // steps later, so there is no run this could have cost a router.
     if (recorded !== previous) {
+      // `containerId()` and `inspect()` above asked Docker; checked again
+      // here, immediately before the write that evidence gates.
+      await assertNotGoManaged(this.options.controlHome);
       await atomicWrite(this.layout.routerProtocolFile, `${previous}\n`).catch((error: unknown) => {
         throw new CliError(
           `Could not record the router protocol in ${this.layout.routerProtocolFile}: ` +
@@ -493,11 +496,16 @@ export class RouterService implements Router {
     return [...this.routerProblems(router), ...this.dockerApiProblems(api), ...this.indexProblems(index)];
   }
 
+  /** Writes the stack, starts it, verifies it, and recreates it once if it has drifted from what this version expects. */
   async ensure(): Promise<void> {
+    await assertNotGoManaged(this.options.controlHome);
     // The lock file lands under the control home, so the home must be ours — and marked — before it is taken.
     await secureControlDirectories(this.layout);
     await withScopedLock(routerLockTarget(this.options.controlHome), 'shared router', this.options.logger, async () => {
       const previous = await this.previousProtocol();
+      // The lock above may have waited on another holder; checked again here,
+      // immediately before the stack is written under it.
+      await assertNotGoManaged(this.options.controlHome);
       await this.write();
       await this.start([]);
       const problems = await this.verify();
@@ -512,6 +520,14 @@ export class RouterService implements Router {
       // The warning is about what `verify()` just established, so it is said
       // even if recording the new protocol fails.
       this.noteUnroutedAfterUpgrade(previous);
+      // `start()` above waited on `compose up`, which can take minutes, and
+      // may have waited again on a force-recreate and a second `verify()`;
+      // checked again here, once, regardless of whether a promotion follows —
+      // otherwise a marker that appeared during either wait would go
+      // unnoticed whenever `previous` already equals `ROUTER_PROTOCOL`, and
+      // `ensure()` would report success on a control home the Go build now
+      // manages.
+      await assertNotGoManaged(this.options.controlHome);
       if (previous !== ROUTER_PROTOCOL) {
         // A record that will not write costs a repeated announcement next
         // time, not a router: never fail a verified `up` over it.
@@ -552,6 +568,7 @@ export class RouterService implements Router {
    * the expected outcome.
    */
   async down(): Promise<void> {
+    await assertNotGoManaged(this.options.controlHome);
     // By project name alone, as `containerId` reads it: the router is
     // machine-wide, so it must be removable from a control home that never
     // wrote a stack file — the one a refusal tells the user to run this from.
