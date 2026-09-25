@@ -94,7 +94,13 @@ func serviceSchema() *shape.ObjectSchema {
 			Optional()),
 		// Container port to route to; defaults to the first port the service exposes or publishes.
 		shape.F("port", shape.Number().Int().Min(1).Max(65_535).Optional()),
-		// Presence on the shared checkout index; omit to keep the service internal.
+		// Presence on the shared checkout index; omit to keep the service
+		// internal. Neither label nor purpose refuses a control character
+		// here: the base schema stays lenient, so every command that only
+		// reads an already-running worktree's config can load one a hand
+		// edit or a paste left with one, and go ahead. StartIssues
+		// (start.go) is the separate, named check `up`, `config validate`
+		// and `doctor` run instead; see row 25 in docs/port/divergences.md.
 		shape.F("index", shape.Object(
 			shape.F("label", shape.String().Min(1).Max(512)),
 			shape.F("purpose", shape.String().Max(512).Default("")),

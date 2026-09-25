@@ -19,10 +19,16 @@ func load(env *Env) (*config.Loaded, error) {
 	return config.LoadNearest(env.Cwd)
 }
 
-// ConfigValidate is `config validate`.
+// ConfigValidate is `config validate`. It answers "would up work?", so it
+// runs config.CheckStart the same as `up` itself: the base load above stays
+// lenient about a control character in [service.index] label or purpose
+// (#19, row 25 in docs/port/divergences.md), and only this check refuses.
 func ConfigValidate(ctx context.Context, env *Env) error {
 	loaded, err := load(env)
 	if err != nil {
+		return err
+	}
+	if err := config.CheckStart(loaded); err != nil {
 		return err
 	}
 

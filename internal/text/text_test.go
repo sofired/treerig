@@ -42,6 +42,60 @@ func TestPrintable(t *testing.T) {
 	})
 }
 
+// TestHasControl pins the definition internal/config's schema reuses to
+// reject a control character in [service.index] label and purpose (#19,
+// row 25 in docs/port/divergences.md): HasControl (and its per-rune
+// IsControl) is exactly the set of characters Printable itself replaces —
+// C0 (including the whitespace ones), DEL, C1, the line/paragraph
+// separators, and every Cf format character except ZWJ/ZWNJ.
+func TestHasControl(t *testing.T) {
+	t.Run("reports every character Printable would replace", func(t *testing.T) {
+		for _, r := range []rune{
+			'\t', '\n', '\r', // C0 whitespace
+			0x00, 0x1b, 0x1f, // other C0 (NUL, ESC, US)
+			0x7f,       // DEL
+			0x80, 0x9b, // C1
+			0x2028, 0x2029, // line, paragraph separator
+			0x202e, // right-to-left override (Cf)
+			0x200b, // zero-width space (Cf)
+			0x00ad, // soft hyphen (Cf)
+		} {
+			if !IsControl(r) {
+				t.Errorf("IsControl(%U) = false, want true", r)
+			}
+			if !HasControl(string(r)) {
+				t.Errorf("HasControl(%U) = false, want true", r)
+			}
+		}
+	})
+
+	t.Run("keeps the zero-width joiners, and ordinary text, as not control", func(t *testing.T) {
+		for _, r := range []rune{'a', ' ', '€', 0x200c, 0x200d, '\U0001f468'} {
+			if IsControl(r) {
+				t.Errorf("IsControl(%U) = true, want false", r)
+			}
+		}
+		if HasControl("hello, world €") {
+			t.Error(`HasControl("hello, world €") = true, want false`)
+		}
+	})
+
+	t.Run("agrees with Printable: a string is unchanged exactly when it has no control character", func(t *testing.T) {
+		cases := []string{
+			"plain text",
+			"a\u001b[2Kb",
+			"one\ntwo\tthree\r",
+			"\U0001f468\u200d\U0001f4bb m\u200ci",
+			"a\u202eb\u200bc\u00adx",
+		}
+		for _, c := range cases {
+			if got, want := HasControl(c), Printable(c) != c; got != want {
+				t.Errorf("HasControl(%q) = %v, want %v (Printable changed it: %v)", c, got, want, Printable(c) != c)
+			}
+		}
+	})
+}
+
 // Divergence 7 in docs/port/divergences.md: ill-formed UTF-8 becomes one
 // U+FFFD per invalid byte. Node's decoder gives one per maximal ill-formed
 // subsequence, so a truncated E2 82 is one replacement there and two here.

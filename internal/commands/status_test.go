@@ -10,6 +10,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
+	"github.com/sofired/berth/internal/config"
 	"github.com/sofired/berth/internal/registry"
 )
 
@@ -60,6 +61,21 @@ func TestWorktreeStatus(t *testing.T) {
 		}
 	})
 
+	// #19, row 25 in docs/port/divergences.md: the base loader accepts a
+	// control character in [service.index] label or purpose; only `up`,
+	// `config validate` and `doctor` refuse one. `status` only reads an
+	// already-running worktree's config, so it loads and proceeds.
+	t.Run("proceeds when a service index label or purpose carries a control character", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		tc := w.Context("", acme, nil)
+		tc.Loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb", Purpose: "the \u202eAPI"}
+
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext); err != nil {
+			t.Fatalf("StatusWithContext: %v", err)
+		}
+	})
+
 	t.Run("says, as a notice, that a worktree never brought up is not registered", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
@@ -105,6 +121,20 @@ func TestWorktreeDown(t *testing.T) {
 		err := commands.DownWithContext(ctx, w.Context("", acme, nil).CommandContext)
 		if err == nil || !regexp.MustCompile(regexp.QuoteMeta("This worktree is not registered. Run 'berth up' first.")).MatchString(err.Error()) {
 			t.Fatalf("err = %v", err)
+		}
+	})
+
+	// #19, row 25 in docs/port/divergences.md: `down` only stops what is
+	// already running, so — unlike `up` — it loads and proceeds against a
+	// [service.index] label or purpose that carries a control character.
+	t.Run("proceeds when a service index label or purpose carries a control character", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		tc := w.Context("", acme, nil)
+		tc.Loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb", Purpose: "the \u202eAPI"}
+
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+			t.Fatalf("DownWithContext: %v", err)
 		}
 	})
 }
