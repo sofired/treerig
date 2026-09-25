@@ -1,0 +1,5 @@
+[project]
+name = "nested"
+domain = "nested.localhost"
+[compose]
+file = "docker/compose.yaml"
