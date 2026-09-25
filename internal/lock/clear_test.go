@@ -15,6 +15,9 @@ import (
 	"github.com/sofired/berth/internal/procid"
 )
 
+// clearOptions returns ClearOptions wired to a fake process table that
+// reports the local machine as the caller's own, for tests that call Clear
+// directly.
 func clearOptions(t *testing.T) ClearOptions {
 	t.Helper()
 	return ClearOptions{Table: newFakeTable(procid.Identity{MachineID: "m", BootID: "b", PIDNS: "pid:[1]"}), SuggestUnverifiableFlag: true}

@@ -53,6 +53,7 @@ func mutateRecordMachineID(t *testing.T, scope lock.Scope, machineID string) {
 // the same choice internal/lock's own legacy_test.go makes for the same reason.
 const deadPID = 999999
 
+// unlock runs commands.UnlockWithContext against tc's own CommandContext.
 func unlock(t *testing.T, tc *commandstest.TestContext, options commands.UnlockOptions) (*commands.UnlockResult, error) {
 	t.Helper()
 	return commands.UnlockWithContext(context.Background(), tc.CommandContext, options)
@@ -331,6 +332,8 @@ type fakeScanTable struct {
 	scanned int
 }
 
+// Scan counts the call and returns f.scan, the scripted result, rather than
+// reading this machine's real process table.
 func (f *fakeScanTable) Scan() (procid.Scan, error) {
 	f.scanned++
 	return f.scan, nil
@@ -630,6 +633,7 @@ func TestUnlockGlobal(t *testing.T) {
 	})
 }
 
+// equalLines reports whether got and want hold the same lines in the same order.
 func equalLines(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
@@ -642,6 +646,7 @@ func equalLines(got, want []string) bool {
 	return true
 }
 
+// hasPrefix reports whether s begins with prefix.
 func hasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }

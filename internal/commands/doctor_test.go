@@ -87,6 +87,9 @@ func writeCheckoutConfig(t *testing.T, root, domain, verify string) {
 	}
 }
 
+// doctorEnv is a *commands.Env for Doctor against w, with cwd as the working
+// directory and a fresh *logger.Recording so runDoctor can read back what was
+// printed.
 func doctorEnv(t *testing.T, w *commandstest.World, cwd string) *commands.Env {
 	t.Helper()
 	home := registrytest.TempDir(t)
@@ -107,6 +110,10 @@ func wantLine(t *testing.T, report, status, subject, detail string) {
 	}
 }
 
+// runDoctor runs commands.Doctor against env (whose Logger must be a
+// *logger.Recording, as doctorEnv builds) and returns its exit code, its
+// printed report joined into one string, and the recorder itself for
+// asserting on the summary line.
 func runDoctor(t *testing.T, env *commands.Env) (int, string, *logger.Recording) {
 	t.Helper()
 	rec, ok := env.Logger.(*logger.Recording)
