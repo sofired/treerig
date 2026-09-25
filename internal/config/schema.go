@@ -8,6 +8,7 @@ import (
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/shape"
+	"github.com/sofired/berth/internal/text"
 )
 
 // The committed configuration file. This is half of the public contract —
@@ -77,6 +78,19 @@ func utf16Len(s string) int {
 	return n
 }
 
+// noControlChars refuses a control character in label or purpose (#19).
+// Neither field is ever shown as typed: render.go's escapeHTML and its text
+// counterpart both run every value through text.Printable before it reaches
+// a terminal or the index page, silently turning a control character into a
+// space or U+FFFD. Rejecting one here instead, with text.HasControl — the
+// same definition Printable itself uses — means `config validate` and `up`
+// catch it up front, with a clear message, rather than showing something
+// other than what was written. TypeScript's schema has no such check; see
+// row 25 in docs/port/divergences.md.
+func noControlChars(value string) bool {
+	return !text.HasControl(value)
+}
+
 // serviceSchema is one [[service]].
 func serviceSchema() *shape.ObjectSchema {
 	return shape.Object(
@@ -96,8 +110,8 @@ func serviceSchema() *shape.ObjectSchema {
 		shape.F("port", shape.Number().Int().Min(1).Max(65_535).Optional()),
 		// Presence on the shared checkout index; omit to keep the service internal.
 		shape.F("index", shape.Object(
-			shape.F("label", shape.String().Min(1).Max(512)),
-			shape.F("purpose", shape.String().Max(512).Default("")),
+			shape.F("label", shape.String().Min(1).Max(512).Refine(noControlChars, "must not contain control characters")),
+			shape.F("purpose", shape.String().Max(512).Default("").Refine(noControlChars, "must not contain control characters")),
 		).Strict().Optional()),
 	).Strict()
 }
