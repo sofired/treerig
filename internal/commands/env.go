@@ -6,7 +6,6 @@ package commands
 import (
 	"io"
 
-	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
@@ -52,10 +51,4 @@ type RemoveOptions struct {
 	LabelNamespace string
 	// Yes skips the confirmation phrase.
 	Yes bool
-}
-
-// NotPorted is what a verb the Go build does not have yet answers with. It
-// points nowhere else: the Go and TypeScript builds must not share a machine.
-func NotPorted(commandName, verb string) error {
-	return clierr.WithCode("'"+commandName+" "+verb+"' is not in the Go build yet.", 2)
 }

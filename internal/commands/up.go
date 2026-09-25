@@ -17,8 +17,9 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
-// Router is what `up` needs from the shared router. The router package
-// (#39) will satisfy this; `up` itself stays unwired (WP5) until it does.
+// Router is what `up` needs from the shared router. Up hands
+// UpWithContext sharedRouter (router.go), the real one; tests hand it a
+// double.
 type Router interface {
 	// Port is what a routed service's URL is printed with; 80 needs no suffix.
 	Port() int
@@ -29,7 +30,8 @@ type Router interface {
 }
 
 // Index is what `up` needs from the checkout index; checkoutindex.Service
-// (#41) satisfies this.
+// (#41) satisfies this, and Up hands UpWithContext bestEffortIndex, which
+// also survives the service failing to build.
 type Index interface {
 	// RefreshBestEffort regenerates the shared index page, warning rather
 	// than failing the caller if it cannot — a stale index is an
@@ -52,14 +54,30 @@ type UpResult struct {
 	URLs  []ServiceURL
 }
 
-// Up is `up`.
-func Up(ctx context.Context, env *Env, router Router, index Index, options UpOptions) error {
+// Up is `up`: the CommandContext, the real shared router, and the real
+// checkout index, all built from env.
+func Up(ctx context.Context, env *Env, options UpOptions) error {
 	cctx, err := Context(env)
 	if err != nil {
 		return err
 	}
-	_, err = UpWithContext(ctx, cctx, router, index, options)
+	svc, state, err := newRouterService(env)
+	if err != nil {
+		return err
+	}
+	router := sharedRouter{env: env, svc: svc, state: state, controlHome: cctx.ControlHome}
+	_, err = UpWithContext(ctx, cctx, router, bestEffortIndex{cctx}, options)
 	return err
+}
+
+// bestEffortIndex is the Index `up` refreshes afterwards: the same
+// refreshIndexBestEffort `down` and `worktree remove` call, so a checkout
+// index that cannot even be built (a symlinked router state directory)
+// warns rather than failing an `up` that has already succeeded.
+type bestEffortIndex struct{ cctx *CommandContext }
+
+func (i bestEffortIndex) RefreshBestEffort(ctx context.Context, reason string) {
+	refreshIndexBestEffort(ctx, i.cctx, reason)
 }
 
 // upRuntime is the Compose runtime up starts services through: the same
