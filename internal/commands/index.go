@@ -20,14 +20,17 @@ import (
 // scope, so a caller that already has the router's own, resolved
 // ProjectName (RouterUp, via newRouterService/router.New) and one that has
 // no router.Router to ask (newCheckoutIndex, below, called from `down` and
-// `worktree remove`, which touch no router) never hand-build two
-// independently-shaped copies of it. projectName "" defaults to
-// router.DefaultName, matching router.New's own default for a caller with
-// nothing more specific to give. lock.RouterScope builds the same scope
-// from an unresolved Getenv, for routerHold; keep the two in step.
+// `worktree remove`; commands.UnlockGlobal, #21) never hand-build two
+// independently-shaped copies of it. projectName "" resolves through
+// router.ResolveProjectName(), the exact function router.New's own default
+// calls too, rather than naming router.DefaultName here a second time — so
+// a caller with no Router built yet to ask can never drift onto a
+// different default than New would have resolved. lock.RouterScope builds
+// the same scope from an unresolved Getenv, for routerHold; keep the two in
+// step.
 func routerLockScope(state layout.RouterLayout, projectName string) lock.Scope {
 	if projectName == "" {
-		projectName = router.DefaultName
+		projectName = router.ResolveProjectName()
 	}
 	return lock.Scope{
 		Target:      state.LockPath,

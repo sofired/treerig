@@ -8,6 +8,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/run"
 )
@@ -42,6 +43,10 @@ type CommandContext struct {
 	Registry    *registry.Registry
 	// Environ is what Compose inherits.
 	Environ []string
+	// Table identifies and inspects processes for lock recovery's survivor
+	// scan (UnlockWithContext); nil defaults to procid.Platform(), carried
+	// over from Env.Table unchanged.
+	Table procid.Table
 	// Lifecycle holds mutations' locks and defers signals; nil builds one that never listens.
 	Lifecycle *lifecycle.Lifecycle
 }
@@ -121,6 +126,7 @@ func Context(env *Env) (*CommandContext, error) {
 		RouterState: routerState,
 		Registry:    reg,
 		Environ:     env.Environ,
+		Table:       env.Table,
 		Lifecycle:   env.Lifecycle,
 	}, nil
 }
