@@ -114,6 +114,26 @@ func TestWorktreeRemove(t *testing.T) {
 		}
 	})
 
+	t.Run("reaps the local worktree through its registration's namespace, not the current config's", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", "dev.other", "api", "mail")
+		// The config's own namespace defaults to brand.LabelNamespace
+		// ("dev.berth"), distinct from the "dev.other" the worktree was
+		// actually registered and labelled under.
+		tc := w.Context("", acme, nil)
+
+		result, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := kinds(result.Resources); !reflect.DeepEqual(got, []string{"container", "container", "volume"}) {
+			t.Fatalf("kinds = %v", got)
+		}
+		if left := w.Docker.Owned(ref, "dev.other"); len(left) != 0 {
+			t.Fatalf("left behind under the registration's namespace: %v", left)
+		}
+	})
+
 	// #19, row 25 in docs/port/divergences.md: `worktree remove` only tears
 	// down what is already there, so — unlike `up` — it loads and proceeds
 	// against a [service.index] label or purpose that carries a control

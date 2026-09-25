@@ -87,6 +87,13 @@ func TestWorktreeStatus(t *testing.T) {
 		if len(printed) != 0 || !slices.Contains(lines, "info: Not registered — run 'berth up' to create this worktree's environment.") {
 			t.Fatalf("lines = %q, printed = %q", lines, printed)
 		}
+		scan, err := registry.ScanRegistrations(w.ControlHome)
+		if err != nil {
+			t.Fatalf("ScanRegistrations: %v", err)
+		}
+		if len(scan.Records) != 0 {
+			t.Fatalf("expected no registry records, got %+v", scan.Records)
+		}
 	})
 }
 
@@ -121,6 +128,13 @@ func TestWorktreeDown(t *testing.T) {
 		err := commands.DownWithContext(ctx, w.Context("", acme, nil).CommandContext)
 		if err == nil || !regexp.MustCompile(regexp.QuoteMeta("This worktree is not registered. Run 'berth up' first.")).MatchString(err.Error()) {
 			t.Fatalf("err = %v", err)
+		}
+		scan, err := registry.ScanRegistrations(w.ControlHome)
+		if err != nil {
+			t.Fatalf("ScanRegistrations: %v", err)
+		}
+		if len(scan.Records) != 0 {
+			t.Fatalf("expected no registry records, got %+v", scan.Records)
 		}
 	})
 

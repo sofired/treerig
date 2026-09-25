@@ -2,10 +2,13 @@ package commands_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/checkoutindex/card"
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
@@ -211,6 +214,30 @@ func TestUpWithContext(t *testing.T) {
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
 		wantErr(t, err, "was re-labelled under dev.other while 'berth up' was waiting for the shared router")
+	})
+
+	t.Run("refuses when the checkout's identity markers changed while waiting for the router", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		router := commandstest.NewFakeRouter(80, "berth-router")
+		router.BeforeEnsure(func() {
+			identity, err := tc.Registry.Identities.Inspect(context.Background(), tc.Registry.Identities.Root, registry.InspectOptions{})
+			if err != nil || identity == nil {
+				t.Fatalf("inspect: %v, %v", identity, err)
+			}
+			// Overwritten with a different, still well-formed UUID: exactly
+			// what a concurrent process re-minting the marker would leave, and
+			// distinct from the "registration was removed" case above, which
+			// never touches the marker itself.
+			marker := filepath.Join(identity.GitDir, brand.MarkerDir, "worktree-id")
+			if err := os.WriteFile(marker, []byte("11111111-1111-4111-8111-111111111111\n"), 0o600); err != nil {
+				t.Fatalf("rewrite worktree marker: %v", err)
+			}
+		})
+		index := &commandstest.FakeIndex{}
+
+		_, err := up(t, tc, router, index, commands.UpOptions{})
+		wantErr(t, err, "This checkout's berth markers changed or were removed while 'berth up' was waiting for the shared router")
 	})
 
 	// #19, row 25 in docs/port/divergences.md: the base loader accepts a
