@@ -2,6 +2,8 @@ package osrun
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -188,13 +190,100 @@ func TestRunnerTimeout(t *testing.T) {
 	}
 }
 
+func TestRunnerAlreadyCancelledContext(t *testing.T) {
+	dir := scratch(t)
+	marker := filepath.Join(dir, "ran")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := New().Run(ctx, run.Spec{Command: "sh", Args: []string{"-c", "touch " + marker}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected no subprocess to have run at all, got stat err %v", statErr)
+	}
+}
+
+func TestRunnerInteractiveOutput(t *testing.T) {
+	t.Run("wires the child straight to this process's stdio instead of capturing it", func(t *testing.T) {
+		read, write, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		previous := os.Stdout
+		os.Stdout = write
+		defer func() { os.Stdout = previous }()
+
+		result, runErr := New().Run(context.Background(), run.Spec{
+			Command: "sh", Args: []string{"-c", "echo on the terminal"}, Output: run.Interactive,
+		})
+		write.Close()
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+
+		seen, err := io.ReadAll(read)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(string(seen)) != "on the terminal" {
+			t.Fatalf("this process's stdout saw %q, want the child's output", seen)
+		}
+		if result.Stdout != "" || result.Stderr != "" {
+			t.Fatalf("expected nothing captured for an interactive command, got %+v", result)
+		}
+	})
+
+	t.Run("tracks an interactive child by its bare PID, not a process group it never leads", func(t *testing.T) {
+		runner := New()
+		done := make(chan struct{})
+		go func() {
+			_, _ = runner.Run(context.Background(), run.Spec{
+				Command: "sleep", Args: []string{"30"}, Output: run.Interactive,
+			})
+			close(done)
+		}()
+
+		// Polls the tracked set itself, rather than a side channel like a
+		// marker file: the only thing this subtest needs to be true, and the
+		// only way to avoid a race against how fast the child is scheduled.
+		var pid int
+		var group bool
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			runner.mu.Lock()
+			n := len(runner.targets)
+			for tracked := range runner.targets {
+				pid, group = tracked.pid, tracked.group
+			}
+			runner.mu.Unlock()
+			if n == 1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the child was never tracked")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if group {
+			t.Fatal("tracked as a process group, want a bare PID")
+		}
+
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+			t.Fatal(err)
+		}
+		<-done
+	})
+}
+
 func TestRunnerOutputOverflow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("writes over the 100 MB output limit")
 	}
-	result, err := New().Run(context.Background(), run.Spec{
-		Command: "dd", Args: []string{"if=/dev/zero", "bs=1M", "count=150"}, AllowFailure: true,
-	})
+	overflow := run.Spec{Command: "dd", Args: []string{"if=/dev/zero", "bs=1M", "count=150"}, AllowFailure: true}
+
+	result, err := New().Run(context.Background(), overflow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +292,15 @@ func TestRunnerOutputOverflow(t *testing.T) {
 	}
 	if len(result.Stdout) > run.OutputLimit {
 		t.Fatalf("captured %d bytes, want at most %d", len(result.Stdout), run.OutputLimit)
+	}
+
+	// Rejected the same way, its wording names the overflow rather than
+	// burying it under a plain exit code or a signal.
+	overflow.AllowFailure = false
+	_, err = New().Run(context.Background(), overflow)
+	want := "Command failed (dd if=/dev/zero bs=1M count=150): produced more than 100 MB of output and was stopped"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
 	}
 }
 

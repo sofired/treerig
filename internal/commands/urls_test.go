@@ -7,6 +7,7 @@ import (
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
 	"github.com/sofired/berth/internal/config"
+	"github.com/sofired/berth/internal/registry"
 )
 
 // serviceConfig is a config with an indexed service, a subdomain-only
@@ -113,6 +114,13 @@ func TestUrlsCommand(t *testing.T) {
 		}
 		if err.Error() != "This worktree is not registered. Run 'berth up' first." {
 			t.Fatalf("unexpected message: %q", err.Error())
+		}
+		scan, err := registry.ScanRegistrations(w.ControlHome)
+		if err != nil {
+			t.Fatalf("ScanRegistrations: %v", err)
+		}
+		if len(scan.Records) != 0 {
+			t.Fatalf("expected no registry records, got %+v", scan.Records)
 		}
 	})
 
