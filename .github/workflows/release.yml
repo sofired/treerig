@@ -1,0 +1,88 @@
+name: Release
+
+# Builds the four release targets on every push to main (so a binary from
+# main is always available without waiting for a tag) and on every version
+# tag. Publishing a GitHub Release from these binaries is #8, not this
+# workflow: here "release" means "produced the way a release would build
+# it," not "published."
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The tag name (with its leading v stripped) on a tag push, so
+      # `--version` matches what the tag says; a dev version carrying the
+      # short commit on every other push, so a main build is never
+      # mistakable for a tagged one. A plain `go build` with no ldflags
+      # still prints brand.Version's own "0.1.0" default, untouched.
+      - name: Determine version
+        id: version
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-dev+${GITHUB_SHA::12}"
+          fi
+          # Goes straight into -ldflags -X below; a tag name with a quote
+          # or space in it would otherwise break the build step's quoting.
+          # A bare `v` tag leaves nothing to print for `--version`.
+          case "$version" in
+            '')
+              echo "::error::tag '${GITHUB_REF_NAME}' has no version after its leading v" >&2
+              exit 1
+              ;;
+            *[!A-Za-z0-9.+-]*)
+              echo "::error::tag '${GITHUB_REF_NAME}' isn't a safe version string (only letters, digits, '.', '+', '-')" >&2
+              exit 1
+              ;;
+          esac
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      # linux/darwin x amd64/arm64: the same four targets tools/bench
+      # reports sizes for. CGO_ENABLED=0 matches go.yml's "Tests without
+      # cgo, as released" leg -- releases never link cgo.
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            out="dist/berth-${goos}-${goarch}"
+            echo "building ${out} (version ${VERSION})"
+            GOOS="${goos}" GOARCH="${goarch}" go build \
+              -trimpath \
+              -ldflags "-s -w -X github.com/sofired/berth/internal/brand.Version=${VERSION}" \
+              -o "${out}" \
+              ./cmd/berth
+          done
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum berth-* | tee checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: berth-${{ steps.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error

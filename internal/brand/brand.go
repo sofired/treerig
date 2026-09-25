@@ -37,9 +37,17 @@ const (
 	LabelNamespace = "dev.berth"
 	// EnvPrefix prefixes the environment variables handed to hooks, e.g. BERTH_STAGE.
 	EnvPrefix = "BERTH"
-	// Version is what `--version` prints.
-	Version = "0.1.0"
 )
+
+// Version is what `--version` prints. It stays "0.1.0" for a plain `go
+// build`, including in tests, which is what the golden corpus (recorded
+// from the TypeScript build's own package.json version) pins. The release
+// workflow overrides it at build time with the tag, via
+//
+//	-ldflags "-X github.com/sofired/berth/internal/brand.Version=<version>"
+//
+// which requires a var: -X cannot set a const.
+var Version = "0.1.0"
 
 // LabelNamespacePattern is what a label namespace must look like: a reverse domain.
 var LabelNamespacePattern = regexp.MustCompile(`^[a-z0-9]+(\.[a-z0-9-]+)+$`)
