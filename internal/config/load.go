@@ -88,6 +88,11 @@ func Load(file string) (*Loaded, error) {
 	return &Loaded{Config: cfg, File: resolved, Root: filepath.Dir(resolved)}, nil
 }
 
+// exampleFileURL is where the missing-config hint points for the annotated
+// example: a released binary carries no source tree of its own, so the hint
+// names something a binary-only install still has access to.
+const exampleFileURL = "https://github.com/sofired/berth/blob/main/" + brand.ExampleFile
+
 // LoadNearest loads the nearest berth.toml above startDir, or fails with a
 // hint that names something that exists.
 func LoadNearest(startDir string) (*Loaded, error) {
@@ -99,9 +104,9 @@ func LoadNearest(startDir string) (*Loaded, error) {
 		return nil, clierr.Newf(
 			"No %s found in %s or any parent directory. "+
 				"Create it at the root of the repository you want to manage, or point at an existing one with --config <path>. "+
-				"The Quick start in %s's README has a minimal template, and %s in "+
-				"%s's own source tree is the annotated version.",
-			brand.ConfigFile, startDir, brand.Name, brand.ExampleFile, brand.Name,
+				"The Quick start in %s's README has a minimal template, and the annotated version, "+
+				"%s, is at %s.",
+			brand.ConfigFile, startDir, brand.Name, brand.ExampleFile, exampleFileURL,
 		)
 	}
 	return Load(file)

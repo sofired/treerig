@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/layout"
@@ -493,6 +494,105 @@ func TestInventoryReap(t *testing.T) {
 		err := rt.Reap(ctx, ref, worktree.OwnedResource{Kind: "container", ID: "c1"})
 		if err == nil || !strings.Contains(err.Error(), "ownership labels do not match") || fake.removals() {
 			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
+// isRemovalCall matches Reap's own removal args ("rm --force <id>",
+// "volume rm <id>", "network rm <id>", "image rm <id>") the same way
+// TestInventoryReap's own "removals" subtest reads f.calls: everything that
+// is not a compose call, an inspect (--format) or a list (--filter).
+func isRemovalCall(call run.Spec) bool {
+	return len(call.Args) > 0 && call.Args[0] != "compose" &&
+		!slices.Contains(call.Args, "--format") && !slices.Contains(call.Args, "--filter")
+}
+
+// TestComposeTimeouts is #14: every bounded call — compose config, compose
+// ps, and Inventory's own ps/ls/inspect — carries Timeouts.Probe (30s by
+// default, matching row 12's router precedent), Reap's removal carries
+// Timeouts.Remove (a minute by default), and `up`/`down` carry neither,
+// deliberately, since both stay long-running by design (see compose.go's
+// own timeouts comment).
+func TestComposeTimeouts(t *testing.T) {
+	ctx := context.Background()
+	t.Run("bounds compose config, compose ps and Inventory's own probes to Timeouts.Probe, and Reap's removal to Timeouts.Remove", func(t *testing.T) {
+		fake := populated()
+		controlHome := t.TempDir()
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns, Runner: fake, Logger: logger.Silent{},
+			Timeouts: Timeouts{Probe: 7 * time.Second, Remove: 11 * time.Second},
+		})
+		if _, err := rt.Status(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+		owned, err := rt.Inventory(ctx, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.Reap(ctx, ref, owned[0]); err != nil {
+			t.Fatal(err)
+		}
+
+		var sawRemoval bool
+		for _, call := range fake.calls {
+			if isRemovalCall(call) {
+				sawRemoval = true
+				if call.Timeout != 11*time.Second {
+					t.Errorf("removal %v: Timeout = %s, want 11s", call.Args, call.Timeout)
+				}
+				continue
+			}
+			if call.Timeout != 7*time.Second {
+				t.Errorf("call %v: Timeout = %s, want 7s", call.Args, call.Timeout)
+			}
+		}
+		if !sawRemoval {
+			t.Fatal("Reap made no removal call")
+		}
+	})
+
+	t.Run("defaults to 30s for probes and a minute for removal when Options.Timeouts is unset", func(t *testing.T) {
+		fake := populated()
+		rt, _ := newRuntime(t, fake)
+		if _, err := rt.Status(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+		owned, err := rt.Inventory(ctx, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.Reap(ctx, ref, owned[0]); err != nil {
+			t.Fatal(err)
+		}
+		for _, call := range fake.calls {
+			want := dockerProbeTimeout
+			if isRemovalCall(call) {
+				want = removeTimeout
+			}
+			if call.Timeout != want {
+				t.Errorf("call %v: Timeout = %s, want %s", call.Args, call.Timeout, want)
+			}
+		}
+	})
+
+	t.Run("up and down carry no timeout of their own — long-running by design", func(t *testing.T) {
+		fake := newFake()
+		rt, controlHome := newRuntime(t, fake)
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.Down(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+		for _, verb := range []string{"up", "down"} {
+			for _, call := range fake.composeCalls(verb) {
+				if call.Timeout != 0 {
+					t.Errorf("%s: Timeout = %s, want 0 (unbounded)", verb, call.Timeout)
+				}
+			}
 		}
 	})
 }

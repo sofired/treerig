@@ -67,7 +67,8 @@ func (c *Compose) ownershipLabels(ref worktree.Ref) *jsonKV {
 // uses) and readOrderedModel (the order-preserving form Up needs).
 func (c *Compose) composeConfigJSON(ctx context.Context, ref worktree.Ref) (string, error) {
 	file := c.options.ComposeFile
-	result, err := c.compose(ctx, ref, []string{"config", "--format", "json"}, []string{file}, run.Spec{AllowFailure: true})
+	result, err := c.compose(ctx, ref, []string{"config", "--format", "json"}, []string{file},
+		run.Spec{AllowFailure: true, Timeout: c.timeouts.Probe})
 	if err != nil {
 		return "", err
 	}
@@ -572,7 +573,9 @@ func marshalOverrideDocument(doc *jsonKV) ([]byte, error) {
 }
 
 // Up writes the override, then starts services — every declared service
-// when services is empty.
+// when services is empty. `compose up` itself deliberately carries no
+// Timeout (#14), only its own `--wait-timeout` flag: see compose.go's own
+// timeouts comment for why.
 func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) error {
 	overrideFiles, err := c.prepare(ctx, ref)
 	if err != nil {
