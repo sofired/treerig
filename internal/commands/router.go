@@ -65,24 +65,21 @@ func routerHold(ctx context.Context, env *Env, projectName string, action func(c
 	return life.Hold(ctx, lifecycle.Env{Logger: env.Logger, Runner: quiescer, Invocation: env.Invocation}, lifecycle.Requests{Router: &scope}, action)
 }
 
-// RouterUp is `router up`: start the shared router and verify its hardened
-// configuration.
-func RouterUp(ctx context.Context, env *Env) error {
-	svc, state, err := newRouterService(env)
-	if err != nil {
-		return err
-	}
+// ensureSharedRouter is what `router up` and `up` both do to make sure the
+// shared router is up: secure its state directory, then — under the
+// router's lock, taken alone — Ensure it and hand this control home's
+// TypeScript-era router state over to the machine-wide one. The TypeScript
+// build's router.ensure() took its lock itself; here the caller holds it
+// (see internal/router's package comment), so both verbs go through this
+// one function rather than two copies of the same hold.
+func ensureSharedRouter(ctx context.Context, env *Env, svc *router.Router, state layout.RouterLayout, controlHome string) error {
 	// Before the router lock is ever taken: lock.New creates <StateDir>/lock
 	// and its holder record the moment it is acquired, so a symlinked state
 	// directory must be refused first, not found out about via a failed Ensure.
 	if err := router.SecureState(state); err != nil {
 		return err
 	}
-	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
-	if err != nil {
-		return err
-	}
-	err = routerHold(ctx, env, svc.ProjectName, func(ctx context.Context) error {
+	return routerHold(ctx, env, svc.ProjectName, func(ctx context.Context) error {
 		if err := svc.Ensure(ctx); err != nil {
 			return err
 		}
@@ -98,7 +95,35 @@ func RouterUp(ctx context.Context, env *Env) error {
 		}
 		return nil
 	})
+}
+
+// sharedRouter is the Router `up` hands UpWithContext: the real shared
+// router, ensured exactly as `router up` ensures it.
+type sharedRouter struct {
+	env         *Env
+	svc         *router.Router
+	state       layout.RouterLayout
+	controlHome string
+}
+
+func (r sharedRouter) Port() int       { return r.svc.Port }
+func (r sharedRouter) Network() string { return r.svc.Network }
+func (r sharedRouter) Ensure(ctx context.Context) error {
+	return ensureSharedRouter(ctx, r.env, r.svc, r.state, r.controlHome)
+}
+
+// RouterUp is `router up`: start the shared router and verify its hardened
+// configuration.
+func RouterUp(ctx context.Context, env *Env) error {
+	svc, state, err := newRouterService(env)
 	if err != nil {
+		return err
+	}
+	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+	if err != nil {
+		return err
+	}
+	if err := ensureSharedRouter(ctx, env, svc, state, controlHome); err != nil {
 		return err
 	}
 	// (#15) Neither the TypeScript build nor Ensure itself ever regenerates

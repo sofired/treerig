@@ -21,9 +21,7 @@ package cli_test
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
 // depend on a command's own body. Two specific exceptions are documented at
-// their case below. The verbs not yet in the Go build are covered separately
-// in wiring_test.go, against commands.NotPorted's own message rather than the
-// oracle, since the oracle runs the real thing.
+// their case below.
 
 import (
 	"bytes"

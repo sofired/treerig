@@ -1,15 +1,7 @@
 package cli_test
 
-// Wiring checks for the verbs this package hands to commands.NotPorted —
-// not against the oracle, since node runs the real thing for every one of
-// these and would not agree with a stub. What is checked instead is that
-// cli.Main reaches the right verb string, in the right shape (exit 2, the
-// exact message commands.NotPorted builds), which is what would tell us if
-// this package's own dispatch were wrong.
-//
-// A verb leaves this list as it is ported (see docs/port/process.md); the
-// ported verbs are covered by their own packages' tests and by the parity
-// tests, not here.
+// Wiring checks for the one verb whose "not yet" answer is fixed in this
+// package rather than in a command body.
 
 import (
 	"bytes"
@@ -17,46 +9,10 @@ import (
 	"testing"
 
 	"github.com/sofired/berth/internal/cli"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
 )
 
-func TestNotPortedVerbs(t *testing.T) {
-	cases := []struct {
-		name string
-		args []string
-		verb string
-	}{
-		{"up", []string{"up"}, "up"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			want := commands.NotPorted("berth", tc.verb)
-
-			var stdout, stderr bytes.Buffer
-			args := append([]string{"berth"}, tc.args...)
-			code := cli.Main(args, strings.NewReader(""), &stdout, &stderr, emptyGetenv)
-
-			if stdout.Len() != 0 {
-				t.Errorf("stdout = %q, want empty", stdout.String())
-			}
-			wantErr := "[berth] ERROR: " + want.Error() + "\n"
-			if stderr.String() != wantErr {
-				t.Errorf("stderr = %q, want %q", stderr.String(), wantErr)
-			}
-			if code != clierr.Code(want) {
-				t.Errorf("exit code = %d, want %d", code, clierr.Code(want))
-			}
-		})
-	}
-}
-
-// TestDevNotImplemented checks the one verb whose "not yet" message is
-// fixed directly in this package (see program.go) rather than built by
-// commands.NotPorted, since it is worded and exit-coded differently
-// ("'%s dev' is not implemented yet...", not "...is not in the Go build yet.").
-// Its wording is also covered end to end, against the oracle, by
+// TestDevNotImplemented checks `dev`, which neither build implements yet:
+// its message is fixed directly in this package (see program.go). Its wording is also covered end to end, against the oracle, by
 // TestGolden's dev-not-implemented case; this one exists to pin the exit
 // code and stream by name.
 func TestDevNotImplemented(t *testing.T) {
