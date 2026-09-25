@@ -44,15 +44,28 @@ func Parse(contents []byte, file string) (Config, error) {
 	}
 
 	value, issues := shape.Parse(rootSchema(), obj)
-	if len(issues) > 0 {
-		lines := make([]string, len(issues))
-		for i, issue := range issues {
-			lines[i] = fmt.Sprintf("  %s: %s", shape.PathString(issue.Path), issue.Message)
-		}
-		return Config{}, clierr.Newf("%s is not a valid %s:\n%s", file, brand.ConfigFile, strings.Join(lines, "\n"))
+	if err := issuesError(file, issues); err != nil {
+		return Config{}, err
 	}
 
 	return decodeConfig(value.(*shape.Obj)), nil
+}
+
+// issuesError formats a batch of issues the way a schema failure is
+// reported: "<file> is not a valid <ConfigFile>:" followed by one indented
+// "path: message" line per issue, in order. Parse's own schema issues and
+// StartIssues (start.go) — a separate check callers run after a load that
+// already succeeded — share this, so the two kinds of problem read
+// identically. Reports nil for an empty batch.
+func issuesError(file string, issues []shape.Issue) error {
+	if len(issues) == 0 {
+		return nil
+	}
+	lines := make([]string, len(issues))
+	for i, issue := range issues {
+		lines[i] = fmt.Sprintf("  %s: %s", shape.PathString(issue.Path), issue.Message)
+	}
+	return clierr.Newf("%s is not a valid %s:\n%s", file, brand.ConfigFile, strings.Join(lines, "\n"))
 }
 
 // Load reads and validates one file.
@@ -75,6 +88,11 @@ func Load(file string) (*Loaded, error) {
 	return &Loaded{Config: cfg, File: resolved, Root: filepath.Dir(resolved)}, nil
 }
 
+// exampleFileURL is where the missing-config hint points for the annotated
+// example: a released binary carries no source tree of its own, so the hint
+// names something a binary-only install still has access to.
+const exampleFileURL = "https://github.com/sofired/berth/blob/main/" + brand.ExampleFile
+
 // LoadNearest loads the nearest berth.toml above startDir, or fails with a
 // hint that names something that exists.
 func LoadNearest(startDir string) (*Loaded, error) {
@@ -86,9 +104,9 @@ func LoadNearest(startDir string) (*Loaded, error) {
 		return nil, clierr.Newf(
 			"No %s found in %s or any parent directory. "+
 				"Create it at the root of the repository you want to manage, or point at an existing one with --config <path>. "+
-				"The Quick start in %s's README has a minimal template, and %s in "+
-				"%s's own source tree is the annotated version.",
-			brand.ConfigFile, startDir, brand.Name, brand.ExampleFile, brand.Name,
+				"The Quick start in %s's README has a minimal template, and the annotated version, "+
+				"%s, is at %s.",
+			brand.ConfigFile, startDir, brand.Name, brand.ExampleFile, exampleFileURL,
 		)
 	}
 	return Load(file)

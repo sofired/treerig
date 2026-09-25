@@ -1288,6 +1288,28 @@ func jsonLabels(routerName, rule string) string {
 /* ------------------------------------------------------ doctor in a checkout ---- */
 
 func TestDoctorInACheckoutSections(t *testing.T) {
+	// #19, row 25 in docs/port/divergences.md: doctor answers "would up
+	// work?", so its berth.toml line fails on the same control character in
+	// a [service.index] label or purpose that `up` and `config validate`
+	// refuse, with the exact message `config validate` itself would print
+	// — not a warning, since `up` against this same file refuses outright.
+	t.Run("fails the berth.toml check when a service index label or purpose carries a control character", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb"}
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		checks := section(sections, "This checkout")
+		want := config.CheckStart(f.loaded).Error()
+		if checks[0].Status != StatusFail || checks[0].Subject != brand.ConfigFile || checks[0].Detail != want {
+			t.Fatalf("got %+v, want fail %s: %q", checks[0], brand.ConfigFile, want)
+		}
+		if code := doctorExitCode(sections); code != 1 {
+			t.Fatalf("code = %d, want 1", code)
+		}
+	})
+
 	t.Run("skips the worktree and its verify hook until the worktree is registered", func(t *testing.T) {
 		f := newCheckoutFixture(t, "./verify")
 		sections, err := doctorSections(context.Background(), f.opts())

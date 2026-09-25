@@ -829,6 +829,24 @@ func findCheckout(explicit, cwd string) (checkoutSource, error) {
 	return checkoutIsLoaded(loaded), nil
 }
 
+// checkoutFileCheck is the first line of "This checkout": ok when loaded
+// parsed cleanly (the base loader is lenient — see internal/config/start.go),
+// fail when config.CheckStart finds a control character in a
+// [service.index] label or purpose (#19, row 25 in
+// docs/port/divergences.md), with the exact wording `config validate`
+// itself would refuse with. doctor answers "would up work?", so this is a
+// failed check, not a warning: `up` against this same file refuses outright.
+// A multi-line message like this one prints on the section's single line
+// the same way an unrecognized-key or other multi-line schema error already
+// does in the "unloadable" case above — formatDoctorReport's text.Printable
+// turns each embedded newline into a space.
+func checkoutFileCheck(loaded *config.Loaded) Check {
+	if err := config.CheckStart(loaded); err != nil {
+		return Check{Status: StatusFail, Subject: brand.ConfigFile, Detail: err.Error()}
+	}
+	return Check{Status: StatusOK, Subject: brand.ConfigFile, Detail: loaded.File}
+}
+
 // checkoutChecks is this worktree, registered or not, and its verify hook.
 // Each step runs on its own: a checkout Git cannot identify still has a
 // config worth reporting, and its verify hook still deserves a line saying
@@ -836,7 +854,7 @@ func findCheckout(explicit, cwd string) (checkoutSource, error) {
 // during the verify hook itself, either of which ends the whole command
 // (see guarded and checkoutChecks' two direct callers of reg.Current/RunHook below).
 func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Loaded) ([]Check, error) {
-	checks := []Check{{Status: StatusOK, Subject: brand.ConfigFile, Detail: loaded.File}}
+	checks := []Check{checkoutFileCheck(loaded)}
 
 	var reg checkoutRegistry
 	var regErr error

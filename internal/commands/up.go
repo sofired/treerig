@@ -131,6 +131,14 @@ func upStages(firstTime bool) []config.HookStage {
 // registering and waiting for the router happen unlocked, so a slow router
 // start cannot hold the worktree lock the whole time.
 func UpWithContext(ctx context.Context, cctx *CommandContext, router Router, index Index, options UpOptions) (*UpResult, error) {
+	// Refuses before anything else here — including refuseRelabelling
+	// below, which can itself make a Docker call — a control character in
+	// [service.index] label or purpose (#19, row 25 in
+	// docs/port/divergences.md). The base loader that built cctx.Loaded
+	// stays lenient; only a command about to start something checks.
+	if err := config.CheckStart(cctx.Loaded); err != nil {
+		return nil, err
+	}
 	if err := refuseRelabelling(ctx, cctx); err != nil {
 		return nil, err
 	}

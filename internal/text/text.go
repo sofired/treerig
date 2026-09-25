@@ -19,6 +19,38 @@ import (
 	"unicode/utf8"
 )
 
+// IsControl reports whether r is one of the characters Printable neutralizes:
+// the C0 controls (0x00–0x1F, including the common whitespace ones), DEL,
+// the C1 controls (0x80–0x9F), the line and paragraph separators (U+2028,
+// U+2029, which no newline-based split sees), and every Unicode format
+// character (category Cf) — bidi overrides and embeddings among them —
+// except the zero-width joiners, which carry meaning in ordinary text.
+// Deliberately narrower than every control category: private-use and
+// unassigned code points are left alone.
+func IsControl(r rune) bool {
+	switch {
+	case r == '\t' || r == '\n' || r == '\r':
+		return true
+	case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == 0x2028 || r == 0x2029:
+		return true
+	case unicode.Is(unicode.Cf, r) && r != 0x200c && r != 0x200d:
+		return true
+	default:
+		return false
+	}
+}
+
+// HasControl reports whether value contains any character IsControl reports
+// true for.
+func HasControl(value string) bool {
+	for _, r := range value {
+		if IsControl(r) {
+			return true
+		}
+	}
+	return false
+}
+
 // Printable replaces what could drive a terminal with U+FFFD.
 //
 // Whitespace becomes a space rather than a replacement character: messages
@@ -33,9 +65,7 @@ func Printable(value string) string {
 		switch {
 		case r == '\t' || r == '\n' || r == '\r':
 			b.WriteByte(' ')
-		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == 0x2028 || r == 0x2029:
-			b.WriteRune(utf8.RuneError)
-		case unicode.Is(unicode.Cf, r) && r != 0x200c && r != 0x200d:
+		case IsControl(r):
 			b.WriteRune(utf8.RuneError)
 		default:
 			b.WriteRune(r)

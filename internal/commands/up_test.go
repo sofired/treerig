@@ -210,4 +210,27 @@ func TestUpWithContext(t *testing.T) {
 		_, err := up(t, tc, router, index, commands.UpOptions{})
 		wantErr(t, err, "was re-labelled under dev.other while 'berth up' was waiting for the shared router")
 	})
+
+	// #19, row 25 in docs/port/divergences.md: the base loader accepts a
+	// control character in [service.index] label or purpose — down,
+	// worktree remove, status and the rest load the same file and proceed
+	// — but `up` itself is one of the few callers that refuses one, and it
+	// must refuse before making any Docker call.
+	t.Run("refuses a control character in a service index label or purpose, before ensuring the router", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+		tc.Loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb"}
+		router := commandstest.NewFakeRouter(80, "berth-router")
+		index := &commandstest.FakeIndex{}
+
+		_, err := up(t, tc, router, index, commands.UpOptions{})
+		want := tc.Loaded.File + " is not a valid berth.toml:\n  service.0.index.label: must not contain control characters"
+		if err == nil || err.Error() != want {
+			t.Fatalf("err = %v, want %q", err, want)
+		}
+		if router.Ensures() != 0 {
+			t.Fatalf("router.Ensures() = %d, want 0: up must refuse before touching Docker", router.Ensures())
+		}
+	})
 }

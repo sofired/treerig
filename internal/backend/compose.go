@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
@@ -30,6 +31,57 @@ import (
 	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
+
+// Docker-call timeouts (#14): the TypeScript build set none of these either,
+// apart from `up`'s own `--wait-timeout` flag (Options.WaitTimeoutSeconds),
+// which bounds only `up --wait`'s health-check wait — not the request even
+// reaching Docker. Every introspection call — `compose config`, `compose
+// ps`, and Inventory's own `ps`/`ls`/`inspect` per resource kind — is timed
+// the same as doctor.ts's own docker inspect probes (DOCKER_PROBE_TIMEOUT_MS)
+// and divergence row 12's router precedent: 30s. Reap's removal of one
+// resource gets a minute, the same generous room row 12 gives the router's
+// own `compose down` for a slow teardown — plenty even on slow storage for a
+// single container, volume, network or image, which is a much smaller thing
+// to remove than the router's whole three-container stack.
+//
+// `up` and this worktree's own `compose down` stay unbounded, deliberately:
+// `up` may need to pull or build arbitrary images, which can legitimately
+// take longer than any fixed cap. `compose down`'s own `-t`/`--timeout`
+// defaults to unset, which sends the daemon no override at all, so each
+// container's own `stop_grace_period` — set by the consumer's Compose file,
+// not by this build — governs how long a graceful stop is allowed to take;
+// a big stack with a deliberately generous grace period is exactly the
+// "long-running by design" case a fixed timeout would fail while it is
+// working as configured, not hung. This differs from the router's own
+// `Down`, bounded to a minute (row 12): that stack is small, fixed, and
+// owned by this build, not an arbitrary consumer's.
+const (
+	dockerProbeTimeout = 30 * time.Second
+	removeTimeout      = 1 * time.Minute
+)
+
+// Timeouts overrides the runtime's per-call docker timeouts; a zero field
+// keeps this port's own default. Production leaves it unset; tests use it to
+// prove a hung `docker` is caught in milliseconds rather than seconds.
+type Timeouts struct {
+	// Probe bounds compose config, compose ps, and Inventory's own
+	// ps/ls/inspect calls; default dockerProbeTimeout.
+	Probe time.Duration
+	// Remove bounds Reap's removal of one resource; default removeTimeout.
+	Remove time.Duration
+}
+
+// withDefaults fills every unset (zero or negative) field with this
+// package's own default.
+func (t Timeouts) withDefaults() Timeouts {
+	if t.Probe <= 0 {
+		t.Probe = dockerProbeTimeout
+	}
+	if t.Remove <= 0 {
+		t.Remove = removeTimeout
+	}
+	return t
+}
 
 // Compose's own labels.
 const (
@@ -64,15 +116,20 @@ type Options struct {
 	// substitutes the default for null or undefined, so an explicit 0 (unlike
 	// a plain zero-value int) is not mistaken for "unset".
 	WaitTimeoutSeconds *int
+	// Timeouts overrides this runtime's per-call docker timeouts (#14).
+	Timeouts Timeouts
 }
 
 // Compose is the Compose runtime.
 type Compose struct {
-	options Options
+	options  Options
+	timeouts Timeouts
 }
 
 // NewCompose makes a runtime.
-func NewCompose(options Options) *Compose { return &Compose{options: options} }
+func NewCompose(options Options) *Compose {
+	return &Compose{options: options, timeouts: options.Timeouts.withDefaults()}
+}
 
 // project is the Compose project name a worktree's own resources are stamped
 // and looked up with.
@@ -145,7 +202,8 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 	return parsed, nil
 }
 
-// Down stops the project; data is kept.
+// Down stops the project; data is kept. Deliberately carries no Timeout
+// (#14): see this file's own timeouts comment for why.
 func (c *Compose) Down(ctx context.Context, ref worktree.Ref) error {
 	_, err := c.compose(ctx, ref, []string{"down", "--remove-orphans"}, nil, run.Spec{Output: run.Tee})
 	return err
@@ -157,7 +215,7 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	if err != nil {
 		return nil, err
 	}
-	result, err := c.compose(ctx, ref, []string{"ps", "--format", "json", "--all"}, nil, run.Spec{AllowFailure: true})
+	result, err := c.compose(ctx, ref, []string{"ps", "--format", "json", "--all"}, nil, run.Spec{AllowFailure: true, Timeout: c.timeouts.Probe})
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +383,7 @@ func (c *Compose) list(ctx context.Context, kind resourceType, filters []string)
 	for _, filter := range filters {
 		args = append(args, "--filter", "label="+filter)
 	}
-	result, err := docker.Run(ctx, c.options.Runner, args, run.Spec{})
+	result, err := docker.Run(ctx, c.options.Runner, args, run.Spec{Timeout: c.timeouts.Probe})
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +413,7 @@ func (c *Compose) verify(ctx context.Context, ref worktree.Ref, kind resourceTyp
 		label(ComposeServiceLabel),
 	}, "\t")
 	args := append(slices.Clone(kind.inspectCommand), "--format", format, id)
-	result, err := docker.Run(ctx, c.options.Runner, args, run.Spec{AllowFailure: true})
+	result, err := docker.Run(ctx, c.options.Runner, args, run.Spec{AllowFailure: true, Timeout: c.timeouts.Probe})
 	if err != nil {
 		return "", err
 	}
@@ -433,7 +491,7 @@ func (c *Compose) Reap(ctx context.Context, ref worktree.Ref, resource worktree.
 	if _, err := c.verify(ctx, ref, kind, resource.ID); err != nil {
 		return err
 	}
-	if _, err := docker.Run(ctx, c.options.Runner, append(slices.Clone(kind.removeArgs), resource.ID), run.Spec{}); err != nil {
+	if _, err := docker.Run(ctx, c.options.Runner, append(slices.Clone(kind.removeArgs), resource.ID), run.Spec{Timeout: c.timeouts.Remove}); err != nil {
 		return err
 	}
 	c.options.Logger.Info(fmt.Sprintf("Removed %s %s.", resource.Kind, resource.ID))
