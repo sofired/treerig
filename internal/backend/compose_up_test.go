@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -128,6 +129,51 @@ func TestComposeUp(t *testing.T) {
 		got := environ(fake.composeCalls("up")[0])
 		if got["COMPOSE_PROFILES"] != "debug" {
 			t.Fatalf("COMPOSE_PROFILES = %q, want it to reach the `up` call unchanged", got["COMPOSE_PROFILES"])
+		}
+	})
+
+	t.Run("refuses to start a named service Compose left out of the model it labels, before writing or starting anything", func(t *testing.T) {
+		fake := newFake()
+		controlHome := t.TempDir()
+		// No COMPOSE_PROFILES: `compose config` omits debugOnly, yet
+		// `compose up debugOnly` would enable its profile and start it unlabelled.
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns,
+			Runner: fake, Logger: logger.Silent{},
+			Environ: []string{"PATH=/bin"},
+		})
+		ensureHome(t, controlHome)
+		err := rt.Up(ctx, ref, []string{"api", "debugOnly"})
+		if err == nil || !strings.Contains(err.Error(), "Not starting debugOnly: Compose does not enable it in this configuration") {
+			t.Fatalf("err = %v, want a refusal naming debugOnly", err)
+		}
+		if calls := fake.composeCalls("up"); len(calls) != 0 {
+			t.Fatalf("compose up ran %d time(s), want none", len(calls))
+		}
+		if _, statErr := os.Stat(overridePathFor(controlHome)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("override at %s: stat err = %v, want it never written", overridePathFor(controlHome), statErr)
+		}
+	})
+
+	t.Run("starts a named service once its profile is active, labelled like any other", func(t *testing.T) {
+		fake := newFake()
+		controlHome := t.TempDir()
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns,
+			Runner: fake, Logger: logger.Silent{},
+			Environ: []string{"PATH=/bin", "COMPOSE_PROFILES=debug"},
+		})
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, []string{"debugOnly"}); err != nil {
+			t.Fatal(err)
+		}
+		services := overrideDoc(t, controlHome)["services"].(map[string]any)
+		if _, ok := services["debugOnly"]; !ok {
+			t.Fatalf("services = %v, want debugOnly labelled", keysOf(services))
 		}
 	})
 

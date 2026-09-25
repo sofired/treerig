@@ -146,8 +146,12 @@ func Said(stderr, fallback string) string {
 // labels at risk: overrideDocument stamps every service composeConfigJSON
 // reports, whatever profile filtering produced that list, and prepare's own
 // config read and the `up` it feeds both run from the same environment, one
-// right after the other, so the set of services the override labels is
-// always the same set `up` starts. See compose_up_test.go's profile case.
+// right after the other. The one way `up` could start a service the
+// override never labelled is naming it on the command line: Compose then
+// enables that service's profile even when the environment does not. The
+// backend refuses any named service absent from the model it labels
+// (refuseUnlabelledTargets), so the services the override labels are always
+// the services `up` starts. See compose_up_test.go's profile cases.
 var composeFileVariables = map[string]bool{
 	"COMPOSE_FILE": true, "COMPOSE_PATH_SEPARATOR": true, "COMPOSE_ENV_FILES": true, "COMPOSE_IGNORE_ORPHANS": true,
 	"COMPOSE_DISABLE_ENV_FILE": true,

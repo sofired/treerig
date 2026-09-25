@@ -339,7 +339,9 @@ Three things follow from that, and this tool does not change them:
   precedence over any inherited value, and a profile a shell setting
   activates still gets every resource it creates labeled, because the same
   environment governs both the config read that writes those labels and the
-  `up` that follows it.
+  `up` that follows it. Naming a service on `up` whose profile is not active
+  is refused rather than started unlabelled, since Compose would otherwise
+  enable that profile for it.
 - **Routed services share one network.** Every container you declare as a
   `[[service]]` joins the router's network, so a routed service in one
   checkout can reach a routed service in another. Containers you do not
