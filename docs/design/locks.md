@@ -216,8 +216,11 @@ tests skip there.
   operation lock first, at fd 3.
 - `Describe(scope, table)` is a read-only probe (`LOCK_SH|LOCK_NB`, then
   close at once) for `doctor`'s Locks section: held, unreleased-but-gone
-  ("recovered automatically the next time this lock is taken"), or a
-  `lock.Describe` read failure of its own ("could not be checked"). A
+  ("recovered automatically the next time this lock is taken"), a
+  TypeScript build's `<target>.lock` directory and the holder that build
+  wrote into the target (a warning: this build cannot take the lock until
+  it is gone), or a `lock.Describe` read failure of its own ("could not be
+  checked"). A
   shared lock, not the exclusive one `ProbeHeld`/`Clear` take below:
   `Describe` never mutates anything, so it only needs to prove nobody holds
   the flock exclusively, and a shared probe can run alongside another (a

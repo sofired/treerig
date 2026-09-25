@@ -556,10 +556,19 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 		}
 	}
 
-	// Phase 1.5: one shared survivor scan, still before any commit.
-	proof, err := scanSurvivorsAcross(ctx, held, opts)
-	if err != nil {
-		return ClearResult{}, err
+	// Phase 1.5: one shared survivor scan, still before any commit — but only
+	// when some scope has a record or leftover to clear. With nothing to
+	// clear, a survivor or hidden process would refuse a lock that is
+	// already released, just as recoverPreviousHolder never scans for one.
+	proof := ""
+	for _, h := range held {
+		if h.rec != nil || h.legacy != nil {
+			var err error
+			if proof, err = scanSurvivorsAcross(ctx, held, opts); err != nil {
+				return ClearResult{}, err
+			}
+			break
+		}
 	}
 
 	// Phase 2: commit. Still holding every flock, so nothing else can

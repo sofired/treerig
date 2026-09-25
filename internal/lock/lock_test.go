@@ -295,6 +295,34 @@ func TestDescribe(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("describes a TypeScript build's lock directory, with and without its record", func(t *testing.T) {
+		dir := t.TempDir()
+		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
+		if err := os.Mkdir(scope.Target+".lock", 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		desc, err := Describe(scope, newFakeTable(procid.Identity{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if desc.State != Free || !desc.Legacy || desc.LegacyRecord != nil || desc.Record != nil {
+			t.Fatalf("got %+v, want a free lock with a TypeScript lock directory naming no holder", desc)
+		}
+
+		legacy := `{"pid":999999,"host":"old-host","command":"berth up","startedAt":"` + time.Now().Format(time.RFC3339Nano) + `"}`
+		if err := os.WriteFile(scope.Target, []byte(legacy), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		desc, err = Describe(scope, newFakeTable(procid.Identity{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !desc.Legacy || desc.LegacyRecord == nil || desc.LegacyRecord.PID != 999999 || desc.LegacyRecord.Command != "berth up" {
+			t.Fatalf("got %+v, want the TypeScript holder's record", desc)
+		}
+	})
 }
 
 func TestWithHeldInherited(t *testing.T) {

@@ -1797,6 +1797,62 @@ func TestDoctorLocksInternal(t *testing.T) {
 		}
 	})
 
+	// legacyLockDir leaves a TypeScript build's lock directory beside scope's
+	// target, with that build's holder record in the target itself when
+	// command is set, and none when it is not.
+	legacyLockDir := func(t *testing.T, scope lock.Scope, command string) {
+		t.Helper()
+		if err := os.MkdirAll(scope.Target+".lock", 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if command == "" {
+			return
+		}
+		data, err := json.Marshal(map[string]any{"pid": deadTestPID, "host": "old-host", "command": command, "startedAt": "2026-09-01T00:00:00Z"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(scope.Target, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("warns of a TypeScript build's worktree lock, naming its holder and the command that clears it", func(t *testing.T) {
+		controlHome := t.TempDir()
+		registerLocksWorktree(t, controlHome, "main")
+		operation, _ := lock.WorktreeScopes(controlHome, testRepository, testWorktreeID, "main", procid.Markers{})
+		legacyLockDir(t, operation, "berth up")
+		got := locksOf(t, controlHome)
+		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "main.acme.localhost" {
+			t.Fatalf("got %+v", got)
+		}
+		want := fmt.Sprintf("taken by a TypeScript build of berth, \"berth up\" (PID %d on \"old-host\"); "+
+			"this build cannot take it until that is gone. If no TypeScript build is still running here, "+
+			"'berth worktree unlock %s' checks that it is gone and clears it", deadTestPID, testWorktreeID)
+		if got[0].Detail != want {
+			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
+		}
+	})
+
+	t.Run("warns of a TypeScript build's registry lock that names no holder, with the rmdir that clears it", func(t *testing.T) {
+		controlHome := t.TempDir()
+		registryScope := lock.RegistryScope(controlHome)
+		if err := os.MkdirAll(filepath.Dir(registryScope.Target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		legacyLockDir(t, registryScope, "")
+		got := locksOf(t, controlHome)
+		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "registry" {
+			t.Fatalf("got %+v", got)
+		}
+		want := "a TypeScript build of berth left " + registryScope.Target + ".lock naming no holder; " +
+			"this build cannot take it until that is gone. If no TypeScript build is still running here, " +
+			"remove it by hand: `rmdir '" + registryScope.Target + ".lock'`"
+		if got[0].Detail != want {
+			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
+		}
+	})
+
 	// "is not misled by recovery mutexes, temporary files or directories
 	// that are not a worktree's" exercises worktreeRecoveryLockTarget, a
 	// `.recovery` mutex file the heartbeat design needed and the flock

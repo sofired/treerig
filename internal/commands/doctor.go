@@ -389,13 +389,27 @@ func registrySection(controlHome, commandName string) ([]Check, error) {
 // WP8), so lockChecks passes each of them the one that exists today:
 // removing the sidecar record by hand once its holder, and everything it
 // started, is confirmed gone.
-func lockCheck(subject string, scope lock.Scope, handRemoval string) (check Check, ok bool) {
+//
+// legacyRemedy is what to do about a TypeScript build's <target>.lock
+// directory, which every acquirer in this build refuses until it is gone:
+// `worktree unlock` for a worktree lock, which clears one; `rmdir` for the
+// registry and router locks, which nothing else here clears (#21).
+func lockCheck(subject string, scope lock.Scope, handRemoval, legacyRemedy string) (check Check, ok bool) {
 	described, err := lock.Describe(scope, nil)
 	if err != nil {
 		return Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("could not be checked: %s", err)}, true
 	}
 	if described.State == lock.Held {
 		return Check{Status: StatusOK, Subject: subject, Detail: "held by " + lock.HolderLabel(described.Record)}, true
+	}
+	if described.Legacy {
+		detail := fmt.Sprintf("%s left %s naming no holder", legacyBuild, text.Printable(scope.Target+".lock"))
+		if described.LegacyRecord != nil {
+			detail = fmt.Sprintf("taken by %s, %s", legacyBuild, lock.HolderLabel(described.LegacyRecord))
+		}
+		return Check{Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
+			"%s; this build cannot take it until that is gone. If no TypeScript build is still running here, %s",
+			detail, legacyRemedy)}, true
 	}
 	if described.Record != nil && described.Record.ReleasedAt == nil {
 		detail := fmt.Sprintf("unreleased by %s; recovered automatically the next time this lock is taken", lock.HolderLabel(described.Record))
@@ -471,13 +485,21 @@ func lockedWorktreeIDs(controlHome string) ([]lockedWorktree, error) {
 	return found, nil
 }
 
+// legacyBuild names a TypeScript build in a Locks line.
+var legacyBuild = "a TypeScript build of " + brand.Name
+
+// legacyRmdir is the legacyRemedy for a lock nothing in this build clears.
+func legacyRmdir(scope lock.Scope) string {
+	return fmt.Sprintf("remove it by hand: `rmdir %s`", text.ShellQuote(scope.Target+".lock"))
+}
+
 // lockChecks is who holds what, read without taking or touching anything: a
 // live holder is an answer, not a problem; an unreleased-but-gone one is
 // recovered automatically the next time its lock is taken (see
 // internal/lock's package comment), so it needs no advice beyond that,
 // unlike TypeScript's own heartbeat design — except the registry and router
 // locks' hand-removal fallback (see lockCheck).
-func lockChecks(controlHome string, routerLockScope *lock.Scope) ([]Check, error) {
+func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName string) ([]Check, error) {
 	scan, err := registry.ScanRegistrations(controlHome)
 	if err != nil {
 		return nil, err
@@ -494,11 +516,11 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope) ([]Check, error
 	// development lock.
 	var checks []Check
 	registryScope := lock.RegistryScope(controlHome)
-	if check, ok := lockCheck("registry", registryScope, registryScope.Target+".holder"); ok {
+	if check, ok := lockCheck("registry", registryScope, registryScope.Target+".holder", legacyRmdir(registryScope)); ok {
 		checks = append(checks, check)
 	}
 	if routerLockScope != nil {
-		if check, ok := lockCheck("router", *routerLockScope, routerLockScope.Target+".holder"); ok {
+		if check, ok := lockCheck("router", *routerLockScope, routerLockScope.Target+".holder", legacyRmdir(*routerLockScope)); ok {
 			checks = append(checks, check)
 		}
 	}
@@ -517,10 +539,11 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope) ([]Check, error
 		operation, development := lock.WorktreeScopes(controlHome, id.RepositoryID, id.WorktreeID, name, procid.Markers{})
 		// Development, then operation — worktreeLocks' own order in
 		// src/operation-lock.ts, which heldLocks iterates unchanged.
-		if check, ok := lockCheck(shown+" (development session)", development, ""); ok {
+		unlock := fmt.Sprintf("'%s worktree unlock %s' checks that it is gone and clears it", commandName, id.WorktreeID)
+		if check, ok := lockCheck(shown+" (development session)", development, "", unlock); ok {
 			checks = append(checks, check)
 		}
-		if check, ok := lockCheck(shown, operation, ""); ok {
+		if check, ok := lockCheck(shown, operation, "", unlock); ok {
 			checks = append(checks, check)
 		}
 	}
@@ -1037,7 +1060,7 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	if err != nil {
 		return nil, err
 	}
-	locksChecks, err := guarded("locks", func() ([]Check, error) { return lockChecks(opts.ControlHome, opts.RouterLockScope) })
+	locksChecks, err := guarded("locks", func() ([]Check, error) { return lockChecks(opts.ControlHome, opts.RouterLockScope, opts.CommandName) })
 	if err != nil {
 		return nil, err
 	}

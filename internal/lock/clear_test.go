@@ -80,6 +80,35 @@ func TestClear(t *testing.T) {
 		}
 	})
 
+	t.Run("does not scan for survivors when every lock is already released", func(t *testing.T) {
+		dir := t.TempDir()
+		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main", Markers: procid.Markers{Project: "berth-released"}}
+		lk := New(scope, testOptions(t))
+		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			t.Fatal(err)
+		}
+		if err := lk.Release(); err != nil {
+			t.Fatal(err)
+		}
+
+		// Either of these would refuse, were the scan made: a marked process
+		// still running, and other users' processes hidden.
+		opts := clearOptions(t)
+		table := opts.Table.(*fakeTable)
+		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"berth-released"}}}, OthersHidden: true}}
+
+		result, err := Clear(context.Background(), []Scope{scope}, opts)
+		if err != nil {
+			t.Fatalf("err = %v, want none: there was nothing to clear", err)
+		}
+		if len(result.Scopes) != 1 || result.Scopes[0].Cleared {
+			t.Fatalf("result = %+v, want one scope, Cleared false", result)
+		}
+		if table.scanned != 0 {
+			t.Fatalf("scanned %d times, want none", table.scanned)
+		}
+	})
+
 	t.Run("refuses a lock that is actively held", func(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}

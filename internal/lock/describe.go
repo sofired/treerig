@@ -47,6 +47,12 @@ const (
 type Description struct {
 	State  State
 	Record *Record
+	// Legacy is true when a TypeScript build's <target>.lock directory is
+	// present: every Go acquirer refuses the lock until it is gone, whatever
+	// the flock says. LegacyRecord is the holder that build wrote into the
+	// target itself, nil when it names none (yet).
+	Legacy       bool
+	LegacyRecord *Record
 }
 
 // Describe is a read-only probe for doctor: LOCK_SH|LOCK_NB, then close at
@@ -58,25 +64,35 @@ type Description struct {
 // record it reads; Describe itself never acts on what it learns.
 func Describe(scope Scope, table procid.Table) (Description, error) {
 	_ = table
+	var described Description
+	// A TypeScript build takes its lock as a directory beside the target,
+	// which it may not even have created yet, so look for that first.
+	if info, err := os.Lstat(scope.Target + ".lock"); err == nil && info.IsDir() {
+		described.Legacy = true
+		if described.LegacyRecord, err = readLegacyRecord(scope.Target); err != nil {
+			return Description{}, err
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return Description{}, err
+	}
+
 	file, err := os.OpenFile(scope.Target, os.O_RDWR, 0o600)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Description{State: Free}, nil
+			return described, nil
 		}
 		return Description{}, err
 	}
 	defer file.Close()
 
-	state := Free
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
 			return Description{}, err
 		}
-		state = Held
+		described.State = Held
 	}
-	rec, err := readRecord(scope.Target + ".holder")
-	if err != nil {
+	if described.Record, err = readRecord(scope.Target + ".holder"); err != nil {
 		return Description{}, err
 	}
-	return Description{State: state, Record: rec}, nil
+	return described, nil
 }
