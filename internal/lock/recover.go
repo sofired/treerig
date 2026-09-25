@@ -501,10 +501,22 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 	for _, scope := range scopes {
 		file, err := os.OpenFile(scope.Target, os.O_RDWR, 0o600)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue // never taken; nothing to hold, judge or clear
+			if !os.IsNotExist(err) {
+				return ClearResult{}, err
 			}
-			return ClearResult{}, err
+			// Never taken by this build. A TypeScript build's lock directory
+			// can still be there, taken before it wrote the target; that is
+			// judgeLegacyForClear's no-holder case, so refuse the same way
+			// rather than report nothing to clear and leave it behind.
+			lockDir := scope.Target + ".lock"
+			if info, statErr := os.Lstat(lockDir); statErr == nil && info.IsDir() {
+				l := New(scope, Options{Table: opts.Table, Clock: opts.Clock})
+				l.refuseVerb = "clearing"
+				return ClearResult{}, l.legacyLockDirWithoutHolder(lockDir)
+			} else if statErr != nil && !os.IsNotExist(statErr) {
+				return ClearResult{}, statErr
+			}
+			continue // nothing to hold, judge or clear
 		}
 		fileID, err := fstatID(file)
 		if err != nil {

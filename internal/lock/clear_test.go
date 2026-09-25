@@ -217,6 +217,22 @@ func TestClear(t *testing.T) {
 		}
 	})
 
+	t.Run("refuses a TypeScript-era lock directory whose target was never written, with the rmdir that clears it", func(t *testing.T) {
+		dir := t.TempDir()
+		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
+		if err := os.Mkdir(scope.Target+".lock", 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Clear(context.Background(), []Scope{scope}, clearOptions(t))
+		want := "Not clearing the worktree main lock: " + scope.Target + ".lock exists but names no holder"
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "rmdir '"+scope.Target+".lock'") {
+			t.Fatalf("err = %v, want a refusal containing %q and the rmdir that clears it", err, want)
+		}
+		if _, statErr := os.Lstat(scope.Target + ".lock"); statErr != nil {
+			t.Fatalf("the .lock directory must be left alone: %v", statErr)
+		}
+	})
+
 	t.Run("clears a TypeScript-era leftover with no sidecar record of its own", func(t *testing.T) {
 		dir := t.TempDir()
 		target := filepath.Join(dir, "worktree")

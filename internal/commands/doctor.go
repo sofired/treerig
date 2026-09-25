@@ -391,9 +391,10 @@ func registrySection(controlHome, commandName string) ([]Check, error) {
 // started, is confirmed gone.
 //
 // legacyRemedy is what to do about a TypeScript build's <target>.lock
-// directory, which every acquirer in this build refuses until it is gone:
-// `worktree unlock` for a worktree lock, which clears one; `rmdir` for the
-// registry and router locks, which nothing else here clears (#21).
+// directory that names its holder, which every acquirer in this build
+// refuses until it is gone: `worktree unlock` for a worktree lock, which
+// clears one; `rmdir` for the registry and router locks, which nothing else
+// here clears (#21). One that names no holder always gets `rmdir`.
 func lockCheck(subject string, scope lock.Scope, handRemoval, legacyRemedy string) (check Check, ok bool) {
 	described, err := lock.Describe(scope, nil)
 	if err != nil {
@@ -403,13 +404,17 @@ func lockCheck(subject string, scope lock.Scope, handRemoval, legacyRemedy strin
 		return Check{Status: StatusOK, Subject: subject, Detail: "held by " + lock.HolderLabel(described.Record)}, true
 	}
 	if described.Legacy {
+		// With no holder named, nothing can judge it gone — `worktree unlock`
+		// refuses it too — so only removing it by hand is left.
 		detail := fmt.Sprintf("%s left %s naming no holder", legacyBuild, text.Printable(scope.Target+".lock"))
+		remedy := legacyRmdir(scope)
 		if described.LegacyRecord != nil {
 			detail = fmt.Sprintf("taken by %s, %s", legacyBuild, lock.HolderLabel(described.LegacyRecord))
+			remedy = legacyRemedy
 		}
 		return Check{Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
 			"%s; this build cannot take it until that is gone. If no TypeScript build is still running here, %s",
-			detail, legacyRemedy)}, true
+			detail, remedy)}, true
 	}
 	if described.Record != nil && described.Record.ReleasedAt == nil {
 		detail := fmt.Sprintf("unreleased by %s; recovered automatically the next time this lock is taken", lock.HolderLabel(described.Record))

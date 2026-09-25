@@ -1834,6 +1834,23 @@ func TestDoctorLocksInternal(t *testing.T) {
 		}
 	})
 
+	t.Run("warns of a TypeScript build's worktree lock that names no holder, with the rmdir that clears it, not unlock", func(t *testing.T) {
+		controlHome := t.TempDir()
+		registerLocksWorktree(t, controlHome, "main")
+		operation, _ := lock.WorktreeScopes(controlHome, testRepository, testWorktreeID, "main", procid.Markers{})
+		legacyLockDir(t, operation, "")
+		got := locksOf(t, controlHome)
+		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "main.acme.localhost" {
+			t.Fatalf("got %+v", got)
+		}
+		want := "a TypeScript build of berth left " + operation.Target + ".lock naming no holder; " +
+			"this build cannot take it until that is gone. If no TypeScript build is still running here, " +
+			"remove it by hand: `rmdir '" + operation.Target + ".lock'`"
+		if got[0].Detail != want {
+			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
+		}
+	})
+
 	t.Run("warns of a TypeScript build's registry lock that names no holder, with the rmdir that clears it", func(t *testing.T) {
 		controlHome := t.TempDir()
 		registryScope := lock.RegistryScope(controlHome)
