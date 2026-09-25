@@ -18,6 +18,12 @@ package cli_test
 // `node src/cli/main.ts`, whose basename resolves to "berth" — see
 // brand.CLIName and cliName() in src/brand.ts).
 //
+// A case named in goOwned prints a surface only the Go build has, approved
+// by the divergence-ledger row it names: -update records it from cli.Main
+// instead of the oracle, so regenerating the corpus keeps it rather than
+// overwriting it with TypeScript's output, and CI's oracle drift check
+// stays clean.
+//
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
 // depend on a command's own body. Two specific exceptions are documented at
@@ -42,6 +48,19 @@ var update = flag.Bool("update", false, "regenerate testdata/golden from the Typ
 type goldenCase struct {
 	name string
 	args []string
+}
+
+// goOwned names the cases recorded from the Go build rather than the
+// oracle, each with the divergence-ledger row that approves the difference.
+var goOwned = map[string]string{
+	// Row 27: `worktree unlock --registry/--router`, which TypeScript lacks.
+	"help-worktree":            "row 27",
+	"help-worktree-short":      "row 27",
+	"help-worktree-unlock":     "row 27",
+	"help-cmd-worktree":        "row 27",
+	"help-cmd-worktree-remove": "row 27",
+	"help-cmd-worktree-list":   "row 27",
+	"bare-worktree":            "row 27",
 }
 
 var goldenCases = []goldenCase{
@@ -170,7 +189,13 @@ func TestGolden(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := filepath.Join("testdata", "golden", tc.name)
 			if *update {
-				stdout, stderr, code := runOracle(t, tc.args)
+				var stdout, stderr string
+				var code int
+				if _, ok := goOwned[tc.name]; ok {
+					stdout, stderr, code = runGo(tc.args)
+				} else {
+					stdout, stderr, code = runOracle(t, tc.args)
+				}
 				writeFixture(t, dir, stdout, stderr, code)
 			}
 
@@ -193,6 +218,14 @@ func TestGolden(t *testing.T) {
 			}
 		})
 	}
+}
+
+// runGo runs cli.Main in-process the way TestGolden compares it, for
+// recording a goOwned case.
+func runGo(args []string) (stdout, stderr string, exitCode int) {
+	var out, errOut bytes.Buffer
+	code := cli.Main(append([]string{"berth"}, args...), strings.NewReader(""), &out, &errOut, emptyGetenv)
+	return out.String(), errOut.String(), code
 }
 
 // requireOracleNode stops -update unless the node on PATH is the major

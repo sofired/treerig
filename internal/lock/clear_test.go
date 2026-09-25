@@ -109,6 +109,37 @@ func TestClear(t *testing.T) {
 		}
 	})
 
+	// Pins #21's rewording: the survivor-scan refusal used to say "for this
+	// worktree" unconditionally, which was wrong the moment a scope with no
+	// worktree at all (the router lock) could reach it; it now says "it
+	// started" instead, referring back to "the holder" the caller's own
+	// "Checking that the holder of …'s lock…" notice just named, rather
+	// than the jargon "marked". Real time (judgeDelay's rescan): about a second.
+	t.Run("refuses a process it started still running, without claiming it belongs to a worktree", func(t *testing.T) {
+		dir := t.TempDir()
+		scope := Scope{Target: filepath.Join(dir, "router"), Description: "shared router", Markers: procid.Markers{Project: "berth-router"}}
+		lk := New(scope, testOptions(t))
+		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			t.Fatal(err)
+		}
+		if err := lk.Abandon(); err != nil {
+			t.Fatal(err)
+		}
+
+		opts := clearOptions(t)
+		table := opts.Table.(*fakeTable)
+		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"berth-router"}}}}}
+
+		_, err := Clear(context.Background(), []Scope{scope}, opts)
+		want := "Not clearing any lock: a process it started is still running"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want a refusal containing %q", err, want)
+		}
+		if strings.Contains(err.Error(), "worktree") || strings.Contains(err.Error(), "marked") {
+			t.Fatalf("err = %v, want no mention of a worktree or the jargon \"marked\": this scope is not one", err)
+		}
+	})
+
 	t.Run("refuses a lock that is actively held", func(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
@@ -142,8 +173,8 @@ func TestClear(t *testing.T) {
 		if len(result.Scopes) != 1 || !result.Scopes[0].Cleared || len(result.Scopes[0].Verified) != 1 || len(result.Scopes[0].Unverified) != 0 {
 			t.Fatalf("result = %+v", result)
 		}
-		if result.Proof == "" {
-			t.Fatal("expected a proof line once something cleared")
+		if result.Proof != "no command it started is still running on this machine" {
+			t.Fatalf("proof = %q, want the survivor-scan wording (#21)", result.Proof)
 		}
 		rec, err := readRecord(scope.Target + ".holder")
 		if err != nil || rec == nil || rec.ReleasedAt == nil {
@@ -156,6 +187,39 @@ func TestClear(t *testing.T) {
 			t.Fatalf("expected the flock to be free after Clear: %v", err)
 		}
 		_ = again.Release()
+	})
+
+	// Pins #21: the registry lock (and any other scope with no markers of
+	// its own) is never scanned — it guards only brief writes, with no
+	// process of its own to check for — so its proof says so honestly
+	// rather than claiming a scan that never ran, and never mentions
+	// "worktree", since this scope is not one.
+	t.Run("clears a lock with no markers of its own, and says so honestly rather than claiming a scan", func(t *testing.T) {
+		dir := t.TempDir()
+		scope := Scope{Target: filepath.Join(dir, "registry"), Description: "global worktree registry"}
+		lk := New(scope, testOptions(t))
+		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			t.Fatal(err)
+		}
+		if err := lk.Abandon(); err != nil {
+			t.Fatal(err)
+		}
+
+		opts := clearOptions(t)
+		table := opts.Table.(*fakeTable)
+		result, err := Clear(context.Background(), []Scope{scope}, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Scopes) != 1 || !result.Scopes[0].Cleared {
+			t.Fatalf("result = %+v", result)
+		}
+		if want := "it holds no process markers of its own, so there is nothing further to check"; result.Proof != want {
+			t.Fatalf("proof = %q, want %q", result.Proof, want)
+		}
+		if table.scanned != 0 {
+			t.Fatalf("scanned %d times, want none: a markerless scope has nothing to scan for", table.scanned)
+		}
 	})
 
 	t.Run("refuses an unverifiable holder unless allowed, and accepts it when told to", func(t *testing.T) {

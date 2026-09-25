@@ -94,6 +94,17 @@ var dockerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 // network defaults to it too.
 const DefaultName = brand.Name + "-router"
 
+// ResolveProjectName is the shared router's Compose project name when
+// nothing more specific overrides it — DefaultName, today the only value
+// this build ever resolves it to (see Options.ProjectName's own doc
+// comment). New calls this for its own default rather than naming
+// DefaultName directly, and so does internal/commands's routerLockScope,
+// for the two callers with no Router of their own to ask (newCheckoutIndex,
+// commands.UnlockGlobal, #21): one shared function, so a lock scope's
+// project-name marker and the real router's own ProjectName can never
+// independently drift onto two different defaults.
+func ResolveProjectName() string { return DefaultName }
+
 // PlaceholderPage returns the bytes of the placeholder index page Ensure
 // writes before the index container's first `compose up --wait`, because
 // that container's health check fetches it (router.ts:198-201 in the
@@ -115,8 +126,12 @@ type Options struct {
 	Runner         run.Runner
 	Logger         logger.Logger
 	LabelNamespace string
-	// ProjectName defaults to DefaultName; overridable so tests can run a
-	// router beside a developer's real one.
+	// ProjectName defaults to ResolveProjectName() (DefaultName);
+	// overridable so tests can run a router beside a developer's real one.
+	// internal/commands's routerLockScope resolves the same default for its
+	// two callers with no Router built yet to ask (#21) — an override given
+	// here reaches New, but not those, which is why nothing in this build
+	// overrides it today.
 	ProjectName string
 	// Network defaults to ProjectName.
 	Network string
@@ -155,7 +170,7 @@ type Router struct {
 func New(options Options) (*Router, error) {
 	projectName := options.ProjectName
 	if projectName == "" {
-		projectName = DefaultName
+		projectName = ResolveProjectName()
 	}
 	if !dockerName.MatchString(projectName) {
 		return nil, clierr.Newf("Invalid router project name: %s.", projectName)

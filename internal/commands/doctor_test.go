@@ -349,10 +349,11 @@ func TestDoctorLocks(t *testing.T) {
 		}
 	})
 
-	// Pins divergence ledger row 18's hand-removal fallback (#21): the
-	// registry and router locks have no `unlock` of their own, so doctor
-	// still names the one way out today, unlike a worktree lock's line.
-	t.Run("keeps the hand-removal advice for the registry lock, which unlock does not clear", func(t *testing.T) {
+	// Pins divergence ledger row 18's --holder-unverifiable fallback: since
+	// #21, the registry and router locks have `worktree unlock
+	// --registry`/`--router` of their own, so doctor's advice names that
+	// instead of a hand `rm`.
+	t.Run("points the registry lock's unverifiable fallback at worktree unlock --registry", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
 		registryScope := lock.RegistryScope(w.ControlHome)
@@ -370,9 +371,12 @@ func TestDoctorLocks(t *testing.T) {
 		env := doctorEnv(t, w, w.Root)
 
 		_, report, _ := runDoctor(t, env)
-		wantHint := "rm '" + registryScope.Target + ".holder'"
+		wantHint := "worktree unlock --registry --holder-unverifiable"
 		if !strings.Contains(report, wantHint) {
 			t.Fatalf("report = %s, want to contain %q", report, wantHint)
+		}
+		if strings.Contains(report, "rm '") || strings.Contains(report, "rmdir") {
+			t.Fatalf("report = %s, want no rm/rmdir advice", report)
 		}
 	})
 

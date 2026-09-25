@@ -1,10 +1,13 @@
 Usage: berth worktree unlock [options] [identifier]
 
-clear a dead holder's lock on a worktree, once the holder and every command it
-started on this machine are checked gone
+clear a dead holder's lock on a worktree, the registry, or the router, once the
+holder, and anything it left running, is checked gone
 
 Options:
   --domain <domain>      narrow a slug registered under more than one domain
+  --registry             clear the machine-wide worktree registry lock instead
+                         of a worktree's
+  --router               clear the shared router's lock instead of a worktree's
   --holder-unverifiable  accept a holder this machine cannot check (another
                          machine or container, or no record), once you have made
                          sure it is gone

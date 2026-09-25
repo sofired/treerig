@@ -9,6 +9,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/run"
 )
 
@@ -28,6 +29,12 @@ type Env struct {
 	// ConfigPath is --config; empty means the nearest berth.toml above Cwd.
 	ConfigPath string
 	Runner     run.Runner
+	// Table identifies and inspects processes for lock recovery's survivor
+	// scan (UnlockGlobal, UnlockWithContext); nil defaults to
+	// procid.Platform(), the same default lock.Options.Table documents.
+	// Tests give it a fake so a scan never reaches this machine's real
+	// process table.
+	Table procid.Table
 	// Lifecycle is the process's signal handling; mutations hold their locks through it.
 	Lifecycle *lifecycle.Lifecycle
 	// Stdin, Stderr, StdinIsTTY and StderrIsTTY serve the confirmation prompt.
