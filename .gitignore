@@ -12,5 +12,10 @@ CLAUDE.local.md
 # Coding agents: personal notes, loaded in place of or alongside AGENTS.md
 AGENTS.override.md
 
+# Coding agents: personal personas, and the Claude and Codex views of them
+.agents/
+.claude/agents
+.codex/agents/
+
 # Serena MCP: per-checkout project config, memories and cache
 .serena/
