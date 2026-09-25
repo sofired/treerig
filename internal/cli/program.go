@@ -31,6 +31,10 @@ func buildProgram(commandName, version string) *node {
 		setAction(func(rc *runContext) error { return commands.ConfigShow(rc.ctx, rc.env) }))
 	root.addChild(config)
 
+	// TODO(#5): once `dev` starts things, it needs the same
+	// config.CheckStart call `up` and `config validate` make (row 25 in
+	// docs/port/divergences.md) before it touches anything, refusing a
+	// control character in a [service.index] label or purpose the same way.
 	root.addChild(newCommand("dev", "start this worktree's environment and follow its logs (not yet implemented)").
 		setAction(func(rc *runContext) error {
 			return clierr.WithCode(fmt.Sprintf("'%s dev' is not implemented yet; see the Roadmap in README.md.", rc.env.CommandName), 2)

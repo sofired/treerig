@@ -14,6 +14,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
+	"github.com/sofired/berth/internal/config"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry"
@@ -98,6 +99,24 @@ func TestWorktreeRemove(t *testing.T) {
 		lines, _ := tc.Logger.Snapshot()
 		if last := lines[len(lines)-1]; last != "info: Removed feature-login.acme.localhost: 2 containers, 1 volume, home directory, registration, identity marker." {
 			t.Fatalf("last line = %q", last)
+		}
+	})
+
+	// #19, row 25 in docs/port/divergences.md: `worktree remove` only tears
+	// down what is already there, so — unlike `up` — it loads and proceeds
+	// against a [service.index] label or purpose that carries a control
+	// character.
+	t.Run("proceeds when a service index label or purpose carries a control character", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		tc := w.Context("", acme, nil)
+		tc.Loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb", Purpose: "the \u202eAPI"}
+
+		if _, err := remove(t, tc, approved(commands.RemoveOptions{})); err != nil {
+			t.Fatalf("RemoveWithContext: %v", err)
+		}
+		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 0 {
+			t.Fatalf("left behind: %v", left)
 		}
 	})
 

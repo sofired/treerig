@@ -211,37 +211,6 @@ subdomain = "b"
 		requireErrorContains(t, err, "reverse domain")
 	})
 
-	// Go-only (#19, row 25 in docs/port/divergences.md): TypeScript's schema
-	// (src/config/schema.ts) accepts a control character in label or
-	// purpose, even though both are only ever shown through text.Printable,
-	// which silently turns it into a space or U+FFFD. Go refuses it up
-	// front instead, with a clear message.
-	t.Run("rejects a control character in the service index label", func(t *testing.T) {
-		// TOML itself refuses a literal C0 control byte in a string (only
-		// tab is allowed unescaped), so this reaches the schema's own check
-		// through TOML's own \u escape instead — a case the TOML syntax
-		// error path never reaches.
-		_, err := Parse([]byte(minimalTOML+`[[service]]
-name = "api"
-[service.index]
-label = "a\u001bb"
-`), "test.toml")
-		requireErrorContains(t, err, "service.0.index.label: must not contain control characters")
-	})
-
-	t.Run("rejects a control character in the service index purpose", func(t *testing.T) {
-		// A right-to-left override, unlike a C0 control, is not something
-		// TOML's own grammar refuses — it reaches the schema as a plain
-		// character in the file, the same way it would from a copy-paste.
-		_, err := Parse([]byte(minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"API\"\npurpose = \"the \\u202eAPI\"\n"), "test.toml")
-		requireErrorContains(t, err, "service.0.index.purpose: must not contain control characters")
-	})
-
-	t.Run("rejects a tab in the service index label, even though TOML itself allows one unescaped", func(t *testing.T) {
-		_, err := Parse([]byte(minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\n"), "test.toml")
-		requireErrorContains(t, err, "service.0.index.label: must not contain control characters")
-	})
-
 	t.Run("accepts a label and purpose with ordinary punctuation and non-ASCII letters", func(t *testing.T) {
 		cfg, err := Parse([]byte(minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"Café — API\"\npurpose = \"the café's API\"\n"), "test.toml")
 		if err != nil {
@@ -249,6 +218,109 @@ label = "a\u001bb"
 		}
 		if got, want := cfg.Service[0].Index.Label, "Café — API"; got != want {
 			t.Errorf("Label = %q, want %q", got, want)
+		}
+	})
+
+	// Go-only (#19, row 25 in docs/port/divergences.md): TypeScript's schema
+	// (src/config/schema.ts) accepts a control character in label or
+	// purpose, even though both are only ever shown through text.Printable,
+	// which silently turns it into a space or U+FFFD. Go's own base loader
+	// accepts it too — see TestStartIssues below for the separate check
+	// `up`, `config validate` and `doctor` run instead, so a command that
+	// only reads an already-running worktree's config (`down`, `worktree
+	// remove`, `status`, and so on) can still load this file and proceed.
+	t.Run("accepts a control character in the service index label and purpose; only a command about to start something refuses one", func(t *testing.T) {
+		cfg, err := Parse([]byte(minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\npurpose = \"the \\u202eAPI\"\n"), "test.toml")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got, want := cfg.Service[0].Index.Label, "a\tb"; got != want {
+			t.Errorf("Label = %q, want %q", got, want)
+		}
+		if got, want := cfg.Service[0].Index.Purpose, "the \u202eAPI"; got != want {
+			t.Errorf("Purpose = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestStartIssues covers StartIssues and CheckStart: the check `up`,
+// `config validate` and `doctor`'s "This checkout" section run separately
+// from the base loader above (#19, row 25 in docs/port/divergences.md). The
+// base loader stays lenient so every other command can load the same file
+// and proceed; this is what refuses it instead, with the same message the
+// old schema-level check printed.
+func TestStartIssues(t *testing.T) {
+	parse := func(t *testing.T, toml string) Config {
+		t.Helper()
+		cfg, err := Parse([]byte(toml), "test.toml")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		return cfg
+	}
+
+	t.Run("finds nothing wrong with an ordinary label and purpose", func(t *testing.T) {
+		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"Café — API\"\npurpose = \"the café's API\"\n")
+		if issues := StartIssues(cfg); len(issues) != 0 {
+			t.Fatalf("issues = %+v, want none", issues)
+		}
+	})
+
+	t.Run("leaves a service with no [service.index] block alone", func(t *testing.T) {
+		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n")
+		if issues := StartIssues(cfg); len(issues) != 0 {
+			t.Fatalf("issues = %+v, want none", issues)
+		}
+	})
+
+	t.Run("reports a control character in the service index label", func(t *testing.T) {
+		// TOML itself refuses a literal C0 control byte in a string (only
+		// tab is allowed unescaped), so this reaches the check through
+		// TOML's own \u escape instead — a case the TOML syntax error path
+		// never reaches.
+		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\\u001bb\"\n")
+		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
+		requireErrorContains(t, err, "service.0.index.label: must not contain control characters")
+	})
+
+	t.Run("reports a control character in the service index purpose", func(t *testing.T) {
+		// A right-to-left override, unlike a C0 control, is not something
+		// TOML's own grammar refuses — it reaches the check as a plain
+		// character in the file, the same way it would from a copy-paste.
+		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"API\"\npurpose = \"the \\u202eAPI\"\n")
+		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
+		requireErrorContains(t, err, "service.0.index.purpose: must not contain control characters")
+	})
+
+	t.Run("reports a tab in the service index label, even though TOML itself allows one unescaped", func(t *testing.T) {
+		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\n")
+		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
+		requireErrorContains(t, err, "service.0.index.label: must not contain control characters")
+	})
+
+	t.Run("formats exactly what the old schema-level check printed", func(t *testing.T) {
+		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\n")
+		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
+		if err == nil {
+			t.Fatal("CheckStart: expected an error")
+		}
+		want := "test.toml is not a valid berth.toml:\n  service.0.index.label: must not contain control characters"
+		if got := err.Error(); got != want {
+			t.Errorf("CheckStart error = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("reports both fields, and every service, in schema order", func(t *testing.T) {
+		cfg := parse(t, minimalTOML+
+			"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\npurpose = \"c\td\"\n"+
+			"[[service]]\nname = \"mail\"\nsubdomain = \"mail\"\n[service.index]\nlabel = \"e\tf\"\n")
+		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
+		want := "test.toml is not a valid berth.toml:\n" +
+			"  service.0.index.label: must not contain control characters\n" +
+			"  service.0.index.purpose: must not contain control characters\n" +
+			"  service.1.index.label: must not contain control characters"
+		if err == nil || err.Error() != want {
+			t.Fatalf("CheckStart error = %v, want %q", err, want)
 		}
 	})
 }

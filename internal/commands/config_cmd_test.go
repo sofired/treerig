@@ -101,6 +101,26 @@ func TestConfigValidatePropagatesLoadError(t *testing.T) {
 	}
 }
 
+// `config validate` answers "would up work?", so it refuses exactly what
+// `up` itself refuses: a control character in a [service.index] label or
+// purpose (#19, row 25 in docs/port/divergences.md). The base loader that
+// backs `load` stays lenient — down, worktree remove, status and the rest
+// load the same file and proceed — so this has to be its own check, not
+// something the load above already caught.
+func TestConfigValidateRefusesControlCharacters(t *testing.T) {
+	file := writeConfig(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\n")
+	env, rec := testEnv(t, file, t.TempDir())
+
+	err := ConfigValidate(context.Background(), env)
+	want := file + " is not a valid berth.toml:\n  service.0.index.label: must not contain control characters"
+	if err == nil || err.Error() != want {
+		t.Fatalf("ConfigValidate error = %v, want %q", err, want)
+	}
+	if _, printed := rec.Snapshot(); len(printed) != 0 {
+		t.Fatalf("printed = %#v, want nothing: a refusal prints no report", printed)
+	}
+}
+
 func TestConfigShow(t *testing.T) {
 	file := writeConfig(t, minimalTOML)
 	env, rec := testEnv(t, file, t.TempDir())
