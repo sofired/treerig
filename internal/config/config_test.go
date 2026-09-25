@@ -252,6 +252,21 @@ func TestConfigDiscovery(t *testing.T) {
 		}
 		requireErrorContains(t, err, "No berth.toml found")
 	})
+
+	// Go-only: divergence row (see docs/port/divergences.md). TypeScript
+	// points at berth.example.toml in "berth's own source tree", which a
+	// release binary (built with no source tree alongside it) doesn't have.
+	// Go instead points at the file's permanent home on GitHub, true for a
+	// binary-only install today and once the repository is public.
+	t.Run("points the missing-config hint at the example file on GitHub, not a source tree a binary install lacks", func(t *testing.T) {
+		root := t.TempDir()
+		_, err := LoadNearest(root)
+		if err == nil {
+			t.Fatal("LoadNearest: expected an error, got none")
+		}
+		requireErrorContains(t, err, "the annotated version, berth.example.toml, is at "+
+			"https://github.com/sofired/berth/blob/main/berth.example.toml.")
+	})
 }
 
 func requireErrorContains(t *testing.T, err error, substring string) {
