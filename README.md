@@ -333,7 +333,8 @@ Three things follow from that, and this tool does not change them:
   so it cannot turn off the orphan sweep `--remove-orphans` relies on.
   Dropping them from the environment does not reach the Compose file's own
   `.env`, which Compose reads for itself — see
-  [Configuration](#configuration). Every other `COMPOSE_*` variable, project
+  [Configuration](#configuration). `COMPOSE_PROGRESS` is always set to
+  `plain`, whatever the shell says. Every other `COMPOSE_*` variable, project
   name and profiles included, reaches Compose unchanged: the project name is
   always overridden by the explicit `--project-name` flag Compose gives
   precedence over any inherited value, and a profile a shell setting
