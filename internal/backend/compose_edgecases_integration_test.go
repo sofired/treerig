@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/brand"
@@ -198,6 +199,15 @@ func TestComposeBackendEdgeCasesOnARealDaemon(t *testing.T) {
 		siblingOwned, err := runtime.Inventory(ctx, sibling)
 		if err != nil {
 			t.Fatalf("Inventory(sibling): %v", err)
+		}
+		// Handing subject's reaper the sibling's resources directly must be
+		// refused on their labels, not merely skipped because Inventory
+		// never listed them.
+		for _, resource := range siblingOwned {
+			err := runtime.Reap(ctx, subject, resource)
+			if err == nil || !strings.Contains(err.Error(), "its ownership labels do not match this worktree") {
+				t.Fatalf("Reap(subject, sibling's %s %s) = %v, want an ownership refusal", resource.Kind, resource.ID, err)
+			}
 		}
 		var kinds []string
 		for _, resource := range siblingOwned {
