@@ -1,15 +1,11 @@
 //go:build integration
 
-// Port of the "up" part of
-// tests/integration/compose-runtime-docker.integration.test.ts against a
-// real Docker daemon: the full up, status, down, inventory, reap round
-// trip. The suite's other titles (a Compose file that goes missing before
-// `down`, a nested project directory, sibling isolation, a project-labelled
-// impostor) are left for a later work package — this one title is what
-// proves Up itself, the new capability here, against a real daemon; the
-// rest exercise Down/Inventory/Reap, already covered without Up. The
-// endpoints() assertions are left out too: Endpoints is not part of this
-// package yet (router territory, #39).
+// The full up, status, down, inventory, reap round trip against a real
+// Docker daemon. compose_edgecases_integration_test.go in this package
+// covers the rest of this backend's edge cases on a real daemon: a Compose
+// file that goes missing before `down`, a nested project directory, and
+// sibling isolation within one repository. Status's endpoints assertions are
+// left out: Endpoints is not part of this package yet (router territory, #39).
 package backend
 
 import (
@@ -35,15 +31,32 @@ import (
 const composeNamespace = "dev.berth-test-compose"
 
 // composeFixture returns the absolute path to the shared compose.yaml
-// fixture, skipping the test if it is not present in this checkout.
+// fixture under testdata, failing the test if it is not present in this checkout.
 func composeFixture(t *testing.T) string {
 	t.Helper()
-	abs, err := filepath.Abs("../../tests/integration/fixtures/compose")
+	return requireFixture(t, "compose")
+}
+
+// composeNestedFixture returns the absolute path to the testdata fixture
+// whose Compose file lives a directory below its config root, failing the
+// test if it is not present in this checkout.
+func composeNestedFixture(t *testing.T) string {
+	t.Helper()
+	return requireFixture(t, "compose-nested")
+}
+
+// requireFixture returns the absolute path to testdata/name, failing the
+// test outright rather than skipping it when the fixture is missing: a
+// missing fixture is a broken checkout, not an environment this suite
+// tolerates running without.
+func requireFixture(t *testing.T, name string) string {
+	t.Helper()
+	abs, err := filepath.Abs(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(abs, "compose.yaml")); err != nil {
-		t.Skipf("compose fixture not found at %s: %v", abs, err)
+	if _, err := os.Stat(abs); err != nil {
+		t.Fatalf("fixture not found at %s: %v", abs, err)
 	}
 	return abs
 }
