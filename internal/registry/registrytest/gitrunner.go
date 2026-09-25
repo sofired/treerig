@@ -132,6 +132,9 @@ func (g *GitRunner) Handler() fakerun.Handler {
 	}
 }
 
+// porcelainList renders every active worktree in the NUL-separated format
+// `git worktree list --porcelain -z` produces, enough for callers that only
+// parse root and branch out of it.
 func (g *GitRunner) porcelainList() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -143,6 +146,7 @@ func (g *GitRunner) porcelainList() string {
 	return b.String()
 }
 
+// contains reports whether target is present in values.
 func contains(values []string, target string) bool {
 	for _, v := range values {
 		if v == target {
@@ -152,6 +156,8 @@ func contains(values []string, target string) bool {
 	return false
 }
 
+// argAfter returns the value immediately following flag in values, or "" if
+// flag is absent or is the last element.
 func argAfter(values []string, flag string) string {
 	for i, v := range values {
 		if v == flag && i+1 < len(values) {

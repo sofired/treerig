@@ -9,6 +9,9 @@ import (
 	"github.com/sofired/berth/internal/config"
 )
 
+// serviceConfig is a config with an indexed service, a subdomain-only
+// service and a subdomain-plus-path service, covering the shapes URLs must
+// render.
 func serviceConfig() config.Config {
 	label := "API"
 	purpose := "REST surface"

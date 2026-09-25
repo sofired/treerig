@@ -14,10 +14,17 @@ type recordingLogger struct {
 	lines chan string
 }
 
+// Info sends message on the channel, blocking until a test receives it.
 func (r recordingLogger) Info(message string) { r.lines <- message }
-func (recordingLogger) Warn(string)           {}
-func (recordingLogger) Error(string)          {}
-func (recordingLogger) Output(string)         {}
+
+// Warn discards the message.
+func (recordingLogger) Warn(string) {}
+
+// Error discards the message.
+func (recordingLogger) Error(string) {}
+
+// Output discards the message.
+func (recordingLogger) Output(string) {}
 
 // syncLogger records every Info message behind a mutex instead of a channel,
 // so it never blocks a heartbeat goroutine that is racing to shut down —
@@ -27,15 +34,23 @@ type syncLogger struct {
 	lines []string
 }
 
+// Info appends message under the mutex and returns immediately.
 func (s *syncLogger) Info(message string) {
 	s.mu.Lock()
 	s.lines = append(s.lines, message)
 	s.mu.Unlock()
 }
-func (*syncLogger) Warn(string)   {}
-func (*syncLogger) Error(string)  {}
+
+// Warn discards the message.
+func (*syncLogger) Warn(string) {}
+
+// Error discards the message.
+func (*syncLogger) Error(string) {}
+
+// Output discards the message.
 func (*syncLogger) Output(string) {}
 
+// count returns how many Info messages have been recorded so far.
 func (s *syncLogger) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

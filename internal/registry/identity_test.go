@@ -18,6 +18,9 @@ type identityFixture struct {
 	runner             run.Runner
 }
 
+// newIdentityFixture builds a worktree and its git common directory under a
+// fresh temp directory, registers them with a fake git runner on branch, and
+// returns an identityFixture with an IdentityService ready to answer for it.
 func newIdentityFixture(t *testing.T, branch string) identityFixture {
 	t.Helper()
 	base := registrytest.TempDir(t)
@@ -267,6 +270,8 @@ func TestIdentityServiceListAndActive(t *testing.T) {
 	})
 }
 
+// requireErrorContainsRegistry fails the test unless err is non-nil and its
+// message contains substr.
 func requireErrorContainsRegistry(t *testing.T, err error, substr string) {
 	t.Helper()
 	if err == nil {

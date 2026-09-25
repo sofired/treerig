@@ -29,6 +29,9 @@ import (
 // stopped with its whole process group, and it must leave the worktree lock
 // released rather than held or abandoned.
 
+// buildBinary compiles cmd/berth to a temporary path and returns it, so
+// these tests exercise the real process (its signal handling and exit
+// behaviour) rather than calling cli.Main in-process.
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
@@ -65,6 +68,9 @@ exit 0
 	}
 }
 
+// waitForFile polls for path to appear with non-blank content and returns
+// it trimmed, failing the test if it never does within 20 seconds; used to
+// synchronise with the fake docker helper's background writes.
 func waitForFile(t *testing.T, path string) string {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -78,6 +84,7 @@ func waitForFile(t *testing.T, path string) string {
 	return ""
 }
 
+// alive reports whether pid still exists, by sending it the null signal.
 func alive(pid int) bool { return unix.Kill(pid, 0) == nil }
 
 func TestInterruptedMutation(t *testing.T) {

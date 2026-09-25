@@ -8,8 +8,12 @@ import (
 
 var vtControl = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
+// stripVT removes ANSI colour escapes from value, so a test can assert on
+// text regardless of whether colour was applied.
 func stripVT(value string) string { return vtControl.ReplaceAllString(value, "") }
 
+// plainEnv is an Env with no environment variables set and no terminal
+// attached, the baseline a test customises from.
 func plainEnv() *Env {
 	return &Env{Getenv: func(string) (string, bool) { return "", false }}
 }

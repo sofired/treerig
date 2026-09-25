@@ -75,6 +75,10 @@ type fakeDockerRunner struct {
 	composeUp func(ctx context.Context, spec run.Spec) (run.Result, error)
 }
 
+// Run passes every non-docker command to the real runner, routes `docker`
+// through the fake daemon, and gives `compose up` a real running container
+// per service — or, when composeUp is set, hands it a real process tree
+// instead.
 func (r *fakeDockerRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	if spec.Command != "docker" {
 		return r.Runner.Run(ctx, spec)
@@ -99,6 +103,9 @@ type upWorld struct {
 	docker                                 *commandstest.Docker
 }
 
+// newUpWorld is a fresh checkout with a config, a Compose file, and a hook
+// executable that records every stage it ran, fails prepare on demand, and
+// can be made to hang so a test can interrupt it mid-hook.
 func newUpWorld(t *testing.T) *upWorld {
 	t.Helper()
 	base := registrytest.TempDir(t)
@@ -131,8 +138,11 @@ func newUpWorld(t *testing.T) *upWorld {
 	return w
 }
 
+// hook returns the path of the hook executable every stage runs.
 func (w *upWorld) hook() string { return filepath.Join(w.root, "hooks", "record") }
 
+// writeFile writes contents to path with the given mode, failing the test
+// on error.
 func writeFile(t *testing.T, path, contents string, mode os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), mode); err != nil {
@@ -167,20 +177,26 @@ func (w *upWorld) context(t *testing.T, runner *fakeDockerRunner) (*commands.Com
 	return cctx, log
 }
 
+// runner is a fresh fakeDockerRunner over a real process runner and the
+// world's fake daemon.
 func (w *upWorld) runner() *fakeDockerRunner {
 	return &fakeDockerRunner{Runner: osrun.New(), docker: w.docker}
 }
 
+// up runs `up` against a background context, with a fake router and index.
 func (w *upWorld) up(t *testing.T, cctx *commands.CommandContext, services ...string) (*commands.UpResult, error) {
 	t.Helper()
 	return w.upWithContext(context.Background(), cctx, services...)
 }
 
+// upWithContext runs `up` against ctx, so a test can cancel it mid-flight,
+// with a fake router and index.
 func (w *upWorld) upWithContext(ctx context.Context, cctx *commands.CommandContext, services ...string) (*commands.UpResult, error) {
 	return commands.UpWithContext(ctx, cctx, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{},
 		commands.UpOptions{Services: services})
 }
 
+// hookLog returns the hook's recorded lines, or nil if it never ran.
 func (w *upWorld) hookLog(t *testing.T) []string {
 	t.Helper()
 	data, err := os.ReadFile(w.log)
@@ -193,6 +209,8 @@ func (w *upWorld) hookLog(t *testing.T) []string {
 	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 }
 
+// stages returns just the stage name from each recorded hook line, in the
+// order the hooks ran.
 func (w *upWorld) stages(t *testing.T) []string {
 	t.Helper()
 	var stages []string
@@ -269,6 +287,8 @@ func interruptWhen(t *testing.T, path string) (context.Context, func() int) {
 	}
 }
 
+// requireCancelled fails the test unless err is a *clierr.Cancelled from
+// SIGINT, the shape an interrupted `up` must fail with.
 func requireCancelled(t *testing.T, err error) {
 	t.Helper()
 	var cancelled *clierr.Cancelled
@@ -445,6 +465,8 @@ func TestUpEndToEnd(t *testing.T) {
 	})
 }
 
+// stageNames extracts each hook stage's name from result.Hooks, in the
+// order they ran.
 func stageNames(result *commands.UpResult) []string {
 	var names []string
 	for _, stage := range result.Hooks {

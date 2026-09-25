@@ -24,6 +24,8 @@ import (
 
 const legacyNamespace = "dev.berth-test-legacy"
 
+// dockerAvailable skips the test when no Docker daemon answers, unless
+// BERTH_TEST_REQUIRE_DOCKER=1 makes its absence a failure instead.
 func dockerAvailable(t *testing.T) {
 	t.Helper()
 	if err := exec.Command("docker", "info").Run(); err != nil {
@@ -34,12 +36,17 @@ func dockerAvailable(t *testing.T) {
 	}
 }
 
+// repoRoot returns the repository root, found relative to this test file
+// rather than the working directory `go test` was invoked from.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
+// node locates a Node 24 binary to run the TypeScript build under test,
+// preferring PATH and falling back to the pinned install location; it skips
+// the test when neither is found.
 func node(t *testing.T) string {
 	t.Helper()
 	if found, err := exec.LookPath("node"); err == nil {
@@ -53,6 +60,8 @@ func node(t *testing.T) string {
 	return candidate
 }
 
+// gitIn runs git with args in dir, isolated from any user or system Git
+// config, and fails the test if it exits non-zero.
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -63,6 +72,9 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// dockerIDs runs docker with args and splits its output into whitespace-
+// separated fields, the shape `docker ps -q` and similar id-listing calls
+// return.
 func dockerIDs(t *testing.T, args ...string) []string {
 	t.Helper()
 	output, err := exec.Command("docker", args...).Output()

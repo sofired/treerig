@@ -363,6 +363,8 @@ type reconcileWorld struct {
 	log         *logger.Recording
 }
 
+// newReconcileWorld builds a reconcileWorld rooted at a fresh temp directory,
+// with its own fake git runner and recording logger.
 func newReconcileWorld(t *testing.T) *reconcileWorld {
 	t.Helper()
 	base := registrytest.TempDir(t)
@@ -370,6 +372,9 @@ func newReconcileWorld(t *testing.T) *reconcileWorld {
 	return &reconcileWorld{t: t, base: base, controlHome: filepath.Join(base, "control"), git: git, runner: runner, log: &logger.Recording{}}
 }
 
+// wt creates a worktree directory named name on branch, with its own git
+// common directory, and registers it with the fake git runner. It returns
+// the worktree's root.
 func (w *reconcileWorld) wt(name, branch string) string {
 	w.t.Helper()
 	root := filepath.Join(w.base, name)
@@ -384,6 +389,8 @@ func (w *reconcileWorld) wt(name, branch string) string {
 	return root
 }
 
+// reg opens a Registry for root under this world's control home and domain,
+// sharing its fake runner and recording logger.
 func (w *reconcileWorld) reg(root, domain string) *registry.Registry {
 	return registry.New(registry.Options{ControlHome: w.controlHome, Root: root, Domain: domain, Runner: w.runner, Logger: w.log})
 }

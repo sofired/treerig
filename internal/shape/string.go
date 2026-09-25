@@ -70,6 +70,9 @@ func (s *StringSchema) Default(value string) *StringSchema {
 	return s
 }
 
+// parse validates raw as a string: a wrong type is fatal, but every failed
+// check after that is reported and parsing still succeeds — matching zod,
+// where a regex, length or refine failure is not fatal to the value.
 func (s *StringSchema) parse(ctx *context, raw any) (any, bool) {
 	if raw == Undefined {
 		return parseAbsent(ctx, s.mod, "string")

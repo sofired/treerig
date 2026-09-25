@@ -31,6 +31,9 @@ import (
 // package, so this stands in for it here.
 type execRunner struct{}
 
+// Run executes spec as a real subprocess and captures its stdout and
+// stderr, treating a non-zero exit as run.Failure unless spec.AllowFailure
+// is set.
 func (execRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
 	if spec.Dir != "" {
@@ -55,6 +58,7 @@ func (execRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	return result, nil
 }
 
+// Which reports whether name is found on PATH.
 func (execRunner) Which(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
@@ -101,6 +105,8 @@ func registerWorktree(t *testing.T, controlHome, worktreeDir, slug string) *regi
 	return identity
 }
 
+// newRegistry opens a Registry for root under controlHome, using the real
+// execRunner and a recording logger.
 func newRegistry(controlHome, root string) *registry.Registry {
 	return registry.New(registry.Options{
 		ControlHome: controlHome, Root: root, Domain: integrationDomain,

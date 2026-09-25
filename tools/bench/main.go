@@ -51,6 +51,9 @@ type row struct {
 	SameOutput *bool   `json:"sameOutput,omitempty"`
 }
 
+// main parses flags, then either reports cross-compiled binary sizes or
+// builds the shared fixture and times each build against every scenario,
+// printing a Markdown table and optionally writing the raw results as JSON.
 func main() {
 	goBinary := flag.String("go", "dist/berth", "the Go build's executable (skipped when missing)")
 	node := flag.String("node", "node", "node for the TypeScript build")
@@ -258,6 +261,9 @@ func measure(commands [][]string, s scenario, fixture fixtureState, warmup, runs
 	return results
 }
 
+// asExit reports whether err is an *exec.ExitError (a command that ran and
+// exited non-zero, as opposed to one that failed to start), and if so sets
+// *target to it.
 func asExit(err error, target **exec.ExitError) bool {
 	exitError, ok := err.(*exec.ExitError)
 	if ok {
@@ -266,6 +272,8 @@ func asExit(err error, target **exec.ExitError) bool {
 	return ok
 }
 
+// percentile returns the q-th percentile (0 to 1) of sorted, which must
+// already be sorted ascending; 0 for an empty slice.
 func percentile(sorted []float64, q float64) float64 {
 	if len(sorted) == 0 {
 		return 0
@@ -274,6 +282,9 @@ func percentile(sorted []float64, q float64) float64 {
 	return sorted[index]
 }
 
+// printTable writes rows as the Markdown comparison table this tool's
+// output is built around: median and p90 time, RSS, and whether the two
+// builds agreed on output, one line per scenario.
 func printTable(rows []row, runs int) {
 	fmt.Printf("| Scenario (%d runs) | TS median | TS p90 | Go median | Go p90 | Saved | TS RSS | Go RSS | Same output |\n", runs)
 	fmt.Println("|---|---:|---:|---:|---:|---:|---:|---:|:---:|")
@@ -317,6 +328,8 @@ func reportSizes(repoRoot string) {
 	}
 }
 
+// gzipSize compresses file at gzip.BestCompression and returns the
+// compressed size, without keeping the compressed bytes anywhere.
 func gzipSize(file string) int64 {
 	input, err := os.Open(file)
 	check(err)
@@ -332,11 +345,15 @@ func gzipSize(file string) int64 {
 
 type countingWriter struct{ n int64 }
 
+// Write discards p, counting only its length; countingWriter exists so
+// gzipSize can measure compressed output without buffering it.
 func (c *countingWriter) Write(p []byte) (int, error) {
 	c.n += int64(len(p))
 	return len(p), nil
 }
 
+// check fails the run if err is non-nil, the way this tool treats every
+// unexpected error as fatal rather than recoverable.
 func check(err error) {
 	if err != nil {
 		fail("%v", err)
@@ -346,6 +363,8 @@ func check(err error) {
 // cleanups undo what the run made — the fixture — however it ends.
 var cleanups []func()
 
+// cleanUp runs every registered cleanup in reverse order and clears the
+// list; safe to call more than once (a second call runs nothing).
 func cleanUp() {
 	for i := len(cleanups) - 1; i >= 0; i-- {
 		cleanups[i]()
@@ -353,6 +372,8 @@ func cleanUp() {
 	cleanups = nil
 }
 
+// fail prints a "bench: " prefixed message to stderr, runs cleanup, and
+// exits the process with status 1.
 func fail(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "bench: "+format+"\n", args...)
 	cleanUp()

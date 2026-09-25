@@ -17,10 +17,15 @@ type limitWriter struct {
 	over     bool
 }
 
+// newLimitWriter returns a limitWriter that keeps at most limit bytes and
+// calls overflow the first time more than that is written.
 func newLimitWriter(limit int, overflow func()) *limitWriter {
 	return &limitWriter{limit: limit, overflow: overflow}
 }
 
+// Write always reports the full length written and never returns an error,
+// so the caller keeps draining the pipe even after the limit is reached;
+// bytes past the limit are dropped rather than buffered.
 func (w *limitWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -42,6 +47,7 @@ func (w *limitWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// String returns what has been captured so far, up to the limit.
 func (w *limitWriter) String() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()

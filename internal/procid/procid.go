@@ -40,6 +40,7 @@ const (
 	Running
 )
 
+// String names the state the way a notice or log line should show it.
 func (s State) String() string {
 	switch s {
 	case Absent:
@@ -122,6 +123,7 @@ func Marked(procs []Proc, m Markers) []Proc {
 	return found
 }
 
+// containsToken reports whether want appears as a whole argv entry in tokens.
 func containsToken(tokens []string, want string) bool {
 	for _, t := range tokens {
 		if t == want {
@@ -131,6 +133,7 @@ func containsToken(tokens []string, want string) bool {
 	return false
 }
 
+// containsEnv reports whether env contains any of wants as a whole "NAME=value" entry.
 func containsEnv(env []string, wants ...string) bool {
 	for _, e := range env {
 		for _, want := range wants {

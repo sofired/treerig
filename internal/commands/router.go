@@ -106,8 +106,13 @@ type sharedRouter struct {
 	controlHome string
 }
 
-func (r sharedRouter) Port() int       { return r.svc.Port }
+// Port returns the shared router's port.
+func (r sharedRouter) Port() int { return r.svc.Port }
+
+// Network returns the shared router's Docker network name.
 func (r sharedRouter) Network() string { return r.svc.Network }
+
+// Ensure brings the shared router up, exactly as `router up` does.
 func (r sharedRouter) Ensure(ctx context.Context) error {
 	return ensureSharedRouter(ctx, r.env, r.svc, r.state, r.controlHome)
 }

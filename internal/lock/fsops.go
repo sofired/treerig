@@ -8,6 +8,7 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 )
 
+// dirOf is the directory a lock target file lives in.
 func dirOf(target string) string { return filepath.Dir(target) }
 
 // openTarget creates the target file 0600 (parent 0700) if it is missing,
@@ -55,6 +56,8 @@ func openTarget(path, description string) (*os.File, FileID, error) {
 	return file, id, nil
 }
 
+// fstatID reads file's device and inode through fstat, the identity a held
+// lock is later checked against to prove its target has not been replaced.
 func fstatID(file *os.File) (FileID, error) {
 	var st syscall.Stat_t
 	if err := syscall.Fstat(int(file.Fd()), &st); err != nil {

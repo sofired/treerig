@@ -80,7 +80,8 @@ break them are not merged.
 - **Go style:** no naked returns; no spike markers, and every `TODO` names an
   issue, as `TODO(#issue)`; temp directories that meet path comparisons come
   from `registrytest.TempDir`; helper processes park with a sleep loop, never
-  `select {}`. `internal/style` enforces the first three.
+  `select {}`; every new function, test helpers included, has a doc comment
+  (`Test*` functions are exempt). `internal/style` enforces the first three.
 
 ## Running things safely
 

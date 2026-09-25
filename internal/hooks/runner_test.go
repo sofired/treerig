@@ -29,10 +29,13 @@ var (
 	}
 )
 
+// newContext builds a HookContext over the fixed testRef/testSrc with the
+// given runner and hook configuration, discarding log output.
 func newContext(runner run.Runner, hooksCfg config.Hooks) hooks.HookContext {
 	return hooks.HookContext{Source: testSrc, Ref: testRef, Hooks: hooksCfg, Logger: logger.Silent{}, Runner: runner}
 }
 
+// str returns a pointer to s, for populating *string config fields inline.
 func str(s string) *string { return &s }
 
 // recordingRunner answers every command with a fixed exit code (0 by
@@ -249,6 +252,7 @@ func TestRunLifecycle(t *testing.T) {
 // segments via the bundle-argument test) and directly by TestSplitCommand's
 // package-internal counterpart — see split_test.go.
 
+// containsEnv reports whether env has an entry exactly matching key=value.
 func containsEnv(env []string, key, value string) bool {
 	for _, entry := range env {
 		if entry == key+"="+value {
@@ -258,6 +262,8 @@ func containsEnv(env []string, key, value string) bool {
 	return false
 }
 
+// requireExit fails the test unless err is non-nil, its message contains
+// messageContains, and its exit code equals code.
 func requireExit(t *testing.T, err error, code int, messageContains string) {
 	t.Helper()
 	if err == nil {
@@ -271,6 +277,8 @@ func requireExit(t *testing.T, err error, code int, messageContains string) {
 	}
 }
 
+// requireMessage fails the test unless err is non-nil, its message equals
+// message exactly, and its exit code equals code.
 func requireMessage(t *testing.T, err error, code int, message string) {
 	t.Helper()
 	if err == nil {

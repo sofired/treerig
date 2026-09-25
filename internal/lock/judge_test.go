@@ -12,6 +12,8 @@ var self = procid.Identity{MachineID: "machine-1", BootID: "boot-1", PIDNS: "pid
 
 var currentFile = FileID{Dev: 1, Ino: 77}
 
+// testRecord builds a Record for a holder that matches self and
+// currentFile, then applies mutate, if given, to vary it per case.
 func testRecord(mutate func(*Record)) *Record {
 	r := &Record{
 		PID: 4242, Host: "laptop", Command: "berth up",
@@ -27,6 +29,8 @@ func testRecord(mutate func(*Record)) *Record {
 	return r
 }
 
+// mustJudge calls judgeHolder against currentFile and fails t on error,
+// returning the verdict for the case under test to assert on.
 func mustJudge(t *testing.T, rec *Record, self procid.Identity, table procid.Table, skipFileIdentity bool) Verdict {
 	t.Helper()
 	v, err := judgeHolder(rec, currentFile, self, "laptop", table, skipFileIdentity)
@@ -195,6 +199,7 @@ func TestJudgeHolder(t *testing.T) {
 	})
 }
 
+// ptr returns a pointer to a copy of v, for taking the address of a literal.
 func ptr[T any](v T) *T { return &v }
 
 func TestFormatDuration(t *testing.T) {

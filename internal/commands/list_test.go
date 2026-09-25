@@ -273,10 +273,13 @@ func TestWorktreeList(t *testing.T) {
 	})
 }
 
+// cardPathFor returns where a worktree's index card would live under the
+// world's control home.
 func cardPathFor(w *commandstest.World, repositoryID, worktreeID string) string {
 	return card.IndexCardPath(w.ControlHome, repositoryID, worktreeID)
 }
 
+// removeFile deletes path, failing the test if it cannot.
 func removeFile(t *testing.T, path string) {
 	t.Helper()
 	if err := os.Remove(path); err != nil {
@@ -284,6 +287,8 @@ func removeFile(t *testing.T, path string) {
 	}
 }
 
+// activeWithout returns active with remove's root filtered out, for a test
+// that wants "every registered worktree except the one just removed".
 func activeWithout(active []string, remove string) []string {
 	out := make([]string, 0, len(active))
 	for _, root := range active {

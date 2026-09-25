@@ -175,6 +175,10 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	return result, nil
 }
 
+// resolveRemoveTarget finds the registration to remove: the current
+// worktree's own when options.Identifier is empty, or a global lookup by
+// slug or uuid (optionally narrowed by options.Domain) otherwise. It errors
+// rather than guessing when neither resolves to a registration.
 func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options RemoveOptions) (*registry.RegisteredWorktree, error) {
 	if options.Identifier == "" {
 		current, err := cctx.Registry.Current(ctx)
@@ -310,6 +314,8 @@ func deleteQuarantine(paths layout.Worktree, commandName string) error {
 		paths.QuarantinePath, where, text.ShellQuote(paths.QuarantinePath+":/d"), router.IndexImage, owner, commandName)
 }
 
+// anyExists reports whether any of paths exists on disk, stopping at the
+// first one found (or the first stat error).
 func anyExists(paths ...string) (bool, error) {
 	for _, path := range paths {
 		exists, err := files.PathExists(path)
@@ -320,6 +326,7 @@ func anyExists(paths ...string) (bool, error) {
 	return false, nil
 }
 
+// containsKind reports whether resources includes one of the given kind.
 func containsKind(resources []worktree.OwnedResource, kind string) bool {
 	for _, resource := range resources {
 		if resource.Kind == kind {
@@ -347,6 +354,9 @@ func mergeResources(current, owned []worktree.OwnedResource) []worktree.OwnedRes
 	return merged
 }
 
+// countResources renders resources as "N kind, M kind, …" grouped by kind in
+// first-seen order, or "no Docker resources" when there are none — the
+// phrase both the confirmation plan and the removal summary use.
 func countResources(resources []worktree.OwnedResource) string {
 	var kinds []string
 	counts := map[string]int{}
@@ -386,6 +396,9 @@ func DescribePlan(host string, planned []worktree.OwnedResource, hasHome bool) s
 	}, "\n")
 }
 
+// summarize renders what a completed removal actually took away, for the
+// closing "Removed <host>: …" line: resource counts plus which of the home
+// directory, registration and identity marker were present and removed.
 func summarize(result *RemoveResult) string {
 	parts := []string{countResources(result.Resources)}
 	if result.Home {

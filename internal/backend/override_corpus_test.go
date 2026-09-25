@@ -94,6 +94,8 @@ func TestOverrideCorpus(t *testing.T) {
 	}
 }
 
+// mustString reads key from obj as a string, failing the test if it is
+// missing or of another type.
 func mustString(t *testing.T, obj *jsonKV, key string) string {
 	t.Helper()
 	value, ok := obj.get(key)
@@ -107,6 +109,7 @@ func mustString(t *testing.T, obj *jsonKV, key string) string {
 	return s
 }
 
+// decodeCorpusRef decodes a corpus case's "ref" object into a worktree.Ref.
 func decodeCorpusRef(t *testing.T, obj *jsonKV) worktree.Ref {
 	t.Helper()
 	value, ok := obj.get("ref")
@@ -124,6 +127,8 @@ func decodeCorpusRef(t *testing.T, obj *jsonKV) worktree.Ref {
 	}
 }
 
+// decodeCorpusRoutes decodes a corpus case's "routes" array into RouteSpecs,
+// returning nil when the case has none.
 func decodeCorpusRoutes(t *testing.T, obj *jsonKV) []RouteSpec {
 	t.Helper()
 	value, ok := obj.get("routes")

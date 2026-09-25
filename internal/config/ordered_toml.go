@@ -118,6 +118,8 @@ func orderedNames(recorded []string, m map[string]any) []string {
 	return append(names, rest...)
 }
 
+// join appends name to a table path, using NUL as the separator since it
+// cannot appear in a TOML key.
 func join(path, name string) string {
 	if path == "" {
 		return name

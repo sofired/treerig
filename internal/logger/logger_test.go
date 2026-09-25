@@ -14,6 +14,7 @@ type recordingWriter struct {
 	writes []string
 }
 
+// Write records p as one entry and always reports the full write as successful.
 func (w *recordingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -21,6 +22,7 @@ func (w *recordingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// all returns a copy of the writes recorded so far.
 func (w *recordingWriter) all() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()

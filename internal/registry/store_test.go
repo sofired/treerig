@@ -18,6 +18,8 @@ const (
 	wtB   = "c2d3e4f5-2222-4333-8444-555566667777"
 )
 
+// writeMinimalRecord writes a version-1 fixture record under controlHome,
+// failing the test if the write fails.
 func writeMinimalRecord(t *testing.T, controlHome, repositoryID, worktreeID, slug, domain, initialization string) {
 	t.Helper()
 	if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{

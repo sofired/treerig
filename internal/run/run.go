@@ -93,6 +93,7 @@ type StartError struct {
 	ExitCode int
 }
 
+// Error reports the command name and why it could not start.
 func (e *StartError) Error() string {
 	return fmt.Sprintf("`%s` could not be started: it %s", e.Command, e.Detail)
 }

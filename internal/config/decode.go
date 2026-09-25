@@ -32,6 +32,7 @@ func decodeConfig(obj *shape.Obj) Config {
 	return cfg
 }
 
+// decodeProject type-asserts the "project" table out of a validated Obj.
 func decodeProject(o *shape.Obj) Project {
 	var p Project
 	if v, ok := o.Get("name"); ok {
@@ -47,6 +48,7 @@ func decodeProject(o *shape.Obj) Project {
 	return p
 }
 
+// decodeCompose type-asserts the "compose" table out of a validated Obj.
 func decodeCompose(o *shape.Obj) Compose {
 	var c Compose
 	if v, ok := o.Get("file"); ok {
@@ -55,6 +57,8 @@ func decodeCompose(o *shape.Obj) Compose {
 	return c
 }
 
+// decodeService type-asserts one element of the "service" array out of a
+// validated Obj.
 func decodeService(o *shape.Obj) Service {
 	var s Service
 	if v, ok := o.Get("name"); ok {
@@ -77,6 +81,8 @@ func decodeService(o *shape.Obj) Service {
 	return s
 }
 
+// decodeServiceIndex type-asserts a service's "index" table out of a
+// validated Obj.
 func decodeServiceIndex(o *shape.Obj) *ServiceIndex {
 	var idx ServiceIndex
 	if v, ok := o.Get("label"); ok {
@@ -88,6 +94,8 @@ func decodeServiceIndex(o *shape.Obj) *ServiceIndex {
 	return &idx
 }
 
+// decodeHooks type-asserts the "hooks" table out of a validated Obj, field
+// by field so a hook left unset stays nil rather than an empty string.
 func decodeHooks(o *shape.Obj) Hooks {
 	var h Hooks
 	for _, field := range []struct {

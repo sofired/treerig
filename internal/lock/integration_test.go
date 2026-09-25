@@ -138,6 +138,9 @@ func runHelper(role string) int {
 	return 0 // not reached: a role that parks is only ever killed from outside
 }
 
+// reportReadyFD3 writes pid to the inherited fd 3 and closes it, the
+// readiness signal for a helper whose parent expects the lock's descriptor
+// to have arrived with it rather than through a ready file.
 func reportReadyFD3(pid int) {
 	ready := os.NewFile(3, "ready")
 	fmt.Fprintf(ready, "%d\n", pid)
@@ -195,6 +198,7 @@ func buildChildEnv(role, readyFile, markerWorktreeID string) []string {
 	return env
 }
 
+// filterEnv drops every entry of env whose key matches one of keys.
 func filterEnv(env []string, keys ...string) []string {
 	out := make([]string, 0, len(env))
 next:

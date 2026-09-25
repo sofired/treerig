@@ -29,6 +29,7 @@ type Error struct {
 	Suppressed []error
 }
 
+// Error is the message to show the user.
 func (e *Error) Error() string { return e.Message }
 
 // ExitStatus is the exit code this failure calls for.
@@ -56,6 +57,7 @@ type Cancelled struct {
 	Signal syscall.Signal
 }
 
+// Error names the signal that cancelled the operation.
 func (c *Cancelled) Error() string {
 	return fmt.Sprintf("Operation cancelled by %s.", SignalName(c.Signal))
 }

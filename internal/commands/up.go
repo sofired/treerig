@@ -76,6 +76,8 @@ func Up(ctx context.Context, env *Env, options UpOptions) error {
 // warns rather than failing an `up` that has already succeeded.
 type bestEffortIndex struct{ cctx *CommandContext }
 
+// RefreshBestEffort satisfies Index by delegating to refreshIndexBestEffort
+// against the wrapped CommandContext.
 func (i bestEffortIndex) RefreshBestEffort(ctx context.Context, reason string) {
 	refreshIndexBestEffort(ctx, i.cctx, reason)
 }

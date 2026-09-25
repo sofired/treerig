@@ -82,6 +82,8 @@ func (d *Docker) Add(kind string, labels map[string]string) string {
 	return d.add(kind, labels)
 }
 
+// add stores a resource under kind with labels and returns its generated id,
+// without acquiring the lock — callers hold it already.
 func (d *Docker) add(kind string, labels map[string]string) string {
 	d.next++
 	id := fmt.Sprintf("%s%02d", kind[:1], d.next)
@@ -235,6 +237,8 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 	return ok("")
 }
 
+// after returns the value following flag in args, or "" when flag is absent
+// or is the last argument.
 func after(args []string, flag string) string {
 	if i := slices.Index(args, flag); i >= 0 && i+1 < len(args) {
 		return args[i+1]
@@ -242,6 +246,8 @@ func after(args []string, flag string) string {
 	return ""
 }
 
+// sortedKeys returns m's keys in a deterministic order, so listings such as
+// Owned and the compose ps/filter handlers don't vary between runs.
 func sortedKeys(m map[string]map[string]string) []string {
 	keys := make([]string, 0, len(m))
 	for key := range m {

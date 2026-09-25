@@ -81,6 +81,7 @@ func NewIdentityService(root string, runner run.Runner) *IdentityService {
 	return &IdentityService{Root: root, runner: runner}
 }
 
+// gitValue runs git with args in worktree and returns its trimmed stdout.
 func (s *IdentityService) gitValue(ctx context.Context, worktree string, args []string) (string, error) {
 	full := append([]string{"-C", worktree}, args...)
 	result, err := s.runner.Run(ctx, run.Spec{Command: "git", Args: full})
@@ -116,6 +117,10 @@ func CanonicalPath(candidate string) (string, error) {
 	}
 }
 
+// assertIdentityMarkerPath refuses a marker whose grandparent directory
+// isn't base itself, or whose canonical path differs from marker (a symlink
+// or other indirection along the way), so a marker read never follows a
+// crafted path outside the checkout it identifies.
 func assertIdentityMarkerPath(base, marker string) error {
 	canon, err := CanonicalPath(marker)
 	if err != nil {
@@ -160,6 +165,7 @@ func readUUID(file string) (value string, present bool, err error) {
 	return value, true, nil
 }
 
+// newUUIDv4 generates a random RFC 4122 version-4 UUID.
 func newUUIDv4() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

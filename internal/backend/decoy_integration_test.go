@@ -24,6 +24,8 @@ import (
 
 const decoyNamespace = "dev.berth-test-decoy"
 
+// requireDocker skips the test when no Docker daemon is reachable, unless
+// BERTH_TEST_REQUIRE_DOCKER=1 says the suite must fail loudly instead.
 func requireDocker(t *testing.T) {
 	t.Helper()
 	if err := exec.Command("docker", "info").Run(); err != nil {
@@ -34,6 +36,8 @@ func requireDocker(t *testing.T) {
 	}
 }
 
+// uuid generates a random RFC 4122 v4 UUID, so each run's decoy resources
+// get IDs a sibling run cannot collide with.
 func uuid(t *testing.T) string {
 	t.Helper()
 	b := make([]byte, 16)
@@ -45,6 +49,8 @@ func uuid(t *testing.T) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
+// labelArgs turns a label map into repeated `--label name=value` flags for a
+// docker command line.
 func labelArgs(labels map[string]string) []string {
 	var args []string
 	for name, value := range labels {
@@ -53,6 +59,8 @@ func labelArgs(labels map[string]string) []string {
 	return args
 }
 
+// dockerRun runs `docker` with args against the real daemon and returns its
+// trimmed combined output, failing the test if the command errors.
 func dockerRun(t *testing.T, args ...string) string {
 	t.Helper()
 	output, err := exec.Command("docker", args...).CombinedOutput()

@@ -26,6 +26,10 @@ var refusedTypeName = map[string]string{
 	"afs":     "AFS",
 }
 
+// unsupportedFSType reports dir's filesystem type and whether CheckFS
+// refuses it, by looking up its statfs f_fstypename in refusedTypeName. A
+// statfs failure is reported as supported, leaving any real error to surface
+// from the self-test or the caller's own use of dir.
 func unsupportedFSType(dir string) (string, bool) {
 	var st unix.Statfs_t
 	if err := unix.Statfs(dir, &st); err != nil {
@@ -42,6 +46,8 @@ func unsupportedFSType(dir string) (string, bool) {
 	return "", false
 }
 
+// indexByte0 finds the first NUL in b, the way Fstypename — a fixed-size
+// byte array, not a Go string — terminates its name.
 func indexByte0(b []byte) int {
 	for i, c := range b {
 		if c == 0 {

@@ -136,6 +136,7 @@ func dedupe(items []string) []string {
 	return out
 }
 
+// abs is n's absolute value.
 func abs(n int) int {
 	if n < 0 {
 		return -n

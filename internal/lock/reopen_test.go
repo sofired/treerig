@@ -90,6 +90,8 @@ func TestWaiterReopensAReplacedTarget(t *testing.T) {
 	_ = waiter.Release()
 }
 
+// statFileID opens path and reads its current device and inode, for
+// asserting that a lock target has (or has not) been replaced.
 func statFileID(path string) (FileID, error) {
 	f, err := os.Open(path)
 	if err != nil {

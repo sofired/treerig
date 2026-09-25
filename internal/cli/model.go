@@ -131,31 +131,49 @@ type node struct {
 	values map[string]optionEntry
 }
 
+// newCommand creates a command or command group with no parent, options,
+// arguments or action; the tree is assembled by chaining the add/set methods
+// below onto it.
 func newCommand(name, description string) *node {
 	return &node{name: name, description: description}
 }
 
+// addChild appends c to n's children and sets c's parent to n, wiring it
+// into the tree for lookup, help rendering and usage-string ancestry.
+// Returns n (not c), so calls chain onto the parent being built.
 func (n *node) addChild(c *node) *node {
 	c.parent = n
 	n.children = append(n.children, c)
 	return n
 }
 
+// addOption registers an option on n, parsed from its commander-style flags
+// string, in the order options are declared; addOption returns n so calls
+// chain.
 func (n *node) addOption(flags, description string) *node {
 	n.options = append(n.options, newOption(flags, description))
 	return n
 }
 
+// addArgument registers a positional argument on n, parsed from its
+// commander-style spec, in declaration order; addArgument returns n so
+// calls chain.
 func (n *node) addArgument(spec, description string) *node {
 	n.args = append(n.args, newArgument(spec, description))
 	return n
 }
 
+// setAction sets n's leaf handler, run once parsing has resolved n as the
+// command to execute; setAction returns n so calls chain.
 func (n *node) setAction(fn actionFunc) *node {
 	n.action = fn
 	return n
 }
 
+// setVersion marks n as the root command: it records version and appends
+// the -V/--version option, matched during parsing the same way commander's
+// own 'option:version' listener short-circuits the scan to print the
+// version and exit. setVersion returns n so calls chain.
 func (n *node) setVersion(version string) *node {
 	n.version = version
 	n.options = append(n.options, &option{flags: "-V, --version", short: "-V", long: "--version", description: "output the version number", isVersion: true})

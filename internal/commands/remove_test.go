@@ -24,18 +24,26 @@ import (
 
 const acme = "acme.localhost"
 
+// ns takes value's address, for the *string fields (LabelNamespace and the
+// like) tests need a pointer literal for.
 func ns(value string) *string { return &value }
 
+// approved returns options with Yes set, standing in for the interactive
+// confirmation prompt.
 func approved(options commands.RemoveOptions) commands.RemoveOptions {
 	options.Yes = true
 	return options
 }
 
+// remove runs RemoveWithContext against tc's CommandContext with a bare
+// "berth" Env, the shared entry point every subtest in this file calls.
 func remove(t *testing.T, tc *commandstest.TestContext, options commands.RemoveOptions) (*commands.RemoveResult, error) {
 	t.Helper()
 	return commands.RemoveWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "berth"}, options)
 }
 
+// kinds returns resources' Kind values, in order, for asserting what a
+// removal touched without comparing full OwnedResource values.
 func kinds(resources []worktree.OwnedResource) []string {
 	var out []string
 	for _, resource := range resources {
@@ -44,6 +52,8 @@ func kinds(resources []worktree.OwnedResource) []string {
 	return out
 }
 
+// exists reports whether path is present on disk, failing the test on any
+// error other than absence.
 func exists(t *testing.T, path string) bool {
 	t.Helper()
 	found, err := files.PathExists(path)
@@ -53,6 +63,8 @@ func exists(t *testing.T, path string) bool {
 	return found
 }
 
+// wantErr fails the test unless err is non-nil and its message matches
+// pattern.
 func wantErr(t *testing.T, err error, pattern string) {
 	t.Helper()
 	if err == nil || !regexp.MustCompile(pattern).MatchString(err.Error()) {
@@ -448,6 +460,10 @@ func TestWorktreeRemove(t *testing.T) {
 	})
 }
 
+// writeRecord writes a registry record for identity directly to disk,
+// bypassing Ensure, so a test can put a worktree in a state (a recorded
+// domain or namespace, in particular) the normal registration path would
+// never produce on its own.
 func writeRecord(t *testing.T, w *commandstest.World, identity *registry.WorktreeIdentity, domain, slug string, namespace *string) {
 	t.Helper()
 	store := registry.NewStore(w.ControlHome, identity.RepositoryID)
@@ -466,4 +482,6 @@ func writeRecord(t *testing.T, w *commandstest.World, identity *registry.Worktre
 	}
 }
 
+// dockerCall builds a run.Spec for a direct `docker` invocation, standing in
+// for a container the caller removed by hand rather than through berth.
 func dockerCall(args ...string) run.Spec { return run.Spec{Command: "docker", Args: args} }

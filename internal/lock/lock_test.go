@@ -15,6 +15,9 @@ import (
 	"github.com/sofired/berth/internal/procid"
 )
 
+// testOptions is a fast, deterministic Options for locking tests: a fake
+// table identifying this process, a silent logger, and the watchdog
+// disabled so tests don't race its ticker.
 func testOptions(t *testing.T) Options {
 	t.Helper()
 	return Options{Table: newFakeTable(procid.Identity{MachineID: "m", BootID: "b", PIDNS: "pid:[1]"}), Logger: logger.Silent{}, Watchdog: -1}

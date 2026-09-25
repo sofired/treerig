@@ -59,6 +59,8 @@ type dockerFake struct {
 	uninspected map[string]bool
 }
 
+// newFake builds a dockerFake with its resource and label maps ready to
+// populate; the zero value alone would leave psLines/resources nil.
 func newFake() *dockerFake {
 	return &dockerFake{
 		resources:   map[string][]string{"ps": nil, "volume": nil, "network": nil, "image": nil},
@@ -84,6 +86,10 @@ func (f *dockerFake) own(id, service string, composeLabels bool) {
 
 var quoted = regexp.MustCompile(`"([^"]+)"`)
 
+// Run satisfies run.Runner: it records the call, then answers docker and
+// compose invocations from the fake's fixtures (the compose model for
+// `config`, psLines/psOutput for `ps`, labelled resources for `--filter` and
+// inspect `--format` calls) rather than touching a real daemon.
 func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, spec)
@@ -132,8 +138,12 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	return ok("")
 }
 
+// Which reports every command as found; this fake never exercises the
+// "docker not on PATH" path.
 func (f *dockerFake) Which(string) bool { return true }
 
+// composeCalls returns the recorded calls that were `compose <verb>`, in
+// call order, for assertions on what the runtime asked Compose to do.
 func (f *dockerFake) composeCalls(verb string) []run.Spec {
 	var matching []run.Spec
 	for _, call := range f.calls {
@@ -144,6 +154,8 @@ func (f *dockerFake) composeCalls(verb string) []run.Spec {
 	return matching
 }
 
+// removals reports whether any recorded call was a `rm` (container or
+// plain), so a test can assert removal did or did not happen.
 func (f *dockerFake) removals() bool {
 	for _, call := range f.calls {
 		if (len(call.Args) > 0 && call.Args[0] == "rm") || (len(call.Args) > 1 && call.Args[1] == "rm") {
@@ -153,6 +165,9 @@ func (f *dockerFake) removals() bool {
 	return false
 }
 
+// newRuntime builds a Compose runtime wired to fake and a fresh control
+// home, matching the TypeScript suite's own runtime(fake) helper. It returns
+// the control home too, since most tests need it to assert on written files.
 func newRuntime(t *testing.T, fake *dockerFake) (*Compose, string) {
 	t.Helper()
 	controlHome := t.TempDir()
@@ -179,6 +194,8 @@ func ensureHome(t *testing.T, controlHome string) {
 	}
 }
 
+// environ decodes a run.Spec's Env slice into a name-to-value map, for
+// asserting on individual variables without caring about their order.
 func environ(spec run.Spec) map[string]string {
 	values := map[string]string{}
 	for _, entry := range spec.Env {
@@ -338,6 +355,8 @@ func TestDownStatus(t *testing.T) {
 	})
 }
 
+// populated is a dockerFake pre-loaded with one container, volume, network
+// and image, each labelled as owned by ref, for tests of inventory and reap.
 func populated() *dockerFake {
 	fake := newFake()
 	fake.resources = map[string][]string{"ps": {"c1", "c2"}, "volume": {"v1"}, "network": {"n1"}, "image": {"i1"}}

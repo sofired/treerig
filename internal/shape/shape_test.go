@@ -12,6 +12,8 @@ import (
 // these pin down shape's own contract so a future caller (a registry record,
 // an index card, Compose JSON) can trust it without re-deriving each rule.
 
+// mustIssue finds and returns the issue at path with code among issues,
+// failing the test if none matches.
 func mustIssue(t *testing.T, issues []Issue, path string, code string) Issue {
 	t.Helper()
 	for _, i := range issues {

@@ -382,6 +382,8 @@ func TestConfigDiscovery(t *testing.T) {
 	})
 }
 
+// requireErrorContains fails the test unless err is non-nil and its message
+// contains substring.
 func requireErrorContains(t *testing.T, err error, substring string) {
 	t.Helper()
 	if err == nil {
