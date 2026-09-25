@@ -520,7 +520,7 @@ func resolvePort(route RouteSpec, service *jsonKV) (int, bool) {
 // prepare reads the model and writes the override into the worktree home.
 // Only Up calls this: the home must already exist, created by the command
 // layer with its containment checks — the runtime never creates it.
-func (c *Compose) prepare(ctx context.Context, ref worktree.Ref) ([]string, error) {
+func (c *Compose) prepare(ctx context.Context, ref worktree.Ref, selected []string) ([]string, error) {
 	home := c.home(ref)
 	if err := files.AssertSafeDirectoryPath(c.options.ControlHome, home); err != nil {
 		return nil, err
@@ -540,6 +540,9 @@ func (c *Compose) prepare(ctx context.Context, ref worktree.Ref) ([]string, erro
 	if err != nil {
 		return nil, err
 	}
+	if err := refuseUnlabelledTargets(services, selected); err != nil {
+		return nil, err
+	}
 	document, err := c.overrideDocument(ref, services, volumes, networks)
 	if err != nil {
 		return nil, err
@@ -553,6 +556,28 @@ func (c *Compose) prepare(ctx context.Context, ref worktree.Ref) ([]string, erro
 		return nil, err
 	}
 	return []string{c.options.ComposeFile, override}, nil
+}
+
+// refuseUnlabelledTargets refuses any service named on the command line that
+// the resolved model does not contain. `compose config` leaves out a service
+// whose profile is not active, so the override never labels it, yet
+// `compose up <service>` enables a named service's profile and starts it
+// anyway: without this check it would run with none of this worktree's
+// ownership labels, and nothing could ever find or remove it.
+func refuseUnlabelledTargets(services *jsonKV, selected []string) error {
+	var missing []string
+	for _, name := range selected {
+		if !services.has(name) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return clierr.Newf(
+		"Not starting %s: Compose does not enable it in this configuration, most likely because its profile is not active, so it could not be labelled as this worktree's. Enable its profile (for example with COMPOSE_PROFILES), then run this again.",
+		strings.Join(missing, ", "),
+	)
 }
 
 // marshalOverrideDocument is JSON.stringify(document, null, 2) + "\n":
@@ -577,7 +602,7 @@ func marshalOverrideDocument(doc *jsonKV) ([]byte, error) {
 // Timeout (#14), only its own `--wait-timeout` flag: see compose.go's own
 // timeouts comment for why.
 func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) error {
-	overrideFiles, err := c.prepare(ctx, ref)
+	overrideFiles, err := c.prepare(ctx, ref, services)
 	if err != nil {
 		return err
 	}

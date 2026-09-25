@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"reflect"
 	"regexp"
@@ -45,6 +46,20 @@ var composeModel = map[string]any{
 		"backend": map[string]any{"name": project + "_backend"},
 		"corp":    map[string]any{"name": "corp", "external": true},
 	},
+}
+
+// composeModelWithDebugProfile is composeModel plus debugOnly, a service a
+// real `docker compose config` would report only once the "debug" profile
+// is active — the fake's stand-in for Compose's own COMPOSE_PROFILES
+// filtering (internal/docker/docker_test.go's ComposeEnvironment tests
+// prove Go passes COMPOSE_PROFILES through unchanged; this proves the
+// override still labels whatever Compose's filtering hands back).
+func composeModelWithDebugProfile() map[string]any {
+	services := maps.Clone(composeModel["services"].(map[string]any))
+	services["debugOnly"] = map[string]any{"image": "busybox"}
+	model := maps.Clone(composeModel)
+	model["services"] = services
+	return model
 }
 
 // dockerFake answers every docker and compose invocation the runtime makes,
@@ -101,7 +116,11 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 			if slices.Contains(args, verb) {
 				switch verb {
 				case "config":
-					encoded, _ := json.Marshal(composeModel)
+					model := composeModel
+					if slices.Contains(spec.Env, "COMPOSE_PROFILES=debug") {
+						model = composeModelWithDebugProfile()
+					}
+					encoded, _ := json.Marshal(model)
 					return ok(string(encoded))
 				case "ps":
 					if f.psOutput != nil {
@@ -181,7 +200,10 @@ func newRuntime(t *testing.T, fake *dockerFake) (*Compose, string) {
 		LabelNamespace: ns,
 		Runner:         fake,
 		Logger:         logger.Silent{},
-		Environ:        []string{"PATH=/bin", "COMPOSE_FILE=from-the-shell", "COMPOSE_PATH_SEPARATOR=:", "COMPOSE_ENV_FILES=x", "COMPOSE_IGNORE_ORPHANS=1"},
+		Environ: []string{
+			"PATH=/bin", "COMPOSE_FILE=from-the-shell", "COMPOSE_PATH_SEPARATOR=:", "COMPOSE_ENV_FILES=x", "COMPOSE_IGNORE_ORPHANS=1",
+			"COMPOSE_DISABLE_ENV_FILE=1", "COMPOSE_PROJECT_NAME=from-the-shell",
+		},
 	}), controlHome
 }
 
@@ -258,7 +280,9 @@ func TestDownStatus(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := environ(fake.composeCalls("up")[0])
-		for _, name := range []string{"COMPOSE_FILE", "COMPOSE_PATH_SEPARATOR", "COMPOSE_ENV_FILES", "COMPOSE_IGNORE_ORPHANS"} {
+		for _, name := range []string{
+			"COMPOSE_FILE", "COMPOSE_PATH_SEPARATOR", "COMPOSE_ENV_FILES", "COMPOSE_IGNORE_ORPHANS", "COMPOSE_DISABLE_ENV_FILE",
+		} {
 			if _, ok := got[name]; ok {
 				t.Errorf("%s reached Compose", name)
 			}

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -93,6 +94,86 @@ func TestComposeUp(t *testing.T) {
 		networks := doc["networks"].(map[string]any)
 		if want := []string{"backend", "default"}; !slices.Equal(keysOf(networks), want) { // "corp" is external
 			t.Fatalf("networks = %v, want %v", keysOf(networks), want)
+		}
+	})
+
+	t.Run("labels a service Compose reports only because COMPOSE_PROFILES activated it (#54)", func(t *testing.T) {
+		fake := newFake()
+		controlHome := t.TempDir()
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns,
+			Runner: fake, Logger: logger.Silent{},
+			Environ: []string{"PATH=/bin", "COMPOSE_PROFILES=debug"},
+		})
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
+			t.Fatal(err)
+		}
+		doc := overrideDoc(t, controlHome)
+		services := doc["services"].(map[string]any)
+		debugOnly, ok := services["debugOnly"].(map[string]any)
+		if !ok {
+			t.Fatalf("services = %v, want debugOnly labeled too", keysOf(services))
+		}
+		wantLabels := map[string]any{
+			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID,
+		}
+		if labels := debugOnly["labels"].(map[string]any); !reflectEqual(labels, wantLabels) {
+			t.Fatalf("debugOnly labels = %v, want %v", labels, wantLabels)
+		}
+		// The config read that built the override and the `up` that follows it
+		// share one environment, so Compose activates exactly the profile the
+		// override already labeled for — never a wider or narrower set.
+		got := environ(fake.composeCalls("up")[0])
+		if got["COMPOSE_PROFILES"] != "debug" {
+			t.Fatalf("COMPOSE_PROFILES = %q, want it to reach the `up` call unchanged", got["COMPOSE_PROFILES"])
+		}
+	})
+
+	t.Run("refuses to start a named service Compose left out of the model it labels, before writing or starting anything", func(t *testing.T) {
+		fake := newFake()
+		controlHome := t.TempDir()
+		// No COMPOSE_PROFILES: `compose config` omits debugOnly, yet
+		// `compose up debugOnly` would enable its profile and start it unlabelled.
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns,
+			Runner: fake, Logger: logger.Silent{},
+			Environ: []string{"PATH=/bin"},
+		})
+		ensureHome(t, controlHome)
+		err := rt.Up(ctx, ref, []string{"api", "debugOnly"})
+		if err == nil || !strings.Contains(err.Error(), "Not starting debugOnly: Compose does not enable it in this configuration") {
+			t.Fatalf("err = %v, want a refusal naming debugOnly", err)
+		}
+		if calls := fake.composeCalls("up"); len(calls) != 0 {
+			t.Fatalf("compose up ran %d time(s), want none", len(calls))
+		}
+		if _, statErr := os.Stat(overridePathFor(controlHome)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("override at %s: stat err = %v, want it never written", overridePathFor(controlHome), statErr)
+		}
+	})
+
+	t.Run("starts a named service once its profile is active, labelled like any other", func(t *testing.T) {
+		fake := newFake()
+		controlHome := t.TempDir()
+		rt := NewCompose(Options{
+			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
+			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ControlHome: controlHome, LabelNamespace: ns,
+			Runner: fake, Logger: logger.Silent{},
+			Environ: []string{"PATH=/bin", "COMPOSE_PROFILES=debug"},
+		})
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, []string{"debugOnly"}); err != nil {
+			t.Fatal(err)
+		}
+		services := overrideDoc(t, controlHome)["services"].(map[string]any)
+		if _, ok := services["debugOnly"]; !ok {
+			t.Fatalf("services = %v, want debugOnly labelled", keysOf(services))
 		}
 	})
 
