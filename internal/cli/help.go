@@ -86,14 +86,24 @@ func subcommandTerm(child *node) string {
 	return term
 }
 
+// optionTerm is help.js's function of the same name: the column an option
+// is listed under, its flags string as registered (e.g. "-a, --all").
 func optionTerm(o *option) string { return o.flags }
 
+// argumentTerm is help.js's function of the same name: the column an
+// argument is listed under, its bare name.
 func argumentTerm(a *argument) string { return a.name }
 
+// subcommandDescription is help.js's function of the same name: the
+// description column for a subcommand's row in "Commands:".
 func subcommandDescription(child *node) string { return child.description }
 
+// optionDescription is help.js's function of the same name: the
+// description column for an option's row in "Options:".
 func optionDescription(o *option) string { return o.description }
 
+// argumentDescription is help.js's function of the same name: the
+// description column for an argument's row in "Arguments:".
 func argumentDescription(a *argument) string { return a.description }
 
 // commandUsage is help.js's function of the same name: every ancestor's

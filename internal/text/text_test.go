@@ -308,6 +308,8 @@ func TestTruncateUTF16Oracle(t *testing.T) {
 	}
 }
 
+// loadCorpus reads and parses testdata/corpus.json, failing the test with a
+// regeneration hint if it is missing or malformed.
 func loadCorpus(t *testing.T) corpus {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/corpus.json")
@@ -342,6 +344,8 @@ func TestPrintableOracle(t *testing.T) {
 	}
 }
 
+// countCf counts the cases whose Name is tagged "Cf ", for checking the
+// corpus's own Cf count against Go's unicode.Cf table.
 func countCf(cases []codePointCase) int {
 	n := 0
 	for _, c := range cases {

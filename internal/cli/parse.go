@@ -38,6 +38,9 @@ type parseState struct {
 	buildEnv           func(configPath string) (*commands.Env, error)
 }
 
+// helpWidth is the wrap width help text renders at: errWidth when help is
+// being written to stderr, outWidth when it is going to stdout — the two
+// streams can have different terminal widths.
 func (ps *parseState) helpWidth(isError bool) int {
 	if isError {
 		return ps.errWidth
@@ -45,6 +48,8 @@ func (ps *parseState) helpWidth(isError bool) int {
 	return ps.outWidth
 }
 
+// writerFor is the stream parser-level output goes to: stderr for an error
+// exit, stdout otherwise.
 func (ps *parseState) writerFor(isError bool) io.Writer {
 	if isError {
 		return ps.stderr
@@ -76,10 +81,15 @@ func (ps *parseState) errorExit(message string) *exitSignal {
 	return &exitSignal{code: 1}
 }
 
+// missingArgument is command.js's _checkNumberOfArguments() error for a
+// required positional that wasn't given: "missing required argument
+// '<name>'".
 func (ps *parseState) missingArgument(name string) *exitSignal {
 	return ps.errorExit(fmt.Sprintf("error: missing required argument '%s'", name))
 }
 
+// optionMissingArgument is command.js's error for an option that takes a
+// value but was given none: "option '<flags>' argument missing".
 func (ps *parseState) optionMissingArgument(o *option) *exitSignal {
 	return ps.errorExit(fmt.Sprintf("error: option '%s' argument missing", o.flags))
 }

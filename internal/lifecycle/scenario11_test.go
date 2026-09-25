@@ -64,10 +64,18 @@ func TestMain(m *testing.M) {
 // with no need to make a real osrun.Runner actually fail to reap a child.
 type alwaysFailQuiescer struct{}
 
+// Quiesce always fails, forcing Hold down its abandon-and-force-exit path
+// regardless of what it is asked to wait for.
 func (alwaysFailQuiescer) Quiesce(context.Context) error {
 	return errors.New(forcedQuiesceMessage)
 }
 
+// runScenario11Helper runs this re-executed test binary as one of scenario
+// 11's helper roles, selected by BERTH_LIFECYCLE_HELPER_ROLE, and returns the
+// process exit code. "not-quiescent" holds the lock through Hold with a
+// Quiescer that always fails and spawns the "child-hold-fd" role, which
+// writes a ready file, then parks holding the inherited lock descriptor open
+// until it is killed from outside.
 func runScenario11Helper(role string) int {
 	switch role {
 	case "not-quiescent":
@@ -125,6 +133,9 @@ func runScenario11Helper(role string) int {
 	return 0 // not reached: a role that parks is only ever killed from outside
 }
 
+// filterHelperEnv strips this test's own role/target/ready-file variables
+// out of env, so a spawned helper's own role selection isn't confused by
+// its parent's.
 func filterHelperEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 next:
@@ -139,6 +150,9 @@ next:
 	return out
 }
 
+// writeReadyFile records pid at path so the parent test can tell the child
+// helper is running and holding the lock; it writes to a temp file first and
+// renames into place so the parent never observes a partial write.
 func writeReadyFile(path string, pid int) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d\n", pid)), 0o600); err != nil {

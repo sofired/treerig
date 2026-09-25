@@ -23,6 +23,9 @@ prepare = "./prepare.sh"
 backup = "./backup.sh"
 `
 
+// testEnv builds an Env pointed at configPath, with Getenv resolving only
+// HOME (to home) and Cwd set to configPath's directory, plus the Recording
+// logger it writes to.
 func testEnv(t *testing.T, configPath, home string) (*Env, *logger.Recording) {
 	t.Helper()
 	rec := &logger.Recording{}
@@ -41,6 +44,8 @@ func testEnv(t *testing.T, configPath, home string) (*Env, *logger.Recording) {
 	}, rec
 }
 
+// writeConfig writes toml to a fresh temp directory's berth.toml and returns
+// its path.
 func writeConfig(t *testing.T, toml string) string {
 	t.Helper()
 	dir := t.TempDir()

@@ -135,6 +135,10 @@ type upFixture struct {
 	env                                     []string
 }
 
+// newUpFixture builds a checkout with a berth.toml, a compose file, a hook
+// script that records its stage (and can be made to hang on demand) and a
+// fake docker on PATH, plus a healthy fake router, ready for `up` to be run
+// against through the real binary.
 func newUpFixture(t *testing.T) upFixture {
 	t.Helper()
 	base, err := filepath.EvalSymlinks(t.TempDir())
@@ -197,6 +201,8 @@ func newUpFixture(t *testing.T) upFixture {
 	return f
 }
 
+// command builds binary to run in f's checkout with f's environment, ready
+// for the caller to add args and run it.
 func (f upFixture) command(binary string, args ...string) *exec.Cmd {
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = f.checkout
@@ -204,6 +210,8 @@ func (f upFixture) command(binary string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// calls returns the fake docker's recorded invocations, one per line, in
+// the order they were made.
 func (f upFixture) calls(t *testing.T) []string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(f.state, "calls"))
@@ -213,6 +221,8 @@ func (f upFixture) calls(t *testing.T) []string {
 	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 }
 
+// stages returns the hook stages the "record" script logged, in the order
+// they ran; an absent log (no hook ran yet) is not an error.
 func (f upFixture) stages(t *testing.T) []string {
 	t.Helper()
 	data, err := os.ReadFile(f.log)

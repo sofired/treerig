@@ -45,6 +45,7 @@ type outcome struct {
 	err    error
 }
 
+// okOutcome is a successful outcome with the given stdout.
 func okOutcome(stdout string) outcome { return outcome{result: run.Result{Stdout: stdout}} }
 
 // doctorRunnerState is DoctorRunner from tests/unit/doctor.test.ts: answers
@@ -65,6 +66,8 @@ type doctorRunnerState struct {
 	hook         outcome
 }
 
+// recordCall appends spec to the call log under mu, safe for the concurrent
+// Docker Engine and Compose queries dockerChecks makes.
 func (s *doctorRunnerState) recordCall(spec run.Spec) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -79,6 +82,9 @@ func (s *doctorRunnerState) callsSnapshot() []run.Spec {
 	return append([]run.Spec(nil), s.calls...)
 }
 
+// newDoctorRunnerState is a doctorRunnerState answering a current Git, a
+// healthy Docker Engine and Compose, and a successful verify hook; git nil
+// gets a fresh registrytest.GitRunner.
 func newDoctorRunnerState(git *registrytest.GitRunner) *doctorRunnerState {
 	if git == nil {
 		git = registrytest.NewGitRunner()
@@ -100,10 +106,13 @@ func newDoctorRunnerState(git *registrytest.GitRunner) *doctorRunnerState {
 // doctorRunner is a run.Runner over doctorRunnerState.
 type doctorRunner struct{ state *doctorRunnerState }
 
+// newDoctorRunner is a run.Runner backed by a fresh newDoctorRunnerState(git).
 func newDoctorRunner(git *registrytest.GitRunner) *doctorRunner {
 	return &doctorRunner{state: newDoctorRunnerState(git)}
 }
 
+// Which reports docker as on PATH according to state.dockerOnPath; every
+// other command is reported found.
 func (d *doctorRunner) Which(name string) bool {
 	if name != "docker" {
 		return true
@@ -111,6 +120,10 @@ func (d *doctorRunner) Which(name string) bool {
 	return d.state.dockerOnPath
 }
 
+// Run records spec and answers it: the configured Git version for `git
+// --version`, the real git runner for any other `git` command, the
+// configured outcome keyed by its first argument for `docker`, and the
+// configured hook outcome for anything else.
 func (d *doctorRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	d.state.recordCall(spec)
 	if spec.Command == "git" && len(spec.Args) > 0 && spec.Args[0] == "--version" {
@@ -137,6 +150,8 @@ func (d *doctorRunner) Run(ctx context.Context, spec run.Spec) (run.Result, erro
 	return finishOutcome(spec, d.state.hook)
 }
 
+// finishOutcome turns o into what run.Runner.Run returns: o.err directly, or
+// o.result passed through run.Finish to fill in what a real run would set.
 func finishOutcome(spec run.Spec, o outcome) (run.Result, error) {
 	if o.err != nil {
 		return run.Result{}, o.err
@@ -152,10 +167,13 @@ type fakeRouterSource struct {
 	asked   int
 }
 
+// newFakeRouterSource is a fakeRouterSource reporting a reachable, running,
+// clean router on network "berth-router".
 func newFakeRouterSource() *fakeRouterSource {
 	return &fakeRouterSource{network: "berth-router", status: router.RouterStatus{Reachable: true, Running: true, Port: 80, Network: "berth-router"}}
 }
 
+// Status counts the call and returns f.err if set, otherwise f.status.
 func (f *fakeRouterSource) Status(ctx context.Context) (router.RouterStatus, error) {
 	f.asked++
 	if f.err != nil {
@@ -164,6 +182,7 @@ func (f *fakeRouterSource) Status(ctx context.Context) (router.RouterStatus, err
 	return f.status, nil
 }
 
+// Network returns f.network.
 func (f *fakeRouterSource) Network() string { return f.network }
 
 // fakeCheckoutRegistry is CheckoutRegistry from src/commands/doctor.ts,
@@ -173,16 +192,21 @@ type fakeCheckoutRegistry struct {
 	pruneCandidates func(ctx context.Context) ([]registry.RegisteredWorktree, error)
 }
 
+// Current delegates to f.current.
 func (f fakeCheckoutRegistry) Current(ctx context.Context) (*registry.WorktreeRegistration, error) {
 	return f.current(ctx)
 }
 
+// PruneCandidates delegates to f.pruneCandidates.
 func (f fakeCheckoutRegistry) PruneCandidates(ctx context.Context) ([]registry.RegisteredWorktree, error) {
 	return f.pruneCandidates(ctx)
 }
 
 /* ------------------------------------------------------------- helpers ---- */
 
+// testOpts is a doctorOptions wired to fakes (a fresh doctorRunner, a silent
+// logger, a healthy fakeRouterSource, no checkout found), then adjusted by
+// overrides when given.
 func testOpts(t *testing.T, overrides func(*doctorOptions)) doctorOptions {
 	t.Helper()
 	opts := doctorOptions{
@@ -196,6 +220,8 @@ func testOpts(t *testing.T, overrides func(*doctorOptions)) doctorOptions {
 	return opts
 }
 
+// section returns the checks of the section named title, or nil if sections
+// has none by that title.
 func section(sections []Section, title string) []Check {
 	for _, s := range sections {
 		if s.Title == title {
@@ -205,6 +231,8 @@ func section(sections []Section, title string) []Check {
 	return nil
 }
 
+// statuses is the section named title's checks, each rendered as "<status>
+// <subject>" for terse assertions.
 func statuses(sections []Section, title string) []string {
 	checks := section(sections, title)
 	out := make([]string, len(checks))
@@ -214,6 +242,7 @@ func statuses(sections []Section, title string) []string {
 	return out
 }
 
+// sectionTitles is sections' titles, in order.
 func sectionTitles(sections []Section) []string {
 	out := make([]string, len(sections))
 	for i, s := range sections {
@@ -222,6 +251,8 @@ func sectionTitles(sections []Section) []string {
 	return out
 }
 
+// testWorktree is a registry.RegisteredWorktree with the given slug and
+// domain and fresh randomTestUUID identifiers.
 func testWorktree(slug, domain string) registry.RegisteredWorktree {
 	return registry.RegisteredWorktree{RepositoryID: randomTestUUID(), WorktreeID: randomTestUUID(), Slug: slug, Domain: domain}
 }
@@ -235,6 +266,7 @@ func randomTestUUID() string {
 	return fmt.Sprintf("00000000-0000-4000-8000-%012d", uuidCounter)
 }
 
+// cancelled is a *clierr.Cancelled for sig.
 func cancelled(sig syscall.Signal) *clierr.Cancelled { return &clierr.Cancelled{Signal: sig} }
 
 // fixtureDomain is every checkoutFixture's project domain.
@@ -315,6 +347,8 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 	return registry.RegisteredWorktree{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: slug, Domain: fixtureDomain}
 }
 
+// opts is a doctorOptions for this fixture's loaded checkout, with f's own
+// control home, runner and a healthy fake router.
 func (f *checkoutFixture) opts() doctorOptions {
 	return doctorOptions{
 		CommandName: "berth", ControlHome: f.controlHome, Runner: f.runner, Logger: logger.Silent{},
@@ -322,6 +356,8 @@ func (f *checkoutFixture) opts() doctorOptions {
 	}
 }
 
+// wantCancelled fails t unless err is a *clierr.Cancelled with the given
+// message.
 func wantCancelled(t *testing.T, err error, msg string) {
 	t.Helper()
 	var c *clierr.Cancelled
@@ -493,15 +529,20 @@ func TestRegistryChecksInternal(t *testing.T) {
 	})
 }
 
+// isEllipsisSuffix reports whether s ends with the single-rune ellipsis
+// text.OneLine truncates with.
 func isEllipsisSuffix(s string) bool {
 	r := []rune(s)
 	return len(r) > 0 && r[len(r)-1] == '…'
 }
 
+// contains reports whether haystack contains needle.
 func contains(haystack, needle string) bool {
 	return len(needle) == 0 || (len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0)
 }
 
+// indexOf returns the byte index of needle's first occurrence in haystack,
+// or -1 if it does not occur.
 func indexOf(haystack, needle string) int {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
 		if haystack[i:i+len(needle)] == needle {
@@ -1273,6 +1314,7 @@ func TestDoctorSections(t *testing.T) {
 	})
 }
 
+// repeatString is s repeated n times.
 func repeatString(s string, n int) string {
 	out := make([]byte, 0, len(s)*n)
 	for i := 0; i < n; i++ {
@@ -1281,6 +1323,8 @@ func repeatString(s string, n int) string {
 	return string(out)
 }
 
+// jsonLabels is the JSON object parseRoutedContainers expects for a
+// container's Docker labels, carrying one Traefik router rule.
 func jsonLabels(routerName, rule string) string {
 	return fmt.Sprintf(`{"traefik.http.routers.%s.rule":%q}`, routerName, rule)
 }
@@ -1667,6 +1711,7 @@ func TestFindCheckoutInternal(t *testing.T) {
 	})
 }
 
+// replaceAcme replaces every occurrence of "acme" in s with "other".
 func replaceAcme(s string) string {
 	out := make([]byte, 0, len(s))
 	i := 0

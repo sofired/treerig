@@ -11,14 +11,19 @@ import (
 	"github.com/sofired/berth/internal/run/fakerun"
 )
 
+// answering is a runner whose every call succeeds (in the run.Runner sense)
+// with result, whatever the command.
 func answering(result run.Result) *fakerun.Runner {
 	return &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) { return result, nil }}
 }
 
+// refusing is a runner whose every call fails outright with err, as a runner
+// does when the command never started.
 func refusing(err error) *fakerun.Runner {
 	return &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) { return run.Result{}, err }}
 }
 
+// wantError fails the test unless err is non-nil and its message contains message.
 func wantError(t *testing.T, err error, message string) {
 	t.Helper()
 	if err == nil || !strings.Contains(err.Error(), message) {

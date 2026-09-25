@@ -10,6 +10,8 @@ import (
 	"github.com/sofired/berth/internal/logger"
 )
 
+// waitFor polls condition until it is true, failing the test if it never
+// becomes true within a short deadline.
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -115,6 +117,7 @@ func TestLifecycleSignals(t *testing.T) {
 	})
 }
 
+// contains reports whether substr occurs anywhere in s.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (func() bool {
 		for i := 0; i+len(substr) <= len(s); i++ {

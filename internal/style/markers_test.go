@@ -97,6 +97,9 @@ func TestCommentMarkersDetector(t *testing.T) {
 	}
 }
 
+// commentProblems scans file's comments for a spike marker or an untracked
+// to-do (one with no "(#issue)" reference) and returns one "path:line:
+// reason" string per problem found, in comment order.
 func commentProblems(fset *token.FileSet, file *ast.File, rel string) []string {
 	var problems []string
 	for _, group := range file.Comments {

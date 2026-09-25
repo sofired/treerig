@@ -34,6 +34,8 @@ import (
 // another suite's resources, matching the TypeScript integration suite's own rule.
 const composeNamespace = "dev.berth-test-compose"
 
+// composeFixture returns the absolute path to the shared compose.yaml
+// fixture, skipping the test if it is not present in this checkout.
 func composeFixture(t *testing.T) string {
 	t.Helper()
 	abs, err := filepath.Abs("../../tests/integration/fixtures/compose")
@@ -46,6 +48,8 @@ func composeFixture(t *testing.T) string {
 	return abs
 }
 
+// composeUUID generates a random RFC 4122 v4 UUID for a repository or
+// worktree ID, so each test run gets resources a sibling run cannot collide with.
 func composeUUID(t *testing.T) string {
 	t.Helper()
 	var b [16]byte
@@ -87,10 +91,14 @@ func composeSweep(t *testing.T, labels ...string) {
 	}
 }
 
+// dockerExists reports whether `docker <kind> inspect <name>` succeeds, i.e.
+// whether the resource still exists.
 func dockerExists(kind, name string) bool {
 	return exec.Command("docker", kind, "inspect", name).Run() == nil
 }
 
+// dockerFormat runs `docker <args...> --format <format>` and returns its
+// trimmed output, failing the test if the command errors.
 func dockerFormat(t *testing.T, format string, args ...string) string {
 	t.Helper()
 	full := append(append([]string{}, args...), "--format", format)

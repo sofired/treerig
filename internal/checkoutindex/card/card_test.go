@@ -49,6 +49,8 @@ func mustReadIndexCard(t *testing.T, controlHome, repositoryID, worktreeID strin
 	return got
 }
 
+// writeCard writes contents as index.json under dir, creating dir first,
+// and returns the file's path.
 func writeCard(t *testing.T, dir, contents string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o700); err != nil {

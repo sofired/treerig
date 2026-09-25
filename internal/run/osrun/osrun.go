@@ -68,6 +68,8 @@ func New() *Runner {
 
 var _ run.Runner = (*Runner)(nil)
 
+// track records t (a child's PID or process group) as still running, so
+// Quiesce and allGone know to wait for it.
 func (r *Runner) track(t target) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -274,6 +276,9 @@ func resolveCommand(command string, env []string) (string, *run.StartError) {
 	return "", &run.StartError{Command: command, Code: "ENOENT", Detail: "is not on PATH (ENOENT).", ExitCode: 127}
 }
 
+// pathEnv reads PATH out of env, the environment a spawned command resolves
+// against; a nil env means the command inherits ours, so PATH comes from the
+// real environment instead.
 func pathEnv(env []string) string {
 	if env == nil {
 		return os.Getenv("PATH")
@@ -366,6 +371,8 @@ func (r *Runner) Quiesce(ctx context.Context) error {
 	}
 }
 
+// untrackIfGone drops t from the tracked set once nothing is left of it, so
+// a later Quiesce does not keep waiting on a child that already exited.
 func (r *Runner) untrackIfGone(t target) {
 	if gone(t) {
 		r.mu.Lock()
@@ -383,6 +390,8 @@ func gone(t target) bool {
 	return errors.Is(syscall.Kill(probe, 0), syscall.ESRCH)
 }
 
+// allGone reports whether every tracked target has exited, untracking each
+// one it finds gone along the way.
 func (r *Runner) allGone() bool {
 	r.mu.Lock()
 	targets := make([]target, 0, len(r.targets))

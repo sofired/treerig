@@ -1,5 +1,13 @@
 package cli
 
+import (
+	"fmt"
+
+	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/commands"
+)
+
 // buildProgram assembles the command tree src/cli/main.ts defines, verb for
 // verb, in the same order and with the same descriptions, arguments and
 // options — so help.go's rendering and suggest.go's candidates come out
@@ -10,15 +18,6 @@ package cli
 // singleton) because node.values is mutated during parsing: cli.Main may run
 // many times in one process, in tests, and each run needs to start clean —
 // the way a new `new Command()` per process does for the TypeScript build.
-
-import (
-	"fmt"
-
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-)
-
 func buildProgram(commandName, version string) *node {
 	root := newCommand(commandName, "Give every Git worktree a durable identity, an isolated home, and a routed URL.")
 	root.setVersion(version)

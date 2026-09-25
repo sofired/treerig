@@ -16,6 +16,8 @@ const (
 	worktree   = "2b41d9d4-ed88-49c1-be9c-5439bdf6a431"
 )
 
+// mapGetenv adapts a map to layout.Getenv, so tests can fix an environment
+// without touching the process's real one.
 func mapGetenv(values map[string]string) layout.Getenv {
 	return func(key string) (string, bool) {
 		v, ok := values[key]

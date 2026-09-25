@@ -27,6 +27,8 @@ var refusedMagic = map[int64]string{
 	0x01161970: "GFS2",
 }
 
+// unsupportedFSType reports dir's filesystem type and whether CheckFS
+// refuses it, by looking up its statfs magic number in refusedMagic.
 func unsupportedFSType(dir string) (string, bool) {
 	var st unix.Statfs_t
 	if err := unix.Statfs(dir, &st); err != nil {

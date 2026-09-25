@@ -297,6 +297,8 @@ func runOracle(t *testing.T, args []string) (stdout, stderr string, exitCode int
 	return outBuf.String(), errBuf.String(), code
 }
 
+// writeFixture writes the oracle's recorded stdout, stderr and exit code as
+// the three files a golden fixture is made of, creating dir if needed.
 func writeFixture(t *testing.T, dir, stdout, stderr string, code int) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -307,6 +309,7 @@ func writeFixture(t *testing.T, dir, stdout, stderr string, code int) {
 	writeFile(t, filepath.Join(dir, "exit"), strconv.Itoa(code)+"\n")
 }
 
+// writeFile writes content to path, failing the test if the write fails.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -314,6 +317,8 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+// readFixtureFile reads a golden fixture file, failing the test with a hint
+// to regenerate it with -update if it is missing.
 func readFixtureFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -323,6 +328,8 @@ func readFixtureFile(t *testing.T, path string) string {
 	return string(data)
 }
 
+// readFixtureCode reads a golden fixture's exit-code file and parses it,
+// failing the test if the contents aren't a valid integer.
 func readFixtureCode(t *testing.T, path string) int {
 	t.Helper()
 	raw := strings.TrimSpace(readFixtureFile(t, path))

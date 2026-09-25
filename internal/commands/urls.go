@@ -78,6 +78,8 @@ func UrlsWithContext(ctx context.Context, cctx *CommandContext) ([]ServiceURL, e
 	return list, nil
 }
 
+// printURLs prints one line per service, service names aligned into a
+// column so the URLs line up underneath.
 func printURLs(cctx *CommandContext, list []ServiceURL) {
 	width := 0
 	for _, entry := range list {

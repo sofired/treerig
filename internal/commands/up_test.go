@@ -14,6 +14,8 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
+// up runs UpWithContext against tc's CommandContext, the shared entry point
+// every subtest in this file calls.
 func up(t *testing.T, tc *commandstest.TestContext, router commands.Router, index commands.Index, options commands.UpOptions) (*commands.UpResult, error) {
 	t.Helper()
 	return commands.UpWithContext(context.Background(), tc.CommandContext, router, index, options)

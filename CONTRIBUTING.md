@@ -127,6 +127,11 @@ process, a signal, or a Docker daemon. They are excluded from the default
   `CGO_ENABLED=0`.
 - No spike markers, and every TODO names an issue: `TODO(#issue)`. Both are
   enforced by `internal/style`.
+- Every new function and method gets a doc comment, test helpers in
+  `_test.go` files included: what it does and why, not a restatement of its
+  signature. `Test*` functions are exempt, since their `t.Run` titles describe
+  them. CodeRabbit checks this on each pull request, against an 80%
+  threshold.
 
 **A few TypeScript-only statements above now have a Go side too:**
 - The entry point is also `cmd/berth` (`cli.Main`), alongside

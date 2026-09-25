@@ -44,6 +44,8 @@ func (l *Lock) who(rec *Record, now time.Time) string {
 	return fmt.Sprintf("The holder, %s, has held it for %s", HolderLabel(rec), held)
 }
 
+// listProcs renders up to 10 of procs as one PID-and-command line each, with
+// a "… and N more" line if there were more than that.
 func listProcs(procs []procid.Proc) string {
 	var b strings.Builder
 	const shown = 10
@@ -57,6 +59,10 @@ func listProcs(procs []procid.Proc) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// holdingProcs asks the process table who holds fileID's flock right now,
+// for the notice and the final refusal to show alongside the record's own
+// holder; a lookup error is treated as no processes found rather than
+// surfaced, since this is advisory only.
 func (l *Lock) holdingProcs(fileID FileID) []procid.Proc {
 	procs, err := l.opts.Table.Holding(fileID.Dev, fileID.Ino)
 	if err != nil {
@@ -105,6 +111,9 @@ func (l *Lock) advice(rec *Record, now time.Time, final bool, holding []procid.P
 	return fmt.Sprintf("%s; it still holds the lock. %s.%s", who, action, extra)
 }
 
+// notice logs the periodic "waiting for the lock" message while Acquire
+// waits, reading the current holder record and holding processes fresh each
+// time it is called.
 func (l *Lock) notice(fileID FileID) {
 	rec, _ := readRecord(l.recordPath())
 	now := l.opts.Clock()
@@ -112,6 +121,9 @@ func (l *Lock) notice(fileID FileID) {
 	l.opts.Logger.Info(fmt.Sprintf("Waiting for the %s lock. %s", l.scope.Description, l.advice(rec, now, false, holding)))
 }
 
+// giveUpError is the final error Acquire returns once it stops waiting: the
+// same holder-and-advice wording as notice, but phrased as a refusal rather
+// than a status update.
 func (l *Lock) giveUpError(now time.Time, fileID FileID) error {
 	rec, _ := readRecord(l.recordPath())
 	holding := l.holdingProcs(fileID)

@@ -55,6 +55,10 @@ func (o *ObjectSchema) Default(value *Obj) *ObjectSchema {
 	return o
 }
 
+// parse validates raw as an object: each declared field against its own
+// schema (an absent one seen as [Undefined]), an unrecognized_keys issue for
+// any extra key when Strict, then — only if nothing above found a fatal
+// issue — this schema's superRefine checks in the order they were added.
 func (o *ObjectSchema) parse(ctx *context, raw any) (any, bool) {
 	if raw == Undefined {
 		return parseAbsent(ctx, o.mod, "object")
@@ -110,6 +114,9 @@ func (o *ObjectSchema) parse(ctx *context, raw any) (any, bool) {
 	return out, sound
 }
 
+// unrecognizedKeysMessage formats a Strict object's rejected keys the way
+// zod does: "Unrecognized key: "x"" for one, "Unrecognized keys: "x", "y""
+// for more.
 func unrecognizedKeysMessage(extra []string) string {
 	if len(extra) == 1 {
 		return fmt.Sprintf("Unrecognized key: %q", extra[0])

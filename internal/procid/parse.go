@@ -36,6 +36,8 @@ func parseProcStat(text string) (state string, startTicks uint64, ok bool) {
 	return state, n, true
 }
 
+// isLetter reports whether b is an ASCII letter, the only valid shape for the
+// single-character process-state field in /proc/<pid>/stat.
 func isLetter(b byte) bool {
 	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
@@ -67,6 +69,9 @@ func parseEtime(text string) (int64, bool) {
 	return ((days*24+hours)*60+minutes)*60 + seconds, true
 }
 
+// atoiOr parses s as a base-10 integer, or returns fallback if s is empty or
+// not a valid number — ps's elapsed-time fields omit the leading components
+// ([[dd-]hh:]mm:ss), so a missing one means zero, not an error.
 func atoiOr(s string, fallback int64) int64 {
 	if s == "" {
 		return fallback

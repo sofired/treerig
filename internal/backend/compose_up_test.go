@@ -19,6 +19,8 @@ import (
 // TypeScript suite's own runtime(fake, routes) helper.
 func intPtr(n int) *int { return &n }
 
+// routedRuntime is newRuntime plus routes and a router network, matching the
+// TypeScript suite's own runtime(fake, routes) helper.
 func routedRuntime(t *testing.T, fake *dockerFake, routes []RouteSpec) (*Compose, string) {
 	t.Helper()
 	controlHome := t.TempDir()
@@ -31,6 +33,8 @@ func routedRuntime(t *testing.T, fake *dockerFake, routes []RouteSpec) (*Compose
 	return rt, controlHome
 }
 
+// overridePathFor is the path the runtime writes berth.override.yaml to
+// under a worktree's home, for tests that read it back directly.
 func overridePathFor(controlHome string) string {
 	return filepath.Join(layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID).Home, "berth.override.yaml")
 }
@@ -49,6 +53,8 @@ func overrideDoc(t *testing.T, controlHome string) map[string]any {
 	return doc
 }
 
+// keysOf returns m's keys in sorted order, for deterministic assertions on a
+// decoded document's shape.
 func keysOf(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -307,6 +313,8 @@ func TestComposeUp(t *testing.T) {
 	})
 }
 
+// reflectEqual is reflect.DeepEqual under a short name, for table-driven
+// cases that compare decoded documents field by field.
 func reflectEqual(a, b any) bool {
 	return reflect.DeepEqual(a, b)
 }

@@ -15,11 +15,14 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
+// scratch returns a fresh directory for a test's spawned commands to run in.
 func scratch(t *testing.T) string {
 	t.Helper()
 	return t.TempDir()
 }
 
+// withPath sets PATH to dir for the duration of the test, restoring whatever
+// PATH held (or clearing it, if it was unset) on cleanup.
 func withPath(t *testing.T, dir string) {
 	t.Helper()
 	previous, had := os.LookupEnv("PATH")

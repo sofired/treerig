@@ -42,6 +42,8 @@ func jsonString(value string) string {
 	return trimNewline(buf.String())
 }
 
+// trimNewline drops a single trailing "\n" from s, the one Encoder.Encode
+// always appends after a JSON value.
 func trimNewline(s string) string {
 	if n := len(s); n > 0 && s[n-1] == '\n' {
 		return s[:n-1]

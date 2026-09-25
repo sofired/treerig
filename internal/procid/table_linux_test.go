@@ -9,6 +9,9 @@ import (
 	"testing"
 )
 
+// fakeProc builds a fake /proc root under t.TempDir with a boot ID, a PID
+// namespace symlink for "self", and a stat file for this process, so tests
+// can point a LinuxTable at it instead of the real /proc.
 func fakeProc(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -31,6 +34,9 @@ type procFields struct {
 	hasNS             bool
 }
 
+// addProcess writes a fake /proc/<pid> entry under root with whichever of
+// stat, cmdline, environ and the PID-namespace symlink fields asks for, so a
+// test can shape exactly what a scan can and cannot read about it.
 func addProcess(t *testing.T, root string, pid int, fields procFields) {
 	t.Helper()
 	directory := filepath.Join(root, itoaInt(pid))
@@ -50,6 +56,8 @@ func addProcess(t *testing.T, root string, pid int, fields procFields) {
 	}
 }
 
+// joinNul joins parts with a trailing NUL after each one, the layout of
+// /proc/<pid>/cmdline and /environ.
 func joinNul(parts []string) string {
 	out := ""
 	for _, p := range parts {
@@ -58,8 +66,10 @@ func joinNul(parts []string) string {
 	return out
 }
 
+// itoaInt formats a PID the way a fake /proc directory name needs it.
 func itoaInt(n int) string { return itoa(uint64(n)) }
 
+// mustMkdirAll creates path and every missing parent, failing the test on error.
 func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -67,6 +77,7 @@ func mustMkdirAll(t *testing.T, path string) {
 	}
 }
 
+// mustWriteFile writes content to path, failing the test on error.
 func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -74,6 +85,7 @@ func mustWriteFile(t *testing.T, path, content string) {
 	}
 }
 
+// mustSymlink creates link pointing at target, failing the test on error.
 func mustSymlink(t *testing.T, target, link string) {
 	t.Helper()
 	if err := os.Symlink(target, link); err != nil {
@@ -195,6 +207,7 @@ func TestLinuxTable(t *testing.T) {
 	})
 }
 
+// equalStrings reports whether a and b hold the same strings in the same order.
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

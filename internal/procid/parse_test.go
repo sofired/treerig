@@ -13,6 +13,7 @@ func statLine(comm, state string, startTicks uint64) string {
 		itoa(startTicks) + " 5971968 416 18446744073709551615\n"
 }
 
+// itoa formats n in base 10, without pulling in strconv just for the fixture.
 func itoa(n uint64) string {
 	if n == 0 {
 		return "0"

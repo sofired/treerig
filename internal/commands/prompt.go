@@ -31,6 +31,8 @@ func confirmationMatches(expected, answer string) bool {
 // when the stream can show colour.
 type styler struct{ enabled bool }
 
+// style wraps value in codes' escape pairs when colour is enabled, and
+// returns value unchanged otherwise.
 func (s styler) style(value string, codes ...[2]string) string {
 	if !s.enabled {
 		return value

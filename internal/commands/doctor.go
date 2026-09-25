@@ -90,6 +90,8 @@ type Section struct {
 	Checks []Check
 }
 
+// failureCheck turns an error a check could not even run past into a failed
+// line for subject, carrying err's own message as the detail.
 func failureCheck(subject string, err error) Check {
 	return Check{Status: StatusFail, Subject: subject, Detail: err.Error()}
 }
@@ -133,6 +135,8 @@ func readVersion(output string) (toolVersion, bool) {
 	return v, true
 }
 
+// atoiOrZero parses s, a digit run readVersion already matched, as a
+// non-negative integer; "" (an absent patch group) yields 0.
 func atoiOrZero(s string) int {
 	n := 0
 	for _, r := range s {
@@ -141,6 +145,8 @@ func atoiOrZero(s string) int {
 	return n
 }
 
+// atLeast reports whether version is minimum or newer, comparing major,
+// minor, then patch in order.
 func atLeast(version, minimum [3]int) bool {
 	for i := 0; i < 3; i++ {
 		if version[i] != minimum[i] {
@@ -165,6 +171,9 @@ func versionCheck(subject, output, minimum string) Check {
 
 /* ------------------------------------------------------- prerequisites ---- */
 
+// gitCheck runs `git --version` and reports it as a version check; a
+// non-zero exit is its own failed line, detailed with stderr, rather than a
+// version to compare.
 func gitCheck(ctx context.Context, runner run.Runner) (Check, error) {
 	result, err := runner.Run(ctx, run.Spec{Command: "git", Args: []string{"--version"}, AllowFailure: true})
 	if err != nil {
@@ -263,6 +272,11 @@ func dockerChecks(ctx context.Context, runner run.Runner, timeout time.Duration)
 	return dockerState{checks: checks, engineAnswered: engineResult != nil, composeAnswered: composeResult != nil}, nil
 }
 
+// prerequisitesSection is the "Prerequisites" section: Git, then Docker
+// Engine and Docker Compose. Docker is probed first, and an error from its
+// probe becomes one failed "Docker" line rather than ending the report,
+// unless it is a cancellation. Also returns the dockerState the Router
+// section needs to know whether Docker answered at all.
 func prerequisitesSection(ctx context.Context, opts doctorOptions) ([]Check, dockerState, error) {
 	state, err := dockerChecks(ctx, opts.Runner, opts.dockerTimeout())
 	if err != nil {
@@ -288,6 +302,10 @@ func prerequisitesSection(ctx context.Context, opts doctorOptions) ([]Check, doc
 
 /* ------------------------------------------------------------ registry ---- */
 
+// controlHomeCheck reports the control home: ok noting it will be created by
+// the first `up` when it does not exist yet, ok naming its path when it
+// exists and passes files.AssertAdoptableControlHome, or that assertion's
+// own error otherwise.
 func controlHomeCheck(controlHome string) (Check, error) {
 	exists, err := files.PathExists(controlHome)
 	if err != nil {
@@ -342,6 +360,9 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 	return checks
 }
 
+// registrySection is the "Registry" section: the control home check (plus a
+// note when it was last used by a TypeScript build), followed by
+// registryChecks over a fresh scan of every registration.
 func registrySection(controlHome, commandName string) ([]Check, error) {
 	checks, err := guarded("control home", func() ([]Check, error) {
 		check, err := controlHomeCheck(controlHome)
@@ -588,9 +609,12 @@ type doctorRouterSource interface {
 // field, not a method — to doctorRouterSource.
 type realRouterSource struct{ svc *router.Router }
 
+// Status delegates to the wrapped router.Router's own Status.
 func (r realRouterSource) Status(ctx context.Context) (router.RouterStatus, error) {
 	return r.svc.Status(ctx)
 }
+
+// Network returns the wrapped router.Router's Network field.
 func (r realRouterSource) Network() string { return r.svc.Network }
 
 // routerStatusChecks is the router in the words `router status` uses; not
@@ -745,6 +769,11 @@ func routeChecks(ctx context.Context, runner run.Runner, network string, timeout
 	return checks, nil
 }
 
+// routerSection is the "Router" section: opts.RouterErr's own line if the
+// router could not even be described, and one skip if Docker Engine did not
+// answer. Otherwise it is the router's status, or a skip when Docker Compose
+// did not answer, since the status needs Compose, followed by routeChecks,
+// which need only the Engine.
 func routerSection(ctx context.Context, opts doctorOptions, state dockerState) ([]Check, error) {
 	if opts.RouterErr != nil {
 		return []Check{{Status: StatusFail, Subject: "router", Detail: opts.RouterErr.Error()}}, nil
@@ -789,12 +818,19 @@ type checkoutSource struct {
 	loaded       *config.Loaded
 }
 
+// checkoutNone is a checkoutSource for no berth.toml found searching upward
+// from searchedFrom.
 func checkoutNone(searchedFrom string) checkoutSource {
 	return checkoutSource{kind: "none", searchedFrom: searchedFrom}
 }
+
+// checkoutUnloadable is a checkoutSource for a berth.toml that was found but
+// failed to load, carrying the loader's own error.
 func checkoutUnloadable(err error) checkoutSource {
 	return checkoutSource{kind: "unloadable", unloadable: err}
 }
+
+// checkoutIsLoaded is a checkoutSource for a berth.toml that loaded cleanly.
 func checkoutIsLoaded(loaded *config.Loaded) checkoutSource {
 	return checkoutSource{kind: "loaded", loaded: loaded}
 }
@@ -949,6 +985,9 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 	return checks, nil
 }
 
+// thisCheckoutSection is the "This checkout" section: a skip when no
+// berth.toml was found, a failed line naming the load error when one was
+// found but would not load, otherwise checkoutChecks over the loaded config.
 func thisCheckoutSection(ctx context.Context, opts doctorOptions) ([]Check, error) {
 	switch opts.Checkout.kind {
 	case "none":
@@ -985,6 +1024,8 @@ func doctorExitCode(sections []Section) int {
 	return 1
 }
 
+// tally counts every check across sections by status, always returning all
+// four statuses, zero-filled, even when none occurred.
 func tally(sections []Section) map[CheckStatus]int {
 	counts := map[CheckStatus]int{StatusOK: 0, StatusWarn: 0, StatusFail: 0, StatusSkip: 0}
 	for _, section := range sections {
@@ -1076,6 +1117,8 @@ type doctorOptions struct {
 	DockerProbeTimeout time.Duration
 }
 
+// dockerTimeout is o.DockerProbeTimeout when set, otherwise
+// dockerProbeTimeout.
 func (o doctorOptions) dockerTimeout() time.Duration {
 	if o.DockerProbeTimeout > 0 {
 		return o.DockerProbeTimeout

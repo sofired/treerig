@@ -116,6 +116,9 @@ func (l *Lock) judgeLegacyHolder(rec *Record, allowUnverifiable bool) (Verdict, 
 	return verdict, nil
 }
 
+// refuseVerbOrDefault names the verb a refusal reports itself as failing to
+// do: refuseVerb when one was set (Clear sets "clearing"), "taking" for an
+// ordinary Lock.
 func (l *Lock) refuseVerbOrDefault() string {
 	if l.refuseVerb != "" {
 		return l.refuseVerb
@@ -123,6 +126,8 @@ func (l *Lock) refuseVerbOrDefault() string {
 	return "taking"
 }
 
+// refuse builds the standard "Not <verb> the <scope> lock: <reason>." error
+// every refusal in this file shares.
 func (l *Lock) refuse(reason string) error {
 	return clierr.Newf("Not %s the %s lock: %s.", l.refuseVerbOrDefault(), l.scope.Description, reason)
 }
@@ -180,6 +185,8 @@ func (l *Lock) scanSurvivors() error {
 		pluralCount(len(survivors)), pluralIsAre(len(survivors)), listProcs(survivors)))
 }
 
+// markedSurvivors scans the process table and returns the processes carrying
+// this scope's markers, the single scan scanSurvivors takes twice.
 func (l *Lock) markedSurvivors() ([]procid.Proc, error) {
 	scan, err := l.opts.Table.Scan()
 	if err != nil {
@@ -188,6 +195,7 @@ func (l *Lock) markedSurvivors() ([]procid.Proc, error) {
 	return procid.Marked(scan.Procs, l.scope.Markers), nil
 }
 
+// pluralCount renders n as "a process" for one, or "N processes" otherwise.
 func pluralCount(n int) string {
 	if n == 1 {
 		return "a process"
@@ -195,6 +203,8 @@ func pluralCount(n int) string {
 	return fmt.Sprintf("%d processes", n)
 }
 
+// pluralIsAre renders the verb to match pluralCount's noun: "is" for one,
+// "are" otherwise.
 func pluralIsAre(n int) string {
 	if n == 1 {
 		return "is"
@@ -216,6 +226,11 @@ type legacyRecord struct {
 	ProcessStartedAtMs *int64  `json:"processStartedAtMs"`
 }
 
+// readLegacyRecord reads a TypeScript-era holder record written directly
+// into target. It returns (nil, nil) rather than an error for anything that
+// makes the record unusable — missing, empty, oversized, unparsable JSON, or
+// missing a PID or host — since a leftover in that state is worth ignoring,
+// not failing on; only an I/O error other than "not exist" is returned.
 func readLegacyRecord(target string) (*Record, error) {
 	info, err := os.Stat(target)
 	if err != nil {
@@ -320,6 +335,8 @@ type ClearOptions struct {
 	SuggestUnverifiableFlag bool
 }
 
+// withDefaults fills in o's zero-valued fields: procid.Platform() for Table,
+// time.Now for Clock.
 func (o ClearOptions) withDefaults() ClearOptions {
 	if o.Table == nil {
 		o.Table = procid.Platform()

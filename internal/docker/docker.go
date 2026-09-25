@@ -18,6 +18,7 @@ import (
 // way, whichever call hit it.
 type UnavailableError struct{ Detail string }
 
+// Error is "Docker is not available: " followed by the detail.
 func (e *UnavailableError) Error() string { return "Docker is not available: " + e.Detail }
 
 // ExitStatus is 1.
@@ -41,6 +42,8 @@ var dockerItself = regexp.MustCompile(`(?i)^(?:docker: |ERROR: |Error response f
 	`unknown command: docker\b`,
 }, "|") + `)`)
 
+// trimmedLines splits text into lines, trims each, and drops the ones left
+// empty, so blank-line noise never masks or mimics a match.
 func trimmedLines(text string) []string {
 	var lines []string
 	for _, line := range strings.Split(text, "\n") {

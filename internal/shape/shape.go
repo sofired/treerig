@@ -89,6 +89,8 @@ type context struct {
 	issues *[]Issue
 }
 
+// newContext starts a parse at the document root, with an empty issues
+// slice every nested context shares.
 func newContext() *context {
 	return &context{issues: &[]Issue{}}
 }
@@ -106,6 +108,9 @@ func (c *context) at(index int) *context {
 	return c.field(strconv.Itoa(index))
 }
 
+// issue records a problem at c's current path, copying the path so a later
+// mutation of c.path (as parsing descends further) can't retroactively
+// change an already-recorded issue.
 func (c *context) issue(code, message string) {
 	path := make([]string, len(c.path))
 	copy(path, c.path)
@@ -151,6 +156,8 @@ func typeName(raw any) string {
 	}
 }
 
+// isNaN reports whether f is NaN, using the fact that NaN is the only float
+// value that does not equal itself.
 func isNaN(f float64) bool { return f != f }
 
 // parseAbsent is what every schema does when handed [Undefined]: apply a

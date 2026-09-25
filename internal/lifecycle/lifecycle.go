@@ -39,10 +39,17 @@ type realOS struct{}
 // syscall.Kill, os.Getpid and os.Exit — the real process.
 func New() OS { return realOS{} }
 
+// Notify delegates to signal.Notify.
 func (realOS) Notify(c chan<- os.Signal, sig ...os.Signal) { signal.Notify(c, sig...) }
-func (realOS) Stop(c chan<- os.Signal)                     { signal.Stop(c) }
-func (realOS) Ignored(sig os.Signal) bool                  { return signal.Ignored(sig) }
-func (realOS) Reset(sig os.Signal)                         { signal.Reset(sig) }
+
+// Stop delegates to signal.Stop.
+func (realOS) Stop(c chan<- os.Signal) { signal.Stop(c) }
+
+// Ignored delegates to signal.Ignored.
+func (realOS) Ignored(sig os.Signal) bool { return signal.Ignored(sig) }
+
+// Reset delegates to signal.Reset.
+func (realOS) Reset(sig os.Signal) { signal.Reset(sig) }
 
 // Kill sends sig. Sent to this process, it is delivered on a thread of the
 // runtime's choosing, so the caller is held here until it ends the process:
@@ -57,7 +64,11 @@ func (realOS) Kill(pid int, sig syscall.Signal) error {
 	}
 	return nil
 }
-func (realOS) Getpid() int   { return os.Getpid() }
+
+// Getpid delegates to os.Getpid.
+func (realOS) Getpid() int { return os.Getpid() }
+
+// Exit delegates to os.Exit; like it, this never returns.
 func (realOS) Exit(code int) { os.Exit(code) }
 
 // Lifecycle is the process's one signal handler. Nothing starts listening

@@ -56,6 +56,10 @@ type walk struct {
 	state                                       layout.RouterLayout
 }
 
+// newWalk sets up one checkout and its own test router: a fresh control
+// home, a randomised label namespace and project name so it runs beside a
+// developer's real router and worktrees without colliding, and a cleanup
+// that removes everything the test's namespace ends up owning.
 func newWalk(t *testing.T) *walk {
 	t.Helper()
 	dockerAvailable(t)
@@ -142,6 +146,8 @@ seed = "./hooks/record"
 	return w
 }
 
+// freePort asks the kernel for an unused TCP port, for the test router to
+// bind so it doesn't collide with a real one already running.
 func freePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -162,6 +168,8 @@ func (w *walk) context(t *testing.T) *commands.CommandContext {
 	return cctx
 }
 
+// up runs `up` against the walk's checkout and test router, failing the
+// test on error.
 func (w *walk) up(t *testing.T) *commands.UpResult {
 	t.Helper()
 	cctx := w.context(t)
@@ -211,6 +219,8 @@ func (w *walk) eventually(t *testing.T, host string, accept func(int, string) bo
 	}
 }
 
+// stages returns the hook stages recorded in the walk's log file, in the
+// order the hooks ran.
 func (w *walk) stages(t *testing.T) []string {
 	t.Helper()
 	data, err := os.ReadFile(w.log)

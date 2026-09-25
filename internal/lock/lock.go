@@ -53,6 +53,9 @@ type Options struct {
 	Clock func() time.Time
 }
 
+// withDefaults fills in every field New relies on having a usable value,
+// leaving Timeout, Retry and NoticeDelay for waitPlan and noticeDelay to
+// default on their own since zero is a meaningful setting for each.
 func (o Options) withDefaults() Options {
 	if o.NoticeInterval <= 0 {
 		o.NoticeInterval = 30 * time.Second
@@ -72,6 +75,8 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
+// noticeDelay is how long Acquire waits before its first "waiting for the
+// lock" notice: NoticeDelay if set, else 2s.
 func (o Options) noticeDelay() time.Duration {
 	if o.NoticeDelay != nil {
 		return *o.NoticeDelay
@@ -147,8 +152,13 @@ func New(scope Scope, opts Options) *Lock {
 	return &Lock{scope: scope, opts: opts.withDefaults()}
 }
 
+// recordPath is where the holder record sidecar for this lock's target lives.
 func (l *Lock) recordPath() string { return l.scope.Target + ".holder" }
 
+// ensureCheckedFS runs CheckFS against the target's directory once per Lock,
+// creating the directory first if this is the first lock ever taken there.
+// The result is cached so every later Acquire on the same Lock skips the
+// self-test and reuses its verdict.
 func (l *Lock) ensureCheckedFS() error {
 	l.checkFSOnce.Do(func() {
 		// The first lock of a new repository finds no directory yet; the
@@ -299,6 +309,9 @@ func (l *Lock) finishAcquire(ctx context.Context, command string) (context.Conte
 	return actionCtx, nil
 }
 
+// oneLineCommand is what gets written to the record as this holder's
+// command: Options.Holder when the caller supplied one, else the raw
+// invocation string.
 func oneLineCommand(invocation, holder string) string {
 	if holder != "" {
 		return holder
@@ -459,6 +472,12 @@ func (l *Lock) watchdog(stop <-chan struct{}, done chan<- struct{}, cancel conte
 	}
 }
 
+// checkStillOurs is the watchdog's periodic proof that this process still
+// holds the lock: the target file must still be the one it opened, by
+// device and inode, and the holder record must still name this PID. Either
+// failing means someone else may hold the lock now, so the watchdog must
+// stop trusting it; a record that is merely unreadable is not evidence of
+// that, since the file-identity check above already covers replacement.
 func (l *Lock) checkStillOurs() error {
 	var st syscall.Stat_t
 	if err := syscall.Lstat(l.scope.Target, &st); err != nil {

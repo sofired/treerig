@@ -14,6 +14,9 @@ const (
 	acmeDomain = "acme.localhost"
 )
 
+// slugIdentity returns a WorktreeIdentity on branch, defaulting root to
+// "/repo", with fixed git dirs and UUIDs — enough for BranchSlug tests that
+// only vary branch and root.
 func slugIdentity(branch, root string) registry.WorktreeIdentity {
 	if root == "" {
 		root = "/repo"

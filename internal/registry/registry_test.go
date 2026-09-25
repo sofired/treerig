@@ -24,6 +24,9 @@ type registryFixture struct {
 	log                             *logger.Recording
 }
 
+// newRegistryFixture builds a worktree and its git common directory under a
+// fresh temp control home, registers them with a fake git runner on branch,
+// and returns a registryFixture with a Registry opened for domain.
 func newRegistryFixture(t *testing.T, branch, domain string) registryFixture {
 	t.Helper()
 	base := registrytest.TempDir(t)
@@ -170,6 +173,9 @@ func TestRegistryListAndListAll(t *testing.T) {
 	})
 }
 
+// writeOtherRepositoryRecord plants a fixture record for a second
+// repository (repoB/wtB) under controlHome, for tests asserting a lookup
+// finds it across repositories.
 func writeOtherRepositoryRecord(controlHome string) error {
 	_, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
 		Version: 1, RepositoryID: repoB, WorktreeID: wtB, Slug: "other-clone", Domain: "widgets.localhost", Initialization: "complete",

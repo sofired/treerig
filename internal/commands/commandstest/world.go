@@ -107,6 +107,8 @@ func (w *World) Worktree(name, branch string, common ...string) string {
 	return w.addWorktree(name, branch, shared)
 }
 
+// addWorktree creates a worktree directory and its Git dir under common,
+// registers it with the fake Git runner, and returns its root.
 func (w *World) addWorktree(name, branch, common string) string {
 	w.t.Helper()
 	root := filepath.Join(w.Base, name)

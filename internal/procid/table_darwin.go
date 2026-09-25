@@ -25,10 +25,15 @@ type DarwinTable struct{}
 // Platform is this platform's process table.
 func Platform() Table { return DarwinTable{} }
 
+// startUs converts a kinfo_proc's start time to microseconds since the
+// epoch, the precision Identity and Status record it at on macOS.
 func startUs(kinfo *unix.KinfoProc) int64 {
 	return kinfo.Proc.P_starttime.Sec*1_000_000 + int64(kinfo.Proc.P_starttime.Usec)
 }
 
+// Self reports this process's identity: its own start time from the kernel,
+// the platform UUID from ioreg, and the boot session UUID from sysctl. Any
+// piece that cannot be read is left zero rather than failing the call.
 func (DarwinTable) Self() (Identity, error) {
 	var identity Identity
 	if kinfo, err := unix.SysctlKinfoProc("kern.proc.pid", os.Getpid()); err == nil {
@@ -127,6 +132,9 @@ func (DarwinTable) Holding(dev, ino uint64) ([]Proc, error) {
 	return nil, errors.ErrUnsupported
 }
 
+// procArgs reads pid's argv and environment from kern.procargs2. It fails
+// silently (ok is false) when the sysctl is refused, which happens for
+// another user's process without root.
 func procArgs(pid int) (argv, envp []string, ok bool) {
 	raw, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {

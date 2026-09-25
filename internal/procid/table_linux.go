@@ -26,6 +26,8 @@ func NewLinuxTable(root string, machineIDFiles []string, uid int) *LinuxTable {
 	return &LinuxTable{root: root, machineIDFiles: machineIDFiles, uid: uid}
 }
 
+// newDefaultLinuxTable builds a LinuxTable that reads the real /proc and the
+// real machine-id files, as the current user.
 func newDefaultLinuxTable() *LinuxTable {
 	return NewLinuxTable("/proc", []string{"/etc/machine-id", "/var/lib/dbus/machine-id"}, os.Getuid())
 }
@@ -33,6 +35,8 @@ func newDefaultLinuxTable() *LinuxTable {
 // Platform is this platform's process table.
 func Platform() Table { return newDefaultLinuxTable() }
 
+// firstLine reads file and returns its first line trimmed of surrounding
+// whitespace; ok is false if the file is missing, unreadable, or empty.
 func firstLine(file string) (string, bool) {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -42,6 +46,10 @@ func firstLine(file string) (string, bool) {
 	return line, line != ""
 }
 
+// Self reports this process's identity from /proc: the machine ID (first
+// file found among machineIDFiles), the boot ID, this process's PID
+// namespace, and its start in clock ticks since boot. A piece that cannot be
+// read is left zero rather than failing the call.
 func (t *LinuxTable) Self() (Identity, error) {
 	var identity Identity
 	for _, file := range t.machineIDFiles {
@@ -70,6 +78,10 @@ func isGone(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH)
 }
 
+// Inspect reads pid's state and start ticks from its /proc/<pid>/stat. A PID
+// that has already gone is reported as Absent rather than an error; a stat
+// file that cannot be parsed is a real error, since /proc having no readable
+// shape for a process we can stat is unexpected.
 func (t *LinuxTable) Inspect(pid int) (Status, error) {
 	data, err := os.ReadFile(filepath.Join(t.root, strconv.Itoa(pid), "stat"))
 	if err != nil {
@@ -95,6 +107,9 @@ const (
 	ownerTheirs
 )
 
+// ownerOf reports whether pid belongs to this table's uid, someone else, or
+// has already gone. It falls back to ownerTheirs whenever ownership cannot be
+// established, so a process is never treated as ours by default.
 func (t *LinuxTable) ownerOf(pid int) ownership {
 	info, err := os.Stat(filepath.Join(t.root, strconv.Itoa(pid)))
 	if err != nil {
@@ -113,6 +128,8 @@ func (t *LinuxTable) ownerOf(pid int) ownership {
 	return ownerTheirs
 }
 
+// isAllDigits reports whether s is non-empty and every byte is a decimal
+// digit — how a /proc entry is told apart from a PID directory.
 func isAllDigits(s string) bool {
 	if s == "" {
 		return false
@@ -125,6 +142,8 @@ func isAllDigits(s string) bool {
 	return true
 }
 
+// nulSplit splits data on NUL bytes, as /proc/<pid>/cmdline and /environ are
+// laid out, dropping the empty trailing entry a terminating NUL leaves.
 func nulSplit(data []byte) []string {
 	var out []string
 	for _, part := range strings.Split(string(data), "\x00") {
@@ -135,6 +154,11 @@ func nulSplit(data []byte) []string {
 	return out
 }
 
+// Scan lists every other process in this PID namespace by walking /proc,
+// reading each one's command line and environment where permission allows.
+// Processes in a different PID namespace are skipped, since their PIDs mean
+// nothing here. What could not be read is folded into Unreadable (ours) or
+// OthersHidden (someone else's), rather than silently dropped.
 func (t *LinuxTable) Scan() (Scan, error) {
 	own, _ := os.Readlink(filepath.Join(t.root, "self", "ns", "pid"))
 	entries, err := os.ReadDir(t.root)

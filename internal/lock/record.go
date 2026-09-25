@@ -39,6 +39,9 @@ type Record struct {
 	StartUs    *int64     `json:"startUs,omitempty"`
 }
 
+// valid reports whether r has the minimum a real holder record must have —
+// a positive PID and a host — so garbage or a half-written file is treated
+// as no record at all rather than misread as one.
 func (r Record) valid() bool {
 	return r.PID > 0 && r.Host != ""
 }

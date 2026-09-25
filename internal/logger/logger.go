@@ -89,9 +89,16 @@ func (c *Console) say(message string) {
 // Silent discards everything.
 type Silent struct{}
 
-func (Silent) Info(string)   {}
-func (Silent) Warn(string)   {}
-func (Silent) Error(string)  {}
+// Info discards the message.
+func (Silent) Info(string) {}
+
+// Warn discards the message.
+func (Silent) Warn(string) {}
+
+// Error discards the message.
+func (Silent) Error(string) {}
+
+// Output discards the message.
 func (Silent) Output(string) {}
 
 // Recording keeps every line, prefixed info:/warn:/error:, and every Output
@@ -102,16 +109,23 @@ type Recording struct {
 	Printed []string
 }
 
+// record appends line to Lines, locked so concurrent commands can log safely.
 func (r *Recording) record(line string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Lines = append(r.Lines, line)
 }
 
-func (r *Recording) Info(message string)  { r.record("info: " + message) }
-func (r *Recording) Warn(message string)  { r.record("warn: " + message) }
+// Info records the message prefixed "info: ".
+func (r *Recording) Info(message string) { r.record("info: " + message) }
+
+// Warn records the message prefixed "warn: ".
+func (r *Recording) Warn(message string) { r.record("warn: " + message) }
+
+// Error records the message prefixed "error: ".
 func (r *Recording) Error(message string) { r.record("error: " + message) }
 
+// Output records the message, unprefixed, in Printed.
 func (r *Recording) Output(message string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
