@@ -102,3 +102,13 @@ break them are not merged.
   which divergence-ledger rows, if any, need a maintainer's approval.
 - Update the README, `docs/hooks.md` or `CONTRIBUTING.md` in the same pull
   request when the behaviour they describe changes.
+- CI (`ci.yml`, `go.yml`) runs only on pull requests and on pushes to
+  `main`. A pushed branch without a pull request gets no CI run.
+- CodeRabbit reviews every pull request. Before marking one ready, answer
+  each of its findings with a fix or a reasoned reply on the pull request,
+  and bring the branch up to date with `main`. When a pull request merges,
+  check whether other open ones now need updating or retargeting.
+- Pull requests are usually squash-merged, and GitHub doesn't delete merged
+  branches. Delete a branch once its pull request merges. `git branch
+  --merged` and `git cherry` can't tell that a squash-merged branch has
+  landed, so check its pull request's state instead.

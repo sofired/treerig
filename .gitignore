@@ -8,3 +8,9 @@ coverage/
 .claude/settings.local.json
 .claude/worktrees/
 CLAUDE.local.md
+
+# Coding agents: personal notes, loaded in place of or alongside AGENTS.md
+AGENTS.override.md
+
+# Serena MCP: per-checkout project config, memories and cache
+.serena/
