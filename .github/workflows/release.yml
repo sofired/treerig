@@ -42,7 +42,12 @@ jobs:
           fi
           # Goes straight into -ldflags -X below; a tag name with a quote
           # or space in it would otherwise break the build step's quoting.
+          # A bare `v` tag leaves nothing to print for `--version`.
           case "$version" in
+            '')
+              echo "::error::tag '${GITHUB_REF_NAME}' has no version after its leading v" >&2
+              exit 1
+              ;;
             *[!A-Za-z0-9.+-]*)
               echo "::error::tag '${GITHUB_REF_NAME}' isn't a safe version string (only letters, digits, '.', '+', '-')" >&2
               exit 1
