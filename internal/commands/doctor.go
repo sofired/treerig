@@ -272,11 +272,11 @@ func dockerChecks(ctx context.Context, runner run.Runner, timeout time.Duration)
 	return dockerState{checks: checks, engineAnswered: engineResult != nil, composeAnswered: composeResult != nil}, nil
 }
 
-// prerequisitesSection is the "Prerequisites" section: Docker Engine and
-// Compose (guarded within dockerChecks itself, so a propagating error there
-// becomes one failed "Docker" line rather than ending the report) followed
-// by Git. Also returns the dockerState the Router section needs to know
-// whether Docker answered at all.
+// prerequisitesSection is the "Prerequisites" section: Git, then Docker
+// Engine and Docker Compose. Docker is probed first, and an error from its
+// probe becomes one failed "Docker" line rather than ending the report,
+// unless it is a cancellation. Also returns the dockerState the Router
+// section needs to know whether Docker answered at all.
 func prerequisitesSection(ctx context.Context, opts doctorOptions) ([]Check, dockerState, error) {
 	state, err := dockerChecks(ctx, opts.Runner, opts.dockerTimeout())
 	if err != nil {
@@ -770,10 +770,10 @@ func routeChecks(ctx context.Context, runner run.Runner, network string, timeout
 }
 
 // routerSection is the "Router" section: opts.RouterErr's own line if the
-// router could not even be described, a skip when Docker Engine or Compose
-// did not answer (Compose is needed for the router's own status, Engine for
-// both it and the routes it would check), otherwise the router's status
-// followed by routeChecks.
+// router could not even be described, and one skip if Docker Engine did not
+// answer. Otherwise it is the router's status, or a skip when Docker Compose
+// did not answer, since the status needs Compose, followed by routeChecks,
+// which need only the Engine.
 func routerSection(ctx context.Context, opts doctorOptions, state dockerState) ([]Check, error) {
 	if opts.RouterErr != nil {
 		return []Check{{Status: StatusFail, Subject: "router", Detail: opts.RouterErr.Error()}}, nil
