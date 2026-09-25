@@ -82,8 +82,8 @@ own exit code, so CI sees the same number your script produced.
 
 A hook that cannot be started fails the stage without running, with the
 shell's codes: 127 when the file — or the interpreter on its `#!` line — does
-not exist, 126 when it is not executable (on macOS and Alpine, also when it
-has no `#!` line; glibc-based Linux runs such a file through `/bin/sh`). A
+not exist, 126 when it is not executable or has no `#!` line (berth never
+falls back to running a script through `/bin/sh`, on any platform). A
 hook ended by a signal exits 128 plus the signal number (137 for `SIGKILL`),
 as a shell reports it.
 
