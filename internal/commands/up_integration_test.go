@@ -12,9 +12,9 @@ package commands_test
 // whole group before the worktree lock is released.
 //
 // An interrupt here is what lifecycle.Lifecycle turns a SIGINT into: the
-// root context cancelled with cause *clierr.Cancelled. Re-raising the
-// signal afterwards is cli.Main's job, the same for every mutation, and is
-// proved through the real binary by TestInterruptedMutation.
+// root context cancelled with cause *clierr.Cancelled. Dying by the signal
+// afterwards is cli.Main's job; internal/cli's TestUpThroughTheBinary sends
+// `up` real signals in each of its phases and proves it.
 
 import (
 	"context"

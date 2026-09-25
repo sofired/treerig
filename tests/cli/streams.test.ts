@@ -262,6 +262,23 @@ purpose = "surface"
     expect(JSON.parse(result.stdout)).toEqual([]);
   });
 
+  it('keeps a failed up off stdout, and says on stderr what it could not reach', async () => {
+    const cwd = await project(CONFIG);
+    await git(cwd, ['init', '--initial-branch=feature/login', '.']);
+    await git(cwd, ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--allow-empty', '-m', 'initial']);
+    // Git, so `up` gets as far as registering; no `docker`, so it can go no further.
+    const onlyGit = await mkdtemp(path.join(tmpdir(), 'berth-onlygit-'));
+    temporary.push(onlyGit);
+    const { stdout: gitPath } = await run('sh', ['-c', 'command -v git']);
+    await symlink(gitPath.trim(), path.join(onlyGit, 'git'));
+
+    const result = await berth(cwd, ['up', 'api'], { path: onlyGit });
+
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toMatch(/^\[berth\] ERROR: .*docker/im);
+  });
+
   it('reports an unreachable router as a failure rather than as output', async () => {
     const cwd = await project(CONFIG);
     const empty = await mkdtemp(path.join(tmpdir(), 'berth-nopath-'));
