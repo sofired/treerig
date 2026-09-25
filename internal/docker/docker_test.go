@@ -161,7 +161,9 @@ func TestRun(t *testing.T) {
 
 func TestComposeEnvironment(t *testing.T) {
 	t.Run("drops the variables that would redirect Compose, and lets the caller's values win", func(t *testing.T) {
-		got := ComposeEnvironment([]string{"PATH=/bin", "COMPOSE_FILE=x", "COMPOSE_PROGRESS=tty", "COMPOSE_IGNORE_ORPHANS=1"}, "COMPOSE_PROJECT_NAME=p")
+		got := ComposeEnvironment([]string{
+			"PATH=/bin", "COMPOSE_FILE=x", "COMPOSE_PROGRESS=tty", "COMPOSE_IGNORE_ORPHANS=1", "COMPOSE_DISABLE_ENV_FILE=1",
+		}, "COMPOSE_PROJECT_NAME=p")
 		want := "PATH=/bin,COMPOSE_PROGRESS=plain,COMPOSE_PROJECT_NAME=p"
 		if strings.Join(got, ",") != want {
 			t.Fatalf("got %v, want %s", got, want)

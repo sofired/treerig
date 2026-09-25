@@ -328,10 +328,18 @@ Three things follow from that, and this tool does not change them:
   is a program you pointed the config at, and it runs with everything you
   have, `COMPOSE_*` included. Compose's own invocation is the one exception:
   `COMPOSE_FILE`, `COMPOSE_PATH_SEPARATOR`, `COMPOSE_ENV_FILES` and
-  `COMPOSE_IGNORE_ORPHANS` are dropped from it, so a shell setting cannot
-  change which files it loads or whether orphans are swept. Dropping them from
-  the environment does not reach the Compose file's own `.env`, which Compose
-  reads for itself — see [Configuration](#configuration).
+  `COMPOSE_DISABLE_ENV_FILE` are dropped from it, so a shell setting cannot
+  change which files or `.env` it loads, and so is `COMPOSE_IGNORE_ORPHANS`,
+  so it cannot turn off the orphan sweep `--remove-orphans` relies on.
+  Dropping them from the environment does not reach the Compose file's own
+  `.env`, which Compose reads for itself — see
+  [Configuration](#configuration). Every other `COMPOSE_*` variable, project
+  name and profiles included, reaches Compose unchanged: the project name is
+  always overridden by the explicit `--project-name` flag Compose gives
+  precedence over any inherited value, and a profile a shell setting
+  activates still gets every resource it creates labeled, because the same
+  environment governs both the config read that writes those labels and the
+  `up` that follows it.
 - **Routed services share one network.** Every container you declare as a
   `[[service]]` joins the router's network, so a routed service in one
   checkout can reach a routed service in another. Containers you do not

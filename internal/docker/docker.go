@@ -124,8 +124,33 @@ func Said(stderr, fallback string) string {
 // kept. DOCKER_HOST and friends are deliberately not here — the plain docker
 // calls inherit them too, so stripping them would split `up` and `remove`
 // across daemons.
+//
+// Audited against Compose's full environment-variable list (#54; Compose
+// reference, v5.5, the version this build tests against). Every other
+// COMPOSE_* variable is either already forced by a flag or overlay Compose
+// gives precedence to regardless of the inherited environment
+// (COMPOSE_PROJECT_NAME by `--project-name`, always passed; COMPOSE_PROGRESS
+// by the "plain" overlay below; COMPOSE_MENU is moot since `up` always
+// passes `--detach`; COMPOSE_IGNORE_ORPHANS's opposite,
+// COMPOSE_REMOVE_ORPHANS, by `--remove-orphans`, always passed on `up` and
+// `down`) or carries no risk to a loaded file, the project name, the orphan
+// sweep or ownership labels (COMPOSE_PARALLEL_LIMIT, COMPOSE_ANSI,
+// COMPOSE_STATUS_STDOUT, COMPOSE_EXPERIMENTAL, COMPOSE_CONVERT_WINDOWS_PATHS,
+// COMPOSE_BAKE — Inventory already finds and verifies built images by
+// ownership labels alone, never by Compose's own project label, because
+// Bake's builder does not stamp it either).
+//
+// COMPOSE_PROFILES is the one variable that changes which services exist at
+// all, by filtering `docker compose config`'s own output to the active
+// profiles. That does not put a profile-activated service's ownership
+// labels at risk: overrideDocument stamps every service composeConfigJSON
+// reports, whatever profile filtering produced that list, and prepare's own
+// config read and the `up` it feeds both run from the same environment, one
+// right after the other, so the set of services the override labels is
+// always the same set `up` starts. See compose_up_test.go's profile case.
 var composeFileVariables = map[string]bool{
 	"COMPOSE_FILE": true, "COMPOSE_PATH_SEPARATOR": true, "COMPOSE_ENV_FILES": true, "COMPOSE_IGNORE_ORPHANS": true,
+	"COMPOSE_DISABLE_ENV_FILE": true,
 }
 
 // ComposeEnvironment is the environment every Compose invocation gets — the
