@@ -3,3 +3,8 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# Claude Code: personal settings, notes and scratch worktrees
+.claude/settings.local.json
+.claude/worktrees/
+CLAUDE.local.md

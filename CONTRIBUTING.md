@@ -90,12 +90,12 @@ The streams contract, against a built Go binary:
 
 ```bash
 go build -o dist/berth ./cmd/berth
-BERTH_CLI=$PWD/dist/berth BERTH_CLI_UNPORTED=doctor,unlock \
-  pnpm exec vitest run tests/cli/streams.test.ts
+BERTH_CLI=$PWD/dist/berth pnpm exec vitest run tests/cli/streams.test.ts
 ```
 
-`BERTH_CLI_UNPORTED` lists verbs the Go build does not have yet, whose cases
-skip instead of failing.
+While the Go build lacks a verb, list it in `BERTH_CLI_UNPORTED`
+(comma-separated) and its cases skip instead of failing. Every verb the
+contract covers is ported now, so CI sets none.
 
 **Regenerating oracles** needs the Node version `.node-version` pins first
 on `PATH`; `-update` refuses any other. After a change to the command tree,
