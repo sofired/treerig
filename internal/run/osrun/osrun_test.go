@@ -196,7 +196,7 @@ func TestRunnerAlreadyCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := New().Run(ctx, run.Spec{Command: "sh", Args: []string{"-c", "touch " + marker}})
+	_, err := New().Run(ctx, run.Spec{Command: "sh", Args: []string{"-c", `touch "$1"`, "sh", marker}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -237,9 +237,16 @@ func TestRunnerInteractiveOutput(t *testing.T) {
 
 	t.Run("tracks an interactive child by its bare PID, not a process group it never leads", func(t *testing.T) {
 		runner := New()
+		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
+		// A failed assertion below skips the SIGKILL at the end; cancelling
+		// still stops the child, and waiting keeps it from outliving the test.
+		t.Cleanup(func() {
+			cancel()
+			<-done
+		})
 		go func() {
-			_, _ = runner.Run(context.Background(), run.Spec{
+			_, _ = runner.Run(ctx, run.Spec{
 				Command: "sleep", Args: []string{"30"}, Output: run.Interactive,
 			})
 			close(done)
