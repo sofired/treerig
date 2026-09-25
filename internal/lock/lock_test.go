@@ -20,6 +20,16 @@ func testOptions(t *testing.T) Options {
 	return Options{Table: newFakeTable(procid.Identity{MachineID: "m", BootID: "b", PIDNS: "pid:[1]"}), Logger: logger.Silent{}, Watchdog: -1}
 }
 
+// skipIfRoot skips t when running as root, which bypasses the file
+// permissions a mode-based test stages — mirrors internal/router's own
+// helper (router_test.go).
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Getuid() == 0 {
+		t.Skip("running as root bypasses the file permissions this test tampers with")
+	}
+}
+
 func TestLockAcquireRelease(t *testing.T) {
 	t.Run("acquires an uncontended lock and writes a holder record", func(t *testing.T) {
 		dir := t.TempDir()
@@ -283,6 +293,34 @@ func TestDescribe(t *testing.T) {
 		// Held is untouched by the probe: this process can still acquire again once released.
 		if err := holder.Release(); err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("describes a TypeScript build's lock directory, with and without its record", func(t *testing.T) {
+		dir := t.TempDir()
+		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
+		if err := os.Mkdir(scope.Target+".lock", 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		desc, err := Describe(scope, newFakeTable(procid.Identity{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if desc.State != Free || !desc.Legacy || desc.LegacyRecord != nil || desc.Record != nil {
+			t.Fatalf("got %+v, want a free lock with a TypeScript lock directory naming no holder", desc)
+		}
+
+		legacy := `{"pid":999999,"host":"old-host","command":"berth up","startedAt":"` + time.Now().Format(time.RFC3339Nano) + `"}`
+		if err := os.WriteFile(scope.Target, []byte(legacy), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		desc, err = Describe(scope, newFakeTable(procid.Identity{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !desc.Legacy || desc.LegacyRecord == nil || desc.LegacyRecord.PID != 999999 || desc.LegacyRecord.Command != "berth up" {
+			t.Fatalf("got %+v, want the TypeScript holder's record", desc)
 		}
 	})
 }

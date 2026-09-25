@@ -41,12 +41,7 @@ func (l *Lock) who(rec *Record, now time.Time) string {
 		return "An unidentified holder has it"
 	}
 	held := formatDuration(now.Sub(rec.StartedAt))
-	where := fmt.Sprintf("PID %d on %s", rec.PID, quoteOneLine(rec.Host))
-	identity := where
-	if rec.Command != "" {
-		identity = fmt.Sprintf("%s (%s)", quoteOneLine(rec.Command), where)
-	}
-	return fmt.Sprintf("The holder, %s, has held it for %s", identity, held)
+	return fmt.Sprintf("The holder, %s, has held it for %s", HolderLabel(rec), held)
 }
 
 func listProcs(procs []procid.Proc) string {

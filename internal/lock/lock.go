@@ -116,6 +116,20 @@ type Lock struct {
 	held    bool
 	lost    bool
 	lostErr error
+	// refuseVerb is the verb refuse() and its callers use to name what this
+	// Lock was trying to do — "taking" for every ordinary Lock, "clearing"
+	// for the *Lock Clear builds to reuse the same judging and recovery
+	// machinery without ever holding on as a new holder. Empty (every Lock
+	// built through New for Acquire) defaults to "taking". Display only:
+	// nothing branches on its value — see mentionUnverifiableFlag.
+	refuseVerb string
+	// mentionUnverifiableFlag says whether a refusal born of doubt should
+	// suggest --holder-unverifiable. Clear sets it from
+	// ClearOptions.SuggestUnverifiableFlag, true only for a worktree lock —
+	// the one kind `worktree unlock --holder-unverifiable` can actually
+	// clear; an ordinary Lock built for Acquire leaves it false, since
+	// nothing it waits on has such a flag to offer.
+	mentionUnverifiableFlag bool
 	// watchdogStop tells the watchdog goroutine to end cleanly on an
 	// ordinary Release or Abandon. It is deliberately not the action
 	// context's own cancel func: stopping the watchdog must never itself

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -98,6 +99,12 @@ func newParityFixture(t *testing.T, base string, decoy bool) parityFixture {
 	write(filepath.Join(f.checkout, ".git", "berth", "repository-id"), parityRepo+"\n", 0o600)
 	write(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), parityWt+"\n", 0o600)
 	paths := layout.WorktreeLayout(f.controlHome, parityRepo, parityWt)
+	// Empty, as every other case needs: a non-empty (Go-format) marker
+	// would make the TypeScript build itself refuse to touch this control
+	// home (assertNotGoManaged), failing every other case here. doctor's
+	// own case excludes the one line this leaves it printing that
+	// TypeScript never does (files.LegacyControlHome's "was last used by a
+	// TypeScript build" notice) the same way it excludes the Node.js line.
 	write(filepath.Join(f.controlHome, ".berth-control-home"), "", 0o600)
 	write(paths.RecordPath, `{
   "version": 1,
@@ -148,16 +155,34 @@ exit 0
 	return f
 }
 
-// run executes command against this fixture and reports what it did.
-// checkIndexPage additionally reads the checkout index page HOME's router
-// state directory holds afterward (a case whose verb refreshes the index as
-// a side effect — down, worktree remove, or index itself); a case that never
-// touches the index passes false, so IndexPage stays "" for both builds and
-// contributes nothing to the comparison.
-func (f parityFixture) run(t *testing.T, command []string, checkIndexPage bool) parityRun {
+// excludeLines drops every line of stdout containing substr — doctor's own
+// Node.js and legacy-control-home lines, excluded from the parity
+// comparison the way the checkout-index refresh's docker calls are excluded
+// from the transcript.
+func excludeLines(stdout, substr string) string {
+	lines := strings.Split(stdout, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if !strings.Contains(line, substr) {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// runIn executes command in dir — the fixture's own checkout for every case
+// but doctor's "no checkout" one, which needs a directory with no berth.toml
+// above it; f.base (this fixture's own root, holding only checkout/, bin/,
+// state/ and control/) is that — and reports what it did. checkIndexPage
+// additionally reads the checkout index page HOME's router state directory
+// holds afterward (a case whose verb refreshes the index as a side effect —
+// down, worktree remove, or index itself); a case that never touches the
+// index passes false, so IndexPage stays "" for both builds and contributes
+// nothing to the comparison.
+func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIndexPage bool) parityRun {
 	t.Helper()
 	cmd := exec.Command(command[0], command[1:]...)
-	cmd.Dir = f.checkout
+	cmd.Dir = dir
 	cmd.Env = []string{
 		"HOME=" + f.base, "BERTH_HOME=" + f.controlHome,
 		"PATH=" + f.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
@@ -239,33 +264,87 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		name  string
 		args  []string
 		decoy bool
+		// outsideCheckout runs from the fixture's own base instead of its
+		// checkout — doctor's "no checkout" case needs a directory with no
+		// berth.toml above it.
+		outsideCheckout bool
+		// excludeStdoutLines drops any stdout line containing one of these
+		// substrings from both builds' report before comparing — doctor's
+		// Node.js line, which only TypeScript ever prints
+		// (docs/port/divergences.md row 17), and its "was last used by a
+		// TypeScript build" line, which only Go ever prints
+		// (files.LegacyControlHome; the fixture's own marker must stay
+		// empty, or the TypeScript build refuses to touch it at all) — the
+		// same way the checkout-index refresh's own docker calls are
+		// excluded from the transcript above.
+		excludeStdoutLines []string
+		// unorderedDocker compares Docker as a set instead of a sequence:
+		// doctor asks Docker Engine and Compose concurrently in both
+		// builds, and which one's call lands in the transcript first is not
+		// itself meaningful.
+		unorderedDocker bool
 		// checkIndexPage additionally compares the checkout index page on
 		// disk (timestamp normalized) for a case whose verb refreshes it.
 		checkIndexPage bool
 	}{
-		{"status", []string{"status"}, false, false},
-		{"urls", []string{"urls"}, false, false},
+		{name: "status", args: []string{"status"}},
+		{name: "urls", args: []string{"urls"}},
 		// index's own stdout embeds snapshot.GeneratedAt, real wall-clock
 		// time at the moment each build's own process ran; normalizeTimestamp
 		// scrubs it (both here and in the page below) rather than excluding
 		// the case, so the rest of index's output and every docker call it
 		// makes are still compared exactly.
-		{"index", []string{"index"}, false, true},
-		{"worktree list", []string{"worktree", "list"}, false, false},
-		{"worktree list --json", []string{"worktree", "list", "--json"}, false, false},
-		{"down", []string{"down"}, false, true},
-		{"worktree remove --yes", []string{"worktree", "remove", "--yes"}, false, true},
-		{"worktree remove without --yes, not a terminal", []string{"worktree", "remove"}, false, false},
-		{"worktree remove --yes, refusing a decoy", []string{"worktree", "remove", "--yes"}, true, false},
-		{"worktree remove of an unknown slug", []string{"worktree", "remove", "--yes", "nope"}, false, false},
-		{"worktree remove --label-namespace that disagrees", []string{"worktree", "remove", "--yes", "--label-namespace", "dev.wrong"}, false, false},
-		{"worktree remove --label-namespace that is not one", []string{"worktree", "remove", "--yes", "--label-namespace", "Not One"}, false, false},
+		{name: "index", args: []string{"index"}, checkIndexPage: true},
+		{name: "worktree list", args: []string{"worktree", "list"}},
+		{name: "worktree list --json", args: []string{"worktree", "list", "--json"}},
+		{name: "down", args: []string{"down"}, checkIndexPage: true},
+		{name: "worktree remove --yes", args: []string{"worktree", "remove", "--yes"}, checkIndexPage: true},
+		{name: "worktree remove without --yes, not a terminal", args: []string{"worktree", "remove"}},
+		{name: "worktree remove --yes, refusing a decoy", args: []string{"worktree", "remove", "--yes"}, decoy: true},
+		{name: "worktree remove of an unknown slug", args: []string{"worktree", "remove", "--yes", "nope"}},
+		{name: "worktree remove --label-namespace that disagrees", args: []string{"worktree", "remove", "--yes", "--label-namespace", "dev.wrong"}},
+		{name: "worktree remove --label-namespace that is not one", args: []string{"worktree", "remove", "--yes", "--label-namespace", "Not One"}},
+		// worktree unlock: only the refusals that never reach either build's
+		// own lock design (an unregistered identifier, or a worktree
+		// nothing has locked at all) are byte-identical; everything past
+		// that point is Go's own wording (docs/port/divergences.md row 19),
+		// so those cases are not here.
+		{name: "worktree unlock of an unknown identifier", args: []string{"worktree", "unlock", "nope"}},
+		{name: "worktree unlock with nothing held", args: []string{"worktree", "unlock"}},
+		// doctor: every other line (Prerequisites' Git/Docker checks,
+		// Registry, Locks, Router, This checkout) is byte-identical once the
+		// Node.js and legacy-control-home lines are excluded — removing the
+		// Node.js line does not even shift the Prerequisites column width,
+		// since "Docker Compose" is still the longest subject either way.
+		{
+			name: "doctor with no checkout", args: []string{"doctor"}, outsideCheckout: true,
+			excludeStdoutLines: []string{"Node.js", "was last used by a TypeScript build"},
+			unorderedDocker:    true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := filepath.Join(base, "fixture")
-			want := newParityFixture(t, fixture, tc.decoy).run(t, append(append([]string{}, ts...), tc.args...), tc.checkIndexPage)
-			got := newParityFixture(t, fixture, tc.decoy).run(t, append([]string{binary}, tc.args...), tc.checkIndexPage)
+			wantFixture := newParityFixture(t, fixture, tc.decoy)
+			wantDir := wantFixture.checkout
+			if tc.outsideCheckout {
+				wantDir = wantFixture.base
+			}
+			want := wantFixture.runIn(t, wantDir, append(append([]string{}, ts...), tc.args...), tc.checkIndexPage)
+			gotFixture := newParityFixture(t, fixture, tc.decoy)
+			gotDir := gotFixture.checkout
+			if tc.outsideCheckout {
+				gotDir = gotFixture.base
+			}
+			got := gotFixture.runIn(t, gotDir, append([]string{binary}, tc.args...), tc.checkIndexPage)
+			for _, substr := range tc.excludeStdoutLines {
+				want.Stdout = excludeLines(want.Stdout, substr)
+				got.Stdout = excludeLines(got.Stdout, substr)
+			}
+			if tc.unorderedDocker {
+				sort.Strings(want.Docker)
+				sort.Strings(got.Docker)
+			}
 			t.Logf("exit %d, %d docker calls, stdout %q, stderr %q", want.Exit, len(want.Docker), want.Stdout, want.Stderr)
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("TypeScript (-) and Go (+) differ:\n%s", diff)

@@ -28,8 +28,6 @@ func TestNotPortedVerbs(t *testing.T) {
 		verb string
 	}{
 		{"up", []string{"up"}, "up"},
-		{"doctor", []string{"doctor"}, "doctor"},
-		{"worktree-unlock", []string{"worktree", "unlock", "feature-login", "--holder-unverifiable"}, "worktree unlock"},
 	}
 
 	for _, tc := range cases {

@@ -61,16 +61,22 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// park blocks this helper until it is killed from outside. Not select{}: with
-// every goroutine blocked and no timer pending, Go's runtime declares the
-// process deadlocked and exits it. On Linux a cgo build (os/user links cgo)
-// has an extra thread that keeps that check from firing; on macOS, or on
-// Linux with CGO_ENABLED=0, nothing does, and a helper that exits closes the
-// very descriptor it was started to keep open.
+// parkTimeout bounds park, well above the longest test's own needs, so a
+// helper an interrupted `go test` never got to kill — Ctrl-C, or a panic
+// that skips t.Cleanup — does not outlive it: one was found still parked a
+// full day after the run that started it.
+const parkTimeout = 5 * time.Minute
+
+// park blocks this helper until it is killed from outside, or until
+// parkTimeout passes. Not select{}: with every goroutine blocked and no
+// timer pending, Go's runtime declares the process deadlocked and exits it.
+// On Linux a cgo build (os/user links cgo) has an extra thread that keeps
+// that check from firing; on macOS, or on Linux with CGO_ENABLED=0, nothing
+// does, and a helper that exits closes the very descriptor it was started to
+// keep open. A single bounded sleep serves both: it is itself the pending
+// timer, and it ends this process on its own if nothing else ever does.
 func park() {
-	for {
-		time.Sleep(time.Hour)
-	}
+	time.Sleep(parkTimeout)
 }
 
 // runHelper dispatches by role. "hold" and "exit" acquire the lock named by

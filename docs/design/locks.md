@@ -215,9 +215,31 @@ tests skip there.
   context, so `osrun` can hand their descriptors to a Docker child,
   operation lock first, at fd 3.
 - `Describe(scope, table)` is a read-only probe (`LOCK_SH|LOCK_NB`, then
-  close at once), for `doctor` — future work, #43.
-
-**Unlock** stays a stub; it is future work, #43.
+  close at once) for `doctor`'s Locks section: held, unreleased-but-gone
+  ("recovered automatically the next time this lock is taken"), a
+  TypeScript build's `<target>.lock` directory and the holder that build
+  wrote into the target (a warning: this build cannot take the lock until
+  it is gone), or a `lock.Describe` read failure of its own ("could not be
+  checked"). A
+  shared lock, not the exclusive one `ProbeHeld`/`Clear` take below:
+  `Describe` never mutates anything, so it only needs to prove nobody holds
+  the flock exclusively, and a shared probe can run alongside another (a
+  second `doctor`, say) without either waiting on the other.
+- `ProbeHeld(ctx, scope, table)` is `Clear`'s own non-blocking, read-only
+  probe of one scope's flock (`LOCK_EX|LOCK_NB`, then close), exported so
+  `worktree unlock` can check every one of a worktree's locks before
+  clearing any of them.
+- `Clear(ctx, scopes, opts)` is `worktree unlock`'s core (ported from
+  `src/lock-recovery.ts`'s `unlockGuard`/`verify` and
+  `src/operation-lock.ts`'s `clearStaleWorktreeLocks`): given every scope a
+  target might have (a worktree's operation and development locks), it
+  holds each one's free flock through judging every holder, one shared
+  marker survivor scan, and only then committing each — marking a judged
+  record's `releasedAt` and removing any TypeScript-era `.lock` leftover —
+  so a refusal on one scope (an alive contradiction, doubt without
+  `--holder-unverifiable`, or a survivor) never leaves another already
+  committed. `ctx` cancellation ends its own waits (the contradiction's
+  second look, the survivor rescan) the same way `Acquire`'s does.
 
 ## `internal/run/osrun`
 
