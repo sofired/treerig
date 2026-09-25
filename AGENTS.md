@@ -108,7 +108,8 @@ break them are not merged.
   each of its findings with a fix or a reasoned reply on the pull request,
   and bring the branch up to date with `main`. When a pull request merges,
   check whether other open ones now need updating or retargeting.
-- Pull requests are usually squash-merged, and GitHub doesn't delete merged
-  branches. Delete a branch once its pull request merges. `git branch
+- Pull requests are usually squash-merged, and GitHub deletes the head
+  branch on merge. Delete your local branch and its worktree yourself, and
+  run `git fetch --prune` to drop the remote-tracking ref. `git branch
   --merged` and `git cherry` can't tell that a squash-merged branch has
   landed, so check its pull request's state instead.
