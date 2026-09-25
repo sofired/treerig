@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +16,7 @@ import (
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/router"
 )
 
 // The one way a dead holder's worktree lock is cleared, ported from
@@ -28,17 +31,29 @@ import (
 
 // UnlockOptions are `worktree unlock`'s argument and flags.
 type UnlockOptions struct {
-	// Identifier is a slug or worktree UUID; this checkout when empty.
+	// Identifier is a slug or worktree UUID; this checkout when empty. Must
+	// be empty when Registry or Router is set (#21): those name a single
+	// machine-wide lock, not a worktree, and UnlockGlobal refuses a
+	// non-empty Identifier or Domain rather than silently ignoring it.
 	Identifier string
 	Domain     string
+	// Registry clears the machine-wide worktree registry lock instead of a
+	// worktree's — --registry (#21). Mutually exclusive with Router and
+	// with a non-empty Identifier or Domain.
+	Registry bool
+	// Router clears the shared router's lock instead of a worktree's —
+	// --router (#21). Mutually exclusive with Registry and with a
+	// non-empty Identifier or Domain.
+	Router bool
 	// AllowUnverifiable accepts a holder this machine cannot check (another
 	// machine or PID namespace, or no record) — --holder-unverifiable.
 	AllowUnverifiable bool
 }
 
-// ClearedLock is one lock UnlockWithContext cleared.
+// ClearedLock is one lock UnlockWithContext or UnlockGlobal cleared.
 type ClearedLock struct {
-	// Kind is "operation" or "development", matching lock.WorktreeScopes.
+	// Kind is "operation" or "development" (lock.WorktreeScopes), or
+	// "registry" or "router" (#21).
 	Kind        string
 	Description string
 	Target      string
@@ -65,14 +80,173 @@ type unlockTarget struct {
 	host string
 }
 
-// Unlock is `worktree unlock`.
+// Unlock is `worktree unlock`. --registry and --router (#21) name a
+// machine-wide lock rather than a worktree, so they run before Context ever
+// loads a project config — UnlockGlobal needs none, the same way `doctor`
+// and the router verbs read Env directly.
 func Unlock(ctx context.Context, env *Env, options UnlockOptions) error {
+	if options.Registry || options.Router {
+		_, err := UnlockGlobal(ctx, env, options)
+		return err
+	}
 	cctx, err := Context(env)
 	if err != nil {
 		return err
 	}
 	_, err = UnlockWithContext(ctx, cctx, options)
 	return err
+}
+
+// UnlockGlobal is `worktree unlock --registry` or `--router` (#21): the
+// same guarded recovery UnlockWithContext gives a worktree's own locks
+// (lock.ProbeHeld, then lock.Clear — never cleared on age alone, never
+// assumed gone), pointed instead at the one machine-wide lock the flags
+// name. It needs no project config and no CommandContext: the registry and
+// router locks exist, and can go stale, on a machine with no checkout
+// registered at all.
+func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*UnlockResult, error) {
+	if options.Registry == options.Router {
+		// UnlockOptions's zero value has both false; Unlock never calls
+		// this function with both false, so reaching this branch anyway
+		// means both were set — this validates it explicitly rather than
+		// trust that invariant silently.
+		return nil, clierr.New("Not clearing any lock: pass exactly one of --registry or --router.")
+	}
+	which := "--registry"
+	kind := "registry"
+	if options.Router {
+		which, kind = "--router", "router"
+	}
+	if options.Identifier != "" || options.Domain != "" {
+		return nil, clierr.Newf(
+			"Not clearing any lock: %s clears a single machine-wide lock, and takes no worktree identifier or --domain.", which)
+	}
+
+	var scope lock.Scope
+	if options.Registry {
+		controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+		if err != nil {
+			return nil, err
+		}
+		// Before the registry lock file is ever opened: securing a
+		// control home that is not there yet would create it — an unlock
+		// command has no business doing that (below finds nothing to
+		// unlock instead, exactly as if the lock itself were simply
+		// absent). Only one that already exists gets the same guard
+		// router.SecureState gives a router lock: files.
+		// SecureControlDirectories refuses a symlinked or foreign one, the
+		// same way every mutating verb secures it before touching
+		// anything inside (ProbeHeld and lock.Clear open scope.Target
+		// directly, with nothing of their own to catch a symlink there
+		// first). lstatExists never follows a symlink at controlHome's own
+		// final component, so one counts as existing, and then fails the
+		// check that follows.
+		exists, err := lstatExists(controlHome)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			if err := files.SecureControlDirectories(layout.ControlLayout(controlHome)); err != nil {
+				return nil, err
+			}
+		}
+		scope = lock.RegistryScope(controlHome)
+	} else {
+		state, err := layout.RouterState(env.Getenv)
+		if err != nil {
+			return nil, err
+		}
+		// Same reasoning as the registry branch above: router.SecureState
+		// creates the router's state tree (secureDirectories' own
+		// os.MkdirAll) as readily as it secures one already there, so it
+		// is only called once lstatExists confirms the state directory
+		// itself is real — otherwise there is nothing for it to secure,
+		// and below finds nothing to unlock without ever having touched
+		// the filesystem. Once it exists, this is the same guard RouterUp
+		// (router.go:79) and newCheckoutIndex (index.go) both take before
+		// ever touching theirs.
+		exists, err := lstatExists(state.StateDir)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			if err := router.SecureState(state); err != nil {
+				return nil, err
+			}
+		}
+		// No router.Router to ask for its own ProjectName, the same
+		// position newCheckoutIndex is in (index.go): routerLockScope
+		// resolves router.ResolveProjectName()'s default.
+		scope = routerLockScope(state, "")
+	}
+	label := "the " + scope.Description
+
+	table := env.Table
+	if table == nil {
+		table = procid.Platform()
+	}
+	held, refusal, err := lock.ProbeHeld(ctx, scope, table)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		return nil, refusal
+	}
+
+	stale, err := scopeNeedsClearing(scope)
+	if err != nil {
+		return nil, err
+	}
+	if !stale {
+		env.Logger.Info(fmt.Sprintf("Nothing to unlock: no lock is held for %s.", label))
+		return &UnlockResult{Name: label}, nil
+	}
+	// The registry lock guards only brief writes and carries no process
+	// markers of its own (#21), so — unlike the router's own Compose
+	// project — it is never scanned for anything it started.
+	if scope.Markers.Project != "" || scope.Markers.WorktreeID != "" {
+		env.Logger.Info(fmt.Sprintf("Checking that the holder of %s's lock, and every command it started on this machine, is gone.", label))
+	} else {
+		env.Logger.Info(fmt.Sprintf("Checking that the holder of %s's lock is gone.", label))
+	}
+
+	cleared, clearErr := lock.Clear(ctx, []lock.Scope{scope}, lock.ClearOptions{
+		Table: table, AllowUnverifiable: options.AllowUnverifiable, SuggestUnverifiableFlag: true,
+	})
+
+	result := &UnlockResult{Name: label}
+	var verified, unverified []string
+	for _, sr := range cleared.Scopes {
+		if !sr.Cleared {
+			continue
+		}
+		result.Cleared = append(result.Cleared, ClearedLock{Kind: kind, Description: sr.Scope.Description, Target: sr.Scope.Target})
+		for _, reason := range sr.Verified {
+			verified = append(verified, fmt.Sprintf("%s: %s", sr.Scope.Description, reason))
+		}
+		for _, reason := range sr.Unverified {
+			unverified = append(unverified, fmt.Sprintf("%s: %s", sr.Scope.Description, reason))
+		}
+	}
+
+	if clearErr != nil {
+		return result, wrapPartialClearFailure(result.Cleared, clearErr)
+	}
+	if len(result.Cleared) == 0 {
+		env.Logger.Info(fmt.Sprintf("Nothing to unlock: the lock on %s was released while it was being checked.", label))
+		return result, nil
+	}
+	if cleared.Proof != "" {
+		verified = append(verified, cleared.Proof)
+	}
+	for _, line := range verified {
+		env.Logger.Info(fmt.Sprintf("Verified: %s.", line))
+	}
+	for _, line := range unverified {
+		env.Logger.Warn(fmt.Sprintf("Not verified, on your word (--holder-unverifiable): %s.", line))
+	}
+	env.Logger.Info(fmt.Sprintf("Unlocked %s: cleared the %s lock.", label, scope.Description))
+	return result, nil
 }
 
 // UnlockWithContext resolves the target worktree, refuses while either of
@@ -98,7 +272,10 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 	kinds := map[lock.Scope]string{developmentScope: "development", operationScope: "operation"}
 	scopes := []lock.Scope{developmentScope, operationScope}
 
-	table := procid.Platform()
+	table := cctx.Table
+	if table == nil {
+		table = procid.Platform()
+	}
 	for _, scope := range scopes {
 		held, refusal, err := lock.ProbeHeld(ctx, scope, table)
 		if err != nil {
@@ -282,6 +459,24 @@ func resolveUnlockTarget(ctx context.Context, cctx *CommandContext, options Unlo
 		}, nil
 	}
 	return &unlockTarget{repositoryID: identity.RepositoryID, worktreeID: identity.WorktreeID, name: identity.Root}, nil
+}
+
+// lstatExists reports whether path is there at all, without following a
+// symlink at its own final path component: unlike files.PathExists (which
+// os.Stats, and so would call a dangling symlink "not there" and let
+// UnlockGlobal skip straight past the secure check that exists to refuse
+// exactly that), a symlink here counts as existing — os.Lstat sees it
+// without ever resolving it — so the caller always runs that check against
+// one, the same way AssertSafeDirectoryPathNamed's own os.Lstat loop
+// (internal/files) never follows one either.
+func lstatExists(path string) (bool, error) {
+	if _, err := os.Lstat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // scopeNeedsClearing is a read-only look at whether scope has anything

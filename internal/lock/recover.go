@@ -313,10 +313,10 @@ type ClearOptions struct {
 	// Clock is Clear's own clock, for tests; nil defaults to time.Now.
 	Clock func() time.Time
 	// SuggestUnverifiableFlag says whether a refusal born of doubt should
-	// suggest --holder-unverifiable — true only for a worktree lock, which
-	// `worktree unlock --holder-unverifiable` can actually clear; the
-	// registry and router locks have no such flag of their own (doctor's
-	// Locks section instead offers hand removal for those two).
+	// suggest --holder-unverifiable: true for every scope `worktree unlock`
+	// can be pointed at, which by now is all three kinds (a worktree's own
+	// locks, and, with --registry or --router, the registry and router
+	// locks — #21).
 	SuggestUnverifiableFlag bool
 }
 
@@ -346,10 +346,11 @@ type ScopeResult struct {
 type ClearResult struct {
 	Scopes []ScopeResult
 	// Proof is the one line proven once every scope's holder judged clean
-	// and no process any of them started is still running — "no command
-	// started for this worktree is still running on this machine", or its
-	// hidepid-accepted wording. "" when nothing was cleared, since there is
-	// nothing to have proven.
+	// and no process any of them started is still running — "no command it
+	// started is still running on this machine", or its hidepid-accepted
+	// wording — or, for a scope with no markers of its own (the registry
+	// lock: #21), that there was nothing of the kind to check. "" when
+	// nothing was cleared, since there is nothing to have proven.
 	Proof string
 }
 
@@ -471,8 +472,10 @@ type clearScope struct {
 }
 
 // Clear is the core of `worktree unlock`: given every stale lock a target
-// might have (a worktree's operation and development scopes), it probes
-// each one's flock in turn, refusing at once — nothing committed anywhere —
+// might have (a worktree's operation and development scopes, or, with
+// --registry or --router, the one machine-wide scope named — #21), it
+// probes each one's flock in turn, refusing at once — nothing committed
+// anywhere —
 // if any is held; otherwise it holds every one of them through judging every
 // holder, one combined survivor scan, and finally committing each scope,
 // so nothing else can reclaim a scope while another is still being judged.
@@ -636,11 +639,15 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 // scanSurvivorsAcross is the one combined process-table scan
 // src/lock-recovery.ts's verify() makes for a whole worktree's stale locks:
 // once, using whichever held scope's markers are set (every scope Clear is
-// ever given for one worktree shares them), rescanning after judgeDelay so
-// something just finishing is not mistaken for a survivor. Refuses (nothing
-// committed) if it finds one, or if other users' processes are hidden from
-// this one and opts.AllowUnverifiable was not given. Returns the proof line
-// Clear reports once every scope has actually cleared.
+// ever given for one worktree, or the router lock, shares them), rescanning
+// after judgeDelay so something just finishing is not mistaken for a
+// survivor. Refuses (nothing committed) if it finds one, or if other users'
+// processes are hidden from this one and opts.AllowUnverifiable was not
+// given. Returns the proof line Clear reports once every scope has actually
+// cleared. A scope with no markers at all — the registry lock, which
+// guards only brief writes with no process of its own to mark (#21) —
+// skips the scan outright and says so, rather than claiming a check that
+// never ran.
 func scanSurvivorsAcross(ctx context.Context, held []*clearScope, opts ClearOptions) (proof string, err error) {
 	var markers procid.Markers
 	for _, h := range held {
@@ -650,7 +657,7 @@ func scanSurvivorsAcross(ctx context.Context, held []*clearScope, opts ClearOpti
 		}
 	}
 	if markers.Project == "" && markers.WorktreeID == "" {
-		return "no command started for this worktree is still running on this machine", nil
+		return "it holds no process markers of its own, so there is nothing further to check", nil
 	}
 
 	scan, err := opts.Table.Scan()
@@ -671,7 +678,7 @@ func scanSurvivorsAcross(ctx context.Context, held []*clearScope, opts ClearOpti
 		unreadable, othersHidden = scan.Unreadable, scan.OthersHidden
 	}
 	if len(survivors) > 0 {
-		return "", clierr.Newf("Not clearing any lock: %s started for this worktree %s still running:\n%s\nLet them finish or stop them, then run this again.",
+		return "", clierr.Newf("Not clearing any lock: %s it started %s still running:\n%s\nLet them finish or stop them, then run this again.",
 			pluralCount(len(survivors)), pluralIsAre(len(survivors)), listProcs(survivors))
 	}
 
@@ -680,14 +687,14 @@ func scanSurvivorsAcross(ctx context.Context, held []*clearScope, opts ClearOpti
 		unread = fmt.Sprintf(" (%d of your processes could not be read)", unreadable)
 	}
 	if !othersHidden {
-		return "no command started for this worktree is still running on this machine" + unread, nil
+		return "no command it started is still running on this machine" + unread, nil
 	}
 	reason := "other users' processes are hidden from you (/proc mounted with hidepid, say), so a command the holder ran " +
 		"as another user — through sudo, say — could not be looked for"
 	if !opts.AllowUnverifiable {
 		return "", clierr.Newf("Not clearing any lock: %s. If you have made sure none is running, run this again with --holder-unverifiable.", reason)
 	}
-	return "none of your own processes started for this worktree is still running" + unread, nil
+	return "none of your own processes it started is still running" + unread, nil
 }
 
 // ProbeHeld is a non-blocking, read-only probe of scope's flock: whether it

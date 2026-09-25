@@ -383,18 +383,22 @@ func registrySection(controlHome, commandName string) ([]Check, error) {
 //
 // handRemoval is the advice to fall back on if an unreleased lock's next
 // acquirer refuses it too — its holder judged unverifiable rather than
-// gone, which recovery alone cannot get past. A worktree lock needs none:
-// `worktree unlock --holder-unverifiable` is that escape hatch. The
-// registry and router locks have no `unlock` of their own (#21, until
-// WP8), so lockChecks passes each of them the one that exists today:
-// removing the sidecar record by hand once its holder, and everything it
-// started, is confirmed gone.
+// gone, which recovery alone cannot get past — a full sentence fragment
+// slotted straight after "If that also refuses it as unverifiable, ". A
+// worktree lock needs none: `worktree unlock --holder-unverifiable` is that
+// escape hatch. The registry and router locks now have the same escape
+// hatch, `worktree unlock --registry|--router --holder-unverifiable` (#21),
+// so lockChecks passes each of them that instead of the hand removal this
+// build once had no better answer than.
 //
 // legacyRemedy is what to do about a TypeScript build's <target>.lock
 // directory that names its holder, which every acquirer in this build
-// refuses until it is gone: `worktree unlock` for a worktree lock, which
-// clears one; `rmdir` for the registry and router locks, which nothing else
-// here clears (#21). One that names no holder always gets `rmdir`.
+// refuses until it is gone: `worktree unlock`, with --registry or --router
+// for the registry and router locks (#21), for one that names a holder;
+// one that names no holder is never judged by anything, so it always falls
+// back to `rmdir` — the one case left where nothing but a person confirming
+// the directory's absence by hand can clear it (see internal/lock's package
+// comment, "TypeScript-era leftovers").
 func lockCheck(subject string, scope lock.Scope, handRemoval, legacyRemedy string) (check Check, ok bool) {
 	described, err := lock.Describe(scope, nil)
 	if err != nil {
@@ -419,8 +423,7 @@ func lockCheck(subject string, scope lock.Scope, handRemoval, legacyRemedy strin
 	if described.Record != nil && described.Record.ReleasedAt == nil {
 		detail := fmt.Sprintf("unreleased by %s; recovered automatically the next time this lock is taken", lock.HolderLabel(described.Record))
 		if handRemoval != "" {
-			detail += fmt.Sprintf(". If that also refuses it as unverifiable, make sure the holder, and everything it started, "+
-				"is gone, then remove it by hand: `rm %s`", text.ShellQuote(handRemoval))
+			detail += fmt.Sprintf(". If that also refuses it as unverifiable, %s", handRemoval)
 		}
 		return Check{Status: StatusOK, Subject: subject, Detail: detail}, true
 	}
@@ -493,7 +496,12 @@ func lockedWorktreeIDs(controlHome string) ([]lockedWorktree, error) {
 // legacyBuild names a TypeScript build in a Locks line.
 var legacyBuild = "a TypeScript build of " + brand.Name
 
-// legacyRmdir is the legacyRemedy for a lock nothing in this build clears.
+// legacyRmdir is the remedy for a TypeScript-era lock directory that names
+// no holder — for any scope, worktree included, not just the registry and
+// router locks (#21): nothing can judge such a leftover gone, since it names
+// nobody to check, so `worktree unlock` refuses it exactly as it refuses one
+// that does name a holder, and a person confirming its absence by hand,
+// then removing it, is the only way out.
 func legacyRmdir(scope lock.Scope) string {
 	return fmt.Sprintf("remove it by hand: `rmdir %s`", text.ShellQuote(scope.Target+".lock"))
 }
@@ -502,8 +510,9 @@ func legacyRmdir(scope lock.Scope) string {
 // live holder is an answer, not a problem; an unreleased-but-gone one is
 // recovered automatically the next time its lock is taken (see
 // internal/lock's package comment), so it needs no advice beyond that,
-// unlike TypeScript's own heartbeat design — except the registry and router
-// locks' hand-removal fallback (see lockCheck).
+// unlike TypeScript's own heartbeat design — except the registry and
+// router locks' own --holder-unverifiable fallback (see lockCheck), now
+// that `worktree unlock --registry`/`--router` can clear them too (#21).
 func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName string) ([]Check, error) {
 	scan, err := registry.ScanRegistrations(controlHome)
 	if err != nil {
@@ -521,11 +530,16 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 	// development lock.
 	var checks []Check
 	registryScope := lock.RegistryScope(controlHome)
-	if check, ok := lockCheck("registry", registryScope, registryScope.Target+".holder", legacyRmdir(registryScope)); ok {
+	registryHandRemoval := fmt.Sprintf("run '%s worktree unlock --registry --holder-unverifiable' once you have made sure its holder is gone", commandName)
+	registryLegacyRemedy := fmt.Sprintf("'%s worktree unlock --registry' checks that it is gone and clears it", commandName)
+	if check, ok := lockCheck("registry", registryScope, registryHandRemoval, registryLegacyRemedy); ok {
 		checks = append(checks, check)
 	}
 	if routerLockScope != nil {
-		if check, ok := lockCheck("router", *routerLockScope, routerLockScope.Target+".holder", legacyRmdir(*routerLockScope)); ok {
+		routerHandRemoval := fmt.Sprintf(
+			"run '%s worktree unlock --router --holder-unverifiable' once you have made sure its holder, and everything it started, is gone", commandName)
+		routerLegacyRemedy := fmt.Sprintf("'%s worktree unlock --router' checks that it is gone and clears it", commandName)
+		if check, ok := lockCheck("router", *routerLockScope, routerHandRemoval, routerLegacyRemedy); ok {
 			checks = append(checks, check)
 		}
 	}

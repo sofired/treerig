@@ -227,19 +227,28 @@ tests skip there.
   second `doctor`, say) without either waiting on the other.
 - `ProbeHeld(ctx, scope, table)` is `Clear`'s own non-blocking, read-only
   probe of one scope's flock (`LOCK_EX|LOCK_NB`, then close), exported so
-  `worktree unlock` can check every one of a worktree's locks before
-  clearing any of them.
+  `worktree unlock` can check every one of a target's locks before clearing
+  any of them.
 - `Clear(ctx, scopes, opts)` is `worktree unlock`'s core (ported from
   `src/lock-recovery.ts`'s `unlockGuard`/`verify` and
   `src/operation-lock.ts`'s `clearStaleWorktreeLocks`): given every scope a
-  target might have (a worktree's operation and development locks), it
-  holds each one's free flock through judging every holder, one shared
-  marker survivor scan, and only then committing each — marking a judged
-  record's `releasedAt` and removing any TypeScript-era `.lock` leftover —
-  so a refusal on one scope (an alive contradiction, doubt without
-  `--holder-unverifiable`, or a survivor) never leaves another already
-  committed. `ctx` cancellation ends its own waits (the contradiction's
-  second look, the survivor rescan) the same way `Acquire`'s does.
+  target might have (a worktree's operation and development locks, or,
+  with `--registry`/`--router`, the one machine-wide scope those flags name
+  — `commands.UnlockGlobal`, #21), it holds each one's free flock through
+  judging every holder, one shared marker survivor scan, and only then
+  committing each — marking a judged record's `releasedAt` and removing any
+  TypeScript-era `.lock` leftover — so a refusal on one scope (an alive
+  contradiction, doubt without `--holder-unverifiable`, or a survivor) never
+  leaves another already committed. A scope with no markers of its own (the
+  registry lock, which guards only brief writes) skips the survivor scan
+  outright and says so, rather than claiming a check that never ran. That
+  scope's guarantee is narrower than a worktree's or the router's for
+  exactly this reason: with no processes of its own to look for, its holder
+  is judged only by identity (its record's PID, boot and machine id against
+  this machine), never against a live scan of what it started — because it
+  never starts anything to scan for. `ctx` cancellation ends its own waits
+  (the contradiction's second look, the survivor rescan) the same way
+  `Acquire`'s does.
 
 ## `internal/run/osrun`
 

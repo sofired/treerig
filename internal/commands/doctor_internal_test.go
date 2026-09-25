@@ -1783,7 +1783,10 @@ func TestDoctorLocksInternal(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps the hand-removal advice for the registry and router locks, which unlock does not clear", func(t *testing.T) {
+	// Pins the fix for #21: the registry and router locks now have
+	// `worktree unlock --registry`/`--router` of their own, so doctor's
+	// unverifiable-holder fallback names that instead of a hand `rm`.
+	t.Run("points the registry lock's unverifiable fallback at worktree unlock --registry", func(t *testing.T) {
 		controlHome := t.TempDir()
 		registryScope := lock.RegistryScope(controlHome)
 		silentUnreleased(t, registryScope, deadTestPID)
@@ -1791,9 +1794,37 @@ func TestDoctorLocksInternal(t *testing.T) {
 		if len(got) != 1 || got[0].Status != StatusOK || got[0].Subject != "registry" {
 			t.Fatalf("got %+v", got)
 		}
-		wantHint := "rm '" + registryScope.Target + ".holder'"
+		wantHint := "run 'berth worktree unlock --registry --holder-unverifiable' once you have made sure its holder is gone"
 		if !contains(got[0].Detail, wantHint) {
 			t.Fatalf("detail = %q, want to contain %q", got[0].Detail, wantHint)
+		}
+		if contains(got[0].Detail, "rm '") || contains(got[0].Detail, "rmdir") {
+			t.Fatalf("detail = %q, want no rm/rmdir advice", got[0].Detail)
+		}
+	})
+
+	t.Run("points the router lock's unverifiable fallback at worktree unlock --router", func(t *testing.T) {
+		controlHome := t.TempDir()
+		routerScope := lock.Scope{
+			Target: filepath.Join(t.TempDir(), "router-lock"), Description: "shared router",
+			Markers: procid.Markers{Project: "berth-router"},
+		}
+		silentUnreleased(t, routerScope, deadTestPID)
+		opts := testOpts(t, func(o *doctorOptions) { o.ControlHome = controlHome; o.RouterLockScope = &routerScope })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := section(sections, "Locks")
+		if len(got) != 1 || got[0].Status != StatusOK || got[0].Subject != "router" {
+			t.Fatalf("got %+v", got)
+		}
+		wantHint := "run 'berth worktree unlock --router --holder-unverifiable' once you have made sure its holder, and everything it started, is gone"
+		if !contains(got[0].Detail, wantHint) {
+			t.Fatalf("detail = %q, want to contain %q", got[0].Detail, wantHint)
+		}
+		if contains(got[0].Detail, "rm '") || contains(got[0].Detail, "rmdir") {
+			t.Fatalf("detail = %q, want no rm/rmdir advice", got[0].Detail)
 		}
 	})
 
@@ -1865,6 +1896,56 @@ func TestDoctorLocksInternal(t *testing.T) {
 		want := "a TypeScript build of berth left " + registryScope.Target + ".lock naming no holder; " +
 			"this build cannot take it until that is gone. If no TypeScript build is still running here, " +
 			"remove it by hand: `rmdir '" + registryScope.Target + ".lock'`"
+		if got[0].Detail != want {
+			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
+		}
+	})
+
+	// Pins the fix for #21: a TypeScript build's registry lock that names a
+	// holder now points at `worktree unlock --registry`, the same as a
+	// worktree lock's own line, instead of the rmdir that only the
+	// no-holder-named case (above) still needs.
+	t.Run("warns of a TypeScript build's registry lock, naming its holder and the command that clears it", func(t *testing.T) {
+		controlHome := t.TempDir()
+		registryScope := lock.RegistryScope(controlHome)
+		if err := os.MkdirAll(filepath.Dir(registryScope.Target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		legacyLockDir(t, registryScope, "berth up")
+		got := locksOf(t, controlHome)
+		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "registry" {
+			t.Fatalf("got %+v", got)
+		}
+		want := fmt.Sprintf("taken by a TypeScript build of berth, \"berth up\" (PID %d on \"old-host\"); "+
+			"this build cannot take it until that is gone. If no TypeScript build is still running here, "+
+			"'berth worktree unlock --registry' checks that it is gone and clears it", deadTestPID)
+		if got[0].Detail != want {
+			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
+		}
+	})
+
+	t.Run("warns of a TypeScript build's router lock, naming its holder and the command that clears it", func(t *testing.T) {
+		controlHome := t.TempDir()
+		routerScope := lock.Scope{
+			Target: filepath.Join(t.TempDir(), "router-lock"), Description: "shared router",
+			Markers: procid.Markers{Project: "berth-router"},
+		}
+		if err := os.MkdirAll(filepath.Dir(routerScope.Target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		legacyLockDir(t, routerScope, "berth up")
+		opts := testOpts(t, func(o *doctorOptions) { o.ControlHome = controlHome; o.RouterLockScope = &routerScope })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := section(sections, "Locks")
+		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "router" {
+			t.Fatalf("got %+v", got)
+		}
+		want := fmt.Sprintf("taken by a TypeScript build of berth, \"berth up\" (PID %d on \"old-host\"); "+
+			"this build cannot take it until that is gone. If no TypeScript build is still running here, "+
+			"'berth worktree unlock --router' checks that it is gone and clears it", deadTestPID)
 		if got[0].Detail != want {
 			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
 		}

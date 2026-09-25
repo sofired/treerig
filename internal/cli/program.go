@@ -108,14 +108,18 @@ func buildProgram(commandName, version string) *node {
 	})
 	worktree.addChild(remove)
 
-	unlock := newCommand("unlock", "clear a dead holder's lock on a worktree, once the holder and every command it started on this machine are checked gone")
+	unlock := newCommand("unlock", "clear a dead holder's lock on a worktree, the registry, or the router, once the holder, and anything it left running, is checked gone")
 	unlock.addArgument("[identifier]", "")
 	unlock.addOption("--domain <domain>", "narrow a slug registered under more than one domain")
+	unlock.addOption("--registry", "clear the machine-wide worktree registry lock instead of a worktree's")
+	unlock.addOption("--router", "clear the shared router's lock instead of a worktree's")
 	unlock.addOption("--holder-unverifiable", "accept a holder this machine cannot check (another machine or container, or no record), once you have made sure it is gone")
 	unlock.setAction(func(rc *runContext) error {
 		return commands.Unlock(rc.ctx, rc.env, commands.UnlockOptions{
 			Identifier:        rc.arg(0),
 			Domain:            rc.string("--domain"),
+			Registry:          rc.bool("--registry"),
+			Router:            rc.bool("--router"),
 			AllowUnverifiable: rc.bool("--holder-unverifiable"),
 		})
 	})
