@@ -29,9 +29,8 @@ further, which ends the loop.
   TypeScript build and the Go build one after the other on the same fixture
   and compares stdout, stderr, exit code, and every `docker` call.
 - **The streams contract.** `tests/cli/streams.test.ts` runs against either
-  build: `BERTH_CLI` points it at an executable, and `BERTH_CLI_UNPORTED`
-  lists verbs whose cases should skip rather than fail, because the Go
-  build does not have them yet.
+  build: `BERTH_CLI` points it at an executable. Every verb is ported, so
+  no case skips for the Go build.
 
 ## Divergence ledger
 

@@ -38,7 +38,9 @@ func buildProgram(commandName, version string) *node {
 
 	root.addChild(newCommand("up", "register this worktree, start its services, and run its hooks").
 		addArgument("[services...]", "").
-		setAction(func(rc *runContext) error { return commands.NotPorted(rc.env.CommandName, "up") }))
+		setAction(func(rc *runContext) error {
+			return commands.Up(rc.ctx, rc.env, commands.UpOptions{Services: rc.positional})
+		}))
 
 	root.addChild(newCommand("down", "stop this worktree's services; data is kept").
 		setAction(func(rc *runContext) error { return commands.Down(rc.ctx, rc.env) }))

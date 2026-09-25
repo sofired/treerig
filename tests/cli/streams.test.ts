@@ -13,10 +13,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 const run = promisify(execFile);
 const CLI = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url));
 // Another build of the same CLI — the Go port, say — can be held to these
-// same contracts: BERTH_CLI is its executable, and BERTH_CLI_UNPORTED names the
-// verbs it does not have yet, whose tests are skipped rather than failed.
+// same contracts: BERTH_CLI is its executable.
 const BINARY = process.env['BERTH_CLI'] || undefined;
-const UNPORTED = new Set((process.env['BERTH_CLI_UNPORTED'] ?? '').split(',').map((verb) => verb.trim()).filter(Boolean));
 
 const temporary: string[] = [];
 afterEach(async () => {
@@ -169,7 +167,7 @@ purpose = "surface"
     expect(result.stderr).toContain("'berth dev' is not implemented yet");
   });
 
-  it.skipIf(UNPORTED.has('doctor'))('prints the doctor\'s report on stdout and how it went on stderr', async () => {
+  it('prints the doctor\'s report on stdout and how it went on stderr', async () => {
     const cwd = await project(CONFIG);
     const empty = await mkdtemp(path.join(tmpdir(), 'berth-nopath-'));
     temporary.push(empty);
@@ -187,7 +185,7 @@ purpose = "surface"
     expect(result.stderr).toMatch(/^\[berth\] ERROR: \d+ check\(s\) failed\.$/m);
   });
 
-  it.skipIf(UNPORTED.has('doctor'))('says on stderr, as information, that nothing failed, and exits 0', async () => {
+  it('says on stderr, as information, that nothing failed, and exits 0', async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), 'berth-doctor-'));
     temporary.push(cwd);
     const bin = await mkdtemp(path.join(tmpdir(), 'berth-fakebin-'));
@@ -212,7 +210,7 @@ purpose = "surface"
     expect(result.stderr).not.toContain('ERROR');
   });
 
-  it.skipIf(UNPORTED.has('doctor'))('reports a router port it cannot use as a failed check, and still reports the rest', async () => {
+  it('reports a router port it cannot use as a failed check, and still reports the rest', async () => {
     const cwd = await project(CONFIG);
 
     const result = await berth(cwd, ['doctor'], { env: { BERTH_ROUTER_PORT: 'eighty' } });
@@ -222,7 +220,7 @@ purpose = "surface"
     expect(result.stdout).toContain('This checkout');
   });
 
-  it.skipIf(UNPORTED.has('unlock'))('keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice', async () => {
+  it('keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice', async () => {
     const cwd = await project(CONFIG);
     await git(cwd, ['init', '--initial-branch=feature/login', '.']);
     await git(cwd, ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--allow-empty', '-m', 'initial']);
@@ -264,7 +262,7 @@ purpose = "surface"
     expect(JSON.parse(result.stdout)).toEqual([]);
   });
 
-  it.skipIf(UNPORTED.has('router'))('reports an unreachable router as a failure rather than as output', async () => {
+  it('reports an unreachable router as a failure rather than as output', async () => {
     const cwd = await project(CONFIG);
     const empty = await mkdtemp(path.join(tmpdir(), 'berth-nopath-'));
     temporary.push(empty);
