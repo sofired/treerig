@@ -214,36 +214,16 @@ func TestRelocateAndReexec(t *testing.T) {
 
 	t.Run("falls back to the running binary, warning, when the control home cannot be resolved", func(t *testing.T) {
 		f := newFakeEnv(t, "irrelevant")
-		// checkedHome resolves the berth root first (layout.ResolveHome),
-		// which only touches the filesystem when BERTH_HOME is relative, by
-		// resolving it against the physical working directory
-		// (layout.PhysicalWd, syscall.Getwd) — which fails once that
-		// directory has been removed out from under this process. This
-		// changes the process's own working directory for the duration of
-		// the subtest (restored by the defer below): it must never run
-		// under t.Parallel(), here or in any test added later to this file
-		// or package.
-		scratch := registrytest.TempDir(t)
-		previous, err := os.Getwd()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chdir(scratch); err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			if err := os.Chdir(previous); err != nil {
-				t.Fatal(err)
-			}
-		}()
-		if err := os.RemoveAll(scratch); err != nil {
-			t.Fatal(err)
-		}
+		// checkedHome refuses the filesystem root as BERTH_HOME on every OS,
+		// before anything touches the filesystem, so relocation can't
+		// resolve a control home. HOME stays the fixture's own scratch
+		// directory, so the refusal is about "/" and nothing else.
+		previous := f.env.Getenv
 		f.env.Getenv = func(key string) (string, bool) {
 			if key == "BERTH_HOME" {
-				return "relative-control-home", true
+				return "/", true
 			}
-			return "", false
+			return previous(key)
 		}
 		f.env.Exec = func(string, []string, []string) error {
 			t.Fatal("Exec should not be called after a failure to resolve the control home")
