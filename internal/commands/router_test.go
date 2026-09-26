@@ -103,28 +103,12 @@ func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 		host := hardened
 		host.CapAdd = []string{"CAP_NET_BIND_SERVICE"}
 		return router.ContainerInspect{
-			Config:     router.InspectConfig{Cmd: router.RouterCommand(d.network), Image: router.RouterImage, Labels: labels},
+			Config:     router.InspectConfig{Cmd: router.RouterCommand(), Entrypoint: router.RouterImageEntrypoint, Image: router.RouterImage, Labels: labels},
 			HostConfig: host,
 			Mounts:     []router.InspectMount{{Type: "bind", Source: d.state.DynamicDir, Destination: router.DynamicConfigMount, RW: false}},
 			NetworkSettings: router.InspectNetworkSettings{
-				Networks: map[string]json.RawMessage{d.network: json.RawMessage("{}"), router.DefaultName + "_docker-api": json.RawMessage("{}")},
+				Networks: map[string]json.RawMessage{d.network: json.RawMessage("{}")},
 				Ports:    map[string][]router.InspectPortBinding{"80/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(d.port)}}},
-			},
-			State: healthy,
-		}
-	case router.DockerAPIService:
-		access := router.DockerAPIAccess()
-		env := make([]string, 0, len(access))
-		for name, value := range access {
-			env = append(env, name+"="+value)
-		}
-		return router.ContainerInspect{
-			Config:     router.InspectConfig{Env: env, Image: router.DockerAPIImage, Labels: labels},
-			HostConfig: hardened,
-			Mounts:     []router.InspectMount{{Type: "bind", Source: router.DockerSocket, Destination: router.DockerSocket, RW: false}},
-			NetworkSettings: router.InspectNetworkSettings{
-				Networks: map[string]json.RawMessage{router.DefaultName + "_docker-api": json.RawMessage("{}")},
-				Ports:    map[string][]router.InspectPortBinding{},
 			},
 			State: healthy,
 		}
@@ -133,7 +117,7 @@ func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 			labels[key] = value
 		}
 		return router.ContainerInspect{
-			Config:     router.InspectConfig{Cmd: router.IndexCommand, Image: router.IndexImage, Labels: labels},
+			Config:     router.InspectConfig{Cmd: router.IndexCommand, Entrypoint: router.IndexImageEntrypoint, Image: router.IndexImage, Labels: labels},
 			HostConfig: hardened,
 			Mounts:     []router.InspectMount{{Type: "bind", Source: d.state.IndexDir, Destination: router.IndexMount, RW: false}},
 			NetworkSettings: router.InspectNetworkSettings{

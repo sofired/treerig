@@ -81,7 +81,18 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	ref := toRef(registration.RegisteredWorktree)
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
 	runtime := cctx.Runtime(cctx.Loaded.Config.LabelNamespace())
+	routerSvc, err := routerFromContext(cctx)
+	if err != nil {
+		return err
+	}
 	if err := cctx.mutate(ctx, ref, false, func(ctx context.Context) error {
+		// Unroutes before the worktree's own teardown, unconditionally —
+		// see unrouteWorktree's own comment for why, and for its
+		// hard-fail/best-effort split between fragment removal and the
+		// router's own network disconnect.
+		if err := unrouteWorktree(ctx, cctx, routerSvc, ref); err != nil {
+			return err
+		}
 		return withProgress(cctx.Logger, "Stopping "+host, func() error { return runtime.Down(ctx, ref) })
 	}); err != nil {
 		return err

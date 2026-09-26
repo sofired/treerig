@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,9 +21,22 @@ import (
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/run/osrun"
 	"golang.org/x/sys/unix"
 )
+
+// freeTCPPort asks the kernel for a free loopback port, for a test router
+// that must not collide with a real one already bound to 80.
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
 
 // Interrupting a mutation, through the real binary: the process must die by
 // the signal it was sent, only after the child it was waiting on has been
@@ -128,6 +142,30 @@ func TestInterruptedMutation(t *testing.T) {
 				}
 				fakeDocker(t, bin, state, identity.RepositoryID, identity.WorktreeID)
 
+				// Both verbs here reach the shared router (unrouteWorktree,
+				// then a best-effort index refresh): isolate its state
+				// directory and port the way internal/commands' own
+				// newWalk fixture does, or this process — the real binary,
+				// spawned with no test hook to inject a
+				// commands.SharedRouter — reaches the real one. #55 found
+				// exactly this gap in a sibling test
+				// (legacy_integration_test.go's TestTypeScriptWritesGoRemoves).
+				// The router's own state now lives under BERTH_HOME alone
+				// (#80) — HOME and XDG_STATE_HOME no longer matter to it —
+				// so BERTH_HOME=controlHome is what isolates it below, the
+				// same override the spawned binary itself gets.
+				routerPort := freeTCPPort(t)
+				getenv := func(key string) (string, bool) {
+					switch key {
+					case "BERTH_HOME", "BERTH_CONTROL_HOME":
+						return controlHome, true
+					case "BERTH_ROUTER_PORT":
+						return strconv.Itoa(routerPort), true
+					}
+					return "", false
+				}
+				registrytest.RequireIsolatedRouterState(t, getenv)
+
 				cmd := exec.Command(binary, verb...)
 				cmd.Dir = checkout
 				// BERTH_CONTROL_HOME (#80), not just BERTH_HOME, points the
@@ -138,6 +176,7 @@ func TestInterruptedMutation(t *testing.T) {
 				// directory rather than this machine's real one.
 				cmd.Env = append(os.Environ(),
 					"BERTH_HOME="+controlHome, "BERTH_CONTROL_HOME="+controlHome,
+					"BERTH_ROUTER_PORT="+strconv.Itoa(routerPort),
 					"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 				var stderr strings.Builder
 				cmd.Stderr = &stderr

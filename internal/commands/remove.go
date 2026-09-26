@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/checkoutindex/card"
 	"github.com/sofired/berth/internal/clierr"
@@ -43,6 +44,14 @@ type RemoveResult struct {
 	Marker bool
 	// AlreadyGone means another removal finished first; nothing was left for this one.
 	AlreadyGone bool
+	// NetworkKept means the worktree's own router network could not be
+	// removed (backend.ErrNetworkKept: Compose's "has active endpoints"
+	// refusal, tolerated rather than failed) even after a retried
+	// disconnect. When true, the home directory, registration and identity
+	// marker are deliberately left in place too — Home, Registration and
+	// Marker all read false — so a later `worktree remove` still finds this
+	// worktree and can finish once the network clears.
+	NetworkKept bool
 }
 
 // Remove is `worktree remove`.
@@ -74,6 +83,10 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 	runtime := cctx.Runtime(namespace)
+	routerSvc, err := routerFromContext(cctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// Everything that will go, verified before anything is touched. A resource
 	// that cannot be proven ours fails here, before the prompt.
@@ -112,6 +125,14 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 				return err
 			}
 		}
+		// Unroutes before this worktree's own resources are reaped — see
+		// unrouteWorktree's own comment for the ordering and the
+		// hard-fail/best-effort split. Runs regardless of which resource
+		// kinds current (below) turns out to hold, and works even for a
+		// target this process has no berth.toml for at all.
+		if err := unrouteWorktree(ctx, cctx, routerSvc, ref); err != nil {
+			return err
+		}
 		// `down` acts on the project name, so any target can be stopped
 		// gracefully before its containers are reaped; skipped when there is
 		// nothing to stop. Decided under the lock, so a container that appeared
@@ -125,6 +146,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 				return err
 			}
 		}
+		network := backend.RouterNetworkName(ref.RepositoryID, ref.WorktreeID)
 		if err := withProgress(cctx.Logger, "Removing "+host, func() error {
 			// Re-verified after `down`; every resource is checked before any is removed.
 			owned, err := runtime.Inventory(ctx, ref)
@@ -136,18 +158,52 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			if err := store.MarkPending(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 				return err
 			}
+			var removed, kept []worktree.OwnedResource
 			for _, resource := range owned {
+				if resource.Kind == "network" {
+					// Narrows the same race unrouteWorktree's own comment
+					// describes: a concurrent Ensure may have reattached the
+					// router between its own disconnect and here. Best
+					// effort — Reap's own ErrNetworkKept tolerance below is
+					// what actually saves the day if this retry loses the
+					// race too; only a cancellation is worth ending the
+					// command over.
+					if err := routerSvc.DisconnectNetwork(ctx, network); err != nil && ctx.Err() != nil {
+						return err
+					}
+				}
 				if err := runtime.Reap(ctx, ref, resource); err != nil {
+					if errors.Is(err, backend.ErrNetworkKept) {
+						kept = append(kept, resource)
+						continue
+					}
 					return err
 				}
+				removed = append(removed, resource)
 			}
-			// Everything now gone, in inventory order — what `down` took
-			// together with what was reaped — so the summary lists kinds the
-			// way the plan did.
-			result.Resources = mergeResources(current, owned)
+			result.NetworkKept = len(kept) > 0
+			// Everything actually gone, in inventory order — what `down`
+			// took together with what was reaped. mergeResources unions with
+			// current (the pre-down inventory), which still lists a kept
+			// resource regardless of whether the loop above actually removed
+			// it, so excludeResources drops it again by kind and id: the
+			// summary must count only what really left.
+			result.Resources = excludeResources(mergeResources(current, removed), kept)
 			return nil
 		}); err != nil {
 			return err
+		}
+		// A kept network means this worktree is not actually gone: its home,
+		// registration and identity marker are left in place, deliberately,
+		// so a later `worktree remove` still finds it (store.MarkPending's
+		// own record stays findable — nothing above deletes it) and can
+		// finish once the network clears. Found in review (round 2 of #55):
+		// a first cut removed all three regardless, over a network Compose
+		// was still refusing to remove — a permanent leak, invisible to any
+		// later `worktree remove`, since nothing was left registered to
+		// retry against.
+		if result.NetworkKept {
+			return nil
 		}
 		if result.Home, err = removeHome(paths, cctx.CommandName); err != nil {
 			return err
@@ -169,7 +225,14 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	// Best effort, as src/commands/remove.ts's own `worktree remove` does:
 	// prints nothing when the refresh succeeds.
 	refreshIndexBestEffort(ctx, cctx, "worktree remove")
-	if !result.AlreadyGone {
+	switch {
+	case result.AlreadyGone:
+	case result.NetworkKept:
+		cctx.Logger.Warn(fmt.Sprintf(
+			"%s: %s, but its router network is still attached elsewhere and was left in place, so its home directory, "+
+				"registration and identity marker were kept too. Run '%s worktree remove' again once that clears to finish.",
+			host, summarize(result), cctx.CommandName))
+	default:
 		cctx.Logger.Info(fmt.Sprintf("Removed %s: %s.", host, summarize(result)))
 	}
 	return result, nil
@@ -352,6 +415,30 @@ func mergeResources(current, owned []worktree.OwnedResource) []worktree.OwnedRes
 		merged = append(merged, resource)
 	}
 	return merged
+}
+
+// excludeResources is resources with every entry of exclude (matched by
+// kind and id) removed. mergeResources' own union with the pre-removal
+// inventory (current) lists a resource whether or not it was actually
+// removed later — accurate when nothing is ever left behind, which is no
+// longer always true now that Reap can report ErrNetworkKept — so
+// RemoveWithContext calls this to drop a kept resource back out before it
+// is counted as gone.
+func excludeResources(resources, exclude []worktree.OwnedResource) []worktree.OwnedResource {
+	if len(exclude) == 0 {
+		return resources
+	}
+	skip := make(map[string]bool, len(exclude))
+	for _, resource := range exclude {
+		skip[resource.Kind+":"+resource.ID] = true
+	}
+	var kept []worktree.OwnedResource
+	for _, resource := range resources {
+		if !skip[resource.Kind+":"+resource.ID] {
+			kept = append(kept, resource)
+		}
+	}
+	return kept
 }
 
 // countResources renders resources as "N kind, M kind, …" grouped by kind in

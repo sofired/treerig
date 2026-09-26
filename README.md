@@ -94,6 +94,22 @@ with every capability dropped (Traefik gets back only the one it needs to bind
 port 80) and pinned by image digest; each is inspected after every start,
 recreated once if it has drifted, and refused if the drift survives that.
 
+**Go build only.** As of the Go build's router protocol 5, the socket proxy
+and Traefik's Docker-provider discovery are gone entirely: the router
+container has no path to the Docker socket at all, direct or proxied. Routes
+come only from Traefik's file provider, watching a read-only directory the
+router state mounts; berth itself writes and removes one fragment there per
+routed service on `up`, `down` and `worktree remove`, and each worktree gets
+its own dedicated router network instead of sharing one — see
+[`docs/port/divergences.md`](docs/port/divergences.md) rows 30 and 31. The
+verifier's own inspection is also deeper here: on both the router and the
+index container, it checks that neither is privileged, shares a host PID,
+IPC, network or UTS namespace, or has a device attached, that neither
+seccomp nor AppArmor is left unconfined, and that each container's
+entrypoint still matches the one its pinned image bakes in — every hardening
+claim this section makes, read back off the running containers rather than
+assumed (row 33).
+
 ## Install
 
 There is no published package and no binary yet — see [Roadmap](#roadmap).
@@ -202,6 +218,14 @@ so your Compose file never mentions the router. Chrome and Firefox resolve
 on the system resolver — see [Platform notes](#platform-notes). If port 80 is
 taken, set `BERTH_ROUTER_PORT` — the printed URLs follow it.
 
+**Go build only.** The override adds no Traefik or discovery labels,
+`dev.berth.router` included, and joins no container to the shared network
+(row 30). `up` writes one file-provider fragment per routed service instead,
+and joins the service to this worktree's own dedicated network under an
+alias (row 31). An upgrade from any router below protocol 5 leaves
+already-running worktrees unrouted until their next `up`, and the run says
+so.
+
 ```bash
 berth router status       # is the shared router running, and is it what this version expects?
 berth router up           # start it without starting a worktree
@@ -217,6 +241,12 @@ containers. A new version that changes the router upgrades it on the next
 `up` and says so. When that upgrade is the one that introduced this label,
 worktrees that were already running stay unrouted until their own next `up`,
 and the run says that too.
+
+**Go build only.** No container carries `dev.berth.router`; Traefik's
+Docker-provider discovery is gone, so nothing reads a container label at
+all. `RoutedByLabel` (the same string) survives only as a label on a
+worktree's own dedicated network (row 31), which is what lets `router up`
+find and reconnect every worktree's network on every start.
 
 **Index.** `http://berth.localhost` (plus the port, if changed) lists every
 checkout on the machine across every project: branch, hostname, path, whether
@@ -346,12 +376,23 @@ Three things follow from that, and this tool does not change them:
 - **Routed services share one network.** Every container you declare as a
   `[[service]]` joins the router's network, so a routed service in one
   checkout can reach a routed service in another. Containers you do not
-  declare stay on their project's own networks.
+  declare stay on their project's own networks. **Go build only:** each
+  worktree gets its own dedicated router network instead (row 31 in
+  [`docs/port/divergences.md`](docs/port/divergences.md)), so a routed
+  service resolving another routed service's name reaches only its own
+  checkout's container, never another's. The router is on every
+  worktree's network, though, so through it — by hostname, over HTTP, the
+  way the host itself reaches them — a routed service can still reach any
+  checkout's routed services and the index page.
 - **The index page is machine-wide and unauthenticated.** It lists every
   checkout's branch, path, hostnames and service links. Its only exposure to
   the host is the router's loopback port, and everything on the router's
   shared network — every routed container of every checkout — reaches it
-  too.
+  too. **Go build only:** a routed container is not on the shared network at
+  all — it joins only its own worktree's network (previous bullet) — so it
+  reaches the index only indirectly, through the router, the same way it
+  reaches another checkout's own routed services; only the router and the
+  index container itself sit on the shared network directly.
 
 What the tool does guarantee is ownership: every resource it creates carries
 its labels, and it refuses to touch anything whose full ownership tuple does
@@ -440,8 +481,26 @@ Desktop on Windows behaves like Linux when the tool runs inside the WSL 2
 distribution with the control home and checkout on its own filesystem; paths
 under `/mnt/c` present as 0777 and behave like the macOS case.
 
+**Docker Desktop file sharing and the file provider (Go build only).** Routes
+come from files `up`, `down` and `worktree remove` write and remove under the
+router's own state directory, watched by Traefik's file provider inside the
+container. On macOS Docker Desktop, both file-sharing backends (virtiofs, the
+current default, and the older grpcfuse) bridge the host's filesystem
+events into the container, and that bridge can occasionally miss the rename
+half of the atomic write a fragment update makes — the container's watcher
+then keeps routing (or fails to route) what the file on disk no longer says.
+If a route looks stale after an `up`, `down` or `worktree remove` on such a
+host, run `X router down` then `X router up` (with `X` the name you invoked
+this build as; see "Calling it something else") to force Traefik to reread
+every fragment from a clean start, rather than waiting on the next
+filesystem event that touches it.
+
 **Rootless Docker.** Not supported yet: the socket proxy mounts
-`/var/run/docker.sock`, which a rootless daemon does not provide.
+`/var/run/docker.sock`, which a rootless daemon does not provide. **Go build
+only:** the router itself no longer needs the socket at all (see
+[Router](#how-it-works) above), which removes this specific blocker for the
+router stack; whether the rest of the tool works unmodified against a
+rootless daemon is untested and not claimed here.
 
 **SELinux.** Hosts with SELinux enforcing need bind mounts relabelled (`:z`),
 which the tool does not do for its own router mounts; treat such hosts as

@@ -9,12 +9,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/cli"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/registry/registrytest"
 )
 
 // The clean break's promise: whatever the TypeScript build left on this
@@ -145,7 +147,18 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 		t.Fatalf("the TypeScript build's control home is not recognised as its: %v, %v", legacy, err)
 	}
 
-	// Remove, by the Go build.
+	// Remove, by the Go build. The router state directory and port are
+	// isolated the same way newWalk (up_docker_integration_test.go) isolates
+	// its own: `worktree remove` calls unrouteWorktree, which reaches the
+	// shared router's machine-wide state (internal/layout.RouterState) and
+	// best-effort refreshes its index page — neither of which cli.Main lets
+	// a test override with a commands.SharedRouter the way a CommandContext
+	// built directly can (up_docker_integration_test.go's own path), so a
+	// getenv that forwarded HOME/XDG_STATE_HOME/BERTH_ROUTER_PORT to the
+	// real environment reached the real router: its machine-wide lock and
+	// index page were genuinely taken and rewritten by an early version of
+	// this test. RequireIsolatedRouterState is the safety net in case this
+	// ever regresses again.
 	previous, _ := os.Getwd()
 	if err := os.Chdir(checkout); err != nil {
 		t.Fatal(err)
@@ -167,8 +180,13 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 	// directory of its own, distinct from goHome (below): BERTH_HOME and
 	// HOME resolving to the very same directory would itself trip
 	// files.AssertSafeHome's "it is your home directory" refusal.
+	// BERTH_ROUTER_PORT isolates the port the same way
+	// up_docker_integration_test.go's own newWalk does, since the router's
+	// state directory alone does not stop this test's own router from
+	// binding the real one's loopback port (#55).
 	goHome := filepath.Join(base, "go-home")
 	goBerthHome := filepath.Join(base, "go-berth-home")
+	routerPort := freePort(t)
 	getenv := func(key string) (string, bool) {
 		switch key {
 		case "BERTH_CONTROL_HOME":
@@ -177,9 +195,30 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 			return goBerthHome, true
 		case "HOME":
 			return goHome, true
+		case "BERTH_ROUTER_PORT":
+			return strconv.Itoa(routerPort), true
 		}
-		return os.LookupEnv(key)
+		return "", false
 	}
+	registrytest.RequireIsolatedRouterState(t, getenv)
+	// Round 2 of #55's review: even with the router *state* isolated above,
+	// `worktree remove` going through cli.Main still reaches the real
+	// Docker daemon's own "berth-router" project — the shared router's
+	// default Compose project name, which cli.Main exposes no hook to
+	// override (unlike a CommandContext built directly, which can set
+	// commands.SharedRouter to a router of its own name, the way
+	// up_docker_integration_test.go's newWalk does). unrouteWorktree's own
+	// DisconnectNetwork therefore runs `docker compose --project-name
+	// berth-router ps …` against whatever is really running under that
+	// name on this machine. Judged an accepted gap rather than fixed
+	// outright: fixing it properly needs either a new env hook on cli.Main
+	// (which the round-2 review explicitly asked not to add) or a
+	// dedicated ProjectName-injection seam on the entry point itself,
+	// neither small. RequireNoRealRouter is the guard in its place: a
+	// read-only check that no container is actually running under that
+	// project, so this test fails loudly instead of silently touching a
+	// real router if one exists.
+	registrytest.RequireNoRealRouter(t)
 	var stdout, stderr bytes.Buffer
 	code := cli.Main([]string{"berth", "worktree", "remove", "--yes"}, strings.NewReader(""), &stdout, &stderr, getenv)
 	if code != 0 {

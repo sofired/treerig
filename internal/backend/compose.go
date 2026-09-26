@@ -16,8 +16,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -147,9 +149,12 @@ func (c *Compose) environment(ref worktree.Ref) []string {
 	return docker.ComposeEnvironment(c.options.Environ, extra...)
 }
 
-// compose is one Compose invocation. Files are passed only when a verb needs
-// the model; the project directory is then the consumer file's own directory.
-func (c *Compose) compose(ctx context.Context, ref worktree.Ref, args []string, files []string, spec run.Spec) (run.Result, error) {
+// composeArgs is the full `docker compose ...` command line compose() builds
+// for args and files — factored out so a caller that must report a failure
+// with run.Failure after a call already made (Down, Reap) can name the exact
+// command line docker.Run used, rather than a reconstruction that could
+// drift from it (found in review of #55).
+func (c *Compose) composeArgs(ref worktree.Ref, args []string, files []string) []string {
 	full := []string{"compose", "--project-name", c.project(ref)}
 	if files != nil {
 		full = append(full, "--project-directory", filepath.Dir(c.options.ComposeFile))
@@ -157,8 +162,14 @@ func (c *Compose) compose(ctx context.Context, ref worktree.Ref, args []string, 
 			full = append(full, "-f", file)
 		}
 	}
+	return append(full, args...)
+}
+
+// compose is one Compose invocation. Files are passed only when a verb needs
+// the model; the project directory is then the consumer file's own directory.
+func (c *Compose) compose(ctx context.Context, ref worktree.Ref, args []string, files []string, spec run.Spec) (run.Result, error) {
 	spec.Env = docker.Merge(c.environment(ref), spec.Env...)
-	return docker.Run(ctx, c.options.Runner, append(full, args...), spec)
+	return docker.Run(ctx, c.options.Runner, c.composeArgs(ref, args, files), spec)
 }
 
 // model is the consumer's Compose file as Compose itself resolves it. Only
@@ -202,11 +213,44 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 	return parsed, nil
 }
 
+// activeEndpoints matches Compose's refusal to remove a network something is
+// still attached to — the shared router, most likely, whose disconnect
+// (internal/commands's DownWithContext and RemoveWithContext) is best
+// effort and may not have finished before this runs. Mirrors
+// internal/router's own activeEndpoints regex: a local, decoupled copy,
+// matching this codebase's existing pattern for a literal shared between
+// the two packages (see compose_up.go's own routedByLabel comment) rather
+// than an import between them.
+var activeEndpoints = regexp.MustCompile(`(?i)has active endpoints`)
+
 // Down stops the project; data is kept. Deliberately carries no Timeout
-// (#14): see this file's own timeouts comment for why.
+// (#14): see this file's own timeouts comment for why. Tolerates Compose's
+// own refusal to remove a network something is still attached to as the
+// expected outcome, not a failure — the same way the shared router's own
+// Down already does (row 12) — since the router itself may still be
+// attached to this worktree's own router network (#55) when this runs. Only
+// that one, specific outcome is intercepted (found in review, round 2 of
+// #55): AllowFailure lets this read the result instead of Finish rejecting
+// it automatically, so every other failure — a genuine Compose refusal, a
+// timeout, a signal, an output overflow — must still be reported through
+// run.Failure, the same wording and exit code (124 on a timeout) any other
+// bounded call gets, rather than a bespoke message that silently dropped
+// all of it.
 func (c *Compose) Down(ctx context.Context, ref worktree.Ref) error {
-	_, err := c.compose(ctx, ref, []string{"down", "--remove-orphans"}, nil, run.Spec{Output: run.Tee})
-	return err
+	args := []string{"down", "--remove-orphans"}
+	spec := run.Spec{AllowFailure: true, Output: run.Tee}
+	result, err := c.compose(ctx, ref, args, nil, spec)
+	if err != nil {
+		return err
+	}
+	if result.ExitCode == 0 {
+		return nil
+	}
+	if !result.TimedOut && !result.OutputOverflow && result.Signal == 0 && activeEndpoints.MatchString(result.Stderr) {
+		c.options.Logger.Info(fmt.Sprintf("A network of %s is kept while something else is attached to it.", c.project(ref)))
+		return nil
+	}
+	return run.Failure(run.Spec{Command: "docker", Args: c.composeArgs(ref, args, nil), Timeout: spec.Timeout}, result)
 }
 
 // Status lists every declared service, absent when it has no container at all.
@@ -481,7 +525,31 @@ func (c *Compose) Inventory(ctx context.Context, ref worktree.Ref) ([]worktree.O
 	return owned, nil
 }
 
-// Reap verifies a resource again and removes it.
+// ErrNetworkKept is Reap's own signal that a network resource was left in
+// place rather than actually removed: Compose's "has active endpoints"
+// refusal, tolerated the same way Down already tolerates it, rather than
+// failed. Always wrapped (`fmt.Errorf("%w: …", ErrNetworkKept)` or similar),
+// never returned bare, so a caller checks with errors.Is against whatever
+// context Reap's own error adds. Found in review (round 2 of #55): a first
+// cut of this tolerance let Reap report success for a resource that was
+// not actually gone, which let RemoveWithContext go on to delete the
+// worktree's home, registration and identity marker over a network still
+// sitting on the daemon — see RemoveWithContext's own handling of this
+// error for the fix.
+var ErrNetworkKept = errors.New("network still has active endpoints; left in place")
+
+// Reap verifies a resource again and removes it. A network's own removal
+// tolerates Compose's "has active endpoints" refusal the same way Down
+// already does (row 12), reporting ErrNetworkKept instead of succeeding:
+// #55 gives every routed worktree its own router network, and the shared
+// router's disconnect from it (internal/commands's DownWithContext and
+// RemoveWithContext) is best effort, and may not have finished — or a
+// concurrent Ensure may have just reattached the router to it, since its
+// RoutedByLabel persists until this worktree's own removal actually
+// finishes — by the time this runs, after every other resource is already
+// reaped. RemoveWithContext's own retried disconnect immediately before
+// this call narrows that window further; ErrNetworkKept is what tells it
+// the retry did not close it, so it must not treat the worktree as gone.
 func (c *Compose) Reap(ctx context.Context, ref worktree.Ref, resource worktree.OwnedResource) error {
 	index := slices.IndexFunc(resourceTypes, func(kind resourceType) bool { return kind.kind == resource.Kind })
 	if index < 0 {
@@ -491,8 +559,25 @@ func (c *Compose) Reap(ctx context.Context, ref worktree.Ref, resource worktree.
 	if _, err := c.verify(ctx, ref, kind, resource.ID); err != nil {
 		return err
 	}
-	if _, err := docker.Run(ctx, c.options.Runner, append(slices.Clone(kind.removeArgs), resource.ID), run.Spec{Timeout: c.timeouts.Remove}); err != nil {
+	args := append(slices.Clone(kind.removeArgs), resource.ID)
+	spec := run.Spec{AllowFailure: true, Timeout: c.timeouts.Remove}
+	result, err := docker.Run(ctx, c.options.Runner, args, spec)
+	if err != nil {
 		return err
+	}
+	if result.ExitCode != 0 {
+		// Only the tolerated network case is intercepted here (found in
+		// review, round 2 of #55) — and only when the failure is Compose's
+		// own clean refusal, not a timeout, signal or output overflow
+		// dressed up as one: AllowFailure lets this read the result instead
+		// of Finish rejecting it automatically, so every other failure must
+		// still be reported through run.Failure, the same wording and exit
+		// code (124 on a timeout) any other bounded call gets.
+		if kind.kind == "network" && !result.TimedOut && !result.OutputOverflow && result.Signal == 0 && activeEndpoints.MatchString(result.Stderr) {
+			c.options.Logger.Info(fmt.Sprintf("A network of %s is kept while something else is attached to it.", c.project(ref)))
+			return fmt.Errorf("network %s: %w", resource.ID, ErrNetworkKept)
+		}
+		return run.Failure(run.Spec{Command: "docker", Args: args, Timeout: spec.Timeout}, result)
 	}
 	c.options.Logger.Info(fmt.Sprintf("Removed %s %s.", resource.Kind, resource.ID))
 	return nil

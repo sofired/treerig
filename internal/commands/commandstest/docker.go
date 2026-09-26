@@ -32,6 +32,40 @@ type Docker struct {
 	// before runs once, ahead of the first docker call, outside the lock: the
 	// seam a test uses to let a rival act after the target was resolved.
 	before func()
+	// disconnectExitCode/disconnectStderr make every `network disconnect`
+	// call answer this way instead of succeeding — FailNetworkDisconnect's
+	// own state, for a test pinning unrouteWorktree's warn-and-continue
+	// path (internal/commands/router.go).
+	disconnectExitCode int
+	disconnectStderr   string
+	// removeNetworkExitCode/removeNetworkStderr make every `network rm`
+	// call answer this way instead of succeeding, without deleting the
+	// resource — FailNetworkRemove's own state, for a test pinning Reap's
+	// own ErrNetworkKept tolerance (internal/backend/compose.go) and
+	// RemoveWithContext's handling of it. Sticky, like
+	// disconnectExitCode/disconnectStderr: a test clears it
+	// (FailNetworkRemove(0, "")) to simulate the network clearing before a
+	// retried removal.
+	removeNetworkExitCode int
+	removeNetworkStderr   string
+}
+
+// FailNetworkDisconnect makes every subsequent `docker network disconnect`
+// call answer with exitCode and stderr instead of succeeding.
+func (d *Docker) FailNetworkDisconnect(exitCode int, stderr string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.disconnectExitCode, d.disconnectStderr = exitCode, stderr
+}
+
+// FailNetworkRemove makes every subsequent `docker network rm` call answer
+// with exitCode and stderr instead of succeeding, leaving the network in
+// place; exitCode 0 clears it, so a resource `network rm` is next asked to
+// remove succeeds normally again.
+func (d *Docker) FailNetworkRemove(exitCode int, stderr string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.removeNetworkExitCode, d.removeNetworkStderr = exitCode, stderr
 }
 
 type tamper struct {
@@ -190,6 +224,10 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 		return ok("")
 	}
 
+	if len(args) > 1 && args[0] == "network" && args[1] == "disconnect" && d.disconnectExitCode != 0 {
+		return run.Finish(spec, run.Result{Stderr: d.disconnectStderr, ExitCode: d.disconnectExitCode})
+	}
+
 	kind := map[string]string{"ps": "container", "volume": "volume", "network": "network", "image": "image", "inspect": "container", "rm": "container"}[args[0]]
 	switch {
 	case slices.Contains(args, "--filter"):
@@ -230,6 +268,9 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 		}
 		return ok(strings.Join(values, "\t"))
 	case slices.Contains(args, "rm"):
+		if kind == "network" && d.removeNetworkExitCode != 0 {
+			return run.Finish(spec, run.Result{Stderr: d.removeNetworkStderr, ExitCode: d.removeNetworkExitCode})
+		}
 		id := args[len(args)-1]
 		delete(d.resources[kind], id)
 		return ok("")

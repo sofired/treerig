@@ -24,7 +24,6 @@ package commands_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -119,41 +118,43 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 		t.Fatalf("worker over the worktree's own network answered %q", reached)
 	}
 
-	// doctor sees both services routed, and no two routers sharing a rule yet.
+	// doctor sees both services' own route fragments, and no two routers
+	// sharing a rule yet. Under #55 doctor reads route fragments
+	// (router.ListFragments), never container labels, so the Router section
+	// gains one more check than a pre-#55 build's own two (status, routes):
+	// status, routes, and doctor's address-pools check.
 	sections, err := commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
 	if err != nil {
 		t.Fatalf("DoctorSections: %v", err)
 	}
 	checks := routerChecks(sections)
-	if len(checks) != 2 {
+	if len(checks) != 3 {
 		t.Fatalf("router checks before the impostor = %+v", checks)
 	}
 	if checks[0].Status != commands.StatusOK || !strings.Contains(checks[0].Detail, fmt.Sprintf("running on 127.0.0.1:%d", w.port)) || !strings.Contains(checks[0].Detail, w.svc.Network) {
 		t.Fatalf("router status before the impostor = %+v", checks[0])
 	}
-	if checks[1].Status != commands.StatusOK || !strings.Contains(checks[1].Detail, "3 routed container(s)") {
+	if checks[1].Status != commands.StatusOK || !strings.Contains(checks[1].Detail, "2 route fragments; no two routers share a rule") {
 		t.Fatalf("routes before the impostor = %+v", checks[1])
 	}
 
-	// Not a Compose service, so not a replica of anything: a second, unrelated
-	// container claiming the worktree's own host, the way TypeScript's own
-	// "lets doctor read the running router..." case proves the same claim.
-	impostorName := "impostor-" + randomSuffix(t)
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "--force", impostorName).Run() })
-	if _, err := exec.Command("docker", "run", "--detach", "--rm", "--name", impostorName,
-		"--label", router.RoutedByLabel+"="+w.svc.Network,
-		"--label", fmt.Sprintf("traefik.http.routers.impostor.rule=Host(`%s`)", host),
-		"busybox:1.37.0", "sleep", "300").Output(); err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			t.Fatalf("starting the impostor: %v\n%s", err, exit.Stderr)
-		}
-		t.Fatalf("starting the impostor: %v", err)
+	// Not a Compose service, so not a replica of anything: a second,
+	// unrelated route fragment claiming the worktree's own host. Under #55
+	// only a fragment claims a route at all — Traefik's Docker-provider
+	// discovery is gone, so a container's own labels do nothing — so this
+	// writes one directly rather than labelling a container, proving the
+	// same claim TypeScript's own "lets doctor read the running router..."
+	// case proved against Docker's labels.
+	impostorRepositoryID, impostorWorktreeID := "33333333-3333-3333-3333-333333333333", "44444444-4444-4444-4444-444444444444"
+	t.Cleanup(func() { _ = router.RemoveWorktreeFragments(w.state, impostorRepositoryID, impostorWorktreeID) })
+	impostorDoc := router.NewFragmentDocument("impostor", fmt.Sprintf("Host(`%s`)", host), "impostor", 8080)
+	if err := router.WriteFragment(w.state, impostorRepositoryID, impostorWorktreeID, "impostor", impostorDoc); err != nil {
+		t.Fatalf("writing the impostor's route fragment: %v", err)
 	}
 
 	sections, err = commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
 	if err != nil {
-		t.Fatalf("DoctorSections with the impostor up: %v", err)
+		t.Fatalf("DoctorSections with the impostor's fragment written: %v", err)
 	}
 	checks = routerChecks(sections)
 	var conflict *commands.Check
@@ -163,14 +164,16 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 		}
 	}
 	if conflict == nil {
-		t.Fatalf("expected a claimed-route failure once the impostor was up, got %+v", checks)
+		t.Fatalf("expected a claimed-route failure once the impostor's fragment existed, got %+v", checks)
 	}
-	if !strings.HasPrefix(conflict.Detail, fmt.Sprintf("Host(`%s`) is claimed by ", host)) || !strings.Contains(conflict.Detail, impostorName) {
+	wantClaimant := fmt.Sprintf("%s.%s.impostor", impostorRepositoryID, impostorWorktreeID)
+	if !strings.HasPrefix(conflict.Detail, fmt.Sprintf("Host(`%s`) is claimed by ", host)) ||
+		!strings.Contains(conflict.Detail, host+" (api)") || !strings.Contains(conflict.Detail, wantClaimant) {
 		t.Fatalf("conflict detail = %q", conflict.Detail)
 	}
 
-	if err := exec.Command("docker", "rm", "--force", impostorName).Run(); err != nil {
-		t.Fatalf("removing the impostor: %v", err)
+	if err := router.RemoveWorktreeFragments(w.state, impostorRepositoryID, impostorWorktreeID); err != nil {
+		t.Fatalf("removing the impostor's route fragment: %v", err)
 	}
 	w.downAndRemove(t, result, host)
 }
