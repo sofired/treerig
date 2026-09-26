@@ -37,7 +37,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/config"
@@ -638,61 +637,91 @@ func routerStatusChecks(status router.RouterStatus) []Check {
 	return checks
 }
 
-type routedContainer struct {
-	Name   string
-	Labels map[string]string
+// fragmentRule is one router name and the rule it claims, read from one
+// dynamic-configuration fragment's decoded document — router.FragmentDocument's
+// own fields are exported even though its nested types are not, so this
+// needs no accessor from internal/router.
+type fragmentRule struct {
+	name string
+	rule string
 }
 
-// parseRoutedContainers parses `docker inspect --format
-// '{{.Name}}\t{{json .Config.Labels}}'`, one container per line.
-func parseRoutedContainers(stdout string) []routedContainer {
-	var containers []routedContainer
-	for _, line := range strings.Split(stdout, "\n") {
-		tab := strings.IndexByte(line, '\t')
-		if tab < 0 {
-			continue
-		}
-		var labels map[string]any
-		if err := json.Unmarshal([]byte(line[tab+1:]), &labels); err != nil || labels == nil {
-			continue
-		}
-		strLabels := make(map[string]string, len(labels))
-		for key, value := range labels {
-			if s, ok := value.(string); ok {
-				strLabels[key] = s
-			}
-		}
-		containers = append(containers, routedContainer{Name: strings.TrimPrefix(line[:tab], "/"), Labels: strLabels})
+// dynamicNoun names the shared router's dynamic-configuration directory in
+// a refusal — router.FragmentPath's own boundary, mirrored here (found in
+// review, round 2 of #55) since readFragmentRules needs the same check the
+// writers already apply, and internal/router's own copy is unexported.
+const dynamicNoun = "the shared router's dynamic-configuration directory"
+
+// readFragmentRules decodes one dynamic-configuration fragment's own HTTP
+// routers into their names and rules. Refuses the same way the writers do
+// (files.AssertSafeFilePathNamed) before ever reading path — a fragment
+// filename is only ever a plain file router.ListFragments itself wrote or
+// found already there, but doctor never trusted that on the write side
+// either, and a doctor that follows a symlink under dynamicDir out to an
+// arbitrary file would read it and report its contents as "conflicting"
+// text, not just fail to decode it. A fragment that cannot be safely
+// resolved, read, or decoded is skipped rather than failing the whole
+// check: validating a fragment's own JSON shape is not doctor's job, and a
+// corrupted or unsafe one is not silently treated as a conflict with
+// anything either.
+func readFragmentRules(dynamicDir, path string) []fragmentRule {
+	if err := files.AssertSafeFilePathNamed(dynamicDir, path, dynamicNoun); err != nil {
+		return nil
 	}
-	return containers
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc router.FragmentDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	rules := make([]fragmentRule, 0, len(doc.HTTP.Routers))
+	for name, entry := range doc.HTTP.Routers {
+		rules = append(rules, fragmentRule{name: name, rule: entry.Rule})
+	}
+	return rules
 }
 
-var routerRulePattern = regexp.MustCompile(`^traefik\.http\.routers\.([^.]+)\.rule$`)
+// fragmentIdentity is a route fragment's own <repository-uuid>.
+// <worktree-uuid>.<service> triple, resolved against byKey (lockChecks'
+// own map, keyed by "<repositoryID>/<worktreeID>") the same way the Locks
+// section already resolves a lock's holder to a name: the registered
+// worktree's own routed hostname plus the service, when a record exists,
+// or the raw identity — nothing else to show — when it does not (removed,
+// or never registered by this control home). fragmentIdentity never fails:
+// a route conflict is worth reporting whether or not the registry can name
+// its claimants.
+func fragmentIdentity(byKey map[string]registry.RegisteredWorktree, fragment router.FragmentInfo) string {
+	if record, ok := byKey[fragment.RepositoryID+"/"+fragment.WorktreeID]; ok {
+		return layout.WorktreeHost(record.Slug, record.Domain) + " (" + fragment.Service + ")"
+	}
+	return fragment.RepositoryID + "." + fragment.WorktreeID + "." + fragment.Service
+}
 
-// routeConflicts is every rule more than one claimant routes, each with the
-// containers behind them. Replicas of one Compose service are one claimant:
-// they share a router name and the project and service Compose stamped on them.
-func routeConflicts(containers []routedContainer) map[string][]string {
+// routeConflicts is every rule more than one fragment's router claims, each
+// with the claiming fragments' own identities (fragmentIdentity). This
+// replaces the pre-#55 mechanism of reading routed containers' own Traefik
+// labels: Traefik's Docker-provider discovery is gone, so a fragment file
+// is now the only thing that can claim a rule at all. dynamicDir is the
+// boundary readFragmentRules checks every fragment path against.
+func routeConflicts(dynamicDir string, fragments []router.FragmentInfo, byKey map[string]registry.RegisteredWorktree) map[string][]string {
 	type claim struct {
-		claimants  map[string]bool
-		containers map[string]bool
+		claimants map[string]bool
+		names     map[string]bool
 	}
 	byRule := map[string]*claim{}
-	for _, container := range containers {
-		project, service := container.Labels[backend.ComposeProjectLabel], container.Labels[backend.ComposeServiceLabel]
-		for key, rule := range container.Labels {
-			m := routerRulePattern.FindStringSubmatch(key)
-			if m == nil {
-				continue
-			}
-			entry, ok := byRule[rule]
+	for _, fragment := range fragments {
+		identity := fragmentIdentity(byKey, fragment)
+		for _, r := range readFragmentRules(dynamicDir, fragment.Path) {
+			entry, ok := byRule[r.rule]
 			if !ok {
-				entry = &claim{claimants: map[string]bool{}, containers: map[string]bool{}}
-				byRule[rule] = entry
+				entry = &claim{claimants: map[string]bool{}, names: map[string]bool{}}
+				byRule[r.rule] = entry
 			}
-			claimKey, _ := json.Marshal([]string{m[1], project, service})
+			claimKey, _ := json.Marshal([]string{r.name, identity})
 			entry.claimants[string(claimKey)] = true
-			entry.containers[container.Name] = true
+			entry.names[identity] = true
 		}
 	}
 	conflicts := map[string][]string{}
@@ -700,8 +729,8 @@ func routeConflicts(containers []routedContainer) map[string][]string {
 		if len(entry.claimants) <= 1 {
 			continue
 		}
-		names := make([]string, 0, len(entry.containers))
-		for name := range entry.containers {
+		names := make([]string, 0, len(entry.names))
+		for name := range entry.names {
 			names = append(names, name)
 		}
 		sort.Strings(names)
@@ -710,70 +739,154 @@ func routeConflicts(containers []routedContainer) map[string][]string {
 	return conflicts
 }
 
-// routeChecks is every running container the router would route, read from
-// Docker rather than from any registry.
-// routeChecks is every running container the router would route, read from
-// Docker rather than from any registry. Unlike askDocker's own calls, the
-// inspect step below is not wrapped in its own Docker-unavailable catch,
-// matching src/commands/doctor.ts:376-406 exactly: routerSection's own
-// guarded("routes", ...) is what turns whatever this returns into a line —
-// or, for a cancellation, lets it end the command — the same way TypeScript
-// leaves that one call for its own caller's guarded() to catch.
-func routeChecks(ctx context.Context, runner run.Runner, network string, timeout time.Duration) ([]Check, error) {
-	listedCheck, listed, err := askDocker(ctx, runner, "routes", []string{"ps", "-q", "--filter", "label=" + router.RoutedByLabel + "=" + network}, timeout)
+// orphanedFragmentsCheck warns — never fails, and never removes anything,
+// matching doctor's own "it takes no lock, writes nothing, and repairs
+// nothing" invariant — when fragments exist whose worktree's own router
+// network is gone (router.OrphanedFragments, the same definition the
+// router's own Ensure uses to actually remove them). nil, nil means nothing
+// worth a line.
+func orphanedFragmentsCheck(ctx context.Context, runner run.Runner, timeout time.Duration, routerNetwork, commandName string, fragments []router.FragmentInfo) (*Check, error) {
+	if len(fragments) == 0 {
+		return nil, nil
+	}
+	networks, err := router.LabelledWorktreeNetworks(ctx, runner, timeout, routerNetwork)
 	if err != nil {
 		return nil, err
 	}
-	if listed == nil {
-		return []Check{listedCheck}, nil
+	orphaned := router.OrphanedFragments(fragments, networks)
+	if len(orphaned) == 0 {
+		return nil, nil
 	}
-	ids := strings.Fields(strings.TrimSpace(listed.Stdout))
-	if len(ids) == 0 {
-		return []Check{{Status: StatusOK, Subject: "routes", Detail: "no running container is routed"}}, nil
+	type worktreeKey struct{ repositoryID, worktreeID string }
+	worktrees := map[worktreeKey]bool{}
+	for _, fragment := range orphaned {
+		worktrees[worktreeKey{fragment.RepositoryID, fragment.WorktreeID}] = true
 	}
+	fragmentPlural, worktreePlural, networkPlural, networkVerb := "s", "s", "s", "are"
+	if len(orphaned) == 1 {
+		fragmentPlural = ""
+	}
+	if len(worktrees) == 1 {
+		worktreePlural, networkPlural, networkVerb = "", "", "is"
+	}
+	return &Check{Status: StatusWarn, Subject: "routes", Detail: fmt.Sprintf(
+		"%d route fragment%s for %d worktree%s whose router network%s %s gone; the next '%s up' or '%s router up' removes them",
+		len(orphaned), fragmentPlural, len(worktrees), worktreePlural, networkPlural, networkVerb, commandName, commandName)}, nil
+}
 
-	args := append([]string{"inspect", "--format", "{{.Name}}\t{{json .Config.Labels}}"}, ids...)
-	inspected, err := docker.Run(ctx, runner, args, run.Spec{AllowFailure: true, Timeout: timeout})
+// routeChecks reads every dynamic-configuration fragment under the router's
+// own state directory (router.ListFragments) rather than any container's
+// own labels — Traefik's Docker-provider discovery is gone (#55), so a
+// fragment is the only thing that can claim a route at all now — reports
+// any rule two fragments both claim, the same conflict the pre-#55 version
+// reported from container labels, and warns (never fails or repairs) about
+// fragments an orphaned worktree left behind.
+func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayout, routerNetwork, controlHome, commandName string, timeout time.Duration) ([]Check, error) {
+	fragments, err := router.ListFragments(state)
 	if err != nil {
 		return nil, err
 	}
-	if inspected.OutputOverflow {
-		return []Check{{Status: StatusFail, Subject: "routes", Detail: "`docker inspect` produced more output than can be read, so routes were not checked"}}, nil
+	var checks []Check
+	if len(fragments) == 0 {
+		checks = append(checks, Check{Status: StatusOK, Subject: "routes", Detail: "no route fragments"})
+	} else {
+		scan, err := registry.ScanRegistrations(controlHome)
+		if err != nil {
+			return nil, err
+		}
+		byKey := make(map[string]registry.RegisteredWorktree, len(scan.Records))
+		for _, record := range scan.Records {
+			byKey[record.RepositoryID+"/"+record.WorktreeID] = record
+		}
+		conflicts := routeConflicts(state.DynamicDir, fragments, byKey)
+		if len(conflicts) == 0 {
+			plural := "s"
+			if len(fragments) == 1 {
+				plural = ""
+			}
+			checks = append(checks, Check{Status: StatusOK, Subject: "routes", Detail: fmt.Sprintf(
+				"%d route fragment%s; no two routers share a rule", len(fragments), plural)})
+		} else {
+			rules := make([]string, 0, len(conflicts))
+			for rule := range conflicts {
+				rules = append(rules, rule)
+			}
+			sort.Strings(rules)
+			for _, rule := range rules {
+				checks = append(checks, Check{Status: StatusFail, Subject: "routes", Detail: fmt.Sprintf(
+					"%s is claimed by %s; requests for it may reach any of them",
+					text.OneLine(rule, 200), text.OneLine(strings.Join(conflicts[rule], ", "), 200))})
+			}
+		}
 	}
-	if inspected.TimedOut {
-		return []Check{{Status: StatusFail, Subject: "routes", Detail: fmt.Sprintf(
-			"`docker inspect` did not answer within %d s, so routes were not checked", int(timeout.Seconds()))}}, nil
+	orphaned, err := orphanedFragmentsCheck(ctx, runner, timeout, routerNetwork, commandName, fragments)
+	if err != nil {
+		return nil, err
 	}
-	containers := parseRoutedContainers(inspected.Stdout)
-	if len(containers) == 0 && inspected.ExitCode != 0 {
-		return []Check{{Status: StatusFail, Subject: "routes", Detail: text.OneLine(
-			docker.Said(inspected.Stderr, fmt.Sprintf("`docker inspect` exited %d", inspected.ExitCode)), 0)}}, nil
-	}
-
-	conflicts := routeConflicts(containers)
-	if len(conflicts) == 0 {
-		return []Check{{Status: StatusOK, Subject: "routes", Detail: fmt.Sprintf(
-			"%d routed container(s); no two routers share a rule", len(containers))}}, nil
-	}
-	rules := make([]string, 0, len(conflicts))
-	for rule := range conflicts {
-		rules = append(rules, rule)
-	}
-	sort.Strings(rules)
-	checks := make([]Check, len(rules))
-	for i, rule := range rules {
-		checks[i] = Check{Status: StatusFail, Subject: "routes", Detail: fmt.Sprintf(
-			"%s is claimed by %s; requests for it may reach any of them",
-			text.OneLine(rule, 200), text.OneLine(strings.Join(conflicts[rule], ", "), 200))}
+	if orphaned != nil {
+		checks = append(checks, *orphaned)
 	}
 	return checks, nil
+}
+
+// addressPoolBridgeWarning is how many existing bridge-driver networks
+// (Docker's own built-in "bridge" excluded) doctor warns at. Since #55 every
+// routed worktree that is up owns one more bridge network, each carved from
+// the daemon's default address pools. Docker exposes no way to read those
+// pools' configuration, and doctor writes nothing — so no throwaway
+// `docker network create` probe — so this counts what already exists.
+//
+// Docker's built-in default pools are fifteen /16s (172.17.0.0 through
+// 172.31.0.0) and sixteen /20s carved from 192.168.0.0/16: about 31
+// networks, docker0 taking one, before `compose up` fails with "could not
+// find an available, non-overlapping IPv4 address pool among the defaults".
+// 20 warns with roughly a third of that left. It is a heuristic: a daemon
+// with its own default-address-pools, or other networks' explicit subnets,
+// moves the real limit either way. Proposed as divergence row 31; the
+// threshold is the owner's to tune.
+const addressPoolBridgeWarning = 20
+
+// addressPoolsCheck warns when the number of existing bridge-driver
+// networks suggests Docker's default address pools may be close to
+// exhausted — see addressPoolBridgeWarning's own comment for how
+// approximate this is. commandName names this build's own invocation in the
+// warning's advisory text (found in review of #55), matching every other
+// doctor advisory's own quoted-command form (orphanedFragmentsCheck,
+// registrySection, checkoutSections) rather than a hardcoded "up".
+func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName string, timeout time.Duration) (Check, error) {
+	check, result, err := askDocker(ctx, runner, "address pools", []string{
+		"network", "ls", "--filter", "driver=bridge", "--format", "{{.Name}}",
+	}, timeout)
+	if err != nil {
+		return Check{}, err
+	}
+	if result == nil {
+		return check, nil
+	}
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+		if name := strings.TrimSpace(line); name != "" && name != "bridge" {
+			count++
+		}
+	}
+	if count >= addressPoolBridgeWarning {
+		return Check{Status: StatusWarn, Subject: "address pools", Detail: fmt.Sprintf(
+			"%d bridge networks exist; with Docker's default address pools (about 31) a later '%s up' may fail to "+
+				"create its network. Remove networks nothing uses with `docker network prune`, or give the "+
+				"Docker daemon smaller or more `default-address-pools`.", count, commandName)}, nil
+	}
+	plural := "s"
+	if count == 1 {
+		plural = ""
+	}
+	return Check{Status: StatusOK, Subject: "address pools", Detail: fmt.Sprintf("%d bridge network%s", count, plural)}, nil
 }
 
 // routerSection is the "Router" section: opts.RouterErr's own line if the
 // router could not even be described, and one skip if Docker Engine did not
 // answer. Otherwise it is the router's status, or a skip when Docker Compose
-// did not answer, since the status needs Compose, followed by routeChecks,
-// which need only the Engine.
+// did not answer, since the status needs Compose, followed by routeChecks
+// and addressPoolsCheck, which need only the Engine.
 func routerSection(ctx context.Context, opts doctorOptions, state dockerState) ([]Check, error) {
 	if opts.RouterErr != nil {
 		return []Check{{Status: StatusFail, Subject: "router", Detail: opts.RouterErr.Error()}}, nil
@@ -798,12 +911,23 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 		checks = append(checks, Check{Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"})
 	}
 	routes, err := guarded("routes", func() ([]Check, error) {
-		return routeChecks(ctx, opts.Runner, opts.Router.Network(), opts.dockerTimeout())
+		return routeChecks(ctx, opts.Runner, opts.RouterState, opts.Router.Network(), opts.ControlHome, opts.CommandName, opts.dockerTimeout())
 	})
 	if err != nil {
 		return nil, err
 	}
-	return append(checks, routes...), nil
+	checks = append(checks, routes...)
+	pools, err := guarded("address pools", func() ([]Check, error) {
+		check, err := addressPoolsCheck(ctx, opts.Runner, opts.CommandName, opts.dockerTimeout())
+		if err != nil {
+			return nil, err
+		}
+		return []Check{check}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append(checks, pools...), nil
 }
 
 /* ------------------------------------------------------------ checkout ---- */
@@ -1102,6 +1226,11 @@ type doctorOptions struct {
 	// not even be described (a bad port in the environment).
 	Router    doctorRouterSource
 	RouterErr error
+	// RouterState is the shared router's own on-disk layout, for
+	// routeChecks — reading its dynamic-configuration fragments needs no
+	// running router and no lock, matching doctor's own "reads, never
+	// writes" invariant.
+	RouterState layout.RouterLayout
 	// RouterLockScope is the shared router's own lock, for the Locks
 	// section; nil skips that line.
 	RouterLockScope *lock.Scope
@@ -1173,12 +1302,13 @@ func buildDoctorOptions(env *Env, controlHome string) (doctorOptions, error) {
 		CommandName: env.CommandName, ControlHome: controlHome, Runner: env.Runner, Logger: env.Logger,
 		Checkout: checkout, Invocation: env.Invocation, Environ: env.Environ,
 	}
-	svc, _, err := newRouterService(env)
+	svc, state, err := newRouterService(env)
 	if err != nil {
 		opts.RouterErr = err
 		return opts, nil
 	}
 	opts.Router = realRouterSource{svc: svc}
+	opts.RouterState = state
 	if routerScope, err := lock.RouterScope(env.Getenv, svc.ProjectName); err == nil {
 		opts.RouterLockScope = &routerScope
 	}

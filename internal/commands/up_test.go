@@ -124,6 +124,59 @@ func TestUpWithContext(t *testing.T) {
 		}
 	})
 
+	// Found in review, round 3 of #55: a worktree that drops its last
+	// [[service]] route used to leave the shared router connected to its
+	// now-unused dedicated network forever — nothing ever called
+	// DisconnectNetwork for it, since that only ran on the connect side.
+	t.Run("disconnects the shared router from its own network when a later up declares no routes at all", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+		router := commandstest.NewFakeRouter(80, "berth-router")
+		index := &commandstest.FakeIndex{}
+
+		if _, err := up(t, tc, router, index, commands.UpOptions{}); err != nil {
+			t.Fatalf("first Up: %v", err)
+		}
+		connected := router.Connected()
+		if len(connected) != 1 {
+			t.Fatalf("expected exactly one ConnectNetwork call, got %v", connected)
+		}
+
+		// Found in review, round 4 of #55: a first cut disconnected the
+		// network before removing this worktree's stale fragments, leaving
+		// a window where a still-live fragment's rule pointed at a network
+		// the router had already left, rather than the fragment simply
+		// being gone. This checks the order directly, at the exact moment
+		// DisconnectNetwork is called: every fragment under the dynamic
+		// directory must already be gone, matching unrouteWorktree's own
+		// order for `down` and `worktree remove` (fragments first, network
+		// second).
+		var remainingAtDisconnect []os.DirEntry
+		router.BeforeDisconnectNetwork(func() {
+			entries, err := os.ReadDir(tc.RouterState.DynamicDir)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			remainingAtDisconnect = entries
+		})
+
+		tc.Loaded.Config.Service = nil
+		if _, err := up(t, tc, router, index, commands.UpOptions{}); err != nil {
+			t.Fatalf("second Up (no routes): %v", err)
+		}
+		if got := router.Connected(); len(got) != 1 {
+			t.Fatalf("expected no additional ConnectNetwork call once routes dropped to none, got %v", got)
+		}
+		disconnected := router.Disconnected()
+		if len(disconnected) != 1 || disconnected[0] != connected[0] {
+			t.Fatalf("expected DisconnectNetwork called once with %q, got %v", connected[0], disconnected)
+		}
+		if len(remainingAtDisconnect) != 0 {
+			t.Fatalf("expected every stale fragment already removed before DisconnectNetwork ran, got %v", remainingAtDisconnect)
+		}
+	})
+
 	t.Run("propagates a hook failure and never completes initialization", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)

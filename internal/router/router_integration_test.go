@@ -194,25 +194,26 @@ func TestSharedRouterOnARealDaemon(t *testing.T) {
 		}
 	})
 
-	t.Run("exposes only the read-only Docker API through the proxy", func(t *testing.T) {
-		network := project + "_docker-api"
-		allowed := dockerOutput(t, "run", "--rm", "--network", network, "busybox:1.37.0", "wget", "-qO-", "http://docker-api:2375/version")
-		if !strings.Contains(allowed, "ApiVersion") {
-			t.Fatalf("version response = %q", allowed)
+	// #55: the docker-socket-proxy is gone outright, and so is Traefik's
+	// Docker-provider discovery — the router container has no access to the
+	// Docker socket at all any more, and there is no docker-api service or
+	// network left to check permissions against.
+	t.Run("has no access to the Docker socket at all: no docker-api service, no socket mount", func(t *testing.T) {
+		services := dockerOutput(t, "compose", "-p", project, "ps", "-a", "--format", "{{.Service}}")
+		if strings.Contains(services, "docker-api") {
+			t.Fatalf("expected no docker-api service, got %q", services)
 		}
-
-		deniedOut, err := exec.Command("docker", "run", "--rm", "--network", network, "busybox:1.37.0",
-			"wget", "-qO-", "--post-data=", "http://docker-api:2375/containers/create").CombinedOutput()
-		if err == nil {
-			t.Fatal("expected POST to be denied")
+		if err := exec.Command("docker", "network", "inspect", project+"_docker-api").Run(); err == nil {
+			t.Fatal("expected no docker-api network to exist")
 		}
-		if !strings.Contains(string(deniedOut), "403") {
-			t.Errorf("denied output = %s", deniedOut)
+		routerID := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+		mounts := dockerOutput(t, "inspect", routerID, "--format", "{{range .Mounts}}{{.Source}} {{end}}")
+		if strings.Contains(mounts, "docker.sock") {
+			t.Fatalf("expected the router to have no Docker-socket mount, got %q", mounts)
 		}
-
-		if err := exec.Command("docker", "run", "--rm", "--network", network, "busybox:1.37.0",
-			"wget", "-qO-", "http://docker-api:2375/info").Run(); err == nil {
-			t.Error("expected /info to be denied")
+		cmd := dockerOutput(t, "inspect", routerID, "--format", "{{join .Config.Cmd \" \"}}")
+		if strings.Contains(cmd, "--providers.docker") {
+			t.Fatalf("expected no Docker-provider flag on the router's command line, got %q", cmd)
 		}
 	})
 
@@ -413,8 +414,6 @@ func (f *sequencedFake) Run(_ context.Context, spec run.Spec) (run.Result, error
 		switch service {
 		case router.RouterService:
 			doc = routerDoc(f.state.DynamicDir, f.port)
-		case router.DockerAPIService:
-			doc = apiDoc()
 		default:
 			doc = indexDoc(f.state.IndexDir)
 		}
@@ -425,6 +424,124 @@ func (f *sequencedFake) Run(_ context.Context, spec run.Spec) (run.Result, error
 		return run.Result{Stdout: string(encoded)}, nil
 	default:
 		return run.Result{}, nil
+	}
+}
+
+// TestRouterReconnectsLabelledWorktreeNetworks is #55: a worktree's own
+// dedicated router network, labelled as this router's own after the router
+// already exists (exactly the order `up` uses: runtime.Up creates and
+// labels the network before ConnectNetwork ever runs), gets reconnected by
+// the router's own next Ensure — not only right after a recreate, since
+// Ensure runs the reconnection step unconditionally. ConnectNetwork and
+// DisconnectNetwork are exercised directly too, proving both tolerate being
+// called against an already-attached or already-detached pair.
+func TestRouterReconnectsLabelledWorktreeNetworks(t *testing.T) {
+	requireDocker(t)
+	id := suffix(t)
+	project := "berth-router-test-reconnect-" + id
+	ns := "dev.berth-test-router-reconnect-" + id
+	dir := registrytest.TempDir(t)
+	port := freePortForTest(t)
+	state := newState(dir)
+	workNet := "berth-router-test-worktree-" + id
+
+	t.Cleanup(func() {
+		// The router container must be gone (or at least disconnected)
+		// before workNet can be removed — Docker refuses to remove a
+		// network with an active endpoint on it, and a fatal assertion
+		// between the Ensure below that attaches the router to workNet and
+		// this test's own explicit DisconnectNetwork call would otherwise
+		// leave it attached when cleanup runs.
+		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
+		exec.Command("docker", "network", "rm", workNet).Run()
+		exec.Command("docker", "network", "rm", project).Run()
+	})
+
+	svc, err := router.New(router.Options{
+		State: state, Port: port, Runner: osrun.New(), Logger: logger.Silent{},
+		ProjectName: project, Network: project, LabelNamespace: ns, Environ: os.Environ(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := svc.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate what internal/backend's overrideDocument declares for a
+	// routed worktree: an owned network labelled with RoutedByLabel naming
+	// this router's own shared network.
+	dockerOutput(t, "network", "create", "--label", router.RoutedByLabel+"="+project, workNet)
+
+	routerID := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+	before := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
+	if strings.Contains(before, workNet) {
+		t.Fatalf("expected the router not to be attached to %s yet, got %s", workNet, before)
+	}
+
+	// Ensure's own reconnection step — the same one `router up` runs, and
+	// the same one an `up` racing a concurrent recreate relies on to
+	// self-heal (see ConnectNetwork's own comment) — must pick this up on
+	// its own, with nothing else calling ConnectNetwork directly.
+	if err := svc.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
+	if !strings.Contains(after, workNet) {
+		t.Fatalf("expected the router to be reconnected to %s, got %s", workNet, after)
+	}
+
+	// ConnectNetwork itself tolerates an already-attached pair.
+	if err := svc.ConnectNetwork(ctx, workNet); err != nil {
+		t.Fatalf("ConnectNetwork on an already-attached network: %v", err)
+	}
+
+	// DisconnectNetwork detaches it, and tolerates being called again once
+	// it already has been — the "nothing to disconnect" case `down` and
+	// `worktree remove` rely on being harmless.
+	if err := svc.DisconnectNetwork(ctx, workNet); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DisconnectNetwork(ctx, workNet); err != nil {
+		t.Fatalf("DisconnectNetwork on an already-detached network: %v", err)
+	}
+	detached := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
+	if strings.Contains(detached, workNet) {
+		t.Fatalf("expected the router to be disconnected from %s, got %s", workNet, detached)
+	}
+
+	// Verify itself does not report the disconnected-but-still-labelled
+	// network as a problem (found in review, round 2 of #55, superseding
+	// this test's own earlier assertion that it did): an unattached
+	// labelled network is not a stack problem. It is exactly the state a
+	// concurrent `down` or `worktree remove` can leave this router in for a
+	// moment — the window this test's own DisconnectNetwork call above
+	// simulates — or a worktree between its own `up` creating the network
+	// and this router's next Ensure reconnecting it; treating either as
+	// drift would make status and doctor fail, and could make Ensure
+	// force-recreate a perfectly healthy router, over a race it cannot win
+	// by recreating. Ensure's own reconnectWorktreeNetworks, exercised
+	// again below, is the actual repair.
+	problems, err := svc.Verify(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, problem := range problems {
+		if strings.Contains(problem, "attached to networks") {
+			t.Fatalf("expected Verify not to flag an unattached labelled network, got %v", problems)
+		}
+	}
+
+	// A repeated Ensure reconnects it again regardless, proving the repair
+	// path still works even though Verify itself no longer treats the gap
+	// as drift worth a warning or a force-recreate.
+	if err := svc.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reattached := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
+	if !strings.Contains(reattached, workNet) {
+		t.Fatalf("expected a repeated Ensure to reconnect %s again, got %s", workNet, reattached)
 	}
 }
 

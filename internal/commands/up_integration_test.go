@@ -167,6 +167,7 @@ func (w *upWorld) context(t *testing.T, runner *fakeDockerRunner) (*commands.Com
 		}
 		return "", false
 	}
+	registrytest.RequireIsolatedRouterState(t, getenv)
 	cctx, err := commands.Context(&commands.Env{
 		CommandName: "berth", Invocation: "berth up", Logger: log, Getenv: getenv,
 		Environ: os.Environ(), Cwd: w.root, Runner: runner,

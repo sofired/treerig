@@ -15,14 +15,92 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/checkoutindex"
+	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/berth/internal/worktree"
 )
+
+// routerFromContext builds the shared router's client from cctx's own
+// fields — its RouterState, RouterPort, Runner, Logger, Environ, Invocation
+// and CommandName, the same values newRouterService resolves from an Env —
+// so a verb that already has a CommandContext (DownWithContext,
+// RemoveWithContext) needs no Env of its own to reach the router. Unlike
+// sharedRouter (Up's own real Router), this is used only for calls that
+// take no lock of their own — RemoveWorktreeFragments needs only State, and
+// ConnectNetwork/DisconnectNetwork resolve the router's current container
+// id fresh on every call; Ensure/Verify are never reached through this path.
+// cctx.SharedRouter, when a test has set one, is returned as it is.
+func routerFromContext(cctx *CommandContext) (*router.Router, error) {
+	if cctx.SharedRouter != nil {
+		return cctx.SharedRouter, nil
+	}
+	return router.New(router.Options{
+		State:       cctx.RouterState,
+		Port:        cctx.RouterPort,
+		Runner:      cctx.Runner,
+		Logger:      cctx.Logger,
+		Environ:     cctx.Environ,
+		Invocation:  cctx.Invocation,
+		CommandName: cctx.CommandName,
+	})
+}
+
+// unrouteWorktree removes ref's dynamic-configuration fragments and
+// disconnects the shared router from its own dedicated network
+// (backend.RouterNetworkName), before the worktree's own teardown gets a
+// chance to remove that network itself: Compose's plain `down` (and Reap's
+// own network removal) leaves a network alone only while something is still
+// attached to it, and the router staying attached is exactly what would
+// otherwise keep the network around forever, or have Compose refuse its
+// removal outright (internal/backend's own activeEndpoints tolerance is the
+// safety net for the cases this ordering does not fully close).
+//
+// Called unconditionally by both DownWithContext and RemoveWithContext —
+// even for a worktree that was never routed at all, or one the running
+// process has no berth.toml for at all (`worktree remove` can target a
+// different worktree than the one it runs from) — because both primitives
+// it calls tolerate "nothing there" as success on their own.
+//
+// Fragment removal failing is a hard failure: the fragment is the one thing
+// that actually keeps a route live in Traefik (the file provider reads
+// nothing else), so "unrouted after down" cannot be promised if removing it
+// silently failed. The router's own network disconnect is softer: a
+// failure there leaves at most a stale Docker attachment behind — no
+// traffic is routed because of it, since the fragment is already gone — so
+// it is only logged, and this worktree's own teardown still proceeds.
+// Compose then keeps the network while the router is on it, and the
+// router's own next Ensure reattaches to it, since it is still labelled; a
+// retried `down` or `worktree remove` is what disconnects and removes it.
+func unrouteWorktree(ctx context.Context, cctx *CommandContext, routerSvc *router.Router, ref worktree.Ref) error {
+	if err := router.RemoveWorktreeFragments(cctx.RouterState, ref.RepositoryID, ref.WorktreeID); err != nil {
+		return clierr.Newf("Could not remove this worktree's route fragments: %s", err)
+	}
+	network := backend.RouterNetworkName(ref.RepositoryID, ref.WorktreeID)
+	if err := routerSvc.DisconnectNetwork(ctx, network); err != nil {
+		// A cancellation still ends the command; only a Docker failure is
+		// downgraded to a warning, for the reason given above. Named as is,
+		// plus the recovery, on its own line after Docker's own stderr
+		// (DisconnectNetwork's own error already names the router and the
+		// network, the same way up.go's own ConnectNetwork call does, but
+		// on its own gives no next step — found in review): appending it
+		// after a `;` used to land it on whatever line Docker's own,
+		// possibly multi-line, stderr happened to end on, rather than
+		// reading as its own sentence, and it named no specific action to
+		// retry — found in review, round 2 of #55.
+		if ctx.Err() != nil {
+			return err
+		}
+		cctx.Logger.Warn(fmt.Sprintf("%s\nA later '%s down' or '%s worktree remove' retries disconnecting this network.", err, cctx.CommandName, cctx.CommandName))
+	}
+	return nil
+}
 
 // newRouterService builds the shared router directly from env.
 func newRouterService(env *Env) (*router.Router, layout.RouterLayout, error) {
@@ -111,6 +189,18 @@ func (r sharedRouter) Port() int { return r.svc.Port }
 
 // Network returns the shared router's Docker network name.
 func (r sharedRouter) Network() string { return r.svc.Network }
+
+// ConnectNetwork attaches the shared router to network, delegating to the
+// real router.Router.
+func (r sharedRouter) ConnectNetwork(ctx context.Context, network string) error {
+	return r.svc.ConnectNetwork(ctx, network)
+}
+
+// DisconnectNetwork detaches the shared router from network, delegating to
+// the real router.Router.
+func (r sharedRouter) DisconnectNetwork(ctx context.Context, network string) error {
+	return r.svc.DisconnectNetwork(ctx, network)
+}
 
 // Ensure brings the shared router up, exactly as `router up` does.
 func (r sharedRouter) Ensure(ctx context.Context) error {

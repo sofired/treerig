@@ -18,8 +18,8 @@ import (
 // set behaves like a JavaScript property assignment: a key already present
 // keeps its position and only its value changes; a new key is appended.
 // That is exactly what the override document's own construction relies on —
-// see routeLabels merging onto a service's existing labels, and a router
-// network that happens to collide with an already-declared one.
+// see a routed service's networks entry merging onto its existing ones, and
+// a router network that happens to collide with an already-declared one.
 type jsonKV struct {
 	keys   []string
 	values map[string]any
@@ -145,7 +145,7 @@ func marshalOrdered(value any) ([]byte, error) {
 }
 
 // writeOrdered writes value's compact JSON encoding to buf: marshalOrdered's
-// own recursive step, one *jsonKV, string, bool or nil at a time.
+// own recursive step, one *jsonKV, string, []string, bool or nil at a time.
 func writeOrdered(buf *bytes.Buffer, value any) error {
 	switch v := value.(type) {
 	case nil:
@@ -160,6 +160,8 @@ func writeOrdered(buf *bytes.Buffer, value any) error {
 		writeJSONString(buf, v)
 	case *jsonKV:
 		return writeOrderedObject(buf, v)
+	case []string:
+		return writeOrderedArray(buf, v)
 	default:
 		return fmt.Errorf("backend: unsupported value type %T in override document", value)
 	}
@@ -180,6 +182,21 @@ func writeOrderedObject(buf *bytes.Buffer, o *jsonKV) error {
 		}
 	}
 	buf.WriteByte('}')
+	return nil
+}
+
+// writeOrderedArray writes items to buf as a compact JSON array of strings —
+// the one array shape the override document ever builds itself: a routed
+// service's network aliases (RouterNetworkName's own network entry).
+func writeOrderedArray(buf *bytes.Buffer, items []string) error {
+	buf.WriteByte('[')
+	for i, item := range items {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		writeJSONString(buf, item)
+	}
+	buf.WriteByte(']')
 	return nil
 }
 

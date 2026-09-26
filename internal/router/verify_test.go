@@ -11,36 +11,39 @@ import (
 )
 
 func TestRouterServiceVerify(t *testing.T) {
-	// The 19-row tampering table, tests/unit/router.test.ts:599-619.
+	// Ported from the 19-row tampering table, tests/unit/router.test.ts:599-619
+	// (WP3 (#39) and #55 have since dropped the four docker-api rows: there is
+	// no docker-api container any more), plus one #55 adds of its own — "an
+	// unlabelled foreign network" — for a net 16 rows.
 	tampering := []struct {
 		name     string
-		tamper   func(router, api, index *router.ContainerInspect)
+		tamper   func(routerDoc, indexDoc *router.ContainerInspect)
 		expected string
 	}{
 		{
 			"the index serving another directory",
-			func(_, _, index *router.ContainerInspect) {
+			func(_, index *router.ContainerInspect) {
 				index.Mounts = []router.InspectMount{{Type: "bind", Source: "/etc", Destination: router.IndexMount, RW: false}}
 			},
 			"index: mounts are not exactly the read-only index directory",
 		},
 		{
 			"the index publishing a port",
-			func(_, _, index *router.ContainerInspect) {
+			func(_, index *router.ContainerInspect) {
 				index.NetworkSettings.Ports = map[string][]router.InspectPortBinding{"8080/tcp": {{HostIP: "0.0.0.0", HostPort: "8080"}}}
 			},
 			"index: publishes a port",
 		},
 		{
 			"the index routed elsewhere",
-			func(_, _, index *router.ContainerInspect) {
+			func(_, index *router.ContainerInspect) {
 				index.Config.Labels["traefik.http.routers.berth-index.rule"] = "Host(`evil.localhost`)"
 			},
 			"index: routing labels differ",
 		},
 		{
 			"a router still carrying an older protocol label",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.Config.Labels = testLabels("router")
 				routerDoc.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.Protocol - 1)
 			},
@@ -48,40 +51,47 @@ func TestRouterServiceVerify(t *testing.T) {
 		},
 		{
 			"a writable root filesystem",
-			func(routerDoc, _, _ *router.ContainerInspect) { routerDoc.HostConfig.ReadonlyRootfs = false },
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.HostConfig.ReadonlyRootfs = false },
 			"router: root filesystem is writable",
 		},
 		{
 			"kept capabilities",
-			func(routerDoc, _, _ *router.ContainerInspect) { routerDoc.HostConfig.CapDrop = nil },
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.HostConfig.CapDrop = nil },
 			"router: capabilities are not dropped",
 		},
 		{
 			"extra capabilities",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.HostConfig.CapAdd = []string{"CAP_NET_BIND_SERVICE", "CAP_SYS_ADMIN"}
 			},
 			"router: capabilities beyond NET_BIND_SERVICE",
 		},
 		{
 			"a port on every interface",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.NetworkSettings.Ports = map[string][]router.InspectPortBinding{"80/tcp": {{HostIP: "0.0.0.0", HostPort: "80"}}}
 			},
 			"published only on 127.0.0.1:80",
 		},
 		{
 			"an extra published port",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.NetworkSettings.Ports["8080/tcp"] = []router.InspectPortBinding{{HostIP: "127.0.0.1", HostPort: "8080"}}
 			},
 			"unexpected ports (8080/tcp)",
 		},
 		{
+			"an unlabelled foreign network",
+			func(routerDoc, _ *router.ContainerInspect) {
+				routerDoc.NetworkSettings.Networks["evil"] = json.RawMessage("{}")
+			},
+			"attached to networks",
+		},
+		{
 			"the file provider removed",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				var filtered []string
-				for _, arg := range router.RouterCommand(testNetwork) {
+				for _, arg := range router.RouterCommand() {
 					if !strings.HasPrefix(arg, "--providers.file") {
 						filtered = append(filtered, arg)
 					}
@@ -92,19 +102,19 @@ func TestRouterServiceVerify(t *testing.T) {
 		},
 		{
 			"a different image",
-			func(routerDoc, _, _ *router.ContainerInspect) { routerDoc.Config.Image = "traefik:latest" },
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.Config.Image = "traefik:latest" },
 			"router: image is not the pinned digest",
 		},
 		{
 			"an extra mount",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.Mounts = append(routerDoc.Mounts, router.InspectMount{Type: "bind", Source: "/etc", Destination: "/host-etc", RW: false})
 			},
 			"router: mounts are not exactly",
 		},
 		{
 			"a writable dynamic directory",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				for i := range routerDoc.Mounts {
 					routerDoc.Mounts[i].RW = true
 				}
@@ -113,52 +123,74 @@ func TestRouterServiceVerify(t *testing.T) {
 		},
 		{
 			"an unhealthy router",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.State = router.InspectState{Status: "running", Health: router.InspectHealth{Status: "unhealthy"}}
 			},
 			"router: not healthy",
 		},
 		{
 			"a foreign container",
-			func(routerDoc, _, _ *router.ContainerInspect) {
+			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.Config.Labels = testLabels("router")
 				routerDoc.Config.Labels["com.docker.compose.project"] = "other"
 			},
 			"router: not the container Compose started for this project",
 		},
 		{
-			"POST allowed through the proxy",
-			func(_, api, _ *router.ContainerInspect) {
-				for i, entry := range api.Config.Env {
-					if entry == "POST=0" {
-						api.Config.Env[i] = "POST=1"
-					}
-				}
-			},
-			"docker-api: API access differs (POST)",
+			"a privileged router",
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.HostConfig.Privileged = true },
+			"router: privileged",
 		},
 		{
-			"a writable socket",
-			func(_, api, _ *router.ContainerInspect) {
-				for i := range api.Mounts {
-					api.Mounts[i].RW = true
-				}
-			},
-			"docker-api: mounts are not exactly the read-only Docker socket",
+			"the router sharing the host PID namespace",
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.HostConfig.PidMode = "host" },
+			"router: shares a host namespace",
 		},
 		{
-			"the proxy on the shared network",
-			func(_, api, _ *router.ContainerInspect) {
-				api.NetworkSettings.Networks[testNetwork] = json.RawMessage("{}")
-			},
-			"docker-api: attached to a network other than the internal proxy network",
+			"the router sharing the host IPC namespace",
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.HostConfig.IpcMode = "host" },
+			"router: shares a host namespace",
 		},
 		{
-			"the proxy publishing a port",
-			func(_, api, _ *router.ContainerInspect) {
-				api.NetworkSettings.Ports = map[string][]router.InspectPortBinding{"2375/tcp": {{HostIP: "127.0.0.1", HostPort: "2375"}}}
+			"the router in host network mode",
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.HostConfig.NetworkMode = "host" },
+			"router: shares a host namespace",
+		},
+		{
+			"the router sharing the host UTS namespace",
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.HostConfig.UTSMode = "host" },
+			"router: shares a host namespace",
+		},
+		{
+			"a device attached to the router",
+			func(routerDoc, _ *router.ContainerInspect) {
+				routerDoc.HostConfig.Devices = []router.InspectDevice{{PathOnHost: "/dev/net/tun"}}
 			},
-			"docker-api: publishes a port",
+			"router: devices are attached",
+		},
+		{
+			"unconfined seccomp on the router",
+			func(routerDoc, _ *router.ContainerInspect) {
+				routerDoc.HostConfig.SecurityOpt = append(routerDoc.HostConfig.SecurityOpt, "seccomp=unconfined")
+			},
+			"router: seccomp is unconfined",
+		},
+		{
+			"unconfined AppArmor on the router",
+			func(routerDoc, _ *router.ContainerInspect) {
+				routerDoc.HostConfig.SecurityOpt = append(routerDoc.HostConfig.SecurityOpt, "apparmor=unconfined")
+			},
+			"router: apparmor is unconfined",
+		},
+		{
+			"a router entrypoint that differs from the pinned image",
+			func(routerDoc, _ *router.ContainerInspect) { routerDoc.Config.Entrypoint = []string{"/bin/sh"} },
+			"router: entrypoint differs from the pinned image",
+		},
+		{
+			"an index entrypoint that differs from the pinned image",
+			func(_, indexDoc *router.ContainerInspect) { indexDoc.Config.Entrypoint = []string{"/bin/sh"} },
+			"index: entrypoint differs from the pinned image",
 		},
 	}
 
@@ -166,11 +198,9 @@ func TestRouterServiceVerify(t *testing.T) {
 		t.Run("reports "+tc.name, func(t *testing.T) {
 			w := newWorld(t, 80, "")
 			routerDoc := routerDoc(w.State.DynamicDir, w.Port)
-			apiDoc := apiDoc()
 			indexDoc := indexDoc(w.State.IndexDir)
-			tc.tamper(&routerDoc, &apiDoc, &indexDoc)
+			tc.tamper(&routerDoc, &indexDoc)
 			w.Fake.setDoc("router-1", routerDoc)
-			w.Fake.setDoc("api-1", apiDoc)
 			w.Fake.setDoc("index-1", indexDoc)
 
 			problems, err := w.Router.Verify(context.Background())
@@ -194,6 +224,67 @@ func TestRouterServiceVerify(t *testing.T) {
 		}
 		if len(problems) != 0 {
 			t.Errorf("problems = %v, want none", problems)
+		}
+	})
+
+	// Found in review, round 2 of #55: the network-membership check used to
+	// compare attached networks against the expected set as an exact match,
+	// so a labelled worktree network that exists but is not attached yet —
+	// the window before this router's own next Ensure calls
+	// ConnectNetwork, or during a worktree's own teardown before the
+	// network is actually gone — read as drift, which could make Ensure
+	// force-recreate a perfectly healthy router and made status/doctor fail
+	// over a race that was never a problem in the first place. These two
+	// pin both directions: an unattached labelled network is not reported,
+	// and a router genuinely missing from its own shared network still is.
+	t.Run("does not report a labelled worktree network the router is not attached to yet", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.mu.Lock()
+		w.Fake.networkLs = "berth-a1b2c3d4-router"
+		w.Fake.mu.Unlock()
+
+		problems, err := w.Router.Verify(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(problems) != 0 {
+			t.Errorf("problems = %v, want none: an unattached labelled network is not a stack problem", problems)
+		}
+	})
+
+	t.Run("still reports the router when it is not attached to its own shared network", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		routerDoc := routerDoc(w.State.DynamicDir, w.Port)
+		routerDoc.NetworkSettings.Networks = map[string]json.RawMessage{"evil": json.RawMessage("{}")}
+		w.Fake.setDoc("router-1", routerDoc)
+
+		problems, err := w.Router.Verify(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(problems) != 1 || !strings.Contains(problems[0], "attached to networks") {
+			t.Fatalf("problems = %v, want exactly one naming the network mismatch", problems)
+		}
+	})
+
+	// #55, found in review: routerProblems' own network-membership check
+	// needs LabelledWorktreeNetworks to succeed to compare against anything
+	// at all; a Docker failure there is reported as one problem of its own,
+	// not silently ignored or turned into a Verify error outright (which
+	// would end the command rather than let a caller like Ensure decide
+	// what to do about a router that could not be fully checked).
+	t.Run("reports a problem, rather than failing outright, when it cannot list this router's own worktree networks", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.mu.Lock()
+		w.Fake.networkLsFails = true
+		w.Fake.mu.Unlock()
+
+		problems, err := w.Router.Verify(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(problems) != 1 || !strings.Contains(problems[0], "could not list this router's worktree networks") {
+			t.Fatalf("problems = %v", problems)
 		}
 	})
 }

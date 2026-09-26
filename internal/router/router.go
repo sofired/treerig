@@ -299,8 +299,9 @@ func secureDirectories(root string, dirs []string, mode os.FileMode) error {
 	return nil
 }
 
-// write writes the stack document and makes sure the directories it mounts
-// exist and serve.
+// write writes the stack document, the checkout index's own dynamic-
+// configuration fragment, and makes sure the directories it mounts exist and
+// serve.
 func (r *Router) write(now time.Time) error {
 	if err := secureState(r.state); err != nil {
 		return err
@@ -329,7 +330,15 @@ func (r *Router) write(now time.Time) error {
 		LabelNamespace: r.labelNamespace,
 	})
 	// JSON is YAML; Compose reads it as such.
-	return files.AtomicJSON(r.state.ComposeFile, document)
+	if err := files.AtomicJSON(r.state.ComposeFile, document); err != nil {
+		return err
+	}
+	// #55: Traefik's Docker-provider discovery is gone, so the index
+	// container's own IndexRouteLabels — still stamped on it for
+	// documentation — route nothing on their own any more. The index needs
+	// the same kind of file-provider fragment a worktree's own routed
+	// service gets, just not scoped to any worktree: see WriteIndexFragment.
+	return WriteIndexFragment(r.state, r.ProjectName)
 }
 
 // containerID is by project name alone, with no stack file: this runs
@@ -351,6 +360,284 @@ func (r *Router) containerID(ctx context.Context, service string) (string, error
 	}
 	first, _, _ := strings.Cut(strings.TrimSpace(result.Stdout), "\n")
 	return first, nil
+}
+
+// labelledWorktreeNetworks is LabelledWorktreeNetworks for this router's
+// own network. Shared by Verify's network-membership check, Ensure's own
+// reconnection step and its orphaned-fragment reconciliation, so the three
+// can never independently drift onto different answers for "every network
+// this router owns."
+func (r *Router) labelledWorktreeNetworks(ctx context.Context) ([]string, error) {
+	return LabelledWorktreeNetworks(ctx, r.runner, r.timeouts.Probe, r.Network)
+}
+
+// LabelledWorktreeNetworks lists, by name, every Docker network labelled
+// RoutedByLabel=routerNetwork: one worktree's dedicated router network
+// (layout.WorktreeRouterNetwork) per entry — never a fixed set, since a
+// worktree network is created only by its own `up` and removed by its own
+// `down` or `worktree remove`. The label is in the brand's own namespace
+// whatever a project's label-namespace says, which is what lets this answer
+// without any project config: doctor calls it too.
+//
+// --format alone, not with --quiet: which of the two wins when both are
+// given differs between Docker CLI versions, and IDs would never match the
+// names Verify compares against.
+func LabelledWorktreeNetworks(ctx context.Context, runner run.Runner, timeout time.Duration, routerNetwork string) ([]string, error) {
+	result, err := docker.Run(ctx, runner, []string{
+		"network", "ls",
+		"--filter", "label=" + RoutedByLabel + "=" + routerNetwork,
+		"--format", "{{.Name}}",
+	}, run.Spec{AllowFailure: true, Timeout: timeout})
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, &docker.UnavailableError{Detail: docker.Said(result.Stderr,
+			fmt.Sprintf("`docker network ls` exited %d without saying why", result.ExitCode))}
+	}
+	var names []string
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			names = append(names, line)
+		}
+	}
+	return names, nil
+}
+
+// networkConnectTolerated matches Docker's refusal to connect a container
+// already attached to the network: an idempotent connect, from
+// ConnectNetwork's point of view.
+var networkConnectTolerated = regexp.MustCompile(`(?i)already exists in network|is already connected to network`)
+
+// networkGoneOnReconnect matches Docker's refusal to connect to a network
+// that no longer exists at all — tolerated only by reconnectWorktreeNetworks
+// (see its own comment), never by ConnectNetwork generally: up.go's own
+// direct call for a worktree's newly created network must still fail
+// loudly if that network is unexpectedly missing, since there the override
+// should always have created it first.
+var networkGoneOnReconnect = regexp.MustCompile(`(?i)no such network|network .* not found`)
+
+// networkDisconnectTolerated matches Docker's refusal to disconnect a
+// container that was never attached, or a network or container that no
+// longer exists: every one of them "nothing to disconnect", from
+// DisconnectNetwork's point of view.
+var networkDisconnectTolerated = regexp.MustCompile(`(?i)is not connected to (any )?network|no such network|no such container`)
+
+// ConnectNetwork attaches the router container to network, tolerating an
+// already-attached pair as success (Docker's own `network connect` is not
+// otherwise idempotent) and a router that is not currently running as
+// success too — there is nothing to connect until the router itself comes
+// up, and Ensure's own reconnectWorktreeNetworks reconnects every labelled
+// network on its next run regardless.
+//
+// `up` calls this after Ensure has already returned and released the
+// router's lock — by design: a slow worktree `compose up` must not hold the
+// router lock the whole time it runs (see up.go's own comment on
+// registering and waiting for the router unlocked). That leaves a narrow
+// window: if a different process force-recreates the router between Ensure
+// returning and this call, the container id resolved here can belong to a
+// container that is about to disappear, and this connect is then wasted.
+// This is deliberately not fixed by holding the router lock across a
+// worktree's whole `up` — it is self-healing instead: the next Ensure
+// (any later `up` or `router up`) finds the labelled network unattached
+// again and reconnects it via reconnectWorktreeNetworks.
+func (r *Router) ConnectNetwork(ctx context.Context, network string) error {
+	id, err := r.containerID(ctx, RouterService)
+	if err != nil {
+		return err
+	}
+	result, err := r.connectNetwork(ctx, network, id)
+	if err != nil {
+		return err
+	}
+	if result.ExitCode == 0 || networkConnectTolerated.MatchString(result.Stderr) {
+		return nil
+	}
+	return clierr.Newf("Could not connect the shared router to network %s:\n%s",
+		network, docker.Said(result.Stderr, strings.TrimSpace(result.Stdout)))
+}
+
+// connectNetwork is `docker network connect`'s raw outcome, factored out of
+// ConnectNetwork so reconnectWorktreeNetworks can inspect result.Stderr
+// itself and tolerate one more refusal ConnectNetwork does not (see
+// networkGoneOnReconnect), rather than matching against a caller's already
+// clierr-formatted message. id empty (the router is not running) answers a
+// clean no-op, matching ConnectNetwork's own "nothing to connect" tolerance.
+func (r *Router) connectNetwork(ctx context.Context, network, id string) (run.Result, error) {
+	if id == "" {
+		return run.Result{}, nil
+	}
+	return docker.Run(ctx, r.runner, []string{"network", "connect", network, id},
+		run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
+}
+
+// DisconnectNetwork detaches the router container from network, tolerating
+// there being nothing to disconnect — the router not running, the network
+// already gone, or the endpoint already gone — as success. The mirror of
+// ConnectNetwork; `down` and `worktree remove` call it before their own
+// worktree's network can be removed (see mutate.go and remove.go for why
+// the order matters and how a real failure here is handled).
+func (r *Router) DisconnectNetwork(ctx context.Context, network string) error {
+	id, err := r.containerID(ctx, RouterService)
+	if err != nil {
+		return err
+	}
+	if id == "" {
+		return nil
+	}
+	result, err := docker.Run(ctx, r.runner, []string{"network", "disconnect", network, id},
+		run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
+	if err != nil {
+		return err
+	}
+	if result.ExitCode == 0 || networkDisconnectTolerated.MatchString(result.Stderr) {
+		return nil
+	}
+	return clierr.Newf("Could not disconnect the shared router from network %s:\n%s",
+		network, docker.Said(result.Stderr, strings.TrimSpace(result.Stdout)))
+}
+
+// reconnectWorktreeNetworks reconnects the router to every worktree network
+// labelled as its own. Runs unconditionally on every Ensure, not only after
+// a recreate: a router that never lost an attachment finds every connect
+// already-attached and so a fast no-op; a router that was just
+// force-recreated — which drops every attachment `compose up` itself did
+// not create — gets every worktree network back.
+func (r *Router) reconnectWorktreeNetworks(ctx context.Context) error {
+	networks, err := r.labelledWorktreeNetworks(ctx)
+	if err != nil {
+		return err
+	}
+	id, err := r.containerID(ctx, RouterService)
+	if err != nil {
+		return err
+	}
+	for _, network := range networks {
+		result, err := r.connectNetwork(ctx, network, id)
+		if err != nil {
+			return err
+		}
+		if result.ExitCode == 0 || networkConnectTolerated.MatchString(result.Stderr) {
+			continue
+		}
+		// A network this loop just listed as labelled can already be gone
+		// by the time this specific connect runs (found in review, round 2
+		// of #55): a concurrent `down` or `worktree remove` may have torn
+		// it down between labelledWorktreeNetworks reading it and here —
+		// its own RoutedByLabel persists until removal actually finishes
+		// (see RoutedByLabel's own comment), so the label list is never
+		// more than a snapshot. Nothing to do: a gone network has nothing
+		// left to route through it either, and the next Ensure's own next
+		// listing will simply not see it again. Tolerated only here, not by
+		// ConnectNetwork generally — see networkGoneOnReconnect's own
+		// comment for why.
+		if networkGoneOnReconnect.MatchString(result.Stderr) {
+			continue
+		}
+		return clierr.Newf("Could not connect the shared router to network %s:\n%s",
+			network, docker.Said(result.Stderr, strings.TrimSpace(result.Stdout)))
+	}
+	return nil
+}
+
+// reconcileOrphanedFragments removes every dynamic-configuration fragment
+// OrphanedFragments finds: its worktree's own router network is gone, so
+// nothing the fragment names is reachable any more — torn down by a `down`
+// or `worktree remove` that could not also remove the fragment, or by hand.
+// doctor reports the very same condition without ever removing anything
+// (see its own routes check); this is the repair half of that same story.
+func (r *Router) reconcileOrphanedFragments(ctx context.Context) error {
+	fragments, err := ListFragments(r.state)
+	if err != nil {
+		return err
+	}
+	if len(fragments) == 0 {
+		return nil
+	}
+	networks, err := r.labelledWorktreeNetworks(ctx)
+	if err != nil {
+		return err
+	}
+	type worktreeKey struct{ repositoryID, worktreeID string }
+	removed := map[worktreeKey]bool{}
+	for _, fragment := range OrphanedFragments(fragments, networks) {
+		key := worktreeKey{fragment.RepositoryID, fragment.WorktreeID}
+		if removed[key] {
+			continue
+		}
+		removed[key] = true
+		if err := RemoveWorktreeFragments(r.state, fragment.RepositoryID, fragment.WorktreeID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// OrphanedFragments is every fragment whose worktree's own router network
+// (layout.WorktreeRouterNetwork) is not among networks, the router's
+// labelled worktree networks (LabelledWorktreeNetworks). The network, not a
+// container, is the proof of life: its name is derived from the fragment's
+// own IDs and its label is in the brand's fixed namespace, so the check
+// holds for a project that overrides its label-namespace — whose containers
+// carry only that project's own ownership labels — and needs no registry,
+// which is per control home while this directory is machine-wide (row 9).
+// A fragment is only reachable through that network anyway, so a fragment
+// without one routes nowhere. Pure; shared by Ensure's repair and doctor's
+// report, so the two cannot drift onto different definitions of "orphaned".
+func OrphanedFragments(fragments []FragmentInfo, networks []string) []FragmentInfo {
+	live := make(map[string]bool, len(networks))
+	for _, network := range networks {
+		live[network] = true
+	}
+	var orphaned []FragmentInfo
+	for _, fragment := range fragments {
+		if !live[layout.WorktreeRouterNetwork(fragment.RepositoryID, fragment.WorktreeID)] {
+			orphaned = append(orphaned, fragment)
+		}
+	}
+	return orphaned
+}
+
+// networkNotFoundTolerated matches Docker's refusal to remove a network
+// that is already gone: nothing left to clean up, from
+// removeLegacyDockerAPINetwork's point of view.
+var networkNotFoundTolerated = regexp.MustCompile(`(?i)no such network|not found`)
+
+// removeLegacyDockerAPINetwork best-effort removes the "docker-api" network
+// a router below FileProviderSinceProtocol declared with no explicit name
+// (stack.go's own pre-protocol-5 internalNetwork carried none), found by the
+// project and network-key labels Compose itself always stamps rather than a
+// guessed name — the literal string Compose derived depends on which
+// separator ("_" or "-") the Compose version in use at the time chose.
+// Nothing else in this build reads or writes either label; they exist only
+// so this one cleanup can find what it is looking for without guessing.
+// Called only once, from Ensure's own recreate branch, gated on this being
+// an actual upgrade across that boundary — see its caller.
+func (r *Router) removeLegacyDockerAPINetwork(ctx context.Context) error {
+	listed, err := docker.Run(ctx, r.runner, []string{
+		"network", "ls",
+		"--filter", "label=com.docker.compose.project=" + r.ProjectName,
+		"--filter", "label=com.docker.compose.network=docker-api",
+		"--format", "{{.ID}}",
+	}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
+	if err != nil {
+		return err
+	}
+	if listed.ExitCode != 0 {
+		return &docker.UnavailableError{Detail: docker.Said(listed.Stderr,
+			fmt.Sprintf("`docker network ls` exited %d without saying why", listed.ExitCode))}
+	}
+	for _, id := range strings.Fields(listed.Stdout) {
+		result, err := docker.Run(ctx, r.runner, []string{"network", "rm", id}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
+		if err != nil {
+			return err
+		}
+		if result.ExitCode == 0 || networkNotFoundTolerated.MatchString(result.Stderr) {
+			continue
+		}
+		return clierr.Newf("Could not remove network %s:\n%s", id, docker.Said(result.Stderr, strings.TrimSpace(result.Stdout)))
+	}
+	return nil
 }
 
 // inspect is `docker inspect` for one container, parsed as ContainerInspect.
@@ -557,13 +844,27 @@ func (r *Router) previousProtocol(ctx context.Context) (previous int, ok bool, e
 	return previous, true, nil
 }
 
+// FileProviderSinceProtocol is the protocol that moved routing from
+// Traefik's Docker-provider discovery to file-provider fragments berth
+// itself writes and removes, on the worktree's own dedicated network (#55).
+// It subsumes RoutedBySinceProtocol: a router older than protocol 5 either
+// discovered every container Traefik could see (older than
+// RoutedBySinceProtocol) or discovered only containers carrying the
+// routed-by label (RoutedBySinceProtocol through 4) — either way, a
+// worktree last brought up under an older protocol carries no fragment and
+// is not attached to its own per-worktree network, so it is unrouted until
+// its next `up` just the same. One threshold, one warning: see
+// noteUnroutedAfterUpgrade.
+const FileProviderSinceProtocol = 5
+
 // noteUnroutedAfterUpgrade is said only after the upgrade is a fact: a
-// router from before the routed-by label discovered every container with
-// Traefik labels; the new one discovers only containers labelled for it, and
-// a label cannot be added to a container already running. Each worktree's
-// next `up` recreates its own.
+// router from before FileProviderSinceProtocol routed a worktree by
+// discovering its containers, one way or another; the new one routes
+// nothing a worktree's own `up` has not written a file-provider fragment
+// and joined to its per-worktree network for. Each worktree's next `up`
+// does both.
 func (r *Router) noteUnroutedAfterUpgrade(previous int, hadHistory bool) {
-	if !hadHistory || previous >= RoutedBySinceProtocol {
+	if !hadHistory || previous >= FileProviderSinceProtocol {
 		return
 	}
 	r.logger.Warn(fmt.Sprintf("Worktrees already up elsewhere stay unrouted until their next '%s up'.", r.commandNameOr()))
@@ -571,8 +872,26 @@ func (r *Router) noteUnroutedAfterUpgrade(previous int, hadHistory bool) {
 
 /* ---- verification: every property the stack asked for, checked on the running container */
 
+// hostNamespaceModes are the HostConfig fields a container shares with the
+// host when set to "host" rather than left to its own namespace: PID, IPC,
+// network and UTS. Any one of them turns off the isolation the README claims
+// for the router stack, so commonProblems checks all four the same way.
+func hostNamespaceModes(hc InspectHostConfig) []string {
+	return []string{hc.PidMode, hc.IpcMode, hc.NetworkMode, hc.UTSMode}
+}
+
+// unconfined reports whether opt is SecurityOpt's own "<profile>=unconfined"
+// entry for profile ("seccomp" or "apparmor"), matching Docker's own
+// lowercase spelling.
+func unconfined(opt, profile string) bool {
+	return strings.EqualFold(opt, profile+"=unconfined")
+}
+
 // commonProblems is every check shared by all three services: ownership,
-// the component and protocol labels, and the hardening every container carries.
+// the component and protocol labels, and the hardening every container
+// carries — including, as of #55/#74, that none of it can be bypassed:
+// not privileged, no shared host namespace, no devices, and neither
+// seccomp nor AppArmor left unconfined.
 func (r *Router) commonProblems(inspected ContainerInspect, service string) []string {
 	var problems []string
 	labels := inspected.Config.Labels
@@ -599,6 +918,23 @@ func (r *Router) commonProblems(inspected ContainerInspect, service string) []st
 	}
 	if !slices.Contains(inspected.HostConfig.CapDrop, "ALL") {
 		problems = append(problems, service+": capabilities are not dropped")
+	}
+	if inspected.HostConfig.Privileged {
+		problems = append(problems, service+": privileged")
+	}
+	if slices.Contains(hostNamespaceModes(inspected.HostConfig), "host") {
+		problems = append(problems, service+": shares a host namespace")
+	}
+	if len(inspected.HostConfig.Devices) > 0 {
+		problems = append(problems, service+": devices are attached")
+	}
+	for _, opt := range inspected.HostConfig.SecurityOpt {
+		if unconfined(opt, "seccomp") {
+			problems = append(problems, service+": seccomp is unconfined")
+		}
+		if unconfined(opt, "apparmor") {
+			problems = append(problems, service+": apparmor is unconfined")
+		}
 	}
 	return problems
 }
@@ -642,7 +978,7 @@ func sortedNetworkKeys(networks map[string]json.RawMessage) []string {
 // routerProblems is every way the router container can differ from what the
 // stack asked for: its port binding, networks, command line, image,
 // capabilities and mount, on top of commonProblems.
-func (r *Router) routerProblems(inspected ContainerInspect) []string {
+func (r *Router) routerProblems(ctx context.Context, inspected ContainerInspect) []string {
 	problems := r.commonProblems(inspected, RouterService)
 	bindings := inspected.NetworkSettings.Ports["80/tcp"]
 	if len(bindings) != 1 || bindings[0].HostIP != "127.0.0.1" || bindings[0].HostPort != strconv.Itoa(r.Port) {
@@ -658,18 +994,47 @@ func (r *Router) routerProblems(inspected ContainerInspect) []string {
 		problems = append(problems, fmt.Sprintf("router: publishes unexpected ports (%s)", strings.Join(otherPorts, ", ")))
 	}
 	networks := sortedNetworkKeys(inspected.NetworkSettings.Networks)
-	if !sameSet(networks, []string{r.Network, r.ProjectName + "_" + DockerAPINetwork}) {
-		joined := strings.Join(networks, ", ")
-		if joined == "" {
-			joined = "(none)"
+	expected, err := r.labelledWorktreeNetworks(ctx)
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("router: could not list this router's worktree networks: %s", err))
+	} else {
+		expected = append(expected, r.Network)
+		// Only an attached network outside expected, or a missing r.Network
+		// itself, is a real problem (found in review, round 2 of #55): a
+		// labelled worktree network that exists but is not attached yet —
+		// the window between a worktree's own `up` creating and labelling
+		// it and this router's next Ensure calling ConnectNetwork, or the
+		// window during `down`/`worktree remove`'s teardown before the
+		// network itself is actually gone — is not a stack problem.
+		// Ensure's own reconnectWorktreeNetworks (run before Verify, every
+		// time) is what closes the first gap; treating either as drift here
+		// would make Ensure force-recreate the shared router over a race it
+		// cannot win by recreating, and fail doctor/status for the same
+		// non-problem. sameSet's exact-membership comparison, still right
+		// for the index's own single fixed network below, is wrong here.
+		var foreign []string
+		for _, network := range networks {
+			if !slices.Contains(expected, network) {
+				foreign = append(foreign, network)
+			}
 		}
-		problems = append(problems, fmt.Sprintf("router: attached to networks %s instead of the shared and proxy networks", joined))
+		if len(foreign) > 0 || !slices.Contains(networks, r.Network) {
+			joined := strings.Join(networks, ", ")
+			if joined == "" {
+				joined = "(none)"
+			}
+			wantJoined := strings.Join(expected, ", ")
+			problems = append(problems, fmt.Sprintf("router: attached to networks %s instead of %s", joined, wantJoined))
+		}
 	}
-	if strings.Join(inspected.Config.Cmd, "\x00") != strings.Join(RouterCommand(r.Network), "\x00") {
+	if strings.Join(inspected.Config.Cmd, "\x00") != strings.Join(RouterCommand(), "\x00") {
 		problems = append(problems, "router: command line differs")
 	}
 	if inspected.Config.Image != RouterImage {
 		problems = append(problems, "router: image is not the pinned digest")
+	}
+	if !slices.Equal(inspected.Config.Entrypoint, RouterImageEntrypoint) {
+		problems = append(problems, "router: entrypoint differs from the pinned image")
 	}
 	if !sameSet(inspected.HostConfig.CapAdd, []string{"CAP_NET_BIND_SERVICE"}) {
 		problems = append(problems, "router: capabilities beyond NET_BIND_SERVICE")
@@ -687,55 +1052,6 @@ func (r *Router) routerProblems(inspected ContainerInspect) []string {
 	return problems
 }
 
-// dockerAPIProblems is every way the docker-api proxy container can differ
-// from what the stack asked for: its API access, network, image,
-// capabilities and mount, on top of commonProblems.
-func (r *Router) dockerAPIProblems(inspected ContainerInspect) []string {
-	problems := r.commonProblems(inspected, DockerAPIService)
-	environment := map[string]string{}
-	for _, entry := range inspected.Config.Env {
-		name, value, _ := strings.Cut(entry, "=")
-		environment[name] = value
-	}
-	var wrong []string
-	for name, expected := range DockerAPIAccess() {
-		if environment[name] != expected {
-			wrong = append(wrong, name)
-		}
-	}
-	if len(wrong) > 0 {
-		sort.Strings(wrong)
-		problems = append(problems, fmt.Sprintf("docker-api: API access differs (%s)", strings.Join(wrong, ", ")))
-	}
-	networks := sortedNetworkKeys(inspected.NetworkSettings.Networks)
-	if !sameSet(networks, []string{r.ProjectName + "_" + DockerAPINetwork}) {
-		problems = append(problems, "docker-api: attached to a network other than the internal proxy network")
-	}
-	if inspected.Config.Image != DockerAPIImage {
-		problems = append(problems, "docker-api: image is not the pinned digest")
-	}
-	if len(inspected.HostConfig.CapAdd) != 0 {
-		problems = append(problems, "docker-api: has added capabilities")
-	}
-	for _, bindings := range inspected.NetworkSettings.Ports {
-		if len(bindings) > 0 {
-			problems = append(problems, "docker-api: publishes a port")
-			break
-		}
-	}
-	var socket *InspectMount
-	for i, mount := range inspected.Mounts {
-		if mount.Destination == DockerSocket {
-			socket = &inspected.Mounts[i]
-			break
-		}
-	}
-	if len(inspected.Mounts) != 1 || socket == nil || socket.Type != "bind" || socket.Source != DockerSocket || socket.RW {
-		problems = append(problems, "docker-api: mounts are not exactly the read-only Docker socket")
-	}
-	return problems
-}
-
 // indexProblems is every way the index container can differ from what the
 // stack asked for: its image, command, routing labels, network, capabilities
 // and mount, on top of commonProblems.
@@ -743,6 +1059,9 @@ func (r *Router) indexProblems(inspected ContainerInspect) []string {
 	problems := r.commonProblems(inspected, IndexService)
 	if inspected.Config.Image != IndexImage {
 		problems = append(problems, "index: image is not the pinned digest")
+	}
+	if !slices.Equal(inspected.Config.Entrypoint, IndexImageEntrypoint) {
+		problems = append(problems, "index: entrypoint differs from the pinned image")
 	}
 	if strings.Join(inspected.Config.Cmd, "\x00") != strings.Join(IndexCommand, "\x00") {
 		problems = append(problems, "index: command line differs")
@@ -782,7 +1101,7 @@ func (r *Router) indexProblems(inspected ContainerInspect) []string {
 // Verify is everything that differs between the running router and what this
 // version would start. Returns a *docker.UnavailableError when Docker cannot say.
 func (r *Router) Verify(ctx context.Context) ([]string, error) {
-	services := []string{RouterService, DockerAPIService, IndexService}
+	services := []string{RouterService, IndexService}
 	ids := make([]string, len(services))
 	for i, service := range services {
 		id, err := r.containerID(ctx, service)
@@ -791,10 +1110,10 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 		}
 		ids[i] = id
 	}
-	// All three gone is a router that is not running. One or two gone is a
-	// router that is still bound to its port and still routing, with a hole
-	// in it — reporting that as "not running" would tell an operator the
-	// opposite of what is true.
+	// Both gone is a router that is not running. One gone is a router that
+	// is still bound to its port and still routing, with a hole in it —
+	// reporting that as "not running" would tell an operator the opposite of
+	// what is true.
 	gone := true
 	for _, id := range ids {
 		if id != "" {
@@ -822,19 +1141,21 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 		}
 		inspected[i] = doc
 	}
-	if inspected[0] == nil || inspected[1] == nil || inspected[2] == nil {
+	if inspected[0] == nil || inspected[1] == nil {
 		return []string{"the router could not be inspected"}, nil
 	}
 	var problems []string
-	problems = append(problems, r.routerProblems(*inspected[0])...)
-	problems = append(problems, r.dockerAPIProblems(*inspected[1])...)
-	problems = append(problems, r.indexProblems(*inspected[2])...)
+	problems = append(problems, r.routerProblems(ctx, *inspected[0])...)
+	problems = append(problems, r.indexProblems(*inspected[1])...)
 	return problems, nil
 }
 
 // Ensure is idempotent: starts the router if needed, verifies it, and fails
 // loudly if it cannot be made right. The caller holds the router's lock
-// around this call (see lock.RouterScope and lifecycle.Requests.Router).
+// around this call (see lock.RouterScope and lifecycle.Requests.Router). As
+// of #55 it also reconnects every labelled per-worktree router network
+// (reconnectWorktreeNetworks) and removes fragments whose worktree's router
+// network is gone (reconcileOrphanedFragments).
 //
 // secureState runs first, before previousProtocol's own possible write of
 // the protocol record: a symlinked state directory must be refused before
@@ -853,6 +1174,24 @@ func (r *Router) Ensure(ctx context.Context) error {
 	if err := r.start(ctx, nil); err != nil {
 		return err
 	}
+	// Runs before Verify, not after: Verify's own network-membership check
+	// (routerProblems) now expects the router attached to exactly this
+	// router's own network plus every currently labelled per-worktree
+	// network, and `compose up` above only ever reconnects networks the
+	// compose file itself declares — never one a worktree's own `up`
+	// created and labelled separately. Reconnecting first is what makes
+	// that expectation actually satisfiable the moment a new worktree
+	// network appears, rather than reporting it as a problem worth a
+	// recreate (which would not fix it) on every single Ensure until the
+	// worktree's own `up` happens to call ConnectNetwork again. A router
+	// that never lost an attachment finds this a fast no-op (Docker's own
+	// connect is idempotent, tolerated the same way ConnectNetwork always
+	// tolerates it); one that was just force-recreated by a concurrent
+	// process — which drops every attachment `compose up` itself did not
+	// create — gets every worktree network back before anything judges it.
+	if err := r.reconnectWorktreeNetworks(ctx); err != nil {
+		return err
+	}
 	problems, err := r.Verify(ctx)
 	if err != nil {
 		return err
@@ -862,6 +1201,12 @@ func (r *Router) Ensure(ctx context.Context) error {
 		if err := r.start(ctx, []string{"--force-recreate"}); err != nil {
 			return err
 		}
+		// A force-recreate drops every attachment `compose up` itself did
+		// not create, including every worktree network just reconnected
+		// above — reconnect again before re-verifying, for the same reason.
+		if err := r.reconnectWorktreeNetworks(ctx); err != nil {
+			return err
+		}
 		remaining, err := r.Verify(ctx)
 		if err != nil {
 			return err
@@ -869,6 +1214,39 @@ func (r *Router) Ensure(ctx context.Context) error {
 		if len(remaining) > 0 {
 			return clierr.Newf("The shared router could not be brought to its expected configuration:\n  %s", strings.Join(remaining, "\n  "))
 		}
+	}
+	// A router recreated across the protocol-5 boundary (row 29) leaves its
+	// old "docker-api" network behind: `compose up --remove-orphans` above
+	// already dropped the now-undeclared *container*, but Compose never
+	// prunes a network just because the current file no longer declares
+	// it. Run unconditionally on every Ensure, the same as
+	// reconcileOrphanedFragments below, not gated on hadHistory && previous
+	// < FileProviderSinceProtocol (found in review, round 3 of #55: a first
+	// cut's own gate made a transient failure here permanent — this Ensure
+	// still writes Protocol to the record a few lines down regardless of
+	// this call's own error, so the very next Ensure would have read
+	// previous == Protocol and never tried again, leaking the network
+	// forever over one bad `docker network ls`). removeLegacyDockerAPINetwork
+	// is a cheap, label-filtered lookup that tolerates finding nothing, the
+	// same shape as reconcileOrphanedFragments's own self-healing best
+	// effort — so nothing is lost by asking every time instead of once.
+	if err := r.removeLegacyDockerAPINetwork(ctx); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		r.logger.Warn(fmt.Sprintf("Could not remove the retired docker-api network: %s", err))
+	}
+	// Best effort: fragments that cannot be reconciled this run (a transient
+	// `docker network ls` failure, an unreadable fragment) must not turn an
+	// otherwise healthy router start into a failure, and nothing is removed
+	// unless the network list was read. A cancellation is not such a
+	// failure: it still ends the command. doctor reports the same condition
+	// without ever repairing it; this is Ensure's repair half.
+	if err := r.reconcileOrphanedFragments(ctx); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		r.logger.Warn(fmt.Sprintf("Could not reconcile orphaned route fragments: %s", err))
 	}
 	// The warning is about what Verify just established, so it is said even
 	// if recording the new protocol fails.
@@ -977,18 +1355,36 @@ func (r *Router) Down(ctx context.Context) error {
 	// from. --remove-orphans no longer sweeps orphans without a model to
 	// compare against; it stays because it still catches one-off `compose
 	// run` containers of the project.
-	result, err := docker.Run(ctx, r.runner, []string{
-		"compose", "--project-name", r.ProjectName, "down", "--remove-orphans",
-	}, run.Spec{AllowFailure: true, Output: run.Tee, Env: docker.ComposeEnvironment(r.environ), Timeout: r.timeouts.Down})
+	args := []string{"compose", "--project-name", r.ProjectName, "down", "--remove-orphans"}
+	spec := run.Spec{AllowFailure: true, Output: run.Tee, Env: docker.ComposeEnvironment(r.environ), Timeout: r.timeouts.Down}
+	result, err := docker.Run(ctx, r.runner, args, spec)
 	if err != nil {
 		return err
 	}
 	if result.ExitCode == 0 {
 		return nil
 	}
-	if activeEndpoints.MatchString(result.Stderr) {
+	// Only the tolerated network case is intercepted here, and only when
+	// the failure is Compose's own clean refusal, not a timeout, signal or
+	// output overflow dressed up as one (found in review, round 3 of #55,
+	// the same bug class already fixed in internal/backend's Down and
+	// Reap): AllowFailure lets this read the result instead of Finish
+	// rejecting it automatically.
+	if !result.TimedOut && !result.OutputOverflow && result.Signal == 0 && activeEndpoints.MatchString(result.Stderr) {
 		r.logger.Info(fmt.Sprintf("Network %s is kept while worktree services are attached to it.", r.Network))
 		return nil
+	}
+	// A timeout, signal or output overflow is reported through run.Failure,
+	// the same wording and exit code (124 on a timeout) any other bounded
+	// call gets — a hand-built message here would silently drop all of
+	// that, the same bug class as internal/backend's Down and Reap. A
+	// plain Compose refusal keeps src/router/router.ts's own ported
+	// wording instead ("The shared router did not stop cleanly:\n…",
+	// `down()`): TypeScript has no timeout concept for this call at all, so
+	// there is nothing to diverge from for that one case, and the bytes
+	// should match exactly.
+	if result.TimedOut || result.OutputOverflow || result.Signal != 0 {
+		return run.Failure(run.Spec{Command: "docker", Args: args, Timeout: spec.Timeout}, result)
 	}
 	detail := strings.TrimSpace(result.Stderr)
 	if detail == "" {
@@ -1014,18 +1410,32 @@ type ContainerInspect struct {
 
 // InspectConfig is `docker inspect`'s .Config.
 type InspectConfig struct {
-	Cmd    []string
-	Env    []string
-	Image  string
-	Labels map[string]string
+	Cmd        []string
+	Entrypoint []string
+	Env        []string
+	Image      string
+	Labels     map[string]string
 }
 
 // InspectHostConfig is `docker inspect`'s .HostConfig.
 type InspectHostConfig struct {
 	CapAdd         []string
 	CapDrop        []string
+	Devices        []InspectDevice
+	IpcMode        string
+	NetworkMode    string
+	PidMode        string
+	Privileged     bool
 	ReadonlyRootfs bool
 	SecurityOpt    []string
+	UTSMode        string
+}
+
+// InspectDevice is one entry of `docker inspect`'s .HostConfig.Devices. The
+// verifier only asks whether any are present, so its own fields (host path,
+// container path, cgroup permissions) are not needed here.
+type InspectDevice struct {
+	PathOnHost string
 }
 
 // InspectMount is one entry of `docker inspect`'s .Mounts.

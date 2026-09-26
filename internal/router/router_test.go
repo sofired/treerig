@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,6 +53,13 @@ type dockerFake struct {
 	upStderr     string
 	downExitCode int
 	downStderr   string
+	// downTimedOut makes `compose down` answer as a timeout instead of a
+	// clean exit — round 3 of #55's review: a timed-out down must not be
+	// read as Compose's own "has active endpoints" refusal even if its
+	// stderr happened to contain that text, and must still report through
+	// run.Failure (exit code 124), not the ported "did not stop cleanly"
+	// text TypeScript has no timeout concept to diverge from.
+	downTimedOut bool
 	// psExitCode/psStderr is what `compose ps` says when Docker itself is the problem.
 	psExitCode int
 	psStderr   string
@@ -63,6 +69,30 @@ type dockerFake struct {
 	onUp func()
 	// onRecreate is called when `up --force-recreate` runs, so a test can make the recreation "fix" things.
 	onRecreate func()
+	// networkLs is what `docker network ls` prints: the labelled worktree
+	// networks, one name per line. Empty means the router labels none.
+	networkLs string
+	// networkLsFails makes `docker network ls` exit 1, as an unreachable daemon would.
+	networkLsFails bool
+	// legacyNetworkLs is what `docker network ls` prints when filtered by
+	// the retired docker-api network's own compose labels
+	// (removeLegacyDockerAPINetwork's own lookup) — one network ID per
+	// line, distinct from networkLs (LabelledWorktreeNetworks' own filter)
+	// so a test can stage one without affecting the other.
+	legacyNetworkLs string
+	// legacyNetworkLsFailsOnce makes the next legacy-network lookup fail
+	// once, then resets to answering normally — a transient failure round
+	// 3 of #55's review pins a later Ensure retries against, since the
+	// cleanup runs unconditionally on every Ensure rather than only once
+	// per upgrade.
+	legacyNetworkLsFailsOnce bool
+	// connectExitCode/connectStderr and disconnectExitCode/disconnectStderr
+	// are what `docker network connect`/`disconnect` answer; zero exit codes
+	// mean success (the default a test that never sets them gets).
+	connectExitCode    int
+	connectStderr      string
+	disconnectExitCode int
+	disconnectStderr   string
 }
 
 // newDockerFake is a dockerFake with a healthy stack already "running":
@@ -70,7 +100,7 @@ type dockerFake struct {
 // caller to set.
 func newDockerFake() *dockerFake {
 	return &dockerFake{
-		ids:  map[string]string{"router": "router-1", "docker-api": "api-1", "index": "index-1"},
+		ids:  map[string]string{"router": "router-1", "index": "index-1"},
 		docs: map[string]router.ContainerInspect{},
 	}
 }
@@ -112,9 +142,34 @@ func (d *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	case len(args) > 0 && args[0] == "compose" && containsArg(args, "down"):
 		d.mu.Lock()
 		defer d.mu.Unlock()
+		if d.downTimedOut {
+			return run.Result{Stderr: d.downStderr, ExitCode: 1, TimedOut: true}, nil
+		}
 		return run.Result{Stderr: d.downStderr, ExitCode: d.downExitCode}, nil
 	case len(args) > 0 && args[0] == "compose":
 		return run.Result{}, nil
+	case len(args) > 1 && args[0] == "network" && args[1] == "ls":
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.networkLsFails {
+			return run.Result{Stderr: "Cannot connect to the Docker daemon", ExitCode: 1}, nil
+		}
+		if containsArg(args, "label=com.docker.compose.network=docker-api") {
+			if d.legacyNetworkLsFailsOnce {
+				d.legacyNetworkLsFailsOnce = false
+				return run.Result{Stderr: "Cannot connect to the Docker daemon", ExitCode: 1}, nil
+			}
+			return run.Result{Stdout: d.legacyNetworkLs}, nil
+		}
+		return run.Result{Stdout: d.networkLs}, nil
+	case len(args) > 1 && args[0] == "network" && args[1] == "connect":
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return run.Result{Stderr: d.connectStderr, ExitCode: d.connectExitCode}, nil
+	case len(args) > 1 && args[0] == "network" && args[1] == "disconnect":
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return run.Result{Stderr: d.disconnectStderr, ExitCode: d.disconnectExitCode}, nil
 	case len(args) > 0 && args[0] == "inspect":
 		d.mu.Lock()
 		doc, present := d.docs[args[1]]
@@ -177,13 +232,19 @@ func testLabels(service string) map[string]string {
 	}
 }
 
-// routerDoc is what Docker reports for a router started exactly as the stack asks.
+// routerDoc is what Docker reports for a router started exactly as the stack
+// asks, attached to only its own network — every fixture in this package
+// runs with no worktree ever having brought a per-worktree router network up
+// (`docker network ls --filter label=...` answers empty by default, see
+// dockerFake.Run), so labelledWorktreeNetworks is always empty here too.
 func routerDoc(dynamicDir string, port int) router.ContainerInspect {
+	networks := map[string]json.RawMessage{testNetwork: json.RawMessage("{}")}
 	return router.ContainerInspect{
 		Config: router.InspectConfig{
-			Cmd:    router.RouterCommand(testNetwork),
-			Image:  router.RouterImage,
-			Labels: testLabels("router"),
+			Cmd:        router.RouterCommand(),
+			Entrypoint: router.RouterImageEntrypoint,
+			Image:      router.RouterImage,
+			Labels:     testLabels("router"),
 		},
 		HostConfig: router.InspectHostConfig{
 			CapAdd: []string{"CAP_NET_BIND_SERVICE"}, CapDrop: []string{"ALL"},
@@ -193,42 +254,10 @@ func routerDoc(dynamicDir string, port int) router.ContainerInspect {
 			{Type: "bind", Source: dynamicDir, Destination: router.DynamicConfigMount, RW: false},
 		},
 		NetworkSettings: router.InspectNetworkSettings{
-			Networks: map[string]json.RawMessage{
-				testNetwork:                 json.RawMessage("{}"),
-				testProject + "_docker-api": json.RawMessage("{}"),
-			},
+			Networks: networks,
 			Ports: map[string][]router.InspectPortBinding{
 				"80/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(port)}},
 			},
-		},
-		State: router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}},
-	}
-}
-
-// apiDoc is what Docker reports for a docker-api proxy started exactly as
-// the stack asks.
-func apiDoc() router.ContainerInspect {
-	access := router.DockerAPIAccess()
-	names := make([]string, 0, len(access))
-	for name := range access {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	env := make([]string, 0, len(names))
-	for _, name := range names {
-		env = append(env, name+"="+access[name])
-	}
-	return router.ContainerInspect{
-		Config: router.InspectConfig{Env: env, Image: router.DockerAPIImage, Labels: testLabels("docker-api")},
-		HostConfig: router.InspectHostConfig{
-			CapAdd: []string{}, CapDrop: []string{"ALL"}, ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"},
-		},
-		Mounts: []router.InspectMount{
-			{Type: "bind", Source: router.DockerSocket, Destination: router.DockerSocket, RW: false},
-		},
-		NetworkSettings: router.InspectNetworkSettings{
-			Networks: map[string]json.RawMessage{testProject + "_docker-api": json.RawMessage("{}")},
-			Ports:    map[string][]router.InspectPortBinding{},
 		},
 		State: router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}},
 	}
@@ -242,7 +271,12 @@ func indexDoc(indexDir string) router.ContainerInspect {
 		labels[key] = value
 	}
 	return router.ContainerInspect{
-		Config: router.InspectConfig{Cmd: append([]string(nil), router.IndexCommand...), Image: router.IndexImage, Labels: labels},
+		Config: router.InspectConfig{
+			Cmd:        append([]string(nil), router.IndexCommand...),
+			Entrypoint: router.IndexImageEntrypoint,
+			Image:      router.IndexImage,
+			Labels:     labels,
+		},
 		HostConfig: router.InspectHostConfig{
 			CapAdd: []string{}, CapDrop: []string{"ALL"}, ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"},
 		},
@@ -286,11 +320,10 @@ type testWorld struct {
 	Port   int
 }
 
-// setHealthy stages docs for all three services exactly as the stack asks,
-// under their default fake ids.
+// setHealthy stages docs for both services exactly as the stack asks, under
+// their default fake ids.
 func (w *testWorld) setHealthy() {
 	w.Fake.setDoc("router-1", routerDoc(w.State.DynamicDir, w.Port))
-	w.Fake.setDoc("api-1", apiDoc())
 	w.Fake.setDoc("index-1", indexDoc(w.State.IndexDir))
 }
 
@@ -347,7 +380,7 @@ func taken(t *testing.T, w *testWorld, protocol *int) {
 	w.Fake.mu.Lock()
 	w.Fake.onUp = func() {
 		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{"router": "router-1", "docker-api": "api-1", "index": "index-1"}
+		w.Fake.ids = map[string]string{"router": "router-1", "index": "index-1"}
 		w.Fake.mu.Unlock()
 		w.setHealthy()
 	}
@@ -377,6 +410,19 @@ func (w *testWorld) firstUp() call {
 		}
 	}
 	return call{}
+}
+
+// networkRms is every `network rm <id>` call's own id, in order —
+// removeLegacyDockerAPINetwork's own removals, since nothing else in this
+// package calls `network rm` at all.
+func (w *testWorld) networkRms() []string {
+	var ids []string
+	for _, c := range w.Fake.snapshotCalls() {
+		if len(c.args) == 3 && c.args[0] == "network" && c.args[1] == "rm" {
+			ids = append(ids, c.args[2])
+		}
+	}
+	return ids
 }
 
 // unrouted is the exact line noteUnroutedAfterUpgrade emits, so asserting

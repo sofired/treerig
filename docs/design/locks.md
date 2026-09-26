@@ -126,6 +126,18 @@ tests skip there.
   control home's own `locks/`, so every control home sharing a user account
   waits on the same lock (#12, #13). `router up` takes it alone, never
   alongside a worktree's own locks (`lifecycle.Requests.Router`).
+- Routing (#55) splits the same way. A worktree's own route fragments
+  (`<repo>.<wt>.<service>.yaml` in the router's `dynamic/`) are written by
+  `up` and removed by `down` and `worktree remove`, and the router's
+  attachment to that worktree's own network is made and undone by the same
+  three, all under that worktree's operation lock alone: the names carry
+  the worktree's IDs, so no other worktree contends for them, and a slow
+  `compose up` never holds the machine-wide lock. What spans every worktree
+  — reattaching the router to each labelled worktree network, and removing
+  fragments whose network is gone — runs inside `Router.Ensure`, under the
+  router lock. A router recreated between `up`'s `Ensure` and its own
+  network connect loses that one attachment until the next `Ensure`
+  restores it.
 - Opening a target creates it `0600` (parent `0700`) if missing, opens it
   `O_RDWR`, and keeps a strong reference to the `*os.File` for the whole
   hold — the GC finalizer would otherwise close it. A target that is not a

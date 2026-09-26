@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/router"
 )
@@ -12,7 +13,7 @@ import (
 func TestRouterServiceStatusAndDown(t *testing.T) {
 	t.Run("reports a stack it cannot inspect as unverifiable rather than clean", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		w.Fake.deleteDoc("api-1") // the containers are listed; one of them says nothing
+		w.Fake.deleteDoc("index-1") // the containers are listed; one of them says nothing
 
 		problems, err := w.Router.Verify(context.Background())
 		if err != nil {
@@ -51,7 +52,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		}
 		want := router.RouterStatus{
 			Reachable: true, Running: true,
-			Problems: []string{"docker-api: container is missing", "index: container is missing"},
+			Problems: []string{"index: container is missing"},
 			Port:     80, Network: testNetwork,
 		}
 		if !statusEqual(status, want) {
@@ -237,6 +238,25 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		err := w.Router.Down(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "did not stop cleanly") {
 			t.Fatalf("got %v", err)
+		}
+	})
+
+	// Found in review, round 3 of #55: a first cut of Down's own
+	// active-endpoints tolerance (the same bug class already fixed in
+	// internal/backend's Down and Reap) let AllowFailure's own bare exit-code
+	// check swallow run.Failure's wording for every failure that was not the
+	// one tolerated case, including a timeout's own exit code 124.
+	t.Run("keeps run.Failure's own timeout code, not the ported wording, for a compose down that times out", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.downTimedOut = true
+		w.Fake.downStderr = "Error response from daemon: error while removing network: network berth-router has active endpoints"
+
+		err := w.Router.Down(context.Background())
+		if strings.Contains(err.Error(), "did not stop cleanly") {
+			t.Fatalf("expected run.Failure's own wording, not the ported TypeScript string, got %v", err)
+		}
+		if clierr.Code(err) != 124 {
+			t.Fatalf("code = %d, want 124 (a timeout), err: %v", clierr.Code(err), err)
 		}
 	})
 }

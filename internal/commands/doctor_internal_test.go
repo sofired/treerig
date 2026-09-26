@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -589,77 +590,139 @@ func TestRouterChecksInternal(t *testing.T) {
 	})
 }
 
-func TestRouteConflictsInternal(t *testing.T) {
-	routed := func(name, routerName, rule string) routedContainer {
-		return routedContainer{Name: name, Labels: map[string]string{
-			"traefik.http.routers." + routerName + ".rule":        rule,
-			"traefik.http.routers." + routerName + ".entrypoints": "web",
-		}}
+// Go-only, per #55: routeConflicts now reads dynamic-configuration
+// fragments, not routed containers' own Traefik labels (Traefik's
+// Docker-provider discovery is gone). writeFragmentInfo stages one real
+// fragment on disk under dir, as `up` would have left it, and returns the
+// router.FragmentInfo routeConflicts reads it back through.
+func writeFragmentInfo(t *testing.T, dir, repositoryID, worktreeID, service, routerName, rule string) router.FragmentInfo {
+	t.Helper()
+	state := layout.RouterLayout{DynamicDir: dir}
+	if err := router.WriteFragment(state, repositoryID, worktreeID, service, router.NewFragmentDocument(routerName, rule, routerName, 8080)); err != nil {
+		t.Fatal(err)
 	}
+	return router.FragmentInfo{
+		RepositoryID: repositoryID, WorktreeID: worktreeID, Service: service,
+		Path: router.FragmentPath(state, repositoryID, worktreeID, service),
+	}
+}
 
-	t.Run("finds a rule two routers claim, naming the containers behind them", func(t *testing.T) {
-		conflicts := routeConflicts([]routedContainer{
-			routed("b-api-1", "b-api", "Host(`mail.main.acme.localhost`)"),
-			routed("a-mail-1", "a-mail", "Host(`mail.main.acme.localhost`)"),
-			routed("c-api-1", "c-api", "Host(`other.acme.localhost`)"),
-		})
+func TestRouteConflictsInternal(t *testing.T) {
+	const (
+		repoA = "11111111-1111-1111-1111-111111111111"
+		repoB = "22222222-2222-2222-2222-222222222222"
+		repoC = "33333333-3333-3333-3333-333333333333"
+	)
+
+	t.Run("finds a rule two different fragments claim, naming their own repository.worktree.service identities when neither has a registry record", func(t *testing.T) {
+		dir := t.TempDir()
+		a := writeFragmentInfo(t, dir, repoA, repoB, "mail", "a-mail", "Host(`mail.main.acme.localhost`)")
+		b := writeFragmentInfo(t, dir, repoB, repoA, "api", "b-api", "Host(`mail.main.acme.localhost`)")
+		c := writeFragmentInfo(t, dir, repoC, repoC, "api", "c-api", "Host(`other.acme.localhost`)")
+
+		conflicts := routeConflicts(dir, []router.FragmentInfo{a, b, c}, nil)
 		if len(conflicts) != 1 {
 			t.Fatalf("conflicts = %+v", conflicts)
 		}
 		names := conflicts["Host(`mail.main.acme.localhost`)"]
-		if len(names) != 2 || names[0] != "a-mail-1" || names[1] != "b-api-1" {
-			t.Fatalf("names = %v", names)
+		wantA, wantB := repoA+"."+repoB+".mail", repoB+"."+repoA+".api"
+		if len(names) != 2 || names[0] != minString(wantA, wantB) || names[1] != maxString(wantA, wantB) {
+			t.Fatalf("names = %v, want %v and %v", names, wantA, wantB)
 		}
 	})
 
-	t.Run("does not count replicas of one service, which share a router, as a conflict", func(t *testing.T) {
-		replica := func(name string) routedContainer {
-			c := routed(name, "a-api", "Host(`x`)")
-			c.Labels["com.docker.compose.project"] = "a"
-			c.Labels["com.docker.compose.service"] = "api"
-			return c
+	// #55, found in review: a raw UUID triple is hard for a person to act
+	// on. A claimant the registry still has a record for is named the way
+	// the Locks section already names a lock's own worktree: its routed
+	// hostname (layout.WorktreeHost) plus the service, resolved from
+	// byKey — lockChecks' own map, keyed "<repositoryID>/<worktreeID>" —
+	// so the two sections resolve an identity the same way. A claimant with
+	// no record (removed, or never registered here) falls back to the raw
+	// identity, since there is nothing else to show.
+	t.Run("resolves a claiming fragment's identity against the registry, falling back to the raw identity when it has no record", func(t *testing.T) {
+		dir := t.TempDir()
+		a := writeFragmentInfo(t, dir, repoA, repoB, "mail", "a-mail", "Host(`mail.main.acme.localhost`)")
+		b := writeFragmentInfo(t, dir, repoB, repoA, "api", "b-api", "Host(`mail.main.acme.localhost`)")
+		byKey := map[string]registry.RegisteredWorktree{
+			repoA + "/" + repoB: {RepositoryID: repoA, WorktreeID: repoB, Slug: "feature-login", Domain: "acme.localhost"},
 		}
-		if got := routeConflicts([]routedContainer{replica("a-api-1"), replica("a-api-2")}); len(got) != 0 {
-			t.Fatalf("got %+v", got)
-		}
-		if got := routeConflicts([]routedContainer{routed("a-api-1", "a-api", "Host(`x`)"), routed("a-api-2", "a-api", "Host(`x`)")}); len(got) != 0 {
-			t.Fatalf("got %+v", got)
-		}
-	})
 
-	t.Run("sees through a container that copies a service's router name and rule from another project", func(t *testing.T) {
-		genuine := routed("a-api-1", "a-api", "Host(`x`)")
-		genuine.Labels["com.docker.compose.project"], genuine.Labels["com.docker.compose.service"] = "a", "api"
-		copyContainer := routed("impostor", "a-api", "Host(`x`)")
-		copyContainer.Labels["com.docker.compose.project"], copyContainer.Labels["com.docker.compose.service"] = "b", "api"
-		conflicts := routeConflicts([]routedContainer{genuine, copyContainer})
+		conflicts := routeConflicts(dir, []router.FragmentInfo{a, b}, byKey)
 		if len(conflicts) != 1 {
 			t.Fatalf("conflicts = %+v", conflicts)
 		}
-		names := conflicts["Host(`x`)"]
-		if len(names) != 2 || names[0] != "a-api-1" || names[1] != "impostor" {
-			t.Fatalf("names = %v", names)
-		}
-
-		copyOtherService := routed("impostor", "a-api", "Host(`x`)")
-		copyOtherService.Labels["com.docker.compose.project"], copyOtherService.Labels["com.docker.compose.service"] = "a", "web"
-		otherService := routeConflicts([]routedContainer{genuine, copyOtherService})
-		if len(otherService) != 1 {
-			t.Fatalf("otherService = %+v", otherService)
+		names := conflicts["Host(`mail.main.acme.localhost`)"]
+		wantResolved, wantRaw := "feature-login.acme.localhost (mail)", repoB+"."+repoA+".api"
+		if len(names) != 2 || names[0] != minString(wantResolved, wantRaw) || names[1] != maxString(wantResolved, wantRaw) {
+			t.Fatalf("names = %v, want %v and %v", names, wantResolved, wantRaw)
 		}
 	})
 
-	t.Run("reads names and labels from inspect output, skipping what it cannot parse", func(t *testing.T) {
-		stdout := "/a-api-1\t{\"traefik.http.routers.a-api.rule\":\"Host(`x`)\",\"n\":1}\n" +
-			"no tab here\n" +
-			"/broken\t{not json\n" +
-			"/empty\tnull\n"
-		got := parseRoutedContainers(stdout)
-		want := []routedContainer{{Name: "a-api-1", Labels: map[string]string{"traefik.http.routers.a-api.rule": "Host(`x`)"}}}
-		if len(got) != 1 || got[0].Name != want[0].Name || len(got[0].Labels) != 1 || got[0].Labels["traefik.http.routers.a-api.rule"] != "Host(`x`)" {
-			t.Fatalf("got %+v, want %+v", got, want)
+	t.Run("does not conflict when only one fragment claims a rule", func(t *testing.T) {
+		dir := t.TempDir()
+		a := writeFragmentInfo(t, dir, repoA, repoB, "api", "a-api", "Host(`x`)")
+		if got := routeConflicts(dir, []router.FragmentInfo{a}, nil); len(got) != 0 {
+			t.Fatalf("got %+v", got)
 		}
 	})
+
+	t.Run("skips a fragment it cannot read or decode, rather than failing or counting it as a claimant", func(t *testing.T) {
+		dir := t.TempDir()
+		missing := router.FragmentInfo{RepositoryID: repoA, WorktreeID: repoB, Service: "gone", Path: filepath.Join(dir, "gone.yaml")}
+		if err := os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("not json"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		broken := router.FragmentInfo{RepositoryID: repoA, WorktreeID: repoC, Service: "broken", Path: filepath.Join(dir, "broken.yaml")}
+		good := writeFragmentInfo(t, dir, repoB, repoC, "api", "b-api", "Host(`x`)")
+
+		if got := routeConflicts(dir, []router.FragmentInfo{missing, broken, good}, nil); len(got) != 0 {
+			t.Fatalf("expected no conflicts (only one readable claimant), got %+v", got)
+		}
+	})
+
+	// Found in review, round 2 of #55: readFragmentRules read a fragment's
+	// path with a plain os.ReadFile, no safe-path check at all, unlike the
+	// writers (router.WriteFragment, via files.AssertSafeFilePathNamed) —
+	// so a symlink planted directly under the dynamic-configuration
+	// directory, at a name that still parses as one worktree's fragment,
+	// would have doctor follow it out and read whatever it points to,
+	// reporting that as a route conflict rather than refusing it the way a
+	// write there already would.
+	t.Run("skips a fragment path that is a symlink escaping the dynamic-configuration directory, rather than following it", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		target := registrytest.TempDir(t)
+		secretPath := filepath.Join(target, "secret.yaml")
+		if err := os.WriteFile(secretPath, []byte(`{"http":{"routers":{"evil":{"rule":"Host(`+"`x`"+`)"}}}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		linkPath := filepath.Join(dir, repoA+"."+repoB+".api.yaml")
+		if err := os.Symlink(secretPath, linkPath); err != nil {
+			t.Fatal(err)
+		}
+		planted := router.FragmentInfo{RepositoryID: repoA, WorktreeID: repoB, Service: "api", Path: linkPath}
+		good := writeFragmentInfo(t, dir, repoB, repoC, "api", "b-api", "Host(`x`)")
+
+		if got := routeConflicts(dir, []router.FragmentInfo{planted, good}, nil); len(got) != 0 {
+			t.Fatalf("expected the symlinked fragment skipped, not read, got %+v", got)
+		}
+	})
+}
+
+// minString is the lexically smaller of a and b: the first of a two-element
+// names slice, which routeConflicts sorts the same way.
+func minString(a, b string) string {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// maxString is the lexically larger of a and b: the second of that slice.
+func maxString(a, b string) string {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 /* --------------------------------------------------------------- report ---- */
@@ -730,6 +793,15 @@ func TestReportInternal(t *testing.T) {
 
 /* -------------------------------------------------------------- doctor ---- */
 
+// doctorRepoA/B and doctorWorktreeA/B are fixed, valid-shape UUIDs for
+// staging dynamic-configuration fragments across this function's subtests.
+const (
+	doctorRepoA     = "11111111-1111-1111-1111-111111111111"
+	doctorRepoB     = "22222222-2222-2222-2222-222222222222"
+	doctorWorktreeA = "33333333-3333-3333-3333-333333333333"
+	doctorWorktreeB = "44444444-4444-4444-4444-444444444444"
+)
+
 func TestDoctorSections(t *testing.T) {
 	t.Run("reports a healthy machine outside any checkout, and exits 0", func(t *testing.T) {
 		opts := testOpts(t, nil)
@@ -761,9 +833,9 @@ func TestDoctorSections(t *testing.T) {
 		if !contains(section(sections, "Registry")[0].Detail, "not created yet") {
 			t.Fatalf("registry[0] = %+v", section(sections, "Registry")[0])
 		}
-		wantRouter := []string{"ok router", "ok routes"}
+		wantRouter := []string{"ok router", "ok routes", "ok address pools"}
 		gotRouter := statuses(sections, "Router")
-		if len(gotRouter) != 2 || gotRouter[0] != wantRouter[0] || gotRouter[1] != wantRouter[1] {
+		if len(gotRouter) != 3 || gotRouter[0] != wantRouter[0] || gotRouter[1] != wantRouter[1] || gotRouter[2] != wantRouter[2] {
 			t.Fatalf("router = %v", gotRouter)
 		}
 		checkout := section(sections, "This checkout")
@@ -823,13 +895,15 @@ func TestDoctorSections(t *testing.T) {
 		// neither costs one timeout rather than two; see dockerChecks), so
 		// their relative order is not guaranteed — unlike TypeScript's own
 		// Promise.all, whose two calls are issued synchronously in one tick.
-		// ps (the routes check) always comes last, once both have resolved.
-		if len(dockerArgs) != 3 || dockerArgs[2] != "ps" {
-			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then ps", dockerArgs)
+		// network (the address-pools check; routes itself makes no Docker
+		// call at all with no fragments staged) always comes last, once
+		// both have resolved.
+		if len(dockerArgs) != 3 || dockerArgs[2] != "network" {
+			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then network", dockerArgs)
 		}
 		firstTwo := map[string]bool{dockerArgs[0]: true, dockerArgs[1]: true}
 		if !firstTwo["version"] || !firstTwo["compose"] {
-			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then ps", dockerArgs)
+			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then network", dockerArgs)
 		}
 	})
 
@@ -844,10 +918,11 @@ func TestDoctorSections(t *testing.T) {
 		}
 		want := []Check{
 			{Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"},
-			{Status: StatusOK, Subject: "routes", Detail: "no running container is routed"},
+			{Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
+			{Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
 		}
 		got := section(sections, "Router")
-		if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		if len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 			t.Fatalf("router = %+v", got)
 		}
 		if fakeRouter.asked != 0 {
@@ -1074,10 +1149,11 @@ func TestDoctorSections(t *testing.T) {
 		}
 		wantRouter := []Check{
 			{Status: StatusFail, Subject: "router", Detail: "exploded"},
-			{Status: StatusOK, Subject: "routes", Detail: "no running container is routed"},
+			{Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
+			{Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
 		}
 		got := section(sections, "Router")
-		if len(got) != 2 || got[0] != wantRouter[0] || got[1] != wantRouter[1] {
+		if len(got) != 3 || got[0] != wantRouter[0] || got[1] != wantRouter[1] || got[2] != wantRouter[2] {
 			t.Fatalf("got %+v", got)
 		}
 		found := false
@@ -1122,93 +1198,86 @@ func TestDoctorSections(t *testing.T) {
 		wantCancelled(t, err, "Operation cancelled by SIGINT.")
 	})
 
-	t.Run("lets a cancellation during the routes ps call end the command", func(t *testing.T) {
+	// Go-only, per #55: routeChecks now reads dynamic-configuration
+	// fragments from disk (router.ListFragments), not routed containers'
+	// own Traefik labels through `docker ps`/`docker inspect` — Traefik's
+	// Docker-provider discovery is gone, so there is no longer a bulk
+	// `docker inspect` call whose own timeout or output-overflow handling
+	// could apply (the two "half-reads an inspect..." cases below have no
+	// replacement for the same reason: reading a fragment file either
+	// succeeds or is skipped, never half-reads). The one Docker call left
+	// in routeChecks at all is orphanedFragmentsCheck's own `docker network
+	// ls` of the router's labelled worktree networks — a cancellation there
+	// is what the case below now pins.
+	t.Run("lets a cancellation while listing the router's worktree networks end the command", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
+			router.NewFragmentDocument("x", "Host(`x`)", "x", 8080)); err != nil {
+			t.Fatal(err)
+		}
 		runner := newDoctorRunner(nil)
-		runner.state.docker["ps"] = outcome{err: cancelled(syscall.SIGINT)}
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+		runner.state.docker["network"] = outcome{err: cancelled(syscall.SIGINT)}
+		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
 		_, err := doctorSections(context.Background(), opts)
 		wantCancelled(t, err, "Operation cancelled by SIGINT.")
 	})
 
-	t.Run("lets a cancellation during the routes inspect call end the command", func(t *testing.T) {
-		runner := newDoctorRunner(nil)
-		runner.state.docker["ps"] = okOutcome("c1\n")
-		runner.state.docker["inspect"] = outcome{err: cancelled(syscall.SIGINT)}
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
-		_, err := doctorSections(context.Background(), opts)
-		wantCancelled(t, err, "Operation cancelled by SIGINT.")
-	})
-
-	t.Run("fails two routers that claim the same rule, read from the routed containers", func(t *testing.T) {
-		runner := newDoctorRunner(nil)
-		runner.state.docker["ps"] = okOutcome("c1\nc2\n")
-		runner.state.docker["inspect"] = okOutcome(
-			"/berth-aaa-mail-1\t{\"traefik.http.routers.berth-aaa-mail.rule\":\"Host(`mail.main.acme.localhost`)\"}\n" +
-				"/berth-bbb-api-1\t{\"traefik.http.routers.berth-bbb-api.rule\":\"Host(`mail.main.acme.localhost`)\"}\n")
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+	t.Run("fails two fragments that claim the same rule", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "mail",
+			router.NewFragmentDocument("berth-aaa-mail", "Host(`mail.main.acme.localhost`)", "berth-aaa-mail", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "api",
+			router.NewFragmentDocument("berth-bbb-api", "Host(`mail.main.acme.localhost`)", "berth-bbb-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
+		nameA := doctorRepoA + "." + doctorWorktreeA + ".mail"
+		nameB := doctorRepoB + "." + doctorWorktreeB + ".api"
 		want := Check{Status: StatusFail, Subject: "routes",
-			Detail: "Host(`mail.main.acme.localhost`) is claimed by berth-aaa-mail-1, berth-bbb-api-1; requests for it may reach any of them"}
+			Detail: fmt.Sprintf("Host(`mail.main.acme.localhost`) is claimed by %s, %s; requests for it may reach any of them",
+				minString(nameA, nameB), maxString(nameA, nameB))}
 		if got := section(sections, "Router")[1]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
-		var psArgs []string
-		var inspectSpec *run.Spec
-		for _, call := range runner.state.callsSnapshot() {
-			call := call
-			if call.Command == "docker" && call.Args[0] == "ps" {
-				psArgs = call.Args
-			}
-			if call.Command == "docker" && call.Args[0] == "inspect" {
-				inspectSpec = &call
-			}
-		}
-		want2 := []string{"ps", "-q", "--filter", "label=dev.berth.router=berth-router"}
-		if len(psArgs) != len(want2) {
-			t.Fatalf("ps args = %v, want %v", psArgs, want2)
-		}
-		for i := range want2 {
-			if psArgs[i] != want2[i] {
-				t.Fatalf("ps args = %v, want %v", psArgs, want2)
-			}
-		}
-		if inspectSpec == nil || inspectSpec.Timeout != dockerProbeTimeout {
-			t.Fatalf("inspect timeout = %v, want %v", inspectSpec, dockerProbeTimeout)
-		}
 	})
 
-	t.Run("bounds a rule any container could have written before it reaches the report", func(t *testing.T) {
-		runner := newDoctorRunner(nil)
+	t.Run("bounds a rule any fragment could have written before it reaches the report", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		rule := "Host(`" + repeatString("a", 500) + "`)"
-		runner.state.docker["ps"] = okOutcome("c1\nc2\n")
-		runner.state.docker["inspect"] = okOutcome(
-			"/one\t" + jsonLabels("one", rule) + "\n" + "/two\t" + jsonLabels("two", rule) + "\n")
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "one", router.NewFragmentDocument("one", rule, "one", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "two", router.NewFragmentDocument("two", rule, "two", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
 		detail := section(sections, "Router")[1].Detail
-		want := string([]rune(rule)[:199]) + "… is claimed by one, two"
+		want := string([]rune(rule)[:199]) + "…"
 		if len(detail) < len(want) || detail[:len(want)] != want {
 			t.Fatalf("detail = %q, want prefix %q", detail, want)
 		}
 	})
 
-	t.Run("bounds the list of containers claiming a rule, however many there are", func(t *testing.T) {
-		runner := newDoctorRunner(nil)
-		var psLines, inspectLines string
+	t.Run("bounds the list of fragments claiming a rule, however many there are", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		for i := 0; i < 60; i++ {
+			worktreeID := fmt.Sprintf("%08d-0000-4000-8000-000000000000", i)
 			name := fmt.Sprintf("claimant-%02d", i)
-			psLines += name + "\n"
-			inspectLines += "/" + name + "\t" + jsonLabels(name, "Host(`x`)") + "\n"
+			if err := router.WriteFragment(state, doctorRepoA, worktreeID, "api", router.NewFragmentDocument(name, "Host(`x`)", name, 8080)); err != nil {
+				t.Fatal(err)
+			}
 		}
-		runner.state.docker["ps"] = okOutcome(psLines)
-		runner.state.docker["inspect"] = okOutcome(inspectLines)
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
@@ -1225,76 +1294,165 @@ func TestDoctorSections(t *testing.T) {
 		}
 	})
 
-	t.Run("fails rather than half-reads an inspect that ran out of time part-way", func(t *testing.T) {
-		runner := newDoctorRunner(nil)
-		runner.state.docker["ps"] = okOutcome("c1\nc2\n")
-		runner.state.docker["inspect"] = outcome{result: run.Result{Stdout: "/one\t" + jsonLabels("one", "Host(`a`)") + "\n", ExitCode: 1, TimedOut: true}}
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+	t.Run("counts route fragments when no rule is shared", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusFail, Subject: "routes", Detail: "`docker inspect` did not answer within 30 s, so routes were not checked"}
+		want := Check{Status: StatusOK, Subject: "routes", Detail: "1 route fragment; no two routers share a rule"}
 		if got := section(sections, "Router")[1]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 	})
 
-	t.Run("fails rather than half-reads an inspect whose output could not all be captured", func(t *testing.T) {
-		runner := newDoctorRunner(nil)
-		runner.state.docker["ps"] = okOutcome("c1\n")
-		runner.state.docker["inspect"] = outcome{result: run.Result{Stdout: "/one\t" + jsonLabels("one", "Host(`a`)") + "\n", ExitCode: 1, OutputOverflow: true}}
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+	// Found in review of #55: the singular case above must not read "1
+	// route fragment(s)"; this pins the plural alongside it.
+	t.Run("pluralizes route fragments in the clean-routes count", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web",
+			router.NewFragmentDocument("berth-aaa-web", "Host(`b`)", "berth-aaa-web", 8081)); err != nil {
+			t.Fatal(err)
+		}
+		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusFail, Subject: "routes", Detail: "`docker inspect` produced more output than can be read, so routes were not checked"}
+		want := Check{Status: StatusOK, Subject: "routes", Detail: "2 route fragments; no two routers share a rule"}
 		if got := section(sections, "Router")[1]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 	})
 
-	t.Run("counts routed containers when no rule is shared, and fails an inspect that answered nothing", func(t *testing.T) {
+	// Go-only, per #55: doctor's own report-only half of orphan
+	// reconciliation (internal/router's Ensure runs the repair half).
+	t.Run("warns about route fragments whose worktree's router network is gone, without removing anything", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
 		runner := newDoctorRunner(nil)
-		runner.state.docker["ps"] = okOutcome("c1\n")
-		runner.state.docker["inspect"] = okOutcome("/berth-aaa-api-1\t" + jsonLabels("berth-aaa-api", "Host(`a`)") + "\n")
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+		runner.state.docker["network"] = okOutcome("") // the router labels no worktree network
+		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusOK, Subject: "routes", Detail: "1 routed container(s); no two routers share a rule"}
-		if got := section(sections, "Router")[1]; got != want {
+		want := Check{Status: StatusWarn, Subject: "routes",
+			Detail: "1 route fragment for 1 worktree whose router network is gone; the next 'berth up' or 'berth router up' removes them"}
+		if got := section(sections, "Router")[2]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
-
-		runner.state.docker["inspect"] = outcome{result: run.Result{Stderr: "Error: No such object: c1", ExitCode: 1}}
-		sections, err = doctorSections(context.Background(), opts)
+		// Never removed: doctor reads, never writes.
+		fragments, err := router.ListFragments(state)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want = Check{Status: StatusFail, Subject: "routes", Detail: "Error: No such object: c1"}
-		if got := section(sections, "Router")[1]; got != want {
+		if len(fragments) != 1 {
+			t.Fatalf("expected the fragment to survive doctor untouched, got %d", len(fragments))
+		}
+	})
+
+	// Pluralizes every count independently, including "network(s)" and its
+	// own verb — a first cut of this message only ever pluralized "fragment"
+	// and "worktree", leaving ">1 worktree" reading as "...whose router
+	// network is gone" (singular subject, and wrong: each worktree here has
+	// its own network).
+	t.Run("pluralizes route fragments and worktrees separately in the orphan warning", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web",
+			router.NewFragmentDocument("berth-aaa-web", "Host(`a2`)", "berth-aaa-web", 8081)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "api",
+			router.NewFragmentDocument("berth-bbb-api", "Host(`b`)", "berth-bbb-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		runner := newDoctorRunner(nil)
+		runner.state.docker["network"] = okOutcome("") // neither worktree's network is labelled
+		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := Check{Status: StatusWarn, Subject: "routes",
+			Detail: "3 route fragments for 2 worktrees whose router networks are gone; the next 'berth up' or 'berth router up' removes them"}
+		if got := section(sections, "Router")[2]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 	})
 
-	t.Run("reads the containers inspect did describe when another stopped in between", func(t *testing.T) {
+	// The regression the first cut had: liveness was read from containers'
+	// ownership labels in the brand's own namespace, so a project that
+	// overrides its label-namespace looked orphaned while it was up. The
+	// network's name and RoutedByLabel do not depend on that override.
+	t.Run("does not warn about a live worktree's fragments, whatever label-namespace its project uses", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
 		runner := newDoctorRunner(nil)
-		runner.state.docker["ps"] = okOutcome("c1\nc2\n")
-		runner.state.docker["inspect"] = outcome{result: run.Result{
-			Stdout: "/berth-aaa-api-1\t" + jsonLabels("berth-aaa-api", "Host(`a`)") + "\n",
-			Stderr: "Error: No such object: c2", ExitCode: 1,
-		}}
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+		runner.state.docker["network"] = okOutcome(layout.WorktreeRouterNetwork(doctorRepoA, doctorWorktreeA) + "\n")
+		runner.state.docker["ps"] = okOutcome("") // no container in the brand's own namespace
+		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusOK, Subject: "routes", Detail: "1 routed container(s); no two routers share a rule"}
-		if got := section(sections, "Router")[1]; got != want {
-			t.Fatalf("got %+v, want %+v", got, want)
+		for _, check := range section(sections, "Router") {
+			if check.Status == StatusWarn && check.Subject == "routes" {
+				t.Fatalf("warned about a live worktree's fragment: %+v", check)
+			}
+		}
+	})
+
+	t.Run("warns about address pools once 20 bridge networks exist, not counting Docker's own bridge", func(t *testing.T) {
+		for _, tc := range []struct {
+			own  int
+			want Check
+		}{
+			{1, Check{Status: StatusOK, Subject: "address pools", Detail: "1 bridge network"}},
+			{19, Check{Status: StatusOK, Subject: "address pools", Detail: "19 bridge networks"}},
+			{20, Check{Status: StatusWarn, Subject: "address pools", Detail: "20 bridge networks exist; with Docker's default address pools (about 31) a later 'berth up' may fail to " +
+				"create its network. Remove networks nothing uses with `docker network prune`, or give the " +
+				"Docker daemon smaller or more `default-address-pools`."}},
+		} {
+			names := []string{"bridge"}
+			for i := 0; i < tc.own; i++ {
+				names = append(names, fmt.Sprintf("net-%02d", i))
+			}
+			runner := newDoctorRunner(nil)
+			runner.state.docker["network"] = okOutcome(strings.Join(names, "\n") + "\n")
+			opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
+			sections, err := doctorSections(context.Background(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got *Check
+			for _, check := range section(sections, "Router") {
+				if check.Subject == "address pools" {
+					got = &check
+				}
+			}
+			if got == nil || *got != tc.want {
+				t.Fatalf("%d bridge networks: got %+v, want %+v", tc.own, got, tc.want)
+			}
 		}
 	})
 
@@ -1321,12 +1479,6 @@ func repeatString(s string, n int) string {
 		out = append(out, s...)
 	}
 	return string(out)
-}
-
-// jsonLabels is the JSON object parseRoutedContainers expects for a
-// container's Docker labels, carrying one Traefik router rule.
-func jsonLabels(routerName, rule string) string {
-	return fmt.Sprintf(`{"traefik.http.routers.%s.rule":%q}`, routerName, rule)
 }
 
 /* ------------------------------------------------------ doctor in a checkout ---- */

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"os"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run"
@@ -72,6 +74,30 @@ type dockerFake struct {
 	resources   map[string][]string
 	labels      map[string]map[string]string
 	uninspected map[string]bool
+	// removeExitCode/removeStderr make the next "... rm <id>" call answer
+	// with this exit code and stderr instead of succeeding — Reap's own
+	// active-endpoints tolerance test stages Compose's network-removal
+	// refusal this way.
+	removeExitCode int
+	removeStderr   string
+	// removeTimedOut makes the next "... rm <id>" call answer as a timeout
+	// instead of a clean exit — round 2 of #55's review: a timed-out
+	// network removal must not be read as Compose's own "has active
+	// endpoints" refusal even if TimedOut's own stderr happened to contain
+	// that text, so this is staged independently of removeExitCode.
+	removeTimedOut bool
+	// downExitCode/downStderr make the next `compose … down …` call answer
+	// with this exit code and stderr instead of succeeding — Down's own
+	// active-endpoints tolerance test stages Compose's network-removal
+	// refusal this way, matching removeExitCode/removeStderr's own pattern
+	// for Reap.
+	downExitCode int
+	downStderr   string
+	// downTimedOut makes the next `compose … down …` call answer as a
+	// timeout instead of a clean exit — round 3 of #55's review: a
+	// timed-out down must not be read as Compose's own "has active
+	// endpoints" refusal even if its stderr happened to contain that text.
+	downTimedOut bool
 }
 
 // newFake builds a dockerFake with its resource and label maps ready to
@@ -122,6 +148,13 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 					}
 					encoded, _ := json.Marshal(model)
 					return ok(string(encoded))
+				case "down":
+					if f.downTimedOut {
+						return run.Finish(spec, run.Result{Stderr: f.downStderr, ExitCode: 1, TimedOut: true})
+					}
+					if f.downExitCode != 0 {
+						return run.Finish(spec, run.Result{Stderr: f.downStderr, ExitCode: f.downExitCode})
+					}
 				case "ps":
 					if f.psOutput != nil {
 						return ok(*f.psOutput)
@@ -153,6 +186,12 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 			values = append(values, labels[match[1]])
 		}
 		return ok(strings.Join(values, "\t"))
+	}
+	if f.removeTimedOut && slices.Contains(args, "rm") {
+		return run.Finish(spec, run.Result{Stderr: f.removeStderr, ExitCode: 1, TimedOut: true})
+	}
+	if f.removeExitCode != 0 && slices.Contains(args, "rm") {
+		return run.Finish(spec, run.Result{Stderr: f.removeStderr, ExitCode: f.removeExitCode})
 	}
 	return ok("")
 }
@@ -377,6 +416,46 @@ func TestDownStatus(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
+	// #55, row 30: the shared router may still be attached to this
+	// worktree's own router network when `down` runs — its disconnect
+	// (internal/commands's unrouteWorktree) is best effort. Matches Reap's
+	// own tolerance of the identical refusal (TestInventoryReap).
+	t.Run("down tolerates Compose's refusal to remove a network because something is still attached to it", func(t *testing.T) {
+		fake := newFake()
+		fake.downExitCode, fake.downStderr = 1, "Error response from daemon: error while removing network: network default id abc123 has active endpoints"
+		rt, _ := newRuntime(t, fake)
+		if err := rt.Down(ctx, ref); err != nil {
+			t.Fatalf("err = %v, want the active-endpoints refusal tolerated", err)
+		}
+	})
+	t.Run("down fails on a compose down refused for any other reason", func(t *testing.T) {
+		fake := newFake()
+		fake.downExitCode, fake.downStderr = 1, "Error response from daemon: no such service: api"
+		rt, _ := newRuntime(t, fake)
+		err := rt.Down(ctx, ref)
+		if err == nil || !strings.Contains(err.Error(), "no such service: api") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	// Found in review, round 3 of #55: the guard added in round 2 (only
+	// tolerate active endpoints when !TimedOut && !OutputOverflow &&
+	// Signal == 0) had no test of its own — every existing case used a
+	// plain exit code. This one's stderr would read as the tolerated
+	// refusal if the guard were missing or wrong; TimedOut alone must still
+	// make it a real, reported failure.
+	t.Run("down does not tolerate active-endpoints stderr on a timeout: it is still a real failure", func(t *testing.T) {
+		fake := newFake()
+		fake.downTimedOut = true
+		fake.downStderr = "Error response from daemon: error while removing network: network default id abc123 has active endpoints"
+		rt, _ := newRuntime(t, fake)
+		err := rt.Down(ctx, ref)
+		if err == nil {
+			t.Fatal("expected a timeout to fail, not be tolerated as the active-endpoints refusal")
+		}
+		if clierr.Code(err) != 124 {
+			t.Fatalf("code = %d, want 124 (a timeout), err: %v", clierr.Code(err), err)
+		}
+	})
 }
 
 // populated is a dockerFake pre-loaded with one container, volume, network
@@ -528,6 +607,66 @@ func TestInventoryReap(t *testing.T) {
 		want := []string{"rm --force c1", "volume rm v1", "network rm n1", "image rm i1"}
 		if !reflect.DeepEqual(removals, want) {
 			t.Fatalf("removals = %v", removals)
+		}
+	})
+	// #55: the shared router may still be attached to this worktree's own
+	// router network when Reap gets to it — its disconnect
+	// (internal/commands's unrouteWorktree) is best effort, and a
+	// concurrent Ensure can even reattach it in between (row 30's own
+	// comment on this exact race). Mirrors Down's own tolerance of the
+	// identical refusal.
+	// Round 2 of #55's review: a first cut had Reap return nil here —
+	// "tolerated" reading as "as good as removed" — which let
+	// RemoveWithContext go on to delete the worktree's home, registration
+	// and identity marker over a network still sitting on the daemon, with
+	// nothing left registered for a later `worktree remove` to retry
+	// against. ErrNetworkKept is the fix: Reap still does not fail the
+	// whole removal over this, but it no longer claims success either.
+	t.Run("reap reports ErrNetworkKept, not success, for a network Compose refuses to remove because something is still attached to it", func(t *testing.T) {
+		fake := populated()
+		fake.removeExitCode, fake.removeStderr = 1, "Error response from daemon: error while removing network: network n1 id abc123 has active endpoints"
+		rt, _ := newRuntime(t, fake)
+		err := rt.Reap(ctx, ref, worktree.OwnedResource{Kind: "network", ID: "n1"})
+		if !errors.Is(err, ErrNetworkKept) {
+			t.Fatalf("err = %v, want it to wrap ErrNetworkKept", err)
+		}
+	})
+	t.Run("reap fails on a network removal refused for any other reason", func(t *testing.T) {
+		fake := populated()
+		fake.removeExitCode, fake.removeStderr = 1, "Error response from daemon: network n1 not found"
+		rt, _ := newRuntime(t, fake)
+		err := rt.Reap(ctx, ref, worktree.OwnedResource{Kind: "network", ID: "n1"})
+		if err == nil || !strings.Contains(err.Error(), "network n1 not found") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	// Round 2 of #55's review: a first cut of the active-endpoints tolerance
+	// (AllowFailure, then a hand-built clierr message on any non-zero exit)
+	// silently dropped run.Failure's own "Command failed (…)" wording,
+	// timeout code 124, signal and output-overflow reporting for every
+	// removal that was not the one tolerated case. These two pin that a
+	// non-network failure, and a timed-out one even for a network, still go
+	// through run.Failure exactly as an un-tolerated call would.
+	t.Run("reap keeps run.Failure's own wording for a non-network removal that is not tolerated", func(t *testing.T) {
+		fake := populated()
+		fake.removeExitCode, fake.removeStderr = 1, "Error response from daemon: container c1 is running"
+		rt, _ := newRuntime(t, fake)
+		err := rt.Reap(ctx, ref, worktree.OwnedResource{Kind: "container", ID: "c1"})
+		if err == nil || !strings.Contains(err.Error(), "Command failed (docker rm --force c1): Error response from daemon: container c1 is running") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("reap keeps run.Failure's own timeout code for a network removal, even one whose stderr would otherwise read as the tolerated refusal", func(t *testing.T) {
+		fake := populated()
+		fake.removeTimedOut = true
+		fake.removeStderr = "Error response from daemon: error while removing network: network n1 id abc123 has active endpoints"
+		rt, _ := newRuntime(t, fake)
+		err := rt.Reap(ctx, ref, worktree.OwnedResource{Kind: "network", ID: "n1"})
+		if errors.Is(err, ErrNetworkKept) {
+			t.Fatal("a timeout must not be read as the tolerated active-endpoints refusal")
+		}
+		if clierr.Code(err) != 124 {
+			t.Fatalf("code = %d, want 124 (a timeout), err: %v", clierr.Code(err), err)
 		}
 	})
 	t.Run("reap refuses a resource that no longer verifies, even if inventory once returned it", func(t *testing.T) {
