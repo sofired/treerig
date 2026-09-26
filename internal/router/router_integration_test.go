@@ -218,6 +218,27 @@ func TestSharedRouterOnARealDaemon(t *testing.T) {
 			"--label", "traefik.http.services.intruder.loadbalancer.server.port=8080",
 			"busybox:1.37.0", "sh", "-c", "echo intruder > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
 
+		// A correctly labelled control, started after the intruder: once its
+		// route answers, Traefik's Docker provider has listed both containers,
+		// so the intruder's 404 below is a verdict, not a race with discovery.
+		controlName := "control-" + id
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", controlName).Run() })
+		dockerOutput(t, "run", "--detach", "--name", controlName, "--network", project,
+			"--label", "traefik.enable=true",
+			"--label", "traefik.docker.network="+project,
+			"--label", router.RoutedByLabel+"="+project,
+			"--label", "traefik.http.routers.control.rule=Host(`control.invalid.localhost`)",
+			"--label", "traefik.http.routers.control.entrypoints="+router.RouterEntrypoint,
+			"--label", "traefik.http.services.control.loadbalancer.server.port=8080",
+			"busybox:1.37.0", "sh", "-c", "echo control > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
+		controlBody := eventually(t, 20*time.Second,
+			func() string { _, b := fetchThroughRouter(t, port, "control.invalid.localhost", "/"); return b },
+			func(b string) bool { return strings.TrimSpace(b) == "control" },
+		)
+		if strings.TrimSpace(controlBody) != "control" {
+			t.Fatalf("control host never routed; answered %q", controlBody)
+		}
+
 		nobodyStatus, nobodyBody := fetchThroughRouter(t, port, "nobody.invalid.localhost", "/")
 		if nobodyStatus != http.StatusNotFound {
 			t.Fatalf("unmatched host answered %d %q", nobodyStatus, nobodyBody)
