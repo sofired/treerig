@@ -47,64 +47,9 @@ volumes:
   data: {}
 `
 
-// walk is one checkout and one test router on a real daemon.
-type walk struct {
-	base, checkout, controlHome, namespace, log string
-	port                                        int
-	env                                         *commands.Env
-	svc                                         *router.Router
-	state                                       layout.RouterLayout
-}
-
-// newWalk sets up one checkout and its own test router: a fresh control
-// home, a randomised label namespace and project name so it runs beside a
-// developer's real router and worktrees without colliding, and a cleanup
-// that removes everything the test's namespace ends up owning.
-func newWalk(t *testing.T) *walk {
-	t.Helper()
-	dockerAvailable(t)
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		t.Fatal(err)
-	}
-	id := fmt.Sprintf("%x", b)
-	base := registrytest.TempDir(t)
-	w := &walk{
-		base: base, checkout: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
-		namespace: "dev.berth-test-up-" + id, log: filepath.Join(base, "hooks.log"), port: freePort(t),
-	}
-	project := "berth-router-test-up-" + id
-	t.Cleanup(func() {
-		// The router project comes down first (found in review, round 2 of
-		// #55): its router container may still be attached to a
-		// per-worktree router network the label sweep below is about to
-		// try to remove — attached the way ConnectNetwork attaches it,
-		// which the router's own compose file never declares, so `down`
-		// alone would not otherwise touch it. Removing the container here
-		// disconnects it from every network it was attached to, including
-		// that one, so the sweep's own network removal does not fail with
-		// "has active endpoints" and leak the network. #69 is expected to
-		// refactor this fixture into newWalkFixture; carry this order over.
-		_ = exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
-		// Whatever the test left, by the label only this test's resources carry.
-		owned := "label=" + brand.ManagedLabel(w.namespace) + "=true"
-		for _, kind := range [][]string{{"ps", "-aq"}, {"volume", "ls", "-q"}, {"network", "ls", "-q"}} {
-			for _, id := range dockerIDs(t, append(kind, "--filter", owned)...) {
-				switch kind[0] {
-				case "ps":
-					_ = exec.Command("docker", "rm", "--force", id).Run()
-				default:
-					_ = exec.Command("docker", kind[0], "rm", id).Run()
-				}
-			}
-		}
-		_ = exec.Command("docker", "network", "rm", project).Run()
-	})
-
-	if err := os.MkdirAll(filepath.Join(w.checkout, "hooks"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(w.checkout, "berth.toml"), fmt.Sprintf(`[project]
+// walkToml is berth.toml for walkCompose: one service, on the index, with
+// hooks that record every stage they run. %s takes the run's own label namespace.
+const walkToml = `[project]
 name = "walk"
 domain = "walk.localhost"
 label-namespace = %q
@@ -117,10 +62,77 @@ label = "API"
 [hooks]
 prepare = "./hooks/record"
 seed = "./hooks/record"
-`, w.namespace), 0o644)
-	writeFile(t, filepath.Join(w.checkout, "compose.yaml"), walkCompose, 0o644)
-	writeFile(t, filepath.Join(w.checkout, "hooks", "record"), fmt.Sprintf("#!/bin/sh\necho \"$BERTH_STAGE\" >> %q\n", w.log), 0o755)
-	gitIn(t, w.checkout, "init", "--initial-branch=feature/walk", ".")
+`
+
+// walk is one checkout and one test router on a real daemon.
+type walk struct {
+	base, checkout, controlHome, namespace, log string
+	port                                        int
+	env                                         *commands.Env
+	svc                                         *router.Router
+	state                                       layout.RouterLayout
+}
+
+// randomSuffix is a short random hex string, for names unique to one test run.
+func randomSuffix(t *testing.T) string {
+	t.Helper()
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%x", b)
+}
+
+// newWalkFixture is the recipe behind every checkout-and-test-router fixture
+// on a real daemon: a fresh control home, a randomised label namespace and
+// project name under namePrefix so it runs beside a developer's real router
+// and worktrees without colliding, tomlBody (its own %q takes the
+// namespace) and compose written as the checkout's own berth.toml and
+// compose.yaml, a Git repository on branch, and a cleanup that removes
+// everything the test's namespace ends up owning. Callers that need more
+// than the checkout itself — newWalk's own hooks script — add it to the
+// returned walk before using it.
+func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) *walk {
+	t.Helper()
+	dockerAvailable(t)
+	id := randomSuffix(t)
+	base := registrytest.TempDir(t)
+	w := &walk{
+		base: base, checkout: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
+		namespace: "dev.berth-test-" + namePrefix + "-" + id, log: filepath.Join(base, "hooks.log"), port: freePort(t),
+	}
+	project := "berth-router-test-" + namePrefix + "-" + id
+	t.Cleanup(func() {
+		// The router project comes down first (found in review, round 2 of
+		// #55): its router container may still be attached to a
+		// per-worktree router network the label sweep below is about to
+		// try to remove — attached the way ConnectNetwork attaches it,
+		// which the router's own compose file never declares, so `down`
+		// alone would not otherwise touch it. Removing the container here
+		// disconnects it from every network it was attached to, including
+		// that one, so the sweep's own network removal does not fail with
+		// "has active endpoints" and leak the network.
+		_ = exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
+		// Whatever the test left, by the label only this test's resources carry.
+		owned := "label=" + brand.ManagedLabel(w.namespace) + "=true"
+		for _, kind := range [][]string{{"ps", "-aq"}, {"volume", "ls", "-q"}, {"network", "ls", "-q"}} {
+			for _, resourceID := range dockerIDs(t, append(kind, "--filter", owned)...) {
+				if kind[0] == "ps" {
+					_ = exec.Command("docker", "rm", "--force", resourceID).Run()
+				} else {
+					_ = exec.Command("docker", kind[0], "rm", resourceID).Run()
+				}
+			}
+		}
+		_ = exec.Command("docker", "network", "rm", project).Run()
+	})
+
+	if err := os.MkdirAll(w.checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(w.checkout, "berth.toml"), fmt.Sprintf(tomlBody, w.namespace), 0o644)
+	writeFile(t, filepath.Join(w.checkout, "compose.yaml"), compose, 0o644)
+	gitIn(t, w.checkout, "init", "--initial-branch="+branch, ".")
 	gitIn(t, w.checkout, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-m", "initial")
 
 	getenv := func(key string) (string, bool) {
@@ -158,6 +170,18 @@ seed = "./hooks/record"
 	if err != nil {
 		t.Fatal(err)
 	}
+	return w
+}
+
+// newWalk sets up one checkout and its own test router, over walkCompose's
+// single service, plus the hooks script walkToml's [hooks] table points at.
+func newWalk(t *testing.T) *walk {
+	t.Helper()
+	w := newWalkFixture(t, "up", "feature/walk", walkToml, walkCompose)
+	if err := os.MkdirAll(filepath.Join(w.checkout, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(w.checkout, "hooks", "record"), fmt.Sprintf("#!/bin/sh\necho \"$BERTH_STAGE\" >> %q\n", w.log), 0o755)
 	return w
 }
 

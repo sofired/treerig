@@ -1312,12 +1312,15 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	}, nil
 }
 
-// buildDoctorOptions is doctorOptions built from a real Env and an
-// already-checked berth root (Doctor's own single checkedHome call):
-// findCheckout is resolved first (env.ConfigPath, or the nearest berth.toml
-// above env.Cwd), then the shared router — or why one could not even be
-// described.
-func buildDoctorOptions(env *Env, home, userHome string) (doctorOptions, error) {
+// doctorOptionsFor is doctorOptions built from env and an already-checked
+// berth root (home, userHome — commands.checkedHome), against svc as the
+// shared router and state as its own resolved layout — or svcErr, why one
+// could not even be described, when svc is nil. buildDoctorOptions calls
+// this with the default shared router routerServiceFrom resolves from
+// home; the real-daemon tests' own DoctorSections (export_integration_test.go)
+// call it with a router of their own name, port and state instead, the same
+// seam SharedRouter gives `up`, so the two can never drift apart.
+func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state layout.RouterLayout, svcErr error) (doctorOptions, error) {
 	checkout, err := findCheckout(env.ConfigPath, env.Cwd)
 	if err != nil {
 		return doctorOptions{}, err
@@ -1332,16 +1335,35 @@ func buildDoctorOptions(env *Env, home, userHome string) (doctorOptions, error) 
 		Runner: env.Runner, Logger: env.Logger,
 		Checkout: checkout, Invocation: env.Invocation, Environ: env.Environ,
 	}
-	svc, state, err := routerServiceFrom(env, home)
-	if err != nil {
-		opts.RouterErr = err
+	if svcErr != nil {
+		opts.RouterErr = svcErr
 		return opts, nil
 	}
+	if svc == nil {
+		// Only a test seam (DoctorSections in export_integration_test.go)
+		// can reach this: buildDoctorOptions always pairs a nil svc with
+		// the error routerServiceFrom returned, caught above.
+		return doctorOptions{}, fmt.Errorf("doctorOptionsFor: no router and no error describing why")
+	}
 	opts.Router = realRouterSource{svc: svc}
+	// RouterState is the shared router's own on-disk layout, for
+	// routeChecks — reading its dynamic-configuration fragments needs no
+	// running router and no lock, matching doctor's own "reads, never
+	// writes" invariant (#55).
 	opts.RouterState = state
 	routerScope := routerLockScope(state, svc.ProjectName)
 	opts.RouterLockScope = &routerScope
 	return opts, nil
+}
+
+// buildDoctorOptions is doctorOptions built from a real Env and an
+// already-checked berth root (Doctor's own single checkedHome call):
+// findCheckout is resolved first (env.ConfigPath, or the nearest berth.toml
+// above env.Cwd), then the shared router — or why one could not even be
+// described.
+func buildDoctorOptions(env *Env, home, userHome string) (doctorOptions, error) {
+	svc, state, err := routerServiceFrom(env, home)
+	return doctorOptionsFor(env, home, userHome, svc, state, err)
 }
 
 // Doctor is `doctor`. Its report goes to stdout, one line per check; its

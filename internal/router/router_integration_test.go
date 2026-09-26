@@ -9,14 +9,20 @@ package router_test
 // developer's real router and beside another track's Docker suite on the
 // same daemon.
 //
-// Not ported: "routes a worktree by hostname..." and "lets doctor read the
-// running router...". Both need machinery two other, parallel work packages
-// own and had not landed here yet: WP2's Compose runtime `up`/override
-// generation (a worktree's own routing) and the future `doctor` port. "keeps
-// the shared network on down while a worktree is attached" is adapted below
-// to attach a plain container to the shared network directly instead of
-// through a full worktree — the same router behaviour, reached without that
-// dependency (see its own comment).
+// "keeps the shared network on down while a worktree is attached" is
+// adapted below to attach a plain container to the shared network directly
+// instead of through a full worktree — the same router behaviour, reached
+// without that dependency (see its own comment). This file's own "never
+// routes a container with the wrong routed-by label..." below is the rest
+// of "routes a worktree by hostname..." that doesn't need a worktree: the
+// intruder's own labels and the unmatched-host 404. What that TypeScript
+// case and "lets doctor read the running router..." prove about an actual
+// routed worktree — a second service on its own subdomain, service
+// discovery by name, and doctor flagging a real second claimant — needed
+// WP2's Compose runtime `up` and the `doctor` port, both landed since
+// (#12/#13/#14 were this work package's own scope); that coverage is now
+// internal/commands/up_routes_docker_integration_test.go, alongside the
+// `up` command those need (#69).
 
 import (
 	"context"
@@ -214,6 +220,73 @@ func TestSharedRouterOnARealDaemon(t *testing.T) {
 		cmd := dockerOutput(t, "inspect", routerID, "--format", "{{join .Config.Cmd \" \"}}")
 		if strings.Contains(cmd, "--providers.docker") {
 			t.Fatalf("expected no Docker-provider flag on the router's command line, got %q", cmd)
+		}
+	})
+
+	// Ported from the TypeScript suite's "routes a worktree by hostname..."
+	// case, adapted to #55: Traefik's Docker-provider discovery is gone, so
+	// a container's own Traefik labels — everything a routed worktree
+	// service used to need — do nothing any more; only a
+	// dynamic-configuration fragment routes anything (fragment.go). The
+	// control proves the positive, routed by a real fragment rather than
+	// any label of its own; the intruder, carrying a complete-looking set
+	// of Traefik labels but no fragment, proves the negative. Both share the
+	// router's own network directly (no worktree, no Compose override, so
+	// no per-worktree network of its own here) so the only difference
+	// between them is whether a fragment exists.
+	t.Run("never routes a container with Traefik labels but no fragment, and gives an unmatched host the router's own 404", func(t *testing.T) {
+		intruderName := "intruder-" + id
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", intruderName).Run() })
+		dockerOutput(t, "run", "--detach", "--name", intruderName, "--network", project,
+			"--label", "traefik.enable=true",
+			"--label", "traefik.http.routers.intruder.rule=Host(`intruder.invalid.localhost`)",
+			"--label", "traefik.http.routers.intruder.entrypoints="+router.RouterEntrypoint,
+			"--label", "traefik.http.services.intruder.loadbalancer.server.port=8080",
+			"busybox:1.37.0", "sh", "-c", "echo intruder > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
+
+		// A control routed by a real fragment, not by any label of its own —
+		// the only thing that routes anything now. Waited for with
+		// eventually: the file provider's own watch takes a moment to pick
+		// the fragment up, so once its route answers the router has
+		// actually read it, and the intruder's 404 below is a verdict, not
+		// a race with that watch.
+		controlName := "control-" + id
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", controlName).Run() })
+		dockerOutput(t, "run", "--detach", "--name", controlName, "--network", project,
+			"busybox:1.37.0", "sh", "-c", "echo control > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
+		repositoryID, worktreeID := "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
+		t.Cleanup(func() { router.RemoveWorktreeFragments(state, repositoryID, worktreeID) })
+		doc := router.NewFragmentDocument("control", "Host(`control.invalid.localhost`)", controlName, 8080)
+		if err := router.WriteFragment(state, repositoryID, worktreeID, "control", doc); err != nil {
+			t.Fatal(err)
+		}
+		controlBody := eventually(t, 20*time.Second,
+			func() string { _, b := fetchThroughRouter(t, port, "control.invalid.localhost", "/"); return b },
+			func(b string) bool { return strings.TrimSpace(b) == "control" },
+		)
+		if strings.TrimSpace(controlBody) != "control" {
+			t.Fatalf("control host never routed; answered %q", controlBody)
+		}
+
+		nobodyStatus, nobodyBody := fetchThroughRouter(t, port, "nobody.invalid.localhost", "/")
+		if nobodyStatus != http.StatusNotFound {
+			t.Fatalf("unmatched host answered %d %q", nobodyStatus, nobodyBody)
+		}
+		// The negative means something only if the intruder is alive and serving.
+		alive, err := exec.Command("docker", "exec", intruderName, "wget", "-qO-", "http://127.0.0.1:8080/").Output()
+		if err != nil {
+			t.Fatalf("intruder did not answer on its own: %v", err)
+		}
+		if strings.TrimSpace(string(alive)) != "intruder" {
+			t.Fatalf("intruder served %q", alive)
+		}
+		// The router's own 404, byte for byte the one an unknown host gets — never the intruder's page, whatever labels it carries.
+		intruderStatus, intruderBody := fetchThroughRouter(t, port, "intruder.invalid.localhost", "/")
+		if intruderStatus != nobodyStatus || intruderBody != nobodyBody {
+			t.Fatalf("intruder host answered %d %q, want the unmatched host's %d %q", intruderStatus, intruderBody, nobodyStatus, nobodyBody)
+		}
+		if strings.Contains(nobodyBody, "intruder") {
+			t.Fatalf("unmatched host's body leaked the intruder's own: %q", nobodyBody)
 		}
 	})
 
