@@ -1,5 +1,6 @@
-// Package router is the shared router: one Traefik stack per user account,
-// used by every worktree of every repository on this machine. It ports
+// Package router is the shared router: one Traefik stack per Docker daemon,
+// used by every worktree of every repository on this machine; its state and
+// lock are per berth root (#80). It ports
 // src/router/stack.ts (the stack document, built from constants) and
 // src/router/router.ts (ensure/verify/status/down).
 //
@@ -21,9 +22,10 @@ import (
 
 // Protocol is bumped whenever the stack changes shape; a newer router is
 // never downgraded. WP3 (#39) bumps it from 3 to 4: the router's state moves
-// out of every control home into one machine-wide location per user account
-// (#12, #13), and every `docker` call now carries a timeout (#14). See
-// docs/port/divergences.md.
+// out of every control home into its own location, shared by every control
+// home under the same berth root (#12, #13; #80 later made that location
+// the berth root itself, rather than a fixed one per user account), and
+// every `docker` call now carries a timeout (#14). See docs/port/divergences.md.
 const Protocol = 4
 
 // RoutedBySinceProtocol is the protocol that introduced RoutedByLabel: a

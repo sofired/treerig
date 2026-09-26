@@ -79,7 +79,7 @@ func TestConfigValidate(t *testing.T) {
 	if want := "accepted but not invoked yet: backup"; printed[2] != want {
 		t.Errorf("line 2 = %q, want %q", printed[2], want)
 	}
-	if want := "control home: " + filepath.Join(home, ".berth"); printed[3] != want {
+	if want := "control home: " + filepath.Join(home, ".berth", "control-home"); printed[3] != want {
 		t.Errorf("line 3 = %q, want %q", printed[3], want)
 	}
 }

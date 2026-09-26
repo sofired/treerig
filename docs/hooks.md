@@ -69,9 +69,10 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
 | `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
 
-`BERTH_HOME` — the control-home override, if the user set one — is *not* in
-this list on purpose. It passes through from the parent unchanged, so a hook
-that invokes the tool itself resolves the same control home the user did.
+`BERTH_HOME` and `BERTH_CONTROL_HOME` — the berth-root and control-home
+overrides, if the user set either — are *not* in this list on purpose. Both
+pass through from the parent unchanged, so a hook that invokes the tool
+itself resolves the same berth root and control home the user did.
 
 ## Output and exit codes
 

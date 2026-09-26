@@ -21,10 +21,16 @@ import (
 	"github.com/sofired/berth/internal/registry/registrytest"
 )
 
-// fakeEnv is a relocateAndReexec fixture: a temp control home, a temp
+// fakeEnv is a relocateAndReexec fixture: a temp berth root and a separate
+// temp home directory (so checkedHome's own AssertSafeHome check has a
+// userHome that neither equals nor contains the berth root, #80), a temp
 // "running binary" file with known content, and a recording logger.
 type fakeEnv struct {
-	env         *Env
+	env *Env
+	// controlHome is the value wired as BERTH_HOME — the berth root (#80),
+	// not the control home itself, which nests one level under it at
+	// <controlHome>/control-home; use the controlLayout method to derive
+	// it the same way relocateAndReexec does.
 	controlHome string
 	binary      string
 	log         *logger.Recording
@@ -32,11 +38,17 @@ type fakeEnv struct {
 
 // newFakeEnv writes content to a file standing in for the running binary,
 // under its own directory (never controlHome, so the "still in a checkout"
-// case is the default) and wires an Env whose Executable reports it.
+// case is the default) and wires an Env whose Executable reports it, HOME
+// resolves to a home directory of its own, and BERTH_HOME resolves to a
+// berth root of its own.
 func newFakeEnv(t *testing.T, content string) *fakeEnv {
 	t.Helper()
 	base := registrytest.TempDir(t)
-	controlHome := filepath.Join(base, "control")
+	home := filepath.Join(base, "home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	berthRoot := filepath.Join(base, "berth-root")
 	checkout := filepath.Join(base, "checkout")
 	if err := os.MkdirAll(checkout, 0o700); err != nil {
 		t.Fatal(err)
@@ -46,12 +58,15 @@ func newFakeEnv(t *testing.T, content string) *fakeEnv {
 		t.Fatal(err)
 	}
 	log := &logger.Recording{}
-	f := &fakeEnv{controlHome: controlHome, binary: binary, log: log}
+	f := &fakeEnv{controlHome: berthRoot, binary: binary, log: log}
 	f.env = &Env{
 		Logger: log,
 		Getenv: func(key string) (string, bool) {
-			if key == "BERTH_HOME" {
-				return controlHome, true
+			switch key {
+			case "BERTH_HOME":
+				return berthRoot, true
+			case "HOME":
+				return home, true
 			}
 			return "", false
 		},
@@ -60,6 +75,20 @@ func newFakeEnv(t *testing.T, content string) *fakeEnv {
 		Executable: func() (string, error) { return binary, nil },
 	}
 	return f
+}
+
+// controlLayout derives the real control home nested under f's own berth
+// root (layout.ControlHomeFrom) and its layout, the same way
+// relocateAndReexec itself does via checkedHome — so a test that needs to
+// predict or seed a path under the store computes it the identical way,
+// through whatever f.env.Getenv currently answers.
+func (f *fakeEnv) controlLayout(t *testing.T) layout.Control {
+	t.Helper()
+	home, err := layout.ControlHomeFrom(f.controlHome, f.env.Getenv, "")
+	if err != nil {
+		t.Fatalf("ControlHomeFrom: %v", err)
+	}
+	return layout.ControlLayout(home)
 }
 
 // wantWarning fails t unless log holds exactly one line equal to want.
@@ -87,7 +116,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		f := newFakeEnv(t, "a build")
 		f.env.Exec = nil
 		relocateAndReexec(f.env) // Executable is set, Exec is not: still a no-op.
-		if _, err := os.Stat(filepath.Join(f.controlHome, "bin")); !os.IsNotExist(err) {
+		if _, err := os.Stat(f.controlLayout(t).BinDir); !os.IsNotExist(err) {
 			t.Fatalf("expected no bin directory, stat error: %v", err)
 		}
 
@@ -113,7 +142,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		if !called {
 			t.Fatalf("Exec was not called")
 		}
-		control := layout.ControlLayout(f.controlHome)
+		control := f.controlLayout(t)
 		wantPath, err := binstore.Install(control.BinDir, []byte("a berth build"), 0o700, time.Now())
 		if err != nil {
 			t.Fatalf("binstore.Install: %v", err)
@@ -141,7 +170,7 @@ func TestRelocateAndReexec(t *testing.T) {
 
 	t.Run("does not re-exec when already running the installed copy", func(t *testing.T) {
 		f := newFakeEnv(t, "already installed")
-		control := layout.ControlLayout(f.controlHome)
+		control := f.controlLayout(t)
 		installed, err := binstore.Install(control.BinDir, []byte("already installed"), 0o700, time.Now())
 		if err != nil {
 			t.Fatalf("binstore.Install: %v", err)
@@ -185,14 +214,15 @@ func TestRelocateAndReexec(t *testing.T) {
 
 	t.Run("falls back to the running binary, warning, when the control home cannot be resolved", func(t *testing.T) {
 		f := newFakeEnv(t, "irrelevant")
-		// ResolveControlHome only touches the filesystem when BERTH_HOME is
-		// relative, by resolving it against the physical working
-		// directory (layout.PhysicalWd, syscall.Getwd) — which fails once
-		// that directory has been removed out from under this process.
-		// This changes the process's own working directory for the
-		// duration of the subtest (restored by the defer below): it must
-		// never run under t.Parallel(), here or in any test added later to
-		// this file or package.
+		// checkedHome resolves the berth root first (layout.ResolveHome),
+		// which only touches the filesystem when BERTH_HOME is relative, by
+		// resolving it against the physical working directory
+		// (layout.PhysicalWd, syscall.Getwd) — which fails once that
+		// directory has been removed out from under this process. This
+		// changes the process's own working directory for the duration of
+		// the subtest (restored by the defer below): it must never run
+		// under t.Parallel(), here or in any test added later to this file
+		// or package.
 		scratch := registrytest.TempDir(t)
 		previous, err := os.Getwd()
 		if err != nil {
@@ -227,9 +257,11 @@ func TestRelocateAndReexec(t *testing.T) {
 
 	t.Run("falls back to the running binary, warning, when the control home cannot be secured", func(t *testing.T) {
 		f := newFakeEnv(t, "irrelevant")
-		// control home's own parent (the fixture's base) already exists;
-		// putting a plain file exactly where the control home directory
-		// belongs makes establishControlHome's own os.MkdirAll fail.
+		// The berth root's own parent (the fixture's base) already exists;
+		// putting a plain file exactly where the berth root belongs makes
+		// establishControlHome's own os.MkdirAll — one level under it, at
+		// <berth root>/control-home — fail, since a path cannot be
+		// created through a non-directory component.
 		if err := os.WriteFile(f.controlHome, []byte("not a directory"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -261,7 +293,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		// entry is added directly.
 		relocateAndReexec(f.env)
 
-		control := layout.ControlLayout(f.controlHome)
+		control := f.controlLayout(t)
 		stale, err := binstore.Install(control.BinDir, []byte("stale build"), 0o700, time.Now())
 		if err != nil {
 			t.Fatalf("binstore.Install: %v", err)
@@ -307,7 +339,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		// entry can be added directly.
 		relocateAndReexec(f.env)
 
-		control := layout.ControlLayout(f.controlHome)
+		control := f.controlLayout(t)
 		current, err := binstore.Install(control.BinDir, []byte("current build"), 0o700, time.Now())
 		if err != nil {
 			t.Fatalf("binstore.Install: %v", err)

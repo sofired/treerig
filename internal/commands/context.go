@@ -31,6 +31,12 @@ type CommandContext struct {
 	Runner      run.Runner
 	Loaded      *config.Loaded
 	ControlHome string
+	// UserHome is the checked berth root's own companion value from
+	// checkedHome (home.go): the caller's resolved home directory, handed
+	// to files.SecureWorktreeDirectories ahead of every write under
+	// ControlHome (up.go), the same way registry.Options.UserHome carries
+	// it to the registry's own writes (#80).
+	UserHome string
 	// RouterPort is BERTH_ROUTER_PORT, or 80 — the port `urls` prints
 	// routed services on. It is the same value a running RouterService would
 	// report as its own `port`, without needing one built.
@@ -91,7 +97,11 @@ func Context(env *Env) (*CommandContext, error) {
 		return nil, err
 	}
 
-	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+	home, userHome, err := checkedHome(env.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
 	if err != nil {
 		return nil, err
 	}
@@ -99,10 +109,7 @@ func Context(env *Env) (*CommandContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	routerState, err := layout.RouterState(env.Getenv)
-	if err != nil {
-		return nil, err
-	}
+	routerState := layout.RouterStateFrom(home)
 
 	reg := registry.New(registry.Options{
 		ControlHome:    controlHome,
@@ -113,6 +120,7 @@ func Context(env *Env) (*CommandContext, error) {
 		Logger:         env.Logger,
 		CommandName:    env.CommandName,
 		Invocation:     env.Invocation,
+		UserHome:       userHome,
 	})
 
 	return &CommandContext{
@@ -122,6 +130,7 @@ func Context(env *Env) (*CommandContext, error) {
 		Runner:      env.Runner,
 		Loaded:      loaded,
 		ControlHome: controlHome,
+		UserHome:    userHome,
 		RouterPort:  routerPort,
 		RouterState: routerState,
 		Registry:    reg,

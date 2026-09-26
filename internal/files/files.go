@@ -190,11 +190,6 @@ func canonical(target string) (string, error) {
 	return layout.Resolve(target)
 }
 
-// processHomeDir is this process's home directory, read the same way layout.HomeDir does.
-func processHomeDir() (string, error) {
-	return layout.HomeDir(func(key string) (string, bool) { return os.LookupEnv(key) })
-}
-
 // lowerFirst lowercases value's first byte, for splicing a refusal reason
 // into the middle of a sentence.
 func lowerFirst(value string) string {
@@ -204,7 +199,83 @@ func lowerFirst(value string) string {
 	return strings.ToLower(value[:1]) + value[1:]
 }
 
+// homeRefusalReasonAgainst reports why resolved is unsafe for this tool to
+// treat as a directory it owns outright — the filesystem root, userHome, or
+// anything above userHome — or "" when none of those apply. Shared by
+// AssertAdoptableControlHome (the control home) and AssertSafeHome (the
+// berth root, BERTH_HOME), which each phrase the refusal in their own
+// words. userHome is always the caller's own resolved home directory (in
+// production, layout.HomeDir(getenv) from internal/commands' checkedHome,
+// #80) — this package does not read the environment itself for it, only
+// the entry point does.
+//
+// An empty userHome is refused outright here too, the same way
+// commands.checkedHome already refuses it before either assertion is ever
+// reached in production: canonical("") resolves as the current directory
+// (filepath.EvalSymlinks("") succeeds as "."), so comparing resolved
+// against it would silently answer a question about the current directory
+// rather than about home — or fail deep inside filepath.Rel with "Rel:
+// can't make . relative to …", naming neither BERTH_HOME nor
+// BERTH_CONTROL_HOME. Any caller that reaches either assertion with an
+// empty userHome by some path other than checkedHome gets the same clear
+// refusal instead.
+func homeRefusalReasonAgainst(resolved, userHome string) (string, error) {
+	if userHome == "" {
+		return "", clierr.New("Could not determine your home directory; set HOME.")
+	}
+	if resolved == string(filepath.Separator) {
+		return "it is the filesystem root", nil
+	}
+	home, err := canonical(userHome)
+	if err != nil {
+		return "", err
+	}
+	if resolved == home {
+		return "it is your home directory", nil
+	}
+	toHome, err := relativeJS(resolved, home)
+	if err != nil {
+		return "", err
+	}
+	if !(toHome == ".." || strings.HasPrefix(toHome, ".."+string(filepath.Separator)) || filepath.IsAbs(toHome)) {
+		return "it contains your home directory", nil
+	}
+	return "", nil
+}
+
+// AssertSafeHome refuses to use home as the berth root (BERTH_HOME, #80)
+// when it is the filesystem root, userHome, or anything above userHome. The
+// berth root holds router/ and, unless BERTH_CONTROL_HOME overrides it, the
+// control home — so accepting any of those would put router state or a
+// control home inside, or in place of, the directory the user actually
+// lives in. userHome is the caller's own resolved home directory (in
+// production, layout.HomeDir(getenv) from internal/commands' home.go) —
+// this package does not read the environment itself for it, only the
+// entry point does.
+//
+// Unlike AssertAdoptableControlHome, home is never itself chmod'd, emptied,
+// or recursively deleted — router.SecureState and AssertAdoptableControlHome
+// each check what they create underneath it on their own terms — so this
+// applies only this narrower family of refusals, not the emptiness/marker
+// check a directory this tool owns outright also needs.
+func AssertSafeHome(home, userHome string) error {
+	resolved, err := canonical(home)
+	if err != nil {
+		return err
+	}
+	reason, err := homeRefusalReasonAgainst(resolved, userHome)
+	if err != nil {
+		return err
+	}
+	if reason == "" {
+		return nil
+	}
+	return clierr.Newf("Refusing to use %s as %s: %s. Point %s elsewhere.", resolved, brand.HomeEnv, reason, brand.HomeEnv)
+}
+
 // AssertAdoptableControlHome checks that controlHome is safe to adopt.
+// userHome is the caller's own resolved home directory (in production,
+// layout.HomeDir(getenv) from internal/commands' checkedHome, #80).
 //
 // The control home is chmod'd, populated, and — under `worktree remove` —
 // recursively deleted within. So it is never a directory the user already
@@ -212,14 +283,14 @@ func lowerFirst(value string) string {
 // tool created it (the marker, or two of the directories only the tool
 // creates, from before the marker existed) or it is empty. The filesystem
 // root, the home directory, and anything above it are refused outright.
-func AssertAdoptableControlHome(controlHome string) error {
+func AssertAdoptableControlHome(controlHome, userHome string) error {
 	resolved, err := canonical(controlHome)
 	if err != nil {
 		return err
 	}
 	alternatives := fmt.Sprintf(
 		"Set %s to an empty directory, or to one %s created earlier (it leaves a %s marker file).",
-		brand.HomeEnv, brand.Name, ControlHomeMarker,
+		brand.ControlHomeEnv, brand.Name, ControlHomeMarker,
 	)
 	refusal := func(reason string, movable bool) error {
 		tail := alternatives
@@ -228,26 +299,12 @@ func AssertAdoptableControlHome(controlHome string) error {
 		}
 		return clierr.Newf("Refusing to use %s as the control home: %s. %s", resolved, reason, tail)
 	}
-	if resolved == string(filepath.Separator) {
-		return refusal("it is the filesystem root", false)
-	}
-	homeDir, err := processHomeDir()
+	reason, err := homeRefusalReasonAgainst(resolved, userHome)
 	if err != nil {
 		return err
 	}
-	home, err := canonical(homeDir)
-	if err != nil {
-		return err
-	}
-	if resolved == home {
-		return refusal("it is your home directory", false)
-	}
-	toHome, err := relativeJS(resolved, home)
-	if err != nil {
-		return err
-	}
-	if !(toHome == ".." || strings.HasPrefix(toHome, ".."+string(filepath.Separator)) || filepath.IsAbs(toHome)) {
-		return refusal("it contains your home directory", false)
+	if reason != "" {
+		return refusal(reason, false)
 	}
 	entries, err := os.ReadDir(resolved)
 	if err != nil {
@@ -337,9 +394,10 @@ func LegacyControlHome(controlHome string) (bool, error) {
 }
 
 // establishControlHome creates the control home itself, after checking it is
-// ours to use, and leaves the marker.
-func establishControlHome(controlHome string) error {
-	if err := AssertAdoptableControlHome(controlHome); err != nil {
+// ours to use, and leaves the marker. userHome is the caller's own resolved
+// home directory, passed straight through to AssertAdoptableControlHome.
+func establishControlHome(controlHome, userHome string) error {
+	if err := AssertAdoptableControlHome(controlHome, userHome); err != nil {
 		return err
 	}
 	if err := createSecureDirectories(controlHome, []string{controlHome}, 0o700); err != nil {
@@ -548,17 +606,17 @@ func writeMarkerDirect(dir *os.File, marker string, contents []byte, mode fs.Fil
 	return writeErr
 }
 
-// SecureControlDirectories creates and locks down the control home's
-// machine-wide directories.
+// SecureControlDirectories creates and locks down the control home's own
+// directories.
 //
 // As of protocol 4, this no longer includes the shared router's directories
-// or files (RouterDir and everything under it): those live in the router's
-// own machine-wide state directory, resolved by layout.RouterState and
-// secured by internal/router (#12, #13). Creating them here would recreate,
-// on this control home's very next command, exactly what a control home's
-// router migration just removed.
-func SecureControlDirectories(l layout.Control) error {
-	if err := establishControlHome(l.ControlHome); err != nil {
+// or files (RouterDir and everything under it): the router's own state and
+// lock live under the berth root instead, one copy per berth root — not one
+// per control home — resolved by layout.RouterState and secured by
+// internal/router (#12, #13, #80); the Traefik stack they describe is
+// itself one per Docker daemon, not per berth root or control home.
+func SecureControlDirectories(l layout.Control, userHome string) error {
+	if err := establishControlHome(l.ControlHome, userHome); err != nil {
 		return err
 	}
 	if err := createSecureDirectories(l.ControlHome, []string{
@@ -575,9 +633,12 @@ func SecureControlDirectories(l layout.Control) error {
 // installs a copy of itself into before running (#7), owner-only like every
 // other control-home directory. Callers create it lazily, only when they are
 // about to install into it, rather than on every command the way
-// SecureControlDirectories's own directories are.
-func SecureBinDirectory(l layout.Control) error {
-	if err := SecureControlDirectories(l); err != nil {
+// SecureControlDirectories's own directories are. userHome is passed
+// straight through to SecureControlDirectories, for the same
+// AssertAdoptableControlHome check every other control-home directory goes
+// through (#80).
+func SecureBinDirectory(l layout.Control, userHome string) error {
+	if err := SecureControlDirectories(l, userHome); err != nil {
 		return err
 	}
 	return createSecureDirectories(l.ControlHome, []string{l.BinDir}, 0o700)
@@ -585,8 +646,8 @@ func SecureBinDirectory(l layout.Control) error {
 
 // SecureRegistrationDirectories are the directories a worktree needs before
 // it can be registered — no home yet.
-func SecureRegistrationDirectories(l layout.Worktree) error {
-	if err := establishControlHome(l.ControlHome); err != nil {
+func SecureRegistrationDirectories(l layout.Worktree, userHome string) error {
+	if err := establishControlHome(l.ControlHome, userHome); err != nil {
 		return err
 	}
 	if err := createSecureDirectories(l.ControlHome, []string{
@@ -611,8 +672,8 @@ func SecureRegistrationDirectories(l layout.Worktree) error {
 // SecureWorktreeDirectories are the directories a worktree needs to run.
 // Refuses if a previous removal was interrupted, since the quarantine
 // directory means state is half-deleted.
-func SecureWorktreeDirectories(l layout.Worktree) error {
-	if err := SecureControlDirectories(l.Control); err != nil {
+func SecureWorktreeDirectories(l layout.Worktree, userHome string) error {
+	if err := SecureControlDirectories(l.Control, userHome); err != nil {
 		return err
 	}
 	interrupted, err := PathExists(l.QuarantinePath)

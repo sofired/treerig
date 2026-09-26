@@ -44,6 +44,7 @@ func newRegistryFixture(t *testing.T, branch, domain string) registryFixture {
 	log := &logger.Recording{}
 	reg := registry.New(registry.Options{
 		ControlHome: controlHome, Root: root, Domain: domain, Runner: runner, Logger: log,
+		UserHome: filepath.Join(base, "user-home"),
 	})
 	return registryFixture{base: base, controlHome: controlHome, root: root, common: common, git: g, runner: runner, registry: reg, log: log}
 }

@@ -6,10 +6,11 @@
 // or symlinked as, so a project that ships the tool as `duke` sees `duke`
 // everywhere. Nothing is configured; see [CLIName].
 //
-// STORAGE IDENTITY — the config filename, the environment variable, the
-// control-home directory, the Docker label namespace, and the marker directory
-// inside `.git`. These are on-disk contracts. They deliberately do NOT follow
-// the binary name, because renaming a symlink must never orphan state.
+// STORAGE IDENTITY — the config filename, the environment variables, the
+// berth root and control-home directories, the Docker label namespace, and
+// the marker directory inside `.git`. These are on-disk contracts. They
+// deliberately do NOT follow the binary name, because renaming a symlink
+// must never orphan state.
 package brand
 
 import (
@@ -24,10 +25,20 @@ const (
 	ConfigFile = "berth.toml"
 	// ExampleFile is the annotated copy in this repository, which the missing-config error points at.
 	ExampleFile = "berth.example.toml"
-	// HomeEnv overrides the control home.
+	// HomeEnv overrides the berth root: the directory holding a future
+	// settings.toml (#79), router/ and the control home (#80). It is not
+	// itself the control home any more — ControlHomeEnv is.
 	HomeEnv = "BERTH_HOME"
-	// DefaultHomeDir is the control-home directory under $HOME when the override is unset.
+	// ControlHomeEnv overrides the control home directly, taking precedence
+	// over the one derived from HomeEnv (#80).
+	ControlHomeEnv = "BERTH_CONTROL_HOME"
+	// DefaultHomeDir is the berth root under $HOME when HomeEnv is unset.
 	DefaultHomeDir = ".berth"
+	// ControlHomeDirName is the control home's directory name under the
+	// berth root, when ControlHomeEnv is unset.
+	ControlHomeDirName = "control-home"
+	// RouterDirName is the shared router's directory name under the berth root.
+	RouterDirName = "router"
 	// MarkerDir is the directory inside a Git dir that holds the identity markers.
 	MarkerDir = "berth"
 	// LabelNamespace is the Docker label namespace this tool owns. Every resource it

@@ -94,13 +94,26 @@ func relocateAndReexec(env *Env) {
 		env.Logger.Warn(fmt.Sprintf("Could not read its own running binary before removing: %s; continuing with this binary.", err))
 		return
 	}
-	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+	// Through checkedHome, not layout.ResolveControlHome directly (#80): the
+	// berth root gets the same files.AssertSafeHome check every other verb
+	// applies to it, and userHome — refused outright if empty — goes on to
+	// SecureBinDirectory's own files.AssertAdoptableControlHome check, same
+	// as every other control-home directory. Resolved again by Context
+	// moments later if relocation falls through to it; both resolutions are
+	// cheap and deterministic, so doing it twice costs nothing and skipping
+	// the checks here is not an option.
+	home, userHome, err := checkedHome(env.Getenv)
+	if err != nil {
+		env.Logger.Warn(fmt.Sprintf("Could not resolve the control home before removing: %s; continuing with this binary.", err))
+		return
+	}
+	controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
 	if err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not resolve the control home before removing: %s; continuing with this binary.", err))
 		return
 	}
 	control := layout.ControlLayout(controlHome)
-	if err := files.SecureBinDirectory(control); err != nil {
+	if err := files.SecureBinDirectory(control, userHome); err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not prepare a standalone copy of itself before removing: %s; continuing with this binary.", err))
 		return
 	}

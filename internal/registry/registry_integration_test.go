@@ -111,6 +111,7 @@ func newRegistry(controlHome, root string) *registry.Registry {
 	return registry.New(registry.Options{
 		ControlHome: controlHome, Root: root, Domain: integrationDomain,
 		Runner: execRunner{}, Logger: &logger.Recording{},
+		UserHome: filepath.Join(filepath.Dir(controlHome), "user-home"),
 	})
 }
 
@@ -332,6 +333,7 @@ func TestWorktreeRegistryEnsureWithRealGit(t *testing.T) {
 		reconciled := registry.New(registry.Options{
 			ControlHome: controlHome, Root: worktreeDir, Domain: otherDomain,
 			Runner: execRunner{}, Logger: &logger.Recording{},
+			UserHome: filepath.Join(filepath.Dir(controlHome), "user-home"),
 		})
 		moved, err := reconciled.Ensure(ctx, "")
 		if err != nil {

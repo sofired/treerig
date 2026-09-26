@@ -209,8 +209,11 @@ func (f fakeCheckoutRegistry) PruneCandidates(ctx context.Context) ([]registry.R
 // overrides when given.
 func testOpts(t *testing.T, overrides func(*doctorOptions)) doctorOptions {
 	t.Helper()
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
 	opts := doctorOptions{
-		CommandName: "berth", ControlHome: t.TempDir() + "/control",
+		CommandName: "berth", ControlHome: filepath.Join(base, "control"),
+		Home: home, RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(base, "user-home"),
 		Runner: newDoctorRunner(nil), Logger: logger.Silent{},
 		Router: newFakeRouterSource(), Checkout: checkoutNone("/nowhere"),
 	}
@@ -333,7 +336,11 @@ func (f *checkoutFixture) register(slug string) registry.RegisteredWorktree {
 // checkout that shares this fixture's control home.
 func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorktree {
 	f.t.Helper()
-	if err := files.SecureControlDirectories(layout.ControlLayout(f.controlHome)); err != nil {
+	// A fixed placeholder, nowhere near f.controlHome (always a fresh temp
+	// directory): AssertAdoptableControlHome's own home-family checks need
+	// something to compare against, never exercised by this fixture.
+	userHome := filepath.Join(f.base, "user-home")
+	if err := files.SecureControlDirectories(layout.ControlLayout(f.controlHome), userHome); err != nil {
 		f.t.Fatal(err)
 	}
 	identities := registry.NewIdentityService(root, f.runner)
@@ -341,7 +348,7 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(f.controlHome, identity.RepositoryID, identity.WorktreeID)); err != nil {
+	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(f.controlHome, identity.RepositoryID, identity.WorktreeID), userHome); err != nil {
 		f.t.Fatal(err)
 	}
 	return registry.RegisteredWorktree{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: slug, Domain: fixtureDomain}
@@ -350,8 +357,11 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 // opts is a doctorOptions for this fixture's loaded checkout, with f's own
 // control home, runner and a healthy fake router.
 func (f *checkoutFixture) opts() doctorOptions {
+	home := filepath.Join(f.base, "home")
 	return doctorOptions{
-		CommandName: "berth", ControlHome: f.controlHome, Runner: f.runner, Logger: logger.Silent{},
+		CommandName: "berth", ControlHome: f.controlHome, Home: home,
+		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(f.base, "user-home"),
+		Runner: f.runner, Logger: logger.Silent{},
 		Router: newFakeRouterSource(), Checkout: checkoutIsLoaded(f.loaded), Invocation: "berth doctor",
 	}
 }
@@ -758,8 +768,9 @@ func TestDoctorSections(t *testing.T) {
 				t.Fatalf("prerequisites = %v, want %v", gotPrereq, wantPrereq)
 			}
 		}
-		if !contains(section(sections, "Registry")[0].Detail, "not created yet") {
-			t.Fatalf("registry[0] = %+v", section(sections, "Registry")[0])
+		// Registry[0] is "berth root" (#80); the control-home check follows it.
+		if !contains(section(sections, "Registry")[1].Detail, "not created yet") {
+			t.Fatalf("registry[1] = %+v", section(sections, "Registry")[1])
 		}
 		wantRouter := []string{"ok router", "ok routes"}
 		gotRouter := statuses(sections, "Router")
@@ -795,12 +806,13 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := section(sections, "Registry")
-		if len(got) < 2 {
-			t.Fatalf("registry = %+v, want the control-home check and the legacy-home line", got)
+		if len(got) < 3 {
+			t.Fatalf("registry = %+v, want berth root, the control-home check and the legacy-home line", got)
 		}
+		// Registry[0] is "berth root" (#80), [1] the control-home check itself.
 		want := Check{Status: StatusOK, Subject: "control home", Detail: "was last used by a TypeScript build of berth; the next command here upgrades it"}
-		if got[1] != want {
-			t.Fatalf("got %+v, want %+v", got[1], want)
+		if got[2] != want {
+			t.Fatalf("got %+v, want %+v", got[2], want)
 		}
 	})
 
@@ -990,7 +1002,9 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := section(sections, "Registry")[0]
+		// Registry[0] is "berth root" (#80), always ok; the control-home
+		// check itself is [1].
+		got := section(sections, "Registry")[1]
 		if got.Status != StatusFail || got.Subject != "control home" || !contains(got.Detail, "Refusing to use") {
 			t.Fatalf("got %+v", got)
 		}
@@ -1018,9 +1032,9 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok control home", "ok registrations", "fail unreadable record"}
+		want := []string{"ok berth root", "ok control home", "ok router state", "ok registrations", "fail unreadable record"}
 		gotStatuses := statuses(sections, "Registry")
-		if len(gotStatuses) != 3 {
+		if len(gotStatuses) != len(want) {
 			t.Fatalf("registry = %v", gotStatuses)
 		}
 		for i := range want {
@@ -1040,7 +1054,9 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := section(sections, "Registry")[0]
+		// Registry[0] is "berth root" (#80), always ok; the control-home
+		// check itself is [1].
+		got := section(sections, "Registry")[1]
 		// TypeScript's own detail carries Node's errno name, "ENOTDIR"; Go's
 		// os package formats the same underlying error in its own words
 		// ("not a directory") instead — the same accepted difference
@@ -1557,6 +1573,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		realRegistry := registry.New(registry.Options{
 			ControlHome: f.controlHome, Root: f.root, Domain: fixtureDomain, LabelNamespace: brand.LabelNamespace,
 			Runner: f.runner, Logger: logger.Silent{}, CommandName: "berth",
+			UserHome: filepath.Join(f.base, "user-home"),
 		})
 		opts := f.opts()
 		opts.RegistryFor = func(*config.Loaded) (checkoutRegistry, error) {

@@ -25,9 +25,33 @@ func mapGetenv(values map[string]string) layout.Getenv {
 	}
 }
 
-func TestControlHomeResolution(t *testing.T) {
-	t.Run("prefers an explicit override, then the environment, then the default", func(t *testing.T) {
+func TestHomeResolution(t *testing.T) {
+	t.Run("prefers an explicit override, then BERTH_HOME, then the default", func(t *testing.T) {
 		withEnv := mapGetenv(map[string]string{brand.HomeEnv: "/env/home"})
+
+		got, err := layout.ResolveHome(withEnv, "/explicit")
+		if err != nil || got != "/explicit" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+
+		got, err = layout.ResolveHome(withEnv, "")
+		if err != nil || got != "/env/home" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+
+		got, err = layout.ResolveHome(mapGetenv(nil), "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.HasSuffix(got, brand.DefaultHomeDir) {
+			t.Fatalf("expected a path ending in %s, got %q", brand.DefaultHomeDir, got)
+		}
+	})
+}
+
+func TestControlHomeResolution(t *testing.T) {
+	t.Run("prefers an explicit override, then BERTH_CONTROL_HOME, then <berth root>/control-home", func(t *testing.T) {
+		withEnv := mapGetenv(map[string]string{brand.ControlHomeEnv: "/env/control"})
 
 		got, err := layout.ResolveControlHome(withEnv, "/explicit")
 		if err != nil || got != "/explicit" {
@@ -35,16 +59,41 @@ func TestControlHomeResolution(t *testing.T) {
 		}
 
 		got, err = layout.ResolveControlHome(withEnv, "")
-		if err != nil || got != "/env/home" {
+		if err != nil || got != "/env/control" {
 			t.Fatalf("got %q, %v", got, err)
+		}
+
+		got, err = layout.ResolveControlHome(mapGetenv(map[string]string{brand.HomeEnv: "/env/home"}), "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := filepath.Join("/env/home", brand.ControlHomeDirName); got != want {
+			t.Fatalf("got %q, want %q", got, want)
 		}
 
 		got, err = layout.ResolveControlHome(mapGetenv(nil), "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.HasSuffix(got, brand.DefaultHomeDir) {
-			t.Fatalf("expected a path ending in %s, got %q", brand.DefaultHomeDir, got)
+		wantSuffix := filepath.Join(brand.DefaultHomeDir, brand.ControlHomeDirName)
+		if !strings.HasSuffix(got, wantSuffix) {
+			t.Fatalf("expected a path ending in %s, got %q", wantSuffix, got)
+		}
+	})
+
+	t.Run("an empty BERTH_CONTROL_HOME resolves to the current directory, like Node's path.resolve('')", func(t *testing.T) {
+		withEnv := mapGetenv(map[string]string{brand.ControlHomeEnv: "", brand.HomeEnv: "/should/not/matter"})
+
+		got, err := layout.ResolveControlHome(withEnv, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		cwd, err := layout.PhysicalWd()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != cwd {
+			t.Fatalf("got %q, want the cwd %q", got, cwd)
 		}
 	})
 }

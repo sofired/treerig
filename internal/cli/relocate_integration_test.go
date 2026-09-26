@@ -16,8 +16,9 @@ import (
 // binary — never cli.Main in-process, which must never exec (see
 // internal/cli's TestEnvBuilderRelocationWiring): `worktree remove`
 // installs a content-addressed copy of the invoked binary under
-// BERTH_HOME/bin, outside the checkout, before doing anything else, and
-// hands the removal to that copy.
+// <BERTH_HOME>/control-home/bin (#80's berth-root/control-home split),
+// outside the checkout, before doing anything else, and hands the removal
+// to that copy.
 //
 // No registered worktree is needed to prove this: relocation runs before
 // Context even loads a config, so the simplest failing case — an empty
@@ -32,7 +33,15 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controlHome := filepath.Join(base, "control")
+	// HOME, set explicitly to its own scratch directory rather than left as
+	// whatever this process inherited: files.AssertSafeHome (#80) refuses
+	// BERTH_HOME outright if it equals or contains the user's home
+	// directory, and berthHome below must never be confused for it.
+	home := filepath.Join(base, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	berthHome := filepath.Join(base, "berth-home")
 	checkout := filepath.Join(base, "checkout")
 	if err := os.MkdirAll(checkout, 0o755); err != nil {
 		t.Fatal(err)
@@ -40,7 +49,7 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 
 	cmd := exec.Command(binary, "worktree", "remove", "--yes")
 	cmd.Dir = checkout
-	cmd.Env = append(os.Environ(), "BERTH_HOME="+controlHome)
+	cmd.Env = append(os.Environ(), "HOME="+home, "BERTH_HOME="+berthHome)
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()
@@ -70,7 +79,7 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 		t.Fatalf("reading the built binary: %v", err)
 	}
 	sum := sha256.Sum256(content)
-	binDir := filepath.Join(controlHome, "bin")
+	binDir := filepath.Join(berthHome, "control-home", "bin")
 	installed := filepath.Join(binDir, hex.EncodeToString(sum[:]))
 
 	info, err := os.Stat(installed)

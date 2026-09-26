@@ -65,7 +65,7 @@ func Up(ctx context.Context, env *Env, options UpOptions) error {
 	if err != nil {
 		return err
 	}
-	router := sharedRouter{env: env, svc: svc, state: state, controlHome: cctx.ControlHome}
+	router := sharedRouter{env: env, svc: svc, state: state}
 	_, err = UpWithContext(ctx, cctx, router, bestEffortIndex{cctx}, options)
 	return err
 }
@@ -197,7 +197,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, router Router, ind
 		firstTime := initialization == registry.Pending
 
 		worktreeLayout := layout.WorktreeLayout(cctx.ControlHome, ref.RepositoryID, ref.WorktreeID)
-		if err := files.SecureWorktreeDirectories(worktreeLayout); err != nil {
+		if err := files.SecureWorktreeDirectories(worktreeLayout, cctx.UserHome); err != nil {
 			return err
 		}
 
