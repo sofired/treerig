@@ -97,9 +97,10 @@ break them are not merged.
   it) the control home all live under it (#80). For the Go build, a scratch
   `BERTH_HOME` also moves the router's state and lock, but not the router
   itself: there is one router container per Docker daemon, whichever build
-  or home starts it, and `router up` (or `up`) from any build or home
-  replaces the one that is running. Ask before starting or stopping it by
-  hand.
+  or home starts it. The Go build's `up` and `router up` refuse to touch a
+  router another berth root started (#82), but `router down` stops it from
+  anywhere, and the TypeScript build has no such check. Ask before starting
+  or stopping it by hand.
 
 ## Commits and pull requests
 

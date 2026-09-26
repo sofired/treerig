@@ -108,6 +108,11 @@ type StackOptions struct {
 	// IndexDir is the host directory the index container serves.
 	IndexDir       string
 	LabelNamespace string
+	// Home is the berth root stamped on both containers as RouterHomeLabel
+	// (#82); "" stamps an empty value rather than omitting the label, which
+	// is only ever what a caller with no real berth root to give (a test,
+	// mainly) asks for.
+	Home string
 }
 
 // IndexURL is where the checkout index answers.
@@ -151,6 +156,20 @@ func RouterLabels(labelNamespace, component string) labelSet {
 		kv(labelNamespace+".router-protocol", strconv.Itoa(Protocol)),
 	)
 }
+
+// RouterHomeLabel names, on both the router's and the index's containers,
+// the berth root (BERTH_HOME) whose Ensure most recently started or
+// recreated them (#82). Before this label existed, two berth roots each
+// held their own router lock over their own state but drove the same
+// machine-wide container (row 9/29 in docs/port/divergences.md): neither
+// could tell its own router apart from one another root had just started,
+// so a second root's Ensure force-recreated it out from under the first
+// with no warning. Router.Owner reads this label back so Ensure can refuse
+// instead (row 35); doctor reports it read-only. Fixed to the brand's own
+// namespace regardless of a project's configured label-namespace override,
+// the same way RoutedByLabel is (see its own comment): it identifies the
+// berth root that owns the router, not any project.
+const RouterHomeLabel = brand.LabelNamespace + ".router-home"
 
 // RouterCommand is Traefik's full command line; verification checks the
 // running container has exactly this. As of protocol 5, there is no
@@ -310,8 +329,8 @@ var hardenedSecurityOpt = []string{"no-new-privileges:true"}
 
 // Stack builds the stack document for options.
 func Stack(options StackOptions) StackDocument {
-	routerLabelSet := RouterLabels(options.LabelNamespace, RouterService)
-	indexLabels := append(append(labelSet{}, RouterLabels(options.LabelNamespace, IndexService)...), IndexRouteLabels(options.Network)...)
+	routerLabelSet := append(append(labelSet{}, RouterLabels(options.LabelNamespace, RouterService)...), kv(RouterHomeLabel, options.Home))
+	indexLabels := append(append(append(labelSet{}, RouterLabels(options.LabelNamespace, IndexService)...), IndexRouteLabels(options.Network)...), kv(RouterHomeLabel, options.Home))
 
 	return StackDocument{
 		Services: stackServices{

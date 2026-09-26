@@ -160,12 +160,16 @@ func finishOutcome(spec run.Spec, o outcome) (run.Result, error) {
 	return run.Finish(spec, o.result)
 }
 
-// fakeRouterSource is routerSource() from tests/unit/doctor.test.ts.
+// fakeRouterSource is routerSource() from tests/unit/doctor.test.ts, plus
+// owner/ownerErr for the router-owner check (#82), which TypeScript has no
+// counterpart to.
 type fakeRouterSource struct {
-	network string
-	status  router.RouterStatus
-	err     error
-	asked   int
+	network  string
+	status   router.RouterStatus
+	owner    router.Ownership
+	ownerErr error
+	err      error
+	asked    int
 }
 
 // newFakeRouterSource is a fakeRouterSource reporting a reachable, running,
@@ -185,6 +189,16 @@ func (f *fakeRouterSource) Status(ctx context.Context) (router.RouterStatus, err
 
 // Network returns f.network.
 func (f *fakeRouterSource) Network() string { return f.network }
+
+// Owner returns f.ownerErr if set, otherwise f.owner — the zero Ownership
+// (not running) by default, so a test that never sets it sees no "router
+// owner" line at all.
+func (f *fakeRouterSource) Owner(ctx context.Context) (router.Ownership, error) {
+	if f.ownerErr != nil {
+		return router.Ownership{}, f.ownerErr
+	}
+	return f.owner, nil
+}
 
 // fakeCheckoutRegistry is CheckoutRegistry from src/commands/doctor.ts,
 // injected via doctorOptions.RegistryFor.
@@ -598,6 +612,48 @@ func TestRouterChecksInternal(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
+
+	t.Run("says nothing about ownership when nothing is running", func(t *testing.T) {
+		fake := &fakeRouterSource{owner: router.Ownership{Running: false}}
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
+		if err != nil || got != nil {
+			t.Fatalf("got %+v, %v", got, err)
+		}
+	})
+
+	t.Run("reports this berth root as the running router's own owner", func(t *testing.T) {
+		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/dev/.berth"}}
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
+		want := &Check{Status: StatusOK, Subject: "router owner", Detail: "this berth root (/home/dev/.berth)"}
+		if err != nil || got == nil || *got != *want {
+			t.Fatalf("got %+v, %v", got, err)
+		}
+	})
+
+	t.Run("fails a router that belongs to a different berth root", func(t *testing.T) {
+		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/other/.berth"}}
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
+		want := &Check{Status: StatusFail, Subject: "router owner", Detail: "a different berth root (/home/other/.berth); this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
+		if err != nil || got == nil || *got != *want {
+			t.Fatalf("got %+v, %v", got, err)
+		}
+	})
+
+	t.Run("warns of a running router that carries no berth-root label, since it predates the check", func(t *testing.T) {
+		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: false}}
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
+		want := &Check{Status: StatusWarn, Subject: "router owner", Detail: "carries no berth-root label; it predates this check and is adopted by the next 'berth up' or 'berth router up'"}
+		if err != nil || got == nil || *got != *want {
+			t.Fatalf("got %+v, %v", got, err)
+		}
+	})
+
+	t.Run("propagates a failure to ask who owns the router", func(t *testing.T) {
+		fake := &fakeRouterSource{ownerErr: errors.New("boom")}
+		if _, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth"); err == nil || err.Error() != "boom" {
+			t.Fatalf("got %v", err)
+		}
+	})
 }
 
 // Go-only, per #55: routeConflicts now reads dynamic-configuration
@@ -916,6 +972,34 @@ func TestDoctorSections(t *testing.T) {
 		firstTwo := map[string]bool{dockerArgs[0]: true, dockerArgs[1]: true}
 		if !firstTwo["version"] || !firstTwo["compose"] {
 			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then network", dockerArgs)
+		}
+	})
+
+	// #82: doctor's own read-only report of which berth root started the
+	// running router, right after the router status line.
+	t.Run("fails the running router's own owner when it belongs to a different berth root", func(t *testing.T) {
+		fakeRouter := newFakeRouterSource()
+		fakeRouter.owner = router.Ownership{Running: true, Labelled: true, Home: "/home/other/.berth"}
+		opts := testOpts(t, func(o *doctorOptions) { o.Router = fakeRouter })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantRouter := []string{"ok router", "fail router owner", "ok routes", "ok address pools"}
+		gotRouter := statuses(sections, "Router")
+		if len(gotRouter) != len(wantRouter) {
+			t.Fatalf("router = %v, want %v", gotRouter, wantRouter)
+		}
+		for i := range wantRouter {
+			if gotRouter[i] != wantRouter[i] {
+				t.Fatalf("router = %v, want %v", gotRouter, wantRouter)
+			}
+		}
+		if !contains(section(sections, "Router")[1].Detail, "/home/other/.berth") {
+			t.Fatalf("router[1] = %+v", section(sections, "Router")[1])
+		}
+		if code := doctorExitCode(sections); code != 1 {
+			t.Fatalf("code = %d, want 1", code)
 		}
 	})
 

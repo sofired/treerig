@@ -359,6 +359,13 @@ directory. A second control home on the same machine quietly takes it over on
 its next `up`, recreating the stack against its own directories. Point
 `BERTH_HOME` somewhere else only when you mean to take the router with you.
 
+**Go build only.** The router's containers carry a label naming the berth
+root (`BERTH_HOME`) that started them, and `up` or `router up` from a
+different berth root refuses while that router is running, naming the root it
+belongs to, rather than recreating it. Taking it over is an explicit step:
+`router down` stops it from any root, and the next root's `up` starts its own.
+`doctor` reports the owner (row 35 in the divergence ledger).
+
 The control home is `~/.berth`, overridable only through the `BERTH_HOME`
 environment variable, and the router's loopback port is 80, overridable only
 through `BERTH_ROUTER_PORT` — deliberately not config-file settings. The

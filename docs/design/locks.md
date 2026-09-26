@@ -140,10 +140,19 @@ tests skip there.
   which does *not* exclude the first — yet the router container this lock
   guards is still one per Docker daemon regardless of berth root (its
   Compose project name is fixed). Two berth roots' `router up`s therefore
-  never wait on each other and can run `Ensure` against the same container
-  at the same time, each believing it holds exclusive access. No refusal
-  for this exists yet; it is a known, documented hazard, not a checked one
-  — see `docs/port/divergences.md` rows 9 and 29. `router up` takes its own
+  never wait on each other. What stops the second from recreating the
+  first's router out from under it is not the lock but a label (#82): both
+  router containers carry `dev.berth.router-home`, the berth root whose
+  `Ensure` last started them, and `Ensure` refuses — before it reads or
+  writes anything — a running router whose label names another root. The
+  way out is explicit: `router down`, which is never gated on ownership,
+  stops it from any root, and the next root's `router up` starts its own.
+  A router carrying no label predates the check and is adopted; `doctor`
+  reports the owner read-only. What the label does not close is the cold
+  start: two roots that each find no router running can still both go on
+  to create the one container, since their locks are different files. A
+  machine-wide lock target would close that; it is not this design. See
+  `docs/port/divergences.md` rows 9, 29 and 35. `router up` takes its own
   lock alone, never alongside a worktree's own locks
   (`lifecycle.Requests.Router`).
 - Routing (#55) splits the same way. A worktree's own route fragments

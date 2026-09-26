@@ -132,6 +132,10 @@ func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayo
 		Environ:     env.Environ,
 		Invocation:  env.Invocation,
 		CommandName: env.CommandName,
+		// Home is the berth root the caller already checked (checkedHome),
+		// stamped on the router's own containers so a later Ensure — from
+		// this root or another one — can tell them apart (#82).
+		Home: home,
 	})
 	if err != nil {
 		return nil, layout.RouterLayout{}, err
