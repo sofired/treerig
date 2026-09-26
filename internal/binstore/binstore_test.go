@@ -74,6 +74,48 @@ func TestInstall(t *testing.T) {
 		}
 	})
 
+	t.Run("replaces an entry under the right name whose bytes or permissions are wrong", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			content string
+			mode    os.FileMode
+		}{
+			{"different bytes", "something else entirely", 0o700},
+			{"same length, different bytes", "a berth bui1d", 0o700},
+			{"right bytes, wrong permissions", "a berth build", 0o600},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				dir := registrytest.TempDir(t)
+				want := []byte("a berth build")
+				target := binstore.Path(dir, binstore.Hash(want))
+				if err := os.WriteFile(target, []byte(tc.content), tc.mode); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(target, tc.mode); err != nil { // past the umask
+					t.Fatal(err)
+				}
+				path, err := binstore.Install(dir, want, 0o700, time.Now())
+				if err != nil {
+					t.Fatalf("Install: %v", err)
+				}
+				if path != target {
+					t.Fatalf("path = %q, want %q", path, target)
+				}
+				got, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(got) != string(want) || info.Mode().Perm() != 0o700 {
+					t.Fatalf("after Install: content %q, mode %v; want %q, 0700", got, info.Mode().Perm(), want)
+				}
+			})
+		}
+	})
+
 	t.Run("different content installs under different paths", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
 		a, err := binstore.Install(dir, []byte("one"), 0o700, time.Now())

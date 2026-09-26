@@ -11,6 +11,7 @@
 package binstore
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
@@ -42,9 +43,12 @@ var beforeChtimesForTest func(target string)
 
 // Install puts content in dir under its own content address and reports the
 // path, atomically (files.AtomicWrite: temp file, then rename) and
-// idempotently. An entry already there for this hash is left untouched
-// rather than rewritten — its bytes can only be these, since the name is
-// their hash — but its modification time is refreshed to now, so Prune's
+// idempotently. An entry already there for this hash is reused only once
+// it is checked: a regular file with exactly mode's permissions and exactly
+// content's bytes. Anything else under that name — corrupted, replaced, or
+// left with other permissions — is replaced atomically, so the path this
+// returns always holds what the caller asked for. A reused entry is not
+// rewritten, but its modification time is refreshed to now, so Prune's
 // age, its grace window, and its eviction order all read as time since
 // last use, not merely time since the entry was first written. If the
 // entry vanishes between this check and that refresh — a concurrent
@@ -60,6 +64,9 @@ func Install(dir string, content []byte, mode fs.FileMode, now time.Time) (strin
 	exists, err := files.PathExists(target)
 	if err != nil {
 		return "", err
+	}
+	if exists && !matches(target, content, mode) {
+		exists = false // replace it below, atomically
 	}
 	if exists {
 		if beforeChtimesForTest != nil {
@@ -78,6 +85,19 @@ func Install(dir string, content []byte, mode fs.FileMode, now time.Time) (strin
 		return "", err
 	}
 	return target, nil
+}
+
+// matches reports whether target is a regular file with exactly mode's
+// permissions and exactly content's bytes. Any error reading it counts as
+// a mismatch: Install then writes it fresh, and a real problem with the
+// directory surfaces from that write instead.
+func matches(target string, content []byte, mode fs.FileMode) bool {
+	info, err := os.Lstat(target)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != mode.Perm() || info.Size() != int64(len(content)) {
+		return false
+	}
+	existing, err := os.ReadFile(target)
+	return err == nil && bytes.Equal(existing, content)
 }
 
 // Prune keeps the maxEntries most recently used; the rest go, oldest-used
