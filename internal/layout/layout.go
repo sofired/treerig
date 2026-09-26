@@ -2,6 +2,7 @@
 // Nothing here touches the filesystem; these are pure path derivations.
 //
 //	<home>/                              BERTH_HOME, the berth root (#80)
+//	  settings.toml                     SettingsPath, machine-wide defaults (#79)
 //	  router/                            RouterState, the shared router's own layout
 //	  control-home/                      the control home, unless BERTH_CONTROL_HOME overrides it
 //	    locks/registry                    RegistryLockPath
@@ -71,8 +72,8 @@ type Worktree struct {
 type Getenv func(key string) (string, bool)
 
 // ResolveHome is the berth root: the override, else $BERTH_HOME, else
-// ~/.berth, made absolute without resolving symlinks. It holds a future
-// settings.toml (#79), router/ (RouterState) and, unless BERTH_CONTROL_HOME
+// ~/.berth, made absolute without resolving symlinks. It holds settings.toml
+// (#79, SettingsPath), router/ (RouterState) and, unless BERTH_CONTROL_HOME
 // overrides it, the control home (ResolveControlHome) (#80).
 func ResolveHome(getenv Getenv, override string) (string, error) {
 	candidate := override
@@ -154,16 +155,29 @@ func HomeDir(getenv Getenv) (string, error) {
 	return current.HomeDir, nil
 }
 
-// ResolveRouterPort is BERTH_ROUTER_PORT, or 80 when unset or empty.
-func ResolveRouterPort(getenv Getenv) (int, error) {
-	key := brand.EnvPrefix + "_ROUTER_PORT"
-	raw, ok := getenv(key)
+// DefaultRouterPort is the router's port when neither RouterPortEnv nor
+// settings.toml (#79) sets one.
+const DefaultRouterPort = 80
+
+// RouterPortEnv overrides the router's port, ahead of everything else:
+// settings.toml's [router] port (#79), then this package's own default of 80
+// (EnvRouterPort). internal/settings.ResolveRouterPort is the precedence
+// the rest of the build actually uses; this package stays a pure
+// path-derivation one, so it resolves the environment variable alone,
+// touching no filesystem.
+const RouterPortEnv = brand.EnvPrefix + "_ROUTER_PORT"
+
+// EnvRouterPort is RouterPortEnv, or DefaultRouterPort when unset or empty.
+// It reads the environment alone; internal/settings.ResolveRouterPort is
+// the full precedence, with settings.toml between the two.
+func EnvRouterPort(getenv Getenv) (int, error) {
+	raw, ok := getenv(RouterPortEnv)
 	if !ok || raw == "" {
-		return 80, nil
+		return DefaultRouterPort, nil
 	}
 	port, err := parseJSInteger(raw)
 	if err != nil || port < 1 || port > 65_535 {
-		return 0, clierr.Newf("%s must be a port number between 1 and 65535, not \"%s\".", key, raw)
+		return 0, clierr.Newf("%s must be a port number between 1 and 65535, not \"%s\".", RouterPortEnv, raw)
 	}
 	return port, nil
 }
@@ -321,6 +335,27 @@ func RouterStateFrom(home string) RouterLayout {
 		IndexFile:    filepath.Join(indexDir, "index.html"),
 		LockPath:     filepath.Join(dir, "lock"),
 	}
+}
+
+// SettingsPath is the machine-wide settings file's path (#79):
+// `<berth root>/settings.toml`. It does not follow BERTH_CONTROL_HOME or any
+// XDG variable, only the berth root itself — unlike RouterState, which
+// shares that root for a different reason (#80), this file simply has
+// nowhere else to live: it configures values (the router's port) that are
+// resolved before any control home is. Resolves the berth root itself; a
+// caller that already has one (typically already checked by checkedHome)
+// wants SettingsPathFrom instead.
+func SettingsPath(getenv Getenv) (string, error) {
+	home, err := ResolveHome(getenv, "")
+	if err != nil {
+		return "", err
+	}
+	return SettingsPathFrom(home), nil
+}
+
+// SettingsPathFrom is SettingsPath given the berth root already resolved.
+func SettingsPathFrom(home string) string {
+	return filepath.Join(home, brand.SettingsFile)
 }
 
 // ComposeProjectName is stable for the (repository, worktree) pair and cannot

@@ -23,6 +23,7 @@ import (
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/berth/internal/settings"
 	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -108,35 +109,45 @@ func unrouteWorktree(ctx context.Context, cctx *CommandContext, routerSvc *route
 // need the control home from the very same berth root, resolve it once via
 // checkedHome and call routerServiceFrom directly instead, so neither path
 // resolves BERTH_HOME twice (#80, review round 3 item 1).
-func newRouterService(env *Env) (*router.Router, layout.RouterLayout, error) {
+func newRouterService(env *Env) (*router.Router, layout.RouterLayout, settings.PortResolution, error) {
 	home, _, err := checkedHome(env.Getenv)
 	if err != nil {
-		return nil, layout.RouterLayout{}, err
+		return nil, layout.RouterLayout{}, settings.PortResolution{}, err
 	}
 	return routerServiceFrom(env, home)
 }
 
 // routerServiceFrom is newRouterService given the berth root already
-// checked.
-func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayout, error) {
+// checked. The port is settings.ResolveRouterPort's (#79): BERTH_ROUTER_PORT,
+// then settings.toml under that same berth root, then 80 — returned with
+// where it came from, for `router status` and `doctor` to say.
+func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayout, settings.PortResolution, error) {
 	state := layout.RouterStateFrom(home)
-	port, err := layout.ResolveRouterPort(env.Getenv)
+	resolved, err := settings.ResolveRouterPort(env.Getenv, home)
 	if err != nil {
-		return nil, layout.RouterLayout{}, err
+		return nil, layout.RouterLayout{}, settings.PortResolution{}, err
 	}
-	svc, err := router.New(router.Options{
-		State:       state,
-		Port:        port,
-		Runner:      env.Runner,
-		Logger:      env.Logger,
-		Environ:     env.Environ,
-		Invocation:  env.Invocation,
-		CommandName: env.CommandName,
+	svc, err := routerServiceWith(env, state, resolved)
+	if err != nil {
+		return nil, layout.RouterLayout{}, settings.PortResolution{}, err
+	}
+	return svc, state, resolved, nil
+}
+
+// routerServiceWith is the shared router built from a state and a port
+// resolution already made — Context's own, for `up`, so one command never
+// reads settings.toml twice (the same rule #80 set for BERTH_HOME).
+func routerServiceWith(env *Env, state layout.RouterLayout, resolved settings.PortResolution) (*router.Router, error) {
+	return router.New(router.Options{
+		State:        state,
+		Port:         resolved.Port,
+		Runner:       env.Runner,
+		Logger:       env.Logger,
+		Environ:      env.Environ,
+		Invocation:   env.Invocation,
+		CommandName:  env.CommandName,
+		SettingsPath: resolved.SettingsPath,
 	})
-	if err != nil {
-		return nil, layout.RouterLayout{}, err
-	}
-	return svc, state, nil
 }
 
 // routerHold holds the router's lock alone around action: acquire, run,
@@ -212,7 +223,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
-	svc, state, err := routerServiceFrom(env, home)
+	svc, state, _, err := routerServiceFrom(env, home)
 	if err != nil {
 		return err
 	}
@@ -261,7 +272,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 // the report below already said everything there is to say on stdout and
 // stderr; a caller must not also report a generic failure for this.
 func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
-	svc, _, err := newRouterService(env)
+	svc, _, resolved, err := newRouterService(env)
 	if err != nil {
 		return false, err
 	}
@@ -273,6 +284,11 @@ func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
 	for _, line := range report.Output {
 		env.Logger.Output(text.Printable(line))
 	}
+	if len(report.Output) > 0 {
+		// Where the port came from (#79): on stdout with the status line it
+		// belongs to, and, like that line, not when Docker could not be asked.
+		env.Logger.Output(text.Printable(resolved.Describe()))
+	}
 	for _, line := range report.Errors {
 		env.Logger.Error(line)
 	}
@@ -282,7 +298,7 @@ func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
 // RouterDown is `router down`: stop the shared router; worktree services
 // keep running but are no longer routed.
 func RouterDown(ctx context.Context, env *Env) error {
-	svc, _, err := newRouterService(env)
+	svc, _, _, err := newRouterService(env)
 	if err != nil {
 		return err
 	}

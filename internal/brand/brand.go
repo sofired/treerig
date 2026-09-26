@@ -25,9 +25,14 @@ const (
 	ConfigFile = "berth.toml"
 	// ExampleFile is the annotated copy in this repository, which the missing-config error points at.
 	ExampleFile = "berth.example.toml"
-	// HomeEnv overrides the berth root: the directory holding a future
-	// settings.toml (#79), router/ and the control home (#80). It is not
-	// itself the control home any more — ControlHomeEnv is.
+	// SettingsFile is the machine-wide, per-berth-root settings file (#79):
+	// unlike ConfigFile, it is not committed to any repository, and it does
+	// not follow BERTH_CONTROL_HOME or any XDG variable — only the berth
+	// root itself. Today it holds just the router's port.
+	SettingsFile = "settings.toml"
+	// HomeEnv overrides the berth root: the directory holding settings.toml
+	// (#79), router/ and the control home (#80). It is not itself the
+	// control home any more — ControlHomeEnv is.
 	HomeEnv = "BERTH_HOME"
 	// ControlHomeEnv overrides the control home directly, taking precedence
 	// over the one derived from HomeEnv (#80).

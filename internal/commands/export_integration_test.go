@@ -7,6 +7,7 @@ import (
 
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/berth/internal/settings"
 )
 
 // SharedRouter is the Router Up builds, over svc instead of the default
@@ -35,7 +36,13 @@ func DoctorSections(ctx context.Context, env *Env, svc *router.Router, state lay
 	if err != nil {
 		return nil, err
 	}
-	opts, err := doctorOptionsFor(env, home, userHome, svc, state, nil)
+	// The port resolution routerServiceFrom would have made for svc (#79):
+	// a failure to read settings.toml is an error here, as it is for doctor.
+	resolved, err := settings.ResolveRouterPort(env.Getenv, home)
+	if err != nil {
+		return nil, err
+	}
+	opts, err := doctorOptionsFor(env, home, userHome, svc, state, resolved, nil)
 	if err != nil {
 		return nil, err
 	}

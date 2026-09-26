@@ -50,6 +50,7 @@ import (
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/settings"
 	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -612,6 +613,9 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 type doctorRouterSource interface {
 	Status(ctx context.Context) (router.RouterStatus, error)
 	Network() string
+	// PublishedPort is the host port the running router publishes, and
+	// whether one is running at all (#79); see routerPortCheck.
+	PublishedPort(ctx context.Context) (port int, running bool, err error)
 }
 
 // realRouterSource adapts a real *router.Router — whose Network is a plain
@@ -621,6 +625,11 @@ type realRouterSource struct{ svc *router.Router }
 // Status delegates to the wrapped router.Router's own Status.
 func (r realRouterSource) Status(ctx context.Context) (router.RouterStatus, error) {
 	return r.svc.Status(ctx)
+}
+
+// PublishedPort delegates to the wrapped router.Router's own PublishedPort.
+func (r realRouterSource) PublishedPort(ctx context.Context) (int, bool, error) {
+	return r.svc.PublishedPort(ctx)
 }
 
 // Network returns the wrapped router.Router's Network field.
@@ -900,7 +909,10 @@ func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName strin
 // router could not even be described, and one skip if Docker Engine did not
 // answer. Otherwise it is the router's status, or a skip when Docker Compose
 // did not answer, since the status needs Compose, followed by routeChecks
-// and addressPoolsCheck, which need only the Engine.
+// and addressPoolsCheck, which need only the Engine, and last the port that
+// was resolved and where it came from (#79) — which needs nothing, though
+// comparing it with the port the running router publishes needs Compose,
+// so without Compose that line states the resolution alone.
 func routerSection(ctx context.Context, opts doctorOptions, state dockerState) ([]Check, error) {
 	if opts.RouterErr != nil {
 		return []Check{{Status: StatusFail, Subject: "router", Detail: opts.RouterErr.Error()}}, nil
@@ -941,7 +953,44 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 	if err != nil {
 		return nil, err
 	}
-	return append(checks, pools...), nil
+	checks = append(checks, pools...)
+	port, err := guarded("router port", func() ([]Check, error) {
+		// The resolution needs nothing; comparing it with what the running
+		// router publishes asks Compose for the container, so without Compose
+		// the line says only where the port came from — the same skip the
+		// status check above makes, not a failure.
+		if !state.composeAnswered {
+			return []Check{{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()}}, nil
+		}
+		check, err := routerPortCheck(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		return []Check{check}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append(checks, port...), nil
+}
+
+// routerPortCheck reports the router port doctor resolved and where it came
+// from (#79), and warns when the running router publishes a different one:
+// the next `up` or `router up` moves it, and URLs already open keep the old
+// port until then. Nothing running, or a port that cannot be read off the
+// container, is just the resolution itself.
+func routerPortCheck(ctx context.Context, opts doctorOptions) (Check, error) {
+	described := opts.RouterPort.Describe()
+	published, running, err := opts.Router.PublishedPort(ctx)
+	if err != nil {
+		return Check{}, err
+	}
+	if running && published != 0 && published != opts.RouterPort.Port {
+		return Check{Status: StatusWarn, Subject: "router port", Detail: fmt.Sprintf(
+			"%s, but the running router publishes %d; the next '%s up' or '%s router up' moves it, and URLs already open keep the old port until then",
+			described, published, opts.CommandName, opts.CommandName)}, nil
+	}
+	return Check{Status: StatusOK, Subject: "router port", Detail: described}, nil
 }
 
 /* ------------------------------------------------------------ checkout ---- */
@@ -1243,6 +1292,10 @@ type doctorOptions struct {
 	// even when Router/RouterErr says the router itself could not be
 	// described (a bad port does not change where its state directory is).
 	RouterStateDir string
+	// RouterPort is the router port resolved for this berth root and where
+	// it came from (#79): BERTH_ROUTER_PORT, settings.toml, or the default.
+	// Reported as its own line, against what the running router publishes.
+	RouterPort settings.PortResolution
 	// UserHome is the caller's own resolved home directory, handed to
 	// controlHomeCheck's own files.AssertAdoptableControlHome.
 	UserHome string
@@ -1324,7 +1377,7 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 // home; the real-daemon tests' own DoctorSections (export_integration_test.go)
 // call it with a router of their own name, port and state instead, the same
 // seam SharedRouter gives `up`, so the two can never drift apart.
-func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state layout.RouterLayout, svcErr error) (doctorOptions, error) {
+func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state layout.RouterLayout, resolved settings.PortResolution, svcErr error) (doctorOptions, error) {
 	checkout, err := findCheckout(env.ConfigPath, env.Cwd)
 	if err != nil {
 		return doctorOptions{}, err
@@ -1355,6 +1408,10 @@ func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state
 	// running router and no lock, matching doctor's own "reads, never
 	// writes" invariant (#55).
 	opts.RouterState = state
+	// The resolution routerServiceFrom made for svc's own port (#79),
+	// handed through rather than made again, so the line doctor prints can
+	// never disagree with the port the router it inspects was built for.
+	opts.RouterPort = resolved
 	routerScope := routerLockScope(state, svc.ProjectName)
 	opts.RouterLockScope = &routerScope
 	return opts, nil
@@ -1366,8 +1423,8 @@ func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state
 // above env.Cwd), then the shared router — or why one could not even be
 // described.
 func buildDoctorOptions(env *Env, home, userHome string) (doctorOptions, error) {
-	svc, state, err := routerServiceFrom(env, home)
-	return doctorOptionsFor(env, home, userHome, svc, state, err)
+	svc, state, resolved, err := routerServiceFrom(env, home)
+	return doctorOptionsFor(env, home, userHome, svc, state, resolved, err)
 }
 
 // Doctor is `doctor`. Its report goes to stdout, one line per check; its

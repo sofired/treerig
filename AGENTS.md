@@ -92,7 +92,7 @@ break them are not merged.
 - To try a build by hand, give it a scratch home so it doesn't touch the
   registered worktrees of the person you're working for. For the TypeScript
   build that is `BERTH_HOME`, its control home directly. For the Go build,
-  `BERTH_HOME` is the berth root — a future `settings.toml` (#79), the
+  `BERTH_HOME` is the berth root — `settings.toml` (#79), the
   router's own state and lock, and (unless `BERTH_CONTROL_HOME` overrides
   it) the control home all live under it (#80). For the Go build, a scratch
   `BERTH_HOME` also moves the router's state and lock, but not the router

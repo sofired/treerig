@@ -38,7 +38,7 @@ func FindConfigFile(startDir string) (string, bool, error) {
 
 // Parse validates contents, reporting problems against file.
 func Parse(contents []byte, file string) (Config, error) {
-	obj, err := decodeOrderedTOML(string(contents))
+	obj, err := DecodeOrderedTOML(string(contents))
 	if err != nil {
 		return Config{}, clierr.Newf("%s is not valid TOML: %s", file, err.Error())
 	}
