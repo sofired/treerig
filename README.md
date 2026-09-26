@@ -127,7 +127,7 @@ bakes in.
 ## Install
 
 There is no published binary yet — releases aren't set up (#8). Build it
-from source with Go (the version pinned in [`go.mod`](go.mod)):
+from source with Go, at least the version [`go.mod`](go.mod) names:
 
 ```bash
 git clone https://github.com/sofired/berth && cd berth
@@ -137,7 +137,7 @@ go install ./cmd/berth   # installs $(go env GOPATH)/bin/berth (or $GOBIN)
 or build a binary yourself and put it wherever you like:
 
 ```bash
-go build -o ~/.local/bin/berth ./cmd/berth   # any directory on PATH
+mkdir -p ~/.local/bin && go build -o ~/.local/bin/berth ./cmd/berth   # any directory on PATH
 ```
 
 `berth doctor` checks Git, Docker and Docker Compose once it is on PATH.
@@ -272,11 +272,13 @@ resources, the home directory, the registration, the identity marker.
 whose checkout is already gone; `--label-namespace` supplies the Docker label
 namespace of its resources when nothing on disk records it.
 
-`worktree remove` never runs the removal itself from wherever the invoked
-binary happens to live: before doing anything else, it installs a
-content-addressed copy of itself under the control home — outside any
-checkout — and hands the removal to that copy. Deleting a checkout can
-therefore never delete the program still removing it. The copy is exactly
+`worktree remove` does not run the removal from wherever the invoked binary
+happens to live: before doing anything else, it installs a content-addressed
+copy of itself under the control home — outside any checkout — and hands the
+removal to that copy, so deleting a checkout cannot delete the program still
+removing it. That holds whenever the copy can be installed and run; when it
+cannot, removal continues with the invoked binary, as described below. The
+copy is exactly
 the binary that was invoked, though, nothing more: a build made from a
 branch still runs that branch's code once relocated, just from somewhere the
 checkout it is removing cannot take down with it. Running only a trusted,
@@ -609,7 +611,7 @@ for whichever it accepted unchecked.
 
 ## Development
 
-Go — the version pinned in [`go.mod`](go.mod).
+Go, at least the version [`go.mod`](go.mod) names.
 
 ```bash
 gofmt -l cmd internal tools                             # must print nothing
