@@ -142,7 +142,11 @@ type Options struct {
 	// CommandName is the name the CLI was invoked as; appears in advice.
 	CommandName string
 	// Page returns the placeholder index page; defaults to defaultPlaceholderPage.
-	Page PlaceholderPage
+	// SettingsPath names the settings file (#79) in the message a router
+	// that fails to start prints, beside BERTH_ROUTER_PORT; "" names it
+	// generically, as brand.SettingsFile.
+	SettingsPath string
+	Page         PlaceholderPage
 	// Timeouts overrides this router's per-call docker timeouts (#14).
 	Timeouts Timeouts
 	// Home is the berth root (BERTH_HOME) this Router's state was resolved
@@ -162,6 +166,7 @@ type Router struct {
 	ProjectName string
 
 	state          layout.RouterLayout
+	settingsPath   string
 	labelNamespace string
 	runner         run.Runner
 	logger         logger.Logger
@@ -210,6 +215,7 @@ func New(options Options) (*Router, error) {
 		environ:        options.Environ,
 		invocation:     options.Invocation,
 		commandName:    options.CommandName,
+		settingsPath:   options.SettingsPath,
 		page:           page,
 		timeouts:       options.Timeouts.withDefaults(),
 		home:           options.Home,
@@ -1283,6 +1289,11 @@ func (r *Router) Ensure(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// What port a router already running publishes, read before anything
+	// changes it, so a port change can be announced once it is a fact
+	// (notePortChange, #79). Best effort: an error here is the same class
+	// previousProtocol just handled, and a notice is not worth failing for.
+	priorPort, wasRunning, _ := r.publishedPort(ctx)
 	if err := r.write(time.Now()); err != nil {
 		return err
 	}
@@ -1366,6 +1377,7 @@ func (r *Router) Ensure(ctx context.Context) error {
 	// The warning is about what Verify just established, so it is said even
 	// if recording the new protocol fails.
 	r.noteUnroutedAfterUpgrade(previous, hadHistory)
+	r.notePortChange(priorPort, wasRunning)
 	if !hadHistory || previous != Protocol {
 		// A record that will not write costs a repeated announcement next
 		// time, not a router: never fail a verified `up` over it.
@@ -1390,12 +1402,73 @@ func (r *Router) start(ctx context.Context, extra []string) error {
 		if detail == "" {
 			detail = strings.TrimSpace(result.Stdout)
 		}
+		settingsFile := r.settingsPath
+		if settingsFile == "" {
+			settingsFile = brand.SettingsFile
+		}
+		// Said only when the port is one a rootless daemon could never publish
+		// and the failure reads as a refusal rather than a busy port: an
+		// "address already in use" on port 80 is somebody else's server, not a
+		// missing capability.
+		rootless := ""
+		if r.Port < 1024 && rootlessRefusal.MatchString(detail) {
+			rootless = " If your Docker daemon runs rootless, it cannot publish a port below 1024 at all; pick one above 1023."
+		}
 		return clierr.Newf(
-			"The shared router failed to start. Make sure 127.0.0.1:%d is free, or choose another port with %s_ROUTER_PORT.\n%s",
-			r.Port, brand.EnvPrefix, detail)
+			"The shared router failed to start. Make sure 127.0.0.1:%d is free, or choose another port with %s_ROUTER_PORT or [router] port in %s.%s\n%s",
+			r.Port, brand.EnvPrefix, settingsFile, rootless, detail)
 	}
 	return nil
 }
+
+// publishedPort reports the host port the running router publishes for its
+// own port 80, read off its container: 0 when it publishes none that can be
+// read, and running false when there is no container at all. A container
+// that cannot be inspected counts as running with an unknown port — the
+// same "no evidence either way" previousProtocol settles for.
+func (r *Router) publishedPort(ctx context.Context) (port int, running bool, err error) {
+	id, err := r.containerID(ctx, RouterService)
+	if err != nil {
+		return 0, false, err
+	}
+	if id == "" {
+		return 0, false, nil
+	}
+	inspected, err := r.inspect(ctx, id)
+	if err != nil {
+		return 0, false, err
+	}
+	if inspected == nil {
+		return 0, true, nil
+	}
+	for _, binding := range inspected.NetworkSettings.Ports["80/tcp"] {
+		if n, err := strconv.Atoi(binding.HostPort); err == nil && n > 0 {
+			return n, true, nil
+		}
+	}
+	return 0, true, nil
+}
+
+// PublishedPort is publishedPort for callers outside this package: doctor
+// compares it with the port it resolved (#79) and warns when they differ.
+func (r *Router) PublishedPort(ctx context.Context) (port int, running bool, err error) {
+	return r.publishedPort(ctx)
+}
+
+// notePortChange is said once the router is verified on r.Port: a router
+// that was running on another port before this Ensure has just been
+// recreated on the new one (Verify's own port check made that happen), so
+// URLs already open — the index page's included — still name the old port.
+func (r *Router) notePortChange(priorPort int, wasRunning bool) {
+	if !wasRunning || priorPort == 0 || priorPort == r.Port {
+		return
+	}
+	r.logger.Info(fmt.Sprintf("The shared router moved from port %d to %d; URLs already open, the index page included, still use the old port.", priorPort, r.Port))
+}
+
+// rootlessRefusal matches the way a daemon that cannot bind a privileged
+// port says so — a permission failure, never a busy port.
+var rootlessRefusal = regexp.MustCompile(`(?i)permission denied|operation not permitted|not permitted|cannot expose privileged port`)
 
 // RouterStatus is what `router status` says, and where.
 type RouterStatus struct {

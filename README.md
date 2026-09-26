@@ -218,6 +218,9 @@ so your Compose file never mentions the router. Chrome and Firefox resolve
 on the system resolver — see [Platform notes](#platform-notes). If port 80 is
 taken, set `BERTH_ROUTER_PORT` — the printed URLs follow it.
 
+**Go build only:** it also reads a `[router] port` from `settings.toml` — see
+[Configuration](#configuration).
+
 **Go build only.** The override adds no Traefik or discovery labels,
 `dev.berth.router` included, and joins no container to the shared network
 (row 30). `up` writes one file-provider fragment per routed service instead,
@@ -368,10 +371,22 @@ belongs to, rather than recreating it. Taking it over is an explicit step:
 
 The control home is `~/.berth`, overridable only through the `BERTH_HOME`
 environment variable, and the router's loopback port is 80, overridable only
-through `BERTH_ROUTER_PORT` — deliberately not config-file settings. The
+through `BERTH_ROUTER_PORT` in the TypeScript build (the Go build also reads
+`settings.toml`, below) — deliberately not config-file settings. The
 config file is committed and shared; a path that is only correct on one
 machine has no business in it, and one developer pointing it at a synced
 folder would put the whole team's state on iCloud Drive.
+
+**Go build only.** The router's port can also come from `settings.toml` in the
+berth root (`~/.berth/settings.toml`, never under `BERTH_CONTROL_HOME`): a
+`[router]` table with `port = 8080`. It is a machine's own setting, not a
+project's, so it is never committed; unknown keys are rejected the way
+`berth.toml`'s are. `BERTH_ROUTER_PORT` still overrides it, then the file,
+then 80. `router status` and `doctor` say which one applied and name the
+file, `doctor` warns when the running router publishes a different port, and
+an `up` that moves the router to a new port says that URLs already open —
+the index page included — still use the old one (row 36 in the divergence
+ledger).
 
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.berth-control-home` marker to
@@ -453,7 +468,11 @@ version expects, and nothing at all on stdout when Docker could not be asked —
 that case is a `Router state unknown:` line on stderr. Each reported problem is
 its own `Router problem:` line on stderr. Both `running` and `not running` exit
 0, because "is it there?" is the question and both are answers; `degraded` and
-an unreachable Docker exit 1.
+an unreachable Docker exit 1. **Go build only:** whenever that status line is
+printed, a second stdout line follows it saying which port was resolved and
+from where — `port <n> from <settings file>`, `port <n> from
+BERTH_ROUTER_PORT (overriding <settings file>)` or `port <n> by default
+(<settings file> sets none)`; it too is absent when Docker could not be asked.
 
 `doctor` writes its report to stdout: one section per area (`Prerequisites`,
 `Registry`, `Locks`, `Router`, `This checkout`), one line per check, each marked `ok`,
@@ -465,7 +484,9 @@ The exit code names one failure; the report names them all. A `verify` hook
 that exits 124 makes `doctor` exit 124 too — the code `timeout(1)` uses for a
 command it had to kill — so a script that wraps `doctor` in `timeout` cannot
 tell the two apart by exit code alone. It takes no lock, writes nothing, and
-repairs nothing; it reports.
+repairs nothing; it reports. **Go build only:** its `Router` section ends with a
+`router port` line saying the same as `router status`'s second line, a `warn`
+when the running router publishes a different port than the one resolved.
 
 `worktree unlock` writes nothing to stdout: what it verified and what it
 cleared are notices on stderr. A refusal is an error that exits 1 and clears

@@ -68,9 +68,12 @@ seed = "./hooks/record"
 type walk struct {
 	base, checkout, controlHome, namespace, log string
 	port                                        int
-	env                                         *commands.Env
-	svc                                         *router.Router
-	state                                       layout.RouterLayout
+	// portFromSettings makes the getenv leave BERTH_ROUTER_PORT unset, so
+	// the port must come from settings.toml under the berth root (#79).
+	portFromSettings bool
+	env              *commands.Env
+	svc              *router.Router
+	state            layout.RouterLayout
 }
 
 // randomSuffix is a short random hex string, for names unique to one test run.
@@ -155,6 +158,9 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 		case "HOME":
 			return filepath.Join(base, "home"), true
 		case "BERTH_ROUTER_PORT":
+			if w.portFromSettings {
+				return "", false
+			}
 			return strconv.Itoa(w.port), true
 		}
 		return "", false
@@ -338,6 +344,39 @@ func TestUpDownRemoveOnARealDaemon(t *testing.T) {
 	w.eventually(t, router.IndexHost, func(status int, body string) bool {
 		return status == http.StatusOK && strings.Contains(body, fmt.Sprintf(`href="http://%s:%d"`, host, w.port)) &&
 			strings.Contains(body, "status-running")
+	})
+
+	w.downAndRemove(t, result, host)
+}
+
+// TestUpUsesTheSettingsFilePortOnARealDaemon is #79 against a real daemon:
+// with the router's port set only in settings.toml under the berth root,
+// every command resolves that port — the context `up` builds, the URLs it
+// prints and the index page it refreshes all carry it, and nothing falls
+// back to 80. The walk's own router already listens on that port (it is
+// this test's, never the machine's), so what this proves is the resolution
+// from the file, not the environment.
+func TestUpUsesTheSettingsFilePortOnARealDaemon(t *testing.T) {
+	w := newWalk(t)
+	w.portFromSettings = true
+	if _, set := w.env.Getenv("BERTH_ROUTER_PORT"); set {
+		t.Fatal("BERTH_ROUTER_PORT must be unset for this test to prove anything")
+	}
+	home, _ := w.env.Getenv("HOME")
+	root := filepath.Join(home, ".berth")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "settings.toml"), fmt.Sprintf("[router]\nport = %d\n", w.port), 0o600)
+	const host = "feature-walk.walk.localhost"
+
+	if cctx := w.context(t); cctx.RouterPort != w.port {
+		t.Fatalf("RouterPort = %d, want %d from settings.toml", cctx.RouterPort, w.port)
+	}
+	result := w.up(t)
+	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
+	w.eventually(t, router.IndexHost, func(status int, body string) bool {
+		return status == http.StatusOK && strings.Contains(body, fmt.Sprintf(`href="http://%s:%d"`, host, w.port))
 	})
 
 	w.downAndRemove(t, result, host)

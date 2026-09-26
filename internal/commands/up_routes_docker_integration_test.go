@@ -121,15 +121,19 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 	// doctor sees both services' own route fragments, and no two routers
 	// sharing a rule yet. Under #55 doctor reads route fragments
 	// (router.ListFragments), never container labels, so the Router section
-	// gains one more check than a pre-#55 build's own two (status, routes):
-	// status, its owner (#82), routes, and doctor's address-pools check.
+	// gains more checks than a pre-#55 build's own two (status, routes):
+	// status, its owner (#82), routes, doctor's address-pools check, and the
+	// port it resolved and where that came from (#79).
 	sections, err := commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
 	if err != nil {
 		t.Fatalf("DoctorSections: %v", err)
 	}
 	checks := routerChecks(sections)
-	if len(checks) != 4 {
+	if len(checks) != 5 {
 		t.Fatalf("router checks before the impostor = %+v", checks)
+	}
+	if last := checks[4]; last.Status != commands.StatusOK || last.Subject != "router port" || !strings.Contains(last.Detail, fmt.Sprintf("port %d from BERTH_ROUTER_PORT", w.port)) {
+		t.Fatalf("router port before the impostor = %+v", last)
 	}
 	if checks[0].Status != commands.StatusOK || !strings.Contains(checks[0].Detail, fmt.Sprintf("running on 127.0.0.1:%d", w.port)) || !strings.Contains(checks[0].Detail, w.svc.Network) {
 		t.Fatalf("router status before the impostor = %+v", checks[0])

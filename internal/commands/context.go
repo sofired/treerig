@@ -12,6 +12,7 @@ import (
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/settings"
 )
 
 // CommandContext is everything a verb needs, assembled once per invocation
@@ -38,10 +39,20 @@ type CommandContext struct {
 	// ControlHome (up.go), the same way registry.Options.UserHome carries
 	// it to the registry's own writes (#80).
 	UserHome string
-	// RouterPort is BERTH_ROUTER_PORT, or 80 — the port `urls` prints
-	// routed services on. It is the same value a running RouterService would
-	// report as its own `port`, without needing one built.
+	// RouterPort is BERTH_ROUTER_PORT, then settings.toml's [router] port
+	// under the checked berth root, then 80 (settings.ResolveRouterPort,
+	// #79) — the port `urls` prints routed services on. It is the same
+	// value a running RouterService would report as its own `port`,
+	// without needing one built.
+	// Home is the berth root (BERTH_HOME) this context resolved and checked
+	// once; `up` hands it to the router it starts, as the root that owns it
+	// (#82).
+	Home       string
 	RouterPort int
+	// RouterPortResolution is RouterPort with where it came from and the
+	// settings file consulted (#79), the one resolution this context made:
+	// `up` builds its router from it rather than resolving again.
+	RouterPortResolution settings.PortResolution
 	// RouterState is the shared router's own on-disk layout — where its
 	// lock and its index page live (row 9 in the divergence ledger: neither
 	// is under ControlHome any more). Resolved once here so
@@ -111,10 +122,11 @@ func Context(env *Env) (*CommandContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	routerPort, err := layout.ResolveRouterPort(env.Getenv)
+	resolvedPort, err := settings.ResolveRouterPort(env.Getenv, home)
 	if err != nil {
 		return nil, err
 	}
+	routerPort := resolvedPort.Port
 	routerState := layout.RouterStateFrom(home)
 
 	reg := registry.New(registry.Options{
@@ -130,18 +142,20 @@ func Context(env *Env) (*CommandContext, error) {
 	})
 
 	return &CommandContext{
-		CommandName: env.CommandName,
-		Invocation:  env.Invocation,
-		Logger:      env.Logger,
-		Runner:      env.Runner,
-		Loaded:      loaded,
-		ControlHome: controlHome,
-		UserHome:    userHome,
-		RouterPort:  routerPort,
-		RouterState: routerState,
-		Registry:    reg,
-		Environ:     env.Environ,
-		Table:       env.Table,
-		Lifecycle:   env.Lifecycle,
+		CommandName:          env.CommandName,
+		Invocation:           env.Invocation,
+		Logger:               env.Logger,
+		Runner:               env.Runner,
+		Loaded:               loaded,
+		ControlHome:          controlHome,
+		UserHome:             userHome,
+		Home:                 home,
+		RouterPort:           routerPort,
+		RouterPortResolution: resolvedPort,
+		RouterState:          routerState,
+		Registry:             reg,
+		Environ:              env.Environ,
+		Table:                env.Table,
+		Lifecycle:            env.Lifecycle,
 	}, nil
 }

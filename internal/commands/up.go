@@ -75,7 +75,11 @@ func Up(ctx context.Context, env *Env, options UpOptions) error {
 	if err != nil {
 		return err
 	}
-	svc, state, err := newRouterService(env)
+	// From the context's own resolution of the berth root and port, not a
+	// second one (found in review of #79): the URL table `up` prints and the
+	// router it starts must never read settings.toml separately.
+	state := cctx.RouterState
+	svc, err := routerServiceWith(env, cctx.Home, state, cctx.RouterPortResolution)
 	if err != nil {
 		return err
 	}

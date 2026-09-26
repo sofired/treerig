@@ -35,6 +35,7 @@ import (
 	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/settings"
 )
 
 /* -------------------------------------------------------------- fakes ---- */
@@ -170,12 +171,17 @@ type fakeRouterSource struct {
 	ownerErr error
 	err      error
 	asked    int
+	// published, publishedRunning and publishedErr are what PublishedPort
+	// answers (#79).
+	published        int
+	publishedRunning bool
+	publishedErr     error
 }
 
 // newFakeRouterSource is a fakeRouterSource reporting a reachable, running,
 // clean router on network "berth-router".
 func newFakeRouterSource() *fakeRouterSource {
-	return &fakeRouterSource{network: "berth-router", status: router.RouterStatus{Reachable: true, Running: true, Port: 80, Network: "berth-router"}}
+	return &fakeRouterSource{network: "berth-router", status: router.RouterStatus{Reachable: true, Running: true, Port: 80, Network: "berth-router"}, published: 80, publishedRunning: true}
 }
 
 // Status counts the call and returns f.err if set, otherwise f.status.
@@ -198,6 +204,11 @@ func (f *fakeRouterSource) Owner(ctx context.Context) (router.Ownership, error) 
 		return router.Ownership{}, f.ownerErr
 	}
 	return f.owner, nil
+}
+
+// PublishedPort answers the staged published port, running flag and error.
+func (f *fakeRouterSource) PublishedPort(context.Context) (int, bool, error) {
+	return f.published, f.publishedRunning, f.publishedErr
 }
 
 // fakeCheckoutRegistry is CheckoutRegistry from src/commands/doctor.ts,
@@ -229,7 +240,8 @@ func testOpts(t *testing.T, overrides func(*doctorOptions)) doctorOptions {
 	opts := doctorOptions{
 		CommandName: "berth", ControlHome: filepath.Join(base, "control"),
 		Home: home, RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(base, "user-home"),
-		Runner: newDoctorRunner(nil), Logger: logger.Silent{},
+		RouterPort: settings.PortResolution{Port: 80, Source: settings.PortDefault, SettingsPath: layout.SettingsPathFrom(home)},
+		Runner:     newDoctorRunner(nil), Logger: logger.Silent{},
 		Router: newFakeRouterSource(), Checkout: checkoutNone("/nowhere"),
 	}
 	if overrides != nil {
@@ -900,9 +912,9 @@ func TestDoctorSections(t *testing.T) {
 		if !contains(section(sections, "Registry")[1].Detail, "not created yet") {
 			t.Fatalf("registry[1] = %+v", section(sections, "Registry")[1])
 		}
-		wantRouter := []string{"ok router", "ok routes", "ok address pools"}
+		wantRouter := []string{"ok router", "ok routes", "ok address pools", "ok router port"}
 		gotRouter := statuses(sections, "Router")
-		if len(gotRouter) != 3 || gotRouter[0] != wantRouter[0] || gotRouter[1] != wantRouter[1] || gotRouter[2] != wantRouter[2] {
+		if len(gotRouter) != 4 || gotRouter[0] != wantRouter[0] || gotRouter[1] != wantRouter[1] || gotRouter[2] != wantRouter[2] || gotRouter[3] != wantRouter[3] {
 			t.Fatalf("router = %v", gotRouter)
 		}
 		checkout := section(sections, "This checkout")
@@ -985,7 +997,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantRouter := []string{"ok router", "fail router owner", "ok routes", "ok address pools"}
+		wantRouter := []string{"ok router", "fail router owner", "ok routes", "ok address pools", "ok router port"}
 		gotRouter := statuses(sections, "Router")
 		if len(gotRouter) != len(wantRouter) {
 			t.Fatalf("router = %v, want %v", gotRouter, wantRouter)
@@ -1007,6 +1019,10 @@ func TestDoctorSections(t *testing.T) {
 		runner := newDoctorRunner(nil)
 		runner.state.docker["compose"] = outcome{result: run.Result{Stderr: "docker: 'compose' is not a docker command.", ExitCode: 1}}
 		fakeRouter := newFakeRouterSource()
+		// Without Compose the port line must not ask the router for its
+		// published port at all (found in review of #79): a fake that
+		// would fail that call proves it is never made.
+		fakeRouter.publishedErr = errors.New("compose absent")
 		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.Router = fakeRouter })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
@@ -1016,9 +1032,10 @@ func TestDoctorSections(t *testing.T) {
 			{Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"},
 			{Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
 			{Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
+			{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}
 		got := section(sections, "Router")
-		if len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		if len(got) != 4 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
 			t.Fatalf("router = %+v", got)
 		}
 		if fakeRouter.asked != 0 {
@@ -1051,7 +1068,8 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatalf("prerequisites[1:] = %v", gotPrereq)
 		}
 		gotRouter := section(sections, "Router")
-		if len(gotRouter) != 1 || gotRouter[0] != (Check{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}) {
+		wantPort := Check{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()}
+		if len(gotRouter) != 2 || gotRouter[0] != (Check{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}) || gotRouter[1] != wantPort {
 			t.Fatalf("router = %+v", gotRouter)
 		}
 		if fakeRouter.asked != 0 {
@@ -1078,7 +1096,7 @@ func TestDoctorSections(t *testing.T) {
 		if got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
-		if gotRouter := statuses(sections, "Router"); len(gotRouter) != 1 || gotRouter[0] != "skip router" {
+		if gotRouter := statuses(sections, "Router"); len(gotRouter) != 2 || gotRouter[0] != "skip router" || gotRouter[1] != "ok router port" {
 			t.Fatalf("router = %v", gotRouter)
 		}
 	})
@@ -1251,9 +1269,10 @@ func TestDoctorSections(t *testing.T) {
 			{Status: StatusFail, Subject: "router", Detail: "exploded"},
 			{Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
 			{Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
+			{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}
 		got := section(sections, "Router")
-		if len(got) != 3 || got[0] != wantRouter[0] || got[1] != wantRouter[1] || got[2] != wantRouter[2] {
+		if len(got) != 4 || got[0] != wantRouter[0] || got[1] != wantRouter[1] || got[2] != wantRouter[2] || got[3] != wantRouter[3] {
 			t.Fatalf("got %+v", got)
 		}
 		found := false
@@ -2359,4 +2378,87 @@ func mutateHolderRecord(t *testing.T, scope lock.Scope, edit func(rec map[string
 	if err := os.WriteFile(path, append(out, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestDoctorRouterPort is #79's "router port" line: the port doctor resolved
+// and where it came from, warned about when the running router publishes a
+// different one, and failed on its own when that port cannot be read.
+func TestDoctorRouterPort(t *testing.T) {
+	last := func(t *testing.T, sections []Section) Check {
+		t.Helper()
+		checks := section(sections, "Router")
+		if len(checks) == 0 {
+			t.Fatal("no Router checks")
+		}
+		return checks[len(checks)-1]
+	}
+	fromFile := settings.PortResolution{Port: 8080, Source: settings.PortFile, SettingsPath: "/berth/settings.toml"}
+
+	t.Run("reports the resolved router port and where it came from", func(t *testing.T) {
+		fake := newFakeRouterSource()
+		fake.status.Port, fake.published = 8080, 8080
+		opts := testOpts(t, func(o *doctorOptions) { o.Router = fake; o.RouterPort = fromFile })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := Check{Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
+		if got := last(t, sections); got != want {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("warns when the running router publishes a different port than the one resolved", func(t *testing.T) {
+		fake := newFakeRouterSource()
+		fake.published = 80
+		opts := testOpts(t, func(o *doctorOptions) {
+			o.Router = fake
+			o.RouterPort = settings.PortResolution{Port: 8080, Source: settings.PortEnv, SettingsPath: "/berth/settings.toml"}
+		})
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := Check{Status: StatusWarn, Subject: "router port", Detail: "port 8080 from BERTH_ROUTER_PORT (overriding /berth/settings.toml), but the running router publishes 80; the next 'berth up' or 'berth router up' moves it, and URLs already open keep the old port until then"}
+		if got := last(t, sections); got != want {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+		if code := doctorExitCode(sections); code != 0 {
+			t.Fatalf("a warning must not fail doctor, got exit %d", code)
+		}
+	})
+
+	t.Run("says only where the port came from when no router is running", func(t *testing.T) {
+		fake := newFakeRouterSource()
+		fake.status.Running, fake.publishedRunning, fake.published = false, false, 0
+		opts := testOpts(t, func(o *doctorOptions) { o.Router = fake; o.RouterPort = fromFile })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := Check{Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
+		if got := last(t, sections); got != want {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("fails the router port line, and nothing else, when the running router's port cannot be read", func(t *testing.T) {
+		fake := newFakeRouterSource()
+		fake.publishedErr = errors.New("inspect exploded")
+		opts := testOpts(t, func(o *doctorOptions) { o.Router = fake; o.RouterPort = fromFile })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checks := section(sections, "Router")
+		want := Check{Status: StatusFail, Subject: "router port", Detail: "inspect exploded"}
+		if got := checks[len(checks)-1]; got != want {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+		for _, check := range checks[:len(checks)-1] {
+			if check.Status == StatusFail {
+				t.Fatalf("another line failed too: %+v", check)
+			}
+		}
+	})
 }

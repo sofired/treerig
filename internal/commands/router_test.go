@@ -281,10 +281,73 @@ func TestRouterStatus(t *testing.T) {
 	})
 }
 
+// TestRouterStatusPortLine is #79: beside its status line, `router status`
+// says on stdout which port it resolved and where that came from.
+func TestRouterStatusPortLine(t *testing.T) {
+	t.Run("says where the port came from, on stdout with the status line", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		getenv := routerEnvGetenv(map[string]string{"HOME": home})
+		root := filepath.Join(home, ".berth")
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "settings.toml"), []byte("[router]\nport = 8080\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rec := &logger.Recording{}
+		// A runner that answers every call with empty success: no container
+		// is listed, so the router reads as reachable but not running.
+		env := &commands.Env{CommandName: "berth", Logger: rec, Getenv: getenv, Runner: &fakerun.Runner{}}
+
+		failed, err := commands.RouterStatus(context.Background(), env)
+		if err != nil {
+			t.Fatalf("RouterStatus: %v", err)
+		}
+		if failed {
+			t.Error("expected failed = false")
+		}
+		_, printed := rec.Snapshot()
+		want := []string{
+			"not running (would use 127.0.0.1:8080, network berth-router)",
+			"port 8080 from " + filepath.Join(root, "settings.toml"),
+		}
+		if len(printed) != len(want) || printed[0] != want[0] || printed[1] != want[1] {
+			t.Fatalf("stdout = %q, want %q", printed, want)
+		}
+	})
+}
+
 func TestRouterDown(t *testing.T) {
 	t.Run("stops the router by project name alone", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		getenv := routerEnvGetenv(map[string]string{"HOME": home})
+		fake := &fakerun.Runner{}
+		env := &commands.Env{CommandName: "berth", Logger: &logger.Recording{}, Getenv: getenv, Runner: fake}
+
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		found := false
+		for _, line := range fake.Argv() {
+			if strings.Contains(line, "compose --project-name "+router.DefaultName+" down --remove-orphans") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected a down call, got %v", fake.Argv())
+		}
+	})
+
+	t.Run("stops the router even when settings.toml is malformed: down needs no port", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		root := filepath.Join(home, ".berth")
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "settings.toml"), []byte("[router]\nport = \"eighty\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_ROUTER_PORT": "not-a-port"})
 		fake := &fakerun.Runner{}
 		env := &commands.Env{CommandName: "berth", Logger: &logger.Recording{}, Getenv: getenv, Runner: fake}
 

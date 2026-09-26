@@ -9,13 +9,17 @@ import (
 	"github.com/sofired/berth/internal/shape"
 )
 
-// decodeOrderedTOML parses contents and rebuilds it as a [shape.Obj] tree
+// DecodeOrderedTOML parses contents and rebuilds it as a [shape.Obj] tree
 // that remembers the order its keys appeared in the file. shape's
 // "Unrecognized key(s)" message, and its schema-order defaulting, both
 // depend on that order — BurntSushi/toml decodes into an ordinary
 // map[string]any, which (like every Go map) does not preserve it, so this
 // pairs the decoded value back up with the key order from its MetaData.
-func decodeOrderedTOML(contents string) (*shape.Obj, error) {
+//
+// Exported so internal/settings can decode settings.toml the same strict
+// way berth.toml is decoded below (Parse), without duplicating this bridge
+// between BurntSushi's decoder and shape's own ordered object.
+func DecodeOrderedTOML(contents string) (*shape.Obj, error) {
 	var generic map[string]any
 	meta, err := toml.Decode(contents, &generic)
 	if err != nil {
