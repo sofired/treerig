@@ -82,6 +82,18 @@ func TestOverrideCorpus(t *testing.T) {
 			if buildErr != nil {
 				t.Fatalf("overrideDocument: %v", buildErr)
 			}
+			if len(routes) > 0 {
+				// Go gives every worktree its own dedicated, owned router
+				// network instead of TypeScript's one shared external
+				// network (docs/port/divergences.md row 31); the oracle
+				// fixture's bytes are TypeScript's own shape and no longer
+				// match. The corpus case still ran overrideDocument above
+				// (label merging, hostile names, refusals) — only the
+				// byte-for-byte comparison is skipped. See
+				// override_network_test.go for the Go-only pinning tests
+				// of the new network/alias shape.
+				t.Skip("routed case: network shape diverges from the TypeScript oracle (row 31)")
+			}
 			gotBytes, err := marshalOverrideDocument(document)
 			if err != nil {
 				t.Fatalf("marshalOverrideDocument: %v", err)

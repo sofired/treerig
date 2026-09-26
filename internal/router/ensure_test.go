@@ -42,7 +42,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 		for name := range document.Services {
 			names = append(names, name)
 		}
-		wantServices := map[string]bool{"docker-api": true, "index": true, "router": true}
+		wantServices := map[string]bool{"index": true, "router": true}
 		if len(names) != len(wantServices) {
 			t.Fatalf("services = %v", names)
 		}
@@ -60,7 +60,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 		if !containsSubstring(document.Services["router"].Command, "--providers.file.directory="+router.DynamicConfigMount) {
 			t.Fatalf("router command = %v", document.Services["router"].Command)
 		}
-		if document.Networks["router"].Name != testNetwork || document.Networks["docker-api"].Internal != true {
+		if document.Networks["router"].Name != testNetwork {
 			t.Fatalf("networks = %+v", document.Networks)
 		}
 		// What the containers read must be readable by root with no capabilities; what they don't, stays private.
@@ -186,29 +186,139 @@ func TestRouterServiceEnsure(t *testing.T) {
 		mustContain(t, lines, unrouted)
 	})
 
-	// Switches itself on at the next protocol bump: a router that already
-	// carries the label needs no such warning. router.Protocol (4) is now
-	// past router.RoutedBySinceProtocol (3), which the TypeScript source's
-	// `it.skipIf(ROUTER_PROTOCOL === ROUTED_BY_SINCE_PROTOCOL)` used to skip
-	// while they were equal; that can never happen again once the protocol
-	// only ever increases, so this runs unconditionally here.
-	t.Run("upgrades a router that already routes by label without warning about routing", func(t *testing.T) {
+	// #55: `compose up --remove-orphans` drops the now-undeclared docker-api
+	// *container* on a force-recreate, but never prunes a network the
+	// current file simply no longer declares — so without this cleanup, the
+	// retired docker-api network would survive every upgrade forever.
+	t.Run("removes the retired docker-api network on an upgrade across the file-provider boundary", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		older := routerDoc(w.State.DynamicDir, w.Port)
 		older.Config.Labels = testLabels("router")
-		older.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.Protocol - 1)
+		older.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.FileProviderSinceProtocol - 1)
 		w.Fake.setDoc("router-1", older)
 		w.Fake.mu.Lock()
 		w.Fake.onRecreate = w.setHealthy
+		w.Fake.legacyNetworkLs = "legacy-docker-api-net-id\n"
 		w.Fake.mu.Unlock()
 
 		if err := w.Router.Ensure(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "legacy-docker-api-net-id" {
+			t.Fatalf("network rm calls = %v, want exactly one for the legacy network", rms)
+		}
+	})
+
+	// Found in review, round 2 of #55: a first cut ran removeLegacyDockerAPINetwork
+	// only inside the force-recreate branch, but Compose's own plain `up`
+	// already recreates a container whose image or command line changed —
+	// exactly what a protocol upgrade's own compose file always does —
+	// which is the far more common upgrade path and never entered that
+	// branch at all, since the first Verify already read clean. Staging
+	// onUp (fired on every `up`, plain or recreate), not onRecreate,
+	// simulates that: the very first `up` already brings the router to the
+	// current shape, so Ensure never warns or recreates, yet the retired
+	// network must still be removed.
+	t.Run("removes the retired docker-api network on an upgrade Compose's own plain up already recreated, with no drift left to force a recreate over", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		older := routerDoc(w.State.DynamicDir, w.Port)
+		older.Config.Labels = testLabels("router")
+		older.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.FileProviderSinceProtocol - 1)
+		w.Fake.setDoc("router-1", older)
+		w.Fake.mu.Lock()
+		w.Fake.onUp = w.setHealthy
+		w.Fake.legacyNetworkLs = "legacy-docker-api-net-id\n"
+		w.Fake.mu.Unlock()
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if ups := w.ups(); len(ups) != 1 || containsArg(ups[0], "--force-recreate") {
+			t.Fatalf("ups = %v, want exactly one plain up, no recreate", ups)
+		}
+		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "legacy-docker-api-net-id" {
+			t.Fatalf("network rm calls = %v, want exactly one for the legacy network", rms)
+		}
+	})
+
+	// Found in review, round 3 of #55: gating this lookup on hadHistory &&
+	// previous < FileProviderSinceProtocol made a transient failure
+	// permanent, since this same Ensure call still records Protocol
+	// regardless of this cleanup's own outcome — the very next Ensure would
+	// then read previous == Protocol and never try again, leaking the
+	// network forever over one bad `docker network ls`. The fix runs the
+	// lookup unconditionally, on every Ensure, the same as
+	// reconcileOrphanedFragments: it is a cheap, label-filtered lookup that
+	// tolerates finding nothing, so a recreate that is not a protocol
+	// upgrade at all still looks — and, if a stray legacy network somehow
+	// exists anyway (left over by hand, or by an interrupted earlier run),
+	// still cleans it up rather than leaving it because "this wasn't the
+	// upgrade".
+	t.Run("looks for a legacy docker-api network on every Ensure, not only a protocol upgrade, and removes one if it is somehow still there", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		drifted := routerDoc(w.State.DynamicDir, w.Port)
+		drifted.HostConfig.ReadonlyRootfs = false
+		w.Fake.setDoc("router-1", drifted)
+		w.Fake.mu.Lock()
+		w.Fake.onRecreate = w.setHealthy
+		w.Fake.legacyNetworkLs = "would-be-removed-if-looked-up\n"
+		w.Fake.mu.Unlock()
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "would-be-removed-if-looked-up" {
+			t.Fatalf("network rm calls = %v, want exactly one: the lookup runs every Ensure, not only a protocol upgrade", rms)
+		}
+	})
+
+	// The self-healing property round 3 of #55's review asked for directly:
+	// a transient failure of the legacy-network lookup itself (the daemon
+	// briefly unreachable, say) must not be lost — the very next Ensure
+	// retries it, since nothing about running this cleanup is gated on
+	// protocol evidence any more.
+	t.Run("retries a failed legacy docker-api network cleanup on the next Ensure", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.mu.Lock()
+		w.Fake.legacyNetworkLsFailsOnce = true
+		w.Fake.legacyNetworkLs = "legacy-docker-api-net-id\n"
+		w.Fake.mu.Unlock()
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if rms := w.networkRms(); len(rms) != 0 {
+			t.Fatalf("network rm calls = %v, want none yet: the first lookup failed", rms)
+		}
 		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "info: Upgrading the shared router from protocol "+strconv.Itoa(router.Protocol-1)+" to "+strconv.Itoa(router.Protocol)+".")
-		// The drift warning still fires here (the fake's doc carries the old label until it is recreated); only routing must stay silent.
-		mustNotContain(t, lines, unrouted)
+		if !containsSubstring(lines, "Could not remove the retired docker-api network:") {
+			t.Fatalf("expected a warning naming the failed cleanup, got %v", lines)
+		}
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "legacy-docker-api-net-id" {
+			t.Fatalf("network rm calls = %v, want exactly one after the retry succeeds", rms)
+		}
+	})
+
+	// #55 bumps router.FileProviderSinceProtocol to router.Protocol (5)
+	// itself: every protocol below it now needs the unrouted-after-upgrade
+	// warning, since routing moved from Docker-provider discovery (whether
+	// by label, RoutedBySinceProtocol through 4, or by discovering every
+	// container, older still) to file-provider fragments on a per-worktree
+	// network that no earlier protocol ever wrote. There is therefore no
+	// "already routes the new way" previous protocol to pin a no-warning
+	// case against while the two constants coincide — mirroring the
+	// TypeScript source's own `it.skipIf(ROUTER_PROTOCOL ===
+	// ROUTED_BY_SINCE_PROTOCOL)` for the identical situation at the 3→4
+	// bump. This will need a real case again at the next protocol bump.
+	t.Run("upgrades a router that already routes the current way without warning about routing", func(t *testing.T) {
+		if router.Protocol != router.FileProviderSinceProtocol {
+			t.Fatal("router.Protocol and router.FileProviderSinceProtocol have diverged; write a real no-warning case here")
+		}
+		t.Skip("no protocol below router.Protocol already routes the current (file-provider) way; see the comment above")
 	})
 
 	t.Run("upgrades a router that was taken down across the upgrade, from what this control home last ran", func(t *testing.T) {
@@ -500,7 +610,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 		// A start that failed after creating the containers leaves them already carrying
 		// the new protocol label, though no router of that protocol has ever served anything.
 		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{"router": "router-1", "docker-api": "api-1", "index": "index-1"}
+		w.Fake.ids = map[string]string{"router": "router-1", "index": "index-1"}
 		w.Fake.mu.Unlock()
 		w.setHealthy()
 		leftover := routerDoc(w.State.DynamicDir, w.Port)
@@ -658,18 +768,29 @@ func TestRouterServiceEnsure(t *testing.T) {
 		mustNotContain(t, lines, unrouted)
 	})
 
-	t.Run("tells Traefik to discover only containers labelled for this router, and labels the index that way", func(t *testing.T) {
+	t.Run("tells Traefik to discover routes only from the file provider, never from Docker, and labels the index the old way", func(t *testing.T) {
 		// Pinned as literal text: the verifier compares against the same constants, so it alone cannot catch a typo here.
-		if !containsSubstring(router.RouterCommand("n"), "--providers.docker.constraints=Label(`dev.berth.router`,`n`)") {
-			t.Errorf("RouterCommand missing the discovery constraint")
+		for _, want := range router.RouterCommand() {
+			if strings.Contains(want, "--providers.docker") {
+				t.Errorf("RouterCommand still names a Docker-provider flag: %q", want)
+			}
+		}
+		if !containsSubstring(router.RouterCommand(), "--providers.file.directory="+router.DynamicConfigMount) {
+			t.Errorf("RouterCommand missing the file-provider directory")
+		}
+		if !containsSubstring(router.RouterCommand(), "--providers.file.watch=true") {
+			t.Errorf("RouterCommand missing the file-provider watch flag")
 		}
 		labels := router.IndexRouteLabels("n").Map()
 		if labels["dev.berth.router"] != "n" || labels["traefik.enable"] != "true" {
 			t.Errorf("IndexRouteLabels = %v", labels)
 		}
-		// Every fixture derives from this, so nothing else would notice it moving.
+		// Every fixture derives from these, so nothing else would notice either moving.
 		if router.RoutedBySinceProtocol != 3 {
 			t.Errorf("RoutedBySinceProtocol = %d, want 3", router.RoutedBySinceProtocol)
+		}
+		if router.FileProviderSinceProtocol != router.Protocol {
+			t.Errorf("FileProviderSinceProtocol = %d, want router.Protocol (%d)", router.FileProviderSinceProtocol, router.Protocol)
 		}
 	})
 

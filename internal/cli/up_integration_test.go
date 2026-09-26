@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,6 +27,7 @@ import (
 	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/router"
 	"golang.org/x/sys/unix"
 )
@@ -43,7 +43,7 @@ case " $* " in
   *" --project-name berth-router "*" up "*) [ -e "$state/hang-router" ] && hang; exit 0 ;;
   *" --project-name berth-router ps "*)
     for last; do :; done
-    case "$last" in router) echo router-1 ;; docker-api) echo api-1 ;; index) echo index-1 ;; esac; exit 0 ;;
+    case "$last" in router) echo router-1 ;; index) echo index-1 ;; esac; exit 0 ;;
   *" compose "*" config "*) echo '{"name":"x","services":{"api":{"image":"busybox"},"mail":{"image":"busybox"}}}'; exit 0 ;;
   *" compose "*" up "*) [ -e "$state/hang-up" ] && hang; exit 0 ;;
 esac
@@ -73,7 +73,6 @@ func healthyRouter(t *testing.T, state string, routerState layout.RouterLayout, 
 		}
 	}
 	running := router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}}
-	proxyNetwork := router.DefaultName + "_" + router.DockerAPINetwork
 	networks := func(names ...string) map[string]json.RawMessage {
 		m := map[string]json.RawMessage{}
 		for _, name := range names {
@@ -82,11 +81,6 @@ func healthyRouter(t *testing.T, state string, routerState layout.RouterLayout, 
 		return m
 	}
 
-	var env []string
-	for name, value := range router.DockerAPIAccess() {
-		env = append(env, name+"="+value)
-	}
-	sort.Strings(env)
 	indexLabels := labels("index")
 	for key, value := range router.IndexRouteLabels(router.DefaultName).Map() {
 		indexLabels[key] = value
@@ -94,24 +88,17 @@ func healthyRouter(t *testing.T, state string, routerState layout.RouterLayout, 
 
 	docs := map[string]router.ContainerInspect{
 		"router-1": {
-			Config:     router.InspectConfig{Cmd: router.RouterCommand(router.DefaultName), Image: router.RouterImage, Labels: labels("router")},
+			Config:     router.InspectConfig{Cmd: router.RouterCommand(), Entrypoint: router.RouterImageEntrypoint, Image: router.RouterImage, Labels: labels("router")},
 			HostConfig: hardened("CAP_NET_BIND_SERVICE"),
 			Mounts:     []router.InspectMount{{Type: "bind", Source: routerState.DynamicDir, Destination: router.DynamicConfigMount}},
 			NetworkSettings: router.InspectNetworkSettings{
-				Networks: networks(router.DefaultName, proxyNetwork),
+				Networks: networks(router.DefaultName),
 				Ports:    map[string][]router.InspectPortBinding{"80/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(port)}}},
 			},
 			State: running,
 		},
-		"api-1": {
-			Config:          router.InspectConfig{Env: env, Image: router.DockerAPIImage, Labels: labels("docker-api")},
-			HostConfig:      hardened(),
-			Mounts:          []router.InspectMount{{Type: "bind", Source: router.DockerSocket, Destination: router.DockerSocket}},
-			NetworkSettings: router.InspectNetworkSettings{Networks: networks(proxyNetwork)},
-			State:           running,
-		},
 		"index-1": {
-			Config:          router.InspectConfig{Cmd: append([]string(nil), router.IndexCommand...), Image: router.IndexImage, Labels: indexLabels},
+			Config:          router.InspectConfig{Cmd: append([]string(nil), router.IndexCommand...), Entrypoint: router.IndexImageEntrypoint, Image: router.IndexImage, Labels: indexLabels},
 			HostConfig:      hardened(),
 			Mounts:          []router.InspectMount{{Type: "bind", Source: routerState.IndexDir, Destination: router.IndexMount}},
 			NetworkSettings: router.InspectNetworkSettings{Networks: networks(router.DefaultName)},
@@ -190,15 +177,9 @@ func newUpFixture(t *testing.T) upFixture {
 		"BERTH_ROUTER_PORT="+strconv.Itoa(port),
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
-	f.routerState, err = layout.RouterState(func(key string) (string, bool) {
-		prefix := key + "="
-		for i := len(f.env) - 1; i >= 0; i-- {
-			if strings.HasPrefix(f.env[i], prefix) {
-				return strings.TrimPrefix(f.env[i], prefix), true
-			}
-		}
-		return "", false
-	})
+	getenv := envGetenv(f.env)
+	registrytest.RequireIsolatedRouterState(t, getenv)
+	f.routerState, err = layout.RouterState(getenv)
 	if err != nil {
 		t.Fatal(err)
 	}

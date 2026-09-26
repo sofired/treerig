@@ -14,7 +14,26 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/registry/registrytest"
 )
+
+// envGetenv adapts a process env slice ("KEY=VALUE" entries, as cmd.Env
+// takes them) into a layout.Getenv-shaped closure, last-match-wins for a
+// duplicate key — the way a real process's own environment resolves one,
+// and the way this file's and up_integration_test.go's own hand-built
+// cmd.Env slices are meant to be read back by registrytest's isolation
+// guard and layout.RouterState alike.
+func envGetenv(env []string) func(string) (string, bool) {
+	return func(key string) (string, bool) {
+		prefix := key + "="
+		for i := len(env) - 1; i >= 0; i-- {
+			if strings.HasPrefix(env[i], prefix) {
+				return strings.TrimPrefix(env[i], prefix), true
+			}
+		}
+		return "", false
+	}
+}
 
 // isoTimestampPattern matches an ISO-8601 instant to the millisecond, the
 // shape both builds' `new Date().toISOString()`/time.Format print for
@@ -130,6 +149,7 @@ state="`+f.state+`"
 echo "$*" >> "$state/argv"
 case " $* " in
   *" compose "*" config "*) echo '{"name":"x","services":{"api":{"image":"busybox"},"mail":{"image":"busybox"}}}'; exit 0 ;;
+  *" --project-name berth-router "*" ps "*" --quiet "*) echo routerc1; exit 0 ;;
   *" compose "*" ps "*) [ -e "$state/c1" ] && echo '{"Service":"api","State":"running","Health":""}'; exit 0 ;;
   *" compose "*" down "*) rm -f "$state/c1"; exit 0 ;;
   *" --filter "*)
@@ -170,6 +190,19 @@ func excludeLines(stdout, substr string) string {
 	return strings.Join(kept, "\n")
 }
 
+// filterDockerCalls drops every entry of calls containing substr, the same
+// way excludeLines drops a matching stdout line — used for a Docker call
+// only one build's own new behaviour makes (see excludeDockerCalls above).
+func filterDockerCalls(calls []string, substr string) []string {
+	kept := calls[:0]
+	for _, call := range calls {
+		if !strings.Contains(call, substr) {
+			kept = append(kept, call)
+		}
+	}
+	return kept
+}
+
 // runIn executes command in dir — the fixture's own checkout for every case
 // but doctor's "no checkout" one, which needs a directory with no berth.toml
 // above it; f.base (this fixture's own root, holding only checkout/, bin/,
@@ -195,6 +228,7 @@ func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIn
 		"PATH=" + f.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 	}
+	registrytest.RequireIsolatedRouterState(t, envGetenv(cmd.Env))
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	exit := 0
@@ -302,6 +336,19 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		// checkIndexPage additionally compares the checkout index page on
 		// disk (timestamp normalized) for a case whose verb refreshes it.
 		checkIndexPage bool
+		// excludeDockerCalls drops any Docker transcript entry containing one
+		// of these substrings from both builds before comparing — Go's own
+		// router-network disconnect, added by issue #55
+		// (docs/port/divergences.md row 31): looking up the router's own
+		// container (`compose --project-name berth-router ps --all --quiet
+		// router`) and detaching it from this worktree's network (`network
+		// disconnect`). TypeScript has no per-worktree router network to
+		// disconnect and never makes either call, so this only ever removes
+		// entries from Go's own transcript — filtering both sides, the same
+		// way excludeStdoutLines does, keeps the two lists' treatment
+		// symmetric rather than favouring one build's transcript over the
+		// other's.
+		excludeDockerCalls []string
 	}{
 		{name: "status", args: []string{"status"}},
 		{name: "urls", args: []string{"urls"}},
@@ -313,8 +360,14 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		{name: "index", args: []string{"index"}, checkIndexPage: true},
 		{name: "worktree list", args: []string{"worktree", "list"}},
 		{name: "worktree list --json", args: []string{"worktree", "list", "--json"}},
-		{name: "down", args: []string{"down"}, checkIndexPage: true},
-		{name: "worktree remove --yes", args: []string{"worktree", "remove", "--yes"}, checkIndexPage: true},
+		{
+			name: "down", args: []string{"down"}, checkIndexPage: true,
+			excludeDockerCalls: []string{"--project-name berth-router ps", "network disconnect"},
+		},
+		{
+			name: "worktree remove --yes", args: []string{"worktree", "remove", "--yes"}, checkIndexPage: true,
+			excludeDockerCalls: []string{"--project-name berth-router ps", "network disconnect"},
+		},
 		{name: "worktree remove without --yes, not a terminal", args: []string{"worktree", "remove"}},
 		{name: "worktree remove --yes, refusing a decoy", args: []string{"worktree", "remove", "--yes"}, decoy: true},
 		{name: "worktree remove of an unknown slug", args: []string{"worktree", "remove", "--yes", "nope"}},
@@ -362,6 +415,10 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 			for _, substr := range tc.excludeStdoutLines {
 				want.Stdout = excludeLines(want.Stdout, substr)
 				got.Stdout = excludeLines(got.Stdout, substr)
+			}
+			for _, substr := range tc.excludeDockerCalls {
+				want.Docker = filterDockerCalls(want.Docker, substr)
+				got.Docker = filterDockerCalls(got.Docker, substr)
 			}
 			if tc.unorderedDocker {
 				sort.Strings(want.Docker)

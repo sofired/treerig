@@ -330,5 +330,16 @@ func ComposeProjectName(repositoryID, worktreeID string) string {
 	return brand.Name + "-" + hex.EncodeToString(sum[:])[:24]
 }
 
+// WorktreeRouterNetwork is the name of one worktree's own dedicated router
+// network (#55): <compose project>-router. Derived from the two IDs alone,
+// never from a loaded config, so everything that must name it agrees: the
+// Compose override that creates it (internal/backend), `down` and `worktree
+// remove`, which may target a worktree whose berth.toml is not in reach, and
+// the shared router, which proves a route fragment still has a network to
+// reach by finding this name among its own labelled networks.
+func WorktreeRouterNetwork(repositoryID, worktreeID string) string {
+	return ComposeProjectName(repositoryID, worktreeID) + "-router"
+}
+
 // WorktreeHost is the routed hostname, <slug>.<domain>.
 func WorktreeHost(slug, domain string) string { return slug + "." + domain }

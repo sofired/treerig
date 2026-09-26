@@ -20,14 +20,70 @@ import (
 // DefaultWaitTimeoutSeconds is how long `up --wait` waits for health before failing.
 const DefaultWaitTimeoutSeconds = 120
 
-// routedByLabel and routerEntrypoint mirror src/router/stack.ts's
-// ROUTED_BY_LABEL and ROUTER_ENTRYPOINT — the router package itself is
-// future work (#39); until it exists to import, these constants live here,
-// where routeLabels is the one place that needs them.
-const (
-	routedByLabel    = brand.LabelNamespace + ".router"
-	routerEntrypoint = "web"
-)
+// routedByLabel mirrors internal/router's own RoutedByLabel constant (which
+// in turn mirrors src/router/stack.ts's ROUTED_BY_LABEL). Kept as a local,
+// decoupled mirror rather than an import of internal/router: this package's
+// overrideDocument is the wire protocol between a worktree's own Compose
+// project and the shared router, not a consumer of the router package's own
+// types, and the two packages' tests already build their fixtures against
+// their own copies of the same literal — see internal/router/stack.go's own
+// RoutedByLabel comment for why its value is fixed regardless of a
+// project's configured label-namespace override. As of protocol 5 it labels
+// a worktree's own dedicated router network (see RouterNetworkName), not a
+// container: Traefik's Docker-provider discovery is gone, so no container
+// label reaches Traefik at all any more.
+const routedByLabel = brand.LabelNamespace + ".router"
+
+// routerNetworkKey is brand.RouterNetworkKey — see its own comment for what
+// it is and why it lives there, as a named storage identifier rather than a
+// literal repeated in this file. Kept as a local, package-level name (found
+// in review of #55, round 2) since every use below reads more plainly as
+// routerNetworkKey than as the fully qualified brand.RouterNetworkKey.
+const routerNetworkKey = brand.RouterNetworkKey
+
+// RouterNetworkName is the name of one worktree's own dedicated router
+// network: the network its routed services join, and the one the shared
+// router connects to explicitly (internal/router's ConnectNetwork). Pure and
+// derived from the two IDs alone — never from a loaded config — because
+// `worktree remove` (internal/commands/remove.go) can target a worktree
+// other than the one the process is running from, with no berth.toml of its
+// own in reach; it must still be able to name the exact network to
+// disconnect the router from and let Compose remove. The name itself is
+// layout.WorktreeRouterNetwork's, which internal/router also uses.
+func RouterNetworkName(repositoryID, worktreeID string) string {
+	return layout.WorktreeRouterNetwork(repositoryID, worktreeID)
+}
+
+// RouteName is the Traefik router/service name — and the Docker network
+// alias — one routed service carries: <project>-<service>, the same string
+// whether it is computed here (for the network alias overrideDocument gives
+// the service) or by whoever writes that route's dynamic-configuration
+// fragment (internal/commands's UpWithContext, via internal/router's
+// WriteFragment). Sharing one function is what keeps the alias and the
+// fragment's own router/service name from ever independently drifting apart
+// — and, since the router container is simultaneously attached to every
+// worktree's own network at once, what keeps every alias collision-free
+// across all of them: this name already is, being namespaced by project.
+func RouteName(ref worktree.Ref, route RouteSpec) string {
+	return layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID) + "-" + route.Service
+}
+
+// RouteRule is the Traefik routing rule one route matches: Host(`<host>`),
+// with the route's own subdomain prefixed onto host when it has one, and
+// `&& PathPrefix(`<path>`)` appended when it names a path. Shared by
+// whoever writes that route's dynamic-configuration fragment, so the rule
+// string is built in exactly one place.
+func RouteRule(route RouteSpec, host string) string {
+	routeHost := host
+	if route.Subdomain != "" {
+		routeHost = route.Subdomain + "." + host
+	}
+	rule := fmt.Sprintf("Host(`%s`)", routeHost)
+	if route.Path != nil {
+		rule += fmt.Sprintf(" && PathPrefix(`%s`)", *route.Path)
+	}
+	return rule
+}
 
 // RouteSpec is one [[service]] entry, as the runtime needs it for routing.
 type RouteSpec struct {
@@ -395,26 +451,6 @@ func parseLeadingInt(s string) (int, bool) {
 	return value, true
 }
 
-// routeLabels are the Traefik labels one routed service carries, in the
-// TypeScript build's own insertion order.
-func routeLabels(name string, route RouteSpec, network, host string, port int) *jsonKV {
-	routeHost := host
-	if route.Subdomain != "" {
-		routeHost = route.Subdomain + "." + host
-	}
-	rule := fmt.Sprintf("Host(`%s`)", routeHost)
-	if route.Path != nil {
-		rule += fmt.Sprintf(" && PathPrefix(`%s`)", *route.Path)
-	}
-	return newJSONKV().
-		set("traefik.enable", "true").
-		set("traefik.docker.network", network).
-		set(routedByLabel, network).
-		set(fmt.Sprintf("traefik.http.routers.%s.rule", name), rule).
-		set(fmt.Sprintf("traefik.http.routers.%s.entrypoints", name), routerEntrypoint).
-		set(fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", name), strconv.Itoa(port))
-}
-
 // overrideDocument is pure: the override that stamps ownership labels onto
 // every service, every built image, and every non-external volume and
 // network, and routes the declared services. Every ordered map here is
@@ -469,40 +505,55 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 		outNetworks.set("default", stamp())
 	}
 
+	// A worktree with declared routes gets its own dedicated, owned router
+	// network (#55, row 31): every routed service joins it, under an
+	// explicit alias equal to its own Traefik router/service name
+	// (RouteName), rather than every worktree sharing one network under the
+	// shared router's own external name. c.options.RouterNetwork — the
+	// shared router's own network — is used only as this network's
+	// RoutedByLabel value now, naming which router owns it; nothing joins
+	// that network directly any more. See internal/router's ConnectNetwork
+	// for how the router itself attaches to it.
 	if len(c.options.Routes) > 0 {
-		host := layout.WorktreeHost(ref.Slug, c.options.Domain)
-		network := c.options.RouterNetwork
+		if networks.has(routerNetworkKey) {
+			return nil, clierr.Newf(
+				"%s already declares a network named %s, which %s reserves for its own per-worktree router network. Rename it.",
+				c.options.ComposeFile, routerNetworkKey, brand.Name,
+			)
+		}
+		networkLabels := newJSONKV()
+		for _, key := range labels.keys {
+			value, _ := labels.get(key)
+			networkLabels.set(key, value)
+		}
+		networkLabels.set(routedByLabel, c.options.RouterNetwork)
+
 		for _, route := range c.options.Routes {
 			service, ok := services.values[route.Service].(*jsonKV)
 			if !ok {
 				return nil, clierr.Newf("[[service]] %s is not defined in %s.", route.Service, c.options.ComposeFile)
 			}
-			port, ok := resolvePort(route, service)
-			if !ok {
+			if _, ok := resolvePort(route, service); !ok {
 				return nil, clierr.Newf(
 					"Service %s declares no port: set port in its [[service]] entry, or expose one in %s.",
 					route.Service, c.options.ComposeFile,
 				)
 			}
-			name := c.project(ref) + "-" + route.Service
-			merged := newJSONKV()
-			for _, key := range labels.keys {
-				value, _ := labels.get(key)
-				merged.set(key, value)
-			}
-			extra := routeLabels(name, route, network, host, port)
-			for _, key := range extra.keys {
-				value, _ := extra.get(key)
-				merged.set(key, value)
-			}
-
+			name := RouteName(ref, route)
 			entry, _ := outServices.values[route.Service].(*jsonKV)
-			entry.set("labels", merged)
 			svcNetworks := serviceNetworks(service)
-			svcNetworks.set(network, newJSONKV())
+			if svcNetworks.has(routerNetworkKey) {
+				return nil, clierr.Newf(
+					"Service %s in %s already declares a network named %s, which %s reserves for its own per-worktree router network. Rename it.",
+					route.Service, c.options.ComposeFile, routerNetworkKey, brand.Name,
+				)
+			}
+			svcNetworks.set(routerNetworkKey, newJSONKV().set("aliases", []string{name}))
 			entry.set("networks", svcNetworks)
 		}
-		outNetworks.set(network, newJSONKV().set("external", true))
+		outNetworks.set(routerNetworkKey, newJSONKV().
+			set("name", RouterNetworkName(ref.RepositoryID, ref.WorktreeID)).
+			set("labels", networkLabels))
 	}
 
 	return newJSONKV().set("services", outServices).set("volumes", outVolumes).set("networks", outNetworks), nil
@@ -614,4 +665,39 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	args = append(args, services...)
 	_, err = c.compose(ctx, ref, args, overrideFiles, run.Spec{Output: run.Tee})
 	return err
+}
+
+// RouteBackends is the resolved backend container port for every declared
+// route, keyed by service name — read fresh from `docker compose config`,
+// the same way overrideDocument's own routes section resolves a route's
+// port (resolvePort/firstPort), so a route that names no explicit port and
+// relies on auto-discovery from the Compose file resolves to exactly the
+// same port a dynamic-configuration fragment (internal/router's
+// WriteFragment) needs to address. Called by `up` (internal/commands)
+// after runtime.Up has started the worktree's own services, to build each
+// route's fragment; kept as a second, deliberately simple `compose config`
+// read rather than threading the ports overrideDocument already computed
+// back out of Up, since prepare's own override write and this call serve
+// two different callers at two different times.
+func (c *Compose) RouteBackends(ctx context.Context, ref worktree.Ref) (map[string]int, error) {
+	services, _, _, err := c.readOrderedModel(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	ports := make(map[string]int, len(c.options.Routes))
+	for _, route := range c.options.Routes {
+		service, ok := services.values[route.Service].(*jsonKV)
+		if !ok {
+			return nil, clierr.Newf("[[service]] %s is not defined in %s.", route.Service, c.options.ComposeFile)
+		}
+		port, ok := resolvePort(route, service)
+		if !ok {
+			return nil, clierr.Newf(
+				"Service %s declares no port: set port in its [[service]] entry, or expose one in %s.",
+				route.Service, c.options.ComposeFile,
+			)
+		}
+		ports[route.Service] = port
+	}
+	return ports, nil
 }

@@ -197,9 +197,17 @@ func TestComposeUp(t *testing.T) {
 		if labels := build["labels"].(map[string]any); !reflectEqual(labels, ownership) {
 			t.Fatalf("build.labels = %v, want %v", labels, ownership)
 		}
-		builderLabels := builder["labels"].(map[string]any)
-		if builderLabels["traefik.enable"] != "true" {
-			t.Fatalf("expected builder to be routed too, got %v", builderLabels)
+		builderNetworks, ok := builder["networks"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected builder to be routed too (joining the router network), got %v", builder)
+		}
+		routerEntry, ok := builderNetworks[routerNetworkKey].(map[string]any)
+		if !ok {
+			t.Fatalf("expected builder to join the router network, got %v", builderNetworks)
+		}
+		wantAlias := []any{project + "-builder"}
+		if aliases := routerEntry["aliases"]; !reflectEqual(aliases, wantAlias) {
+			t.Fatalf("builder router aliases = %v, want %v", aliases, wantAlias)
 		}
 		api := services["api"].(map[string]any)
 		if _, ok := api["build"]; ok {
@@ -222,7 +230,14 @@ func TestComposeUp(t *testing.T) {
 		}
 	})
 
-	t.Run("routes declared services with Traefik labels and the shared network, leaving the rest alone", func(t *testing.T) {
+	// Go-only, per #55/row 31: TypeScript stamps Traefik labels onto a routed
+	// service and joins it to one shared external network; Go instead joins
+	// it, under an alias, to this worktree's own owned router network — see
+	// override_network_test.go for the dedicated pinning tests of that
+	// shape. This is the same corpus scenario TestOverrideCorpus's "routing"
+	// cases skip the byte comparison for, exercised here end to end through
+	// Up and the override file it writes.
+	t.Run("routes declared services onto the worktree's own router network, each under its own alias, leaving the rest alone", func(t *testing.T) {
 		fake := newFake()
 		port := 9091
 		path := "/v2"
@@ -240,27 +255,20 @@ func TestComposeUp(t *testing.T) {
 		api := services["api"].(map[string]any)
 		wantAPILabels := map[string]any{
 			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID,
-			"traefik.enable": "true", "traefik.docker.network": "berth-router",
-			routedByLabel: "berth-router",
-			"traefik.http.routers." + project + "-api.rule":                      "Host(`feature-login.acme.localhost`)",
-			"traefik.http.routers." + project + "-api.entrypoints":               "web",
-			"traefik.http.services." + project + "-api.loadbalancer.server.port": "8080", // from expose
 		}
 		if labels := api["labels"].(map[string]any); !reflectEqual(labels, wantAPILabels) {
 			t.Fatalf("api labels = %v, want %v", labels, wantAPILabels)
 		}
-		wantAPINetworks := map[string]any{"default": map[string]any{}, "berth-router": map[string]any{}}
+		wantAPINetworks := map[string]any{"default": map[string]any{}, routerNetworkKey: map[string]any{"aliases": []any{project + "-api"}}}
 		if networks := api["networks"].(map[string]any); !reflectEqual(networks, wantAPINetworks) {
 			t.Fatalf("api networks = %v, want %v", networks, wantAPINetworks)
 		}
 
 		worker := services["worker"].(map[string]any)
-		workerLabels := worker["labels"].(map[string]any)
-		if got, want := workerLabels["traefik.http.routers."+project+"-worker.rule"], "Host(`jobs.feature-login.acme.localhost`) && PathPrefix(`/v2`)"; got != want {
-			t.Fatalf("worker rule = %v, want %v", got, want)
-		}
-		if got, want := workerLabels["traefik.http.services."+project+"-worker.loadbalancer.server.port"], "9091"; got != want { // explicit port wins
-			t.Fatalf("worker port = %v, want %v", got, want)
+		workerNetworks := worker["networks"].(map[string]any)
+		workerRouterEntry := workerNetworks[routerNetworkKey].(map[string]any)
+		if got, want := workerRouterEntry["aliases"], []any{project + "-worker"}; !reflectEqual(got, want) {
+			t.Fatalf("worker aliases = %v, want %v", got, want)
 		}
 
 		quiet := services["quiet"].(map[string]any)
@@ -268,14 +276,21 @@ func TestComposeUp(t *testing.T) {
 		if quietLabels[ns+".managed"] != "true" {
 			t.Fatalf("expected quiet still stamped, got %v", quietLabels)
 		}
-		for k := range quietLabels {
-			if strings.HasPrefix(k, "traefik.") {
-				t.Fatalf("expected quiet to carry no traefik labels, got %v", quietLabels)
-			}
+		if _, routed := quiet["networks"]; routed {
+			t.Fatalf("expected quiet to declare no networks override (not routed), got %v", quiet["networks"])
 		}
+
 		networks := doc["networks"].(map[string]any)
-		if got, want := networks["berth-router"], map[string]any{"external": true}; !reflectEqual(got, want) {
-			t.Fatalf("networks[berth-router] = %v, want %v", got, want)
+		routerNetwork := networks[routerNetworkKey].(map[string]any)
+		if _, external := routerNetwork["external"]; external {
+			t.Fatal("router network is external; want owned")
+		}
+		if got, want := routerNetwork["name"], RouterNetworkName(ref.RepositoryID, ref.WorktreeID); got != want {
+			t.Fatalf("networks[%s].name = %v, want %v", routerNetworkKey, got, want)
+		}
+		routerLabels := routerNetwork["labels"].(map[string]any)
+		if got, want := routerLabels[routedByLabel], "berth-router"; got != want {
+			t.Fatalf("networks[%s].labels[%s] = %v, want %v", routerNetworkKey, routedByLabel, got, want)
 		}
 	})
 

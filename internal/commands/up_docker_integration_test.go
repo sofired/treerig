@@ -103,6 +103,23 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	}
 	project := "berth-router-test-" + namePrefix + "-" + id
 	t.Cleanup(func() {
+		// The router project comes down first (found in review, round 2 of
+		// #55): its router container may still be attached to a
+		// per-worktree router network the label sweep below is about to
+		// try to remove — attached the way ConnectNetwork attaches it,
+		// which the router's own compose file never declares, so `down`
+		// alone would not otherwise touch it. Removing the container here
+		// disconnects it from every network it was attached to, including
+		// that one, so the sweep's own network removal does not fail with
+		// "has active endpoints" and leak the network.
+		if err := exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run(); err != nil {
+			// A failed down can leave the router attached. Its containers
+			// don't carry this test's managed label, so remove them by the
+			// Compose project label, which only this test's router uses.
+			for _, containerID := range dockerIDs(t, "ps", "-aq", "--filter", "label=com.docker.compose.project="+project) {
+				_ = exec.Command("docker", "rm", "--force", containerID).Run()
+			}
+		}
 		// Whatever the test left, by the label only this test's resources carry.
 		owned := "label=" + brand.ManagedLabel(w.namespace) + "=true"
 		for _, kind := range [][]string{{"ps", "-aq"}, {"volume", "ls", "-q"}, {"network", "ls", "-q"}} {
@@ -114,7 +131,6 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 				}
 			}
 		}
-		_ = exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
 		_ = exec.Command("docker", "network", "rm", project).Run()
 	})
 
@@ -143,6 +159,7 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 		}
 		return "", false
 	}
+	registrytest.RequireIsolatedRouterState(t, getenv)
 	state, err := layout.RouterState(getenv)
 	if err != nil {
 		t.Fatal(err)
@@ -194,6 +211,9 @@ func (w *walk) context(t *testing.T) *commands.CommandContext {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// down and worktree remove unroute through this, so they reach the
+	// test's own router and never the real one's default project.
+	cctx.SharedRouter = w.svc
 	return cctx
 }
 

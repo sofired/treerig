@@ -48,6 +48,21 @@ const (
 	LabelNamespace = "dev.berth"
 	// EnvPrefix prefixes the environment variables handed to hooks, e.g. BERTH_STAGE.
 	EnvPrefix = "BERTH"
+	// RouterNetworkKey is the override document's own Compose network key
+	// for a worktree's dedicated router network (#55, row 31) — the local
+	// name a routed service's own `networks:` entry and the top-level
+	// `networks:` entry share within one worktree's override file;
+	// internal/backend's RouterNetworkName is the actual on-the-wire Docker
+	// network name, set via that entry's own "name" field, and is what
+	// matters for anything outside that one file. Compose stamps this key
+	// onto the network it creates as the label com.docker.compose.network,
+	// so — like every other name in this file — it is a storage identifier:
+	// changing it is a migration, not a rename. Brand-namespaced so it
+	// cannot collide with a network, or a per-service network entry, a
+	// consumer's own compose.yaml already declares under a plain word like
+	// "router"; internal/backend refuses outright rather than silently
+	// repurposing one that does anyway.
+	RouterNetworkKey = LabelNamespace + ".router-network"
 )
 
 // Version is what `--version` prints. It stays "0.1.0" for a plain `go
