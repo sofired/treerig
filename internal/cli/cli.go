@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/sofired/berth/internal/brand"
@@ -24,11 +25,40 @@ var startLifecycle = func(log logger.Logger) *lifecycle.Lifecycle {
 	return life
 }
 
-// Main is the CLI's entry point: parse args, dispatch to the matching verb,
-// and report whatever it returns the way src/cli/main.ts's own top-level
-// catch does. args is the full argv with args[0] the program path — the way
-// os.Args is shaped — so cmd/berth/main.go calls Main(os.Args, ...).
+// Main is the CLI's entry point for every caller except cmd/berth's own
+// main(): parse args, dispatch to the matching verb, and report whatever it
+// returns the way src/cli/main.ts's own top-level catch does. args is the
+// full argv with args[0] the program path — the way os.Args is shaped.
+//
+// It never lets a verb replace this process's image: commands.Env.Executable
+// and .Exec are left nil, so `worktree remove`'s own relocate-and-reexec
+// (#7) always skips relocation here. This is deliberate, not an oversight —
+// Main is what every in-process test calls (golden_test.go, wiring_test.go,
+// and, under -tags integration, legacy_integration_test.go and
+// up_docker_integration_test.go among them), and any of those may be the
+// process running `worktree remove` in-process. A go test binary handed a
+// real Exec would replace itself with a copy of itself and re-run with argv
+// `worktree remove --yes` — no -test.run filter — which restarts the whole
+// suite in place rather than the real berth CLI; #7's own fix shipped this
+// bug once already; see MainProcess and internal/cli's relocation tests.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv) int {
+	return runMain(args, stdin, stdout, stderr, getenv, nil, nil)
+}
+
+// MainProcess is Main for the one caller allowed to hand `worktree remove`
+// the primitives that replace this process's image: cmd/berth's own main().
+// Only there is "this process" guaranteed to be a real berth build rather
+// than a go test binary, or anything else that happens to link this
+// package — the same "only the entry point reads the environment" spirit
+// AGENTS.md asks of everything else this build reads from its process.
+func MainProcess(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv) int {
+	return runMain(args, stdin, stdout, stderr, getenv, os.Executable, osExec)
+}
+
+// runMain is Main and MainProcess's shared body; executable and execFn are
+// commands.Env's own Executable and Exec (nil from Main, real from
+// MainProcess) — see envBuilder.
+func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv, executable func() (string, error), execFn func(argv0 string, argv, envv []string) error) int {
 	var programPath string
 	if len(args) > 0 {
 		programPath = args[0]
@@ -58,7 +88,7 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layou
 		outWidth: terminalWidth(stdout),
 		errWidth: terminalWidth(stderr),
 		root:     root,
-		buildEnv: envBuilder(commandName, invocation, console, getenv, stdin, stderr, life),
+		buildEnv: envBuilder(commandName, invocation, console, getenv, stdin, stderr, life, args, executable, execFn),
 	}
 
 	code, err := ps.run(root, nil, rest)

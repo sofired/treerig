@@ -24,6 +24,11 @@ type Env struct {
 	Getenv     layout.Getenv
 	// Environ is the process environment, for children that inherit it; os.Environ() in production.
 	Environ []string
+	// Args is argv exactly as this process was invoked, args[0] the program
+	// path — os.Args in production. `worktree remove` re-execs with this
+	// unchanged (Remove, internal/binstore) so the process it hands the
+	// destructive verb to presents itself exactly as this one was invoked.
+	Args []string
 	// Cwd is the physical working directory.
 	Cwd string
 	// ConfigPath is --config; empty means the nearest berth.toml above Cwd.
@@ -42,6 +47,21 @@ type Env struct {
 	Stderr      io.Writer
 	StdinIsTTY  bool
 	StderrIsTTY bool
+	// Executable is this process's own running binary; os.Executable, but
+	// only from cli.MainProcess — cmd/berth's own entry point, the one
+	// caller allowed to let `worktree remove` relocate (#7). cli.Main,
+	// which every in-process test calls, always leaves this nil, and so
+	// does every Env built by hand for a test; nil skips relocation
+	// entirely rather than reading anything.
+	Executable func() (string, error)
+	// Exec replaces this process's image with argv0, argv and envv —
+	// golang.org/x/sys/unix.Exec, but again only from cli.MainProcess. On
+	// success it never returns; a non-nil error means the exec itself
+	// failed. Nil skips relocation entirely, the same as a nil Executable —
+	// this must never be wired to anything that can replace an in-process
+	// test's own image (a go test binary included): see
+	// internal/cli's TestEnvBuilderRelocationWiring.
+	Exec func(argv0 string, argv, envv []string) error
 }
 
 // ListOptions are `worktree list`'s flags.
