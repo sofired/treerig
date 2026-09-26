@@ -112,7 +112,14 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 		// disconnects it from every network it was attached to, including
 		// that one, so the sweep's own network removal does not fail with
 		// "has active endpoints" and leak the network.
-		_ = exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
+		if err := exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run(); err != nil {
+			// A failed down can leave the router attached. Its containers
+			// don't carry this test's managed label, so remove them by the
+			// Compose project label, which only this test's router uses.
+			for _, containerID := range dockerIDs(t, "ps", "-aq", "--filter", "label=com.docker.compose.project="+project) {
+				_ = exec.Command("docker", "rm", "--force", containerID).Run()
+			}
+		}
 		// Whatever the test left, by the label only this test's resources carry.
 		owned := "label=" + brand.ManagedLabel(w.namespace) + "=true"
 		for _, kind := range [][]string{{"ps", "-aq"}, {"volume", "ls", "-q"}, {"network", "ls", "-q"}} {
