@@ -164,7 +164,7 @@ func TestWorktreeRegistryEnsure(t *testing.T) {
 
 	t.Run("serializes concurrent first registration", func(t *testing.T) {
 		f := newRegistryFixture(t, "feature/concurrent", acmeDomain)
-		second := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, Runner: f.runner, Logger: f.log})
+		second := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, Runner: f.runner, Logger: f.log, UserHome: filepath.Join(f.base, "user-home")})
 
 		var wg sync.WaitGroup
 		results := make([]*registry.EnsuredRegistration, 2)
@@ -294,7 +294,7 @@ func TestWorktreeRegistryEnsure(t *testing.T) {
 		f.git.Forget(f.root)
 		f.git.SetActive([]string{moved})
 		f.git.SetIdentity(moved, "feature/move", gitCommonDir, gitDir)
-		movedRegistry := registry.New(registry.Options{ControlHome: f.controlHome, Root: moved, Domain: acmeDomain, Runner: f.runner, Logger: f.log})
+		movedRegistry := registry.New(registry.Options{ControlHome: f.controlHome, Root: moved, Domain: acmeDomain, Runner: f.runner, Logger: f.log, UserHome: filepath.Join(f.base, "user-home")})
 
 		second, err := movedRegistry.Ensure(ctx, "")
 		if err != nil {
@@ -322,7 +322,7 @@ func TestLabelNamespaceInRecord(t *testing.T) {
 			t.Fatalf("expected no label namespace yet, got %v", *plain.LabelNamespace)
 		}
 
-		adopted := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, LabelNamespace: "dev.predecessor", Runner: f.runner, Logger: f.log})
+		adopted := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, LabelNamespace: "dev.predecessor", Runner: f.runner, Logger: f.log, UserHome: filepath.Join(f.base, "user-home")})
 		first, err := adopted.Ensure(ctx, "")
 		if err != nil {
 			t.Fatal(err)
@@ -334,7 +334,7 @@ func TestLabelNamespaceInRecord(t *testing.T) {
 			t.Fatalf("expected no previous host, got %v", *first.PreviousHost)
 		}
 
-		own := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, LabelNamespace: "dev.berth", Runner: f.runner, Logger: f.log})
+		own := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, LabelNamespace: "dev.berth", Runner: f.runner, Logger: f.log, UserHome: filepath.Join(f.base, "user-home")})
 		second, err := own.Ensure(ctx, "")
 		if err != nil {
 			t.Fatal(err)
@@ -392,7 +392,10 @@ func (w *reconcileWorld) wt(name, branch string) string {
 // reg opens a Registry for root under this world's control home and domain,
 // sharing its fake runner and recording logger.
 func (w *reconcileWorld) reg(root, domain string) *registry.Registry {
-	return registry.New(registry.Options{ControlHome: w.controlHome, Root: root, Domain: domain, Runner: w.runner, Logger: w.log})
+	return registry.New(registry.Options{
+		ControlHome: w.controlHome, Root: root, Domain: domain, Runner: w.runner, Logger: w.log,
+		UserHome: filepath.Join(w.base, "user-home"),
+	})
 }
 
 // plant writes a fixture registry record directly to disk, bypassing the

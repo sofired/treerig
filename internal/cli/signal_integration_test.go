@@ -118,7 +118,7 @@ func TestInterruptedMutation(t *testing.T) {
 					t.Fatal(err)
 				}
 				paths := layout.WorktreeLayout(controlHome, identity.RepositoryID, identity.WorktreeID)
-				if err := files.SecureWorktreeDirectories(paths); err != nil {
+				if err := files.SecureWorktreeDirectories(paths, filepath.Join(base, "user-home")); err != nil {
 					t.Fatal(err)
 				}
 				record, _ := json.Marshal(map[string]any{"version": 1, "repositoryId": identity.RepositoryID, "worktreeId": identity.WorktreeID,
@@ -130,7 +130,15 @@ func TestInterruptedMutation(t *testing.T) {
 
 				cmd := exec.Command(binary, verb...)
 				cmd.Dir = checkout
-				cmd.Env = append(os.Environ(), "BERTH_HOME="+controlHome, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+				// BERTH_CONTROL_HOME (#80), not just BERTH_HOME, points the
+				// binary straight at the fixture written above
+				// (layout.WorktreeLayout(controlHome, ...)); BERTH_HOME is
+				// left set too, so the router's own state (best-effort
+				// index refresh) still lands under this test's own temp
+				// directory rather than this machine's real one.
+				cmd.Env = append(os.Environ(),
+					"BERTH_HOME="+controlHome, "BERTH_CONTROL_HOME="+controlHome,
+					"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 				var stderr strings.Builder
 				cmd.Stderr = &stderr
 				if err := cmd.Start(); err != nil {

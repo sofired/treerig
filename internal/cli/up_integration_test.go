@@ -179,9 +179,14 @@ func newUpFixture(t *testing.T) upFixture {
 	}
 
 	f.env = append(os.Environ(),
+		// BERTH_HOME still isolates the router's own state under this
+		// test's own temp directory (f.controlHome/router) rather than the
+		// machine's real one; BERTH_CONTROL_HOME (#80) points the binary
+		// straight at f.controlHome for the control home itself, matching
+		// the fixture paths below (layout.WorktreeLayout(f.controlHome, ...)).
 		"BERTH_HOME="+f.controlHome,
+		"BERTH_CONTROL_HOME="+f.controlHome,
 		"HOME="+filepath.Join(base, "home"),
-		"XDG_STATE_HOME="+filepath.Join(base, "xdg"),
 		"BERTH_ROUTER_PORT="+strconv.Itoa(port),
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)

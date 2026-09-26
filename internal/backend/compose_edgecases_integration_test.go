@@ -69,7 +69,10 @@ func newEdgeCaseRuntime(composeFile, projectRoot, controlHome string) *Compose {
 // command layer does before `up`, and fails the test on any error.
 func bringUpWorktree(t *testing.T, controlHome string, ref worktree.Ref) {
 	t.Helper()
-	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID)); err != nil {
+	// A fresh temp directory, nowhere near controlHome:
+	// AssertAdoptableControlHome's own home-family checks need something to
+	// compare against, never exercised by this fixture.
+	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID), t.TempDir()); err != nil {
 		t.Fatalf("SecureWorktreeDirectories(%s): %v", ref.Slug, err)
 	}
 }

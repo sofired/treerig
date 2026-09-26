@@ -305,8 +305,9 @@ func prerequisitesSection(ctx context.Context, opts doctorOptions) ([]Check, doc
 // controlHomeCheck reports the control home: ok noting it will be created by
 // the first `up` when it does not exist yet, ok naming its path when it
 // exists and passes files.AssertAdoptableControlHome, or that assertion's
-// own error otherwise.
-func controlHomeCheck(controlHome string) (Check, error) {
+// own error otherwise. userHome is the caller's own resolved home
+// directory, handed straight through to AssertAdoptableControlHome.
+func controlHomeCheck(controlHome, userHome string) (Check, error) {
 	exists, err := files.PathExists(controlHome)
 	if err != nil {
 		return Check{}, err
@@ -314,7 +315,7 @@ func controlHomeCheck(controlHome string) (Check, error) {
 	if !exists {
 		return Check{Status: StatusOK, Subject: "control home", Detail: fmt.Sprintf("%s (not created yet; the first up creates it)", controlHome)}, nil
 	}
-	if err := files.AssertAdoptableControlHome(controlHome); err != nil {
+	if err := files.AssertAdoptableControlHome(controlHome, userHome); err != nil {
 		return Check{}, err
 	}
 	return Check{Status: StatusOK, Subject: "control home", Detail: controlHome}, nil
@@ -360,17 +361,24 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 	return checks
 }
 
-// registrySection is the "Registry" section: the control home check (plus a
-// note when it was last used by a TypeScript build), followed by
-// registryChecks over a fresh scan of every registration.
-func registrySection(controlHome, commandName string) ([]Check, error) {
-	checks, err := guarded("control home", func() ([]Check, error) {
-		check, err := controlHomeCheck(controlHome)
+// registrySection is the "Registry" section: the berth root (#80), the
+// control home check (plus a note when it was last used by a TypeScript
+// build), the router's own state directory, and registryChecks over a fresh
+// scan of every registration.
+func registrySection(opts doctorOptions) ([]Check, error) {
+	// Neither can fail — both are already-resolved, already-checked paths,
+	// no I/O of their own — so unlike control home and registrations below,
+	// neither needs its own guarded() call; a person who set only
+	// BERTH_CONTROL_HOME can still see where the rest of the berth root
+	// lives (the router's own state; a future settings.toml, #79).
+	checks := []Check{{Status: StatusOK, Subject: "berth root", Detail: opts.Home}}
+	controlHomeChecks, err := guarded("control home", func() ([]Check, error) {
+		check, err := controlHomeCheck(opts.ControlHome, opts.UserHome)
 		if err != nil {
 			return nil, err
 		}
 		out := []Check{check}
-		legacy, err := files.LegacyControlHome(controlHome)
+		legacy, err := files.LegacyControlHome(opts.ControlHome)
 		if err != nil {
 			return nil, err
 		}
@@ -383,12 +391,14 @@ func registrySection(controlHome, commandName string) ([]Check, error) {
 	if err != nil {
 		return nil, err
 	}
+	checks = append(checks, controlHomeChecks...)
+	checks = append(checks, Check{Status: StatusOK, Subject: "router state", Detail: opts.RouterStateDir})
 	registrations, err := guarded("registrations", func() ([]Check, error) {
-		scan, err := registry.ScanRegistrations(controlHome)
+		scan, err := registry.ScanRegistrations(opts.ControlHome)
 		if err != nil {
 			return nil, err
 		}
-		return registryChecks(scan, commandName), nil
+		return registryChecks(scan, opts.CommandName), nil
 	})
 	if err != nil {
 		return nil, err
@@ -900,7 +910,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 		reg = registry.New(registry.Options{
 			ControlHome: opts.ControlHome, Root: loaded.Root, Domain: loaded.Config.Project.Domain,
 			LabelNamespace: loaded.Config.LabelNamespace(), Runner: opts.Runner, Logger: opts.Logger,
-			CommandName: opts.CommandName, Invocation: opts.Invocation,
+			CommandName: opts.CommandName, Invocation: opts.Invocation, UserHome: opts.UserHome,
 		})
 	}
 
@@ -1096,8 +1106,20 @@ func doctorSummary(sections []Section) doctorSummaryLine {
 type doctorOptions struct {
 	CommandName string
 	ControlHome string
-	Runner      run.Runner
-	Logger      logger.Logger
+	// Home is the checked berth root (BERTH_HOME, #80): reported alongside
+	// ControlHome and RouterStateDir in the Registry section, so someone
+	// who set only BERTH_CONTROL_HOME can still see where the rest of it
+	// (the router's own state, and a future settings.toml, #79) lives.
+	Home string
+	// RouterStateDir is layout.RouterStateFrom(Home).StateDir, reported
+	// even when Router/RouterErr says the router itself could not be
+	// described (a bad port does not change where its state directory is).
+	RouterStateDir string
+	// UserHome is the caller's own resolved home directory, handed to
+	// controlHomeCheck's own files.AssertAdoptableControlHome.
+	UserHome string
+	Runner   run.Runner
+	Logger   logger.Logger
 	// Router is the shared router; nil when RouterErr says why one could
 	// not even be described (a bad port in the environment).
 	Router    doctorRouterSource
@@ -1136,7 +1158,7 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	if err != nil {
 		return nil, err
 	}
-	registryChecks, err := registrySection(opts.ControlHome, opts.CommandName)
+	registryChecks, err := registrySection(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1161,38 +1183,45 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	}, nil
 }
 
-// buildDoctorOptions is doctorOptions built from a real Env: findCheckout is
-// resolved first (env.ConfigPath, or the nearest berth.toml above env.Cwd),
-// then the shared router — or why one could not even be described.
-func buildDoctorOptions(env *Env, controlHome string) (doctorOptions, error) {
+// buildDoctorOptions is doctorOptions built from a real Env and an
+// already-checked berth root (Doctor's own single checkedHome call):
+// findCheckout is resolved first (env.ConfigPath, or the nearest berth.toml
+// above env.Cwd), then the shared router — or why one could not even be
+// described.
+func buildDoctorOptions(env *Env, home, userHome string) (doctorOptions, error) {
 	checkout, err := findCheckout(env.ConfigPath, env.Cwd)
 	if err != nil {
 		return doctorOptions{}, err
 	}
+	controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
+	if err != nil {
+		return doctorOptions{}, err
+	}
 	opts := doctorOptions{
-		CommandName: env.CommandName, ControlHome: controlHome, Runner: env.Runner, Logger: env.Logger,
+		CommandName: env.CommandName, ControlHome: controlHome, Home: home,
+		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: userHome,
+		Runner: env.Runner, Logger: env.Logger,
 		Checkout: checkout, Invocation: env.Invocation, Environ: env.Environ,
 	}
-	svc, _, err := newRouterService(env)
+	svc, state, err := routerServiceFrom(env, home)
 	if err != nil {
 		opts.RouterErr = err
 		return opts, nil
 	}
 	opts.Router = realRouterSource{svc: svc}
-	if routerScope, err := lock.RouterScope(env.Getenv, svc.ProjectName); err == nil {
-		opts.RouterLockScope = &routerScope
-	}
+	routerScope := routerLockScope(state, svc.ProjectName)
+	opts.RouterLockScope = &routerScope
 	return opts, nil
 }
 
 // Doctor is `doctor`. Its report goes to stdout, one line per check; its
 // summary goes to stderr. The returned exit code is 0 when nothing failed.
 func Doctor(ctx context.Context, env *Env) (int, error) {
-	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+	home, userHome, err := checkedHome(env.Getenv)
 	if err != nil {
 		return 0, err
 	}
-	opts, err := buildDoctorOptions(env, controlHome)
+	opts, err := buildDoctorOptions(env, home, userHome)
 	if err != nil {
 		return 0, err
 	}

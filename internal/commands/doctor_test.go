@@ -21,14 +21,15 @@ import (
 )
 
 // doctorGetenv isolates HOME (so router state resolves under a throwaway
-// directory rather than this machine's real one) and BERTH_HOME (so the
-// control home is w's).
+// directory rather than this machine's real one) and BERTH_CONTROL_HOME (so
+// the control home is w's, set directly rather than derived from BERTH_HOME,
+// per #80).
 func doctorGetenv(home, controlHome string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		switch key {
 		case "HOME":
 			return home, true
-		case "BERTH_HOME":
+		case "BERTH_CONTROL_HOME":
 			return controlHome, true
 		}
 		return "", false

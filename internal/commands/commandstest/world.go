@@ -43,6 +43,11 @@ type World struct {
 	t           *testing.T
 	Base        string
 	ControlHome string
+	// UserHome stands in for the caller's own resolved home directory
+	// (commands.checkedHome's userHome, #80): a fixed, harmless path
+	// nothing here ever creates or resolves against, since ControlHome is
+	// always a fresh temp directory nowhere near it.
+	UserHome string
 	// RouterState is a fake shared router's own state directory: the
 	// checkout index writes its page and takes its lock under here, never
 	// under ControlHome (row 9 in the divergence ledger).
@@ -70,6 +75,7 @@ func New(t *testing.T, branch, domain string) *World {
 	w := &World{
 		Base:        base,
 		ControlHome: filepath.Join(base, "control"),
+		UserHome:    filepath.Join(base, "user-home"),
 		RouterState: layout.RouterLayout{
 			StateDir:     routerDir,
 			ComposeFile:  filepath.Join(routerDir, "compose.yaml"),
@@ -151,6 +157,7 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 		Runner:         w.Runner,
 		Logger:         log,
 		CommandName:    "berth",
+		UserHome:       w.UserHome,
 	})
 	return &TestContext{
 		CommandContext: &commands.CommandContext{
@@ -160,6 +167,7 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 			Runner:      w.Runner,
 			Loaded:      loaded,
 			ControlHome: w.ControlHome,
+			UserHome:    w.UserHome,
 			RouterPort:  80,
 			RouterState: w.RouterState,
 			Registry:    reg,
@@ -222,7 +230,7 @@ func (w *World) Register(root, domain, slug, namespace string, services ...strin
 		root = w.Root
 	}
 	// Claimed first, as up claims it: a control home berth did not create is refused.
-	if err := files.SecureControlDirectories(layout.ControlLayout(w.ControlHome)); err != nil {
+	if err := files.SecureControlDirectories(layout.ControlLayout(w.ControlHome), w.UserHome); err != nil {
 		w.t.Fatalf("control home: %v", err)
 	}
 	identities := registry.NewIdentityService(root, w.Runner)
@@ -230,7 +238,7 @@ func (w *World) Register(root, domain, slug, namespace string, services ...strin
 	if err != nil {
 		w.t.Fatalf("register %s: %v", slug, err)
 	}
-	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(w.ControlHome, identity.RepositoryID, identity.WorktreeID)); err != nil {
+	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(w.ControlHome, identity.RepositoryID, identity.WorktreeID), w.UserHome); err != nil {
 		w.t.Fatalf("home for %s: %v", slug, err)
 	}
 	ref := worktree.Ref{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: slug}

@@ -151,9 +151,32 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Chdir(previous)
+	// BERTH_CONTROL_HOME, not BERTH_HOME: the TypeScript build's BERTH_HOME
+	// was the control home directly, and controlHome is exactly where it
+	// wrote everything above — the Go build's own BERTH_HOME would instead
+	// derive <controlHome>/control-home (#80), missing it entirely. Pointing
+	// BERTH_CONTROL_HOME straight at it is how someone adopting an existing
+	// TypeScript-era control home into the Go build points at it too.
+	//
+	// BERTH_HOME still needs isolating on its own: the router's state now
+	// lives there (#80), and worktree remove's own best-effort index
+	// refresh takes the router's lock and writes its page, so leaving
+	// BERTH_HOME unset here would fall through to this developer's real
+	// $HOME/.berth/router — touching their real router's lock and index
+	// page from a test. Pointed at this test's own base instead, under a
+	// directory of its own, distinct from goHome (below): BERTH_HOME and
+	// HOME resolving to the very same directory would itself trip
+	// files.AssertSafeHome's "it is your home directory" refusal.
+	goHome := filepath.Join(base, "go-home")
+	goBerthHome := filepath.Join(base, "go-berth-home")
 	getenv := func(key string) (string, bool) {
-		if key == "BERTH_HOME" {
+		switch key {
+		case "BERTH_CONTROL_HOME":
 			return controlHome, true
+		case "BERTH_HOME":
+			return goBerthHome, true
+		case "HOME":
+			return goHome, true
 		}
 		return os.LookupEnv(key)
 	}

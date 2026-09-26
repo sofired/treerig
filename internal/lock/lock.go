@@ -167,7 +167,7 @@ func (l *Lock) ensureCheckedFS() error {
 			l.checkFSErr = err
 			return
 		}
-		l.checkFSErr = CheckFS(dirOf(l.scope.Target))
+		l.checkFSErr = CheckFS(dirOf(l.scope.Target), l.scope.HomeEnvVar)
 	})
 	return l.checkFSErr
 }

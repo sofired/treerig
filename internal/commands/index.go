@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/checkoutindex"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lock"
@@ -16,18 +17,23 @@ import (
 	"github.com/sofired/berth/internal/router"
 )
 
-// routerLockScope is the one place that builds the shared router's lock
-// scope, so a caller that already has the router's own, resolved
-// ProjectName (RouterUp, via newRouterService/router.New) and one that has
-// no router.Router to ask (newCheckoutIndex, below, called from `down` and
-// `worktree remove`; commands.UnlockGlobal, #21) never hand-build two
-// independently-shaped copies of it. projectName "" resolves through
-// router.ResolveProjectName(), the exact function router.New's own default
-// calls too, rather than naming router.DefaultName here a second time — so
-// a caller with no Router built yet to ask can never drift onto a
-// different default than New would have resolved. lock.RouterScope builds
-// the same scope from an unresolved Getenv, for routerHold; keep the two in
-// step.
+// routerLockScope is the one place in this build that builds the shared
+// router's lock scope, always from an already-resolved layout.RouterLayout
+// (a caller's own state, itself only ever reached through resolveRouterState
+// in home.go, which applies files.AssertSafeHome to BERTH_HOME first) —
+// never re-derived from a raw Getenv, so there is no second, unchecked path
+// to the router's lock target (#80). Every caller that takes the router's
+// lock (routerHold, unlock.go's router branch, and doctor.go's own report of
+// it) goes through this one function: a caller that already has the
+// router's own, resolved ProjectName (RouterUp, via
+// newRouterService/router.New) and one that has no router.Router to ask
+// (newCheckoutIndex, below, called from `down` and `worktree remove`;
+// commands.UnlockGlobal, #21) never hand-build two independently-shaped
+// copies of it. projectName "" resolves through router.ResolveProjectName(),
+// the exact function router.New's own default calls too, rather than naming
+// router.DefaultName here a second time — so a caller with no Router built
+// yet to ask can never drift onto a different default than New would have
+// resolved.
 func routerLockScope(state layout.RouterLayout, projectName string) lock.Scope {
 	if projectName == "" {
 		projectName = router.ResolveProjectName()
@@ -36,6 +42,7 @@ func routerLockScope(state layout.RouterLayout, projectName string) lock.Scope {
 		Target:      state.LockPath,
 		Description: "shared router",
 		Markers:     procid.Markers{Project: projectName},
+		HomeEnvVar:  brand.HomeEnv,
 	}
 }
 

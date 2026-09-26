@@ -834,7 +834,8 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 
 // Ensure is idempotent: starts the router if needed, verifies it, and fails
 // loudly if it cannot be made right. The caller holds the router's lock
-// around this call (see lock.RouterScope and lifecycle.Requests.Router).
+// around this call (see internal/commands' routerLockScope and
+// lifecycle.Requests.Router).
 //
 // secureState runs first, before previousProtocol's own possible write of
 // the protocol record: a symlinked state directory must be refused before

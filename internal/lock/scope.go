@@ -3,6 +3,7 @@ package lock
 import (
 	"time"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/procid"
 )
@@ -13,6 +14,14 @@ type Scope struct {
 	Target      string
 	Description string
 	Markers     procid.Markers
+	// HomeEnvVar names the environment variable that governs where Target's
+	// directory lives, so CheckFS's refusal of an untrusted filesystem
+	// points at the one a person can actually move (#80): brand.ControlHomeEnv
+	// for a control-home-rooted scope (the registry, a worktree's own
+	// locks), brand.HomeEnv for the router's, which has no control-home
+	// override of its own. Left "" only by tests that never reach CheckFS's
+	// refusal.
+	HomeEnvVar string
 }
 
 // Timeouts the design assigns to each of the three scopes.
@@ -38,11 +47,11 @@ const (
 	// here are internal/router's dockerProbeTimeout and startTimeout.)
 	//
 	// Not every caller of this same lock scope waits this long: the checkout
-	// index (internal/checkoutindex.Service) shares RouterScope's target but
-	// times its own wait far shorter (60s, matching TypeScript's own
-	// INDEX_LOCK_TIMEOUT_MS), since it is best-effort and must never make
-	// `down`, `worktree remove`, or `up` itself stall behind a daemon that
-	// will not answer.
+	// index (internal/checkoutindex.Service) shares the router's own lock
+	// target (internal/commands' routerLockScope) but times its own wait far
+	// shorter (60s, matching TypeScript's own INDEX_LOCK_TIMEOUT_MS), since
+	// it is best-effort and must never make `down`, `worktree remove`, or
+	// `up` itself stall behind a daemon that will not answer.
 	RouterTimeout = 20 * time.Minute
 )
 
@@ -51,26 +60,8 @@ func RegistryScope(controlHome string) Scope {
 	return Scope{
 		Target:      layout.ControlLayout(controlHome).RegistryLockPath,
 		Description: "global worktree registry",
+		HomeEnvVar:  brand.ControlHomeEnv,
 	}
-}
-
-// RouterScope is the shared router's lock (#12): one per user account, in
-// the router's own state directory rather than any control home, so two
-// control homes on the same machine wait on each other instead of taking
-// turns recreating the router (#13). projectName marks this lock's own
-// Compose children for recovery, the way a worktree's markers do.
-// internal/commands' routerLockScope builds the same scope from an
-// already-resolved layout; keep the two in step.
-func RouterScope(getenv layout.Getenv, projectName string) (Scope, error) {
-	state, err := layout.RouterState(getenv)
-	if err != nil {
-		return Scope{}, err
-	}
-	return Scope{
-		Target:      state.LockPath,
-		Description: "shared router",
-		Markers:     procid.Markers{Project: projectName},
-	}, nil
 }
 
 // WorktreeScopes is one worktree's operation and development-session locks,
@@ -78,7 +69,7 @@ func RouterScope(getenv layout.Getenv, projectName string) (Scope, error) {
 // <name>" and "<name> development session".
 func WorktreeScopes(controlHome, repositoryID, worktreeID, name string, markers procid.Markers) (operation, development Scope) {
 	l := layout.WorktreeLayout(controlHome, repositoryID, worktreeID)
-	operation = Scope{Target: l.LockPath, Description: "worktree " + name, Markers: markers}
-	development = Scope{Target: l.DevelopmentLockPath, Description: name + " development session", Markers: markers}
+	operation = Scope{Target: l.LockPath, Description: "worktree " + name, Markers: markers, HomeEnvVar: brand.ControlHomeEnv}
+	development = Scope{Target: l.DevelopmentLockPath, Description: name + " development session", Markers: markers, HomeEnvVar: brand.ControlHomeEnv}
 	return operation, development
 }
