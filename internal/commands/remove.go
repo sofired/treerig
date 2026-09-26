@@ -47,6 +47,16 @@ type RemoveResult struct {
 
 // Remove is `worktree remove`.
 func Remove(ctx context.Context, env *Env, options RemoveOptions) error {
+	// Before anything else: relocate to, and re-exec into, a standalone copy
+	// of this binary outside any checkout, so deleting the worktree below
+	// can never delete the program doing the removal (#7) — the copy is
+	// this same binary's own bytes, nothing more; a build made from a
+	// branch still runs that branch's code once relocated, just from
+	// somewhere the checkout cannot take down with it. RemoveWithContext,
+	// which tests call directly, is deliberately not where this lives — a
+	// test's Env has no Executable/Exec wired, so it skips relocation and
+	// runs exactly as it always has.
+	relocateAndReexec(env)
 	cctx, err := Context(env)
 	if err != nil {
 		return err

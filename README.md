@@ -246,6 +246,34 @@ resources, the home directory, the registration, the identity marker.
 whose checkout is already gone; `--label-namespace` supplies the Docker label
 namespace of its resources when nothing on disk records it.
 
+The Go build additionally never runs the removal itself from wherever the
+invoked binary happens to live: before doing anything else, `worktree
+remove` installs a content-addressed copy of itself under the control home —
+outside any checkout — and hands the removal to that copy. Deleting a
+checkout can therefore never delete the program still removing it. The copy
+is exactly the binary that was invoked, though, nothing more: a build made
+from a branch still runs that branch's code once relocated, just from
+somewhere the checkout it is removing cannot take down with it. Running only
+a trusted, pinned build regardless of what invoked `worktree remove` is a
+separate, later guarantee tied to how releases are distributed (#8). Copies
+are content-addressed, so a rebuild that changes nothing installs nothing
+new; one that has not been installed or reused in the last 30 days, or that
+is not among the 5 most recently used besides the current one, whichever
+rule catches it first, is swept away automatically — disk hygiene for a
+workflow that rebuilds often, not something to manage by hand. That count
+is a steady-state target, not a hard ceiling: the sweep only runs as part of
+a later `worktree remove`, so a burst of removals from distinct builds in
+quick succession can briefly leave more than 5 until the next one catches
+up. A copy installed or reused in the last 10 minutes is never swept away
+by either rule, however old or however far past the count it would
+otherwise be: that window exists for another `worktree remove`, running at
+the same time, that might be mid-way through installing or about to run
+the very copy this one's own sweep would otherwise be free to take. This is
+invisible in normal use; a copy that cannot be installed or run — including
+on a control home whose filesystem cannot execute programs at all — is
+reported on stderr as it happens, and removal continues with whichever
+binary was invoked.
+
 A full annotated example is in [`berth.example.toml`](berth.example.toml).
 The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
 

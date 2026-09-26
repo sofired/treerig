@@ -7,6 +7,7 @@
 //	  locks/worktrees/<repo>/<wt>.dev   development-session lock
 //	  repositories/<repo>/worktrees/    registry records, one JSON per worktree
 //	  repositories/<repo>/instances/<wt>/   the worktree's home
+//	  bin/<sha256>                      BinDir: `worktree remove`'s own content-addressed copies (#7)
 //
 // The shared router's own stack file, protocol record, dynamic and index
 // directories, and lock no longer live under the control home (#12, #13):
@@ -34,6 +35,12 @@ type Control struct {
 	RepositoriesDir  string
 	LocksDir         string
 	RegistryLockPath string
+	// BinDir is the content-addressed store `worktree remove` installs a
+	// copy of itself into before running, so deleting a checkout can never
+	// delete the program doing the removal (#7) — the copy is exactly the
+	// bytes that were invoked, nothing more. Entries are named by the
+	// sha256 of their bytes; see internal/binstore.
+	BinDir string
 }
 
 // Repository adds one repository's directories.
@@ -178,6 +185,7 @@ func ControlLayout(controlHome string) Control {
 		RepositoriesDir:  filepath.Join(resolved, "repositories"),
 		LocksDir:         locksDir,
 		RegistryLockPath: filepath.Join(locksDir, "registry"),
+		BinDir:           filepath.Join(resolved, "bin"),
 	}
 }
 

@@ -571,6 +571,18 @@ func SecureControlDirectories(l layout.Control) error {
 	return AssertSafeFilePath(l.ControlHome, l.RegistryLockPath)
 }
 
+// SecureBinDirectory is the content-addressed store `worktree remove`
+// installs a copy of itself into before running (#7), owner-only like every
+// other control-home directory. Callers create it lazily, only when they are
+// about to install into it, rather than on every command the way
+// SecureControlDirectories's own directories are.
+func SecureBinDirectory(l layout.Control) error {
+	if err := SecureControlDirectories(l); err != nil {
+		return err
+	}
+	return createSecureDirectories(l.ControlHome, []string{l.BinDir}, 0o700)
+}
+
 // SecureRegistrationDirectories are the directories a worktree needs before
 // it can be registered — no home yet.
 func SecureRegistrationDirectories(l layout.Worktree) error {

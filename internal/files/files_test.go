@@ -277,6 +277,24 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		}
 	})
 
+	t.Run("creates the bin directory owner-only, lazily rather than on every command", func(t *testing.T) {
+		controlHome := filepath.Join(t.TempDir(), "control")
+		l := layout.ControlLayout(controlHome)
+
+		requireNoError(t, files.SecureControlDirectories(l))
+		exists, err := files.PathExists(l.BinDir)
+		requireNoError(t, err)
+		if exists {
+			t.Fatalf("expected %s not to be created by SecureControlDirectories alone", l.BinDir)
+		}
+
+		requireNoError(t, files.SecureBinDirectory(l))
+		if mode := fileMode(t, l.BinDir); mode != 0o700 {
+			t.Fatalf("expected %s to be 0700, got %o", l.BinDir, mode)
+		}
+		requireNoError(t, files.SecureBinDirectory(l)) // and again, idempotently
+	})
+
 	t.Run("creates a worktree home owner-only and refuses while a removal is half-finished", func(t *testing.T) {
 		controlHome := filepath.Join(t.TempDir(), "control")
 		l := layout.WorktreeLayout(controlHome, "a08b4892-5111-49f1-a47a-5ab988c7f676", "2b41d9d4-ed88-49c1-be9c-5439bdf6a431")
