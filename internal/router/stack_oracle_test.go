@@ -13,6 +13,12 @@ package router_test
 // tmpfs, volumes, healthcheck and labels, plus explicit assertions that the
 // pieces #55 removed are in fact gone. See tools/oracle/router-stack.ts's
 // header for how testdata/stack-oracle.json is regenerated.
+//
+// #82 (row 35) adds one more label, RouterHomeLabel, to both services —
+// Go-only, since TypeScript has no berth-root ownership check to stamp a
+// value for. It is asserted directly, then stripped from Go's own document
+// before the comparisons above, so it never has to appear in the oracle
+// fixture at all.
 
 import (
 	"bytes"
@@ -86,6 +92,12 @@ func TestStackOracle(t *testing.T) {
 		t.Fatalf("decoding the substituted oracle: %v", err)
 	}
 
+	// wantHome is this test's own fixture berth root, stamped as
+	// router.RouterHomeLabel (#82) — a Go-only addition (divergence row 35)
+	// the oracle, generated from the frozen TypeScript build, never
+	// produces at all, so it is asserted directly below and stripped from
+	// gotDoc before the ledgered oracle comparisons that follow.
+	const wantHome = "/home/dev/.berth"
 	gotText, err := marshalIndented(router.Stack(router.StackOptions{
 		ProjectName:    "berth-router",
 		Network:        "berth-router",
@@ -93,6 +105,7 @@ func TestStackOracle(t *testing.T) {
 		DynamicDir:     newDynamicDir,
 		IndexDir:       newIndexDir,
 		LabelNamespace: "dev.berth",
+		Home:           wantHome,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +117,14 @@ func TestStackOracle(t *testing.T) {
 
 	oracleServices := objectAt(t, oracleDoc, "services")
 	gotServices := objectAt(t, gotDoc, "services")
+
+	for _, service := range []string{"index", "router"} {
+		labels := objectAt(t, objectAt(t, gotServices, service), "labels")
+		if got := labels[router.RouterHomeLabel]; got != wantHome {
+			t.Errorf("%s.labels[%s] = %#v, want %q", service, router.RouterHomeLabel, got, wantHome)
+		}
+		delete(labels, router.RouterHomeLabel)
+	}
 
 	if !reflect.DeepEqual(gotServices["index"], oracleServices["index"]) {
 		t.Errorf("index service does not match the oracle (plus the ledgered substitutions above).\n got: %#v\nwant: %#v",

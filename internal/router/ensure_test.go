@@ -807,6 +807,118 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
+	t.Run("adopts a router that carries no berth-root label, since it predates the check", func(t *testing.T) {
+		// newWorld's own fixture never stamps RouterHomeLabel, matching a
+		// router started by a build from before #82.
+		w := newWorld(t, 80, "")
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		lines, _ := w.Logger.Snapshot()
+		mustContain(t, lines, "info: The running router carries no berth-root ownership label; it predates this check. Adopting it: this start recreates it once to record this berth root as its owner.")
+	})
+
+	t.Run("adopts a router whose berth-root label is empty, the same as one with none", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
+		unowned := routerDoc(w.State.DynamicDir, w.Port)
+		unowned.Config.Labels = testLabels("router")
+		unowned.Config.Labels[router.RouterHomeLabel] = ""
+		w.Fake.setDoc("router-1", unowned)
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		lines, _ := w.Logger.Snapshot()
+		mustContain(t, lines, "info: The running router carries no berth-root ownership label; it predates this check. Adopting it: this start recreates it once to record this berth root as its owner.")
+	})
+
+	t.Run("takes over a stopped router whatever root it belonged to: it serves nobody", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
+		stopped := routerDoc(w.State.DynamicDir, w.Port)
+		stopped.Config.Labels = testLabels("router")
+		stopped.Config.Labels[router.RouterHomeLabel] = "home-b"
+		stopped.State.Status = "exited"
+		w.Fake.setDoc("router-1", stopped)
+		w.Fake.mu.Lock()
+		w.Fake.onUp = w.setHealthy // the start brings it back, this root's own
+		w.Fake.mu.Unlock()
+
+		owner, err := w.Router.Owner(context.Background())
+		if err != nil || owner.Running {
+			t.Fatalf("Owner = %+v, %v; want not running", owner, err)
+		}
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatalf("expected a stopped foreign router to be taken over, got %v", err)
+		}
+	})
+
+	t.Run("refuses to adopt a router it cannot inspect: no answer is not no label", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
+		w.Fake.clearDocs() // the containers are there; `docker inspect` says nothing about them
+
+		if _, err := w.Router.Owner(context.Background()); err == nil || !strings.Contains(err.Error(), "The shared router exists but could not be inspected.") {
+			t.Fatalf("Owner: got %v", err)
+		}
+		err := w.Router.Ensure(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "The shared router exists but could not be inspected.") {
+			t.Fatalf("Ensure: got %v", err)
+		}
+		if len(w.ups()) != 0 {
+			t.Errorf("expected no `up` calls, got %v", w.ups())
+		}
+		lines, _ := w.Logger.Snapshot()
+		for _, line := range lines {
+			if strings.Contains(line, "Adopting it") {
+				t.Fatalf("adopted a router it could not inspect: %v", lines)
+			}
+		}
+	})
+
+	t.Run("refuses a router that belongs to a different berth root, leaving it untouched", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
+		foreign := routerDoc(w.State.DynamicDir, w.Port)
+		foreign.Config.Labels = testLabels("router")
+		foreign.Config.Labels[router.RouterHomeLabel] = "home-b"
+		w.Fake.setDoc("router-1", foreign)
+
+		err := w.Router.Ensure(context.Background())
+		want := "The shared router belongs to a different berth root (home-b). Hand it to this one: stop it with 'duke router down', then run this again."
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("got %v, want %q", err, want)
+		}
+		if ups := w.ups(); len(ups) != 0 {
+			t.Fatalf("expected no `compose up` at all, got %v", ups)
+		}
+	})
+
+	t.Run("hands the router to a new berth root: 'router down' then 'router up' adopts it cleanly", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
+		foreign := routerDoc(w.State.DynamicDir, w.Port)
+		foreign.Config.Labels = testLabels("router")
+		foreign.Config.Labels[router.RouterHomeLabel] = "home-b"
+		w.Fake.setDoc("router-1", foreign)
+
+		if err := w.Router.Ensure(context.Background()); err == nil {
+			t.Fatal("expected the first Ensure, against another berth root's router, to refuse")
+		}
+
+		// 'router down' stops the router unconditionally, whoever owns it —
+		// the explicit way to hand it over (#82) — never gated on ownership
+		// itself.
+		if err := w.Router.Down(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		// The fake's own `down` does not remove containers the way a real
+		// daemon's does; taken() stages exactly what a real `down` leaves,
+		// and arranges for the next `up` to bring a fresh, correctly
+		// labelled container back.
+		taken(t, w, nil)
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatalf("expected 'router up' from the new berth root to adopt cleanly: %v", err)
+		}
+	})
+
 	t.Run("warns instead of failing a verified up when the protocol record cannot be written", func(t *testing.T) {
 		skipIfRoot(t)
 		w := newWorld(t, 80, "")

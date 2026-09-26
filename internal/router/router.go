@@ -145,6 +145,13 @@ type Options struct {
 	Page PlaceholderPage
 	// Timeouts overrides this router's per-call docker timeouts (#14).
 	Timeouts Timeouts
+	// Home is the berth root (BERTH_HOME) this Router's state was resolved
+	// from — stamped on both containers as RouterHomeLabel and checked by
+	// Ensure before it ever touches a router another berth root started
+	// (#82). "" (never set, a test mostly) matches only another Router
+	// that also left it unset, so nothing here changes for a caller that
+	// does not know its own berth root.
+	Home string
 }
 
 // Router is what the rest of the tool needs to know about the shared router.
@@ -163,6 +170,7 @@ type Router struct {
 	commandName    string
 	page           PlaceholderPage
 	timeouts       Timeouts
+	home           string
 }
 
 // New builds a Router. The network name is interpolated into Traefik's
@@ -204,6 +212,7 @@ func New(options Options) (*Router, error) {
 		commandName:    options.CommandName,
 		page:           page,
 		timeouts:       options.Timeouts.withDefaults(),
+		home:           options.Home,
 	}, nil
 }
 
@@ -328,6 +337,7 @@ func (r *Router) write(now time.Time) error {
 		DynamicDir:     r.state.DynamicDir,
 		IndexDir:       r.state.IndexDir,
 		LabelNamespace: r.labelNamespace,
+		Home:           r.home,
 	})
 	// JSON is YAML; Compose reads it as such.
 	if err := files.AtomicJSON(r.state.ComposeFile, document); err != nil {
@@ -1150,6 +1160,101 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 	return problems, nil
 }
 
+// Ownership is what the running router's own container says about which
+// berth root's Ensure most recently started or recreated it (#82).
+type Ownership struct {
+	// Running is false when the router container does not exist, or exists
+	// but is not running; Labelled and Home are then meaningless — a router
+	// serving nobody is nothing to own.
+	Running bool
+	// Labelled is false when the running container carries no
+	// RouterHomeLabel at all (or an empty one): a router started by a build
+	// from before this label existed. A container that cannot be inspected
+	// is an error from Owner, never an unlabelled router. Home is ""
+	// in that case; Ensure treats it as adoptable rather than foreign (see
+	// checkOwnership), the same way an unparseable protocol label falls
+	// through to other evidence rather than refusing outright.
+	Labelled bool
+	// Home is the berth root RouterHomeLabel recorded on the running
+	// container, when Labelled.
+	Home string
+}
+
+// Owner reports Ownership for the running router, read from the router
+// container's own RouterHomeLabel — never the index container's copy of the
+// same label, since Stack always stamps both together and Ensure never
+// recreates one without the other.
+func (r *Router) Owner(ctx context.Context) (Ownership, error) {
+	id, err := r.containerID(ctx, RouterService)
+	if err != nil {
+		return Ownership{}, err
+	}
+	if id == "" {
+		return Ownership{}, nil
+	}
+	inspected, err := r.inspect(ctx, id)
+	if err != nil {
+		return Ownership{}, err
+	}
+	if inspected == nil {
+		// Unparseable or unreadable: not "no label" but "no answer", and an
+		// owner that cannot be read is not one to adopt over — the same
+		// refusal previousProtocol makes of the same container a moment
+		// later, so a transient inspect failure never turns a foreign router
+		// into an adoptable one.
+		return Ownership{}, clierr.New("The shared router exists but could not be inspected.")
+	}
+	// A container that exists but is not running serves nobody, so there is
+	// nothing to protect: the refusal is for a router in use (containerID
+	// lists stopped containers too, as previousProtocol needs it to). It
+	// reads as no router, and the next start takes it over the way a fresh
+	// start would.
+	if inspected.State.Status != "running" {
+		return Ownership{}, nil
+	}
+	// An empty value counts as no label: Stack stamps "" for a caller with
+	// no berth root to give (a test's own router, mainly), and an empty
+	// owner is nobody's to protect the router from.
+	home, present := inspected.Config.Labels[RouterHomeLabel]
+	if !present || home == "" {
+		return Ownership{Running: true}, nil
+	}
+	return Ownership{Running: true, Labelled: true, Home: home}, nil
+}
+
+// checkOwnership refuses to touch a running router that belongs to a
+// different berth root (#82): before this check, two berth roots each held
+// their own router lock over their own state but drove the same
+// machine-wide container, so a second root's Ensure force-recreated
+// whatever the first had just started, with no warning at all
+// (docs/design/locks.md, docs/port/divergences.md row 35). A router
+// carrying no ownership label predates RouterHomeLabel altogether — there is
+// no foreign owner to protect it from — so it is adopted instead, logged
+// rather than silently taken over. The log line also says what follows:
+// the label is part of the container's own config, so the plain `compose
+// up` Ensure runs next recreates the container once to carry it, before
+// Verify ever looks — a recreate that would otherwise have no line of its
+// own, since it is Compose's own reconciliation, not Verify's.
+func (r *Router) checkOwnership(ctx context.Context) error {
+	owner, err := r.Owner(ctx)
+	if err != nil {
+		return err
+	}
+	if !owner.Running {
+		return nil
+	}
+	if !owner.Labelled {
+		r.logger.Info("The running router carries no berth-root ownership label; it predates this check. Adopting it: this start recreates it once to record this berth root as its owner.")
+		return nil
+	}
+	if owner.Home == r.home {
+		return nil
+	}
+	return clierr.Newf(
+		"The shared router belongs to a different berth root (%s). Hand it to this one: stop it with '%s router down', then run this again.",
+		owner.Home, r.commandNameOr())
+}
+
 // Ensure is idempotent: starts the router if needed, verifies it, and fails
 // loudly if it cannot be made right. The caller holds the router's lock
 // around this call (see internal/commands' routerLockScope and
@@ -1161,8 +1266,17 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 // secureState runs first, before previousProtocol's own possible write of
 // the protocol record: a symlinked state directory must be refused before
 // anything — this call included — ever touches whatever it points to.
+// checkOwnership runs next, before previousProtocol reads or writes
+// anything else: a router belonging to a different berth root is refused
+// outright rather than force-recreated (#82).
 func (r *Router) Ensure(ctx context.Context) error {
 	if err := secureState(r.state); err != nil {
+		return err
+	}
+	// Before previousProtocol: a router belonging to a different berth root
+	// must be refused outright, not read for its protocol history — that
+	// history is not this berth root's to trust or overwrite (#82).
+	if err := r.checkOwnership(ctx); err != nil {
 		return err
 	}
 	previous, hadHistory, err := r.previousProtocol(ctx)

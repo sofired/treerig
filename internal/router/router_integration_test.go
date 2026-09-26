@@ -377,6 +377,87 @@ func TestTwoControlHomesShareOneRouter(t *testing.T) {
 	}
 }
 
+// TestTwoBerthRootsRouterUpRefuses is #82: unlike two control homes under
+// the same berth root (TestTwoControlHomesShareOneRouter, above), two
+// different berth roots each resolve their own, separate router state —
+// their own lock, their own compose.yaml, their own dynamic/index
+// directories — but the router container itself is still one per Docker
+// daemon (its Compose project name is fixed regardless of berth root). Before
+// this row a second berth root's `router up` had no way to tell the running
+// container was not its own, and force-recreated it out from under the
+// first with no warning; this proves the fix end to end, on a real daemon:
+// the second berth root's Ensure refuses, naming the first, and leaves the
+// first's own running container exactly as it was — then proves the
+// explicit way out ('router down' from either root, followed by the new
+// root's own 'router up') hands it over cleanly.
+func TestTwoBerthRootsRouterUpRefuses(t *testing.T) {
+	requireDocker(t)
+	id := suffix(t)
+	project := "berth-router-test-roots-" + id
+	ns := "dev.berth-test-router-roots-" + id
+	port := freePortForTest(t)
+	// Two separate berth roots: their own state directories (never shared,
+	// unlike the two-control-homes case), their own Home labels.
+	home1 := registrytest.TempDir(t)
+	home2 := registrytest.TempDir(t)
+	state1 := newState(filepath.Join(home1, "router"))
+	state2 := newState(filepath.Join(home2, "router"))
+
+	t.Cleanup(func() {
+		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
+		exec.Command("docker", "network", "rm", project).Run()
+	})
+
+	newRoot := func(t *testing.T, state layout.RouterLayout, home string) *router.Router {
+		svc, err := router.New(router.Options{
+			State: state, Port: port, Runner: osrun.New(), Logger: logger.Silent{},
+			ProjectName: project, Network: project, LabelNamespace: ns, Environ: os.Environ(),
+			Home: home,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return svc
+	}
+
+	ctx := context.Background()
+	first := newRoot(t, state1, home1)
+	if err := first.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+
+	second := newRoot(t, state2, home2)
+	err := second.Ensure(ctx)
+	want := fmt.Sprintf("The shared router belongs to a different berth root (%s).", home1)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("got %v, want a refusal containing %q", err, want)
+	}
+	after := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+	if before != after {
+		t.Fatalf("expected the second berth root's refusal to leave the first's router untouched, got %q then %q", before, after)
+	}
+	label := dockerOutput(t, "inspect", after, "--format", "{{index .Config.Labels \""+router.RouterHomeLabel+"\"}}")
+	if label != home1 {
+		t.Fatalf("router-home label = %q, want %q (the second root's refusal must not have touched it)", label, home1)
+	}
+
+	// The explicit way out (#82): 'router down' stops it whoever owns it —
+	// never gated on ownership — then the new root's own 'router up' adopts
+	// a fresh container labelled with its own home.
+	if err := first.Down(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Ensure(ctx); err != nil {
+		t.Fatalf("expected the second berth root's up to adopt cleanly once the first's is stopped: %v", err)
+	}
+	adopted := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+	adoptedLabel := dockerOutput(t, "inspect", adopted, "--format", "{{index .Config.Labels \""+router.RouterHomeLabel+"\"}}")
+	if adoptedLabel != home2 {
+		t.Fatalf("router-home label after takeover = %q, want %q", adoptedLabel, home2)
+	}
+}
+
 // TestRouterLockContention is #12: two "control homes" alternate `router
 // up`; the second waits on the single machine-wide lock rather than racing
 // the first. Uses a fake docker so the contention itself — real goroutines
