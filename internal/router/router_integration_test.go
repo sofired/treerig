@@ -9,14 +9,20 @@ package router_test
 // developer's real router and beside another track's Docker suite on the
 // same daemon.
 //
-// Not ported: "routes a worktree by hostname..." and "lets doctor read the
-// running router...". Both need machinery two other, parallel work packages
-// own and had not landed here yet: WP2's Compose runtime `up`/override
-// generation (a worktree's own routing) and the future `doctor` port. "keeps
-// the shared network on down while a worktree is attached" is adapted below
-// to attach a plain container to the shared network directly instead of
-// through a full worktree — the same router behaviour, reached without that
-// dependency (see its own comment).
+// "keeps the shared network on down while a worktree is attached" is
+// adapted below to attach a plain container to the shared network directly
+// instead of through a full worktree — the same router behaviour, reached
+// without that dependency (see its own comment). This file's own "never
+// routes a container with the wrong routed-by label..." below is the rest
+// of "routes a worktree by hostname..." that doesn't need a worktree: the
+// intruder's own labels and the unmatched-host 404. What that TypeScript
+// case and "lets doctor read the running router..." prove about an actual
+// routed worktree — a second service on its own subdomain, service
+// discovery by name, and doctor flagging a real second claimant — needed
+// WP2's Compose runtime `up` and the `doctor` port, both landed since
+// (#12/#13/#14 were this work package's own scope); that coverage is now
+// internal/commands/up_routes_docker_integration_test.go, alongside the
+// `up` command those need (#69).
 
 import (
 	"context"
@@ -191,6 +197,67 @@ func TestSharedRouterOnARealDaemon(t *testing.T) {
 		)
 		if !strings.Contains(body, "No checkouts have been indexed yet") {
 			t.Errorf("index body = %q", body)
+		}
+	})
+
+	// Ported from the TypeScript suite's "routes a worktree by hostname..."
+	// case, minus the worktree itself: a container on the router's own
+	// network, but labelled for some other router — what a second router
+	// stack's services look like to this one. It answers unmistakably, on
+	// the network Traefik actually watches, so a leaked route could never
+	// hide behind a 404 of its own.
+	t.Run("never routes a container with the wrong routed-by label, and gives an unmatched host the router's own 404", func(t *testing.T) {
+		intruderName := "intruder-" + id
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", intruderName).Run() })
+		dockerOutput(t, "run", "--detach", "--name", intruderName, "--network", project,
+			"--label", "traefik.enable=true",
+			"--label", "traefik.docker.network="+project,
+			"--label", router.RoutedByLabel+"=not-"+project, // the only label that differs from a routed worktree service
+			"--label", "traefik.http.routers.intruder.rule=Host(`intruder.invalid.localhost`)",
+			"--label", "traefik.http.routers.intruder.entrypoints="+router.RouterEntrypoint,
+			"--label", "traefik.http.services.intruder.loadbalancer.server.port=8080",
+			"busybox:1.37.0", "sh", "-c", "echo intruder > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
+
+		// A correctly labelled control, started after the intruder: once its
+		// route answers, Traefik's Docker provider has listed both containers,
+		// so the intruder's 404 below is a verdict, not a race with discovery.
+		controlName := "control-" + id
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", controlName).Run() })
+		dockerOutput(t, "run", "--detach", "--name", controlName, "--network", project,
+			"--label", "traefik.enable=true",
+			"--label", "traefik.docker.network="+project,
+			"--label", router.RoutedByLabel+"="+project,
+			"--label", "traefik.http.routers.control.rule=Host(`control.invalid.localhost`)",
+			"--label", "traefik.http.routers.control.entrypoints="+router.RouterEntrypoint,
+			"--label", "traefik.http.services.control.loadbalancer.server.port=8080",
+			"busybox:1.37.0", "sh", "-c", "echo control > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
+		controlBody := eventually(t, 20*time.Second,
+			func() string { _, b := fetchThroughRouter(t, port, "control.invalid.localhost", "/"); return b },
+			func(b string) bool { return strings.TrimSpace(b) == "control" },
+		)
+		if strings.TrimSpace(controlBody) != "control" {
+			t.Fatalf("control host never routed; answered %q", controlBody)
+		}
+
+		nobodyStatus, nobodyBody := fetchThroughRouter(t, port, "nobody.invalid.localhost", "/")
+		if nobodyStatus != http.StatusNotFound {
+			t.Fatalf("unmatched host answered %d %q", nobodyStatus, nobodyBody)
+		}
+		// The negative means something only if the intruder is alive and serving while Traefik lists containers on its network.
+		alive, err := exec.Command("docker", "exec", intruderName, "wget", "-qO-", "http://127.0.0.1:8080/").Output()
+		if err != nil {
+			t.Fatalf("intruder did not answer on its own: %v", err)
+		}
+		if strings.TrimSpace(string(alive)) != "intruder" {
+			t.Fatalf("intruder served %q", alive)
+		}
+		// Traefik's own 404, byte for byte the one an unknown host gets — never the intruder's page.
+		intruderStatus, intruderBody := fetchThroughRouter(t, port, "intruder.invalid.localhost", "/")
+		if intruderStatus != nobodyStatus || intruderBody != nobodyBody {
+			t.Fatalf("intruder host answered %d %q, want the unmatched host's %d %q", intruderStatus, intruderBody, nobodyStatus, nobodyBody)
+		}
+		if strings.Contains(nobodyBody, "intruder") {
+			t.Fatalf("unmatched host's body leaked the intruder's own: %q", nobodyBody)
 		}
 	})
 
