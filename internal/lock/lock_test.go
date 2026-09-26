@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
 )
@@ -241,7 +242,7 @@ func TestOpenTargetRefusesASymlinkOrDirectory(t *testing.T) {
 
 func TestCheckFS(t *testing.T) {
 	t.Run("accepts an ordinary local directory", func(t *testing.T) {
-		if err := CheckFS(t.TempDir()); err != nil {
+		if err := CheckFS(t.TempDir(), brand.HomeEnv); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})

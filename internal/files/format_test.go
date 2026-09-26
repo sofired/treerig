@@ -16,7 +16,7 @@ import (
 func TestControlHomeFormat(t *testing.T) {
 	t.Run("writes the format into the marker of a control home it creates", func(t *testing.T) {
 		home := filepath.Join(t.TempDir(), "control")
-		if err := files.SecureControlDirectories(layout.ControlLayout(home)); err != nil {
+		if err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir()); err != nil {
 			t.Fatal(err)
 		}
 		contents, err := os.ReadFile(filepath.Join(home, files.ControlHomeMarker))
@@ -40,7 +40,7 @@ func TestControlHomeFormat(t *testing.T) {
 		if legacy, err := files.LegacyControlHome(home); err != nil || !legacy {
 			t.Fatalf("legacy = %v, %v", legacy, err)
 		}
-		if err := files.SecureControlDirectories(layout.ControlLayout(home)); err != nil {
+		if err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir()); err != nil {
 			t.Fatal(err)
 		}
 		if legacy, _ := files.LegacyControlHome(home); legacy {
@@ -57,7 +57,7 @@ func TestControlHomeFormat(t *testing.T) {
 		if err := os.WriteFile(marker, []byte("format 3\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := files.SecureControlDirectories(layout.ControlLayout(home)); err != nil {
+		if err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir()); err != nil {
 			t.Fatal(err)
 		}
 		if data, _ := os.ReadFile(marker); string(data) != "format 3\n" {
@@ -79,7 +79,7 @@ func TestControlHomeFormat(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err := files.SecureControlDirectories(layout.ControlLayout(home))
+		err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), "Refusing symlinked or non-file managed path") {
 			t.Fatalf("got %v", err)
 		}
@@ -106,7 +106,7 @@ func TestControlHomeFormat(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err := files.SecureControlDirectories(layout.ControlLayout(home))
+		err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), "Refusing symlinked or non-file managed path") {
 			t.Fatalf("got %v", err)
 		}
@@ -128,7 +128,7 @@ func TestControlHomeFormat(t *testing.T) {
 
 		done := make(chan error, 1)
 		go func() {
-			done <- files.SecureControlDirectories(layout.ControlLayout(home))
+			done <- files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
 		}()
 
 		select {
@@ -167,7 +167,7 @@ func TestControlHomeFormat(t *testing.T) {
 		})
 		defer restore()
 
-		err := files.SecureControlDirectories(layout.ControlLayout(home))
+		err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), "Refusing symlinked or non-directory managed path") {
 			t.Fatalf("got %v", err)
 		}

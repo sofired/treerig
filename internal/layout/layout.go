@@ -1,17 +1,22 @@
-// Package layout derives the control home's on-disk paths. Nothing here
-// touches the filesystem; these are pure path derivations.
+// Package layout derives the berth root's and control home's on-disk paths.
+// Nothing here touches the filesystem; these are pure path derivations.
 //
-//	<controlHome>/
-//	  locks/registry                    RegistryLockPath
-//	  locks/worktrees/<repo>/<wt>       worktree operation lock
-//	  locks/worktrees/<repo>/<wt>.dev   development-session lock
-//	  repositories/<repo>/worktrees/    registry records, one JSON per worktree
-//	  repositories/<repo>/instances/<wt>/   the worktree's home
+//	<home>/                              BERTH_HOME, the berth root (#80)
+//	  router/                            RouterState, the shared router's own layout
+//	  control-home/                      the control home, unless BERTH_CONTROL_HOME overrides it
+//	    locks/registry                    RegistryLockPath
+//	    locks/worktrees/<repo>/<wt>       worktree operation lock
+//	    locks/worktrees/<repo>/<wt>.dev   development-session lock
+//	    repositories/<repo>/worktrees/    registry records, one JSON per worktree
+//	    repositories/<repo>/instances/<wt>/   the worktree's home
 //
 // The shared router's own stack file, protocol record, dynamic and index
-// directories, and lock no longer live under the control home (#12, #13):
-// see RouterState. What a TypeScript-era control home once laid them out as
-// is recorded in internal/router/migrate.go, the one place that still needs it.
+// directories, and lock live under the berth root rather than inside the
+// control home (#12, #13, #80), so every control home on this machine that
+// shares a berth root finds the same router state instead of taking turns
+// recreating it. The router container itself is still one per Docker
+// daemon regardless of berth root (RouterLayout), so a different berth root
+// does not get its own isolated router — only its own copy of this state.
 package layout
 
 import (
@@ -19,7 +24,6 @@ import (
 	"encoding/hex"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -59,25 +63,56 @@ type Worktree struct {
 // Getenv reads one environment variable; os.LookupEnv in production.
 type Getenv func(key string) (string, bool)
 
-// ResolveControlHome is the override, else $BERTH_HOME, else ~/.berth, made
-// absolute without resolving symlinks.
-func ResolveControlHome(getenv Getenv, override string) (string, error) {
+// ResolveHome is the berth root: the override, else $BERTH_HOME, else
+// ~/.berth, made absolute without resolving symlinks. It holds a future
+// settings.toml (#79), router/ (RouterState) and, unless BERTH_CONTROL_HOME
+// overrides it, the control home (ResolveControlHome) (#80).
+func ResolveHome(getenv Getenv, override string) (string, error) {
 	candidate := override
-	if candidate == "" {
-		if value, ok := getenv(brand.HomeEnv); ok {
-			candidate = value
-		}
+	value, set := getenv(brand.HomeEnv)
+	if candidate == "" && set {
+		candidate = value
 	}
-	if candidate == "" {
-		if _, set := getenv(brand.HomeEnv); !set {
-			home, err := HomeDir(getenv)
-			if err != nil {
-				return "", err
-			}
-			candidate = filepath.Join(home, brand.DefaultHomeDir)
+	if candidate == "" && !set {
+		home, err := HomeDir(getenv)
+		if err != nil {
+			return "", err
 		}
-		// An empty BERTH_HOME resolves like Node's path.resolve(''): the cwd.
+		candidate = filepath.Join(home, brand.DefaultHomeDir)
 	}
+	// An empty BERTH_HOME resolves like Node's path.resolve(''): the cwd.
+	return Resolve(candidate)
+}
+
+// ResolveControlHome is the control home: the override, else
+// $BERTH_CONTROL_HOME, else <berth root>/control-home, made absolute without
+// resolving symlinks. The berth root itself comes from ResolveHome, so an
+// unset BERTH_CONTROL_HOME still honours BERTH_HOME (#80). Resolves the
+// berth root itself for that fallback; a caller that already has one
+// (typically already checked by files.AssertSafeHome) wants ControlHomeFrom
+// instead, so the two can never resolve it to two different things.
+func ResolveControlHome(getenv Getenv, override string) (string, error) {
+	home, err := ResolveHome(getenv, "")
+	if err != nil {
+		return "", err
+	}
+	return ControlHomeFrom(home, getenv, override)
+}
+
+// ControlHomeFrom is ResolveControlHome given the berth root already
+// resolved: the override, else $BERTH_CONTROL_HOME, else
+// <home>/control-home, made absolute without resolving symlinks.
+func ControlHomeFrom(home string, getenv Getenv, override string) (string, error) {
+	candidate := override
+	value, set := getenv(brand.ControlHomeEnv)
+	if candidate == "" && set {
+		candidate = value
+	}
+	if candidate == "" && !set {
+		candidate = filepath.Join(home, brand.ControlHomeDirName)
+	}
+	// An empty BERTH_CONTROL_HOME resolves like Node's path.resolve(''): the
+	// cwd, the same convention ResolveHome applies to an empty BERTH_HOME.
 	return Resolve(candidate)
 }
 
@@ -208,12 +243,17 @@ func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 	}
 }
 
-// RouterLayout is the shared router's on-disk layout: one router per user
-// account, outside every control home (#12, #13), so every control home on
-// this machine that resolves to the same account finds the same router
-// instead of taking turns recreating it. It holds the stack file, the
-// protocol record, the two directories the router bind-mounts, and the
-// router lock's own target file.
+// RouterLayout is the shared router's on-disk layout, outside the control
+// home (#12, #13, #80): the stack file, the protocol record, the two
+// directories the router bind-mounts, and the router lock's own target
+// file. This layout is per berth root, so every control home under the
+// same berth root reads and writes the same one instead of taking turns
+// recreating it — but the router container itself is not: its Compose
+// project name is fixed (router.ResolveProjectName), so it is one per
+// Docker daemon regardless of berth root. A berth root with its own,
+// different RouterLayout does not get its own router; it makes `up` or
+// `router up` from that root recreate the one container against its own
+// state instead, still on the same daemon (#80's own AGENTS.md note).
 type RouterLayout struct {
 	StateDir     string
 	ComposeFile  string
@@ -227,42 +267,42 @@ type RouterLayout struct {
 }
 
 // RouterStateDir is the directory the shared router's state and lock live
-// under: `$XDG_STATE_HOME/berth/router`, or `$HOME/.local/state/berth/router`
-// when that is unset, on Linux; `$HOME/Library/Application Support/berth/router`
-// on macOS. There is no Windows build (see docs/design/locks.md), so every
-// other GOOS takes the Linux path.
+// under: `<berth root>/router` (#80). Before #80 this lived outside every
+// control home, keyed off the OS's own per-account state directory
+// (`$XDG_STATE_HOME` or `$HOME/.local/state` on Linux, `Library/Application
+// Support` on macOS); it is simpler now that it is resolved the same way
+// BERTH_HOME resolves a control home. A different BERTH_HOME still reads
+// and writes a different RouterStateDir — but the router container itself
+// stays one per Docker daemon (see RouterLayout), so a scratch BERTH_HOME
+// used by hand does not get its own isolated router the way it gets its
+// own control home. Resolves the berth root itself; a caller that already
+// has one wants RouterStateDirFrom instead, so the two can never resolve it
+// to two different things.
 func RouterStateDir(getenv Getenv) (string, error) {
-	return routerStateDirFor(runtime.GOOS, getenv)
-}
-
-// routerStateDirFor takes goos as a parameter so both branches can be tested
-// from either platform, the way Options.Clock lets a lock test simulate a
-// suspended machine.
-func routerStateDirFor(goos string, getenv Getenv) (string, error) {
-	home, err := HomeDir(getenv)
+	home, err := ResolveHome(getenv, "")
 	if err != nil {
 		return "", err
 	}
-	if goos == "darwin" {
-		return filepath.Join(home, "Library", "Application Support", brand.Name, "router"), nil
-	}
-	// The XDG Base Directory spec requires every path in these variables to
-	// be absolute, and says a relative one must be treated as unset: skip it
-	// (rather than joining it to something like the working directory),
-	// or every working directory would resolve its own state and lock,
-	// defeating the one-router-per-account point of this whole layout (#12).
-	if xdg, ok := getenv("XDG_STATE_HOME"); ok && xdg != "" && filepath.IsAbs(xdg) {
-		return filepath.Join(xdg, brand.Name, "router"), nil
-	}
-	return filepath.Join(home, ".local", "state", brand.Name, "router"), nil
+	return RouterStateDirFrom(home), nil
 }
 
-// RouterState derives the shared router's paths.
+// RouterStateDirFrom is RouterStateDir given the berth root already resolved.
+func RouterStateDirFrom(home string) string { return filepath.Join(home, brand.RouterDirName) }
+
+// RouterState derives the shared router's paths. Resolves the berth root
+// itself; a caller that already has one (typically already checked by
+// files.AssertSafeHome) wants RouterStateFrom instead.
 func RouterState(getenv Getenv) (RouterLayout, error) {
-	dir, err := RouterStateDir(getenv)
+	home, err := ResolveHome(getenv, "")
 	if err != nil {
 		return RouterLayout{}, err
 	}
+	return RouterStateFrom(home), nil
+}
+
+// RouterStateFrom is RouterState given the berth root already resolved.
+func RouterStateFrom(home string) RouterLayout {
+	dir := RouterStateDirFrom(home)
 	indexDir := filepath.Join(dir, "index")
 	return RouterLayout{
 		StateDir:     dir,
@@ -272,7 +312,7 @@ func RouterState(getenv Getenv) (RouterLayout, error) {
 		IndexDir:     indexDir,
 		IndexFile:    filepath.Join(indexDir, "index.html"),
 		LockPath:     filepath.Join(dir, "lock"),
-	}, nil
+	}
 }
 
 // ComposeProjectName is stable for the (repository, worktree) pair and cannot

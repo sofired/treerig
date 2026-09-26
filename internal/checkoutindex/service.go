@@ -86,8 +86,9 @@ type Options struct {
 	// that path needs an Env's Getenv, which this package does not depend
 	// on, so the caller resolves it once and hands it over.
 	IndexFile string
-	// Lock is the shared router's lock scope (lock.RouterScope): Refresh
-	// takes it around reading the registry and Docker and writing the page,
+	// Lock is the shared router's lock scope (internal/commands'
+	// routerLockScope): Refresh takes it around reading the registry and
+	// Docker and writing the page,
 	// the same lock router.Ensure holds around bringing the router itself
 	// up, so the two can never observe or write the page in the middle of
 	// each other's work.
@@ -426,13 +427,13 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 
 // Refresh rebuilds the page under the shared router's lock and writes it to
 // IndexFile, returning the snapshot it wrote. The lock matches the one
-// router.Ensure holds around bringing the router up (lock.RouterScope),
-// taken here the same way — lock.New, Acquire, Release — rather than
-// through internal/lifecycle's full signal-deferring Hold: Refresh always
-// runs after a mutation's own lock has already been released (or, from
-// `router up`, after the router's own hold has), so it needs the mutual
-// exclusion a plain Lock gives it, not another layer of the same signal
-// handling built for a whole command invocation. It waits only
+// router.Ensure holds around bringing the router up (internal/commands'
+// routerLockScope), taken here the same way — lock.New, Acquire, Release —
+// rather than through internal/lifecycle's full signal-deferring Hold:
+// Refresh always runs after a mutation's own lock has already been released
+// (or, from `router up`, after the router's own hold has), so it needs the
+// mutual exclusion a plain Lock gives it, not another layer of the same
+// signal handling built for a whole command invocation. It waits only
 // Options.LockTimeout (defaultLockTimeout, 60 s) for that lock, not
 // lock.RouterTimeout: a best-effort refresh gives up rather than stall the
 // command that asked for it behind a router start.

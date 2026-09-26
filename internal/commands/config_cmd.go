@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/text"
 )
 
@@ -58,7 +57,7 @@ func ConfigValidate(ctx context.Context, env *Env) error {
 	if len(inert) > 0 {
 		env.Logger.Output("accepted but not invoked yet: " + strings.Join(inert, ", "))
 	}
-	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+	controlHome, err := resolveControlHome(env.Getenv)
 	if err != nil {
 		return err
 	}

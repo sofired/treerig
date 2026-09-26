@@ -517,6 +517,19 @@ yet the one to install. Don't use it on a machine where you use the
 TypeScript build: their locks do not exclude each other. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to build and test it.
 
+Its layout differs from the TypeScript build's above it: `BERTH_HOME` (still
+`~/.berth` by default — the same directory the TypeScript build's router
+files live under, harmless only because the two builds are never run
+together) is the berth root, holding a future `settings.toml` (#79), the
+shared router's own state and lock, and — unless `BERTH_CONTROL_HOME`
+overrides it — the control home, nested under it as `control-home`.
+`BERTH_CONTROL_HOME` moves only the control home, leaving the router's
+state (and that future `settings.toml`) where `BERTH_HOME` puts them. The
+router container itself is not per `BERTH_HOME`: there is one per Docker
+daemon, and a scratch `BERTH_HOME` moves only where its state and lock are
+read from, not which container `up` or `router up` starts or replaces — see
+[`docs/port/divergences.md`](docs/port/divergences.md) rows 9 and 29.
+
 ### Layout
 
 ```

@@ -160,10 +160,17 @@ func (w *upWorld) context(t *testing.T, runner *fakeDockerRunner) (*commands.Com
 	log := &logger.Recording{}
 	getenv := func(key string) (string, bool) {
 		switch key {
-		case "BERTH_HOME":
+		// BERTH_CONTROL_HOME, not BERTH_HOME: this world's fixtures (see
+		// layout.WorktreeLayout(w.controlHome, ...) below) are written
+		// directly at w.controlHome, so it must resolve as the control home
+		// itself rather than have "control-home" derived underneath it (#80).
+		case "BERTH_CONTROL_HOME":
 			return w.controlHome, true
-		case "XDG_STATE_HOME":
-			return filepath.Join(w.base, "state"), true
+		// The router is fake in this world (commandstest.NewFakeRouter), but
+		// Context still resolves layout.RouterState; BERTH_HOME left unset
+		// isolates it under this test's own HOME instead of the machine's.
+		case "HOME":
+			return filepath.Join(w.base, "home"), true
 		}
 		return "", false
 	}

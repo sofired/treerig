@@ -3,6 +3,7 @@ package registry_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,13 +18,23 @@ import (
 func claimedHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	if err := files.SecureControlDirectories(layout.ControlLayout(home)); err != nil {
+	// A distinct temp directory, nowhere near home: AssertAdoptableControlHome's
+	// own home-family checks need something to compare against, never
+	// exercised by this fixture.
+	if err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	return home
 }
 
-var testWriter = registry.Writer{Logger: logger.Silent{}, Invocation: "berth worktree remove"}
+// testUserHome is a fixed, harmless placeholder: none of this file's fixture
+// control homes are ever near it, so AssertAdoptableControlHome's own
+// home-family checks never actually trigger from it — it only needs to be
+// non-empty (#80: an empty userHome resolves as the current directory,
+// exactly the ambiguity a real userHome always avoids).
+var testUserHome = filepath.Join(os.TempDir(), "berth-test-user-home-does-not-exist")
+
+var testWriter = registry.Writer{Logger: logger.Silent{}, Invocation: "berth worktree remove", UserHome: testUserHome}
 
 // requireRegistryFree proves the registry lock was released: another holder takes it at once.
 func requireRegistryFree(t *testing.T, controlHome string) {

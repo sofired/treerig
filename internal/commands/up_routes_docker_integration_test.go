@@ -120,7 +120,7 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 	}
 
 	// doctor sees both services routed, and no two routers sharing a rule yet.
-	sections, err := commands.DoctorSections(context.Background(), w.env, w.svc, w.controlHome)
+	sections, err := commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
 	if err != nil {
 		t.Fatalf("DoctorSections: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 		t.Fatalf("starting the impostor: %v", err)
 	}
 
-	sections, err = commands.DoctorSections(context.Background(), w.env, w.svc, w.controlHome)
+	sections, err = commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
 	if err != nil {
 		t.Fatalf("DoctorSections with the impostor up: %v", err)
 	}

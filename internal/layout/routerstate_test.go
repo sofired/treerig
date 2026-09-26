@@ -1,15 +1,16 @@
 package layout
 
-// White-box (package layout, not layout_test) so both GOOS branches of
-// routerStateDirFor can be exercised from either platform, the same reason
-// lock.Options exposes Clock rather than calling time.Now directly.
+// White-box (package layout, not layout_test) purely by convention with the
+// rest of this package's tests; RouterStateDir needs no GOOS branching any
+// more (#80), but staying in-package keeps this file next to the function it
+// covers.
 
 import (
 	"path/filepath"
 	"testing"
 )
 
-func TestRouterStateDirFor(t *testing.T) {
+func TestRouterStateDir(t *testing.T) {
 	getenv := func(values map[string]string) Getenv {
 		return func(key string) (string, bool) {
 			v, ok := values[key]
@@ -17,62 +18,27 @@ func TestRouterStateDirFor(t *testing.T) {
 		}
 	}
 
-	t.Run("uses Library/Application Support on macOS, ignoring XDG_STATE_HOME", func(t *testing.T) {
-		got, err := routerStateDirFor("darwin", getenv(map[string]string{
-			"HOME":           "/Users/dev",
-			"XDG_STATE_HOME": "/should/not/matter",
-		}))
+	t.Run("lives under the berth root, alongside the control home", func(t *testing.T) {
+		got, err := RouterStateDir(getenv(map[string]string{"HOME": "/home/dev"}))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		want := filepath.Join("/Users/dev", "Library", "Application Support", "berth", "router")
+		want := filepath.Join("/home/dev", ".berth", "router")
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("prefers XDG_STATE_HOME on Linux", func(t *testing.T) {
-		got, err := routerStateDirFor("linux", getenv(map[string]string{
-			"HOME":           "/home/dev",
-			"XDG_STATE_HOME": "/custom/state",
+	t.Run("follows BERTH_HOME, not BERTH_CONTROL_HOME", func(t *testing.T) {
+		got, err := RouterStateDir(getenv(map[string]string{
+			"HOME":               "/home/dev",
+			"BERTH_HOME":         "/custom/home",
+			"BERTH_CONTROL_HOME": "/elsewhere/control",
 		}))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		want := filepath.Join("/custom/state", "berth", "router")
-		if got != want {
-			t.Fatalf("got %q, want %q", got, want)
-		}
-	})
-
-	t.Run("falls back to ~/.local/state on Linux when XDG_STATE_HOME is unset, empty, or not absolute", func(t *testing.T) {
-		for _, env := range []map[string]string{
-			{"HOME": "/home/dev"},
-			{"HOME": "/home/dev", "XDG_STATE_HOME": ""},
-			// The XDG Base Directory spec requires every path in these
-			// variables to be absolute; a relative one must be treated as
-			// unset, not joined to something like the working directory —
-			// which would give every working directory its own router (#12).
-			{"HOME": "/home/dev", "XDG_STATE_HOME": "relative/state"},
-			{"HOME": "/home/dev", "XDG_STATE_HOME": "."},
-		} {
-			got, err := routerStateDirFor("linux", getenv(env))
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			want := filepath.Join("/home/dev", ".local", "state", "berth", "router")
-			if got != want {
-				t.Fatalf("XDG_STATE_HOME=%q: got %q, want %q", env["XDG_STATE_HOME"], got, want)
-			}
-		}
-	})
-
-	t.Run("takes the Linux path on any other GOOS, since there is no Windows build", func(t *testing.T) {
-		got, err := routerStateDirFor("freebsd", getenv(map[string]string{"HOME": "/home/dev"}))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		want := filepath.Join("/home/dev", ".local", "state", "berth", "router")
+		want := filepath.Join("/custom/home", "router")
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}

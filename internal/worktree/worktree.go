@@ -69,8 +69,9 @@ func Environment(source EnvironmentSource, ref Ref) [][2]string {
 		{"WORKTREE_ID", ref.WorktreeID},
 		{"SLUG", ref.Slug},
 		{"HOST", layout.WorktreeHost(ref.Slug, source.Domain)},
-		// Deliberately not HOME: BERTH_HOME is the user's control-home override
-		// and must pass through to hooks untouched.
+		// Deliberately not HOME: BERTH_HOME (the berth root) and
+		// BERTH_CONTROL_HOME (the control-home override, #80) are the
+		// user's own, and must pass through to hooks untouched.
 		{"WORKTREE_HOME", layout.WorktreeLayout(source.ControlHome, ref.RepositoryID, ref.WorktreeID).Home},
 		{"CONFIG", source.ConfigFile},
 		{"ROOT", source.ProjectRoot},
