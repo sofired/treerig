@@ -44,6 +44,10 @@ type CommandContext struct {
 	// #79) — the port `urls` prints routed services on. It is the same
 	// value a running RouterService would report as its own `port`,
 	// without needing one built.
+	// Home is the berth root (BERTH_HOME) this context resolved and checked
+	// once; `up` hands it to the router it starts, as the root that owns it
+	// (#82).
+	Home       string
 	RouterPort int
 	// RouterPortResolution is RouterPort with where it came from and the
 	// settings file consulted (#79), the one resolution this context made:
@@ -145,6 +149,7 @@ func Context(env *Env) (*CommandContext, error) {
 		Loaded:               loaded,
 		ControlHome:          controlHome,
 		UserHome:             userHome,
+		Home:                 home,
 		RouterPort:           routerPort,
 		RouterPortResolution: resolvedPort,
 		RouterState:          routerState,

@@ -127,17 +127,18 @@ func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayo
 	if err != nil {
 		return nil, layout.RouterLayout{}, settings.PortResolution{}, err
 	}
-	svc, err := routerServiceWith(env, state, resolved)
+	svc, err := routerServiceWith(env, home, state, resolved)
 	if err != nil {
 		return nil, layout.RouterLayout{}, settings.PortResolution{}, err
 	}
 	return svc, state, resolved, nil
 }
 
-// routerServiceWith is the shared router built from a state and a port
-// resolution already made — Context's own, for `up`, so one command never
-// reads settings.toml twice (the same rule #80 set for BERTH_HOME).
-func routerServiceWith(env *Env, state layout.RouterLayout, resolved settings.PortResolution) (*router.Router, error) {
+// routerServiceWith is the shared router built from a berth root, its
+// state and a port resolution already made — Context's own, for `up`, so
+// one command never resolves BERTH_HOME or reads settings.toml twice (#80,
+// #79).
+func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolved settings.PortResolution) (*router.Router, error) {
 	return router.New(router.Options{
 		State:        state,
 		Port:         resolved.Port,
@@ -147,6 +148,10 @@ func routerServiceWith(env *Env, state layout.RouterLayout, resolved settings.Po
 		Invocation:   env.Invocation,
 		CommandName:  env.CommandName,
 		SettingsPath: resolved.SettingsPath,
+		// Home is the berth root the caller already checked (checkedHome),
+		// stamped on the router's own containers so a later Ensure — from
+		// this root or another one — can tell them apart (#82).
+		Home: home,
 	})
 }
 

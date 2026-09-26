@@ -613,6 +613,9 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 type doctorRouterSource interface {
 	Status(ctx context.Context) (router.RouterStatus, error)
 	Network() string
+	// Owner reports which berth root started the running router (#82); see
+	// routerOwnerCheck.
+	Owner(ctx context.Context) (router.Ownership, error)
 	// PublishedPort is the host port the running router publishes, and
 	// whether one is running at all (#79); see routerPortCheck.
 	PublishedPort(ctx context.Context) (port int, running bool, err error)
@@ -634,6 +637,11 @@ func (r realRouterSource) PublishedPort(ctx context.Context) (int, bool, error) 
 
 // Network returns the wrapped router.Router's Network field.
 func (r realRouterSource) Network() string { return r.svc.Network }
+
+// Owner delegates to the wrapped router.Router's own Owner.
+func (r realRouterSource) Owner(ctx context.Context) (router.Ownership, error) {
+	return r.svc.Owner(ctx)
+}
 
 // routerStatusChecks is the router in the words `router status` uses; not
 // running is an answer, not a problem.
@@ -905,10 +913,39 @@ func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName strin
 	return Check{Status: StatusOK, Subject: "address pools", Detail: fmt.Sprintf("%d bridge network%s", count, plural)}, nil
 }
 
+// routerOwnerCheck is doctor's own read-only report of which berth root
+// started the running router (#82): nil, nil when nothing is running —
+// Status already says so, and there is no owner to report. A running
+// container with no ownership label at all predates the label and is
+// reported as adoptable, not foreign, matching Router.Ensure's own
+// checkOwnership; one whose label names this berth root is ok, and one
+// naming another is a failure — the same condition that makes this berth
+// root's own `up`/`router up` refuse rather than recreate it.
+func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, commandName string) (*Check, error) {
+	owner, err := svc.Owner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !owner.Running {
+		return nil, nil
+	}
+	if !owner.Labelled {
+		return &Check{Status: StatusWarn, Subject: "router owner", Detail: fmt.Sprintf(
+			"carries no berth-root label; it predates this check and is adopted by the next '%s up' or '%s router up'", commandName, commandName)}, nil
+	}
+	if owner.Home == home {
+		return &Check{Status: StatusOK, Subject: "router owner", Detail: "this berth root (" + home + ")"}, nil
+	}
+	return &Check{Status: StatusFail, Subject: "router owner", Detail: fmt.Sprintf(
+		"a different berth root (%s); this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
+		owner.Home, commandName, commandName, commandName)}, nil
+}
+
 // routerSection is the "Router" section: opts.RouterErr's own line if the
 // router could not even be described, and one skip if Docker Engine did not
-// answer. Otherwise it is the router's status, or a skip when Docker Compose
-// did not answer, since the status needs Compose, followed by routeChecks
+// answer. Otherwise it is the router's status, plus routerOwnerCheck's own
+// report of which berth root started it (#82), or a skip when Docker
+// Compose did not answer, since both need Compose, followed by routeChecks
 // and addressPoolsCheck, which need only the Engine, and last the port that
 // was resolved and where it came from (#79) — which needs nothing, though
 // comparing it with the port the running router publishes needs Compose,
@@ -927,7 +964,15 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 			if err != nil {
 				return nil, err
 			}
-			return routerStatusChecks(status), nil
+			result := routerStatusChecks(status)
+			owner, err := routerOwnerCheck(ctx, opts.Router, opts.Home, opts.CommandName)
+			if err != nil {
+				return nil, err
+			}
+			if owner != nil {
+				result = append(result, *owner)
+			}
+			return result, nil
 		})
 		if err != nil {
 			return nil, err

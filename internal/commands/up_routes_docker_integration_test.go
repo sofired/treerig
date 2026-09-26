@@ -122,24 +122,27 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 	// sharing a rule yet. Under #55 doctor reads route fragments
 	// (router.ListFragments), never container labels, so the Router section
 	// gains more checks than a pre-#55 build's own two (status, routes):
-	// status, routes, doctor's address-pools check, and the port it resolved
-	// and where that came from (#79).
+	// status, its owner (#82), routes, doctor's address-pools check, and the
+	// port it resolved and where that came from (#79).
 	sections, err := commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
 	if err != nil {
 		t.Fatalf("DoctorSections: %v", err)
 	}
 	checks := routerChecks(sections)
-	if len(checks) != 4 {
+	if len(checks) != 5 {
 		t.Fatalf("router checks before the impostor = %+v", checks)
 	}
-	if last := checks[3]; last.Status != commands.StatusOK || last.Subject != "router port" || !strings.Contains(last.Detail, fmt.Sprintf("port %d from BERTH_ROUTER_PORT", w.port)) {
+	if last := checks[4]; last.Status != commands.StatusOK || last.Subject != "router port" || !strings.Contains(last.Detail, fmt.Sprintf("port %d from BERTH_ROUTER_PORT", w.port)) {
 		t.Fatalf("router port before the impostor = %+v", last)
 	}
 	if checks[0].Status != commands.StatusOK || !strings.Contains(checks[0].Detail, fmt.Sprintf("running on 127.0.0.1:%d", w.port)) || !strings.Contains(checks[0].Detail, w.svc.Network) {
 		t.Fatalf("router status before the impostor = %+v", checks[0])
 	}
-	if checks[1].Status != commands.StatusOK || !strings.Contains(checks[1].Detail, "2 route fragments; no two routers share a rule") {
-		t.Fatalf("routes before the impostor = %+v", checks[1])
+	if checks[1].Status != commands.StatusOK || checks[1].Subject != "router owner" || !strings.HasPrefix(checks[1].Detail, "this berth root (") {
+		t.Fatalf("router owner before the impostor = %+v", checks[1])
+	}
+	if checks[2].Status != commands.StatusOK || !strings.Contains(checks[2].Detail, "2 route fragments; no two routers share a rule") {
+		t.Fatalf("routes before the impostor = %+v", checks[2])
 	}
 
 	// Not a Compose service, so not a replica of anything: a second,

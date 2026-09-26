@@ -175,10 +175,17 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 		CommandName: "berth", Invocation: "berth up", Logger: logger.Silent{}, Getenv: getenv,
 		Environ: os.Environ(), Cwd: w.checkout, Runner: osrun.New(),
 	}
+	// Home is the berth root the getenv above resolves (HOME/.berth), so the
+	// router this walk starts is labelled as this walk's own (#82) — what
+	// doctor, resolving the same root, then reports as its owner.
+	home, err := layout.ResolveHome(getenv, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	w.svc, err = router.New(router.Options{
 		State: state, Port: w.port, Runner: w.env.Runner, Logger: logger.Silent{},
 		ProjectName: project, Network: project, LabelNamespace: w.namespace, Environ: os.Environ(),
-		CommandName: "berth",
+		CommandName: "berth", Home: home,
 	})
 	if err != nil {
 		t.Fatal(err)
