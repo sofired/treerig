@@ -364,7 +364,8 @@ its next `up`, recreating the stack against its own directories. Point
 
 The control home is `~/.berth`, overridable only through the `BERTH_HOME`
 environment variable, and the router's loopback port is 80, overridable only
-through `BERTH_ROUTER_PORT` — deliberately not config-file settings. The
+through `BERTH_ROUTER_PORT` in the TypeScript build (the Go build also reads
+`settings.toml`, below) — deliberately not config-file settings. The
 config file is committed and shared; a path that is only correct on one
 machine has no business in it, and one developer pointing it at a synced
 folder would put the whole team's state on iCloud Drive.
