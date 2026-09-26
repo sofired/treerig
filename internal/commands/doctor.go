@@ -717,7 +717,7 @@ func fragmentIdentity(byKey map[string]registry.RegisteredWorktree, fragment rou
 // boundary readFragmentRules checks every fragment path against.
 func routeConflicts(dynamicDir string, fragments []router.FragmentInfo, byKey map[string]registry.RegisteredWorktree) map[string][]string {
 	type claim struct {
-		claimants map[string]bool
+		claimants map[[2]string]bool
 		names     map[string]bool
 	}
 	byRule := map[string]*claim{}
@@ -726,11 +726,10 @@ func routeConflicts(dynamicDir string, fragments []router.FragmentInfo, byKey ma
 		for _, r := range readFragmentRules(dynamicDir, fragment.Path) {
 			entry, ok := byRule[r.rule]
 			if !ok {
-				entry = &claim{claimants: map[string]bool{}, names: map[string]bool{}}
+				entry = &claim{claimants: map[[2]string]bool{}, names: map[string]bool{}}
 				byRule[r.rule] = entry
 			}
-			claimKey, _ := json.Marshal([]string{r.name, identity})
-			entry.claimants[string(claimKey)] = true
+			entry.claimants[[2]string{r.name, identity}] = true
 			entry.names[identity] = true
 		}
 	}
@@ -829,11 +828,16 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 			}
 		}
 	}
+	// The orphan check is advisory: a failure to list networks becomes its
+	// own failed line rather than replacing the conflict lines above.
 	orphaned, err := orphanedFragmentsCheck(ctx, runner, timeout, routerNetwork, commandName, fragments)
 	if err != nil {
-		return nil, err
-	}
-	if orphaned != nil {
+		var cancelled *clierr.Cancelled
+		if errors.As(err, &cancelled) {
+			return nil, err
+		}
+		checks = append(checks, failureCheck("routes", err))
+	} else if orphaned != nil {
 		checks = append(checks, *orphaned)
 	}
 	return checks, nil

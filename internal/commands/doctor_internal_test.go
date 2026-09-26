@@ -1263,6 +1263,39 @@ func TestDoctorSections(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps a conflict line when listing the router's worktree networks fails, reporting that failure on its own line", func(t *testing.T) {
+		state := layout.RouterLayout{DynamicDir: t.TempDir()}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "mail",
+			router.NewFragmentDocument("berth-aaa-mail", "Host(`mail.main.acme.localhost`)", "berth-aaa-mail", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "api",
+			router.NewFragmentDocument("berth-bbb-api", "Host(`mail.main.acme.localhost`)", "berth-bbb-api", 8080)); err != nil {
+			t.Fatal(err)
+		}
+		runner := newDoctorRunner(nil)
+		runner.state.docker["network"] = outcome{result: run.Result{ExitCode: 1, Stderr: "Cannot connect to the Docker daemon"}}
+		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var conflict, failure bool
+		for _, check := range section(sections, "Router") {
+			if check.Subject != "routes" || check.Status != StatusFail {
+				continue
+			}
+			if strings.Contains(check.Detail, "is claimed by") {
+				conflict = true
+			} else {
+				failure = true
+			}
+		}
+		if !conflict || !failure {
+			t.Fatalf("want both the conflict and the network-listing failure as routes lines, got %+v", section(sections, "Router"))
+		}
+	})
+
 	t.Run("bounds a rule any fragment could have written before it reaches the report", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		rule := "Host(`" + repeatString("a", 500) + "`)"

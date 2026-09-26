@@ -611,8 +611,8 @@ var networkNotFoundTolerated = regexp.MustCompile(`(?i)no such network|not found
 // separator ("_" or "-") the Compose version in use at the time chose.
 // Nothing else in this build reads or writes either label; they exist only
 // so this one cleanup can find what it is looking for without guessing.
-// Called only once, from Ensure's own recreate branch, gated on this being
-// an actual upgrade across that boundary — see its caller.
+// Ensure calls it on every run, ungated, so a failed cleanup is retried on
+// the next run — see its caller.
 func (r *Router) removeLegacyDockerAPINetwork(ctx context.Context) error {
 	listed, err := docker.Run(ctx, r.runner, []string{
 		"network", "ls",

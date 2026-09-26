@@ -252,6 +252,9 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		w.Fake.downStderr = "Error response from daemon: error while removing network: network berth-router has active endpoints"
 
 		err := w.Router.Down(context.Background())
+		if err == nil {
+			t.Fatal("expected a compose down that times out to fail")
+		}
 		if strings.Contains(err.Error(), "did not stop cleanly") {
 			t.Fatalf("expected run.Failure's own wording, not the ported TypeScript string, got %v", err)
 		}
