@@ -832,6 +832,26 @@ func TestRouterServiceEnsure(t *testing.T) {
 		mustContain(t, lines, "info: The running router carries no berth-root ownership label; it predates this check. Adopting it: this start recreates it once to record this berth root as its owner.")
 	})
 
+	t.Run("takes over a stopped router whatever root it belonged to: it serves nobody", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
+		stopped := routerDoc(w.State.DynamicDir, w.Port)
+		stopped.Config.Labels = testLabels("router")
+		stopped.Config.Labels[router.RouterHomeLabel] = "home-b"
+		stopped.State.Status = "exited"
+		w.Fake.setDoc("router-1", stopped)
+		w.Fake.mu.Lock()
+		w.Fake.onUp = w.setHealthy // the start brings it back, this root's own
+		w.Fake.mu.Unlock()
+
+		owner, err := w.Router.Owner(context.Background())
+		if err != nil || owner.Running {
+			t.Fatalf("Owner = %+v, %v; want not running", owner, err)
+		}
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatalf("expected a stopped foreign router to be taken over, got %v", err)
+		}
+	})
+
 	t.Run("refuses to adopt a router it cannot inspect: no answer is not no label", func(t *testing.T) {
 		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
 		w.Fake.clearDocs() // the containers are there; `docker inspect` says nothing about them

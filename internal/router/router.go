@@ -1163,8 +1163,9 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 // Ownership is what the running router's own container says about which
 // berth root's Ensure most recently started or recreated it (#82).
 type Ownership struct {
-	// Running is false when the router container does not exist at all;
-	// Labelled and Home are then meaningless — there is nothing to own yet.
+	// Running is false when the router container does not exist, or exists
+	// but is not running; Labelled and Home are then meaningless — a router
+	// serving nobody is nothing to own.
 	Running bool
 	// Labelled is false when the running container carries no
 	// RouterHomeLabel at all (or an empty one): a router started by a build
@@ -1202,6 +1203,14 @@ func (r *Router) Owner(ctx context.Context) (Ownership, error) {
 		// later, so a transient inspect failure never turns a foreign router
 		// into an adoptable one.
 		return Ownership{}, clierr.New("The shared router exists but could not be inspected.")
+	}
+	// A container that exists but is not running serves nobody, so there is
+	// nothing to protect: the refusal is for a router in use (containerID
+	// lists stopped containers too, as previousProtocol needs it to). It
+	// reads as no router, and the next start takes it over the way a fresh
+	// start would.
+	if inspected.State.Status != "running" {
+		return Ownership{}, nil
 	}
 	// An empty value counts as no label: Stack stamps "" for a caller with
 	// no berth root to give (a test's own router, mainly), and an empty
