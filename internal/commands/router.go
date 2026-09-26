@@ -155,6 +155,19 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 	})
 }
 
+// routerServiceForDown is the shared router as `router down` needs it: its
+// state and berth root, but not its port. Down acts by project name alone,
+// so it neither reads settings.toml nor validates BERTH_ROUTER_PORT — a
+// malformed setting must never keep the router from being stopped (found
+// in review of #79); the default port stands in, unused.
+func routerServiceForDown(env *Env) (*router.Router, error) {
+	home, _, err := checkedHome(env.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	return routerServiceWith(env, home, layout.RouterStateFrom(home), settings.PortResolution{Port: layout.DefaultRouterPort})
+}
+
 // routerHold holds the router's lock alone around action: acquire, run,
 // release/abandon and defer signals, the way CommandContext.mutate holds a
 // worktree's locks around a mutation. state is always one a caller already
@@ -303,7 +316,7 @@ func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
 // RouterDown is `router down`: stop the shared router; worktree services
 // keep running but are no longer routed.
 func RouterDown(ctx context.Context, env *Env) error {
-	svc, _, _, err := newRouterService(env)
+	svc, err := routerServiceForDown(env)
 	if err != nil {
 		return err
 	}
