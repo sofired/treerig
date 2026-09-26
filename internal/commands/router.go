@@ -1,12 +1,13 @@
 package commands
 
 // The router verbs, ported from src/cli/main.ts:150-170 and
-// src/router/router.ts. The router is machine-wide, so — unlike every other
-// verb in this package — it needs no project config file: it is built
-// straight from Env, never through Context.
+// src/router/router.ts. One Traefik stack per Docker daemon, its state and
+// lock per berth root (#80), so — unlike every other verb in this package —
+// it needs no project config file: it is built straight from Env, never
+// through Context.
 //
 // Only `router up` takes the router's lock, and takes it alone (never
-// alongside a worktree's own locks): see lock.RouterScope and
+// alongside a worktree's own locks): see routerLockScope (index.go) and
 // lifecycle.Requests.Router. `router status` and `router down` take no lock
 // at all, matching src/router/router.ts, where only ensure() ever wrapped
 // itself in withScopedLock.
@@ -20,7 +21,6 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/text"
@@ -102,12 +102,24 @@ func unrouteWorktree(ctx context.Context, cctx *CommandContext, routerSvc *route
 	return nil
 }
 
-// newRouterService builds the shared router directly from env.
+// newRouterService builds the shared router directly from env, resolving
+// and checking BERTH_HOME itself — for a caller (RouterStatus, RouterDown)
+// that needs nothing else derived from it. RouterUp and Doctor, which also
+// need the control home from the very same berth root, resolve it once via
+// checkedHome and call routerServiceFrom directly instead, so neither path
+// resolves BERTH_HOME twice (#80, review round 3 item 1).
 func newRouterService(env *Env) (*router.Router, layout.RouterLayout, error) {
-	state, err := layout.RouterState(env.Getenv)
+	home, _, err := checkedHome(env.Getenv)
 	if err != nil {
 		return nil, layout.RouterLayout{}, err
 	}
+	return routerServiceFrom(env, home)
+}
+
+// routerServiceFrom is newRouterService given the berth root already
+// checked.
+func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayout, error) {
+	state := layout.RouterStateFrom(home)
 	port, err := layout.ResolveRouterPort(env.Getenv)
 	if err != nil {
 		return nil, layout.RouterLayout{}, err
@@ -129,12 +141,13 @@ func newRouterService(env *Env) (*router.Router, layout.RouterLayout, error) {
 
 // routerHold holds the router's lock alone around action: acquire, run,
 // release/abandon and defer signals, the way CommandContext.mutate holds a
-// worktree's locks around a mutation.
-func routerHold(ctx context.Context, env *Env, projectName string, action func(context.Context) error) error {
-	scope, err := lock.RouterScope(env.Getenv, projectName)
-	if err != nil {
-		return err
-	}
+// worktree's locks around a mutation. state is always one a caller already
+// resolved through resolveRouterState (home.go), never re-derived from raw
+// env here: routerLockScope (index.go) builds the same scope from it, the
+// one place that does, so there is no second, raw-env path to the router's
+// lock target alongside home.go's (#80).
+func routerHold(ctx context.Context, env *Env, state layout.RouterLayout, projectName string, action func(context.Context) error) error {
+	scope := routerLockScope(state, projectName)
 	quiescer, _ := env.Runner.(lifecycle.Quiescer)
 	life := env.Lifecycle
 	if life == nil {
@@ -145,43 +158,28 @@ func routerHold(ctx context.Context, env *Env, projectName string, action func(c
 
 // ensureSharedRouter is what `router up` and `up` both do to make sure the
 // shared router is up: secure its state directory, then — under the
-// router's lock, taken alone — Ensure it and hand this control home's
-// TypeScript-era router state over to the machine-wide one. The TypeScript
-// build's router.ensure() took its lock itself; here the caller holds it
-// (see internal/router's package comment), so both verbs go through this
-// one function rather than two copies of the same hold.
-func ensureSharedRouter(ctx context.Context, env *Env, svc *router.Router, state layout.RouterLayout, controlHome string) error {
+// router's lock, taken alone — Ensure it. The TypeScript build's
+// router.ensure() took its lock itself; here the caller holds it (see
+// internal/router's package comment), so both verbs go through this one
+// function rather than two copies of the same hold.
+func ensureSharedRouter(ctx context.Context, env *Env, svc *router.Router, state layout.RouterLayout) error {
 	// Before the router lock is ever taken: lock.New creates <StateDir>/lock
 	// and its holder record the moment it is acquired, so a symlinked state
 	// directory must be refused first, not found out about via a failed Ensure.
 	if err := router.SecureState(state); err != nil {
 		return err
 	}
-	return routerHold(ctx, env, svc.ProjectName, func(ctx context.Context) error {
-		if err := svc.Ensure(ctx); err != nil {
-			return err
-		}
-		// New to the Go port (#12, #13): hand this control home's
-		// TypeScript-era router state over to the now machine-wide one, now
-		// that it has verified. Run under the same lock as Ensure, so two
-		// homes migrating at once — or two `up` runs racing from the same
-		// home — never step on each other's rename. Best effort: a router
-		// that just came up clean must not be reported as a failure over
-		// cleanup of state nothing needs any more.
-		if err := router.MigrateLegacyState(controlHome, state, env.Logger); err != nil {
-			env.Logger.Warn(fmt.Sprintf("Could not finish migrating this control home's earlier router state: %s", err))
-		}
-		return nil
+	return routerHold(ctx, env, state, svc.ProjectName, func(ctx context.Context) error {
+		return svc.Ensure(ctx)
 	})
 }
 
 // sharedRouter is the Router `up` hands UpWithContext: the real shared
 // router, ensured exactly as `router up` ensures it.
 type sharedRouter struct {
-	env         *Env
-	svc         *router.Router
-	state       layout.RouterLayout
-	controlHome string
+	env   *Env
+	svc   *router.Router
+	state layout.RouterLayout
 }
 
 // Port returns the shared router's port.
@@ -204,21 +202,25 @@ func (r sharedRouter) DisconnectNetwork(ctx context.Context, network string) err
 
 // Ensure brings the shared router up, exactly as `router up` does.
 func (r sharedRouter) Ensure(ctx context.Context) error {
-	return ensureSharedRouter(ctx, r.env, r.svc, r.state, r.controlHome)
+	return ensureSharedRouter(ctx, r.env, r.svc, r.state)
 }
 
 // RouterUp is `router up`: start the shared router and verify its hardened
 // configuration.
 func RouterUp(ctx context.Context, env *Env) error {
-	svc, state, err := newRouterService(env)
+	home, userHome, err := checkedHome(env.Getenv)
 	if err != nil {
 		return err
 	}
-	controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+	svc, state, err := routerServiceFrom(env, home)
 	if err != nil {
 		return err
 	}
-	if err := ensureSharedRouter(ctx, env, svc, state, controlHome); err != nil {
+	controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
+	if err != nil {
+		return err
+	}
+	if err := ensureSharedRouter(ctx, env, svc, state); err != nil {
 		return err
 	}
 	// (#15) Neither the TypeScript build nor Ensure itself ever regenerates
@@ -238,7 +240,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 	// writes covers every registered checkout regardless of cwd.
 	reg := registry.New(registry.Options{
 		ControlHome: controlHome, Root: env.Cwd, Runner: env.Runner, Logger: env.Logger,
-		CommandName: env.CommandName, Invocation: env.Invocation,
+		CommandName: env.CommandName, Invocation: env.Invocation, UserHome: userHome,
 	})
 	index := checkoutindex.NewService(checkoutindex.Options{
 		ControlHome: controlHome,

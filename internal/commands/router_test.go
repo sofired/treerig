@@ -1,11 +1,11 @@
 package commands_test
 
 // Wiring checks for the router verbs: the right project, port and state
-// directory reach router.New, a verified `up` migrates legacy state and
-// reports where it is up, and `status`/`down` reach the router package
-// correctly. internal/router's own suite covers Ensure/Verify/Status/Down's
-// full behaviour; this package only has its own seam (Env, not
-// CommandContext — the router needs no project config) to get wrong.
+// directory reach router.New, a verified `up` reports where it is up, and
+// `status`/`down` reach the router package correctly. internal/router's own
+// suite covers Ensure/Verify/Status/Down's full behaviour; this package only
+// has its own seam (Env, not CommandContext — the router needs no project
+// config) to get wrong.
 
 import (
 	"context"
@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/registry/registrytest"
@@ -45,18 +44,6 @@ func sliceContainsArg(args []string, want string) bool {
 		}
 	}
 	return false
-}
-
-// markAsControlHome stages the marker RouterUp's migration step requires
-// before it will touch controlHome, as a real one already carries.
-func markAsControlHome(t *testing.T, controlHome string) {
-	t.Helper()
-	if err := os.MkdirAll(controlHome, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(controlHome, files.ControlHomeMarker), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // healthyRouterDocker answers as though the shared router were already up,
@@ -146,7 +133,7 @@ func TestRouterUp(t *testing.T) {
 	t.Run("starts the router and reports where it is up", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		controlHome := registrytest.TempDir(t)
-		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_HOME": controlHome})
+		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_CONTROL_HOME": controlHome})
 		state, err := layout.RouterState(getenv)
 		if err != nil {
 			t.Fatal(err)
@@ -176,7 +163,7 @@ func TestRouterUp(t *testing.T) {
 	t.Run("refreshes a missing index page once the router has started, showing every checkout again", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		controlHome := registrytest.TempDir(t)
-		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_HOME": controlHome})
+		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_CONTROL_HOME": controlHome})
 		state, err := layout.RouterState(getenv)
 		if err != nil {
 			t.Fatal(err)
@@ -214,111 +201,20 @@ func TestRouterUp(t *testing.T) {
 		}
 	})
 
-	t.Run("migrates a control home's earlier router state once the new router has verified", func(t *testing.T) {
-		home := registrytest.TempDir(t)
-		controlHome := registrytest.TempDir(t)
-		markAsControlHome(t, controlHome)
-		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_HOME": controlHome})
-		state, err := layout.RouterState(getenv)
-		if err != nil {
-			t.Fatal(err)
-		}
-		legacyDynamic := filepath.Join(controlHome, "router", "dynamic")
-		if err := os.MkdirAll(legacyDynamic, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(legacyDynamic, "fragment.yaml"), []byte("routers: {}\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		rec := &logger.Recording{}
-		env := &commands.Env{
-			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
-			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80},
-		}
-
-		if err := commands.RouterUp(context.Background(), env); err != nil {
-			t.Fatalf("RouterUp: %v", err)
-		}
-
-		if _, err := os.Stat(filepath.Join(state.DynamicDir, "fragment.yaml")); err != nil {
-			t.Errorf("expected the fragment to have migrated: %v", err)
-		}
-		if _, err := os.Stat(filepath.Join(controlHome, "router")); !os.IsNotExist(err) {
-			t.Errorf("expected the legacy router directory to be gone, stat err = %v", err)
-		}
-	})
-
-	t.Run("does not touch a project directory used as BERTH_HOME when berth did not create it, including BERTH_HOME set empty", func(t *testing.T) {
-		// An empty BERTH_HOME resolves to the current directory
-		// (layout.ResolveControlHome), and any directory can happen to have
-		// a "router" subdirectory of its own — a checkout of this very
-		// project, say. Only files.ControlHomeMarker (plus a pass of
-		// AssertAdoptableControlHome) proves a directory is safe to migrate,
-		// let alone delete from; see internal/router's own migrate_test.go
-		// for that check in isolation.
-		project := registrytest.TempDir(t)
-		importantDir := filepath.Join(project, "router", "dynamic")
-		if err := os.MkdirAll(importantDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		importantFile := filepath.Join(importantDir, "not-berths.yaml")
-		if err := os.WriteFile(importantFile, []byte("someone else's file\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
-		originalWd, err := os.Getwd()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chdir(project); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if err := os.Chdir(originalWd); err != nil {
-				t.Fatal(err)
-			}
-		})
-
-		home := registrytest.TempDir(t)
-		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_HOME": ""})
-		state, err := layout.RouterState(getenv)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rec := &logger.Recording{}
-		env := &commands.Env{
-			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
-			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80},
-		}
-
-		if err := commands.RouterUp(context.Background(), env); err != nil {
-			t.Fatalf("RouterUp: %v", err)
-		}
-
-		if _, err := os.Stat(importantFile); err != nil {
-			t.Errorf("expected the project's own file to survive untouched, got: %v", err)
-		}
-		if _, err := os.Stat(filepath.Join(project, "router")); err != nil {
-			t.Errorf("expected the project's router directory to still exist, got: %v", err)
-		}
-	})
-
 	t.Run("refuses a symlinked state directory before the lock or the protocol record ever touch its target", func(t *testing.T) {
-		controlHome := registrytest.TempDir(t)
-		markAsControlHome(t, controlHome)
-
 		// Resolved through layout.RouterStateDir itself — production's own
-		// function — so the symlink lands wherever this platform actually
-		// puts the state directory (~/.local/state/berth/router on Linux,
-		// ~/Library/Application Support/berth/router on macOS), not a
-		// hand-built guess that would miss on the platform it guessed wrong
-		// for. RouterUp must refuse before commands.routerHold ever takes
-		// the router lock (which would create <target>/lock and its holder
+		// function, fed the very env RouterUp will resolve BERTH_HOME
+		// through — so the symlink lands exactly where RouterUp will look,
+		// under the berth root (#80) rather than a hand-built guess.
+		// RouterUp must refuse before commands.routerHold ever takes the
+		// router lock (which would create <target>/lock and its holder
 		// record) or Ensure's previousProtocol ever writes a protocol
 		// record into it.
 		target := registrytest.TempDir(t)
 		fakeHome := registrytest.TempDir(t)
-		plantedStateDir, err := layout.RouterStateDir(routerEnvGetenv(map[string]string{"HOME": fakeHome}))
+		berthHome := registrytest.TempDir(t)
+		getenv := routerEnvGetenv(map[string]string{"HOME": fakeHome, "BERTH_HOME": berthHome})
+		plantedStateDir, err := layout.RouterStateDir(getenv)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -328,7 +224,6 @@ func TestRouterUp(t *testing.T) {
 		if err := os.Symlink(target, plantedStateDir); err != nil {
 			t.Fatal(err)
 		}
-		getenv := routerEnvGetenv(map[string]string{"HOME": fakeHome, "BERTH_HOME": controlHome})
 
 		rec := &logger.Recording{}
 		env := &commands.Env{

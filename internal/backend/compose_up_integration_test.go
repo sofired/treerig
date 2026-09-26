@@ -138,7 +138,7 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 	})
 
 	// The command layer creates the worktree home before `up`; the runtime refuses to.
-	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(controlHome, subject.RepositoryID, subject.WorktreeID)); err != nil {
+	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(controlHome, subject.RepositoryID, subject.WorktreeID), t.TempDir()); err != nil {
 		t.Fatalf("SecureWorktreeDirectories: %v", err)
 	}
 

@@ -125,12 +125,16 @@ seed = "./hooks/record"
 
 	getenv := func(key string) (string, bool) {
 		switch key {
-		case "BERTH_HOME":
+		// BERTH_CONTROL_HOME, not BERTH_HOME: this world's fixtures (see
+		// layout.WorktreeLayout(w.controlHome, ...) below) are written
+		// directly at w.controlHome, so it must resolve as the control home
+		// itself rather than have "control-home" derived underneath it
+		// (#80). The router still resolves under HOME below, isolated from
+		// this machine's real one; this walk brings up its own.
+		case "BERTH_CONTROL_HOME":
 			return w.controlHome, true
 		case "HOME":
 			return filepath.Join(base, "home"), true
-		case "XDG_STATE_HOME":
-			return filepath.Join(base, "state"), true
 		case "BERTH_ROUTER_PORT":
 			return strconv.Itoa(w.port), true
 		}
@@ -188,7 +192,7 @@ func (w *walk) up(t *testing.T) *commands.UpResult {
 	t.Helper()
 	cctx := w.context(t)
 	result, err := commands.UpWithContext(context.Background(), cctx,
-		commands.SharedRouter(w.env, w.svc, w.state, cctx.ControlHome), commands.BestEffortIndex(cctx), commands.UpOptions{})
+		commands.SharedRouter(w.env, w.svc, w.state), commands.BestEffortIndex(cctx), commands.UpOptions{})
 	if err != nil {
 		t.Fatalf("up: %v", err)
 	}

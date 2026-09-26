@@ -101,14 +101,14 @@ come only from Traefik's file provider, watching a read-only directory the
 router state mounts; berth itself writes and removes one fragment there per
 routed service on `up`, `down` and `worktree remove`, and each worktree gets
 its own dedicated router network instead of sharing one — see
-[`docs/port/divergences.md`](docs/port/divergences.md) rows 29 and 30. The
+[`docs/port/divergences.md`](docs/port/divergences.md) rows 30 and 31. The
 verifier's own inspection is also deeper here: on both the router and the
 index container, it checks that neither is privileged, shares a host PID,
 IPC, network or UTS namespace, or has a device attached, that neither
 seccomp nor AppArmor is left unconfined, and that each container's
 entrypoint still matches the one its pinned image bakes in — every hardening
 claim this section makes, read back off the running containers rather than
-assumed (row 32).
+assumed (row 33).
 
 ## Install
 
@@ -220,9 +220,9 @@ taken, set `BERTH_ROUTER_PORT` — the printed URLs follow it.
 
 **Go build only.** The override adds no Traefik or discovery labels,
 `dev.berth.router` included, and joins no container to the shared network
-(row 29). `up` writes one file-provider fragment per routed service instead,
+(row 30). `up` writes one file-provider fragment per routed service instead,
 and joins the service to this worktree's own dedicated network under an
-alias (row 30). An upgrade from any router below protocol 5 leaves
+alias (row 31). An upgrade from any router below protocol 5 leaves
 already-running worktrees unrouted until their next `up`, and the run says
 so.
 
@@ -245,7 +245,7 @@ and the run says that too.
 **Go build only.** No container carries `dev.berth.router`; Traefik's
 Docker-provider discovery is gone, so nothing reads a container label at
 all. `RoutedByLabel` (the same string) survives only as a label on a
-worktree's own dedicated network (row 30), which is what lets `router up`
+worktree's own dedicated network (row 31), which is what lets `router up`
 find and reconnect every worktree's network on every start.
 
 **Index.** `http://berth.localhost` (plus the port, if changed) lists every
@@ -377,7 +377,7 @@ Three things follow from that, and this tool does not change them:
   `[[service]]` joins the router's network, so a routed service in one
   checkout can reach a routed service in another. Containers you do not
   declare stay on their project's own networks. **Go build only:** each
-  worktree gets its own dedicated router network instead (row 30 in
+  worktree gets its own dedicated router network instead (row 31 in
   [`docs/port/divergences.md`](docs/port/divergences.md)), so a routed
   service resolving another routed service's name reaches only its own
   checkout's container, never another's. The router is on every
@@ -575,6 +575,19 @@ A Go build is also under development, in `cmd/` and `internal/`; it is not
 yet the one to install. Don't use it on a machine where you use the
 TypeScript build: their locks do not exclude each other. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to build and test it.
+
+Its layout differs from the TypeScript build's above it: `BERTH_HOME` (still
+`~/.berth` by default — the same directory the TypeScript build's router
+files live under, harmless only because the two builds are never run
+together) is the berth root, holding a future `settings.toml` (#79), the
+shared router's own state and lock, and — unless `BERTH_CONTROL_HOME`
+overrides it — the control home, nested under it as `control-home`.
+`BERTH_CONTROL_HOME` moves only the control home, leaving the router's
+state (and that future `settings.toml`) where `BERTH_HOME` puts them. The
+router container itself is not per `BERTH_HOME`: there is one per Docker
+daemon, and a scratch `BERTH_HOME` moves only where its state and lock are
+read from, not which container `up` or `router up` starts or replaces — see
+[`docs/port/divergences.md`](docs/port/divergences.md) rows 9 and 29.
 
 ### Layout
 

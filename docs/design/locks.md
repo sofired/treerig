@@ -22,10 +22,17 @@ directories, and the macOS birth-time workaround the heartbeat design needed.
 It also fixes four known bugs directly: #22 (a compromised lock did not
 cancel in-flight work), #23 (`down` did not defer signals), #24 (`forceExit`
 let an exit hook remove the lock directory), and #12 (the router lock was per
-control home): #39 ported the router onto this design, in its own
-machine-wide state directory rather than any control home, so every control
-home sharing a user account now waits on the same lock instead of each
-holding its own.
+control home): #39 ported the router onto this design, in its own state
+directory rather than any control home, so every control home sharing that
+state directory now waits on the same lock instead of each holding its own.
+As of #80, that state directory is `<BERTH_HOME>/router` — the berth root,
+not a fixed per-user-account location — so it is shared by every control
+home under the same berth root, not necessarily by every control home on
+the machine; a scratch `BERTH_HOME` used to isolate a control home also
+gets its own copy of the router's lock and state, though not its own router
+container (one per Docker daemon regardless of berth root — see
+`docs/port/divergences.md` rows 9 and 29, and AGENTS.md's "Running things
+safely").
 
 Docker children inherit the lock: `docker` and `docker compose` get the
 worktree lock's descriptor through `ExtraFiles`, as fd 3. Hooks do not — a
@@ -36,8 +43,11 @@ after an unclean exit. `internal/run/inherit_guard_test.go`'s
 and fails the build if anything outside `internal/docker` sets
 `Spec.InheritLocks`.
 
-A control home on NFS, SMB, FUSE (including virtiofs), or 9p is refused; the
-message tells the user to point `BERTH_HOME` at a local directory. So is one
+A control home, or the router's own state directory, on NFS, SMB, FUSE
+(including virtiofs), or 9p is refused; the message names whichever
+environment variable actually governs that directory (`BERTH_CONTROL_HOME`
+for the control home, `BERTH_HOME` for the router's — `Scope.HomeEnvVar`,
+#80) and tells the user to point it at a local directory instead. So is one
 on a cluster filesystem whose locks may be local to one client: Lustre, GPFS,
 CephFS, AFS, Coda, OCFS2, GFS2. There is no Windows support.
 
@@ -119,13 +129,23 @@ tests skip there.
 - Target files: the registry lock at `<home>/locks/registry`; a worktree's
   operation lock at `<home>/locks/worktrees/<repo>/<wt>`; its
   development-session lock at `…/<wt>.dev`.
-- The router lock's target is machine-wide per user account, at
-  `layout.RouterState`'s `LockPath` (`$XDG_STATE_HOME/berth/router/lock`, or
+- The router lock's target is `layout.RouterState`'s `LockPath`,
+  `<BERTH_HOME>/router/lock` (#80) — never any control home's own `locks/`,
+  so every control home under the same berth root waits on the same lock
+  (#12, #13). A berth root is not a fixed, per-user-account location the
+  way it was before #80 (previously `$XDG_STATE_HOME/berth/router/lock`, or
   `$HOME/.local/state/berth/router/lock` when that is unset, on Linux;
-  `$HOME/Library/Application Support/berth/router/lock` on macOS) — never any
-  control home's own `locks/`, so every control home sharing a user account
-  waits on the same lock (#12, #13). `router up` takes it alone, never
-  alongside a worktree's own locks (`lifecycle.Requests.Router`).
+  `$HOME/Library/Application Support/berth/router/lock` on macOS): a
+  different `BERTH_HOME` reads and writes a different lock file entirely,
+  which does *not* exclude the first — yet the router container this lock
+  guards is still one per Docker daemon regardless of berth root (its
+  Compose project name is fixed). Two berth roots' `router up`s therefore
+  never wait on each other and can run `Ensure` against the same container
+  at the same time, each believing it holds exclusive access. No refusal
+  for this exists yet; it is a known, documented hazard, not a checked one
+  — see `docs/port/divergences.md` rows 9 and 29. `router up` takes its own
+  lock alone, never alongside a worktree's own locks
+  (`lifecycle.Requests.Router`).
 - Routing (#55) splits the same way. A worktree's own route fragments
   (`<repo>.<wt>.<service>.yaml` in the router's `dynamic/`) are written by
   `up` and removed by `down` and `worktree remove`, and the router's

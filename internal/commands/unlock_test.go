@@ -295,7 +295,7 @@ func TestWorktreeUnlock(t *testing.T) {
 // as berth's own rather than a foreign directory nothing created.
 func establishControlHome(t *testing.T, controlHome string) {
 	t.Helper()
-	if err := files.SecureControlDirectories(layout.ControlLayout(controlHome)); err != nil {
+	if err := files.SecureControlDirectories(layout.ControlLayout(controlHome), registrytest.TempDir(t)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -341,11 +341,11 @@ func (f *fakeScanTable) Scan() (procid.Scan, error) {
 
 // globalUnlockEnv builds a *commands.Env for UnlockGlobal, which reads Env
 // directly and needs no project config (see Unlock's own doc comment): a
-// fresh, fake HOME per test, so the registry lock (under BERTH_HOME) and the
-// router lock (under HOME/.local/state, via layout.RouterState) both land in
-// this test's own temp directory rather than a real one. table is a
-// *fakeScanTable wrapping procid.Platform(), returned so a test can script
-// what a survivor scan finds.
+// fresh, fake HOME per test, so the registry lock (under BERTH_CONTROL_HOME,
+// set directly to controlHome per #80) and the router lock (under
+// HOME/.berth/router, via layout.RouterState) both land in this test's own
+// temp directory rather than a real one. table is a *fakeScanTable wrapping
+// procid.Platform(), returned so a test can script what a survivor scan finds.
 func globalUnlockEnv(t *testing.T) (env *commands.Env, controlHome string, table *fakeScanTable) {
 	t.Helper()
 	home := registrytest.TempDir(t)
@@ -359,7 +359,7 @@ func globalUnlockEnv(t *testing.T) (env *commands.Env, controlHome string, table
 			switch key {
 			case "HOME":
 				return home, true
-			case "BERTH_HOME":
+			case "BERTH_CONTROL_HOME":
 				return controlHome, true
 			}
 			return "", false

@@ -33,6 +33,12 @@ type Options struct {
 	// Invocation is the command line as invoked, arguments space-joined;
 	// names this process to whoever waits on a lock it holds.
 	Invocation string
+	// UserHome is the caller's own resolved home directory (in production,
+	// layout.HomeDir(getenv) from internal/commands' checkedHome, #80),
+	// carried to every files.SecureRegistrationDirectories call Ensure
+	// makes ahead of a write — this package does not read the environment
+	// itself for it, only the entry point does.
+	UserHome string
 }
 
 // Registry is the worktree registry's read path for one checkout: identity,
@@ -53,6 +59,7 @@ type Registry struct {
 	logger         logger.Logger
 	commandName    string
 	invocation     string
+	userHome       string
 }
 
 // New builds a Registry for one checkout.
@@ -74,6 +81,7 @@ func New(opts Options) *Registry {
 		logger:         opts.Logger,
 		commandName:    commandName,
 		invocation:     invocation,
+		userHome:       opts.UserHome,
 	}
 }
 
@@ -118,7 +126,7 @@ func (r *Registry) Ensure(ctx context.Context, worktree string) (*EnsuredRegistr
 		return nil, err
 	}
 	if err := files.SecureRegistrationDirectories(
-		layout.WorktreeLayout(r.ControlHome, identity.RepositoryID, identity.WorktreeID),
+		layout.WorktreeLayout(r.ControlHome, identity.RepositoryID, identity.WorktreeID), r.userHome,
 	); err != nil {
 		return nil, err
 	}
@@ -133,7 +141,7 @@ func (r *Registry) Ensure(ctx context.Context, worktree string) (*EnsuredRegistr
 		WorktreeID: identity.WorktreeID,
 	}
 	operation, _ := lock.WorktreeScopes(r.ControlHome, identity.RepositoryID, identity.WorktreeID, name, markers)
-	writer := Writer{Logger: r.logger, Invocation: r.invocation}
+	writer := Writer{Logger: r.logger, Invocation: r.invocation, UserHome: r.userHome}
 
 	var labelNamespace *string
 	if r.labelNamespace != "" {

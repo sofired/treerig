@@ -252,18 +252,20 @@ func TestSharedRouterOnARealDaemon(t *testing.T) {
 	})
 }
 
-// TestTwoControlHomesShareOneRouter is #12/#13: the router's state lives
-// outside every control home, one per user account, so two control homes
-// resolving to the same state directory share one router — the second
-// `ensure` from what is, in production, a different control home's process
-// must not recreate anything.
+// TestTwoControlHomesShareOneRouter is #12/#13/#80: the router's state lives
+// under the berth root (BERTH_HOME), outside every control home, so two
+// control homes under the same berth root — the common case, since
+// BERTH_CONTROL_HOME is an override, not the default — resolve to the same
+// state directory and share one router; the second `ensure` from what is,
+// in production, a different control home's process must not recreate
+// anything.
 func TestTwoControlHomesShareOneRouter(t *testing.T) {
 	requireDocker(t)
 	id := suffix(t)
 	project := "berth-router-test-two-" + id
 	ns := "dev.berth-test-router-two-" + id
 	// One state directory — what layout.RouterState resolves to for one
-	// user account regardless of which control home (BERTH_HOME) is asking.
+	// berth root regardless of which control home under it is asking.
 	dir := registrytest.TempDir(t)
 	port := freePortForTest(t)
 	state := newState(dir)

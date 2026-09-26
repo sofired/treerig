@@ -416,7 +416,7 @@ func TestDownStatus(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
-	// #55, row 30: the shared router may still be attached to this
+	// #55, row 31: the shared router may still be attached to this
 	// worktree's own router network when `down` runs — its disconnect
 	// (internal/commands's unrouteWorktree) is best effort. Matches Reap's
 	// own tolerance of the identical refusal (TestInventoryReap).
@@ -612,7 +612,7 @@ func TestInventoryReap(t *testing.T) {
 	// #55: the shared router may still be attached to this worktree's own
 	// router network when Reap gets to it — its disconnect
 	// (internal/commands's unrouteWorktree) is best effort, and a
-	// concurrent Ensure can even reattach it in between (row 30's own
+	// concurrent Ensure can even reattach it in between (row 31's own
 	// comment on this exact race). Mirrors Down's own tolerance of the
 	// identical refusal.
 	// Round 2 of #55's review: a first cut had Reap return nil here —

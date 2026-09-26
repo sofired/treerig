@@ -132,7 +132,7 @@ func TestInterruptedMutation(t *testing.T) {
 					t.Fatal(err)
 				}
 				paths := layout.WorktreeLayout(controlHome, identity.RepositoryID, identity.WorktreeID)
-				if err := files.SecureWorktreeDirectories(paths); err != nil {
+				if err := files.SecureWorktreeDirectories(paths, filepath.Join(base, "user-home")); err != nil {
 					t.Fatal(err)
 				}
 				record, _ := json.Marshal(map[string]any{"version": 1, "repositoryId": identity.RepositoryID, "worktreeId": identity.WorktreeID,
@@ -143,24 +143,22 @@ func TestInterruptedMutation(t *testing.T) {
 				fakeDocker(t, bin, state, identity.RepositoryID, identity.WorktreeID)
 
 				// Both verbs here reach the shared router (unrouteWorktree,
-				// then a best-effort index refresh): isolate its
-				// machine-wide state directory and port the way
-				// internal/commands' own newWalk fixture does, or this
-				// process — the real binary, spawned with no test hook to
-				// inject a commands.SharedRouter — reaches the real one.
-				// #55 found exactly this gap in a sibling test
+				// then a best-effort index refresh): isolate its state
+				// directory and port the way internal/commands' own
+				// newWalk fixture does, or this process — the real binary,
+				// spawned with no test hook to inject a
+				// commands.SharedRouter — reaches the real one. #55 found
+				// exactly this gap in a sibling test
 				// (legacy_integration_test.go's TestTypeScriptWritesGoRemoves).
-				routerHome := filepath.Join(base, "home")
-				routerXDGState := filepath.Join(base, "xdg-state")
+				// The router's own state now lives under BERTH_HOME alone
+				// (#80) — HOME and XDG_STATE_HOME no longer matter to it —
+				// so BERTH_HOME=controlHome is what isolates it below, the
+				// same override the spawned binary itself gets.
 				routerPort := freeTCPPort(t)
 				getenv := func(key string) (string, bool) {
 					switch key {
-					case "BERTH_HOME":
+					case "BERTH_HOME", "BERTH_CONTROL_HOME":
 						return controlHome, true
-					case "HOME":
-						return routerHome, true
-					case "XDG_STATE_HOME":
-						return routerXDGState, true
 					case "BERTH_ROUTER_PORT":
 						return strconv.Itoa(routerPort), true
 					}
@@ -170,11 +168,16 @@ func TestInterruptedMutation(t *testing.T) {
 
 				cmd := exec.Command(binary, verb...)
 				cmd.Dir = checkout
-				cmd.Env = []string{
-					"BERTH_HOME=" + controlHome, "HOME=" + routerHome, "XDG_STATE_HOME=" + routerXDGState,
-					"BERTH_ROUTER_PORT=" + strconv.Itoa(routerPort),
-					"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
-				}
+				// BERTH_CONTROL_HOME (#80), not just BERTH_HOME, points the
+				// binary straight at the fixture written above
+				// (layout.WorktreeLayout(controlHome, ...)); BERTH_HOME is
+				// left set too, so the router's own state (best-effort
+				// index refresh) still lands under this test's own temp
+				// directory rather than this machine's real one.
+				cmd.Env = append(os.Environ(),
+					"BERTH_HOME="+controlHome, "BERTH_CONTROL_HOME="+controlHome,
+					"BERTH_ROUTER_PORT="+strconv.Itoa(routerPort),
+					"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 				var stderr strings.Builder
 				cmd.Stderr = &stderr
 				if err := cmd.Start(); err != nil {

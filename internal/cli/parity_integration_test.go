@@ -217,7 +217,14 @@ func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIn
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Dir = dir
 	cmd.Env = []string{
-		"HOME=" + f.base, "BERTH_HOME=" + f.controlHome,
+		"HOME=" + f.base,
+		// BERTH_HOME is what the TypeScript build reads as the control home
+		// directly. BERTH_CONTROL_HOME is the Go build's own, more direct
+		// override (#80); set alongside it, both builds resolve the same
+		// control home from the one fixture. Left set, BERTH_HOME also moves
+		// the Go build's router under f.controlHome — readIndexPage below
+		// accounts for that.
+		"BERTH_HOME=" + f.controlHome, "BERTH_CONTROL_HOME=" + f.controlHome,
 		"PATH=" + f.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 	}
@@ -251,14 +258,20 @@ func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIn
 }
 
 // readIndexPage reads whichever build's own index page this fixture's last
-// run wrote. The two builds keep it at different paths — row 9 in the
-// divergence ledger: the TypeScript build still writes it under its control
-// home (controlLayout(controlHome).indexFile, src/layout.ts), while the Go
-// build writes it to the machine-wide router state layout.RouterState
-// resolves from HOME alone — so this checks both and returns whichever one
-// exists. Each call to run() rebuilds the fixture from scratch first (see
-// newParityFixture), so only the build that actually ran can have left a
-// file at either path; "" if neither did.
+// run wrote. Before #80 the two builds kept it at different paths — row 9 in
+// the divergence ledger: the TypeScript build under its control home
+// (controlLayout(controlHome).indexFile, src/layout.ts), the Go build under
+// the machine-wide state layout.RouterState resolved from HOME alone, with
+// no BERTH_HOME involved. runIn now sets BERTH_HOME=f.controlHome for the
+// TypeScript build's sake (it has no BERTH_CONTROL_HOME of its own), which
+// also moves the Go build's own router under f.controlHome/router in this
+// fixture specifically — the two paths below coincide as a result, in a way
+// they never would in a real environment, where nothing sets BERTH_HOME to
+// what the Go build treats as a control home. Both are still checked, and
+// this stays the one place a real divergence (a future one, say) would need
+// two branches again. Each call to run() rebuilds the fixture from scratch
+// first (see newParityFixture), so only the build that actually ran can
+// have left a file at either path; "" if neither did.
 func (f parityFixture) readIndexPage(t *testing.T) []byte {
 	t.Helper()
 	tsPath := filepath.Join(f.controlHome, "router", "index", "index.html")
@@ -268,8 +281,11 @@ func (f parityFixture) readIndexPage(t *testing.T) []byte {
 		t.Fatalf("reading the TypeScript build's index page: %v", err)
 	}
 	state, err := layout.RouterState(func(key string) (string, bool) {
-		if key == "HOME" {
+		switch key {
+		case "HOME":
 			return f.base, true
+		case "BERTH_HOME":
+			return f.controlHome, true
 		}
 		return "", false
 	})
@@ -323,7 +339,7 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		// excludeDockerCalls drops any Docker transcript entry containing one
 		// of these substrings from both builds before comparing — Go's own
 		// router-network disconnect, added by issue #55
-		// (docs/port/divergences.md row 30): looking up the router's own
+		// (docs/port/divergences.md row 31): looking up the router's own
 		// container (`compose --project-name berth-router ps --all --quiet
 		// router`) and detaching it from this worktree's network (`network
 		// disconnect`). TypeScript has no per-worktree router network to
@@ -366,13 +382,19 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		{name: "worktree unlock with nothing held", args: []string{"worktree", "unlock"}},
 		// doctor: every other line (Prerequisites' Git/Docker checks,
 		// Registry, Locks, Router, This checkout) is byte-identical once the
-		// Node.js and legacy-control-home lines are excluded — removing the
+		// Node.js, legacy-control-home, berth-root and router-state lines
+		// are excluded — the last two are Go's own, for the berth root and
+		// the router's own state directory (#80, docs/port/divergences.md
+		// row 29), which TypeScript has no counterpart for — removing the
 		// Node.js line does not even shift the Prerequisites column width,
 		// since "Docker Compose" is still the longest subject either way.
 		{
 			name: "doctor with no checkout", args: []string{"doctor"}, outsideCheckout: true,
-			excludeStdoutLines: []string{"Node.js", "was last used by a TypeScript build"},
-			unorderedDocker:    true,
+			excludeStdoutLines: []string{
+				"Node.js", "was last used by a TypeScript build",
+				"berth root", "router state",
+			},
+			unorderedDocker: true,
 		},
 	}
 	for _, tc := range cases {

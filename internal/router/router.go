@@ -1152,10 +1152,11 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 
 // Ensure is idempotent: starts the router if needed, verifies it, and fails
 // loudly if it cannot be made right. The caller holds the router's lock
-// around this call (see lock.RouterScope and lifecycle.Requests.Router). As
-// of #55 it also reconnects every labelled per-worktree router network
-// (reconnectWorktreeNetworks) and removes fragments whose worktree's router
-// network is gone (reconcileOrphanedFragments).
+// around this call (see internal/commands' routerLockScope and
+// lifecycle.Requests.Router). As of #55 it also reconnects every labelled
+// per-worktree router network (reconnectWorktreeNetworks) and removes
+// fragments whose worktree's router network is gone
+// (reconcileOrphanedFragments).
 //
 // secureState runs first, before previousProtocol's own possible write of
 // the protocol record: a symlinked state directory must be refused before
@@ -1215,7 +1216,7 @@ func (r *Router) Ensure(ctx context.Context) error {
 			return clierr.Newf("The shared router could not be brought to its expected configuration:\n  %s", strings.Join(remaining, "\n  "))
 		}
 	}
-	// A router recreated across the protocol-5 boundary (row 29) leaves its
+	// A router recreated across the protocol-5 boundary (row 30) leaves its
 	// old "docker-api" network behind: `compose up --remove-orphans` above
 	// already dropped the now-undeclared *container*, but Compose never
 	// prunes a network just because the current file no longer declares

@@ -37,7 +37,7 @@ func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, exclusive
 
 // writer names this process to whoever waits on the registry lock.
 func (c *CommandContext) writer() registry.Writer {
-	return registry.Writer{Logger: c.Logger, Invocation: c.Invocation}
+	return registry.Writer{Logger: c.Logger, Invocation: c.Invocation, UserHome: c.UserHome}
 }
 
 // requireRegistration is this checkout's registration, or the advice to bring it up first.

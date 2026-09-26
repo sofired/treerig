@@ -4,7 +4,7 @@ package router_test
 // inputs. Through protocol 4 (WP3, #39) this was byte for byte apart from
 // two ledgered changes: the protocol bump, and the dynamic/index mounts
 // moving from under a control home to the machine-wide router state
-// directory. Protocol 5 (#55, row 29 in docs/port/divergences.md) goes
+// directory. Protocol 5 (#55, row 30 in docs/port/divergences.md) goes
 // further — the docker-api service and network, and the router's own
 // Docker-provider command line and depends_on, are dropped outright — so a
 // byte-for-byte comparison of the whole document is no longer meaningful.
@@ -73,7 +73,7 @@ func TestStackOracle(t *testing.T) {
 
 	oracleText := string(oracle)
 	// The ledgered protocol-4 changes (docs/port/divergences.md row 11):
-	// every service's protocol label bumped (now to 5, row 29's own bump),
+	// every service's protocol label bumped (now to 5, row 30's own bump),
 	// and the two mounts moved out from under a control home.
 	oracleText = strings.ReplaceAll(oracleText, `"dev.berth.router-protocol": "3"`, `"dev.berth.router-protocol": "`+strconv.Itoa(router.Protocol)+`"`)
 	oracleText = strings.ReplaceAll(oracleText, oldDynamicDir, newDynamicDir)

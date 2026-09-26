@@ -10,8 +10,8 @@ import (
 // SharedRouter is the Router Up builds, over svc instead of the default
 // shared router: the real-daemon tests run `up` through a router of their
 // own name, port and state, never a developer's real one.
-func SharedRouter(env *Env, svc *router.Router, state layout.RouterLayout, controlHome string) Router {
-	return sharedRouter{env: env, svc: svc, state: state, controlHome: controlHome}
+func SharedRouter(env *Env, svc *router.Router, state layout.RouterLayout) Router {
+	return sharedRouter{env: env, svc: svc, state: state}
 }
 
 // BestEffortIndex is the Index Up builds.

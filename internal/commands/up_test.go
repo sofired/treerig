@@ -235,7 +235,7 @@ func TestUpWithContext(t *testing.T) {
 			if err != nil || identity == nil {
 				t.Fatalf("inspect: %v, %v", identity, err)
 			}
-			if _, err := tc.Registry.Store(identity.RepositoryID).Remove(context.Background(), identity.WorktreeID, "feature-login", registry.Writer{Logger: tc.Logger, Invocation: "berth"}); err != nil {
+			if _, err := tc.Registry.Store(identity.RepositoryID).Remove(context.Background(), identity.WorktreeID, "feature-login", registry.Writer{Logger: tc.Logger, Invocation: "berth", UserHome: tc.UserHome}); err != nil {
 				t.Fatalf("remove: %v", err)
 			}
 		})
@@ -258,6 +258,7 @@ func TestUpWithContext(t *testing.T) {
 			other := registry.New(registry.Options{
 				ControlHome: tc.ControlHome, Root: tc.Loaded.Root, Domain: acme,
 				LabelNamespace: "dev.other", Runner: tc.Runner, Logger: tc.Logger,
+				UserHome: tc.UserHome,
 			})
 			if _, err := other.Ensure(context.Background(), ""); err != nil {
 				t.Fatalf("relabel: %v", err)

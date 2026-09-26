@@ -124,7 +124,11 @@ func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*Unlock
 
 	var scope lock.Scope
 	if options.Registry {
-		controlHome, err := layout.ResolveControlHome(env.Getenv, "")
+		home, userHome, err := checkedHome(env.Getenv)
+		if err != nil {
+			return nil, err
+		}
+		controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
 		if err != nil {
 			return nil, err
 		}
@@ -146,13 +150,13 @@ func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*Unlock
 			return nil, err
 		}
 		if exists {
-			if err := files.SecureControlDirectories(layout.ControlLayout(controlHome)); err != nil {
+			if err := files.SecureControlDirectories(layout.ControlLayout(controlHome), userHome); err != nil {
 				return nil, err
 			}
 		}
 		scope = lock.RegistryScope(controlHome)
 	} else {
-		state, err := layout.RouterState(env.Getenv)
+		state, err := resolveRouterState(env.Getenv)
 		if err != nil {
 			return nil, err
 		}

@@ -3,7 +3,7 @@ package commands_test
 // Go-only pinning tests for #55's routing cleanup: `down` and `worktree
 // remove` must leave a worktree unrouted, whatever else about its Docker
 // footprint they do or do not find. No TypeScript `it` to mirror — this is
-// new Go-only behaviour (docs/port/divergences.md rows 29/30).
+// new Go-only behaviour (docs/port/divergences.md rows 30/31).
 
 import (
 	"context"

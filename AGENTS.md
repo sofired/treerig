@@ -89,11 +89,17 @@ break them are not merged.
   Run one of them at a time on a machine.
 - Don't use the Go build on a machine where the TypeScript build is in use:
   their locks don't exclude each other.
-- To try a build by hand, give it a scratch control home (`BERTH_HOME`) so it
-  doesn't touch the registered worktrees of the person you're working for. The
-  shared router is not covered by that: in practice there is one per machine,
-  and `router up` (or `up`) from any build or control home replaces the one
-  that is running. Ask before starting or stopping it.
+- To try a build by hand, give it a scratch home so it doesn't touch the
+  registered worktrees of the person you're working for. For the TypeScript
+  build that is `BERTH_HOME`, its control home directly. For the Go build,
+  `BERTH_HOME` is the berth root — a future `settings.toml` (#79), the
+  router's own state and lock, and (unless `BERTH_CONTROL_HOME` overrides
+  it) the control home all live under it (#80). For the Go build, a scratch
+  `BERTH_HOME` also moves the router's state and lock, but not the router
+  itself: there is one router container per Docker daemon, whichever build
+  or home starts it, and `router up` (or `up`) from any build or home
+  replaces the one that is running. Ask before starting or stopping it by
+  hand.
 
 ## Commits and pull requests
 

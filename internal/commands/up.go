@@ -82,7 +82,7 @@ func Up(ctx context.Context, env *Env, options UpOptions) error {
 	// Named routerSvc, not router (found in review, round 2 of #55): a
 	// local `router` would shadow the internal/router package this file
 	// also imports.
-	routerSvc := sharedRouter{env: env, svc: svc, state: state, controlHome: cctx.ControlHome}
+	routerSvc := sharedRouter{env: env, svc: svc, state: state}
 	_, err = UpWithContext(ctx, cctx, routerSvc, bestEffortIndex{cctx}, options)
 	return err
 }
@@ -224,7 +224,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		firstTime := initialization == registry.Pending
 
 		worktreeLayout := layout.WorktreeLayout(cctx.ControlHome, ref.RepositoryID, ref.WorktreeID)
-		if err := files.SecureWorktreeDirectories(worktreeLayout); err != nil {
+		if err := files.SecureWorktreeDirectories(worktreeLayout, cctx.UserHome); err != nil {
 			return err
 		}
 
@@ -293,7 +293,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			}
 			// Connected before any fragment is written, not after (found in
 			// review of #55): a fragment routes nowhere except through this
-			// worktree's own router network (row 30), and Traefik's file
+			// worktree's own router network (row 31), and Traefik's file
 			// provider picks a fragment up the moment it lands — writing it
 			// first would open a window where the router has already been
 			// told a route exists but cannot yet reach it. The router may
@@ -325,7 +325,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			// still has its own dedicated router network sitting around —
 			// overrideDocument no longer declares it, but Compose does not
 			// proactively remove a network it no longer declares (the same
-			// class of gap row 29's docker-api precedent leaves for
+			// class of gap row 30's docker-api precedent leaves for
 			// Ensure to clean up), and the router is very likely still
 			// attached to it from an earlier `up`. Disconnected here, only
 			// after every one of this worktree's stale fragments is

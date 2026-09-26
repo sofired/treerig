@@ -19,6 +19,13 @@ import (
 type Writer struct {
 	Logger     logger.Logger
 	Invocation string
+	// UserHome is the caller's own resolved home directory (in production,
+	// layout.HomeDir(getenv) from internal/commands' checkedHome, #80),
+	// handed to files.SecureRegistrationDirectories's own
+	// AssertAdoptableControlHome check ahead of every write here — this
+	// package does not read the environment itself for it, only the entry
+	// point does.
+	UserHome string
 }
 
 // withLock runs write with scope held, releasing it whether write succeeds
@@ -100,7 +107,7 @@ type recordJSON struct {
 // expectedSlug — the same reconciliation guard Ensure itself applies —
 // and doing nothing if the record already names state.
 func (s *Store) setInitialization(ctx context.Context, worktreeID, expectedSlug string, writer Writer, state WorktreeInitialization) error {
-	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID)); err != nil {
+	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID), writer.UserHome); err != nil {
 		return err
 	}
 	return s.withRegistryLock(ctx, writer, func(context.Context) error {
@@ -173,7 +180,7 @@ func (s *Store) Ensure(
 	initialization Initializer,
 	labelNamespace *string,
 ) (*EnsuredWorktree, error) {
-	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID)); err != nil {
+	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID), writer.UserHome); err != nil {
 		return nil, err
 	}
 	var ensured *EnsuredWorktree
@@ -285,7 +292,7 @@ func (s *Store) Ensure(
 // Remove deletes a registration, reporting whether there was one to delete.
 // A record that now names another slug changed concurrently, and is kept.
 func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, writer Writer) (bool, error) {
-	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID)); err != nil {
+	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID), writer.UserHome); err != nil {
 		return false, err
 	}
 	removed := false

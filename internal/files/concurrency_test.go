@@ -81,6 +81,7 @@ func TestConcurrentControlHomeEstablishment(t *testing.T) {
 	t.Run("N goroutines securing the same brand new control home never refuse each other", func(t *testing.T) {
 		home := filepath.Join(t.TempDir(), "control")
 		control := layout.ControlLayout(home)
+		userHome := filepath.Join(t.TempDir(), "user-home")
 
 		const n = 20
 		var wg sync.WaitGroup
@@ -89,7 +90,7 @@ func TestConcurrentControlHomeEstablishment(t *testing.T) {
 		for i := 0; i < n; i++ {
 			go func(i int) {
 				defer wg.Done()
-				errs[i] = files.SecureControlDirectories(control)
+				errs[i] = files.SecureControlDirectories(control, userHome)
 			}(i)
 		}
 		wg.Wait()

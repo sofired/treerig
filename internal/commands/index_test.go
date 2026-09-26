@@ -13,9 +13,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run/fakerun"
 )
 
@@ -74,4 +76,42 @@ func TestRefreshIndexBestEffortWarnsInsteadOfFailingOnASymlinkedRouterState(t *t
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], wantPrefix) {
 		t.Fatalf("lines = %v, want exactly one line starting %q", lines, wantPrefix)
 	}
+}
+
+// TestRouterLockScope replaces internal/lock's own deleted TestRouterScope
+// (#80, review round 1 item 1): routerLockScope is now the one place that
+// builds the shared router's lock scope, always from an already-resolved
+// layout.RouterLayout, never a raw Getenv, so its own test moved here.
+func TestRouterLockScope(t *testing.T) {
+	state := layout.RouterLayout{LockPath: filepath.Join(t.TempDir(), "router", "lock")}
+
+	t.Run("names the scope and its project marker explicitly", func(t *testing.T) {
+		scope := routerLockScope(state, "berth-router-explicit")
+		if scope.Description != "shared router" {
+			t.Errorf("Description = %q, want %q", scope.Description, "shared router")
+		}
+		if scope.Markers.Project != "berth-router-explicit" {
+			t.Errorf("Markers.Project = %q, want %q", scope.Markers.Project, "berth-router-explicit")
+		}
+		if scope.Markers.WorktreeID != "" {
+			t.Errorf("Markers.WorktreeID = %q, want empty: the router is not a worktree", scope.Markers.WorktreeID)
+		}
+	})
+
+	t.Run("resolves router.ResolveProjectName's own default when given no project name", func(t *testing.T) {
+		scope := routerLockScope(state, "")
+		if scope.Markers.Project != router.ResolveProjectName() {
+			t.Errorf("Markers.Project = %q, want %q", scope.Markers.Project, router.ResolveProjectName())
+		}
+	})
+
+	t.Run("targets state's own lock file, named for whichever variable governs the router's state directory", func(t *testing.T) {
+		scope := routerLockScope(state, "berth-router")
+		if filepath.Base(scope.Target) != "lock" {
+			t.Errorf("Target = %q, want a file named lock", scope.Target)
+		}
+		if scope.HomeEnvVar != brand.HomeEnv {
+			t.Errorf("HomeEnvVar = %q, want %q: the router has no control-home override of its own", scope.HomeEnvVar, brand.HomeEnv)
+		}
+	})
 }
