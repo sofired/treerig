@@ -942,8 +942,8 @@ func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, command
 }
 
 // routerSection is the "Router" section: opts.RouterErr's own line if the
-// router could not even be described, and one skip (plus the port resolution,
-// which needs no Docker) if Docker Engine did not answer. Otherwise it is the router's status, plus routerOwnerCheck's own
+// router could not even be described, and one skip if Docker Engine did not
+// answer. Otherwise it is the router's status, plus routerOwnerCheck's own
 // report of which berth root started it (#82), or a skip when Docker
 // Compose did not answer, since both need Compose, followed by routeChecks
 // and addressPoolsCheck, which need only the Engine, and last the port that
@@ -955,12 +955,11 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 		return []Check{{Status: StatusFail, Subject: "router", Detail: opts.RouterErr.Error()}}, nil
 	}
 	if !state.engineAnswered {
-		// The port resolution needs no Docker at all, so it is reported even
-		// here; only the comparison with a running router's port does.
-		return []Check{
-			{Status: StatusSkip, Subject: "router", Detail: "needs Docker"},
-			{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
-		}, nil
+		// One skip and nothing else, the TypeScript build's own report for
+		// this case, which the parity suite pins byte for byte: the port
+		// resolution (#79) needs no Docker, but a Go-only line here would
+		// also widen the section's subject column, so it waits for #46.
+		return []Check{{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}}, nil
 	}
 	var checks []Check
 	if state.composeAnswered {
