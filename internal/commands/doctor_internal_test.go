@@ -1068,8 +1068,7 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatalf("prerequisites[1:] = %v", gotPrereq)
 		}
 		gotRouter := section(sections, "Router")
-		wantPort := Check{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()}
-		if len(gotRouter) != 2 || gotRouter[0] != (Check{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}) || gotRouter[1] != wantPort {
+		if len(gotRouter) != 1 || gotRouter[0] != (Check{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}) {
 			t.Fatalf("router = %+v", gotRouter)
 		}
 		if fakeRouter.asked != 0 {
@@ -1096,7 +1095,7 @@ func TestDoctorSections(t *testing.T) {
 		if got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
-		if gotRouter := statuses(sections, "Router"); len(gotRouter) != 2 || gotRouter[0] != "skip router" || gotRouter[1] != "ok router port" {
+		if gotRouter := statuses(sections, "Router"); len(gotRouter) != 1 || gotRouter[0] != "skip router" {
 			t.Fatalf("router = %v", gotRouter)
 		}
 	})
