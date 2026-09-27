@@ -25,12 +25,20 @@ further, which ends the loop.
   and write expected data into the matching Go package's `testdata/`. The
   generated data is committed, so Go tests read it without needing Node; each
   script's header comment says how to regenerate it.
-- **Live parity.** `internal/cli/parity_integration_test.go` runs the
-  TypeScript build and the Go build one after the other on the same fixture
-  and compares stdout, stderr, exit code, and every `docker` call.
+- **Live parity.** `internal/cli/parity_integration_test.go`
+  (`TestParityWithTheTypeScriptBuild`) compares the Go build's stdout,
+  stderr, exit code and every `docker` call against goldens committed under
+  `internal/cli/testdata/parity/` by default, needing no Node to run. Only
+  `-update` runs the TypeScript build live, to re-record those goldens; CI's
+  oracle-drift job does this on every pull request and fails on any diff, so
+  a change to the TypeScript build's own behaviour cannot silently drift
+  from what is committed.
 - **The streams contract.** `tests/cli/streams.test.ts` runs against either
   build: `BERTH_CLI` points it at an executable. Every verb is ported, so
-  no case skips for the Go build.
+  no case skips for the Go build. `internal/cli/streams_integration_test.go`
+  (`TestStreamsContract`) is the same contract as a `-tags integration` Go
+  test, against a binary it builds itself, kept in step with the TypeScript
+  file by hand until #46 deletes it.
 
 ## Divergence ledger
 

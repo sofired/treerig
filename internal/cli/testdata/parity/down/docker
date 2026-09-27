@@ -1,0 +1,2 @@
+compose --project-name berth-5ae52fc96f4e40fdd30f35b5 down --remove-orphans
+ps --all --filter label=dev.berth.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.berth.repository-uuid"}}	{{.Label "dev.berth.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}

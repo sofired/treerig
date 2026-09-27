@@ -101,6 +101,19 @@ help wording, or an error message:
 go test ./internal/cli -run TestGolden -update
 ```
 
+`internal/cli/testdata/parity/` is the same idea for
+`TestParityWithTheTypeScriptBuild`: frozen TypeScript output, recorded once
+and read back on every ordinary run, needing no Node. After a change to the
+TypeScript build's own behaviour in one of that test's cases:
+
+```bash
+go test -tags integration ./internal/cli/... -run TestParityWithTheTypeScriptBuild -update
+```
+
+CI's `oracles` job re-records both and fails on any diff, so these stay
+honest until #46 removes the TypeScript build — the point at which they
+become plain, hand-maintained fixtures like any other in `testdata/`.
+
 For the corpora other packages read (config, registry slugs and locale
 sorting, text), run the matching script in `tools/oracle/`, e.g.:
 

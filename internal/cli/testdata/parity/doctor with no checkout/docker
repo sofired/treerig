@@ -1,0 +1,2 @@
+version --format {{.Server.Version}}
+compose version --short

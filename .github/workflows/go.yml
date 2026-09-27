@@ -110,6 +110,12 @@ jobs:
           node tools/oracle/override-corpus.ts > internal/backend/testdata/override-corpus.json
           node tools/oracle/compose-config-corpus.ts > internal/backend/testdata/compose-config-corpus.json
           go test -count=1 ./internal/cli -run TestGolden -update
+          # internal/cli/testdata/parity/ is frozen TypeScript output too
+          # (#46's WP8 first stage); this whole job goes away once #46's
+          # later stage deletes the TypeScript build these two -update runs
+          # both depend on, and this Regenerate step with it. Needs no
+          # Docker: every case here puts a fake `docker` script on PATH.
+          go test -count=1 -tags integration ./internal/cli -run TestParityWithTheTypeScriptBuild -update
       - name: Compare
         run: |
           git status --porcelain

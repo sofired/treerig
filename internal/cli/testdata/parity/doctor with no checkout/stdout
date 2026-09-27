@@ -1,0 +1,18 @@
+Prerequisites
+  ok    Node.js         VERSION
+  ok    Git             VERSION
+  fail  Docker Engine   Error: No such object: {{.Server.Version}}
+  fail  Docker Compose  could not read a version from ""
+
+Registry
+  ok    control home   FIXTURE/control
+  ok    registrations  1 readable
+
+Locks
+  ok    locks  none held
+
+Router
+  skip  router  needs Docker
+
+This checkout
+  skip  berth.toml  none in FIXTURE or above; run 'berth doctor' in a checkout to check it and its verify hook
