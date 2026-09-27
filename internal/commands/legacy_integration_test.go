@@ -176,6 +176,21 @@ func writeLegacyUp(t *testing.T, controlHome, checkout string) legacyRegistratio
 		// only reaches RouterNetwork once Routes is non-empty.
 		RouterNetwork: "unused",
 	})
+	// Registered before anything reaches Docker, so an `up` that fails
+	// halfway leaves nothing behind on the daemon: everything this fixture
+	// creates carries its own worktree label, and only that is swept.
+	owned := "label=" + labelNamespace + ".worktree-uuid=" + identity.WorktreeID
+	t.Cleanup(func() {
+		for _, id := range dockerIDs(t, "ps", "-aq", "--filter", owned) {
+			_ = exec.Command("docker", "rm", "--force", id).Run()
+		}
+		for _, id := range dockerIDs(t, "volume", "ls", "-q", "--filter", owned) {
+			_ = exec.Command("docker", "volume", "rm", id).Run()
+		}
+		for _, id := range dockerIDs(t, "network", "ls", "-q", "--filter", owned) {
+			_ = exec.Command("docker", "network", "rm", id).Run()
+		}
+	})
 	if err := runtime.Up(ctx, ref, nil); err != nil {
 		t.Fatalf("compose up: %v", err)
 	}
@@ -215,19 +230,8 @@ func TestWorktreeRemoveTearsDownAnOldControlHomeByOwnership(t *testing.T) {
 
 	// Up, by hand, the way a pre-flock build of berth would have left it.
 	registered := writeLegacyUp(t, controlHome, checkout)
+	// writeLegacyUp registered the Docker cleanup itself, before its `up`.
 	owned := []string{"label=" + legacyNamespace + ".worktree-uuid=" + registered.WorktreeID}
-	t.Cleanup(func() {
-		// Whatever the test left, by the labels this test's namespace alone carries.
-		for _, id := range dockerIDs(t, "ps", "-aq", "--filter", owned[0]) {
-			_ = exec.Command("docker", "rm", "--force", id).Run()
-		}
-		for _, id := range dockerIDs(t, "volume", "ls", "-q", "--filter", owned[0]) {
-			_ = exec.Command("docker", "volume", "rm", id).Run()
-		}
-		for _, id := range dockerIDs(t, "network", "ls", "-q", "--filter", owned[0]) {
-			_ = exec.Command("docker", "network", "rm", id).Run()
-		}
-	})
 	if running := dockerIDs(t, "ps", "-q", "--filter", owned[0]); len(running) != 1 {
 		t.Fatalf("writeLegacyUp left %d running containers, want 1", len(running))
 	}
