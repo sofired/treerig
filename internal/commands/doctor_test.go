@@ -130,10 +130,10 @@ func runDoctor(t *testing.T, env *commands.Env) (int, string, *logger.Recording)
 }
 
 func TestDoctor(t *testing.T) {
-	// Pins divergence ledger row 17: TypeScript's Prerequisites section
-	// checks Node.js against package.json's engines range; the Go build has
-	// no runtime version of its own to check, and drops that check entirely
-	// rather than reporting on something that does not exist.
+	// TypeScript's Prerequisites section checks Node.js against
+	// package.json's engines range; the Go build has no runtime version of
+	// its own to check, and drops that check entirely rather than reporting
+	// on something that does not exist.
 	t.Run("never checks a Node.js version", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
@@ -357,7 +357,7 @@ func TestDoctorLocks(t *testing.T) {
 		}
 	})
 
-	// Pins divergence ledger row 18's --holder-unverifiable fallback: since
+	// Pins the --holder-unverifiable fallback's wording: since
 	// #21, the registry and router locks have `worktree unlock
 	// --registry`/`--router` of their own, so doctor's advice names that
 	// instead of a hand `rm`.

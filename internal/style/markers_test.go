@@ -37,7 +37,7 @@ func TestCommentMarkers(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case "node_modules", "testdata", "dist", ".git":
+			case "testdata", "dist", ".git":
 				return filepath.SkipDir
 			}
 			return nil

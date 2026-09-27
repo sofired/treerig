@@ -71,14 +71,16 @@ func (l *Lock) holdingProcs(fileID FileID) []procid.Proc {
 	return procs
 }
 
-// advice is what a waiter should know, and — kept from the heartbeat design,
-// because a stopped holder still keeps the OS lock exactly as a running one
-// does — what to do about a holder judged stopped. Wording changes from
-// src/operation-lock.ts's advice() are accepted difference 3 in
-// docs/decisions/0001-port-to-go.md: there is
-// no more "last heartbeat"/"so it is alive" language (flock itself proves
-// it), no more staleness confirmation across two looks, and no more `rmdir`
-// removal advice (recovery is automatic; a lock is never removed by hand).
+// advice is what a waiter should know, and — kept from before this lock was
+// ported to flock(2), because a stopped holder still keeps the OS lock
+// exactly as a running one does — what to do about a holder judged stopped.
+// It names the holder and, on Linux, the processes still holding the lock,
+// with kill -CONT/kill <pid> advice; it carries no heartbeat age ("last
+// heartbeat"/"so it is alive" language) because flock(2) proves a holder
+// alive or gone the instant it is probed, no staleness confirmation across
+// two looks (nothing to confirm once the flock itself is the proof), and no
+// `rmdir` removal advice (recovery is automatic: the next acquirer clears an
+// unreleased lock on its own, never by hand).
 func (l *Lock) advice(rec *Record, now time.Time, final bool, holding []procid.Proc) string {
 	who := l.who(rec, now)
 	stopped := false

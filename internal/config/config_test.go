@@ -160,12 +160,11 @@ subdomain = "b"
 		requireErrorContains(t, err, `duplicate service name "api"`)
 	})
 
-	// (#16, row 16 in the divergence ledger) Since `up` now records every
-	// declared service on the checkout index card, not only the ones with a
-	// [service.index] block, the config's own [[service]] array must not
-	// outgrow what a card can hold (internal/checkoutindex/card's own
-	// maxServices). TypeScript has no such limit — this is a deliberate,
-	// Go-only bound.
+	// (#16) Since `up` now records every declared service on the checkout
+	// index card, not only the ones with a [service.index] block, the
+	// config's own [[service]] array must not outgrow what a card can hold
+	// (internal/checkoutindex/card's own maxServices). TypeScript has no
+	// such limit — this is a deliberate, Go-only bound.
 	t.Run("rejects more than 64 declared services", func(t *testing.T) {
 		var services strings.Builder
 		for i := 0; i < 65; i++ {
@@ -221,9 +220,9 @@ subdomain = "b"
 		}
 	})
 
-	// Go-only (#19, row 25 in docs/port/divergences.md): TypeScript's schema
-	// (src/config/schema.ts) accepts a control character in label or
-	// purpose, even though both are only ever shown through text.Printable,
+	// Go-only (#19): TypeScript's schema (src/config/schema.ts) accepts a
+	// control character in label or purpose, even though both are only
+	// ever shown through text.Printable,
 	// which silently turns it into a space or U+FFFD. Go's own base loader
 	// accepts it too — see TestStartIssues below for the separate check
 	// `up`, `config validate` and `doctor` run instead, so a command that
@@ -245,9 +244,9 @@ subdomain = "b"
 
 // TestStartIssues covers StartIssues and CheckStart: the check `up`,
 // `config validate` and `doctor`'s "This checkout" section run separately
-// from the base loader above (#19, row 25 in docs/port/divergences.md). The
-// base loader stays lenient so every other command can load the same file
-// and proceed; this is what refuses it instead, with the same message the
+// from the base loader above (#19). The base loader stays lenient so every
+// other command can load the same file and proceed; this is what refuses
+// it instead, with the same message the
 // old schema-level check printed.
 func TestStartIssues(t *testing.T) {
 	parse := func(t *testing.T, toml string) Config {
@@ -366,9 +365,9 @@ func TestConfigDiscovery(t *testing.T) {
 		requireErrorContains(t, err, "No berth.toml found")
 	})
 
-	// Go-only: divergence row (see docs/port/divergences.md). TypeScript
-	// points at berth.example.toml in "berth's own source tree", which a
-	// release binary (built with no source tree alongside it) doesn't have.
+	// Go-only. TypeScript points at berth.example.toml in "berth's own
+	// source tree", which a release binary (built with no source tree
+	// alongside it) doesn't have.
 	// Go instead points at the file's permanent home on GitHub, true for a
 	// binary-only install today and once the repository is public.
 	t.Run("points the missing-config hint at the example file on GitHub, not a source tree a binary install lacks", func(t *testing.T) {

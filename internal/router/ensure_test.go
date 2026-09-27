@@ -355,7 +355,8 @@ func TestRouterServiceEnsure(t *testing.T) {
 		// so previousProtocol now has only two sources; a control home with
 		// neither a record nor a stale-labelled container has no way to learn
 		// it is behind, and there is nothing left this test could exercise.
-		t.Skip("the owner decided to drop legacyProtocol (docs/port/divergences.md, row 11);" +
+		t.Skip("the owner decided to drop legacyProtocol: protocol 4 is past 3, and every control " +
+			"home still in use by then has a record (or a running container) to read instead; " +
 			"the per-home record this test was about no longer exists")
 	})
 

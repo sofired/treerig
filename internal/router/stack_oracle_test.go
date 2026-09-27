@@ -1,24 +1,23 @@
 package router_test
 
-// Compares Go's stack document against TypeScript's for the same fixed
-// inputs. Through protocol 4 (WP3, #39) this was byte for byte apart from
-// two ledgered changes: the protocol bump, and the dynamic/index mounts
-// moving from under a control home to the machine-wide router state
-// directory. Protocol 5 (#55, row 30 in docs/port/divergences.md) goes
+// Compares Go's stack document against a hand-maintained fixture
+// (testdata/stack-oracle.json; its origin — recorded from TypeScript's own
+// stack document for the same fixed inputs — is in git history). Through
+// protocol 4 (WP3, #39) this was byte for byte apart from two changes: the
+// protocol bump, and the dynamic/index mounts moving from under a control
+// home to the machine-wide router state directory. Protocol 5 (#55) goes
 // further — the docker-api service and network, and the router's own
 // Docker-provider command line and depends_on, are dropped outright — so a
 // byte-for-byte comparison of the whole document is no longer meaningful.
 // This test instead compares only what still matches: the index service in
 // full, and the router service's own image, restart, ports, hardening,
 // tmpfs, volumes, healthcheck and labels, plus explicit assertions that the
-// pieces #55 removed are in fact gone. See tools/oracle/router-stack.ts's
-// header for how testdata/stack-oracle.json is regenerated.
+// pieces #55 removed are in fact gone.
 //
-// #82 (row 35) adds one more label, RouterHomeLabel, to both services —
-// Go-only, since TypeScript has no berth-root ownership check to stamp a
-// value for. It is asserted directly, then stripped from Go's own document
-// before the comparisons above, so it never has to appear in the oracle
-// fixture at all.
+// #82 adds one more label, RouterHomeLabel, to both services — Go-only,
+// since TypeScript has no berth-root ownership check to stamp a value for.
+// It is asserted directly, then stripped from Go's own document before the
+// comparisons above, so it never has to appear in the fixture at all.
 
 import (
 	"bytes"
@@ -35,7 +34,8 @@ import (
 // oldDynamicDir/oldIndexDir are the oracle fixture's own (pre-protocol-4,
 // control-home-rooted) mount sources; newDynamicDir/newIndexDir are what
 // TestStackOracle substitutes for them, and what it builds Go's own stack
-// document with, to prove parity apart from the ledgered protocol-4 changes.
+// document with, to prove parity apart from the protocol-4 changes
+// described above (Protocol's own comment).
 const (
 	oldDynamicDir = "/home/dev/.berth/router/dynamic"
 	oldIndexDir   = "/home/dev/.berth/router/index"
@@ -78,9 +78,9 @@ func TestStackOracle(t *testing.T) {
 	}
 
 	oracleText := string(oracle)
-	// The ledgered protocol-4 changes (docs/port/divergences.md row 11):
-	// every service's protocol label bumped (now to 5, row 30's own bump),
-	// and the two mounts moved out from under a control home.
+	// The protocol-4 changes: every service's protocol label bumped (now to
+	// 5, protocol 5's own bump), and the two mounts moved out from under a
+	// control home.
 	oracleText = strings.ReplaceAll(oracleText, `"dev.berth.router-protocol": "3"`, `"dev.berth.router-protocol": "`+strconv.Itoa(router.Protocol)+`"`)
 	oracleText = strings.ReplaceAll(oracleText, oldDynamicDir, newDynamicDir)
 	oracleText = strings.ReplaceAll(oracleText, oldIndexDir, newIndexDir)
@@ -93,10 +93,10 @@ func TestStackOracle(t *testing.T) {
 	}
 
 	// wantHome is this test's own fixture berth root, stamped as
-	// router.RouterHomeLabel (#82) — a Go-only addition (divergence row 35)
-	// the oracle, generated from the frozen TypeScript build, never
-	// produces at all, so it is asserted directly below and stripped from
-	// gotDoc before the ledgered oracle comparisons that follow.
+	// router.RouterHomeLabel (#82) — a Go-only addition the fixture,
+	// recorded from the frozen TypeScript build, never carries at all, so
+	// it is asserted directly below and stripped from gotDoc before the
+	// comparisons against the fixture that follow.
 	const wantHome = "/home/dev/.berth"
 	gotText, err := marshalIndented(router.Stack(router.StackOptions{
 		ProjectName:    "berth-router",
@@ -127,7 +127,7 @@ func TestStackOracle(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(gotServices["index"], oracleServices["index"]) {
-		t.Errorf("index service does not match the oracle (plus the ledgered substitutions above).\n got: %#v\nwant: %#v",
+		t.Errorf("index service does not match the fixture (plus the substitutions above).\n got: %#v\nwant: %#v",
 			gotServices["index"], oracleServices["index"])
 	}
 

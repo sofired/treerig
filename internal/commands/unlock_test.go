@@ -93,13 +93,13 @@ func TestWorktreeUnlock(t *testing.T) {
 	// unique only within its domain" tests lockOptions().recovery, a
 	// heartbeat-design notice that pointed at `worktree unlock <uuid>` as
 	// the way to clear a stale lock TS's own ScopedLock waits on. The flock
-	// design's own wait notice (internal/lock's advice/who, pinned by row
-	// 3) never names a recovery command at all — a waiter is told who holds
-	// the lock and how to signal it, not to run another command — so there
-	// is no Go counterpart of the string this test checks.
+	// design's own wait notice (internal/lock's advice/who) never names a
+	// recovery command at all — a waiter is told who holds the lock and
+	// how to signal it, not to run another command — so there is no Go
+	// counterpart of the string this test checks.
 	t.Run("is named by UUID in every mutation's stale-lock notice: a slug is unique only within its domain", func(t *testing.T) {
 		t.Skip("this checks a heartbeat-design notice's own recovery hint, which named `worktree unlock <uuid>`; " +
-			"the flock design's wait notice (docs/port/divergences.md, row 3) never names a recovery command at all")
+			"the flock design's wait notice never names a recovery command at all")
 	})
 
 	t.Run("says there is nothing to unlock when nothing holds the worktree", func(t *testing.T) {
@@ -279,11 +279,10 @@ func TestWorktreeUnlock(t *testing.T) {
 	// a lock reclaimed in between is still caught. lock.Clear has no second
 	// look to race: flock(2) is held for the judging, marking-released and
 	// legacy-leftover cleanup in one call, so nothing else can reclaim the
-	// lock in between (docs/port/divergences.md, row 19).
+	// lock in between.
 	t.Run("refuses when the marker turns up during the second look, clearing nothing", func(t *testing.T) {
 		t.Skip("unlockGuard's ~12 second second look — and the race this test wins against it — has no Go counterpart: " +
-			"lock.Clear holds the flock for the whole judge-then-clear sequence, so nothing can reclaim the lock in between " +
-			"(docs/port/divergences.md, row 19)")
+			"lock.Clear holds the flock for the whole judge-then-clear sequence, so nothing can reclaim the lock in between")
 	})
 }
 

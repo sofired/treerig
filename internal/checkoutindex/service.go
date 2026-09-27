@@ -28,8 +28,9 @@ import (
 
 // defaultInventoryTimeout bounds one `docker ps` call: 30s, matching
 // doctor.ts's own DOCKER_PROBE_TIMEOUT_MS for the same kind of introspection
-// call, and divergence row 12's precedent for every docker call this port
-// makes. Overridable per Service (Options.InventoryTimeout) for a test that
+// call, and the same 30s every other docker call this port makes for an
+// introspection call (internal/backend/compose.go's own timeouts comment).
+// Overridable per Service (Options.InventoryTimeout) for a test that
 // wants to observe the bound itself without actually waiting on it.
 const defaultInventoryTimeout = 30 * time.Second
 
@@ -82,9 +83,10 @@ type Options struct {
 	RouterPort int
 	// IndexFile is where the rendered page is written: the shared router's
 	// own layout.RouterState(...).IndexFile, never anything under a control
-	// home (row 9 in the divergence ledger moved it machine-wide). Resolving
-	// that path needs an Env's Getenv, which this package does not depend
-	// on, so the caller resolves it once and hands it over.
+	// home — the router's state is machine-wide, per berth root, not per
+	// control home (see internal/layout's RouterStateDir comment).
+	// Resolving that path needs an Env's Getenv, which this package does
+	// not depend on, so the caller resolves it once and hands it over.
 	IndexFile string
 	// Lock is the shared router's lock scope (internal/commands'
 	// routerLockScope): Refresh takes it around reading the registry and

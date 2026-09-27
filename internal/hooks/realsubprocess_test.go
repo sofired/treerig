@@ -20,7 +20,7 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
-// TestRunHookOverARealSubprocess pins divergence 6c end to end, through the
+// TestRunHookOverARealSubprocess pins this behaviour end to end, through the
 // real hooks runner over the real run.Runner (osrun), not a fake: Go's
 // exec has no shell fallback for a script missing its interpreter line,
 // where Node's execvp falls back to /bin/sh, so a hook with no #! line

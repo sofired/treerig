@@ -1,28 +1,19 @@
 package cli_test
 
-// Golden corpus for the CLI's parsing, help and top-level error reporting,
-// captured from the real TypeScript build (the oracle) and replayed against
-// cli.Main.
+// Golden corpus for the CLI's parsing, help and top-level error reporting.
+// Every fixture under testdata/golden/<name>/ (stdout, stderr, exit) is a
+// plain, hand-maintained corpus now: it was originally captured from the
+// TypeScript build and replayed against cli.Main, but that build is gone, so
+// there is no oracle left to re-record from. Update a fixture by hand after
+// a change to the command tree, help wording or an error message, the same
+// way any other testdata file in this repository is updated, or — once
+// #46's cobra stage lands — by whatever re-recording process replaces
+// this one.
 //
-// Regenerate after a change to the command tree, help wording or an error
-// message, with Node 24 on PATH:
-//
-//	go test ./internal/cli/... -run TestGolden -update
-//
-// -update runs `node src/cli/main.ts <args>` for every case below in a
-// clean temporary HOME/BERTH_HOME with no berth.toml on its cwd, and writes
-// its stdout, stderr and exit code into testdata/golden/<name>/. Without
-// -update the test only reads those files back — no Node needed to run it —
-// and compares them byte for byte against cli.Main run in-process with the
-// same args (argv[0] "berth", matching the oracle's own name when run as
-// `node src/cli/main.ts`, whose basename resolves to "berth" — see
-// brand.CLIName and cliName() in src/brand.ts).
-//
-// A case named in goOwned prints a surface only the Go build has, approved
-// by the divergence-ledger row it names: -update records it from cli.Main
-// instead of the oracle, so regenerating the corpus keeps it rather than
-// overwriting it with TypeScript's output, and CI's oracle drift check
-// stays clean.
+// help-worktree, help-worktree-short, help-worktree-unlock,
+// help-cmd-worktree, help-cmd-worktree-remove, help-cmd-worktree-list and
+// bare-worktree show a surface only this build has: `worktree unlock
+// --registry`/`--router` (#21), which the TypeScript build never gained.
 //
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
@@ -31,10 +22,7 @@ package cli_test
 
 import (
 	"bytes"
-	"errors"
-	"flag"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -43,24 +31,9 @@ import (
 	"github.com/sofired/berth/internal/cli"
 )
 
-var update = flag.Bool("update", false, "regenerate testdata/golden from the TypeScript CLI (needs node on PATH)")
-
 type goldenCase struct {
 	name string
 	args []string
-}
-
-// goOwned names the cases recorded from the Go build rather than the
-// oracle, each with the divergence-ledger row that approves the difference.
-var goOwned = map[string]string{
-	// Row 27: `worktree unlock --registry/--router`, which TypeScript lacks.
-	"help-worktree":            "row 27",
-	"help-worktree-short":      "row 27",
-	"help-worktree-unlock":     "row 27",
-	"help-cmd-worktree":        "row 27",
-	"help-cmd-worktree-remove": "row 27",
-	"help-cmd-worktree-list":   "row 27",
-	"bare-worktree":            "row 27",
 }
 
 var goldenCases = []goldenCase{
@@ -181,24 +154,13 @@ var goldenCases = []goldenCase{
 	{"urls-missing-file", []string{"urls", "--config", "/nonexistent-berth-config-x7z.toml"}},
 }
 
+// TestGolden replays every goldenCases entry against cli.Main and compares
+// its stdout, stderr and exit code byte for byte against the committed
+// fixture under testdata/golden/<name>/.
 func TestGolden(t *testing.T) {
-	if *update {
-		requireOracleNode(t)
-	}
 	for _, tc := range goldenCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := filepath.Join("testdata", "golden", tc.name)
-			if *update {
-				var stdout, stderr string
-				var code int
-				if _, ok := goOwned[tc.name]; ok {
-					stdout, stderr, code = runGo(tc.args)
-				} else {
-					stdout, stderr, code = runOracle(t, tc.args)
-				}
-				writeFixture(t, dir, stdout, stderr, code)
-			}
-
 			wantOut := readFixtureFile(t, filepath.Join(dir, "stdout"))
 			wantErr := readFixtureFile(t, filepath.Join(dir, "stderr"))
 			wantCode := readFixtureCode(t, filepath.Join(dir, "exit"))
@@ -220,110 +182,17 @@ func TestGolden(t *testing.T) {
 	}
 }
 
-// runGo runs cli.Main in-process the way TestGolden compares it, for
-// recording a goOwned case.
-func runGo(args []string) (stdout, stderr string, exitCode int) {
-	var out, errOut bytes.Buffer
-	code := cli.Main(append([]string{"berth"}, args...), strings.NewReader(""), &out, &errOut, emptyGetenv)
-	return out.String(), errOut.String(), code
-}
-
-// requireOracleNode stops -update unless the node on PATH is the major
-// version .node-version pins: another would record its own errors, or a
-// different build's output, as every golden.
-func requireOracleNode(t *testing.T) {
-	t.Helper()
-	pinned, err := os.ReadFile(filepath.Join("..", "..", ".node-version"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantMajor, _, _ := strings.Cut(strings.TrimSpace(string(pinned)), ".")
-	out, err := exec.Command("node", "--version").Output()
-	if err != nil {
-		t.Fatalf("-update needs node %s on PATH: %v", wantMajor, err)
-	}
-	gotMajor, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(string(out)), "v"), ".")
-	if gotMajor != wantMajor {
-		t.Fatalf("-update needs node %s, as .node-version pins; the node on PATH is %s", wantMajor, strings.TrimSpace(string(out)))
-	}
-}
-
 // emptyGetenv is a controlled, empty environment: nothing this package's
-// own cases read (BERTH_DEBUG, HOME, BERTH_HOME) is ever set, matching the
-// oracle's own controlled run.
+// own cases read (BERTH_DEBUG, HOME, BERTH_HOME) is ever set.
 func emptyGetenv(string) (string, bool) { return "", false }
 
-// runOracle runs `node src/cli/main.ts <args>` the way the conventions doc
-// specifies: a clean temporary HOME/BERTH_HOME, cwd a clean temp directory
-// with no berth.toml above it, PATH trimmed to node's own directory (plus
-// /usr/bin so node can still find a shell if it needs one), and COLUMNS
-// left unset. Node's stdout/stderr are OS pipes, never a TTY, matching
-// "stdout not a TTY".
-func runOracle(t *testing.T, args []string) (stdout, stderr string, exitCode int) {
-	t.Helper()
-	nodeBin, err := exec.LookPath("node")
-	if err != nil {
-		t.Fatalf("node not on PATH (see this file's header comment): %v", err)
-	}
-	mainTS, err := filepath.Abs(filepath.Join("..", "..", "src", "cli", "main.ts"))
-	if err != nil {
-		t.Fatalf("resolving src/cli/main.ts: %v", err)
-	}
-
-	home := t.TempDir()
-	cwd := t.TempDir()
-
-	cmd := exec.Command(nodeBin, append([]string{mainTS}, args...)...)
-	cmd.Dir = cwd
-	cmd.Env = []string{
-		"PATH=" + filepath.Dir(nodeBin) + ":/usr/bin:/bin",
-		"HOME=" + home,
-		"BERTH_HOME=" + filepath.Join(home, "control-home"),
-	}
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	runErr := cmd.Run()
-	code := 0
-	if runErr != nil {
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			code = exitErr.ExitCode()
-		} else {
-			t.Fatalf("running oracle (node %s %v): %v", mainTS, args, runErr)
-		}
-	}
-	return outBuf.String(), errBuf.String(), code
-}
-
-// writeFixture writes the oracle's recorded stdout, stderr and exit code as
-// the three files a golden fixture is made of, creating dir if needed.
-func writeFixture(t *testing.T, dir, stdout, stderr string, code int) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("creating %s: %v", dir, err)
-	}
-	writeFile(t, filepath.Join(dir, "stdout"), stdout)
-	writeFile(t, filepath.Join(dir, "stderr"), stderr)
-	writeFile(t, filepath.Join(dir, "exit"), strconv.Itoa(code)+"\n")
-}
-
-// writeFile writes content to path, failing the test if the write fails.
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("writing %s: %v", path, err)
-	}
-}
-
 // readFixtureFile reads a golden fixture file, failing the test with a hint
-// to regenerate it with -update if it is missing.
+// that it is missing if it cannot be read.
 func readFixtureFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("reading %s (run with -update first? see this file's header comment): %v", path, err)
+		t.Fatalf("reading %s (a committed fixture is missing? see this file's header comment): %v", path, err)
 	}
 	return string(data)
 }

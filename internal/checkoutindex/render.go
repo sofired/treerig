@@ -37,10 +37,11 @@ const legend = "Running: every service answers. Partial: some do. Stopped: none 
 // a page with no scripting can follow a machine that keeps changing.
 const noscriptRefreshSeconds = 60
 
-// script and styles are extracted byte-for-byte from the TypeScript build's
-// own render.ts by tools/oracle/index-assets.ts: liveUpdateScript() embeds
+// script and styles were extracted byte-for-byte from the TypeScript
+// build's own render.ts: liveUpdateScript() embeds
 // `planIndexUpdate.toString()`, whose exact text is produced by Node's type
-// stripping, which nothing outside Node can reproduce by translation.
+// stripping, which nothing outside Node can reproduce by translation. Their
+// origin is in git history.
 //
 //go:embed assets/script.js
 var script string

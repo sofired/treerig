@@ -9,9 +9,10 @@ import (
 	"github.com/sofired/berth/internal/text"
 )
 
-// corpusCase mirrors one entry tools/oracle/config-corpus.ts writes: a TOML
-// fixture plus the exact byte-for-byte result the real parseConfig (real
-// smol-toml, real zod schema, under Node) produced for it.
+// corpusCase is one entry of the hand-maintained testdata/config-corpus.json
+// (its origin is in git history): a TOML fixture plus the exact
+// byte-for-byte result the real parseConfig (real smol-toml, real zod
+// schema, under Node) produced for it.
 type corpusCase struct {
 	Name            string `json:"name"`
 	TOML            string `json:"toml"`
@@ -27,14 +28,14 @@ type corpusCase struct {
 func TestConfigCorpus(t *testing.T) {
 	raw, err := os.ReadFile("testdata/config-corpus.json")
 	if err != nil {
-		t.Fatalf("reading testdata/config-corpus.json: %v (regenerate with tools/oracle/config-corpus.ts)", err)
+		t.Fatalf("reading testdata/config-corpus.json: %v", err)
 	}
 	var cases []corpusCase
 	if err := json.Unmarshal(raw, &cases); err != nil {
 		t.Fatalf("parsing testdata/config-corpus.json: %v", err)
 	}
 	if len(cases) < 40 {
-		t.Fatalf("only %d corpus cases, expected at least 40; regenerate testdata/config-corpus.json", len(cases))
+		t.Fatalf("only %d corpus cases, expected at least 40; testdata/config-corpus.json needs more fixtures", len(cases))
 	}
 
 	for _, c := range cases {

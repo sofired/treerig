@@ -6,13 +6,12 @@ package cli_test
 // real process, because which stream a line lands on is only a contract if
 // it survives the entry point — a unit test can prove a logger method was
 // called, only a real pipe can prove nothing else wrote to it. CI runs this
-// as "Streams contract, against the Go binary" with BERTH_CLI=dist/berth;
-// this file is that same contract, self-contained, against a binary this
-// package builds itself (buildBinary, in signal_integration_test.go). Case
-// titles are carried over from the TypeScript `it` titles verbatim, as
-// docs/port/process.md's own convention asks for every ported test — though
-// unlike a TypeScript-to-Go behaviour port, wording parity was never a
-// requirement here, only behaviour.
+// as part of "Integration tests" (go.yml), against a binary this package
+// builds itself (buildBinary, in signal_integration_test.go). Case titles
+// are carried over from the TypeScript `it` titles verbatim, the same way
+// every ported test's title does — though unlike a TypeScript-to-Go
+// behaviour port, wording parity was never a requirement here, only
+// behaviour.
 //
 // One TypeScript case is not ported: "is executable and starts with a
 // shebang" is a claim about src/cli/main.ts's own source file (a shebang

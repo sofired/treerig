@@ -10,8 +10,7 @@ import (
 // StartIssues is the one rule the base loader (Parse, Load, LoadNearest)
 // deliberately does not enforce: no control character — an escape
 // sequence, a bidi override, a zero-width character, a raw C1 byte — in any
-// declared service's [service.index] label or purpose (#19, row 25 in
-// docs/port/divergences.md).
+// declared service's [service.index] label or purpose (#19).
 //
 // Every command that only reads an already-running worktree's config —
 // `down`, `worktree remove`, `status`, `urls`, `index`, `worktree list`,

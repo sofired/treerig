@@ -44,10 +44,10 @@ var (
 //
 // golang.org/x/text/collate's tables (CLDRVersion, UnicodeVersion) are
 // generated from CLDR 23 / Unicode 6.2, over a decade behind the CLDR 48 /
-// Unicode 17 that Node 24's ICU carries. internal/text/testdata/collation-
-// corpus.json (tools/oracle/collation-corpus.ts) is the differential corpus
-// that checks the two still agree on the strings berth actually sorts —
-// see TestCollateOracle.
+// Unicode 17 that Node 24's ICU carries.
+// internal/text/testdata/collation-corpus.json is the differential,
+// hand-maintained fixture that checks the two still agree on the strings
+// berth actually sorts — see TestCollateOracle.
 func Collate(a, b string) int {
 	enCollatorOnce.Do(func() { enCollatorVal = collate.New(language.English) })
 	enCollateMu.Lock()

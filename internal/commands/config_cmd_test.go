@@ -108,8 +108,8 @@ func TestConfigValidatePropagatesLoadError(t *testing.T) {
 
 // `config validate` answers "would up work?", so it refuses exactly what
 // `up` itself refuses: a control character in a [service.index] label or
-// purpose (#19, row 25 in docs/port/divergences.md). The base loader that
-// backs `load` stays lenient — down, worktree remove, status and the rest
+// purpose (#19). The base loader that backs `load` stays lenient — down,
+// worktree remove, status and the rest
 // load the same file and proceed — so this has to be its own check, not
 // something the load above already caught.
 func TestConfigValidateRefusesControlCharacters(t *testing.T) {

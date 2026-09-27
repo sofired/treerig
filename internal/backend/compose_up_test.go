@@ -230,7 +230,7 @@ func TestComposeUp(t *testing.T) {
 		}
 	})
 
-	// Go-only, per #55/row 31: TypeScript stamps Traefik labels onto a routed
+	// Go-only, per #55: TypeScript stamps Traefik labels onto a routed
 	// service and joins it to one shared external network; Go instead joins
 	// it, under an alias, to this worktree's own owned router network — see
 	// override_network_test.go for the dedicated pinning tests of that

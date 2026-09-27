@@ -289,9 +289,9 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		}
 		// The router's own directories are no longer created here: they live
 		// under the berth root instead (internal/router, #12, #13, #80), not
-		// under any control home. layout.Control no longer even names it
-		// (docs/port/divergences.md row 9), so this checks the literal path
-		// a TypeScript-era control home would have used.
+		// under any control home. layout.Control no longer even names it,
+		// so this checks the literal path a TypeScript-era control home
+		// would have used.
 		routerDir := filepath.Join(controlHome, "router")
 		exists, err := files.PathExists(routerDir)
 		requireNoError(t, err)

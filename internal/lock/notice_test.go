@@ -14,9 +14,9 @@ import (
 	"github.com/sofired/berth/internal/procid"
 )
 
-// Divergence 3 in docs/port/divergences.md: the wording that replaced the
-// heartbeat's. Each case gives up on a lock held by this same process, so the
-// record names this process and the fake table decides what it looks like.
+// The wording that replaced the heartbeat design's own. Each case gives up
+// on a lock held by this same process, so the record names this process
+// and the fake table decides what it looks like.
 func TestLockNoticeWording(t *testing.T) {
 	contend := func(t *testing.T, table *fakeTable) error {
 		t.Helper()

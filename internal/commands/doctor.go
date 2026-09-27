@@ -15,14 +15,18 @@ package commands
 // that builds doctorOptions from a real Env, prints the report, and turns
 // its exit code into what the CLI reports.
 //
-// The Node.js version check has no Go counterpart and is dropped outright
-// (divergence ledger row 17): there is no Go runtime version for a Go build
-// to be running under. The Locks section, and the wording a stuck holder's
-// line uses, are Go's own in the specific, narrow ways row 18 records: see
-// internal/lock's package comment and docs/port/divergences.md rows 3, 18, 20
-// and 22 (20 being run.Runner.Which's own inability to fail the way
-// TypeScript's does; 22 being the Registry section's own line for a control
-// home a TypeScript build last used, planned from the start of WP6).
+// The Node.js version check has no Go counterpart and is dropped outright:
+// there is no Go runtime version for a Go build to be running under. The
+// Locks section is built entirely on lock.Describe (see internal/lock's
+// package comment): a live holder is an answer, not a problem, and an
+// unreleased-but-gone one recovers itself the next time its lock is taken,
+// so the wording here carries no heartbeat age and no "waits" clause — see
+// lockCheck and lockChecks below for the specifics. run.Runner.Which is a
+// plain PATH lookup with no failure mode of its own, so dockerChecks always
+// reaches its own Engine and Compose probes rather than folding a `which`
+// failure into one line. The Registry section's control-home check adds one
+// more line, planned from the start of the Go port, for a control home a
+// TypeScript build last used (see registrySection).
 
 import (
 	"context"
@@ -488,8 +492,8 @@ func readDirIfExists(dir string) ([]os.DirEntry, error) {
 // repository directory, or a non-UUID entry inside one (a `.tmp.NNN`
 // left by a write in progress, say), never matches uuidPattern and is
 // silently skipped — there is no separate recovery-mutex file to skip
-// around, unlike src/operation-lock.ts's worktreeRecoveryLockTarget: the
-// flock design has no such file (docs/port/divergences.md row 3).
+// around: flock(2) needs no sidecar mutex the way the heartbeat design
+// once did.
 func lockedWorktreeIDs(controlHome string) ([]lockedWorktree, error) {
 	worktreesDir := layout.ControlLayout(controlHome).LocksDir + "/worktrees"
 	repositories, err := readDirIfExists(worktreesDir)
@@ -873,8 +877,7 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 // find an available, non-overlapping IPv4 address pool among the defaults".
 // 20 warns with roughly a third of that left. It is a heuristic: a daemon
 // with its own default-address-pools, or other networks' explicit subnets,
-// moves the real limit either way. Proposed as divergence row 32; the
-// threshold is the owner's to tune.
+// moves the real limit either way; the threshold is the owner's to tune.
 const addressPoolBridgeWarning = 20
 
 // addressPoolsCheck warns when the number of existing bridge-driver
@@ -1104,9 +1107,8 @@ func findCheckout(explicit, cwd string) (checkoutSource, error) {
 // checkoutFileCheck is the first line of "This checkout": ok when loaded
 // parsed cleanly (the base loader is lenient — see internal/config/start.go),
 // fail when config.CheckStart finds a control character in a
-// [service.index] label or purpose (#19, row 25 in
-// docs/port/divergences.md), with the exact wording `config validate`
-// itself would refuse with. doctor answers "would up work?", so this is a
+// [service.index] label or purpose (#19), with the exact wording
+// `config validate` itself would refuse with. doctor answers "would up work?", so this is a
 // failed check, not a warning: `up` against this same file refuses outright.
 // A multi-line message like this one prints on the section's single line
 // the same way an unrecognized-key or other multi-line schema error already

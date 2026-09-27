@@ -425,8 +425,8 @@ func anyContainerAvailable(owned []ContainerRecord, service string) bool {
 // built in memory that skip that validation.
 //
 // TypeScript parses with the WHATWG `URL.parse`, which normalizes several
-// things Go's net/url does not; internal/checkoutindex/testdata/url-filter.json
-// (tools/oracle/index-url-filter.ts, run through the real buildSnapshot) is
+// things Go's net/url does not; internal/checkoutindex/testdata/url-filter.json,
+// a hand-maintained fixture recorded through the real buildSnapshot, is
 // what proves each of the following, rather than a comment asserting it:
 //   - scheme is lower-cased ("HTTP:" -> "http:"): net/url already does this,
 //     since url.Parse's Scheme field is normalized to lower case.

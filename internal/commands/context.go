@@ -54,8 +54,9 @@ type CommandContext struct {
 	// `up` builds its router from it rather than resolving again.
 	RouterPortResolution settings.PortResolution
 	// RouterState is the shared router's own on-disk layout — where its
-	// lock and its index page live (row 9 in the divergence ledger: neither
-	// is under ControlHome any more). Resolved once here so
+	// lock and its index page live (neither is under ControlHome: the
+	// router's state is machine-wide, per berth root — see
+	// internal/layout's RouterStateDir comment). Resolved once here so
 	// newCheckoutIndex needs no Getenv of its own.
 	RouterState layout.RouterLayout
 	Registry    *registry.Registry

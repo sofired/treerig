@@ -8,16 +8,17 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
-// TestOverrideCorpus drives this package's own overrideDocument with the
-// exact inputs tools/oracle/override-corpus.ts recorded, decoded with this
-// package's own ordered JSON decoder (the same one prepare uses on a real
-// `docker compose config` document), and compares the encoded result byte
-// for byte against what the TypeScript build's overrideDocument produced —
-// or, for a refusal, its exact message.
+// TestOverrideCorpus drives this package's own overrideDocument against a
+// hand-maintained fixture (testdata/override-corpus.json; its origin,
+// recorded from the TypeScript build's own overrideDocument, is in git
+// history), decoded with this package's own ordered JSON decoder (the same
+// one prepare uses on a real `docker compose config` document), and
+// compares the encoded result byte for byte against what was recorded — or,
+// for a refusal, its exact message.
 func TestOverrideCorpus(t *testing.T) {
 	data, err := os.ReadFile("testdata/override-corpus.json")
 	if err != nil {
-		t.Fatalf("reading testdata/override-corpus.json: %v (regenerate with tools/oracle/override-corpus.ts)", err)
+		t.Fatalf("reading testdata/override-corpus.json: %v", err)
 	}
 	root, err := decodeOrdered(data)
 	if err != nil {
@@ -28,7 +29,7 @@ func TestOverrideCorpus(t *testing.T) {
 		t.Fatalf("expected a top-level array, got %T", root)
 	}
 	if len(cases) < 15 {
-		t.Fatalf("only %d corpus cases, expected at least 15; regenerate testdata/override-corpus.json", len(cases))
+		t.Fatalf("only %d corpus cases, expected at least 15", len(cases))
 	}
 
 	for _, raw := range cases {
@@ -84,15 +85,15 @@ func TestOverrideCorpus(t *testing.T) {
 			}
 			if len(routes) > 0 {
 				// Go gives every worktree its own dedicated, owned router
-				// network instead of TypeScript's one shared external
-				// network (docs/port/divergences.md row 31); the oracle
-				// fixture's bytes are TypeScript's own shape and no longer
-				// match. The corpus case still ran overrideDocument above
-				// (label merging, hostile names, refusals) — only the
-				// byte-for-byte comparison is skipped. See
-				// override_network_test.go for the Go-only pinning tests
-				// of the new network/alias shape.
-				t.Skip("routed case: network shape diverges from the TypeScript oracle (row 31)")
+				// network instead of sharing one external network (#55; see
+				// RouterNetworkName's own comment in compose_up.go); this
+				// fixture's bytes for a routed case are the pre-#55 shape
+				// and no longer match. The corpus case still ran
+				// overrideDocument above (label merging, hostile names,
+				// refusals) — only the byte-for-byte comparison is skipped.
+				// See override_network_test.go for the Go-only pinning
+				// tests of the current network/alias shape.
+				t.Skip("routed case: network shape predates #55's per-worktree router network")
 			}
 			gotBytes, err := marshalOverrideDocument(document)
 			if err != nil {

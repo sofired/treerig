@@ -294,10 +294,10 @@ func TestUpWithContext(t *testing.T) {
 		wantErr(t, err, "This checkout's berth markers changed or were removed while 'berth up' was waiting for the shared router")
 	})
 
-	// #19, row 25 in docs/port/divergences.md: the base loader accepts a
-	// control character in [service.index] label or purpose — down,
-	// worktree remove, status and the rest load the same file and proceed
-	// — but `up` itself is one of the few callers that refuses one, and it
+	// #19: the base loader accepts a control character in [service.index]
+	// label or purpose — down, worktree remove, status and the rest load
+	// the same file and proceed — but `up` itself is one of the few
+	// callers that refuses one, and it
 	// must refuse before making any Docker call.
 	t.Run("refuses a control character in a service index label or purpose, before ensuring the router", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)

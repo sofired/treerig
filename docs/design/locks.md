@@ -31,8 +31,8 @@ home under the same berth root, not necessarily by every control home on
 the machine; a scratch `BERTH_HOME` used to isolate a control home also
 gets its own copy of the router's lock and state, though not its own router
 container (one per Docker daemon regardless of berth root — see
-`docs/port/divergences.md` rows 9 and 29, and AGENTS.md's "Running things
-safely").
+`internal/layout`'s `RouterStateDir`/`RouterLayout` comments, and AGENTS.md's
+"Running things safely").
 
 Docker children inherit the lock: `docker` and `docker compose` get the
 worktree lock's descriptor through `ExtraFiles`, as fd 3. Hooks do not — a
@@ -152,9 +152,9 @@ tests skip there.
   start: two roots that each find no router running can still both go on
   to create the one container, since their locks are different files. A
   machine-wide lock target would close that; it is not this design. See
-  `docs/port/divergences.md` rows 9, 29 and 35. `router up` takes its own
-  lock alone, never alongside a worktree's own locks
-  (`lifecycle.Requests.Router`).
+  `internal/router/stack.go`'s `RouterHomeLabel` comment and `router.go`'s
+  `checkOwnership`. `router up` takes its own lock alone, never alongside a
+  worktree's own locks (`lifecycle.Requests.Router`).
 - Routing (#55) splits the same way. A worktree's own route fragments
   (`<repo>.<wt>.<service>.yaml` in the router's `dynamic/`) are written by
   `up` and removed by `down` and `worktree remove`, and the router's
@@ -270,9 +270,7 @@ tests skip there.
   probe of one scope's flock (`LOCK_EX|LOCK_NB`, then close), exported so
   `worktree unlock` can check every one of a target's locks before clearing
   any of them.
-- `Clear(ctx, scopes, opts)` is `worktree unlock`'s core (ported from
-  `src/lock-recovery.ts`'s `unlockGuard`/`verify` and
-  `src/operation-lock.ts`'s `clearStaleWorktreeLocks`): given every scope a
+- `Clear(ctx, scopes, opts)` is `worktree unlock`'s core: given every scope a
   target might have (a worktree's operation and development locks, or,
   with `--registry`/`--router`, the one machine-wide scope those flags name
   — `commands.UnlockGlobal`, #21), it holds each one's free flock through
@@ -294,18 +292,17 @@ tests skip there.
 ## `internal/run/osrun`
 
 Implements `run.Runner`: every subprocess berth spawns for real goes through
-here. It adapts `src/process-runner.ts` to Go's process model — a session
-per child instead of Execa's process-tree tracking, and its own
-SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
+here — a session per child instead of Execa's process-tree tracking, and
+its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
 
 - Every non-interactive child gets `SysProcAttr{Setsid: true}`. Cancelling
   its context sends SIGTERM to `-pgid`; `time.AfterFunc(KillAfter)` (10 s by
   default) then sends SIGKILL to `-pgid`. `WaitDelay` is about 2 s, so a
   descendant holding the output pipe cannot hang `Wait`. Interactive
   children get no session and are signalled by their own PID.
-- Start failures use the message table ported word for word from
-  `src/process-runner.ts:57-96`: not on `PATH` or a missing `#!`
-  interpreter exits 127; not executable (`EACCES`) or not a valid
+- Start failures use the message table ported word for word from the old
+  build: not on `PATH` or a missing `#!` interpreter exits 127; not
+  executable (`EACCES`) or not a valid
   executable (`ENOEXEC`, needs a `#!` line) exits 126; a working directory
   that does not exist or is not a directory exits 126, checked before the
   child ever starts (`os/exec` skips its own `Dir` check once
@@ -345,8 +342,8 @@ One lifecycle for the whole process, started once in `main`.
      expects; if it somehow survives that, it falls back to
      `os.Exit(128+n)`.
 - The action's own error is reported first; a release or quiesce failure
-  rides along as its `Cause` (if it had none) and always in `Suppressed`, as
-  `src/signal-lifecycle.ts:95-104` attached a lock-release failure.
+  rides along as its `Cause` (if it had none) and always in `Suppressed`,
+  the same way the old build attached a lock-release failure.
 
 ## Real-process tests
 

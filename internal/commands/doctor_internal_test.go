@@ -450,17 +450,19 @@ func TestVersions(t *testing.T) {
 	// "holds Node to the engines range: the floor included, the next major
 	// excluded" and "checks Node against exactly the range package.json
 	// declares" have no Go counterpart: satisfiesEngine, NODE_ENGINE and
-	// nodeCheck do not exist here at all (divergence ledger row 17). "names
-	// the command and the range when Node is outside it" is the same story.
+	// nodeCheck do not exist here at all — there is no Go runtime version
+	// for a Go build to be running under, so doctor drops the Node.js
+	// engines check entirely. "names the command and the range when Node
+	// is outside it" is the same story.
 	t.Run("holds Node to the engines range: the floor included, the next major excluded", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17); " +
+		t.Skip("doctor drops the Node.js engines check entirely; " +
 			"there is no Go runtime version for a Go build to be running under, so satisfiesEngine has no Go counterpart")
 	})
 	t.Run("checks Node against exactly the range package.json declares", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17); no NODE_ENGINE constant exists to check")
+		t.Skip("doctor drops the Node.js engines check entirely; no NODE_ENGINE constant exists to check")
 	})
 	t.Run("names the command and the range when Node is outside it", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17); nodeCheck has no Go counterpart")
+		t.Skip("doctor drops the Node.js engines check entirely; nodeCheck has no Go counterpart")
 	})
 
 	t.Run("passes a tool at the minimum, fails one below it, and fails output it cannot read", func(t *testing.T) {
@@ -897,7 +899,7 @@ func TestDoctorSections(t *testing.T) {
 				t.Fatalf("titles = %v, want %v", got, want)
 			}
 		}
-		// No Node.js check (divergence ledger row 17): Prerequisites is Git, Docker Engine, Docker Compose.
+		// No Node.js check: Prerequisites is Git, Docker Engine, Docker Compose.
 		wantPrereq := []string{"ok Git", "ok Docker Engine", "ok Docker Compose"}
 		gotPrereq := statuses(sections, "Prerequisites")
 		if len(gotPrereq) != len(wantPrereq) {
@@ -927,8 +929,9 @@ func TestDoctorSections(t *testing.T) {
 	})
 
 	// TypeScript never prints this line: it is Go's own, for state a
-	// TypeScript build left behind (docs/decisions/0001-port-to-go.md:177,
-	// "plus doctor's line for TypeScript-era state"; divergence ledger row 22).
+	// TypeScript build left behind — planned from the start of the Go port,
+	// since the marker itself is unreadable to a person and doctor says in
+	// words what a first Go command here is about to do.
 	t.Run("reports a control home a TypeScript build last used, and that the next command here upgrades it", func(t *testing.T) {
 		controlHome := t.TempDir() + "/control"
 		if err := os.MkdirAll(controlHome, 0o700); err != nil {
@@ -1050,7 +1053,7 @@ func TestDoctorSections(t *testing.T) {
 	// nothing to catch here.
 	t.Run("reports Docker checks that could not even be made, and skips the router rather than guessing", func(t *testing.T) {
 		t.Skip("run.Runner.Which returns a plain bool (internal/run/run.go) and cannot fail the way " +
-			"TypeScript's own which() can reject; dockerChecks has nothing to catch (docs/port/divergences.md, row 20)")
+			"TypeScript's own which() can reject; dockerChecks has nothing to catch")
 	})
 
 	t.Run("fails Docker off PATH, skips Compose and the router, and never asks the router", func(t *testing.T) {
@@ -1163,9 +1166,9 @@ func TestDoctorSections(t *testing.T) {
 	})
 
 	// "fails Node outside the engines range" has no Go counterpart: there is
-	// no Node.js check at all (divergence ledger row 17).
+	// no Node.js check at all.
 	t.Run("fails Node outside the engines range", func(t *testing.T) {
-		t.Skip("doctor drops the Node.js engines check entirely (docs/port/divergences.md, row 17)")
+		t.Skip("doctor drops the Node.js engines check entirely")
 	})
 
 	t.Run("refuses a control home berth did not create, and reads registry problems from it", func(t *testing.T) {
@@ -1235,9 +1238,8 @@ func TestDoctorSections(t *testing.T) {
 		got := section(sections, "Registry")[1]
 		// TypeScript's own detail carries Node's errno name, "ENOTDIR"; Go's
 		// os package formats the same underlying error in its own words
-		// ("not a directory") instead — the same accepted difference
-		// docs/port/divergences.md row 5 already covers for an unexpected
-		// file error's wording generally.
+		// ("not a directory") instead — the same difference in wording every
+		// unexpected file error carries between the two builds.
 		if got.Status != StatusFail || got.Subject != "control home" || !contains(got.Detail, "not a directory") {
 			t.Fatalf("got %+v", got)
 		}
@@ -1635,8 +1637,8 @@ func repeatString(s string, n int) string {
 /* ------------------------------------------------------ doctor in a checkout ---- */
 
 func TestDoctorInACheckoutSections(t *testing.T) {
-	// #19, row 25 in docs/port/divergences.md: doctor answers "would up
-	// work?", so its berth.toml line fails on the same control character in
+	// #19: doctor answers "would up work?", so its berth.toml line fails on
+	// the same control character in
 	// a [service.index] label or purpose that `up` and `config validate`
 	// refuse, with the exact message `config validate` itself would print
 	// — not a warning, since `up` against this same file refuses outright.
@@ -2060,8 +2062,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 	// counterpart of TypeScript's silentLock, which the heartbeat design
 	// needed (a directory made silent by backdating its mtime); the flock
 	// design instead needs the flock actually let go while its record stays
-	// unreleased (see internal/lock/recover.go's recoverPreviousHolder and
-	// docs/port/divergences.md row 18).
+	// unreleased (see internal/lock/recover.go's recoverPreviousHolder).
 	silentUnreleased := func(t *testing.T, scope lock.Scope, deadPID int) {
 		t.Helper()
 		lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
@@ -2105,12 +2106,12 @@ func TestDoctorLocksInternal(t *testing.T) {
 	// "fails a silent worktree lock, and names the command that clears it
 	// safely" has no Go counterpart to fail: a silent (unreleased-but-gone)
 	// lock self-heals the next time it is taken, so doctor reports it ok,
-	// not fail, and names no command (docs/port/divergences.md row 18). See
-	// "reports an unreleased-but-gone worktree lock as recovered
-	// automatically" below for the Go-accurate version of this scenario.
+	// not fail, and names no command. See "reports an unreleased-but-gone
+	// worktree lock as recovered automatically" below for the Go-accurate
+	// version of this scenario.
 	t.Run("fails a silent worktree lock, and names the command that clears it safely", func(t *testing.T) {
 		t.Skip("a silent lock self-heals the next time it is taken in the flock design, so doctor reports it ok, " +
-			"not fail, and names no recovery command (docs/port/divergences.md, row 18); " +
+			"not fail, and names no recovery command; " +
 			"see \"reports an unreleased-but-gone worktree lock as recovered automatically\"")
 	})
 
@@ -2325,9 +2326,9 @@ func TestDoctorLocksInternal(t *testing.T) {
 	// "is not misled by recovery mutexes, temporary files or directories
 	// that are not a worktree's" exercises worktreeRecoveryLockTarget, a
 	// `.recovery` mutex file the heartbeat design needed and the flock
-	// design does not have at all (docs/port/divergences.md row 3: "no more
-	// `.recovery` mutex"). The parts that still apply to Go — a `.tmp.NNN`
-	// leftover and a non-UUID sibling directory, both of which
+	// design does not have at all: flock(2) needs no sidecar mutex the way
+	// the heartbeat design once did. The parts that still apply to Go — a
+	// `.tmp.NNN` leftover and a non-UUID sibling directory, both of which
 	// lockedWorktreeIDs must skip — are covered directly.
 	t.Run("is not misled by recovery mutexes, temporary files or directories that are not a worktree's", func(t *testing.T) {
 		controlHome := t.TempDir()

@@ -55,9 +55,10 @@ jobs:
           esac
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
-      # linux/darwin x amd64/arm64: the same four targets tools/bench
-      # reports sizes for. CGO_ENABLED=0 matches go.yml's "Tests without
-      # cgo, as released" leg -- releases never link cgo.
+      # linux/darwin x amd64/arm64: the same four targets go.yml's
+      # cross-compile job also builds, on every pull request. CGO_ENABLED=0
+      # matches go.yml's "Tests without cgo, as released" leg -- releases
+      # never link cgo.
       - name: Build
         env:
           CGO_ENABLED: '0'

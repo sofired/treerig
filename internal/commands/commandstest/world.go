@@ -50,7 +50,9 @@ type World struct {
 	UserHome string
 	// RouterState is a fake shared router's own state directory: the
 	// checkout index writes its page and takes its lock under here, never
-	// under ControlHome (row 9 in the divergence ledger).
+	// under ControlHome — the router's state is machine-wide, per berth
+	// root, not per control home (see internal/layout's RouterStateDir
+	// comment).
 	RouterState layout.RouterLayout
 	// Root is the primary worktree's root — the first one New creates.
 	Root   string

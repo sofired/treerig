@@ -9,9 +9,8 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 )
 
-// Divergence 1 in docs/port/divergences.md: BERTH_DEBUG prints the chain of
-// causes, one "type: message" line each, where the TypeScript build prints a
-// JavaScript stack trace.
+// BERTH_DEBUG prints the chain of causes, one "type: message" line each,
+// since Go has no stack trace the way TypeScript's build once printed one.
 func TestErrorChain(t *testing.T) {
 	t.Run("adds nothing for one of berth's own errors with no cause", func(t *testing.T) {
 		if got := errorChain(clierr.New("No berth.toml here.")); got != "" {

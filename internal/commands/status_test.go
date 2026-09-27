@@ -61,7 +61,7 @@ func TestWorktreeStatus(t *testing.T) {
 		}
 	})
 
-	// #19, row 25 in docs/port/divergences.md: the base loader accepts a
+	// #19: the base loader accepts a
 	// control character in [service.index] label or purpose; only `up`,
 	// `config validate` and `doctor` refuse one. `status` only reads an
 	// already-running worktree's config, so it loads and proceeds.
@@ -138,7 +138,7 @@ func TestWorktreeDown(t *testing.T) {
 		}
 	})
 
-	// #19, row 25 in docs/port/divergences.md: `down` only stops what is
+	// #19: `down` only stops what is
 	// already running, so — unlike `up` — it loads and proceeds against a
 	// [service.index] label or purpose that carries a control character.
 	t.Run("proceeds when a service index label or purpose carries a control character", func(t *testing.T) {
