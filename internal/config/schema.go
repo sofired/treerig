@@ -42,8 +42,8 @@ const (
 	// can hold. Hardcoded rather than imported from that package: config is
 	// foundational and every command depends on it, while the checkout
 	// index is one feature among several that read it — the dependency
-	// belongs pointing the other way. Row 16 in the divergence ledger: this
-	// bound has no TypeScript equivalent.
+	// belongs pointing the other way. This bound has no TypeScript
+	// equivalent — a new, deliberate Go-only limit.
 	maxServiceEntries = 64
 )
 
@@ -100,7 +100,7 @@ func serviceSchema() *shape.ObjectSchema {
 		// reads an already-running worktree's config can load one a hand
 		// edit or a paste left with one, and go ahead. StartIssues
 		// (start.go) is the separate, named check `up`, `config validate`
-		// and `doctor` run instead; see row 25 in docs/port/divergences.md.
+		// and `doctor` run instead (#19).
 		shape.F("index", shape.Object(
 			shape.F("label", shape.String().Min(1).Max(512)),
 			shape.F("purpose", shape.String().Max(512).Default("")),

@@ -365,9 +365,12 @@ const ControlHomeFormat = "format 2\n"
 // home and no Go build has written to it since: its marker is empty, or it
 // predates the marker and has at least two of the tool's own directories.
 //
-// Nothing in this build calls it yet: it is for doctor's legacy-state line,
-// which comes with doctor's port. Commands need no such check — the first
-// write upgrades the marker, and every lock's leftovers are judged as taken.
+// Nothing that mutates a control home needs this check itself — the first
+// write upgrades the marker (see establishControlHome), and every lock's
+// leftovers are judged lock by lock as they are next taken, whatever the
+// marker says. It exists purely to report the fact: doctor's Registry
+// section calls it to add one line saying a control home was last used by
+// a TypeScript build, and that the next command here upgrades it.
 func LegacyControlHome(controlHome string) (bool, error) {
 	marker := filepath.Join(controlHome, ControlHomeMarker)
 	contents, err := os.ReadFile(marker)

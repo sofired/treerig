@@ -54,7 +54,7 @@ const (
 	// EnvPrefix prefixes the environment variables handed to hooks, e.g. BERTH_STAGE.
 	EnvPrefix = "BERTH"
 	// RouterNetworkKey is the override document's own Compose network key
-	// for a worktree's dedicated router network (#55, row 31) — the local
+	// for a worktree's dedicated router network (#55) — the local
 	// name a routed service's own `networks:` entry and the top-level
 	// `networks:` entry share within one worktree's override file;
 	// internal/backend's RouterNetworkName is the actual on-the-wire Docker

@@ -192,8 +192,8 @@ func TestWorktreeUnlockAgainstRealProcesses(t *testing.T) {
 	// "leaves no record behind when its holder exits while holding it" has
 	// no literal Go counterpart: the flock design always leaves an
 	// unreleased record after any death, exit(2) included — there is no
-	// `.lock` directory to be absent, unlike TypeScript's heartbeat design
-	// (docs/port/divergences.md row 3). What still applies is that Clear
+	// `.lock` directory to be absent, unlike TypeScript's heartbeat design.
+	// What still applies is that Clear
 	// judges an exited holder gone and clears it, exactly as it does a
 	// killed one — checked here through a different death path than "clears
 	// the lock of a holder killed outright" above.

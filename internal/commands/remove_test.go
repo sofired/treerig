@@ -134,10 +134,9 @@ func TestWorktreeRemove(t *testing.T) {
 		}
 	})
 
-	// #19, row 25 in docs/port/divergences.md: `worktree remove` only tears
-	// down what is already there, so — unlike `up` — it loads and proceeds
-	// against a [service.index] label or purpose that carries a control
-	// character.
+	// #19: `worktree remove` only tears down what is already there, so —
+	// unlike `up` — it loads and proceeds against a [service.index] label
+	// or purpose that carries a control character.
 	t.Run("proceeds when a service index label or purpose carries a control character", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")

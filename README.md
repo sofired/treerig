@@ -620,7 +620,7 @@ for whichever it accepted unchecked.
 Go, at least the version [`go.mod`](go.mod) names.
 
 ```bash
-gofmt -l cmd internal tools                             # must print nothing
+gofmt -l cmd internal                                   # must print nothing
 go vet ./...
 go vet -tags integration ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
@@ -639,10 +639,11 @@ sweep up whatever a killed run left behind, without regard to age, so run one
 of them at a time on a machine.
 The `CGO_ENABLED=0` run matters on its own: cgo changes how the Go runtime
 behaves (an extra thread, notably), and releases will build with it
-disabled. CI also runs the streams contract — every command's stdout/stderr
-split, checked against a built binary — which needs Node until #46 retires
-that tooling; [`CONTRIBUTING.md`](CONTRIBUTING.md) has that command and how
-the golden files are regenerated.
+disabled. CI also runs the streams contract — every command's
+stdout/stderr split — as part of `go test -race -tags integration ./...`,
+against a binary it builds itself (`internal/cli/streams_integration_test.go`).
+The help and parity goldens under `internal/cli/testdata/` are
+hand-maintained fixtures; [`CONTRIBUTING.md`](CONTRIBUTING.md) says how.
 
 ### Layout
 

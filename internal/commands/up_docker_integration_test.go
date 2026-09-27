@@ -4,15 +4,15 @@ package commands_test
 
 // `up` against a real daemon, the way a developer uses it: up, the routed
 // host answers, then down and worktree remove — once from a fresh checkout,
-// and once over a worktree the TypeScript build brought up first. The
-// router is a real shared router, but one of this test's own name, port and
-// state directory (commands.SharedRouter), so it runs beside a developer's
-// real one without touching it.
+// and once over a worktree writeLegacyUp brought up first, the way a
+// pre-flock build of berth would have left it. The router is a real shared
+// router, but one of this test's own name, port and state directory
+// (commands.SharedRouter), so it runs beside a developer's real one without
+// touching it.
 
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -382,40 +382,29 @@ func TestUpUsesTheSettingsFilePortOnARealDaemon(t *testing.T) {
 	w.downAndRemove(t, result, host)
 }
 
-func TestTypeScriptWritesGoUps(t *testing.T) {
+// TestUpAdoptsAnOldControlHome proves the other half of the clean break: a
+// control home a pre-flock build left behind — registered, initialized, and
+// running, but never routed, since it started no router — is adopted
+// cleanly by this build's own `up`, over the same registration, without
+// re-running the hooks a completed initialization already ran.
+func TestUpAdoptsAnOldControlHome(t *testing.T) {
 	w := newWalk(t)
-	nodeBin := node(t)
 	const host = "feature-walk.walk.localhost"
 
-	// Up, by the TypeScript build: registered, initialized, and running —
-	// but never routed, since it starts no router.
-	legacy := exec.Command(nodeBin, filepath.Join(repoRoot(t), "tools", "oracle", "legacy-up.ts"), w.controlHome, w.checkout)
-	legacy.Dir = repoRoot(t)
-	legacy.Env = append(os.Environ(), "BERTH_HOME="+w.controlHome)
-	output, err := legacy.Output()
-	if err != nil {
-		var stderr []byte
-		if exit, ok := err.(*exec.ExitError); ok {
-			stderr = exit.Stderr
-		}
-		t.Fatalf("legacy up: %v\n%s", err, stderr)
-	}
-	var registered struct{ RepositoryID, WorktreeID, Slug string }
-	if err := json.Unmarshal(output, &registered); err != nil {
-		t.Fatalf("legacy up said %q: %v", output, err)
-	}
+	// Up, by hand, the way a pre-flock build of berth would have left it.
+	registered := writeLegacyUp(t, w.controlHome, w.checkout)
 	if legacy, err := files.LegacyControlHome(w.controlHome); err != nil || !legacy {
-		t.Fatalf("the TypeScript build's control home is not recognised as its: %v, %v", legacy, err)
+		t.Fatalf("the hand-written control home is not recognised as pre-flock: %v, %v", legacy, err)
 	}
 
-	// Up, by the Go build, over it.
+	// Up, by this build, over it.
 	result := w.up(t)
 
 	if result.Registration.RepositoryID != registered.RepositoryID || result.Registration.WorktreeID != registered.WorktreeID ||
-		result.Registration.Slug != registered.Slug {
-		t.Fatalf("registration = %+v, want the TypeScript build's %+v", result.Registration, registered)
+		result.Registration.Slug != registered.Slug || result.Registration.Domain != registered.Domain {
+		t.Fatalf("registration = %+v, want the hand-written %+v", result.Registration, registered)
 	}
-	// The TypeScript build completed initialization, so seed never runs again.
+	// writeLegacyUp already completed initialization, so seed never runs again.
 	if !slices.Equal(stageNames(result), []string{"prepare"}) || !slices.Equal(w.stages(t), []string{"prepare"}) {
 		t.Fatalf("hooks = %v, log = %v", result.Hooks, w.stages(t))
 	}
@@ -424,7 +413,7 @@ func TestTypeScriptWritesGoUps(t *testing.T) {
 	}
 	marker, err := os.ReadFile(filepath.Join(w.controlHome, files.ControlHomeMarker))
 	if err != nil || string(marker) != files.ControlHomeFormat {
-		t.Fatalf("control home marker = %q, %v; want the Go build's format written", marker, err)
+		t.Fatalf("control home marker = %q, %v; want this build's own format written", marker, err)
 	}
 	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
 

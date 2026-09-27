@@ -20,7 +20,8 @@ func quoteOneLine(value string) string {
 // record's PID and host, with its command in front when it recorded one. nil
 // (no record at all) is "an unidentified holder", exactly as there. Exported
 // for doctor's Locks section, which needs the same holder label a lock's own
-// wait notice does (see quoteOneLine and docs/port/divergences.md row 3).
+// wait notice does (see quoteOneLine): flock(2) has no heartbeat age to add,
+// so naming the holder is all either one needs.
 func HolderLabel(rec *Record) string {
 	if rec == nil {
 		return "an unidentified holder"

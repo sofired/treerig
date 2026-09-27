@@ -40,9 +40,10 @@ import (
 // reaching Docker. Every introspection call — `compose config`, `compose
 // ps`, and Inventory's own `ps`/`ls`/`inspect` per resource kind — is timed
 // the same as doctor.ts's own docker inspect probes (DOCKER_PROBE_TIMEOUT_MS)
-// and divergence row 12's router precedent: 30s. Reap's removal of one
-// resource gets a minute, the same generous room row 12 gives the router's
-// own `compose down` for a slow teardown — plenty even on slow storage for a
+// and the router's own precedent (internal/router/router.go): 30s. Reap's
+// removal of one resource gets a minute, the same generous room the
+// router's own `compose down` gets for a slow teardown — plenty even on
+// slow storage for a
 // single container, volume, network or image, which is a much smaller thing
 // to remove than the router's whole three-container stack.
 //
@@ -55,7 +56,7 @@ import (
 // a big stack with a deliberately generous grace period is exactly the
 // "long-running by design" case a fixed timeout would fail while it is
 // working as configured, not hung. This differs from the router's own
-// `Down`, bounded to a minute (row 12): that stack is small, fixed, and
+// `Down`, bounded to a minute: that stack is small, fixed, and
 // owned by this build, not an arbitrary consumer's.
 const (
 	dockerProbeTimeout = 30 * time.Second
@@ -227,7 +228,7 @@ var activeEndpoints = regexp.MustCompile(`(?i)has active endpoints`)
 // (#14): see this file's own timeouts comment for why. Tolerates Compose's
 // own refusal to remove a network something is still attached to as the
 // expected outcome, not a failure — the same way the shared router's own
-// Down already does (row 12) — since the router itself may still be
+// Down already does — since the router itself may still be
 // attached to this worktree's own router network (#55) when this runs. Only
 // that one, specific outcome is intercepted (found in review, round 2 of
 // #55): AllowFailure lets this read the result instead of Finish rejecting
@@ -540,7 +541,7 @@ var ErrNetworkKept = errors.New("network still has active endpoints; left in pla
 
 // Reap verifies a resource again and removes it. A network's own removal
 // tolerates Compose's "has active endpoints" refusal the same way Down
-// already does (row 12), reporting ErrNetworkKept instead of succeeding:
+// already does, reporting ErrNetworkKept instead of succeeding:
 // #55 gives every routed worktree its own router network, and the shared
 // router's disconnect from it (internal/commands's DownWithContext and
 // RemoveWithContext) is best effort, and may not have finished — or a

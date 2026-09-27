@@ -596,7 +596,8 @@ func (r *Router) reconcileOrphanedFragments(ctx context.Context) error {
 // own IDs and its label is in the brand's fixed namespace, so the check
 // holds for a project that overrides its label-namespace — whose containers
 // carry only that project's own ownership labels — and needs no registry,
-// which is per control home while this directory is machine-wide (row 9).
+// which is per control home while this directory is machine-wide (see
+// internal/layout's RouterStateDir comment).
 // A fragment is only reachable through that network anyway, so a fragment
 // without one routes nowhere. Pure; shared by Ensure's repair and doctor's
 // report, so the two cannot drift onto different definitions of "orphaned".
@@ -1233,7 +1234,7 @@ func (r *Router) Owner(ctx context.Context) (Ownership, error) {
 // their own router lock over their own state but drove the same
 // machine-wide container, so a second root's Ensure force-recreated
 // whatever the first had just started, with no warning at all
-// (docs/design/locks.md, docs/port/divergences.md row 35). A router
+// (see docs/design/locks.md). A router
 // carrying no ownership label predates RouterHomeLabel altogether — there is
 // no foreign owner to protect it from — so it is adopted instead, logged
 // rather than silently taken over. The log line also says what follows:
@@ -1341,7 +1342,7 @@ func (r *Router) Ensure(ctx context.Context) error {
 			return clierr.Newf("The shared router could not be brought to its expected configuration:\n  %s", strings.Join(remaining, "\n  "))
 		}
 	}
-	// A router recreated across the protocol-5 boundary (row 30) leaves its
+	// A router recreated across the protocol-5 boundary leaves its
 	// old "docker-api" network behind: `compose up --remove-orphans` above
 	// already dropped the now-undeclared *container*, but Compose never
 	// prunes a network just because the current file no longer declares

@@ -506,7 +506,7 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 	}
 
 	// A worktree with declared routes gets its own dedicated, owned router
-	// network (#55, row 31): every routed service joins it, under an
+	// network (#55): every routed service joins it, under an
 	// explicit alias equal to its own Traefik router/service name
 	// (RouteName), rather than every worktree sharing one network under the
 	// shared router's own external name. c.options.RouterNetwork — the

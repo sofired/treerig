@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// composeConfigCorpusCase mirrors one entry tools/oracle/compose-config-corpus.ts
-// writes: a `docker compose config --format json` document, plus whether the
+// composeConfigCorpusCase is one entry of the hand-maintained
+// testdata/compose-config-corpus.json (its origin is in git history): a
+// `docker compose config --format json` document, plus whether the
 // TypeScript build's composeConfigSchema (run through the real, private
 // readModel) accepted it or the exact refusal message it gave.
 type composeConfigCorpusCase struct {
@@ -27,14 +28,14 @@ type composeConfigCorpusCase struct {
 func TestComposeConfigCorpus(t *testing.T) {
 	data, err := os.ReadFile("testdata/compose-config-corpus.json")
 	if err != nil {
-		t.Fatalf("reading testdata/compose-config-corpus.json: %v (regenerate with tools/oracle/compose-config-corpus.ts)", err)
+		t.Fatalf("reading testdata/compose-config-corpus.json: %v", err)
 	}
 	var cases []composeConfigCorpusCase
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatalf("parsing testdata/compose-config-corpus.json: %v", err)
 	}
 	if len(cases) < 10 {
-		t.Fatalf("only %d corpus cases, expected at least 10; regenerate testdata/compose-config-corpus.json", len(cases))
+		t.Fatalf("only %d corpus cases, expected at least 10; testdata/compose-config-corpus.json needs more fixtures", len(cases))
 	}
 
 	const composeFile = "/work/acme/docker/compose.yaml"

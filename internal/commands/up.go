@@ -166,9 +166,8 @@ func upStages(firstTime bool) []config.HookStage {
 func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, index Index, options UpOptions) (*UpResult, error) {
 	// Refuses before anything else here — including refuseRelabelling
 	// below, which can itself make a Docker call — a control character in
-	// [service.index] label or purpose (#19, row 25 in
-	// docs/port/divergences.md). The base loader that built cctx.Loaded
-	// stays lenient; only a command about to start something checks.
+	// [service.index] label or purpose (#19). The base loader that built
+	// cctx.Loaded stays lenient; only a command about to start something checks.
 	if err := config.CheckStart(cctx.Loaded); err != nil {
 		return nil, err
 	}
@@ -297,7 +296,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			}
 			// Connected before any fragment is written, not after (found in
 			// review of #55): a fragment routes nowhere except through this
-			// worktree's own router network (row 31), and Traefik's file
+			// worktree's own router network, and Traefik's file
 			// provider picks a fragment up the moment it lands — writing it
 			// first would open a window where the router has already been
 			// told a route exists but cannot yet reach it. The router may
@@ -329,9 +328,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			// still has its own dedicated router network sitting around —
 			// overrideDocument no longer declares it, but Compose does not
 			// proactively remove a network it no longer declares (the same
-			// class of gap row 30's docker-api precedent leaves for
-			// Ensure to clean up), and the router is very likely still
-			// attached to it from an earlier `up`. Disconnected here, only
+			// class of gap Ensure's own removeLegacyDockerAPINetwork cleans
+			// up for the retired docker-api network), and the router is
+			// very likely still attached to it from an earlier `up`. Disconnected here, only
 			// after every one of this worktree's stale fragments is
 			// already gone (found in review, round 4 of #55: a first cut
 			// disconnected before removing them, leaving a window where a

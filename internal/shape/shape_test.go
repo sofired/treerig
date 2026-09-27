@@ -86,9 +86,8 @@ func TestUnrecognizedKeysSingularAndPlural(t *testing.T) {
 		t.Errorf("message = %q, want %q (zod lists them in source order)", issue.Message, want)
 	}
 
-	// Divergence 6b in docs/port/divergences.md: a key with a control
-	// character in it is quoted by Go's %q, where zod's JSON.stringify would
-	// write \u0001.
+	// A key with a control character in it is quoted by Go's %q, where
+	// zod's JSON.stringify would write \u0001.
 	_, issues = Parse(schema, NewObj().Set("a", "x").Set("b\x01d", 1))
 	issue = mustIssue(t, issues, "(root)", CodeUnrecognizedKeys)
 	if want := `Unrecognized key: "b\x01d"`; issue.Message != want {
@@ -211,9 +210,9 @@ func TestArrayDefaultAndElementPaths(t *testing.T) {
 }
 
 // TestArrayMax pins ArraySchema.Max, added for internal/config's own
-// [[service]] limit (#16, row 16 in the divergence ledger): a custom message
-// is reported verbatim, and the check runs whether or not an element itself
-// also failed, matching StringSchema.Max's own "every check runs" contract.
+// [[service]] limit (#16): a custom message is reported verbatim, and the
+// check runs whether or not an element itself also failed, matching
+// StringSchema.Max's own "every check runs" contract.
 func TestArrayMax(t *testing.T) {
 	schema := Array(String()).Max(2, "at most 2 items")
 

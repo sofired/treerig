@@ -6,9 +6,10 @@ package commands_test
 // process's own home directory, or anything above it. Exercised through
 // every entry point that reaches resolveControlHome/resolveRouterState
 // today (RouterUp, Doctor, ConfigValidate and both branches of
-// UnlockGlobal), so a future call site that bypasses them (row 1 of the
-// review this closed) would need to newly invent its own way past this test
-// too, not just skip the ones already here.
+// UnlockGlobal), so a future call site that bypasses them — the gap an
+// earlier round of review found and this test closed — would need to newly
+// invent its own way past this test too, not just skip the ones already
+// here.
 
 import (
 	"context"

@@ -25,7 +25,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Format
-        run: test -z "$(gofmt -l cmd internal tools)"
+        run: test -z "$(gofmt -l cmd internal)"
 
       # Both builds: the integration tests are files the default build never compiles.
       - name: Vet
@@ -44,24 +44,11 @@ jobs:
       - name: Build
         run: go build -o dist/berth ./cmd/berth
 
-      # The TypeScript build is the oracle the parity tests compare against,
-      # and the streams contract is run against the Go binary.
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-
-      - name: Install the TypeScript build
-        run: corepack enable && pnpm install --frozen-lockfile
-
-      - name: Streams contract, against the Go binary
-        env:
-          BERTH_CLI: ${{ github.workspace }}/dist/berth
-        run: pnpm exec vitest run tests/cli/streams.test.ts
-
       # Real git, real processes and signals (flock inheritance, group kills,
-      # death by the re-raised signal), parity runs against the TypeScript
-      # build, and on Linux a real Docker daemon. The macOS leg is the one
-      # that proves the lock layer on APFS and the kern.proc sysctls.
+      # death by the re-raised signal), the streams contract
+      # (TestStreamsContract, against a binary it builds itself), and on
+      # Linux a real Docker daemon. The macOS leg is the one that proves the
+      # lock layer on APFS and the kern.proc sysctls.
       - name: Integration tests
         env:
           BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
@@ -79,49 +66,6 @@ jobs:
           go test -count=1 ./...
           go test -count=1 -tags integration ./...
 
-  # Everything under testdata/ that the TypeScript build generates is
-  # regenerated from it here: a difference means a file was edited by hand,
-  # or the TypeScript behaviour it records has changed without it.
-  oracles:
-    name: oracle drift
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-      - name: Install the TypeScript build
-        run: corepack enable && pnpm install --frozen-lockfile
-      - name: Regenerate
-        run: |
-          node tools/oracle/config-corpus.ts > internal/config/testdata/config-corpus.json
-          node tools/oracle/locale-sort.ts > internal/registry/testdata/locale-sort.json
-          node tools/oracle/slug-corpus.ts > internal/registry/testdata/slug-corpus.json
-          node tools/oracle/text-corpus.ts > internal/text/testdata/corpus.json
-          node tools/oracle/router-stack.ts > internal/router/testdata/stack-oracle.json
-          node tools/oracle/collation-corpus.ts > internal/text/testdata/collation-corpus.json
-          node tools/oracle/index-assets.ts
-          node tools/oracle/index-golden.ts > internal/checkoutindex/testdata/index-golden.json
-          node tools/oracle/index-url-filter.ts > internal/checkoutindex/testdata/url-filter.json
-          node tools/oracle/override-corpus.ts > internal/backend/testdata/override-corpus.json
-          node tools/oracle/compose-config-corpus.ts > internal/backend/testdata/compose-config-corpus.json
-          go test -count=1 ./internal/cli -run TestGolden -update
-          # internal/cli/testdata/parity/ is frozen TypeScript output too
-          # (#46's WP8 first stage); this whole job goes away once #46's
-          # later stage deletes the TypeScript build these two -update runs
-          # both depend on, and this Regenerate step with it. Needs no
-          # Docker: every case here puts a fake `docker` script on PATH.
-          go test -count=1 -tags integration ./internal/cli -run TestParityWithTheTypeScriptBuild -update
-      - name: Compare
-        run: |
-          git status --porcelain
-          git --no-pager diff
-          test -z "$(git status --porcelain)"
-
   cross:
     name: cross-compile
     runs-on: ubuntu-latest
@@ -131,28 +75,20 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # linux/darwin x amd64/arm64: the same four targets release.yml
+      # builds for every push to main. release.yml does not run on a pull
+      # request, so this job stays here to catch a cross-compile break
+      # before it merges, built the same way (CGO_ENABLED=0; releases never
+      # link cgo) but without release.yml's version stamping or checksums,
+      # neither of which matter to a build that is discarded when the job ends.
       - name: Build every target
-        run: go run ./tools/bench -sizes >> "$GITHUB_STEP_SUMMARY"
-
-  # Informational: shared runners are too noisy to gate on, so the numbers the
-  # report quotes come from a quiet machine; this keeps the comparison visible
-  # on every change.
-  bench:
-    name: benchmark
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-      - name: Install the TypeScript build
-        run: corepack enable && pnpm install --frozen-lockfile
-      - name: Build
-        run: go build -o dist/berth ./cmd/berth
-      - name: Measure
-        run: go run ./tools/bench -node node -runs 20 >> "$GITHUB_STEP_SUMMARY"
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            echo "building ${goos}/${goarch}"
+            GOOS="${goos}" GOARCH="${goarch}" go build -o "dist/berth-${goos}-${goarch}" ./cmd/berth
+          done

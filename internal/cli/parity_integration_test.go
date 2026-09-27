@@ -3,15 +3,11 @@
 package cli_test
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -97,29 +93,23 @@ var fingerprintPattern = regexp.MustCompile(`data-body="[A-Za-z0-9_-]{16}"`)
 // message (“ `git` could not be started “, say) is never touched.
 var toolVersionPattern = regexp.MustCompile(`(?m)^(\s*ok\s+(?:Git|Node\.js)\s+)\S+$`)
 
-// The TypeScript build's own output, frozen as a golden corpus under
-// testdata/parity/<name>/ — recorded once from a live run of the TypeScript
-// build (the oracle) on the same fixture the Go build gets: same paths, same
-// UUIDs, the same fake docker — and replayed against the Go binary from here
-// on, needing no Node to run this test day to day, the same way
-// golden_test.go's own TestGolden replays testdata/golden/. Both builds
-// refresh the index after `down`, `worktree remove`, and `index` itself
-// (#41), so every docker call each makes is compared, with no exclusion. The
-// one thing that can never match byte for byte between two separate process
-// invocations is real wall-clock time: normalizeTimestamp scrubs it,
-// narrowly, everywhere a run's own output or the page it wrote could carry
-// one.
+// What was once the TypeScript build's own output, frozen as a golden corpus
+// under testdata/parity/<name>/ — recorded from a live run of that build on
+// the same fixture the Go build gets: same paths, same UUIDs, the same fake
+// docker — and replayed against the Go binary from here on. Both builds
+// refreshed the index after `down`, `worktree remove`, and `index` itself
+// (#41), so every docker call each made was compared, with no exclusion. The
+// one thing that could never match byte for byte between two separate
+// process invocations was real wall-clock time: normalizeTimestamp scrubs
+// it, narrowly, everywhere a run's own output or the page it wrote could
+// carry one.
 //
-// Regenerate after a change to the TypeScript build's own behaviour, with
-// Node 24 on PATH:
-//
-//	go test -tags integration ./internal/cli/... -run TestParityWithTheTypeScriptBuild -update
-//
-// CI's oracle-drift job runs this alongside TestGolden's own -update and
-// fails on any diff, so a TypeScript-side change to one of these 15 cases
-// cannot silently drift from what is committed here — until #46 deletes the
-// TypeScript build (and that whole job), at which point these become plain,
-// hand-maintained fixtures like any other under testdata/.
+// Now that the TypeScript build is gone, testdata/parity/ is a plain,
+// hand-maintained fixture corpus, the same way golden_test.go's own
+// testdata/golden/ is: update a fixture by hand after a change to the Go
+// build's own behaviour in one of these cases, the same way any other
+// testdata file in this repository is updated, or — once #46's cobra stage
+// lands — by whatever re-recording process replaces this one.
 
 const (
 	parityRepo = "a08b4892-5111-49f1-a47a-5ab988c7f676"
@@ -318,8 +308,8 @@ func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIn
 }
 
 // readIndexPage reads whichever build's own index page this fixture's last
-// run wrote. Before #80 the two builds kept it at different paths — row 9 in
-// the divergence ledger: the TypeScript build under its control home
+// run wrote. Before #80 the two builds kept it at different paths: the
+// TypeScript build under its control home
 // (controlLayout(controlHome).indexFile, src/layout.ts), the Go build under
 // the machine-wide state layout.RouterState resolved from HOME alone, with
 // no BERTH_HOME involved. runIn now sets BERTH_HOME=f.controlHome for the
@@ -359,43 +349,10 @@ func (f parityFixture) readIndexPage(t *testing.T) []byte {
 	return page
 }
 
-// writeParityFixture writes a frozen parity golden for one case: run's
-// stdout, stderr, exit code and Docker transcript, plus its checkout index
-// page when checkIndexPage is set — called only under -update, from a live
-// run of the TypeScript build. Written raw, with none of the per-case
-// exclusions TestParityWithTheTypeScriptBuild applies at compare time, so
-// -update and a later behaviour change (a new excludeStdoutLines entry, say)
-// never fight each other over what the file on disk means.
-func writeParityFixture(t *testing.T, dir string, run parityRun, checkIndexPage bool) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("creating %s: %v", dir, err)
-	}
-	writeFile(t, filepath.Join(dir, "stdout"), run.Stdout)
-	writeFile(t, filepath.Join(dir, "stderr"), run.Stderr)
-	writeFile(t, filepath.Join(dir, "exit"), strconv.Itoa(run.Exit)+"\n")
-	docker := strings.Join(run.Docker, "\n")
-	if len(run.Docker) > 0 {
-		docker += "\n"
-	}
-	writeFile(t, filepath.Join(dir, "docker"), docker)
-	indexPagePath := filepath.Join(dir, "indexpage")
-	if checkIndexPage {
-		writeFile(t, indexPagePath, run.IndexPage)
-	} else if err := os.Remove(indexPagePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		// A case whose checkIndexPage flag has since turned false must not
-		// leave a stale page on disk for a later run to read: readParityFixture
-		// only reads this file when checkIndexPage is true, so a leftover
-		// here would silently stop describing anything real.
-		t.Fatalf("removing stale %s: %v", indexPagePath, err)
-	}
-}
-
-// readParityFixture reads back a frozen parity golden written by
-// writeParityFixture, reconstructing the parityRun the TypeScript build
-// produced when it was recorded. IndexPage is only read for a case whose
-// checkIndexPage flag is set; every other case leaves it "", matching a Go
-// run that never checked it either.
+// readParityFixture reads back a frozen parity fixture, reconstructing the
+// parityRun the TypeScript build produced when it was recorded. IndexPage is
+// only read for a case whose checkIndexPage flag is set; every other case
+// leaves it "", matching a Go run that never checked it either.
 func readParityFixture(t *testing.T, dir string, checkIndexPage bool) parityRun {
 	t.Helper()
 	run := parityRun{
@@ -416,21 +373,6 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 	binary := buildBinary(t)
 	base, _ := filepath.EvalSymlinks(t.TempDir())
 
-	// Only needed under -update, to run the TypeScript build once per case;
-	// a plain run reads every "want" back from testdata/parity instead and
-	// needs neither Node nor src/cli/main.ts to be present.
-	var ts []string
-	if *update {
-		requireOracleNode(t)
-		_, file, _, _ := runtime.Caller(0)
-		root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-		nodeBin, err := exec.LookPath("node")
-		if err != nil {
-			t.Fatalf("node not on PATH, despite requireOracleNode passing: %v", err)
-		}
-		ts = []string{nodeBin, filepath.Join(root, "src", "cli", "main.ts")}
-	}
-
 	cases := []struct {
 		name  string
 		args  []string
@@ -441,13 +383,13 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		outsideCheckout bool
 		// excludeStdoutLines drops any stdout line containing one of these
 		// substrings from both builds' report before comparing — doctor's
-		// Node.js line, which only TypeScript ever prints
-		// (docs/port/divergences.md row 17), and its "was last used by a
-		// TypeScript build" line, which only Go ever prints
-		// (files.LegacyControlHome; the fixture's own marker must stay
-		// empty, or the TypeScript build refuses to touch it at all) — the
-		// same way the checkout-index refresh's own docker calls are
-		// excluded from the transcript above.
+		// Node.js line, which only TypeScript ever printed (Go has no
+		// runtime version matching Node's engines contract to check), and
+		// its "was last used by a TypeScript build" line, which only Go
+		// ever prints (files.LegacyControlHome; the fixture's own marker
+		// must stay empty, or the TypeScript build refuses to touch it at
+		// all) — the same way the checkout-index refresh's own docker
+		// calls are excluded from the transcript above.
 		excludeStdoutLines []string
 		// unorderedDocker compares Docker as a set instead of a sequence:
 		// doctor asks Docker Engine and Compose concurrently in both
@@ -459,12 +401,11 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		checkIndexPage bool
 		// excludeDockerCalls drops any Docker transcript entry containing one
 		// of these substrings from both builds before comparing — Go's own
-		// router-network disconnect, added by issue #55
-		// (docs/port/divergences.md row 31): looking up the router's own
-		// container (`compose --project-name berth-router ps --all --quiet
-		// router`) and detaching it from this worktree's network (`network
-		// disconnect`). TypeScript has no per-worktree router network to
-		// disconnect and never makes either call, so this only ever removes
+		// router-network disconnect, added by issue #55: looking up the
+		// router's own container (`compose --project-name berth-router ps
+		// --all --quiet router`) and detaching it from this worktree's
+		// network (`network disconnect`). TypeScript has no per-worktree
+		// router network to disconnect and never makes either call, so this only ever removes
 		// entries from Go's own transcript — filtering both sides, the same
 		// way excludeStdoutLines does, keeps the two lists' treatment
 		// symmetric rather than favouring one build's transcript over the
@@ -497,18 +438,18 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		// worktree unlock: only the refusals that never reach either build's
 		// own lock design (an unregistered identifier, or a worktree
 		// nothing has locked at all) are byte-identical; everything past
-		// that point is Go's own wording (docs/port/divergences.md row 19),
-		// so those cases are not here.
+		// that point is Go's own wording, built on flock(2) rather than the
+		// old heartbeat design, so those cases are not here.
 		{name: "worktree unlock of an unknown identifier", args: []string{"worktree", "unlock", "nope"}},
 		{name: "worktree unlock with nothing held", args: []string{"worktree", "unlock"}},
 		// doctor: every other line (Prerequisites' Git/Docker checks,
 		// Registry, Locks, Router, This checkout) is byte-identical once the
 		// Node.js, legacy-control-home, berth-root and router-state lines
 		// are excluded — the last two are Go's own, for the berth root and
-		// the router's own state directory (#80, docs/port/divergences.md
-		// row 29), which TypeScript has no counterpart for — removing the
-		// Node.js line does not even shift the Prerequisites column width,
-		// since "Docker Compose" is still the longest subject either way.
+		// the router's own state directory (#80), which TypeScript has no
+		// counterpart for — removing the Node.js line does not even shift
+		// the Prerequisites column width, since "Docker Compose" is still
+		// the longest subject either way.
 		// Node.js is excluded whole because Go's own doctor never prints
 		// that line at all (there is nothing on the Go side to compare it
 		// against); Git's line stays, but toolVersionPattern above scrubs
@@ -529,18 +470,7 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 			fixture := filepath.Join(base, "fixture")
 			dir := filepath.Join("testdata", "parity", tc.name)
 
-			var want parityRun
-			if *update {
-				wantFixture := newParityFixture(t, fixture, tc.decoy)
-				wantDir := wantFixture.checkout
-				if tc.outsideCheckout {
-					wantDir = wantFixture.base
-				}
-				want = wantFixture.runIn(t, wantDir, append(append([]string{}, ts...), tc.args...), tc.checkIndexPage)
-				writeParityFixture(t, dir, want, tc.checkIndexPage)
-			} else {
-				want = readParityFixture(t, dir, tc.checkIndexPage)
-			}
+			want := readParityFixture(t, dir, tc.checkIndexPage)
 
 			gotFixture := newParityFixture(t, fixture, tc.decoy)
 			gotDir := gotFixture.checkout

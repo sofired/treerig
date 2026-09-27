@@ -4,25 +4,31 @@ package commands_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/cli"
+	"github.com/sofired/berth/internal/config"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/berth/internal/worktree"
 )
 
-// The clean break's promise: whatever the TypeScript build left on this
-// machine — a registration, a home, an index card, and a Compose project
-// whose every resource carries its labels — the Go build's own `worktree
-// remove` takes away completely, verified by those labels.
+// The clean break's promise: whatever a build from before this lock was
+// ported to flock(2) left on this machine — a registration, a home, an
+// index card, and a Compose project whose every resource carries its
+// labels — this build's own `worktree remove` takes away completely,
+// verified by those labels.
 
 const legacyNamespace = "dev.berth-test-legacy"
 
@@ -36,30 +42,6 @@ func dockerAvailable(t *testing.T) {
 		}
 		t.Skip("docker is not available")
 	}
-}
-
-// repoRoot returns the repository root, found relative to this test file
-// rather than the working directory `go test` was invoked from.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-}
-
-// node locates a Node 24 binary to run the TypeScript build under test,
-// preferring PATH and falling back to the pinned install location; it skips
-// the test when neither is found.
-func node(t *testing.T) string {
-	t.Helper()
-	if found, err := exec.LookPath("node"); err == nil {
-		return found
-	}
-	home, _ := os.UserHomeDir()
-	candidate := filepath.Join(home, ".local", "opt", "node-v24.14.1-linux-x64", "bin", "node")
-	if _, err := os.Stat(candidate); err != nil {
-		t.Skip("node 24 is not available to run the TypeScript build")
-	}
-	return candidate
 }
 
 // gitIn runs git with args in dir, isolated from any user or system Git
@@ -86,10 +68,131 @@ func dockerIDs(t *testing.T, args ...string) []string {
 	return strings.Fields(string(output))
 }
 
-func TestTypeScriptWritesGoRemoves(t *testing.T) {
+// legacyRegistration is what writeLegacyUp reports about the worktree it
+// hand-registered: its durable identity, and the slug, domain and label
+// namespace it wrote into the registry.
+type legacyRegistration struct {
+	RepositoryID, WorktreeID, Slug, Domain string
+}
+
+// legacyRecordJSON is one registry record in exactly the shape
+// internal/registry writes and reads it (see registry/write.go's own,
+// unexported recordJSON): version, camelCase keys, initialization last.
+// Reproduced here rather than reused, since every writer that could build
+// one for us (registry.Registry.Ensure, registry.Store.Ensure) also
+// upgrades the control-home marker on its way through — exactly what
+// writeLegacyUp exists to leave alone.
+type legacyRecordJSON struct {
+	Version        int     `json:"version"`
+	RepositoryID   string  `json:"repositoryId"`
+	WorktreeID     string  `json:"worktreeId"`
+	Slug           string  `json:"slug"`
+	Domain         string  `json:"domain"`
+	LabelNamespace *string `json:"labelNamespace,omitempty"`
+	Initialization string  `json:"initialization"`
+}
+
+// writeLegacyUp hand-writes exactly what a build from before this lock was
+// ported left behind for one checkout, already holding a loadable
+// berth.toml and Compose file: a control home whose marker is empty (what
+// files.LegacyControlHome reads; a build with no such marker at all left it
+// that way with its own touchSecure), that worktree's identity markers, its
+// registry record in the one shape both the current and every earlier
+// build read, and a running Compose project carrying every ownership label
+// a real `up` would give it — brought up with no routes and no shared
+// router, so this never touches a developer's real one.
+//
+// It never goes through commands.UpWithContext, registry.Registry.Ensure,
+// registry.Store.Ensure, or files.SecureWorktreeDirectories's own caller in
+// that path: every one of those calls establishControlHome, which upgrades
+// an empty or missing marker to this build's own format as its first act
+// (internal/files.go). SecureWorktreeDirectories is still used here, for
+// every directory a worktree needs and its permissions, but the marker it
+// leaves behind is reset to empty immediately after, undoing exactly that
+// one upgrade.
+//
+// With the old build gone, this is the only place its historical on-disk
+// shape still exists: hand-reproduced here rather than run through a
+// second implementation, since there is no longer a real one to run.
+// legacyRecordJSON's field order and tags, and the marker-reset step above,
+// must be kept in step by hand with whatever internal/registry actually
+// reads and writes if that shape is ever revisited — nothing checks the
+// two still agree.
+func writeLegacyUp(t *testing.T, controlHome, checkout string) legacyRegistration {
+	t.Helper()
+	ctx := context.Background()
+
+	loaded, err := config.LoadNearest(checkout)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	labelNamespace := loaded.Config.LabelNamespace()
+
+	identities := registry.NewIdentityService(checkout, osrun.New())
+	identity, err := identities.Ensure(ctx, checkout)
+	if err != nil {
+		t.Fatalf("identity markers: %v", err)
+	}
+
+	worktreeLayout := layout.WorktreeLayout(controlHome, identity.RepositoryID, identity.WorktreeID)
+	// registrytest.TempDir, not controlHome's own parent: AssertAdoptableControlHome's
+	// home-family checks need some unrelated directory to compare the
+	// control home against, never exercised by this fixture.
+	if err := files.SecureWorktreeDirectories(worktreeLayout, registrytest.TempDir(t)); err != nil {
+		t.Fatalf("secure worktree directories: %v", err)
+	}
+	markerPath := filepath.Join(controlHome, files.ControlHomeMarker)
+	if err := os.WriteFile(markerPath, nil, 0o600); err != nil {
+		t.Fatalf("reset control home marker to empty: %v", err)
+	}
+
+	slug, err := registry.AllocateSlug(*identity, loaded.Config.Project.Domain, nil, "")
+	if err != nil {
+		t.Fatalf("allocate slug: %v", err)
+	}
+	record := legacyRecordJSON{
+		Version: 1, RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID,
+		Slug: slug, Domain: loaded.Config.Project.Domain, LabelNamespace: &labelNamespace,
+		Initialization: string(registry.Complete),
+	}
+	if err := files.AtomicJSON(worktreeLayout.RecordPath, record); err != nil {
+		t.Fatalf("write registry record: %v", err)
+	}
+
+	ref := worktree.Ref{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: slug}
+	runtime := backend.NewCompose(backend.Options{
+		ComposeFile:    filepath.Join(checkout, loaded.Config.Compose.File),
+		ProjectRoot:    loaded.Root,
+		ConfigFile:     loaded.File,
+		ProjectName:    loaded.Config.Project.Name,
+		Domain:         loaded.Config.Project.Domain,
+		ControlHome:    controlHome,
+		LabelNamespace: labelNamespace,
+		Runner:         osrun.New(),
+		Logger:         logger.Silent{},
+		Environ:        os.Environ(),
+		// No routes and a network name nothing joins: a legacy build's own
+		// worktree never touched the shared router, and overrideDocument
+		// only reaches RouterNetwork once Routes is non-empty.
+		RouterNetwork: "unused",
+	})
+	if err := runtime.Up(ctx, ref, nil); err != nil {
+		t.Fatalf("compose up: %v", err)
+	}
+
+	return legacyRegistration{
+		RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: slug, Domain: loaded.Config.Project.Domain,
+	}
+}
+
+// TestWorktreeRemoveTearsDownAnOldControlHomeByOwnership proves this build's
+// clean break with what came before it: a control home a pre-flock build
+// left behind — its registration, home, identity marker, and a Compose
+// project whose resources carry its ownership labels — is torn down
+// completely by `worktree remove`, found and removed by those labels alone,
+// never by guessing at a shape only this build ever wrote.
+func TestWorktreeRemoveTearsDownAnOldControlHomeByOwnership(t *testing.T) {
 	dockerAvailable(t)
-	nodeBin := node(t)
-	root := repoRoot(t)
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -99,10 +202,10 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 	if err := os.MkdirAll(checkout, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	config := "[project]\nname = \"legacy\"\ndomain = \"legacy.localhost\"\nlabel-namespace = \"" + legacyNamespace + "\"\n" +
+	cfg := "[project]\nname = \"legacy\"\ndomain = \"legacy.localhost\"\nlabel-namespace = \"" + legacyNamespace + "\"\n" +
 		"[compose]\nfile = \"compose.yaml\"\n"
 	compose := "services:\n  api:\n    image: busybox:1.37.0\n    command: [\"sleep\", \"600\"]\n    volumes: [\"data:/data\"]\nvolumes:\n  data: {}\n"
-	for name, contents := range map[string]string{"berth.toml": config, "compose.yaml": compose} {
+	for name, contents := range map[string]string{"berth.toml": cfg, "compose.yaml": compose} {
 		if err := os.WriteFile(filepath.Join(checkout, name), []byte(contents), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -110,19 +213,8 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 	gitIn(t, checkout, "init", "--initial-branch=main", ".")
 	gitIn(t, checkout, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-m", "initial")
 
-	// Up, by the TypeScript build.
-	up := exec.Command(nodeBin, filepath.Join(root, "tools", "oracle", "legacy-up.ts"), controlHome, checkout)
-	up.Dir = root
-	up.Env = append(os.Environ(), "BERTH_HOME="+controlHome)
-	var upOut, upErr bytes.Buffer
-	up.Stdout, up.Stderr = &upOut, &upErr
-	if err := up.Run(); err != nil {
-		t.Fatalf("legacy up: %v\n%s", err, upErr.String())
-	}
-	var registered struct{ RepositoryID, WorktreeID, Slug string }
-	if err := json.Unmarshal(upOut.Bytes(), &registered); err != nil {
-		t.Fatalf("legacy up said %q: %v", upOut.String(), err)
-	}
+	// Up, by hand, the way a pre-flock build of berth would have left it.
+	registered := writeLegacyUp(t, controlHome, checkout)
 	owned := []string{"label=" + legacyNamespace + ".worktree-uuid=" + registered.WorktreeID}
 	t.Cleanup(func() {
 		// Whatever the test left, by the labels this test's namespace alone carries.
@@ -137,17 +229,17 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 		}
 	})
 	if running := dockerIDs(t, "ps", "-q", "--filter", owned[0]); len(running) != 1 {
-		t.Fatalf("the TypeScript build left %d running containers, want 1", len(running))
+		t.Fatalf("writeLegacyUp left %d running containers, want 1", len(running))
 	}
 	identityMarker := filepath.Join(checkout, ".git", "berth", "worktree-id")
 	if found, _ := files.PathExists(identityMarker); !found {
-		t.Fatalf("the TypeScript build left no identity marker at %s", identityMarker)
+		t.Fatalf("writeLegacyUp left no identity marker at %s", identityMarker)
 	}
 	if legacy, err := files.LegacyControlHome(controlHome); err != nil || !legacy {
-		t.Fatalf("the TypeScript build's control home is not recognised as its: %v, %v", legacy, err)
+		t.Fatalf("the hand-written control home is not recognised as pre-flock: %v, %v", legacy, err)
 	}
 
-	// Remove, by the Go build. The router state directory and port are
+	// Remove, by this build. The router state directory and port are
 	// isolated the same way newWalk (up_docker_integration_test.go) isolates
 	// its own: `worktree remove` calls unrouteWorktree, which reaches the
 	// shared router's machine-wide state (internal/layout.RouterState) and
@@ -164,12 +256,13 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Chdir(previous)
-	// BERTH_CONTROL_HOME, not BERTH_HOME: the TypeScript build's BERTH_HOME
-	// was the control home directly, and controlHome is exactly where it
-	// wrote everything above — the Go build's own BERTH_HOME would instead
-	// derive <controlHome>/control-home (#80), missing it entirely. Pointing
-	// BERTH_CONTROL_HOME straight at it is how someone adopting an existing
-	// TypeScript-era control home into the Go build points at it too.
+	// BERTH_CONTROL_HOME, not BERTH_HOME: a pre-flock build's own BERTH_HOME
+	// was the control home directly, and controlHome is exactly where
+	// writeLegacyUp wrote everything above — this build's own BERTH_HOME
+	// would instead derive <controlHome>/control-home (#80), missing it
+	// entirely. Pointing BERTH_CONTROL_HOME straight at it is how someone
+	// adopting an existing pre-flock control home into this build points at
+	// it too.
 	//
 	// BERTH_HOME still needs isolating on its own: the router's state now
 	// lives there (#80), and worktree remove's own best-effort index
@@ -241,15 +334,15 @@ func TestTypeScriptWritesGoRemoves(t *testing.T) {
 	}
 	marker, err := os.ReadFile(filepath.Join(controlHome, files.ControlHomeMarker))
 	if err != nil || string(marker) != files.ControlHomeFormat {
-		t.Fatalf("control home marker = %q, %v; want the Go build's format written", marker, err)
+		t.Fatalf("control home marker = %q, %v; want this build's own format written", marker, err)
 	}
 
-	// And the TypeScript build agrees nothing is registered.
-	list := exec.Command(nodeBin, filepath.Join(root, "src", "cli", "main.ts"), "worktree", "list", "--all", "--json")
-	list.Dir = checkout
-	list.Env = append(os.Environ(), "BERTH_HOME="+controlHome)
-	output, err := list.Output()
-	if err != nil || strings.TrimSpace(string(output)) != "[]" {
-		t.Fatalf("typescript list: %q, %v", output, err)
+	// And this build's own registry agrees nothing is registered.
+	scan, err := registry.ScanRegistrations(controlHome)
+	if err != nil {
+		t.Fatalf("scan registrations: %v", err)
+	}
+	if len(scan.Records) != 0 {
+		t.Fatalf("registry scan = %+v after removal, want none", scan.Records)
 	}
 }

@@ -36,8 +36,7 @@ import (
 // dynamic-config fragment per routed service (fragment.go), and every
 // worktree gets its own dedicated Docker network instead of sharing one
 // (internal/backend's RouterNetworkName); the router connects to each one
-// explicitly and reconnects them all on every Ensure. See
-// docs/port/divergences.md.
+// explicitly and reconnects them all on every Ensure.
 const Protocol = 5
 
 // RoutedBySinceProtocol is the protocol that introduced RoutedByLabel as a
@@ -161,14 +160,14 @@ func RouterLabels(labelNamespace, component string) labelSet {
 // the berth root (BERTH_HOME) whose Ensure most recently started or
 // recreated them (#82). Before this label existed, two berth roots each
 // held their own router lock over their own state but drove the same
-// machine-wide container (row 9/29 in docs/port/divergences.md): neither
-// could tell its own router apart from one another root had just started,
-// so a second root's Ensure force-recreated it out from under the first
-// with no warning. Router.Owner reads this label back so Ensure can refuse
-// instead (row 35); doctor reports it read-only. Fixed to the brand's own
-// namespace regardless of a project's configured label-namespace override,
-// the same way RoutedByLabel is (see its own comment): it identifies the
-// berth root that owns the router, not any project.
+// machine-wide container: neither could tell its own router apart from one
+// another root had just started, so a second root's Ensure force-recreated
+// it out from under the first with no warning. Router.Owner reads this
+// label back so Ensure can refuse instead (see checkOwnership); doctor
+// reports it read-only. Fixed to the brand's own namespace regardless of a
+// project's configured label-namespace override, the same way
+// RoutedByLabel is (see its own comment): it identifies the berth root that
+// owns the router, not any project.
 const RouterHomeLabel = brand.LabelNamespace + ".router-home"
 
 // RouterCommand is Traefik's full command line; verification checks the
@@ -314,8 +313,8 @@ type stackNetworks struct {
 // pinned by digest, JSON that Compose reads as YAML. Its field order is
 // exactly stack.ts's object-literal order, so encoding it with
 // files.AtomicJSON reproduces JSON.stringify(document, null, 2) byte for
-// byte apart from the ledgered protocol-4 and protocol-5 differences (see
-// docs/port/divergences.md and testdata/stack-oracle.json).
+// byte apart from the protocol-4 and protocol-5 differences described
+// above (see testdata/stack-oracle.json).
 type StackDocument struct {
 	Services stackServices `json:"services"`
 	Networks stackNetworks `json:"networks"`

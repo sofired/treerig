@@ -1,6 +1,5 @@
 // Command berth gives every Git worktree a durable identity, an isolated
-// home, and a routed URL. This is the Go build; see
-// docs/decisions/0001-port-to-go.md.
+// home, and a routed URL.
 package main
 
 import (

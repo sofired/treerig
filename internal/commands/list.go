@@ -111,8 +111,9 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 			// A read error (as opposed to a genuinely absent card) is
 			// swallowed here rather than surfaced, matching list.ts's own
 			// readIndexCard call, which carries no error path at all: unlike
-			// the checkout index (row 15 in the divergence ledger), `list`
-			// has no per-row Unknown state to report one into, so the
+			// the checkout index, which reports a read failure as Unknown
+			// rather than folding it into "no card", `list` has no per-row
+			// Unknown state to report one into, so the
 			// worktree's root/branch simply stay unset for this row, same as
 			// if it had no card at all.
 			seenRoot, seenBranch = &seen.Root, &seen.Branch
