@@ -49,13 +49,16 @@ the tool does not have yet — never a side effect.
 
 **Locks.** Every command that changes a worktree, the registry, or the shared
 router takes an advisory lock: `flock(2)` on the lock's own file, held by an
-open file descriptor. The kernel frees it the instant its holder dies — even
-by `SIGKILL` — so there is no stale window and nothing to go quiet: recovery
-never waits on a heartbeat, because there is none. A command that finds the
-lock held waits for it — a worktree operation for up to 25 minutes, the
-router's own lock for up to 20 — and after a couple of seconds, then every 30
-seconds, says who holds it (its command, how long) and what to do: wait for
-it to finish or stop it (`kill <pid>`), or, if the holder is merely stopped
+open file descriptor. The kernel frees the lock once every copy of that
+descriptor is closed: killing the holder — even by `SIGKILL` — closes its
+own, but a `docker` or `docker compose` child it started inherits a copy and
+keeps the lock until that child exits too; hooks never inherit it.
+Either way, there is no stale window and nothing to go quiet: recovery never
+waits on a heartbeat, because there is none. A command that finds the lock
+held waits for it — a worktree operation for up to 25 minutes, the router's
+own lock for up to 20 — and after a couple of seconds, then every 30 seconds,
+says who holds it (its command, how long) and what to do: wait for it to
+finish or stop it (`kill <pid>`), or, if the holder is merely stopped
 (`Ctrl-Z`, alive but not working), resume it (`kill -CONT <pid>`) and let it
 finish, or end it; on Linux it also lists the processes still holding the
 lock. Recovery from a holder that died is automatic and checked, never
@@ -70,8 +73,9 @@ lock itself, so a lock nobody is actively waiting on can still be cleared
 right away; `--registry` and `--router` point it at the registry and router
 locks instead of a worktree's. [Lock recovery](#lock-recovery) says exactly
 what it checks and what it cannot see. `doctor` reports every lock currently
-held, and any left unreleased by a holder that is gone — recovered
-automatically the next time it is taken.
+held, and every free lock whose record is still unreleased; an unreleased
+record alone doesn't prove the holder is gone — the next command to take that
+lock checks the recorded holder itself before treating it as recovered.
 
 **Homes.** Each worktree owns a directory under the control home
 (`~/.berth/control-home` by default) created owner-only, with path containment
@@ -480,11 +484,13 @@ The exit code names one failure; the report names them all. A `verify` hook
 that exits 124 makes `doctor` exit 124 too — the code `timeout(1)` uses for a
 command it had to kill — so a script that wraps `doctor` in `timeout` cannot
 tell the two apart by exit code alone. It takes no lock, writes nothing, and
-repairs nothing; it reports. Its `Router` section names the router's owner
-(a `warn` for a router from before the label, a `fail` for another berth
-root's) and ends with a `router port` line saying the same as `router
-status`'s second line, a `warn` when the running router publishes a
-different port than the one resolved.
+repairs nothing; it reports. When the router itself could be resolved, its
+`Router` section also names the router's owner (a `warn` for a router from
+before the label, a `fail` for another berth root's) and ends with a
+`router port` line saying the same as `router status`'s second line, a
+`warn` when the running router publishes a different port than the one
+resolved; when port or settings resolution fails instead, the section holds
+that one router failure line alone.
 
 `worktree unlock` writes nothing to stdout: what it verified and what it
 cleared are notices on stderr. A refusal is an error that exits 1 and clears
