@@ -14,12 +14,13 @@ health checks — arrives as a small config file and a handful of executables
 in whatever language you already use.
 
 > **Status: pre-release.** The worktree lifecycle works end to end against
-> Docker Compose: `up`, `down`, `status`, `urls`, `worktree list`, and
-> `worktree remove` — identity, locks, the registry, the hook sequencer, a
-> runtime that stamps every resource with ownership labels and refuses to
-> touch anything it cannot prove it owns, a shared hardened router that
-> makes every worktree reachable at its own hostname, and a machine-wide
-> index page listing every checkout. See [Roadmap](#roadmap).
+> Docker Compose: `up`, `down`, `status`, `urls`, `worktree list`,
+> `worktree remove`, `worktree unlock`, and `doctor` — identity, locks, the
+> registry, the hook sequencer, a runtime that stamps every resource with
+> ownership labels and refuses to touch anything it cannot prove it owns, a
+> shared hardened router that makes every worktree reachable at its own
+> hostname, and a machine-wide index page listing every checkout. See
+> [Roadmap](#roadmap).
 
 ## How it works
 
@@ -46,31 +47,43 @@ domain changes whenever it is free, so two clones can never swap hostnames
 underneath you. Reclaiming a bare name would be an explicit rename — a verb
 the tool does not have yet — never a side effect.
 
-**Locks.** Every command that changes a worktree holds an advisory lock with
-an effectively infinite stale window and a heartbeat, so a twenty-minute build
-is never silently stolen. A command that finds the lock held waits for it — a
-worktree operation for up to 25 minutes — and after a couple of seconds, then
-every 30 seconds, says which process holds it, for how long, and how fresh its
-heartbeat is. Recovery from a genuinely dead holder is never automatic. Once
-the heartbeat has stayed silent across two looks, the waiting command names
-`berth worktree unlock <uuid>` (one that has to give up sooner names it too).
-That clears a worktree's locks only after checking, not assuming, that the
-holder and every command it started on this machine are gone, and refuses
-whenever it cannot tell; [Lock recovery](#lock-recovery) says what it checks
-and what it cannot see. The registry and router locks guard only moments of
-work and keep the older advice: `rmdir` the directory once the holder, and
-anything it started, is gone. `doctor` reports every held and stale lock.
+**Locks.** Every command that changes a worktree, the registry, or the shared
+router takes an advisory lock: `flock(2)` on the lock's own file, held by an
+open file descriptor. The kernel frees it the instant its holder dies — even
+by `SIGKILL` — so there is no stale window and nothing to go quiet: recovery
+never waits on a heartbeat, because there is none. A command that finds the
+lock held waits for it — a worktree operation for up to 25 minutes, the
+router's own lock for up to 20 — and after a couple of seconds, then every 30
+seconds, says who holds it (its command, how long) and what to do: wait for
+it to finish or stop it (`kill <pid>`), or, if the holder is merely stopped
+(`Ctrl-Z`, alive but not working), resume it (`kill -CONT <pid>`) and let it
+finish, or end it; on Linux it also lists the processes still holding the
+lock. Recovery from a holder that died is automatic and checked, never
+assumed: the moment a lock is free, whoever takes it next verifies that the
+previous holder's own record names a process that is genuinely gone — by
+machine ID (or boot ID, in a container image with none), PID, and start time,
+so a reused PID or a different boot is never mistaken for the same process —
+then scans, twice a second apart, for anything that holder started and left
+running, before treating the lock as recovered. `berth worktree unlock
+<slug|uuid>` runs that same check on demand, without waiting to acquire the
+lock itself, so a lock nobody is actively waiting on can still be cleared
+right away; `--registry` and `--router` point it at the registry and router
+locks instead of a worktree's. [Lock recovery](#lock-recovery) says exactly
+what it checks and what it cannot see. `doctor` reports every lock currently
+held, and any left unreleased by a holder that is gone — recovered
+automatically the next time it is taken.
 
 **Homes.** Each worktree owns a directory under the control home
-(`~/.berth` by default) created owner-only, with path containment that refuses
-symlinks anywhere in the chain before creating or removing anything. The two
-control-home directories the router stack bind-mounts (`router/index`,
-`router/dynamic`) are the one exception: they are 0755, because the containers
-that read them run as root without the capability that lets root bypass file
-permissions, and on Linux Docker Engine that leaves a 0700 directory
-unreadable to them. Their parents stay owner-only — a bind mount is entered
-at its mount point, so the parents are never traversed. Only the index page
-and route fragments are written there; nothing secret.
+(`~/.berth/control-home` by default) created owner-only, with path containment
+that refuses symlinks anywhere in the chain before creating or removing
+anything. The same goes for the shared router's own state under the berth
+root (`~/.berth/router`), with one exception: the two directories the router
+stack bind-mounts, `router/dynamic` and `router/index`, are 0755, because the
+containers that read them run as root without the capability that lets root
+bypass file permissions, and on Linux Docker Engine that leaves a 0700
+directory unreadable to them. Their parents stay owner-only — a bind mount is
+entered at its mount point, so the parents are never traversed. Only the
+index page and route fragments are written there; nothing secret.
 
 **Hooks.** `prepare`, `seed`, `verify`, `backup`, and `restore` are
 executables you point at from the config file. `up` invokes `prepare` and
@@ -81,55 +94,53 @@ commands of the same names will run them. The tool never learns what they do.
 
 **Router.** One Traefik instance per machine, started on first `up`, shared
 by every worktree of every repository. It binds a single loopback port and
-routes by hostname. It never sees the Docker socket: it reads container
-labels through a proxy that denies every write; Traefik itself never holds the
-socket. What that proxy still allows is the whole container section, plus
-networks, events, ping and version — and the container section is as narrow
-as the API gets: enough to read every container's labels, and with them its
-environment, its logs, and its filesystem through the archive and export
-endpoints. As the stack is written, only the router is on the network the
-proxy is on, and that network is internal. All three containers — the proxy,
-Traefik, and the BusyBox `httpd` that serves the index page — run read-only
-with every capability dropped (Traefik gets back only the one it needs to bind
-port 80) and pinned by image digest; each is inspected after every start,
-recreated once if it has drifted, and refused if the drift survives that.
-
-**Go build only.** As of the Go build's router protocol 5, the socket proxy
-and Traefik's Docker-provider discovery are gone entirely: the router
-container has no path to the Docker socket at all, direct or proxied. Routes
-come only from Traefik's file provider, watching a read-only directory the
-router state mounts; berth itself writes and removes one fragment there per
-routed service on `up`, `down` and `worktree remove`, and each worktree gets
-its own dedicated router network instead of sharing one — see
-[`docs/port/divergences.md`](docs/port/divergences.md) rows 30 and 31. The
-verifier's own inspection is also deeper here: on both the router and the
-index container, it checks that neither is privileged, shares a host PID,
-IPC, network or UTS namespace, or has a device attached, that neither
-seccomp nor AppArmor is left unconfined, and that each container's
-entrypoint still matches the one its pinned image bakes in — every hardening
-claim this section makes, read back off the running containers rather than
-assumed (row 33).
+routes by hostname, reading routes only from Traefik's file provider: `up`
+writes one dynamic-configuration fragment per routed service into a
+directory the router's own state mounts read-only into the container, and
+`down` and `worktree remove` remove it again. It belongs to the berth root
+that started it — a label on its containers says which — and `up` or
+`router up` from another root refuses to take it over; `router down` hands
+it on (see [Configuration](#configuration)). The router has no path to the
+Docker socket at all, direct or proxied — Traefik's Docker-provider discovery
+is disabled entirely, so nothing about routing depends on it reading a
+container label. Each worktree gets its own dedicated network rather than
+sharing one with every other worktree, so a routed service resolving another
+routed service's name by its Compose alias reaches only its own checkout's
+container, never another's; the router sits on every worktree's network too
+(each carries a label naming the router, which is how `router up` finds and
+reconnects every one after a restart), so through it — by hostname, over
+HTTP, the way the host itself reaches them — a routed service can still reach
+any checkout's routed services and the
+index page. The router and index containers both run read-only with every
+capability dropped (the router gets back only the one it needs to bind port
+80) and pinned by image digest; each is inspected after every start,
+recreated once if it has drifted, and refused if the drift survives that. The
+verifier checks that ownership and protocol labels, running and healthy
+state, the read-only root filesystem, `no-new-privileges`, dropped
+capabilities, published ports, image digest and mounts are all as expected,
+and — read straight off the running containers, never assumed — that neither
+container is privileged, shares a host PID, IPC, network or UTS namespace, or
+has a device attached, that neither seccomp nor AppArmor is left unconfined,
+and that each container's entrypoint still matches the one its pinned image
+bakes in.
 
 ## Install
 
-There is no published package and no binary yet — see [Roadmap](#roadmap).
-Today berth runs from a clone, on Node 24, with Git 2.36 or newer, Docker, and
-Docker Compose available; `berth doctor` checks each of them. A Node too old to
-run TypeScript at all stops before any of berth's code — `doctor` included —
-can say so, with Node's own error (`ERR_UNKNOWN_FILE_EXTENSION`, or a
-`SyntaxError` about an `import` statement); `node --version` is the check then.
-To install:
+There is no published binary yet — releases aren't set up (#8). Build it
+from source with Go, at least the version [`go.mod`](go.mod) names:
 
 ```bash
-git clone <this repository> berth && cd berth
-corepack enable && pnpm install
-ln -s "$PWD/src/cli/main.ts" ~/.local/bin/berth   # any directory on PATH
+git clone https://github.com/sofired/berth && cd berth
+go install ./cmd/berth   # installs $(go env GOPATH)/bin/berth (or $GOBIN)
 ```
 
-The entry point carries a `#!/usr/bin/env node` line and is executable, so the
-symlink is all there is to it; Node strips the types as it loads. Nothing is
-compiled and nothing is copied, so the symlink follows the clone — `git pull`
-is the upgrade.
+or build a binary yourself and put it wherever you like:
+
+```bash
+mkdir -p ~/.local/bin && go build -o ~/.local/bin/berth ./cmd/berth   # any directory on PATH
+```
+
+`berth doctor` checks Git, Docker and Docker Compose once it is on PATH.
 
 ## Quick start
 
@@ -165,14 +176,14 @@ Then:
 
 ```bash
 berth config validate     # parse and check the file
-berth up                  # register this worktree, start its services, run prepare (+ seed the first time)
-berth status              # per-service state
-berth urls                # print its routed URLs
-berth down                # stop it; data is kept
-berth worktree list       # every worktree of this repository, with state
-berth worktree remove     # tear it down, verified by ownership
-berth worktree unlock     # clear a dead holder's lock, once it is checked gone
-berth doctor              # check prerequisites, registry, router; run verify
+berth up                   # register this worktree, start its services, run prepare (+ seed the first time)
+berth status               # per-service state
+berth urls                 # print its routed URLs
+berth down                 # stop it; data is kept
+berth worktree list        # every worktree of this repository, with state
+berth worktree remove      # tear it down, verified by ownership
+berth worktree unlock      # clear a dead holder's lock, once it is checked gone
+berth doctor               # check prerequisites, registry, router; run verify
 ```
 
 `up` runs the branch's own build and hooks. Read [Trust model](#trust-model)
@@ -211,23 +222,14 @@ and — when they are known — `root`, `branch` and `labelNamespace`. Every
 non-ASCII character is escaped, so the text is ASCII and parses back to what
 it was.
 
-Each `[[service]]` becomes a route: the tool generates the Traefik labels and
-joins the container to the shared router network through the same override,
-so your Compose file never mentions the router. Chrome and Firefox resolve
-`*.localhost` to the loopback address on their own; everything else depends
-on the system resolver — see [Platform notes](#platform-notes). If port 80 is
-taken, set `BERTH_ROUTER_PORT` — the printed URLs follow it.
-
-**Go build only:** it also reads a `[router] port` from `settings.toml` — see
-[Configuration](#configuration).
-
-**Go build only.** The override adds no Traefik or discovery labels,
-`dev.berth.router` included, and joins no container to the shared network
-(row 30). `up` writes one file-provider fragment per routed service instead,
-and joins the service to this worktree's own dedicated network under an
-alias (row 31). An upgrade from any router below protocol 5 leaves
-already-running worktrees unrouted until their next `up`, and the run says
-so.
+Each `[[service]]` becomes a route: the tool generates the file-provider
+fragment and joins the container to the worktree's own dedicated router
+network through the same override, so your Compose file never mentions the
+router. Chrome and Firefox resolve `*.localhost` to the loopback address on
+their own; everything else depends on the system resolver — see
+[Platform notes](#platform-notes). If port 80 is taken, set `[router] port`
+in `settings.toml` (see [Configuration](#configuration)) or
+`BERTH_ROUTER_PORT` — the printed URLs follow it.
 
 ```bash
 berth router status       # is the shared router running, and is it what this version expects?
@@ -235,21 +237,12 @@ berth router up           # start it without starting a worktree
 berth router down         # stop it; worktree services keep running, unrouted
 ```
 
-Only containers whose `dev.berth.router` label holds the shared router
-network's name are routed. The override adds that label under the tool's own
-namespace, whatever `project.label-namespace` says, and Traefik is told to
-discover nothing else, so two router stacks on one machine (a real
-installation's and the test suite's, say) never route each other's
-containers. A new version that changes the router upgrades it on the next
-`up` and says so. When that upgrade is the one that introduced this label,
-worktrees that were already running stay unrouted until their own next `up`,
-and the run says that too.
-
-**Go build only.** No container carries `dev.berth.router`; Traefik's
-Docker-provider discovery is gone, so nothing reads a container label at
-all. `RoutedByLabel` (the same string) survives only as a label on a
-worktree's own dedicated network (row 31), which is what lets `router up`
-find and reconnect every worktree's network on every start.
+A version that changes the router's protocol upgrades it on the next `up` or
+`router up` and says so; when that upgrade is the one that changed how
+worktrees are routed, one already running stays unrouted until its own next
+`up`, and the run says that too. Every routed worktree also owns one more
+Docker bridge network, so `doctor` warns once the machine's networks start
+getting close to Docker's own default address-pool limit.
 
 **Index.** `http://berth.localhost` (plus the port, if changed) lists every
 checkout on the machine across every project: branch, hostname, path, whether
@@ -279,56 +272,60 @@ resources, the home directory, the registration, the identity marker.
 whose checkout is already gone; `--label-namespace` supplies the Docker label
 namespace of its resources when nothing on disk records it.
 
-The Go build additionally never runs the removal itself from wherever the
-invoked binary happens to live: before doing anything else, `worktree
-remove` installs a content-addressed copy of itself under the control home —
-outside any checkout — and hands the removal to that copy. Deleting a
-checkout can therefore never delete the program still removing it. The copy
-is exactly the binary that was invoked, though, nothing more: a build made
-from a branch still runs that branch's code once relocated, just from
-somewhere the checkout it is removing cannot take down with it. Running only
-a trusted, pinned build regardless of what invoked `worktree remove` is a
-separate, later guarantee tied to how releases are distributed (#8). Copies
-are content-addressed, so a rebuild that changes nothing installs nothing
-new; one that has not been installed or reused in the last 30 days, or that
-is not among the 5 most recently used besides the current one, whichever
-rule catches it first, is swept away automatically — disk hygiene for a
-workflow that rebuilds often, not something to manage by hand. That count
-is a steady-state target, not a hard ceiling: the sweep only runs as part of
-a later `worktree remove`, so a burst of removals from distinct builds in
+`worktree remove` does not run the removal from wherever the invoked binary
+happens to live: before doing anything else, it installs a content-addressed
+copy of itself under the control home — outside any checkout — and hands the
+removal to that copy, so deleting a checkout cannot delete the program still
+removing it. That holds whenever the copy can be installed and run; when it
+cannot, removal continues with the invoked binary, as described below. The
+copy is exactly
+the binary that was invoked, though, nothing more: a build made from a
+branch still runs that branch's code once relocated, just from somewhere the
+checkout it is removing cannot take down with it. Running only a trusted,
+pinned build regardless of what invoked `worktree remove` is a separate,
+later guarantee tied to how releases are distributed (#8, #85). Copies are
+content-addressed, so a rebuild that changes nothing installs nothing new;
+one that has not been installed or reused in the last 30 days, or that is
+not among the 5 most recently used besides the current one, whichever rule
+catches it first, is swept away automatically — disk hygiene for a workflow
+that rebuilds often, not something to manage by hand. That count is a
+steady-state target, not a hard ceiling: the sweep only runs as part of a
+later `worktree remove`, so a burst of removals from distinct builds in
 quick succession can briefly leave more than 5 until the next one catches
-up. A copy installed or reused in the last 10 minutes is never swept away
-by either rule, however old or however far past the count it would
-otherwise be: that window exists for another `worktree remove`, running at
-the same time, that might be mid-way through installing or about to run
-the very copy this one's own sweep would otherwise be free to take. This is
-invisible in normal use; a copy that cannot be installed or run — including
-on a control home whose filesystem cannot execute programs at all — is
-reported on stderr as it happens, and removal continues with whichever
-binary was invoked.
+up. A copy installed or reused in the last 10 minutes is never swept away by
+either rule, however old or however far past the count it would otherwise
+be: that window exists for another `worktree remove`, running at the same
+time, that might be mid-way through installing or about to run the very
+copy this one's own sweep would otherwise be free to take. This is invisible
+in normal use; a copy that cannot be installed or run — including on a
+control home whose filesystem cannot execute programs at all — is reported
+on stderr as it happens, and removal continues with whichever binary was
+invoked.
 
 A full annotated example is in [`berth.example.toml`](berth.example.toml).
 The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
 
 ## Calling it something else
 
-Name the symlink whatever you like. Help text, the log prefix, and every
-"run `X urls`" hint follow the name it was invoked as, which is read from
-`argv[1]` and from nowhere else:
+Name the binary or symlink whatever you like. Help text, the log prefix, and
+every "run `X urls`" hint follow the name it was invoked as, which is read
+from `argv[0]` and from nowhere else:
 
 ```bash
-ln -s "$PWD/src/cli/main.ts" ~/.local/bin/duke
+ln -s "$(go env GOPATH)/bin/berth" ~/.local/bin/duke
 duke --help               # Usage: duke [options] [command]
 ```
 
-Running the source by path (`node src/cli/main.ts`) has no name to read, so it
-says `berth`.
+A binary built or invoked with no meaningful name to read — `main`, a bare
+`.`, or an empty `argv[0]` — says `berth` instead.
 
 What does **not** follow the name is anything written to disk: the config
-filename (`berth.toml`), the control-home directory, the environment variable
-(`BERTH_HOME`), the variables handed to hooks (`BERTH_STAGE`, …), and the
-Docker label namespace. Those are storage contracts. If they followed the
-binary name, renaming a symlink would orphan state.
+and settings filenames (`berth.toml`, `settings.toml`), the berth root and
+control-home directories, the
+environment variables (`BERTH_HOME`, `BERTH_CONTROL_HOME`, …), the variables
+handed to hooks (`BERTH_STAGE`, …), and the Docker label namespace. Those are
+storage contracts. If they followed the binary name, renaming a symlink
+would orphan state.
 
 ## Configuration
 
@@ -350,50 +347,54 @@ have no effect. Other `COMPOSE_*` keys there still reach Compose — in
 particular `COMPOSE_IGNORE_ORPHANS`, which defeats the `--remove-orphans` that
 `up` and `down` rely on. Do not set it.
 
-The control home holds one more file for the shared router: `router/protocol`,
-the protocol of the last router known to have run for it, as best the tool can
-tell. `router down` deliberately leaves it, so a later `up` can still say what
-changed; deleting it hands the router to whichever version runs next, unless a
-newer one's containers are still there.
+`BERTH_HOME` is the berth root — `~/.berth` by default — holding
+`settings.toml`, the shared router's own state and, unless
+`BERTH_CONTROL_HOME` overrides it, the control home, nested under it as
+`control-home/`. `BERTH_CONTROL_HOME` moves only the control home, leaving
+everything else where `BERTH_HOME` puts it. None of these are config-file
+settings: the config file is committed and shared, and a path that is only
+correct on one machine has no business in it — one developer pointing it at
+a synced folder would put the whole team's state on iCloud Drive.
 
-The router itself belongs to whichever control home last started it: it serves
-that home's index page and watches that home's dynamic-configuration
-directory. A second control home on the same machine quietly takes it over on
-its next `up`, recreating the stack against its own directories. Point
-`BERTH_HOME` somewhere else only when you mean to take the router with you.
+`settings.toml` is the machine's own file, never committed, for what is true
+of this machine rather than of a project. Today that is the router's
+loopback port:
 
-**Go build only.** The router's containers carry a label naming the berth
-root (`BERTH_HOME`) that started them, and `up` or `router up` from a
-different berth root refuses while that router is running, naming the root it
-belongs to, rather than recreating it. Taking it over is an explicit step:
-`router down` stops it from any root, and the next root's `up` starts its own.
-`doctor` reports the owner (row 35 in the divergence ledger).
+```toml
+[router]
+port = 8080
+```
 
-The control home is `~/.berth`, overridable only through the `BERTH_HOME`
-environment variable, and the router's loopback port is 80, overridable only
-through `BERTH_ROUTER_PORT` in the TypeScript build (the Go build also reads
-`settings.toml`, below) — deliberately not config-file settings. The
-config file is committed and shared; a path that is only correct on one
-machine has no business in it, and one developer pointing it at a synced
-folder would put the whole team's state on iCloud Drive.
+Unknown keys are rejected, as in `berth.toml`; a missing file means the
+defaults. The port is `BERTH_ROUTER_PORT` when that is set, else the file's,
+else 80. `router status` and `doctor` say which one applied and name the
+file; `doctor` warns when the running router publishes a different port; and
+an `up` that moves the router to a new port says that URLs already open — the
+index page included — still use the old one.
 
-**Go build only.** The router's port can also come from `settings.toml` in the
-berth root (`~/.berth/settings.toml`, never under `BERTH_CONTROL_HOME`): a
-`[router]` table with `port = 8080`. It is a machine's own setting, not a
-project's, so it is never committed; unknown keys are rejected the way
-`berth.toml`'s are. `BERTH_ROUTER_PORT` still overrides it, then the file,
-then 80. `router status` and `doctor` say which one applied and name the
-file, `doctor` warns when the running router publishes a different port, and
-an `up` that moves the router to a new port says that URLs already open —
-the index page included — still use the old one (row 36 in the divergence
-ledger).
+The berth root also holds the shared router's own bookkeeping: `router/`,
+with a `protocol` file naming the protocol of the last router known to have
+run there, as best the tool can tell (`router down` deliberately leaves it,
+so a later `up` can still say what changed; deleting it hands the router to
+whichever version runs next, unless a newer one's containers are still
+there), the dynamic-configuration and index directories the file provider
+watches, and the router's own lock. The router *container*, though, is one
+per Docker daemon regardless of berth root — its Compose project name never
+changes — and its containers carry a label naming the berth root that
+started them. `up` or `router up` from a different `BERTH_HOME` refuses while
+that router is running, naming the root it belongs to, rather than recreating
+it against its own bookkeeping; a router started by a build from before the
+label is adopted, and recreated once to record its owner. Taking a router
+over is an explicit step: `router down` stops it from any root, and the next
+root's `up` starts its own. `doctor` reports the owner. Every control home
+that shares one berth root shares that bookkeeping too, rather than taking
+turns recreating it.
 
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.berth-control-home` marker to
-recognise its own. Your home directory, anything above it, and the filesystem
-root are always refused. A control home the Go build of berth manages — its
-marker is non-empty — is read-only to this build: every mutating command
-refuses rather than touch it.
+recognise its own. Your home directory, anything above it, and the
+filesystem root are always refused, whether reached through `BERTH_HOME` or
+`BERTH_CONTROL_HOME`.
 
 ## Trust model
 
@@ -423,26 +424,21 @@ Three things follow from that, and this tool does not change them:
   `up` that follows it. Naming a service on `up` whose profile is not active
   is refused rather than started unlabelled, since Compose would otherwise
   enable that profile for it.
-- **Routed services share one network.** Every container you declare as a
-  `[[service]]` joins the router's network, so a routed service in one
-  checkout can reach a routed service in another. Containers you do not
-  declare stay on their project's own networks. **Go build only:** each
-  worktree gets its own dedicated router network instead (row 31 in
-  [`docs/port/divergences.md`](docs/port/divergences.md)), so a routed
-  service resolving another routed service's name reaches only its own
-  checkout's container, never another's. The router is on every
-  worktree's network, though, so through it — by hostname, over HTTP, the
-  way the host itself reaches them — a routed service can still reach any
-  checkout's routed services and the index page.
+- **Routed services share their own worktree's network.** Every container
+  you declare as a `[[service]]` joins this worktree's own dedicated router
+  network, alongside the shared router itself. A routed service resolving
+  another routed service's name by its Compose alias reaches only its own
+  checkout's container — never another checkout's same-named one — but
+  through the router, by hostname over HTTP, the way the host itself reaches
+  them, it can still reach any checkout's routed services and the index
+  page. Containers you do not declare stay on their project's own networks.
 - **The index page is machine-wide and unauthenticated.** It lists every
   checkout's branch, path, hostnames and service links. Its only exposure to
-  the host is the router's loopback port, and everything on the router's
-  shared network — every routed container of every checkout — reaches it
-  too. **Go build only:** a routed container is not on the shared network at
-  all — it joins only its own worktree's network (previous bullet) — so it
-  reaches the index only indirectly, through the router, the same way it
-  reaches another checkout's own routed services; only the router and the
-  index container itself sit on the shared network directly.
+  the host is the router's loopback port; a routed container is not on the
+  shared network directly — it joins only its own worktree's network, above
+  — so it reaches the index only indirectly, through the router, the same
+  way it reaches another checkout's own routed services. Only the router and
+  the index container itself sit on the shared network directly.
 
 What the tool does guarantee is ownership: every resource it creates carries
 its labels, and it refuses to touch anything whose full ownership tuple does
@@ -468,11 +464,11 @@ version expects, and nothing at all on stdout when Docker could not be asked —
 that case is a `Router state unknown:` line on stderr. Each reported problem is
 its own `Router problem:` line on stderr. Both `running` and `not running` exit
 0, because "is it there?" is the question and both are answers; `degraded` and
-an unreachable Docker exit 1. **Go build only:** whenever that status line is
-printed, a second stdout line follows it saying which port was resolved and
-from where — `port <n> from <settings file>`, `port <n> from
-BERTH_ROUTER_PORT (overriding <settings file>)` or `port <n> by default
-(<settings file> sets none)`; it too is absent when Docker could not be asked.
+an unreachable Docker exit 1. Whenever the status line is printed, a second
+stdout line follows it saying which port was resolved and from where —
+`port <n> from <settings file>`, `port <n> from BERTH_ROUTER_PORT (overriding
+<settings file>)` or `port <n> by default (<settings file> sets none)`; it too
+is absent when Docker could not be asked.
 
 `doctor` writes its report to stdout: one section per area (`Prerequisites`,
 `Registry`, `Locks`, `Router`, `This checkout`), one line per check, each marked `ok`,
@@ -484,9 +480,11 @@ The exit code names one failure; the report names them all. A `verify` hook
 that exits 124 makes `doctor` exit 124 too — the code `timeout(1)` uses for a
 command it had to kill — so a script that wraps `doctor` in `timeout` cannot
 tell the two apart by exit code alone. It takes no lock, writes nothing, and
-repairs nothing; it reports. **Go build only:** its `Router` section ends with a
-`router port` line saying the same as `router status`'s second line, a `warn`
-when the running router publishes a different port than the one resolved.
+repairs nothing; it reports. Its `Router` section names the router's owner
+(a `warn` for a router from before the label, a `fail` for another berth
+root's) and ends with a `router port` line saying the same as `router
+status`'s second line, a `warn` when the running router publishes a
+different port than the one resolved.
 
 `worktree unlock` writes nothing to stdout: what it verified and what it
 cleared are notices on stderr. A refusal is an error that exits 1 and clears
@@ -499,17 +497,6 @@ the argument parser in its own format. Set `BERTH_DEBUG=1` to see the stack
 trace behind a failure. A failing hook's own exit code becomes berth's — see
 [docs/hooks.md](docs/hooks.md) — and a verb that is registered but not
 implemented exits 2.
-
-The stream split and the state vocabulary above are both recent, and pre-1.0
-means neither is a promise yet. What changed: the notices moved off stdout;
-`config validate` lost its `[berth]` prefix there, counts only the hooks that
-run, and adds a line naming the ones nothing invokes; `router status` reports
-an unreachable Docker on stderr rather than as an `unknown:` line on stdout,
-and says `degraded` for a router that is running but not as expected — a word
-it did not have, and the one case where it exits non-zero while a router is up;
-`config show` escapes non-ASCII (the JSON still parses back identically); and
-`worktree list` renamed its `orphaned` state to `missing`. Anything scripted
-against the old shapes needs a look.
 
 ## Platform notes
 
@@ -537,26 +524,25 @@ Desktop on Windows behaves like Linux when the tool runs inside the WSL 2
 distribution with the control home and checkout on its own filesystem; paths
 under `/mnt/c` present as 0777 and behave like the macOS case.
 
-**Docker Desktop file sharing and the file provider (Go build only).** Routes
-come from files `up`, `down` and `worktree remove` write and remove under the
-router's own state directory, watched by Traefik's file provider inside the
-container. On macOS Docker Desktop, both file-sharing backends (virtiofs, the
-current default, and the older grpcfuse) bridge the host's filesystem
-events into the container, and that bridge can occasionally miss the rename
-half of the atomic write a fragment update makes — the container's watcher
-then keeps routing (or fails to route) what the file on disk no longer says.
-If a route looks stale after an `up`, `down` or `worktree remove` on such a
-host, run `X router down` then `X router up` (with `X` the name you invoked
-this build as; see "Calling it something else") to force Traefik to reread
-every fragment from a clean start, rather than waiting on the next
-filesystem event that touches it.
+**Docker Desktop file sharing and the file provider.** Routes come from files
+`up`, `down` and `worktree remove` write and remove under the router's own
+state directory, watched by Traefik's file provider inside the container. On
+macOS Docker Desktop, both file-sharing backends (virtiofs, the current
+default, and the older grpcfuse) bridge the host's filesystem events into
+the container, and that bridge can occasionally miss the rename half of the
+atomic write a fragment update makes — the container's watcher then keeps
+routing (or fails to route) what the file on disk no longer says. If a route
+looks stale after an `up`, `down` or `worktree remove` on such a host, run
+`X router down` then `X router up` (with `X` the name you invoked this build
+as; see "Calling it something else") to force Traefik to reread every
+fragment from a clean start, rather than waiting on the next filesystem
+event that touches it.
 
-**Rootless Docker.** Not supported yet: the socket proxy mounts
-`/var/run/docker.sock`, which a rootless daemon does not provide. **Go build
-only:** the router itself no longer needs the socket at all (see
-[Router](#how-it-works) above), which removes this specific blocker for the
-router stack; whether the rest of the tool works unmodified against a
-rootless daemon is untested and not claimed here.
+**Rootless Docker.** The router no longer needs the Docker socket at all
+(see [Router](#how-it-works) above), which removes what used to be the main
+blocker for a rootless daemon; whether the rest of the tool — the Compose
+backend, bind mounts and the rest — works unmodified against one is untested
+and not claimed here.
 
 **SELinux.** Hosts with SELinux enforcing need bind mounts relabelled (`:z`),
 which the tool does not do for its own router mounts; treat such hosts as
@@ -577,27 +563,37 @@ the worktree — `<slug>.<domain>` and any `<subdomain>.<slug>.<domain>` — plu
 
 ### Lock recovery
 
-`worktree unlock [slug|uuid]` clears a worktree's stale locks only when all of
-this holds:
+`worktree unlock [slug|uuid]` clears a worktree's locks (its operation lock,
+and its development-session lock if that is held too) only when all of this
+holds — checked automatically, without ever waiting to acquire the lock
+itself:
 
-- the lock's record belongs to the lock directory beside it;
-- its holder ran on this machine (known by its machine ID, or by its boot ID
-  in a container image that has none), in this boot and this PID namespace;
-- the holder's PID no longer exists, or now belongs to a later process;
-- the lock stays silent through a second look of its own, about 12 seconds;
+- the lock itself is free: `flock(2)` proves this instantly, so a lock
+  actually held by a live process is always refused straight away, before
+  anything else is checked;
+- the record its last holder left names a process this machine can
+  identify: by its machine ID, or by its boot ID in a container image that
+  has none, in this boot and this PID namespace;
+- that holder's PID no longer exists, or now belongs to a later process, so
+  a reused PID is never mistaken for the same one — checked twice, a second
+  look about a second later, in case a holder that looked alive was simply
+  finishing;
 - no command started for the worktree is still running on this machine:
   nothing with its Compose project on the command line, or its
-  `BERTH_WORKTREE_ID` in the environment.
+  `BERTH_WORKTREE_ID` in the environment — checked the same way, twice.
 
-A stopped holder (`Ctrl-Z`) is alive, and is refused. A holder it cannot
-check — on another machine or in a container, one that left no record, or one
-it cannot look past because other users' processes are hidden from you
-(`/proc` mounted with `hidepid`, say) — is refused too, unless you pass
-`--holder-unverifiable` once you have made sure yourself; that never overrides
-a running holder or a command left running. The unlock command that lock
-notices and `doctor` print names the worktree by its UUID: it never changes, no
-other worktree shares it, and it works even for a worktree whose first `up`
-died before it registered.
+A stopped holder (`Ctrl-Z`) is alive, and is refused: resume it with
+`kill -CONT <pid>` and let it finish, or end it. A holder it cannot check —
+on another machine or in a container, one that left no record, or one it
+cannot look past because other users' processes are hidden from you (`/proc`
+mounted with `hidepid`, say) — is refused too, unless you pass
+`--holder-unverifiable` once you have made sure yourself; that never
+overrides a running holder or a command left running. `--registry` and
+`--router` point the same check at the machine-wide registry or router lock
+instead of a worktree's, and take no worktree identifier. The unlock command
+that a lock notice or `doctor` prints names the worktree by its UUID: it
+never changes, no other worktree shares it, and it works even for a
+worktree whose first `up` died before it registered.
 
 It reads `/proc` on Linux and asks `ps` on macOS. Your own processes are
 checked by their command line and their environment; other users' only by
@@ -609,116 +605,147 @@ helper a hook ran as another user — through `sudo`, which clears the
 environment, or `sudo -E` — is missed too, unless its command line names the
 worktree's Compose project. The worktree's own containers are not commands: they are what
 `up` built, running or stopped as the holder left them, and the next `up` or
-`down` reconciles them. What it did check, it prints.
+`down` reconciles them. What it did check, it prints, as a `Verified:` line
+per lock cleared — or `Not verified, on your word (--holder-unverifiable):`
+for whichever it accepted unchecked.
 
 ## Development
 
-Node 24 — `engines` is `>=24.14.1 <25`, because the tool runs TypeScript
-directly on Node's own type stripping. The project uses pnpm; the
-`packageManager` field pins the version for Corepack.
+Go, at least the version [`go.mod`](go.mod) names.
 
 ```bash
-corepack enable
-pnpm install
-pnpm check                # lint + typecheck + unit and CLI tests
-pnpm test:integration     # real Git worktrees and real subprocesses
+gofmt -l cmd internal tools                             # must print nothing
+go vet ./...
+go vet -tags integration ./...
+go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags integration ./...
+go test -race ./...                                     # unit
+go test -race -tags integration ./...                   # real git, subprocesses, signals, Docker
+CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -tags integration ./...
 ```
 
-The TypeScript source runs directly on Node 24 — there is no build step yet.
-Shipping a self-contained binary is on the roadmap.
-
-A Go build is also under development, in `cmd/` and `internal/`; it is not
-yet the one to install. Don't use it on a machine where you use the
-TypeScript build: their locks do not exclude each other. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for how to build and test it.
-
-Its layout differs from the TypeScript build's above it: `BERTH_HOME` (still
-`~/.berth` by default — the same directory the TypeScript build's router
-files live under, harmless only because the two builds are never run
-together) is the berth root, holding a future `settings.toml` (#79), the
-shared router's own state and lock, and — unless `BERTH_CONTROL_HOME`
-overrides it — the control home, nested under it as `control-home`.
-`BERTH_CONTROL_HOME` moves only the control home, leaving the router's
-state (and that future `settings.toml`) where `BERTH_HOME` puts them. The
-router container itself is not per `BERTH_HOME`: there is one per Docker
-daemon, and a scratch `BERTH_HOME` moves only where its state and lock are
-read from, not which container `up` or `router up` starts or replaces — see
-[`docs/port/divergences.md`](docs/port/divergences.md) rows 9 and 29.
+`-tags integration` marks tests that touch something real — a process, a
+signal, or a Docker daemon — and are excluded from the default `go test
+./...`. Without a daemon the Docker suites skip; CI's Linux leg sets
+`BERTH_TEST_REQUIRE_DOCKER=1`, which turns that skip into a failure, so a green
+run on a machine without Docker is not the run CI makes. The Docker suites
+sweep up whatever a killed run left behind, without regard to age, so run one
+of them at a time on a machine.
+The `CGO_ENABLED=0` run matters on its own: cgo changes how the Go runtime
+behaves (an extra thread, notably), and releases will build with it
+disabled. CI also runs the streams contract — every command's stdout/stderr
+split, checked against a built binary — which needs Node until #46 retires
+that tooling; [`CONTRIBUTING.md`](CONTRIBUTING.md) has that command and how
+the golden files are regenerated.
 
 ### Layout
 
 ```
-src/
-  brand.ts              the product name and the presentation/storage split
-  cli/main.ts           entry point; the only place argv is read for a name
-  config/               berth.toml schema and discovery
-  hooks/                hook protocol and sequencer
-  checkout-index/       per-worktree cards, the snapshot, and the rendered page
-  commands/             the everyday verbs as plain functions over a context
-  router/               the shared router: its Compose stack as constants, and the verifier
-  runtime/              the Runtime interface, an in-memory backend, the Compose backend
-  worktree-registry.ts  identity markers, slugs, the registry
-  operation-lock.ts     scoped locks and explicit stale recovery
-  layout.ts             where everything lives under the control home
-  files.ts              owner-only, symlink-refusing filesystem primitives
-  text.ts               the filter every printed line goes through
-tests/
-  unit/                 hermetic; no Docker, no real Git
-  cli/                  the CLI as a real process: which stream carries what
-  integration/          real Git worktrees, cross-process locks, and a real Docker daemon
+cmd/berth/               entry point: argv and the environment come in here and
+                          are handed down as parameters; library code never looks
+                          a variable up by name itself
+internal/
+  cli/                    command tree, dispatch, error reporting
+  commands/               the everyday verbs as plain functions over a context
+  config/                 berth.toml schema and discovery
+  shape/                  the small schema library config files are validated
+                          against, strict about unknown keys
+  hooks/                  hook protocol and sequencer
+  progress/               phase logging with an elapsed-time heartbeat
+  checkoutindex/          per-worktree cards, the snapshot, and the rendered page
+  router/                 the shared router's Compose stack, its file-provider
+                          fragments, and the verifier
+  backend/                the Compose backend: labels, overrides, inventory, reap
+  worktree/               what the control plane and backend both say about a worktree
+  registry/               identity markers, slugs, the registry
+  lock/                   flock-based locks and their checked recovery
+  binstore/               the content-addressed store `worktree remove` runs
+                          itself from, outside any checkout
+  settings/               the machine's own settings.toml, read as strictly as berth.toml
+  layout/                 where everything lives under the berth root and control home
+  files/                  owner-only, symlink-refusing filesystem primitives
+  text/                   the filter every printed line goes through
+  brand/                  the product name and the presentation/storage split
+  clierr/                 the error type a command reports and exits with
+  logger/                 the stdout/stderr split every command writes through
+  run/, run/osrun,
+  run/fakerun/            the subprocess seam, and its real and fake implementations
+  docker/                 runs the `docker` CLI and tells it apart from Docker being unavailable
+  procid/                 process identity and process-table lookups, for lock recovery
+  lifecycle/              signal handling and the lock-ordered mutation wrapper
+  style/                  the code-style rules gofmt, vet and staticcheck don't
+                          enforce, written as tests over the module's own source
 ```
+
+Tests live beside the code they cover, as `_test.go` files; anything that
+needs a real process, a signal, or a Docker daemon is behind
+`//go:build integration` and runs separately from the default `go test ./...`.
 
 ## Roadmap
 
-Shipped, behind the `Runtime` interface in `src/runtime/runtime.ts`:
+Shipped:
 
 - **Compose runtime** — `up`/`down` that stamp every resource with
-  `<namespace>.managed`, `.repository-uuid`, `.worktree-uuid`; `inventory`
-  as a label-filtered `docker ps` that verifies the full ownership tuple on
-  every resource before returning any; `reap` that verifies again before
-  removing.
-- **`up` / `down` / `status` / `urls`** — `up` and `down` under the worktree
-  lock, `up` with interrupts deferred until it can be released cleanly.
-- **`worktree list` / `worktree remove`** — ownership-verified teardown
-  in crash-safe order; checkouts Git no longer lists are reported missing.
+  `<namespace>.managed`, `.repository-uuid`, `.worktree-uuid`; inventory and
+  teardown that verify the full ownership tuple on every resource before
+  touching it.
+- **`up` / `down` / `status` / `urls`** — under the worktree lock, with
+  interrupts deferred until it can be released cleanly.
+- **`worktree list` / `worktree remove`** — ownership-verified teardown in
+  crash-safe order, run from a content-addressed copy of the binary
+  installed outside any checkout; checkouts Git no longer lists are reported
+  missing.
 - **Shared router** — one Traefik instance across every worktree of every
-  repository, behind a hardened socket proxy, verified after every start;
-  routes generated from `[[service]]`. The file provider is enabled from day
-  one (watching `<control home>/router/dynamic`) so hybrid
-  native-plus-container worktrees can be routed without touching the router.
+  repository, routed entirely through its file provider (no Docker-socket
+  access at all), each worktree on its own dedicated network, verified after
+  every start, and owned by the berth root that started it: another root's
+  `up` refuses rather than taking it over.
+- **Settings file** — `settings.toml` under the berth root, starting with
+  the router's port; `router status` and `doctor` say where the port came
+  from.
 - **Checkout index** — `berth.localhost`: every registered worktree on the
-  machine, grouped by domain, with the projects on it named in the heading, with per-service links and status.
-- **`worktree unlock`** — clears a dead holder's worktree locks once the
-  holder, and every command it started on this machine, is checked gone (see
-  [Lock recovery](#lock-recovery)); `doctor`
-  reports every held and stale lock.
-- **`doctor`** — one read-only report: Node, Git, Docker and Compose against
-  the versions this tool needs; the control home and every registration
+  machine, grouped by domain, with per-service links and status.
+- **`worktree unlock`** — clears a dead holder's locks (a worktree's own,
+  or, with `--registry`/`--router`, the registry's or router's) once it is
+  checked gone; `doctor` reports every held lock, and any left unreleased by
+  a holder that is gone.
+- **`doctor`** — one read-only report: Git, Docker and Compose against the
+  versions this tool needs; the berth root and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);
-  the router's verification, and any rule two routed containers share, read
-  from Docker so it spans control homes; and, for this checkout, its `verify`
-  hook and any registration of its repository whose checkout Git no longer lists.
+  the router's verification and its address-pool headroom; and, for this
+  checkout, its `verify` hook and any registration of its repository whose
+  checkout Git no longer lists.
 
-Not built yet, in rough order. `dev` is registered and refuses by name rather
-than pretending; the rest are not commands at all. The config file already
-accepts the `backup` and `restore` hooks, so a repository can commit them once.
+Not built yet, in rough order. `dev` is registered and refuses by name
+rather than pretending; the rest are not commands at all. The config file
+already accepts the `backup` and `restore` hooks, so a repository can commit
+them once.
 
-1. **`dev`** — start the worktree and follow its services' logs, holding the
-   development-session lock so `worktree remove` refuses while a session is
-   attached.
-2. **Native routes** — `berth route` writing file-provider fragments for
-   processes running outside Docker.
-3. **Standalone cleanup binary** — content-addressed, installed outside
-   the checkout, so removing a worktree never imports code from the branch
-   being deleted.
-4. **Binary distribution** — Node SEA or bun-compiled per-platform builds.
-5. **`init`** — write a starter `berth.toml`. Until then, copy
+1. **`dev`** (#5) — start the worktree and follow its services' logs,
+   holding the development-session lock so `worktree remove` refuses while a
+   session is attached.
+2. **Native routes** (#6) — `berth route` writing file-provider fragments
+   for processes running outside Docker.
+3. **Binary distribution** (#8) — per-platform release builds, so installing
+   no longer means building from source.
+4. **`init`** (#9) — write a starter `berth.toml`. Until then, copy
    `berth.example.toml` to the repository root.
-6. **`backup` / `restore`** — invoke the hooks of the same name with a bundle
-   directory.
-7. **`rename`** — change a worktree's slug, or the product's own storage
-   names, by migrating the state that carries them. Both are migrations: a
-   control home, identity markers and Docker labels all embed the old name.
+5. **`backup` / `restore`** (#10) — invoke the hooks of the same name with a
+   bundle directory.
+6. **`rename`** (#11) — change a worktree's slug, or the product's own
+   storage names, by migrating the state that carries them.
+7. **Config: services keyed by name** (#3), with a published JSON Schema.
+8. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
+   the command that runs it forever.
+9. **`--json`** (#27) for `doctor`, `status`, `urls` and `index`, to match
+   `worktree list`'s own machine-readable form.
+10. **`BERTH_URL`** (#28) — a hook's own worktree URL, alongside the
+    variables [docs/hooks.md](docs/hooks.md) already lists.
+11. **Migrating stored state between releases** (#29), once there are
+    releases to migrate between.
+12. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+    stronger guarantee the relocated-copy mechanism above is a step toward,
+    tied to binary distribution (#8).
 
 ## License
 
