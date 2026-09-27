@@ -26,21 +26,20 @@ var startLifecycle = func(log logger.Logger) *lifecycle.Lifecycle {
 }
 
 // Main is the CLI's entry point for every caller except cmd/berth's own
-// main(): parse args, dispatch to the matching verb, and report whatever it
-// returns the way src/cli/main.ts's own top-level catch does. args is the
-// full argv with args[0] the program path — the way os.Args is shaped.
+// main(): parse args, dispatch to the matching verb, and report whatever
+// error it returns through a single top-level catch. args is the full argv
+// with args[0] the program path — the way os.Args is shaped.
 //
 // It never lets a verb replace this process's image: commands.Env.Executable
 // and .Exec are left nil, so `worktree remove`'s own relocate-and-reexec
 // (#7) always skips relocation here. This is deliberate, not an oversight —
-// Main is what every in-process test calls (golden_test.go, wiring_test.go,
-// and, under -tags integration, legacy_integration_test.go and
-// up_docker_integration_test.go among them), and any of those may be the
-// process running `worktree remove` in-process. A go test binary handed a
-// real Exec would replace itself with a copy of itself and re-run with argv
-// `worktree remove --yes` — no -test.run filter — which restarts the whole
-// suite in place rather than the real berth CLI; #7's own fix shipped this
-// bug once already; see MainProcess and internal/cli's relocation tests.
+// Main is what every in-process test calls (golden_test.go and
+// wiring_test.go among them), and any of those may be the process running
+// `worktree remove` in-process. A go test binary handed a real Exec would
+// replace itself with a copy of itself and re-run with argv `worktree
+// remove --yes` — no -test.run filter — which restarts the whole suite in
+// place rather than the real berth CLI; #7's own fix shipped this bug once
+// already; see MainProcess and internal/cli's relocation tests.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv) int {
 	return runMain(args, stdin, stdout, stderr, getenv, nil, nil)
 }
@@ -105,12 +104,11 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 	return code
 }
 
-// report is src/cli/main.ts's report() plus the BERTH_DEBUG handling from
-// its final catch: an expected failure (clierr.Expected) prints its message
-// and, if it hid others, its cause and each suppressed error; anything else
+// report prints an expected failure (clierr.Expected)'s message and, if it
+// hid others, its cause and each suppressed error; anything else
 // additionally hints at BERTH_DEBUG unless it is already set. With debug on,
-// the error's cause chain is printed via Logger.Raw either way — the
-// accepted difference from a JavaScript stack trace, which Go does not have.
+// the error's cause chain is printed via Logger.Raw either way (see
+// errorChain).
 func report(console *logger.Console, getenv layout.Getenv, err error) {
 	console.Error(err.Error())
 	cause := errors.Unwrap(err)
@@ -136,7 +134,7 @@ func report(console *logger.Console, getenv layout.Getenv, err error) {
 }
 
 // isDebug is BERTH_DEBUG, trimmed and compared case-insensitively against
-// the same four spellings src/cli/main.ts accepts.
+// four accepted spellings.
 func isDebug(getenv layout.Getenv) bool {
 	raw, _ := getenv(brand.EnvPrefix + "_DEBUG")
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -147,12 +145,11 @@ func isDebug(getenv layout.Getenv) bool {
 	}
 }
 
-// errorChain is the accepted difference from src/cli/main.ts's
-// `console.error(printableLines(error.stack ?? error.message))`: Go has no
-// stack trace, so BERTH_DEBUG instead prints err's Unwrap chain, one line per
-// link with its Go type — still filtered the way logger.Console.Raw filters
-// everything else this tool prints. An expected failure with no cause is its
-// message alone, already printed, so it adds nothing and prints nothing.
+// errorChain is what BERTH_DEBUG prints in place of a stack trace: err's
+// Unwrap chain, one line per link with its Go type — still filtered the way
+// logger.Console.Raw filters everything else this tool prints. An expected
+// failure with no cause is its message alone, already printed, so it adds
+// nothing and prints nothing.
 func errorChain(err error) string {
 	if clierr.Expected(err) && errors.Unwrap(err) == nil {
 		return ""

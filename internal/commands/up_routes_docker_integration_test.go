@@ -7,15 +7,10 @@ package commands_test
 // subdomain, its services reaching each other by name over the worktree's
 // own network, an unmatched host on the same router still getting its own
 // 404, and doctor flagging a real second container that claims a worktree's
-// host. Ported from the routing and doctor blocks of
-// tests/integration/router-docker.integration.test.ts ("routes a worktree
-// by hostname over the shared network..." and "lets doctor read the running
-// router and its routes from Docker..."), which
-// internal/router/router_integration_test.go's own header notes were not
-// portable when WP3 landed: they needed the Compose backend's `up` (now
-// exercised end to end by this file's own newWalk-based sibling,
-// up_docker_integration_test.go) and the `doctor` port (now
-// internal/commands/doctor.go), both landed since.
+// host. These need both the Compose backend's `up` (exercised end to end by
+// this file's own newWalk-based sibling, up_docker_integration_test.go) and
+// `doctor` (internal/commands/doctor.go), so they live here rather than in
+// internal/router/router_integration_test.go.
 //
 // Assertions stick to what a user can observe through the router — a host
 // answers, an unmatched one 404s, one service reaches another by name — and
@@ -149,9 +144,8 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 	// unrelated route fragment claiming the worktree's own host. Under #55
 	// only a fragment claims a route at all — Traefik's Docker-provider
 	// discovery is gone, so a container's own labels do nothing — so this
-	// writes one directly rather than labelling a container, proving the
-	// same claim TypeScript's own "lets doctor read the running router..."
-	// case proved against Docker's labels.
+	// writes one directly rather than labelling a container, proving doctor
+	// reads a claimed route from the fragment itself.
 	impostorRepositoryID, impostorWorktreeID := "33333333-3333-3333-3333-333333333333", "44444444-4444-4444-4444-444444444444"
 	t.Cleanup(func() { _ = router.RemoveWorktreeFragments(w.state, impostorRepositoryID, impostorWorktreeID) })
 	impostorDoc := router.NewFragmentDocument("impostor", fmt.Sprintf("Host(`%s`)", host), "impostor", 8080)

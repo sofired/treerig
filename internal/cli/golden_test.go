@@ -2,18 +2,13 @@ package cli_test
 
 // Golden corpus for the CLI's parsing, help and top-level error reporting.
 // Every fixture under testdata/golden/<name>/ (stdout, stderr, exit) is a
-// plain, hand-maintained corpus now: it was originally captured from the
-// TypeScript build and replayed against cli.Main, but that build is gone, so
-// there is no oracle left to re-record from. Update a fixture by hand after
-// a change to the command tree, help wording or an error message, the same
-// way any other testdata file in this repository is updated, or — once
-// #46's cobra stage lands — by whatever re-recording process replaces
-// this one.
+// plain, hand-maintained corpus: update one by hand after a change to the
+// command tree, help wording or an error message, the same way any other
+// testdata file in this repository is updated.
 //
 // help-worktree, help-worktree-short, help-worktree-unlock,
 // help-cmd-worktree, help-cmd-worktree-remove, help-cmd-worktree-list and
-// bare-worktree show a surface only this build has: `worktree unlock
-// --registry`/`--router` (#21), which the TypeScript build never gained.
+// bare-worktree show `worktree unlock --registry`/`--router` (#21).
 //
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
@@ -139,12 +134,12 @@ var goldenCases = []goldenCase{
 	// invocation (full help to stderr, exit 1) rather than showing help.
 	{"config-eats-next-token", []string{"--config", "--help"}},
 
-	// --- cases that reach an actual (now-ported) command body, to prove
-	// --config really reaches commands.Env.ConfigPath for each of them.
-	// Their exact wording belongs to the work package that ported the
-	// command, not this one; they are included because the path is a
-	// literal, fixed argument (not derived from a temp directory or the
-	// test's own cwd), so the output stays deterministic across machines —
+	// --- cases that reach an actual command body, to prove --config really
+	// reaches commands.Env.ConfigPath for each of them. Their exact wording
+	// belongs to that command's own tests, not this one; they are included
+	// here because the path is a literal, fixed argument (not derived from
+	// a temp directory or the test's own cwd), so the output stays
+	// deterministic across machines —
 	// unlike, say, these same commands run with no --config at all, whose
 	// "no berth.toml" message would embed wherever this repository happens
 	// to be checked out. ---

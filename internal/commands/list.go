@@ -26,8 +26,7 @@ const (
 )
 
 // ListedRegistration is one row of `worktree list`. Field order is the JSON
-// key order `--json` prints, matching the TypeScript build's object-spread
-// order.
+// key order `--json` prints.
 type ListedRegistration struct {
 	RepositoryID   string        `json:"repositoryId"`
 	WorktreeID     string        `json:"worktreeId"`
@@ -53,8 +52,8 @@ func List(ctx context.Context, env *Env, options ListOptions) error {
 	return err
 }
 
-// ListWithContext is list.ts's `list`, operating directly on a
-// CommandContext so it can be tested without a config file on disk.
+// ListWithContext is `list`, operating directly on a CommandContext so it
+// can be tested without a config file on disk.
 func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOptions) ([]ListedRegistration, error) {
 	reg := cctx.Registry
 	repositoryID, present, err := reg.Identities.RepositoryID(ctx, reg.Identities.Root)
@@ -109,11 +108,10 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 			seenRoot, seenBranch = &identity.Root, &identity.Branch
 		} else if seen, err := card.ReadIndexCard(cctx.ControlHome, record.RepositoryID, record.WorktreeID); err == nil && seen != nil {
 			// A read error (as opposed to a genuinely absent card) is
-			// swallowed here rather than surfaced, matching list.ts's own
-			// readIndexCard call, which carries no error path at all: unlike
-			// the checkout index, which reports a read failure as Unknown
-			// rather than folding it into "no card", `list` has no per-row
-			// Unknown state to report one into, so the
+			// swallowed here rather than surfaced: unlike the checkout
+			// index, which reports a read failure as Unknown rather than
+			// folding it into "no card", `list` has no per-row Unknown
+			// state to report one into, so the
 			// worktree's root/branch simply stay unset for this row, same as
 			// if it had no card at all.
 			seenRoot, seenBranch = &seen.Root, &seen.Branch
@@ -172,9 +170,9 @@ func EmptyTable(all bool) string {
 	return "No worktrees are registered for this repository."
 }
 
-// describeBranchText is the table's word for a branch: a narrow port of
-// checkout-index/snapshot.ts's describeBranch, whose `.text` is the only
-// part a plain-text table has a use for.
+// describeBranchText is the table's word for a branch, the same wording
+// checkoutindex.DescribeBranch gives, whose `.Text` is the only part a
+// plain-text table has a use for.
 func describeBranchText(branch string) string {
 	if branch == "" {
 		return "(detached)"

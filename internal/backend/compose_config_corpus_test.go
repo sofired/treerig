@@ -8,9 +8,8 @@ import (
 
 // composeConfigCorpusCase is one entry of the hand-maintained
 // testdata/compose-config-corpus.json (its origin is in git history): a
-// `docker compose config --format json` document, plus whether the
-// TypeScript build's composeConfigSchema (run through the real, private
-// readModel) accepted it or the exact refusal message it gave.
+// `docker compose config --format json` document, plus whether berth's own
+// schema validation accepts it or the exact refusal message it gives.
 type composeConfigCorpusCase struct {
 	Name   string          `json:"name"`
 	Config json.RawMessage `json:"config"`
@@ -18,13 +17,12 @@ type composeConfigCorpusCase struct {
 	Error  string          `json:"error"`
 }
 
-// TestComposeConfigCorpus checks decodeOrderedComposeModel — this package's
-// port of readModel's schema validation — against every fixture in
-// testdata/compose-config-corpus.json: a malformed nested shape (a
-// non-object build, a wrongly typed expose or ports entry, an external
-// value zod's union has no room for) must be refused exactly as completely
-// as the TypeScript build refuses it, before overrideDocument ever sees the
-// data.
+// TestComposeConfigCorpus checks decodeOrderedComposeModel — berth's own
+// schema validation for a `docker compose config` document — against every
+// fixture in testdata/compose-config-corpus.json: a malformed nested shape
+// (a non-object build, a wrongly typed expose or ports entry, an external
+// value with no valid shape) must be refused completely before
+// overrideDocument ever sees the data.
 func TestComposeConfigCorpus(t *testing.T) {
 	data, err := os.ReadFile("testdata/compose-config-corpus.json")
 	if err != nil {

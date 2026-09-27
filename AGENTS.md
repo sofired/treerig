@@ -51,7 +51,7 @@ break them are not merged.
 - **Only the entry point reads the environment.** Library code receives argv
   names, the working directory and environment values as parameters.
 - **The frozen goldens are hand-maintained fixtures.**
-  `internal/cli/testdata/golden` and `internal/cli/testdata/parity` pin
+  `internal/cli/testdata/golden` and `internal/cli/testdata/output` pin
   exact CLI output; a difference from them is a change to review, not
   something to record elsewhere.
 - **Go style:** no naked returns; no spike markers, and every `TODO` names an

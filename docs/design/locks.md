@@ -1,10 +1,7 @@
 # Lock layer and process lifecycle
 
 `internal/lock`, `internal/procid`, `internal/run/osrun`, and `internal/lifecycle`
-implement berth's synchronization and process handling. They replace the
-TypeScript build's `operation-lock.ts`, `lock-recovery.ts`, `process-table.ts`,
-`process-runner.ts`, `signal-lifecycle.ts`, `commands/mutation.ts`, and
-`realProcess` in `commands/context.ts`.
+implement berth's synchronization and process handling.
 
 ## Design
 
@@ -22,7 +19,7 @@ directories, and the macOS birth-time workaround the heartbeat design needed.
 It also fixes four known bugs directly: #22 (a compromised lock did not
 cancel in-flight work), #23 (`down` did not defer signals), #24 (`forceExit`
 let an exit hook remove the lock directory), and #12 (the router lock was per
-control home): #39 ported the router onto this design, in its own state
+control home): #39 moved the router onto this design, in its own state
 directory rather than any control home, so every control home sharing that
 state directory now waits on the same lock instead of each holding its own.
 As of #80, that state directory is `<BERTH_HOME>/router` — the berth root,
@@ -97,7 +94,7 @@ BusyBox answers differently):
 - `/etc/machine-id`, then `/var/lib/dbus/machine-id`;
 - `readlink /proc/self/ns/pid` for the PID namespace;
 - a scan of `/proc/*/{cmdline,environ,ns/pid}`, honoring the same owner and
-  `hidepid` rules the TypeScript build used.
+  `hidepid` rules any unprivileged reader of `/proc` must.
 
 `Holding(dev, ino)` scans `/proc/*/fd/*` for descriptors on the lock file and
 lists the processes holding it. This is Linux-only.
@@ -147,8 +144,9 @@ tests skip there.
   writes anything — a running router whose label names another root. The
   way out is explicit: `router down`, which is never gated on ownership,
   stops it from any root, and the next root's `router up` starts its own.
-  A router carrying no label predates the check and is adopted; `doctor`
-  reports the owner read-only. What the label does not close is the cold
+  A router carrying no label is refused the same way, since this berth root
+  did not start it either; `doctor` reports the owner read-only. What the
+  label does not close is the cold
   start: two roots that each find no router running can still both go on
   to create the one container, since their locks are different files. A
   machine-wide lock target would close that; it is not this design. See
@@ -213,28 +211,14 @@ tests skip there.
 4. If the existing record has no `releasedAt`, judges the previous holder
    while still holding the flock: same machine or boot, same PID namespace,
    and whether its PID is absent, a zombie, or has been reused
-   (`judgeHolder`, ported from `lock-recovery.ts`). It then scans for the
-   previous holder's own processes still carrying the worktree's markers,
-   rescanning once after a second before concluding. On any doubt it
-   refuses, naming why the holder cannot be checked — never stealing the
-   lock. If the flock is free but the holder's identity checks say it is
-   still running (a stopped holder still holds the OS lock, so this is not
-   itself proof of anything broken) it looks again after a second, then
-   refuses, saying locking does not work on this filesystem.
-5. **TypeScript-era leftovers.** A `<target>.lock` directory is what the
-   TypeScript build's own lock looks like:
-   - if the TypeScript record inside `<target>` names a holder that is gone,
-     it is judged and scanned exactly as step 4, then the `.lock` directory
-     is removed and `<target>` is emptied, all while still holding the
-     flock;
-   - if that holder is judged alive, the acquire is refused, naming the
-     TypeScript build explicitly and explaining that this build cannot wait
-     on that build's locks;
-   - a `.lock` directory with no record inside `<target>` is refused
-     outright — a TypeScript berth takes its lock directory before writing
-     its record, so this could be a live holder caught mid-write, and the
-     two builds' locks cannot see each other to tell — with advice to
-     `rmdir` it once its absence is confirmed by hand.
+   (`judgeHolder`). It then scans for the previous holder's own processes
+   still carrying the worktree's markers, rescanning once after a second
+   before concluding. On any doubt it refuses, naming why the holder cannot
+   be checked — never stealing the lock. If the flock is free but the
+   holder's identity checks say it is still running (a stopped holder still
+   holds the OS lock, so this is not itself proof of anything broken) it
+   looks again after a second, then refuses, saying locking does not work on
+   this filesystem.
 
 **Held.**
 - `Release()` writes `releasedAt`, then closes the descriptor — never
@@ -257,11 +241,8 @@ tests skip there.
   operation lock first, at fd 3.
 - `Describe(scope, table)` is a read-only probe (`LOCK_SH|LOCK_NB`, then
   close at once) for `doctor`'s Locks section: held, unreleased-but-gone
-  ("recovered automatically the next time this lock is taken"), a
-  TypeScript build's `<target>.lock` directory and the holder that build
-  wrote into the target (a warning: this build cannot take the lock until
-  it is gone), or a `lock.Describe` read failure of its own ("could not be
-  checked"). A
+  ("recovered automatically the next time this lock is taken"), or a
+  `lock.Describe` read failure of its own ("could not be checked"). A
   shared lock, not the exclusive one `ProbeHeld`/`Clear` take below:
   `Describe` never mutates anything, so it only needs to prove nobody holds
   the flock exclusively, and a shared probe can run alongside another (a
@@ -275,10 +256,10 @@ tests skip there.
   with `--registry`/`--router`, the one machine-wide scope those flags name
   — `commands.UnlockGlobal`, #21), it holds each one's free flock through
   judging every holder, one shared marker survivor scan, and only then
-  committing each — marking a judged record's `releasedAt` and removing any
-  TypeScript-era `.lock` leftover — so a refusal on one scope (an alive
-  contradiction, doubt without `--holder-unverifiable`, or a survivor) never
-  leaves another already committed. A scope with no markers of its own (the
+  committing each — marking a judged record's `releasedAt` — so a refusal
+  on one scope (an alive contradiction, doubt without
+  `--holder-unverifiable`, or a survivor) never leaves another already
+  committed. A scope with no markers of its own (the
   registry lock, which guards only brief writes) skips the survivor scan
   outright and says so, rather than claiming a check that never ran. That
   scope's guarantee is narrower than a worktree's or the router's for
@@ -300,9 +281,8 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
   default) then sends SIGKILL to `-pgid`. `WaitDelay` is about 2 s, so a
   descendant holding the output pipe cannot hang `Wait`. Interactive
   children get no session and are signalled by their own PID.
-- Start failures use the message table ported word for word from the old
-  build: not on `PATH` or a missing `#!` interpreter exits 127; not
-  executable (`EACCES`) or not a valid
+- Start failures use a fixed message table: not on `PATH` or a missing `#!`
+  interpreter exits 127; not executable (`EACCES`) or not a valid
   executable (`ENOEXEC`, needs a `#!` line) exits 126; a working directory
   that does not exist or is not a directory exits 126, checked before the
   child ever starts (`os/exec` skips its own `Dir` check once
@@ -342,8 +322,8 @@ One lifecycle for the whole process, started once in `main`.
      expects; if it somehow survives that, it falls back to
      `os.Exit(128+n)`.
 - The action's own error is reported first; a release or quiesce failure
-  rides along as its `Cause` (if it had none) and always in `Suppressed`,
-  the same way the old build attached a lock-release failure.
+  rides along as its `Cause` (if it had none) and always in `Suppressed`, so
+  a lock that could not be released is never silent.
 
 ## Real-process tests
 
@@ -357,7 +337,7 @@ Go-to-Go inheritance chain; a daemon that closes its descriptors and carries
 no markers, which documents recovery's one blind spot; a hung holder; the
 contradiction case; SIGINT delivered mid-action and while waiting for a
 lock; an unquiesced action; a lock file replaced mid-hold; a waiter whose
-file was unlinked out from under it; every `osrun` exit code; the
-filesystem table; and a TypeScript-era leftover. The lock, lifecycle, and
-runner packages also pass at `-count=20 -race` on Linux; macOS CI runs them
-once with `-race` and once without cgo.
+file was unlinked out from under it; every `osrun` exit code; and the
+filesystem table. The lock, lifecycle, and runner packages also pass at
+`-count=20 -race` on Linux; macOS CI runs them once with `-race` and once
+without cgo.

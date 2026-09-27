@@ -27,7 +27,7 @@ import (
 )
 
 // composeNamespace is per file, so this suite's sweep can never touch
-// another suite's resources, matching the TypeScript integration suite's own rule.
+// another suite's resources.
 const composeNamespace = "dev.berth-test-compose"
 
 // composeFixture returns the absolute path to the shared compose.yaml

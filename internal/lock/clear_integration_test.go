@@ -1,10 +1,9 @@
 //go:build integration
 
-// Ported from tests/integration/worktree-unlock.integration.test.ts, title
-// for title: lock.Clear's proof against real processes and the real process
-// table of whichever platform runs it (/proc on Linux, ps on macOS). Lives
-// in the same lock_test package as integration_test.go — not a separate
-// package — so it can reuse that file's helper-process protocol (startHelper,
+// lock.Clear's proof against real processes and the real process table of
+// whichever platform runs it (/proc on Linux, ps on macOS). Lives in the
+// same lock_test package as integration_test.go — not a separate package —
+// so it can reuse that file's helper-process protocol (startHelper,
 // killPID, waitForGone, statFileID and the single TestMain that dispatches by
 // BERTH_LOCK_HELPER_ROLE) instead of duplicating it.
 package lock_test
@@ -189,14 +188,10 @@ func TestWorktreeUnlockAgainstRealProcesses(t *testing.T) {
 		}
 	})
 
-	// "leaves no record behind when its holder exits while holding it" has
-	// no literal Go counterpart: the flock design always leaves an
-	// unreleased record after any death, exit(2) included — there is no
-	// `.lock` directory to be absent, unlike TypeScript's heartbeat design.
-	// What still applies is that Clear
-	// judges an exited holder gone and clears it, exactly as it does a
-	// killed one — checked here through a different death path than "clears
-	// the lock of a holder killed outright" above.
+	// The flock design always leaves an unreleased record after any death,
+	// exit(2) included: Clear judges an exited holder gone and clears it,
+	// exactly as it does a killed one — checked here through a different
+	// death path than "clears the lock of a holder killed outright" above.
 	t.Run("leaves no record behind when its holder exits while holding it", func(t *testing.T) {
 		dir := t.TempDir()
 		target := filepath.Join(dir, "worktree")

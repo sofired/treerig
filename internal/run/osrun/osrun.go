@@ -1,8 +1,6 @@
 // Package osrun is the operating-system run.Runner: every subprocess berth
-// spawns for real goes through here. It is a port of src/process-runner.ts,
-// adapted to Go's process model — a session per child instead of Execa's
-// process-tree tracking, and our own SIGTERM-then-SIGKILL timer instead of
-// Execa's forceKillAfterDelay.
+// spawns for real goes through here — a session per child, and its own
+// SIGTERM-then-SIGKILL timer.
 package osrun
 
 import (
@@ -220,8 +218,8 @@ waitLoop:
 	return run.Finish(spec, result)
 }
 
-// checkDir ports the TypeScript build's own working-directory check, done up
-// front because a SysProcAttr on the child skips os/exec's.
+// checkDir is a working-directory check done up front because a
+// SysProcAttr on the child skips os/exec's.
 func checkDir(dir string) *run.StartError {
 	if dir == "" {
 		return nil
@@ -293,8 +291,7 @@ func pathEnv(env []string) string {
 
 // classifyExecError names what a Start failure discovered only at the real
 // exec(2) call — chiefly ENOEXEC, since resolveCommand already checked
-// existence and the execute bit. Ported word for word from
-// src/process-runner.ts:57-96's describeStartFailure.
+// existence and the execute bit.
 func classifyExecError(command string, err error) *run.StartError {
 	var errno syscall.Errno
 	if !errors.As(err, &errno) {

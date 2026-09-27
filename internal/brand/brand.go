@@ -71,9 +71,8 @@ const (
 )
 
 // Version is what `--version` prints. It stays "0.1.0" for a plain `go
-// build`, including in tests, which is what the golden corpus (recorded
-// from the TypeScript build's own package.json version) pins. The release
-// workflow overrides it at build time with the tag, via
+// build`, including in tests, which is what the golden corpus pins. The
+// release workflow overrides it at build time with the tag, via
 //
 //	-ldflags "-X github.com/sofired/berth/internal/brand.Version=<version>"
 //

@@ -2,8 +2,8 @@ package commands
 
 // The `index` verb (#41), and newCheckoutIndex, which every mutating verb
 // that must refresh the page afterward (`down`, `worktree remove`; `up`
-// takes an Index the same way it takes a Router, per WP5's own wiring) builds
-// its real checkoutindex.Service from.
+// takes an Index the same way it takes a Router) builds its real
+// checkoutindex.Service from.
 
 import (
 	"context"
@@ -96,9 +96,9 @@ func refreshIndexBestEffort(ctx context.Context, cctx *CommandContext, reason st
 }
 
 // RefreshIndex is `index`: refresh the machine-wide checkout index and print
-// it, the way src/cli/main.ts's own `index` command does. Unlike down and
-// worktree remove, a refresh newCheckoutIndex itself could not even start —
-// a symlinked router state directory, say — fails this command outright:
+// it. Unlike down and worktree remove, a refresh newCheckoutIndex itself
+// could not even start — a symlinked router state directory, say — fails
+// this command outright:
 // `index` exists to refresh and show the page, so silently skipping that
 // would leave it reporting success while doing nothing.
 func RefreshIndex(ctx context.Context, env *Env) error {

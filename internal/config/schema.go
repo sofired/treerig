@@ -14,9 +14,8 @@ import (
 // the other half is the hook protocol — so every field here is a
 // compatibility promise. Keep it small.
 //
-// Ported from src/config/schema.ts field for field, message for message; see
-// that file for the reasoning behind each shape. The struct this decodes
-// into, Config (config.go), carries the field order zod's own output uses.
+// The struct this decodes into, Config (config.go), carries a fixed field
+// order for `config show`'s own JSON output.
 
 var (
 	slugPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -42,8 +41,7 @@ const (
 	// can hold. Hardcoded rather than imported from that package: config is
 	// foundational and every command depends on it, while the checkout
 	// index is one feature among several that read it — the dependency
-	// belongs pointing the other way. This bound has no TypeScript
-	// equivalent — a new, deliberate Go-only limit.
+	// belongs pointing the other way. A deliberate limit of its own.
 	maxServiceEntries = 64
 )
 

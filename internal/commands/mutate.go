@@ -71,8 +71,8 @@ func Down(ctx context.Context, env *Env) error {
 }
 
 // DownWithContext stops the worktree's services. Data survives; `worktree
-// remove` is the destructive verb. Unlike the TypeScript build, `down` defers
-// signals like every other mutation (issue #23).
+// remove` is the destructive verb. `down` defers signals like every other
+// mutation (issue #23).
 func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	registration, err := cctx.requireRegistration(ctx)
 	if err != nil {
@@ -97,9 +97,8 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	}); err != nil {
 		return err
 	}
-	// Best effort, as src/commands/worktree.ts's own `down` does: a stale
-	// index is an inconvenience, a failed `down` because of it would not
-	// be. Prints nothing when the refresh succeeds.
+	// Best effort: a stale index is an inconvenience, a failed `down`
+	// because of it would not be. Prints nothing when the refresh succeeds.
 	refreshIndexBestEffort(ctx, cctx, "down")
 	cctx.Logger.Info(host + " is down.")
 	return nil

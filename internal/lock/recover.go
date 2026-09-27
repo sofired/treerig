@@ -2,7 +2,6 @@ package lock
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,10 +9,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/text"
 )
 
 // judgeDelay is how long the second look waits, both for a contradiction
@@ -22,8 +19,7 @@ import (
 const judgeDelay = 1 * time.Second
 
 // recoverPreviousHolder runs while this process already holds the flock: it
-// judges any record left by a holder that never released, and cleans up a
-// TypeScript-era leftover from before this lock was ported.
+// judges any record left by a holder that never released.
 func (l *Lock) recoverPreviousHolder() error {
 	rec, err := readRecord(l.recordPath())
 	if err != nil {
@@ -34,8 +30,7 @@ func (l *Lock) recoverPreviousHolder() error {
 			return err
 		}
 	}
-	_, _, _, err = l.recoverLegacyLeftover(false)
-	return err
+	return nil
 }
 
 // judgeAndHandle ports step 4 of the design: judge, refuse on doubt, and
@@ -51,14 +46,14 @@ func (l *Lock) judgeAndHandle(rec *Record, allowUnverifiable bool) (Verdict, err
 	}
 	hostname, _ := os.Hostname()
 
-	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, false)
+	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table)
 	if err != nil {
 		return Verdict{}, err
 	}
 
 	if verdict.Kind == Alive {
 		time.Sleep(judgeDelay)
-		verdict, err = judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, false)
+		verdict, err = judgeHolder(rec, l.fileID, self, hostname, l.opts.Table)
 		if err != nil {
 			return Verdict{}, err
 		}
@@ -88,34 +83,6 @@ func (l *Lock) withUnverifiableAdvice(reason string) string {
 	return reason + ". If you have made sure it, and every command it started on this machine, is gone, run this again with --holder-unverifiable"
 }
 
-// judgeLegacyHolder judges a TypeScript-era holder. Unlike a holder of this
-// build's own lock, one found alive is no contradiction: the TypeScript build
-// never takes the flock, so a free flock says nothing about it. It is simply
-// running, and this build cannot wait on its lock.
-func (l *Lock) judgeLegacyHolder(rec *Record, allowUnverifiable bool) (Verdict, error) {
-	self, err := l.opts.Table.Self()
-	if err != nil {
-		self = procid.Identity{}
-	}
-	hostname, _ := os.Hostname()
-	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, true)
-	if err != nil {
-		return Verdict{}, err
-	}
-	switch verdict.Kind {
-	case Alive:
-		return Verdict{}, l.legacyHolderAlive(verdict.Reason)
-	case Unverifiable:
-		if !allowUnverifiable {
-			return Verdict{}, l.refuse(l.withUnverifiableAdvice(verdict.Reason))
-		}
-	}
-	if err := l.scanSurvivors(); err != nil {
-		return Verdict{}, err
-	}
-	return verdict, nil
-}
-
 // refuseVerbOrDefault names the verb a refusal reports itself as failing to
 // do: refuseVerb when one was set (Clear sets "clearing"), "taking" for an
 // ordinary Lock.
@@ -142,27 +109,6 @@ func (l *Lock) aliveContradiction(reason string) error {
 	return clierr.Newf(
 		"The %s lock was free, but its record names a holder that still appears to be running (%s). "+
 			"Locking does not work on this filesystem; refusing to continue.", l.scope.Description, reason)
-}
-
-// legacyHolderAlive is the refusal judgeLegacyHolder and judgeLegacyForClear
-// both give when a TypeScript-era leftover names a holder still running:
-// this build's own lock cannot see a TypeScript build's, so it can only wait
-// it out. Shared so the Acquire and Clear paths cannot drift apart on its wording.
-func (l *Lock) legacyHolderAlive(reason string) error {
-	return clierr.Newf("Not %s the %s lock: a TypeScript build of %s holds it, and %s. "+
-		"This build cannot wait on that build's locks, so run this again once that command is done.",
-		l.refuseVerbOrDefault(), l.scope.Description, brand.Name, reason)
-}
-
-// legacyLockDirWithoutHolder is the refusal recoverLegacyLeftover and
-// judgeLegacyForClear both give when a TypeScript-era lock directory exists
-// but names no holder yet: a TypeScript build may be mid-way through taking
-// it, and the two builds' locks cannot see each other to tell. Shared so the
-// Acquire and Clear paths cannot drift apart on its wording.
-func (l *Lock) legacyLockDirWithoutHolder(lockDir string) error {
-	return clierr.Newf("Not %s the %s lock: %s exists but names no holder, so a TypeScript build of %s may be taking it right now. "+
-		"If none is running, remove it with `rmdir %s` and run this again.",
-		l.refuseVerbOrDefault(), l.scope.Description, text.Printable(lockDir), brand.Name, text.Printable(text.ShellQuote(lockDir)))
 }
 
 // scanSurvivors is the marker scan step 4 describes: rescanning once after a
@@ -212,109 +158,6 @@ func pluralIsAre(n int) string {
 	return "are"
 }
 
-// legacyRecord is the TypeScript build's holder-record shape, written
-// directly into the target file rather than a sidecar.
-type legacyRecord struct {
-	PID                int     `json:"pid"`
-	Host               string  `json:"host"`
-	Command            string  `json:"command"`
-	StartedAt          string  `json:"startedAt"`
-	MachineID          string  `json:"machineId"`
-	BootID             string  `json:"bootId"`
-	PIDNS              string  `json:"pidNs"`
-	StartTicks         *uint64 `json:"startTicks"`
-	ProcessStartedAtMs *int64  `json:"processStartedAtMs"`
-}
-
-// readLegacyRecord reads a TypeScript-era holder record written directly
-// into target. It returns (nil, nil) rather than an error for anything that
-// makes the record unusable — missing, empty, oversized, unparsable JSON, or
-// missing a PID or host — since a leftover in that state is worth ignoring,
-// not failing on; only an I/O error other than "not exist" is returned.
-func readLegacyRecord(target string) (*Record, error) {
-	info, err := os.Stat(target)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if info.Size() == 0 || info.Size() > recordMaxBytes {
-		return nil, nil
-	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		return nil, nil
-	}
-	var raw legacyRecord
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, nil
-	}
-	if raw.PID <= 0 || raw.Host == "" {
-		return nil, nil
-	}
-	rec := &Record{
-		PID: raw.PID, Host: raw.Host, Command: raw.Command,
-		MachineID: raw.MachineID, BootID: raw.BootID, PIDNS: raw.PIDNS, StartTicks: raw.StartTicks,
-	}
-	if t, err := time.Parse(time.RFC3339Nano, raw.StartedAt); err == nil {
-		rec.StartedAt = t
-	}
-	if raw.ProcessStartedAtMs != nil {
-		us := *raw.ProcessStartedAtMs * 1_000
-		rec.StartUs = &us
-	}
-	return rec, nil
-}
-
-// recoverLegacyLeftover cleans up a pre-port `<target>.lock` directory and
-// the holder record the old build wrote inside `<target>` itself — counted
-// as "not released" the same way an unreleased sidecar record is, judged and
-// scanned the same way, then removed while still holding the flock. Reports
-// whether it found and cleared anything, and the verdict lines Clear reports
-// as proof; recoverPreviousHolder ignores both, since it is not reporting a
-// proof to anyone.
-func (l *Lock) recoverLegacyLeftover(allowUnverifiable bool) (cleared bool, verified, unverified []string, err error) {
-	lockDir := l.scope.Target + ".lock"
-	info, statErr := os.Lstat(lockDir)
-	if statErr != nil {
-		if os.IsNotExist(statErr) {
-			return false, nil, nil, nil
-		}
-		return false, nil, nil, statErr
-	}
-	if !info.IsDir() {
-		return false, nil, nil, nil // not what a TypeScript leftover looks like; leave it alone
-	}
-	legacy, readErr := readLegacyRecord(l.scope.Target)
-	if readErr != nil {
-		return false, nil, nil, readErr
-	}
-	if legacy == nil {
-		// A TypeScript berth takes its lock directory first and writes its
-		// record a moment later; one that died in between leaves the same
-		// sight. Taking the lock now could run beside a live one, and the
-		// two builds' locks cannot see each other, so refuse either way.
-		return false, nil, nil, l.legacyLockDirWithoutHolder(lockDir)
-	}
-	verdict, err := l.judgeLegacyHolder(legacy, allowUnverifiable)
-	if err != nil {
-		return false, nil, nil, err
-	}
-	if verdict.Kind == Unverifiable {
-		unverified = append(unverified, verdict.Reason)
-	} else {
-		verified = append(verified, verdict.Reason)
-	}
-	if err := os.Remove(lockDir); err != nil && !os.IsNotExist(err) {
-		return false, nil, nil, err
-	}
-	if err := os.WriteFile(l.scope.Target, nil, 0o600); err != nil {
-		return false, nil, nil, err
-	}
-	return true, verified, unverified, nil
-}
-
 /* --------------------------------------------------------------- Clear --- */
 
 // ClearOptions configures Clear.
@@ -350,8 +193,7 @@ func (o ClearOptions) withDefaults() ClearOptions {
 // ScopeResult is what Clear found and did for one of its scopes.
 type ScopeResult struct {
 	Scope Scope
-	// Cleared is true when this scope had something to clear: an unreleased
-	// record, a TypeScript-era leftover, or both.
+	// Cleared is true when this scope had an unreleased record to clear.
 	Cleared bool
 	// Verified is what was proven gone.
 	Verified []string
@@ -396,7 +238,7 @@ func (l *Lock) judgeForClear(ctx context.Context, rec *Record, allowUnverifiable
 	}
 	hostname, _ := os.Hostname()
 
-	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, false)
+	verdict, err := judgeHolder(rec, l.fileID, self, hostname, l.opts.Table)
 	if err != nil {
 		return Verdict{}, err
 	}
@@ -404,7 +246,7 @@ func (l *Lock) judgeForClear(ctx context.Context, rec *Record, allowUnverifiable
 		if err := clearSleep(ctx, judgeDelay); err != nil {
 			return Verdict{}, err
 		}
-		verdict, err = judgeHolder(rec, l.fileID, self, hostname, l.opts.Table, false)
+		verdict, err = judgeHolder(rec, l.fileID, self, hostname, l.opts.Table)
 		if err != nil {
 			return Verdict{}, err
 		}
@@ -416,54 +258,6 @@ func (l *Lock) judgeForClear(ctx context.Context, rec *Record, allowUnverifiable
 		return Verdict{}, l.refuse(l.withUnverifiableAdvice(verdict.Reason))
 	}
 	return verdict, nil
-}
-
-// judgeLegacyForClear is recoverLegacyLeftover's own judging, split the same
-// way judgeForClear splits judgeAndHandle: it reports what it found and
-// judged, but neither scans for survivors nor removes anything — Clear does
-// both only once every scope in the batch has judged clean. ok is false when
-// there was no TypeScript-era leftover to judge at all.
-func (l *Lock) judgeLegacyForClear(allowUnverifiable bool) (legacy *Record, verdict Verdict, ok bool, err error) {
-	lockDir := l.scope.Target + ".lock"
-	info, statErr := os.Lstat(lockDir)
-	if statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, Verdict{}, false, nil
-		}
-		return nil, Verdict{}, false, statErr
-	}
-	if !info.IsDir() {
-		return nil, Verdict{}, false, nil // not what a TypeScript leftover looks like; leave it alone
-	}
-	legacy, readErr := readLegacyRecord(l.scope.Target)
-	if readErr != nil {
-		return nil, Verdict{}, false, readErr
-	}
-	if legacy == nil {
-		// A TypeScript berth takes its lock directory first and writes its
-		// record a moment later; one that died in between leaves the same
-		// sight. Taking the lock now could run beside a live one, and the
-		// two builds' locks cannot see each other, so refuse either way.
-		return nil, Verdict{}, false, l.legacyLockDirWithoutHolder(lockDir)
-	}
-	self, selfErr := l.opts.Table.Self()
-	if selfErr != nil {
-		self = procid.Identity{}
-	}
-	hostname, _ := os.Hostname()
-	verdict, err = judgeHolder(legacy, l.fileID, self, hostname, l.opts.Table, true)
-	if err != nil {
-		return nil, Verdict{}, false, err
-	}
-	switch verdict.Kind {
-	case Alive:
-		return nil, Verdict{}, false, l.legacyHolderAlive(verdict.Reason)
-	case Unverifiable:
-		if !allowUnverifiable {
-			return nil, Verdict{}, false, l.refuse(l.withUnverifiableAdvice(verdict.Reason))
-		}
-	}
-	return legacy, verdict, true, nil
 }
 
 // heldRefusal is the refusal Clear and ProbeHeld give for a scope whose
@@ -478,32 +272,28 @@ func (l *Lock) heldRefusal(fileID FileID) error {
 
 // clearScope is one scope Clear is holding the flock of, judged but not yet committed.
 type clearScope struct {
-	scope         Scope
-	file          *os.File
-	fileID        FileID
-	l             *Lock
-	rec           *Record
-	recVerdict    Verdict
-	legacy        *Record
-	legacyVerdict Verdict
+	scope      Scope
+	file       *os.File
+	fileID     FileID
+	l          *Lock
+	rec        *Record
+	recVerdict Verdict
 }
 
 // Clear is the core of `worktree unlock`: given every stale lock a target
 // might have (a worktree's operation and development scopes, or, with
 // --registry or --router, the one machine-wide scope named — #21), it
 // probes each one's flock in turn, refusing at once — nothing committed
-// anywhere —
-// if any is held; otherwise it holds every one of them through judging every
-// holder, one combined survivor scan, and finally committing each scope,
-// so nothing else can reclaim a scope while another is still being judged.
+// anywhere — if any is held; otherwise it holds every one of them through
+// judging every holder, one combined survivor scan, and finally committing
+// each scope, so nothing else can reclaim a scope while another is still
+// being judged.
 //
 // Judging never commits: only once every scope in the batch — every record,
-// every TypeScript-era leftover, and the one shared survivor scan — has
-// judged clean does Clear mark anything released, exactly as
-// src/operation-lock.ts's clearStaleWorktreeLocks verifies every stale lock
-// together before clearing any (tests/unit/operation-lock.test.ts:155,
-// "preserves a stale operation lock when its recovery guard fails"). A scope
-// with nothing unreleased and no leftover simply reports Cleared false.
+// and the one shared survivor scan — has judged clean does Clear mark
+// anything released, so a stale lock is preserved whenever any scope's
+// recovery guard fails. A scope with nothing unreleased simply reports
+// Cleared false.
 //
 // A failure during commit itself — a write that fails after an earlier
 // scope's own commit already succeeded — still returns every ScopeResult
@@ -524,19 +314,7 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 			if !os.IsNotExist(err) {
 				return ClearResult{}, err
 			}
-			// Never taken by this build. A TypeScript build's lock directory
-			// can still be there, taken before it wrote the target; that is
-			// judgeLegacyForClear's no-holder case, so refuse the same way
-			// rather than report nothing to clear and leave it behind.
-			lockDir := scope.Target + ".lock"
-			if info, statErr := os.Lstat(lockDir); statErr == nil && info.IsDir() {
-				l := New(scope, Options{Table: opts.Table, Clock: opts.Clock})
-				l.refuseVerb = "clearing"
-				return ClearResult{}, l.legacyLockDirWithoutHolder(lockDir)
-			} else if statErr != nil && !os.IsNotExist(statErr) {
-				return ClearResult{}, statErr
-			}
-			continue // nothing to hold, judge or clear
+			continue // never taken; nothing to hold, judge or clear
 		}
 		fileID, err := fstatID(file)
 		if err != nil {
@@ -563,9 +341,9 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 		return ClearResult{}, nil
 	}
 
-	// Phase 1: judge every scope's record and TypeScript-era leftover.
-	// Nothing is committed here, so a refusal on any one leaves every
-	// scope — including this one — exactly as it was.
+	// Phase 1: judge every scope's record. Nothing is committed here, so a
+	// refusal on any one leaves every scope — including this one — exactly
+	// as it was.
 	for _, h := range held {
 		rec, err := readRecord(h.l.recordPath())
 		if err != nil {
@@ -579,22 +357,15 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 			}
 			h.rec, h.recVerdict = rec, verdict
 		}
-		legacy, legacyVerdict, ok, err := h.l.judgeLegacyForClear(opts.AllowUnverifiable)
-		if err != nil {
-			return ClearResult{}, err
-		}
-		if ok {
-			h.legacy, h.legacyVerdict = legacy, legacyVerdict
-		}
 	}
 
 	// Phase 1.5: one shared survivor scan, still before any commit — but only
-	// when some scope has a record or leftover to clear. With nothing to
-	// clear, a survivor or hidden process would refuse a lock that is
-	// already released, just as recoverPreviousHolder never scans for one.
+	// when some scope has a record to clear. With nothing to clear, a
+	// survivor or hidden process would refuse a lock that is already
+	// released, just as recoverPreviousHolder never scans for one.
 	proof := ""
 	for _, h := range held {
-		if h.rec != nil || h.legacy != nil {
+		if h.rec != nil {
 			var err error
 			if proof, err = scanSurvivorsAcross(ctx, held, opts); err != nil {
 				return ClearResult{}, err
@@ -625,23 +396,6 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 			}
 			sr.Cleared = true
 		}
-		if h.legacy != nil {
-			if h.legacyVerdict.Kind == Unverifiable {
-				sr.Unverified = append(sr.Unverified, h.legacyVerdict.Reason)
-			} else {
-				sr.Verified = append(sr.Verified, h.legacyVerdict.Reason)
-			}
-			lockDir := h.scope.Target + ".lock"
-			if err := os.Remove(lockDir); err != nil && !os.IsNotExist(err) {
-				result.Scopes = append(result.Scopes, sr)
-				return result, err
-			}
-			if err := os.WriteFile(h.scope.Target, nil, 0o600); err != nil {
-				result.Scopes = append(result.Scopes, sr)
-				return result, err
-			}
-			sr.Cleared = true
-		}
 		if sr.Cleared {
 			anyCleared = true
 		}
@@ -653,9 +407,9 @@ func Clear(ctx context.Context, scopes []Scope, opts ClearOptions) (ClearResult,
 	return result, nil
 }
 
-// scanSurvivorsAcross is the one combined process-table scan
-// src/lock-recovery.ts's verify() makes for a whole worktree's stale locks:
-// once, using whichever held scope's markers are set (every scope Clear is
+// scanSurvivorsAcross is the one combined process-table scan for a whole
+// worktree's stale locks: once, using whichever held scope's markers are set
+// (every scope Clear is
 // ever given for one worktree, or the router lock, shares them), rescanning
 // after judgeDelay so something just finishing is not mistaken for a
 // survivor. Refuses (nothing committed) if it finds one, or if other users'

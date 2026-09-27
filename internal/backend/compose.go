@@ -34,13 +34,13 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
-// Docker-call timeouts (#14): the TypeScript build set none of these either,
-// apart from `up`'s own `--wait-timeout` flag (Options.WaitTimeoutSeconds),
-// which bounds only `up --wait`'s health-check wait — not the request even
-// reaching Docker. Every introspection call — `compose config`, `compose
-// ps`, and Inventory's own `ps`/`ls`/`inspect` per resource kind — is timed
-// the same as doctor.ts's own docker inspect probes (DOCKER_PROBE_TIMEOUT_MS)
-// and the router's own precedent (internal/router/router.go): 30s. Reap's
+// Docker-call timeouts (#14): apart from `up`'s own `--wait-timeout` flag
+// (Options.WaitTimeoutSeconds), which bounds only `up --wait`'s
+// health-check wait — not the request even reaching Docker — nothing else
+// bounds a Docker call by default. Every introspection call — `compose
+// config`, `compose ps`, and Inventory's own `ps`/`ls`/`inspect` per
+// resource kind — is timed the same as doctor's own docker probes and the
+// router's own precedent (internal/router/router.go): 30s. Reap's
 // removal of one resource gets a minute, the same generous room the
 // router's own `compose down` gets for a slow teardown — plenty even on
 // slow storage for a
@@ -114,10 +114,8 @@ type Options struct {
 	// RouterNetwork is the shared router's network; routed services join it.
 	RouterNetwork string
 	// WaitTimeoutSeconds is how long `up --wait` waits for health before
-	// failing; nil uses DefaultWaitTimeoutSeconds. A pointer, matching
-	// TypeScript's own `options.waitTimeoutSeconds ?? DEFAULT...`: `??` only
-	// substitutes the default for null or undefined, so an explicit 0 (unlike
-	// a plain zero-value int) is not mistaken for "unset".
+	// failing; nil uses DefaultWaitTimeoutSeconds. A pointer so an explicit
+	// 0 (unlike a plain zero-value int) is not mistaken for "unset".
 	WaitTimeoutSeconds *int
 	// Timeouts overrides this runtime's per-call docker timeouts (#14).
 	Timeouts Timeouts
@@ -280,7 +278,7 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	for name := range config.Services {
 		names = append(names, name)
 	}
-	// JavaScript's default sort, as the TypeScript build lists them.
+	// JavaScript's default sort: berth lists service names in this order.
 	slices.SortFunc(names, text.CompareUTF16)
 	statuses := make([]worktree.ServiceStatus, len(names))
 	for i, name := range names {

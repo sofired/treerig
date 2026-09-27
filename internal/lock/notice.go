@@ -12,7 +12,7 @@ import (
 )
 
 // formatDuration is 4s, 12m 30s, 2h 5m, 3d 4h — what a person at a terminal
-// wants. Ported unchanged from src/operation-lock.ts's formatDuration.
+// wants.
 func formatDuration(d time.Duration) string {
 	seconds := int64(math.Round(d.Seconds()))
 	if seconds < 0 {
@@ -71,10 +71,10 @@ func (l *Lock) holdingProcs(fileID FileID) []procid.Proc {
 	return procs
 }
 
-// advice is what a waiter should know, and — kept from before this lock was
-// ported to flock(2), because a stopped holder still keeps the OS lock
-// exactly as a running one does — what to do about a holder judged stopped.
-// It names the holder and, on Linux, the processes still holding the lock,
+// advice is what a waiter should know, including — because a stopped
+// holder still keeps the OS lock exactly as a running one does — what to do
+// about a holder judged stopped. It names the holder and, on Linux, the
+// processes still holding the lock,
 // with kill -CONT/kill <pid> advice; it carries no heartbeat age ("last
 // heartbeat"/"so it is alive" language) because flock(2) proves a holder
 // alive or gone the instant it is probed, no staleness confirmation across

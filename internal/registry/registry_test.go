@@ -14,8 +14,8 @@ import (
 
 // registryFixture is a hermetic world for Registry tests: a fake Git runner
 // and a real filesystem control home, but never the (locked) write path —
-// registrations are built with registrytest.Register, which mirrors the
-// TypeScript unit suite's own raw-fixture registrations.
+// registrations are built with registrytest.Register, a raw fixture write
+// straight to disk.
 type registryFixture struct {
 	base, controlHome, root, common string
 	git                             *registrytest.GitRunner

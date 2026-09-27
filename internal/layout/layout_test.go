@@ -99,9 +99,8 @@ func TestControlHomeResolution(t *testing.T) {
 }
 
 // collectPathFields walks a layout struct (including its embedded structs)
-// and returns every string field's value, the way the TypeScript test's
-// `Object.entries(layout)` sees every property regardless of which layer of
-// the (spread-composed) layout object declared it.
+// and returns every string field's value, regardless of which layer of the
+// (embedding-composed) layout struct declared it.
 func collectPathFields(v reflect.Value, out map[string]string) {
 	t := v.Type()
 	for i := 0; i < v.NumField(); i++ {

@@ -10,9 +10,9 @@ import (
 )
 
 // RecordJSON is the on-disk shape of a registry record, exported for fixture
-// construction. It mirrors the TypeScript test suite's own raw `writeFile`
-// fixtures for records that test does not create via the (locked) write
-// path — the same trick this package's WriteRecord plays.
+// construction: a raw write straight to disk, for records that test does
+// not create via the (locked) write path — the same trick this package's
+// WriteRecord plays.
 type RecordJSON struct {
 	Version        int     `json:"version"`
 	RepositoryID   string  `json:"repositoryId"`
@@ -25,9 +25,8 @@ type RecordJSON struct {
 
 // WriteRecord writes a fixture registry record directly to disk, bypassing
 // the registry lock. This build has no Ensure (only `up` creates records), so
-// tests that need a registration on disk build one by hand here — exactly
-// what the TypeScript suite's own raw `writeFile` fixtures do for a record
-// "from another repository".
+// tests that need a registration on disk — a record "from another
+// repository", say — build one by hand here.
 func WriteRecord(controlHome string, rec RecordJSON) (string, error) {
 	file := filepath.Join(registry.RegistryDirectory(controlHome, rec.RepositoryID), rec.WorktreeID+".json")
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {

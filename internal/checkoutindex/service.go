@@ -1,10 +1,9 @@
 package checkoutindex
 
 // The service that ties this package's pure snapshot and render logic to
-// disk, Docker, and the router's own lock: what src/checkout-index/
-// service.ts's CheckoutIndexService is on the TypeScript side (#41). It
-// regenerates the page after every lifecycle verb, best-effort: a stale
-// index is an inconvenience, a failed `up` because of it would not be.
+// disk, Docker, and the router's own lock (#41). It regenerates the page
+// after every lifecycle verb, best-effort: a stale index is an
+// inconvenience, a failed `up` because of it would not be.
 
 import (
 	"context"
@@ -26,16 +25,17 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
-// defaultInventoryTimeout bounds one `docker ps` call: 30s, matching
-// doctor.ts's own DOCKER_PROBE_TIMEOUT_MS for the same kind of introspection
-// call, and the same 30s every other docker call this port makes for an
-// introspection call (internal/backend/compose.go's own timeouts comment).
-// Overridable per Service (Options.InventoryTimeout) for a test that
-// wants to observe the bound itself without actually waiting on it.
+// defaultInventoryTimeout bounds one `docker ps` call: 30s, the same bound
+// doctor uses for the same kind of introspection call, and the same 30s
+// every other introspection docker call this codebase makes
+// (internal/backend/compose.go's own timeouts comment). Overridable per
+// Service (Options.InventoryTimeout) for a test that wants to observe the
+// bound itself without actually waiting on it.
 const defaultInventoryTimeout = 30 * time.Second
 
-// defaultLockTimeout is service.ts's own INDEX_LOCK_TIMEOUT_MS: the index is
-// best-effort, so a daemon that will not answer must not hold the router
+// defaultLockTimeout bounds how long a refresh waits for the router lock:
+// the index is best-effort, so a daemon that will not answer must not hold
+// the router
 // lock for lock.RouterTimeout's full 20 minutes — that budget is sized for
 // router.Ensure's own worst case (a first start, a recreate, every probe
 // around them), not for a refresh that only ever runs after something else
@@ -110,8 +110,8 @@ type Options struct {
 	// CardConcurrency bounds concurrent card reads (#18); zero uses defaultCardConcurrency.
 	CardConcurrency int
 	// LockTimeout bounds how long Refresh waits for the router lock; zero
-	// uses defaultLockTimeout (service.ts's INDEX_LOCK_TIMEOUT_MS), never
-	// lock.RouterTimeout — see defaultLockTimeout's own comment.
+	// uses defaultLockTimeout, never lock.RouterTimeout — see
+	// defaultLockTimeout's own comment.
 	LockTimeout time.Duration
 	// InventoryTimeout bounds one `docker ps` call; zero uses defaultInventoryTimeout.
 	InventoryTimeout time.Duration
@@ -279,9 +279,8 @@ func (s *Service) namespaces(reads []cardRead) []string {
 // named, the reason it could not answer (Docker unavailable, a non-zero
 // exit, a timeout, or an inventory line it could not parse), or a genuine
 // error that must abort the whole refresh rather than read as "Docker could
-// not be asked" — a cancellation, most pointedly, which service.ts's own
-// inventory() lets through unchanged rather than folding into its string
-// return.
+// not be asked" — a cancellation, most pointedly, which is let through
+// unchanged rather than folded into its string return.
 func (s *Service) inventory(ctx context.Context, namespace string) (records []ContainerRecord, reason string, err error) {
 	format := strings.Join([]string{
 		"{{.State}}", "{{.Status}}",
@@ -320,10 +319,9 @@ type containerAnswer struct {
 	reason  string
 }
 
-// containers asks Docker about every namespace concurrently — service.ts's
-// own containers() does the same with Promise.all — returning the merged
-// inventory or the first failure reported, in namespace order, however many
-// namespaces there were. errgroup.WithContext cancels every other namespace's
+// containers asks Docker about every namespace concurrently, returning the
+// merged inventory or the first failure reported, in namespace order,
+// however many namespaces there were. errgroup.WithContext cancels every other namespace's
 // still-running `docker ps` the moment one inventory() call returns a real
 // error (Docker unavailable is not one: inventory() already turns that into
 // a reason string, not an error), so a genuine failure — most pointedly the

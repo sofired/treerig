@@ -1,7 +1,6 @@
 package router_test
 
-// Go-only, per #55: no TypeScript `it` to mirror — ConnectNetwork and
-// DisconnectNetwork are new in the Go build. Exercised end to end (a real
+// ConnectNetwork and DisconnectNetwork, added by #55. Exercised end to end (a real
 // daemon) by router_integration_test.go's
 // TestRouterReconnectsLabelledWorktreeNetworks; these are the unit-level
 // cases for the tolerance regexes themselves, found by review to have no

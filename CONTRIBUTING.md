@@ -64,7 +64,7 @@ go vet -tags integration ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags integration ./...
 go test -race ./...                                         # unit
-go test -race -tags integration ./...                        # real git, processes, signals, Docker, parity
+go test -race -tags integration ./...                        # real git, processes, signals, Docker, goldens
 CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -tags integration ./...
 ```
 
@@ -74,11 +74,11 @@ behaves (an extra thread, notably), and releases build with it disabled.
 (`internal/cli/streams_integration_test.go`'s `TestStreamsContract`), against
 a binary it builds itself.
 
-`internal/cli/testdata/golden/` and `internal/cli/testdata/parity/` are
+`internal/cli/testdata/golden/` and `internal/cli/testdata/output/` are
 plain, hand-maintained fixture corpora: update a fixture by hand after a
 change to the command tree, help wording or an error message, the same way
 any other testdata file in this repository is updated. See golden_test.go's
-and parity_integration_test.go's own package comments.
+and output_integration_test.go's own package comments.
 
 **Go style,** beyond gofmt, go vet, and staticcheck:
 - No naked returns — a function with named results still returns them

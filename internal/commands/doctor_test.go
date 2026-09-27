@@ -70,10 +70,9 @@ func withDoctorDocker(w *commandstest.World, engineVersion, composeVersion strin
 }
 
 // writeCheckoutConfig writes a minimal real berth.toml to root — doctor
-// reads the checkout's config straight from disk (findConfigFile/loadConfig
-// in TypeScript), unlike every other command's tests, which build a
-// commandstest.World's config.Loaded by hand and never touch the file
-// findConfigFile would find.
+// reads the checkout's config straight from disk (findConfigFile/config.Load),
+// unlike every other command's tests, which build a commandstest.World's
+// config.Loaded by hand and never touch the file findConfigFile would find.
 func writeCheckoutConfig(t *testing.T, root, domain, verify string) {
 	t.Helper()
 	name := strings.TrimSuffix(domain, ".localhost")
@@ -130,10 +129,9 @@ func runDoctor(t *testing.T, env *commands.Env) (int, string, *logger.Recording)
 }
 
 func TestDoctor(t *testing.T) {
-	// TypeScript's Prerequisites section checks Node.js against
-	// package.json's engines range; the Go build has no runtime version of
-	// its own to check, and drops that check entirely rather than reporting
-	// on something that does not exist.
+	// There is no Go runtime version of its own to check, so the
+	// Prerequisites section drops that check entirely rather than
+	// reporting on something that does not exist.
 	t.Run("never checks a Node.js version", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
@@ -145,7 +143,7 @@ func TestDoctor(t *testing.T) {
 		}
 	})
 
-	t.Run("reports the section titles in TypeScript's order", func(t *testing.T) {
+	t.Run("reports the section titles in order", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
 		env := doctorEnv(t, w, w.Root)

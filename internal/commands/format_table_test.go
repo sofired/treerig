@@ -7,9 +7,8 @@ import (
 )
 
 // TestFormatTable pins the exact column alignment against literal expected
-// lines, the way worktree-list.test.ts's own printed-table assertions do —
-// using fixed, short strings so the widths are deterministic, unlike a
-// worktree's real (variable-length) temp-directory root.
+// lines, using fixed, short strings so the widths are deterministic, unlike
+// a worktree's real (variable-length) temp-directory root.
 func TestFormatTable(t *testing.T) {
 	branch := func(s string) *string { return &s }
 	root := func(s string) *string { return &s }

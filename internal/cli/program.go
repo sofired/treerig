@@ -8,16 +8,16 @@ import (
 	"github.com/sofired/berth/internal/commands"
 )
 
-// buildProgram assembles the command tree src/cli/main.ts defines, verb for
-// verb, in the same order and with the same descriptions, arguments and
-// options — so help.go's rendering and suggest.go's candidates come out
-// identical to the TypeScript build's. See internal/cli's package comment
-// for how this differs from actually depending on commander.
+// buildProgram assembles this binary's own command tree, verb for verb, in
+// order, with each verb's descriptions, arguments and options, so help.go's
+// rendering and suggest.go's candidates come out consistent. See
+// internal/cli's package comment for how this differs from actually
+// depending on commander.
 //
 // A fresh tree is built on every call (rather than kept as a package-level
 // singleton) because node.values is mutated during parsing: cli.Main may run
-// many times in one process, in tests, and each run needs to start clean —
-// the way a new `new Command()` per process does for the TypeScript build.
+// many times in one process, in tests, and each run needs to start clean,
+// the way a new `new Command()` per process would.
 func buildProgram(commandName, version string) *node {
 	root := newCommand(commandName, "Give every Git worktree a durable identity, an isolated home, and a routed URL.")
 	root.setVersion(version)

@@ -11,10 +11,8 @@ import (
 )
 
 func TestRouterServiceVerify(t *testing.T) {
-	// Ported from the 19-row tampering table, tests/unit/router.test.ts:599-619
-	// (WP3 (#39) and #55 have since dropped the four docker-api rows: there is
-	// no docker-api container any more), plus one #55 adds of its own — "an
-	// unlabelled foreign network" — for a net 16 rows.
+	// One row per way a running container can differ from what the stack
+	// asked for; each must be reported.
 	tampering := []struct {
 		name     string
 		tamper   func(routerDoc, indexDoc *router.ContainerInspect)

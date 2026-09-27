@@ -1,10 +1,10 @@
-// Package checkoutindex is the port of src/checkout-index/{snapshot,render,
-// service}.ts: registry records + cards + Git identities + a container
-// inventory in, one sorted snapshot out, and the HTML and plain-text pages
-// rendered from it. snapshot.go and render.go are pure, so every state a row
-// can be in is reachable from a unit test; service.go is what runs the
-// `docker ps` call that produces a []ContainerRecord and ties this package
-// to disk and the router lock (#41).
+// Package checkoutindex builds the checkout index: registry records + cards
+// + Git identities + a container inventory in, one sorted snapshot out, and
+// the HTML and plain-text pages rendered from it. snapshot.go and render.go
+// are pure, so every state a row can be in is reachable from a unit test;
+// service.go is what runs the `docker ps` call that produces a
+// []ContainerRecord and ties this package to disk and the router lock
+// (#41).
 package checkoutindex
 
 import (
@@ -51,8 +51,7 @@ type IndexEntry struct {
 	Host         string
 	// Branch is the branch checked out; nil when nothing knows (no live Git
 	// identity and no card), and a pointer to "" for a detached HEAD — an
-	// answer in its own right, exactly as the TypeScript build's optional
-	// `branch?: string` distinguishes "absent" from "empty".
+	// answer in its own right, distinguishing "absent" from "empty".
 	Branch *string
 	// Root is last seen; empty and absent mean the same thing here, since a
 	// root is a path, so it needs no pointer the way Branch does.
@@ -424,10 +423,11 @@ func anyContainerAvailable(owned []ContainerRecord, service string) bool {
 // runs anyway, since buildSnapshot is also exercised directly with cards
 // built in memory that skip that validation.
 //
-// TypeScript parses with the WHATWG `URL.parse`, which normalizes several
-// things Go's net/url does not; internal/checkoutindex/testdata/url-filter.json,
-// a hand-maintained fixture recorded through the real buildSnapshot, is
-// what proves each of the following, rather than a comment asserting it:
+// This filter is meant to match the WHATWG `URL.parse` standard, which
+// normalizes several things Go's net/url does not;
+// internal/checkoutindex/testdata/url-filter.json, a hand-maintained
+// fixture recorded through the real buildSnapshot, is what proves each of
+// the following, rather than a comment asserting it:
 //   - scheme is lower-cased ("HTTP:" -> "http:"): net/url already does this,
 //     since url.Parse's Scheme field is normalized to lower case.
 //   - hostname is lower-cased ("Feature-A.Acme" -> "feature-a.acme"): net/url
@@ -474,10 +474,10 @@ func serviceBelongsToHost(rawURL, host string, routerPort int) bool {
 	return hostname == host || strings.HasSuffix(hostname, "."+host)
 }
 
-// sortEntries is entries.sort from snapshot.ts: domain, project, missing
-// last, branch (or slug when there is none), then slug — a total order, so
-// it never falls back to whatever order the registry happened to be read
-// in. Stable, matching V8's Array.prototype.sort.
+// sortEntries orders entries by domain, project, missing last, branch (or
+// slug when there is none), then slug — a total order, so it never falls
+// back to whatever order the registry happened to be read in. Stable, so
+// entries that compare equal keep their original relative order.
 func sortEntries(entries []IndexEntry) {
 	slices.SortStableFunc(entries, func(left, right IndexEntry) int {
 		if c := text.Collate(left.Domain, right.Domain); c != 0 {
@@ -532,10 +532,10 @@ type DescribedBranch struct {
 	Muted bool
 }
 
-// DescribeBranch is snapshot.ts's describeBranch. The two synthesized
-// answers are parenthesized because "detached" and "unknown" are both legal
-// branch names — parentheses, not styling, are what tells a placeholder
-// from a ref.
+// DescribeBranch describes a checkout's branch for display. The two
+// synthesized answers are parenthesized because "detached" and "unknown"
+// are both legal branch names — parentheses, not styling, are what tells a
+// placeholder from a ref.
 func DescribeBranch(branch *string) DescribedBranch {
 	if branch == nil {
 		return DescribedBranch{Text: "(no branch)", Muted: true}

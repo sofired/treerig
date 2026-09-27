@@ -29,10 +29,9 @@ type Writer struct {
 }
 
 // withLock runs write with scope held, releasing it whether write succeeds
-// or not. write gets the lock's context, cancelled if the lock is lost; a
-// write that finished while the lock was lost fails with why, as the
-// TypeScript assertHealthy did. A release that fails as well rides along in
-// Suppressed.
+// or not. write gets the lock's context, cancelled if the lock is lost, so
+// a write that finished while the lock was lost fails with why. A release
+// that fails as well rides along in Suppressed.
 func withLock(ctx context.Context, scope lock.Scope, opts lock.Options, invocation string, write func(context.Context) error) (err error) {
 	held := lock.New(scope, opts)
 	heldCtx, err := held.Acquire(ctx, invocation)
@@ -91,7 +90,7 @@ func withSuppressed(primary, also error) error {
 	return ce
 }
 
-// recordJSON is the record as written, in the TypeScript build's key order.
+// recordJSON is the record as written, in a fixed key order.
 type recordJSON struct {
 	Version        int     `json:"version"`
 	RepositoryID   string  `json:"repositoryId"`

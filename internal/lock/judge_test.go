@@ -31,9 +31,9 @@ func testRecord(mutate func(*Record)) *Record {
 
 // mustJudge calls judgeHolder against currentFile and fails t on error,
 // returning the verdict for the case under test to assert on.
-func mustJudge(t *testing.T, rec *Record, self procid.Identity, table procid.Table, skipFileIdentity bool) Verdict {
+func mustJudge(t *testing.T, rec *Record, self procid.Identity, table procid.Table) Verdict {
 	t.Helper()
-	v, err := judgeHolder(rec, currentFile, self, "laptop", table, skipFileIdentity)
+	v, err := judgeHolder(rec, currentFile, self, "laptop", table)
 	if err != nil {
 		t.Fatalf("judgeHolder: %v", err)
 	}
@@ -42,13 +42,13 @@ func mustJudge(t *testing.T, rec *Record, self procid.Identity, table procid.Tab
 
 func TestJudgeHolder(t *testing.T) {
 	t.Run("finds a holder gone when its PID no longer exists or has exited", func(t *testing.T) {
-		v := mustJudge(t, testRecord(nil), self, newFakeTable(self), false)
+		v := mustJudge(t, testRecord(nil), self, newFakeTable(self))
 		if v.Kind != Gone || v.Reason != `PID 4242 on "laptop" no longer exists` {
 			t.Fatalf("got %+v", v)
 		}
 		table := newFakeTable(self)
 		table.states[4242] = procid.Status{State: procid.Zombie, StartTicks: ptr(uint64(900))}
-		v = mustJudge(t, testRecord(nil), self, table, false)
+		v = mustJudge(t, testRecord(nil), self, table)
 		if v.Kind != Gone || !strings.Contains(v.Reason, "has exited") {
 			t.Fatalf("got %+v", v)
 		}
@@ -57,12 +57,12 @@ func TestJudgeHolder(t *testing.T) {
 	t.Run("refuses a holder still running, and names a stopped one as stopped", func(t *testing.T) {
 		table := newFakeTable(self)
 		table.states[4242] = procid.Status{State: procid.Running, StartTicks: ptr(uint64(900))}
-		v := mustJudge(t, testRecord(nil), self, table, false)
+		v := mustJudge(t, testRecord(nil), self, table)
 		if v.Kind != Alive || v.Reason != `PID 4242 on "laptop" is still running` {
 			t.Fatalf("got %+v", v)
 		}
 		table.states[4242] = procid.Status{State: procid.Stopped, StartTicks: ptr(uint64(900))}
-		v = mustJudge(t, testRecord(nil), self, table, false)
+		v = mustJudge(t, testRecord(nil), self, table)
 		if v.Kind != Alive || !strings.Contains(v.Reason, "`kill -CONT 4242`") {
 			t.Fatalf("got %+v", v)
 		}
@@ -71,7 +71,7 @@ func TestJudgeHolder(t *testing.T) {
 	t.Run("sees through a reused PID by its start ticks, and by its start time on macOS", func(t *testing.T) {
 		table := newFakeTable(self)
 		table.states[4242] = procid.Status{State: procid.Running, StartTicks: ptr(uint64(901))}
-		v := mustJudge(t, testRecord(nil), self, table, false)
+		v := mustJudge(t, testRecord(nil), self, table)
 		if v.Kind != Gone || !strings.Contains(v.Reason, "later process") {
 			t.Fatalf("got %+v", v)
 		}
@@ -85,12 +85,12 @@ func TestJudgeHolder(t *testing.T) {
 		macSelf := procid.Identity{MachineID: "machine-1", BootID: "boot-1"}
 		table2 := newFakeTable(macSelf)
 		table2.states[4242] = procid.Status{State: procid.Running, StartUs: ptr(int64(11_900_000))}
-		v = mustJudge(t, mac, macSelf, table2, false)
+		v = mustJudge(t, mac, macSelf, table2)
 		if v.Kind != Alive {
 			t.Fatalf("got %+v", v)
 		}
 		table2.states[4242] = procid.Status{State: procid.Running, StartUs: ptr(int64(12_100_000))}
-		v = mustJudge(t, mac, macSelf, table2, false)
+		v = mustJudge(t, mac, macSelf, table2)
 		if v.Kind != Gone {
 			t.Fatalf("got %+v", v)
 		}
@@ -99,7 +99,7 @@ func TestJudgeHolder(t *testing.T) {
 	t.Run("cannot call a running PID reused without a start to compare, so calls it alive", func(t *testing.T) {
 		table := newFakeTable(self)
 		table.states[4242] = procid.Status{State: procid.Running}
-		v := mustJudge(t, testRecord(func(r *Record) { r.StartTicks = nil }), self, table, false)
+		v := mustJudge(t, testRecord(func(r *Record) { r.StartTicks = nil }), self, table)
 		if v.Kind != Alive {
 			t.Fatalf("got %+v", v)
 		}
@@ -108,7 +108,7 @@ func TestJudgeHolder(t *testing.T) {
 	t.Run("finds every holder of an earlier boot gone without asking about its PID", func(t *testing.T) {
 		table := newFakeTable(self)
 		table.states[4242] = procid.Status{State: procid.Running, StartTicks: ptr(uint64(900))}
-		v := mustJudge(t, testRecord(func(r *Record) { r.BootID = "boot-0" }), self, table, false)
+		v := mustJudge(t, testRecord(func(r *Record) { r.BootID = "boot-0" }), self, table)
 		if v.Kind != Gone || !strings.Contains(v.Reason, "restarted") {
 			t.Fatalf("got %+v", v)
 		}
@@ -132,7 +132,7 @@ func TestJudgeHolder(t *testing.T) {
 			{nil, self, "left no record"},
 		}
 		for _, c := range cases {
-			v := mustJudge(t, c.rec, c.self, newFakeTable(self), false)
+			v := mustJudge(t, c.rec, c.self, newFakeTable(self))
 			if v.Kind != Unverifiable || !strings.Contains(v.Reason, c.reason) {
 				t.Errorf("rec=%+v: got %+v, want reason containing %q", c.rec, v, c.reason)
 			}
@@ -140,7 +140,7 @@ func TestJudgeHolder(t *testing.T) {
 	})
 
 	t.Run("treats a record naming a different file identity as belonging to an earlier lock", func(t *testing.T) {
-		v := mustJudge(t, testRecord(func(r *Record) { r.File = FileID{Dev: 1, Ino: 78} }), self, newFakeTable(self), false)
+		v := mustJudge(t, testRecord(func(r *Record) { r.File = FileID{Dev: 1, Ino: 78} }), self, newFakeTable(self))
 		if v.Kind != Unverifiable || !strings.Contains(v.Reason, "belongs to an earlier lock") {
 			t.Fatalf("got %+v", v)
 		}
@@ -148,51 +148,51 @@ func TestJudgeHolder(t *testing.T) {
 
 	t.Run("knows this machine by its boot where either side has no machine ID, as in a container image without one", func(t *testing.T) {
 		noMachineID := procid.Identity{BootID: "boot-1", PIDNS: "pid:[1]"}
-		v := mustJudge(t, testRecord(nil), noMachineID, newFakeTable(self), false)
+		v := mustJudge(t, testRecord(nil), noMachineID, newFakeTable(self))
 		if v.Kind != Gone {
 			t.Fatalf("got %+v", v)
 		}
-		v = mustJudge(t, testRecord(func(r *Record) { r.MachineID = "" }), self, newFakeTable(self), false)
+		v = mustJudge(t, testRecord(func(r *Record) { r.MachineID = "" }), self, newFakeTable(self))
 		if v.Kind != Gone {
 			t.Fatalf("got %+v", v)
 		}
 		table := newFakeTable(noMachineID)
 		table.states[4242] = procid.Status{State: procid.Running, StartTicks: ptr(uint64(900))}
-		v = mustJudge(t, testRecord(func(r *Record) { r.MachineID = "" }), noMachineID, table, false)
+		v = mustJudge(t, testRecord(func(r *Record) { r.MachineID = "" }), noMachineID, table)
 		if v.Kind != Alive {
 			t.Fatalf("got %+v", v)
 		}
 		// The same kernel is not the same PID namespace: another container on it still cannot be checked.
-		v = mustJudge(t, testRecord(func(r *Record) { r.MachineID = ""; r.PIDNS = "pid:[9]" }), noMachineID, table, false)
+		v = mustJudge(t, testRecord(func(r *Record) { r.MachineID = ""; r.PIDNS = "pid:[9]" }), noMachineID, table)
 		if v.Kind != Unverifiable || !strings.Contains(v.Reason, "another PID namespace") {
 			t.Fatalf("got %+v", v)
 		}
 	})
 
-	t.Run("goes by hostname alone for a record an earlier version wrote, and never proves that holder gone", func(t *testing.T) {
-		legacy := func(mutate func(*Record)) *Record {
-			r := &Record{PID: 4242, Host: "laptop", Command: "", StartedAt: time.Now()}
+	t.Run("goes by hostname alone for a record with no machine or boot ID, and never proves that holder gone", func(t *testing.T) {
+		noIdentity := func(mutate func(*Record)) *Record {
+			r := &Record{PID: 4242, Host: "laptop", Command: "", StartedAt: time.Now(), File: currentFile}
 			if mutate != nil {
 				mutate(r)
 			}
 			return r
 		}
-		v := mustJudge(t, legacy(func(r *Record) { r.Host = "desktop" }), self, newFakeTable(self), true)
+		v := mustJudge(t, noIdentity(func(r *Record) { r.Host = "desktop" }), self, newFakeTable(self))
 		if v.Kind != Unverifiable || !strings.Contains(v.Reason, "another host") {
 			t.Fatalf("got %+v", v)
 		}
-		v = mustJudge(t, legacy(nil), self, newFakeTable(self), true)
+		v = mustJudge(t, noIdentity(nil), self, newFakeTable(self))
 		if v.Kind != Unverifiable {
 			t.Fatalf("got %+v", v)
 		}
 		table := newFakeTable(self)
 		table.states[4242] = procid.Status{State: procid.Zombie}
-		v = mustJudge(t, legacy(nil), self, table, true)
+		v = mustJudge(t, noIdentity(nil), self, table)
 		if v.Kind != Unverifiable {
 			t.Fatalf("got %+v", v)
 		}
 		table.states[4242] = procid.Status{State: procid.Running}
-		v = mustJudge(t, legacy(nil), self, table, true)
+		v = mustJudge(t, noIdentity(nil), self, table)
 		if v.Kind != Alive {
 			t.Fatalf("got %+v", v)
 		}

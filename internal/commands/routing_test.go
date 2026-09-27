@@ -1,10 +1,9 @@
 package commands_test
 
-// Go-only pinning tests for #55's routing cleanup: `down` and `worktree
-// remove` must leave a worktree unrouted, whatever else about its Docker
-// footprint they do or do not find. No TypeScript `it` to mirror — this is
-// new Go-only behaviour, from #55's move to the file provider and each
-// worktree's own dedicated router network.
+// Pinning tests for #55's routing cleanup: `down` and `worktree remove`
+// must leave a worktree unrouted, whatever else about its Docker footprint
+// they do or do not find. This behaviour follows from #55's move to the
+// file provider and each worktree's own dedicated router network.
 
 import (
 	"context"

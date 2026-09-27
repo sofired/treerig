@@ -85,8 +85,7 @@ func atoiOr(s string, fallback int64) int64 {
 
 // parsePsLine reads one `ps -o pid=,stat=,etime=` line — for the PID asked
 // about, or nothing to go on. Only the first three whitespace-separated
-// fields matter; anything past etime is ignored, as the TypeScript build's
-// destructuring split ignored it too.
+// fields matter; anything past etime is ignored.
 func parsePsLine(line string, pid int) (stat string, elapsedSeconds int64, ok bool) {
 	fields := strings.Fields(strings.TrimSpace(line))
 	shown := ""

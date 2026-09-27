@@ -1,14 +1,12 @@
 package commands
 
-// Ported from tests/unit/doctor.test.ts, title for title. This file tests
-// doctor's unexported pieces directly — doctorSections and the helpers it is
-// built from — the way internal/router and internal/config test their own
-// unexported details from an in-package _test.go. doctorOptions is this
-// port's counterpart of TypeScript's own DoctorOptions: every external
-// dependency is injected, so a scenario TypeScript builds with a fake
-// CommandRunner or RouterSource is built here the same way, without a real
-// filesystem, Docker daemon, or Git checkout except where the test itself
-// needs one (commandstest.World, exactly as TypeScript's commandWorld()).
+// This file tests doctor's unexported pieces directly — doctorSections and
+// the helpers it is built from — the way internal/router and
+// internal/config test their own unexported details from an in-package
+// _test.go. doctorOptions has every external dependency injected, so a
+// scenario is built here with a fake CommandRunner or RouterSource, without
+// a real filesystem, Docker daemon, or Git checkout except where the test
+// itself needs one (commandstest.World).
 
 import (
 	"context"
@@ -40,8 +38,8 @@ import (
 
 /* -------------------------------------------------------------- fakes ---- */
 
-// outcome is a run.Result or an error — the Go counterpart of the union
-// tests/unit/doctor.test.ts's DoctorRunner stores per command.
+// outcome is a run.Result or an error, one of which a fake command run
+// stores.
 type outcome struct {
 	result run.Result
 	err    error
@@ -50,7 +48,7 @@ type outcome struct {
 // okOutcome is a successful outcome with the given stdout.
 func okOutcome(stdout string) outcome { return outcome{result: run.Result{Stdout: stdout}} }
 
-// doctorRunnerState is DoctorRunner from tests/unit/doctor.test.ts: answers
+// doctorRunnerState is a fake run.Runner for doctor's own tests: answers
 // `git --version`, `docker …`, and any other command as the verify hook;
 // Git identity queries go to git (a real registrytest.GitRunner).
 //
@@ -161,9 +159,8 @@ func finishOutcome(spec run.Spec, o outcome) (run.Result, error) {
 	return run.Finish(spec, o.result)
 }
 
-// fakeRouterSource is routerSource() from tests/unit/doctor.test.ts, plus
-// owner/ownerErr for the router-owner check (#82), which TypeScript has no
-// counterpart to.
+// fakeRouterSource fakes the shared router for doctor's Router section,
+// plus owner/ownerErr for the router-owner check (#82).
 type fakeRouterSource struct {
 	network  string
 	status   router.RouterStatus
@@ -211,8 +208,8 @@ func (f *fakeRouterSource) PublishedPort(context.Context) (int, bool, error) {
 	return f.published, f.publishedRunning, f.publishedErr
 }
 
-// fakeCheckoutRegistry is CheckoutRegistry from src/commands/doctor.ts,
-// injected via doctorOptions.RegistryFor.
+// fakeCheckoutRegistry is a checkoutRegistry fake, injected via
+// doctorOptions.RegistryFor.
 type fakeCheckoutRegistry struct {
 	current         func(ctx context.Context) (*registry.WorktreeRegistration, error)
 	pruneCandidates func(ctx context.Context) ([]registry.RegisteredWorktree, error)
@@ -317,8 +314,9 @@ type checkoutFixture struct {
 }
 
 // newCheckoutFixture is a checkout on branch feature/login, with a real Git
-// identity (registrytest.GitRunner) but not yet registered — `up` itself is
-// not ported by WP6; register() below is what a finished `up` would have left.
+// identity (registrytest.GitRunner) but not yet registered — this fixture
+// never runs `up` itself; register() below is what a finished `up` would
+// have left.
 func newCheckoutFixture(t *testing.T, verify string) *checkoutFixture {
 	t.Helper()
 	base := registrytest.TempDir(t)
@@ -653,10 +651,10 @@ func TestRouterChecksInternal(t *testing.T) {
 		}
 	})
 
-	t.Run("warns of a running router that carries no berth-root label, since it predates the check", func(t *testing.T) {
+	t.Run("fails a running router that carries no berth-root label, the same as one belonging to another root", func(t *testing.T) {
 		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: false}}
 		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
-		want := &Check{Status: StatusWarn, Subject: "router owner", Detail: "carries no berth-root label; it predates this check and is adopted by the next 'berth up' or 'berth router up'"}
+		want := &Check{Status: StatusFail, Subject: "router owner", Detail: "not owned by this berth root; this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
 		if err != nil || got == nil || *got != *want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -928,37 +926,6 @@ func TestDoctorSections(t *testing.T) {
 		}
 	})
 
-	// TypeScript never prints this line: it is Go's own, for state a
-	// TypeScript build left behind — planned from the start of the Go port,
-	// since the marker itself is unreadable to a person and doctor says in
-	// words what a first Go command here is about to do.
-	t.Run("reports a control home a TypeScript build last used, and that the next command here upgrades it", func(t *testing.T) {
-		controlHome := t.TempDir() + "/control"
-		if err := os.MkdirAll(controlHome, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		// Empty, the way a TypeScript-created control home leaves it:
-		// LegacyControlHome treats an empty marker as TypeScript-era, and a
-		// Go-format one (files.ControlHomeFormat) as its own, already-upgraded one.
-		if err := os.WriteFile(filepath.Join(controlHome, files.ControlHomeMarker), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		opts := testOpts(t, func(o *doctorOptions) { o.ControlHome = controlHome })
-		sections, err := doctorSections(context.Background(), opts)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := section(sections, "Registry")
-		if len(got) < 3 {
-			t.Fatalf("registry = %+v, want berth root, the control-home check and the legacy-home line", got)
-		}
-		// Registry[0] is "berth root" (#80), [1] the control-home check itself.
-		want := Check{Status: StatusOK, Subject: "control home", Detail: "was last used by a TypeScript build of berth; the next command here upgrades it"}
-		if got[2] != want {
-			t.Fatalf("got %+v, want %+v", got[2], want)
-		}
-	})
-
 	t.Run("bounds every Docker question in time", func(t *testing.T) {
 		runner := newDoctorRunner(nil)
 		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
@@ -976,11 +943,10 @@ func TestDoctorSections(t *testing.T) {
 		}
 		// version and compose run concurrently (so a Docker that answers
 		// neither costs one timeout rather than two; see dockerChecks), so
-		// their relative order is not guaranteed — unlike TypeScript's own
-		// Promise.all, whose two calls are issued synchronously in one tick.
-		// network (the address-pools check; routes itself makes no Docker
-		// call at all with no fragments staged) always comes last, once
-		// both have resolved.
+		// their relative order is not guaranteed. network (the
+		// address-pools check; routes itself makes no Docker call at all
+		// with no fragments staged) always comes last, once both have
+		// resolved.
 		if len(dockerArgs) != 3 || dockerArgs[2] != "network" {
 			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then network", dockerArgs)
 		}
@@ -1046,14 +1012,12 @@ func TestDoctorSections(t *testing.T) {
 		}
 	})
 
-	// "reports Docker checks that could not even be made, and skips the
-	// router rather than guessing" has no Go counterpart: run.Runner.Which
-	// returns a plain bool and cannot fail the way TypeScript's own
-	// which(), a real subprocess check, can reject. dockerChecks has
-	// nothing to catch here.
+	// This scenario does not apply to Go: run.Runner.Which returns a plain
+	// bool and cannot fail the way a real subprocess check could reject.
+	// dockerChecks has nothing to catch here.
 	t.Run("reports Docker checks that could not even be made, and skips the router rather than guessing", func(t *testing.T) {
 		t.Skip("run.Runner.Which returns a plain bool (internal/run/run.go) and cannot fail the way " +
-			"TypeScript's own which() can reject; dockerChecks has nothing to catch")
+			"a real subprocess check could reject; dockerChecks has nothing to catch")
 	})
 
 	t.Run("fails Docker off PATH, skips Compose and the router, and never asks the router", func(t *testing.T) {
@@ -1191,11 +1155,8 @@ func TestDoctorSections(t *testing.T) {
 		if err := os.Remove(filepath.Join(controlHome, "someone-elses.txt")); err != nil {
 			t.Fatal(err)
 		}
-		// A marker with the Go build's own format, not empty: an empty one
-		// is what a TypeScript-created control home leaves, which triggers
-		// the separate "was last used by a TypeScript build" line (see
-		// "reports a control home a TypeScript build last used..." above)
-		// — a distinct scenario from the one this test is about.
+		// A marker with this build's own format makes the control home
+		// adoptable, distinct from the refusal above.
 		if err := os.WriteFile(filepath.Join(controlHome, files.ControlHomeMarker), []byte(files.ControlHomeFormat), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -1236,10 +1197,8 @@ func TestDoctorSections(t *testing.T) {
 		// Registry[0] is "berth root" (#80), always ok; the control-home
 		// check itself is [1].
 		got := section(sections, "Registry")[1]
-		// TypeScript's own detail carries Node's errno name, "ENOTDIR"; Go's
-		// os package formats the same underlying error in its own words
-		// ("not a directory") instead — the same difference in wording every
-		// unexpected file error carries between the two builds.
+		// The os package formats this underlying error in its own words
+		// ("not a directory") rather than an errno name.
 		if got.Status != StatusFail || got.Subject != "control home" || !contains(got.Detail, "not a directory") {
 			t.Fatalf("got %+v", got)
 		}
@@ -1296,9 +1255,9 @@ func TestDoctorSections(t *testing.T) {
 	})
 
 	// Blocking review finding: askDocker used to fold every error, a
-	// cancellation included, into a failed Check. src/commands/doctor.ts:140-155
-	// catches only DockerUnavailableError; everything else — Cancelled
-	// among it — propagates. These four pin that for every docker call
+	// cancellation included, into a failed Check. It now catches only
+	// Docker being unavailable; everything else — Cancelled among it —
+	// propagates. These four pin that for every docker call
 	// doctor makes on its own: the Engine and Compose probes (run
 	// concurrently, so each needs its own case) and the routes section's
 	// `ps` and `inspect` calls.
@@ -2058,10 +2017,8 @@ func TestDoctorLocksInternal(t *testing.T) {
 		}
 	}
 
-	// silentUnreleased leaves scope taken and then unreleased — this port's
-	// counterpart of TypeScript's silentLock, which the heartbeat design
-	// needed (a directory made silent by backdating its mtime); the flock
-	// design instead needs the flock actually let go while its record stays
+	// silentUnreleased leaves scope taken and then unreleased: the flock
+	// design needs the flock actually let go while its record stays
 	// unreleased (see internal/lock/recover.go's recoverPreviousHolder).
 	silentUnreleased := func(t *testing.T, scope lock.Scope, deadPID int) {
 		t.Helper()
@@ -2200,129 +2157,6 @@ func TestDoctorLocksInternal(t *testing.T) {
 		}
 	})
 
-	// legacyLockDir leaves a TypeScript build's lock directory beside scope's
-	// target, with that build's holder record in the target itself when
-	// command is set, and none when it is not.
-	legacyLockDir := func(t *testing.T, scope lock.Scope, command string) {
-		t.Helper()
-		if err := os.MkdirAll(scope.Target+".lock", 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if command == "" {
-			return
-		}
-		data, err := json.Marshal(map[string]any{"pid": deadTestPID, "host": "old-host", "command": command, "startedAt": "2026-09-01T00:00:00Z"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(scope.Target, data, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	t.Run("warns of a TypeScript build's worktree lock, naming its holder and the command that clears it", func(t *testing.T) {
-		controlHome := t.TempDir()
-		registerLocksWorktree(t, controlHome, "main")
-		operation, _ := lock.WorktreeScopes(controlHome, testRepository, testWorktreeID, "main", procid.Markers{})
-		legacyLockDir(t, operation, "berth up")
-		got := locksOf(t, controlHome)
-		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "main.acme.localhost" {
-			t.Fatalf("got %+v", got)
-		}
-		want := fmt.Sprintf("taken by a TypeScript build of berth, \"berth up\" (PID %d on \"old-host\"); "+
-			"this build cannot take it until that is gone. If no TypeScript build is still running here, "+
-			"'berth worktree unlock %s' checks that it is gone and clears it", deadTestPID, testWorktreeID)
-		if got[0].Detail != want {
-			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
-		}
-	})
-
-	t.Run("warns of a TypeScript build's worktree lock that names no holder, with the rmdir that clears it, not unlock", func(t *testing.T) {
-		controlHome := t.TempDir()
-		registerLocksWorktree(t, controlHome, "main")
-		operation, _ := lock.WorktreeScopes(controlHome, testRepository, testWorktreeID, "main", procid.Markers{})
-		legacyLockDir(t, operation, "")
-		got := locksOf(t, controlHome)
-		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "main.acme.localhost" {
-			t.Fatalf("got %+v", got)
-		}
-		want := "a TypeScript build of berth left " + operation.Target + ".lock naming no holder; " +
-			"this build cannot take it until that is gone. If no TypeScript build is still running here, " +
-			"remove it by hand: `rmdir '" + operation.Target + ".lock'`"
-		if got[0].Detail != want {
-			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
-		}
-	})
-
-	t.Run("warns of a TypeScript build's registry lock that names no holder, with the rmdir that clears it", func(t *testing.T) {
-		controlHome := t.TempDir()
-		registryScope := lock.RegistryScope(controlHome)
-		if err := os.MkdirAll(filepath.Dir(registryScope.Target), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		legacyLockDir(t, registryScope, "")
-		got := locksOf(t, controlHome)
-		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "registry" {
-			t.Fatalf("got %+v", got)
-		}
-		want := "a TypeScript build of berth left " + registryScope.Target + ".lock naming no holder; " +
-			"this build cannot take it until that is gone. If no TypeScript build is still running here, " +
-			"remove it by hand: `rmdir '" + registryScope.Target + ".lock'`"
-		if got[0].Detail != want {
-			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
-		}
-	})
-
-	// Pins the fix for #21: a TypeScript build's registry lock that names a
-	// holder now points at `worktree unlock --registry`, the same as a
-	// worktree lock's own line, instead of the rmdir that only the
-	// no-holder-named case (above) still needs.
-	t.Run("warns of a TypeScript build's registry lock, naming its holder and the command that clears it", func(t *testing.T) {
-		controlHome := t.TempDir()
-		registryScope := lock.RegistryScope(controlHome)
-		if err := os.MkdirAll(filepath.Dir(registryScope.Target), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		legacyLockDir(t, registryScope, "berth up")
-		got := locksOf(t, controlHome)
-		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "registry" {
-			t.Fatalf("got %+v", got)
-		}
-		want := fmt.Sprintf("taken by a TypeScript build of berth, \"berth up\" (PID %d on \"old-host\"); "+
-			"this build cannot take it until that is gone. If no TypeScript build is still running here, "+
-			"'berth worktree unlock --registry' checks that it is gone and clears it", deadTestPID)
-		if got[0].Detail != want {
-			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
-		}
-	})
-
-	t.Run("warns of a TypeScript build's router lock, naming its holder and the command that clears it", func(t *testing.T) {
-		controlHome := t.TempDir()
-		routerScope := lock.Scope{
-			Target: filepath.Join(t.TempDir(), "router-lock"), Description: "shared router",
-			Markers: procid.Markers{Project: "berth-router"},
-		}
-		if err := os.MkdirAll(filepath.Dir(routerScope.Target), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		legacyLockDir(t, routerScope, "berth up")
-		opts := testOpts(t, func(o *doctorOptions) { o.ControlHome = controlHome; o.RouterLockScope = &routerScope })
-		sections, err := doctorSections(context.Background(), opts)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := section(sections, "Locks")
-		if len(got) != 1 || got[0].Status != StatusWarn || got[0].Subject != "router" {
-			t.Fatalf("got %+v", got)
-		}
-		want := fmt.Sprintf("taken by a TypeScript build of berth, \"berth up\" (PID %d on \"old-host\"); "+
-			"this build cannot take it until that is gone. If no TypeScript build is still running here, "+
-			"'berth worktree unlock --router' checks that it is gone and clears it", deadTestPID)
-		if got[0].Detail != want {
-			t.Fatalf("detail = %q, want %q", got[0].Detail, want)
-		}
-	})
-
 	// "is not misled by recovery mutexes, temporary files or directories
 	// that are not a worktree's" exercises worktreeRecoveryLockTarget, a
 	// `.recovery` mutex file the heartbeat design needed and the flock
@@ -2352,8 +2186,8 @@ func TestDoctorLocksInternal(t *testing.T) {
 }
 
 // deadTestPID is a PID no test system running this suite is expected to
-// have — the same choice internal/lock's own legacy_test.go and
-// internal/commands/unlock_test.go make for the same reason.
+// have — the same choice internal/commands/unlock_test.go makes for the
+// same reason.
 const deadTestPID = 999999
 
 // mutateHolderRecord rewrites a lock's sidecar holder record in place — the

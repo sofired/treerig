@@ -20,11 +20,11 @@ import (
 // DefaultWaitTimeoutSeconds is how long `up --wait` waits for health before failing.
 const DefaultWaitTimeoutSeconds = 120
 
-// routedByLabel mirrors internal/router's own RoutedByLabel constant (which
-// in turn mirrors src/router/stack.ts's ROUTED_BY_LABEL). Kept as a local,
-// decoupled mirror rather than an import of internal/router: this package's
-// overrideDocument is the wire protocol between a worktree's own Compose
-// project and the shared router, not a consumer of the router package's own
+// routedByLabel mirrors internal/router's own RoutedByLabel constant. Kept
+// as a local, decoupled mirror rather than an import of internal/router:
+// this package's overrideDocument is the wire protocol between a worktree's
+// own Compose project and the shared router, not a consumer of the router
+// package's own
 // types, and the two packages' tests already build their fixtures against
 // their own copies of the same literal — see internal/router/stack.go's own
 // RoutedByLabel comment for why its value is fixed regardless of a
@@ -148,18 +148,17 @@ func (c *Compose) readOrderedModel(ctx context.Context, ref worktree.Ref) (servi
 
 // decodeOrderedComposeModel is the ordered decode of one `docker compose
 // config --format json` document into its services, volumes, and networks
-// sections, each defaulting to an empty object when absent, as the
-// TypeScript build's composeConfigSchema defaults them. Every entry within a
-// section must itself be an object, and every field overrideDocument reads
-// off it must match that schema's own nested shape — a service's build (an
-// object, if present), expose (an array of strings and/or numbers, if
-// present), and ports (an array of objects whose target, if present, is a
-// number); a volume's or network's external (a boolean or an object, if
-// present; z.union has no room for null, a string, or a number). Anything
-// else is the same "unrecognized document" refusal readModel gives, which
-// zod's own safeParse would have failed with before overrideDocument ever
-// saw the data — a mismatch here must refuse just as completely, not read
-// the malformed field as whatever isExternal or firstPort would make of it.
+// sections, each defaulting to an empty object when absent. Every entry
+// within a section must itself be an object, and every field
+// overrideDocument reads off it must match the shape it expects — a
+// service's build (an object, if present), expose (an array of strings
+// and/or numbers, if present), and ports (an array of objects whose target,
+// if present, is a number); a volume's or network's external (a boolean or
+// an object, if present — never null, a string, or a number). Anything else
+// is refused outright as an unrecognized document, before overrideDocument
+// ever sees the data — a mismatch here must refuse just as completely, not
+// read the malformed field as whatever isExternal or firstPort would make
+// of it.
 func decodeOrderedComposeModel(data []byte, file string) (services, volumes, networks *jsonKV, err error) {
 	root, decodeErr := decodeOrdered(data)
 	if decodeErr != nil {
@@ -289,10 +288,9 @@ func validateExternalShape(resource *jsonKV) bool {
 	}
 }
 
-// isExternal ports the TypeScript build's own: the external key must be
-// present (a missing key is undefined, and undefined is never external) and
-// not exactly boolean false — an explicit external: null is external, same
-// as TypeScript's own `!== false` check would read it.
+// isExternal reports whether resource's "external" key marks it as external:
+// the key must be present (a missing key is never external) and not exactly
+// boolean false — an explicit external: null counts as external.
 func isExternal(resource *jsonKV) bool {
 	value, present := resource.get("external")
 	if !present {
@@ -456,9 +454,8 @@ func parseLeadingInt(s string) (int, bool) {
 // network, and routes the declared services. Every ordered map here is
 // built with jsonKV.set, which behaves like a JavaScript property
 // assignment (overwrite in place, append if new) — see jsonKV's own
-// comment — so this follows src/runtime/compose.ts's overrideDocument
-// statement for statement, including its edge cases around a router network
-// that collides with an already-declared name.
+// comment — including its edge cases around a router network that
+// collides with an already-declared name.
 func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks *jsonKV) (*jsonKV, error) {
 	labels := c.ownershipLabels(ref)
 	stamp := func() *jsonKV { return newJSONKV().set("labels", labels) }

@@ -1,7 +1,6 @@
 package commands
 
-// The router verbs, ported from src/cli/main.ts:150-170 and
-// src/router/router.ts. One Traefik stack per Docker daemon, its state and
+// The router verbs. One Traefik stack per Docker daemon, its state and
 // lock per berth root (#80), so — unlike every other verb in this package —
 // it needs no project config file: it is built straight from Env, never
 // through Context.
@@ -9,8 +8,7 @@ package commands
 // Only `router up` takes the router's lock, and takes it alone (never
 // alongside a worktree's own locks): see routerLockScope (index.go) and
 // lifecycle.Requests.Router. `router status` and `router down` take no lock
-// at all, matching src/router/router.ts, where only ensure() ever wrapped
-// itself in withScopedLock.
+// at all: only Ensure ever needs one.
 
 import (
 	"context"
@@ -187,10 +185,9 @@ func routerHold(ctx context.Context, env *Env, state layout.RouterLayout, projec
 
 // ensureSharedRouter is what `router up` and `up` both do to make sure the
 // shared router is up: secure its state directory, then — under the
-// router's lock, taken alone — Ensure it. The TypeScript build's
-// router.ensure() took its lock itself; here the caller holds it (see
-// internal/router's package comment), so both verbs go through this one
-// function rather than two copies of the same hold.
+// router's lock, taken alone — Ensure it. The caller holds the lock, not
+// Ensure itself (see internal/router's package comment), so both verbs go
+// through this one function rather than two copies of the same hold.
 func ensureSharedRouter(ctx context.Context, env *Env, svc *router.Router, state layout.RouterLayout) error {
 	// Before the router lock is ever taken: lock.New creates <StateDir>/lock
 	// and its holder record the moment it is acquired, so a symlinked state
@@ -252,8 +249,8 @@ func RouterUp(ctx context.Context, env *Env) error {
 	if err := ensureSharedRouter(ctx, env, svc, state); err != nil {
 		return err
 	}
-	// (#15) Neither the TypeScript build nor Ensure itself ever regenerates
-	// the real page: Ensure's own write() writes the placeholder
+	// (#15) Ensure itself never regenerates the real page: its own write()
+	// writes the placeholder
 	// (PlaceholderHTML) only when the index file is missing outright, so the
 	// index container's health check has something to fetch before the
 	// router's first `compose up --wait` — deleting the page and running
@@ -285,10 +282,10 @@ func RouterUp(ctx context.Context, env *Env) error {
 }
 
 // RouterStatus is `router status`: report whether the shared router is
-// running as expected. failed reports whether the caller should exit 1 —
-// src/cli/main.ts sets process.exitCode directly rather than throwing, since
-// the report below already said everything there is to say on stdout and
-// stderr; a caller must not also report a generic failure for this.
+// running as expected. failed reports whether the caller should exit 1
+// directly, rather than through an error, since the report below already
+// said everything there is to say on stdout and stderr; a caller must not
+// also report a generic failure for this.
 func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
 	svc, _, resolved, err := newRouterService(env)
 	if err != nil {

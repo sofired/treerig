@@ -9,9 +9,8 @@ import (
 )
 
 // TestOverrideCorpus drives this package's own overrideDocument against a
-// hand-maintained fixture (testdata/override-corpus.json; its origin,
-// recorded from the TypeScript build's own overrideDocument, is in git
-// history), decoded with this package's own ordered JSON decoder (the same
+// hand-maintained fixture (testdata/override-corpus.json; its origin is in
+// git history), decoded with this package's own ordered JSON decoder (the same
 // one prepare uses on a real `docker compose config` document), and
 // compares the encoded result byte for byte against what was recorded — or,
 // for a refusal, its exact message.

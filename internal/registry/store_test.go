@@ -185,8 +185,7 @@ func TestStoreScanProblems(t *testing.T) {
 			t.Fatalf("unexpected problems: %+v", problems)
 		}
 
-		// An unknown key is `.strict()`'s job in the TypeScript schema; here
-		// DisallowUnknownFields plays the same role.
+		// An unknown key is what DisallowUnknownFields refuses.
 		if err := os.WriteFile(filepath.Join(dir, wtB+".json"), []byte(`{"version":1,"repositoryId":"`+repoA+`","worktreeId":"`+wtB+`","slug":"x","domain":"d","initialization":"complete","extra":true}`), 0o600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
@@ -277,38 +276,37 @@ func TestScanRegistrationsConflictsAndDomains(t *testing.T) {
 // TestListSortMatchesLocale documents the accepted difference: Store.List
 // and the index sort by plain Go string comparison (sort.Strings) rather
 // than `localeCompare(…, 'en')`. testdata/locale-sort.json is a
-// hand-maintained fixture (its origin, the TypeScript build's own
-// localeCompare('en') order, is in git history) holding a corpus of slug-
-// and domain-shaped strings ([a-z0-9.-], the only alphabet Store.List or
-// the checkout index ever sorts within); this test checks Go's byte order
-// reproduces it exactly, so no collation package (x/text/collate) is needed
-// for this schema.
+// hand-maintained fixture (its origin is in git history) holding a corpus
+// of slug- and domain-shaped strings ([a-z0-9.-], the only alphabet
+// Store.List or the checkout index ever sorts within); this test checks
+// Go's byte order reproduces `localeCompare('en')`'s order exactly, so no
+// collation package (x/text/collate) is needed for this schema.
 func TestListSortMatchesLocale(t *testing.T) {
 	data, err := os.ReadFile("testdata/locale-sort.json")
 	if err != nil {
-		t.Fatalf("reading oracle data: %v", err)
+		t.Fatalf("reading fixture data: %v", err)
 	}
-	var oracle struct {
+	var fixture struct {
 		Input  []string `json:"input"`
 		Sorted []string `json:"sorted"`
 	}
-	if err := json.Unmarshal(data, &oracle); err != nil {
-		t.Fatalf("parsing oracle data: %v", err)
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("parsing fixture data: %v", err)
 	}
-	if len(oracle.Input) == 0 {
-		t.Fatalf("empty oracle corpus")
+	if len(fixture.Input) == 0 {
+		t.Fatalf("empty fixture corpus")
 	}
 
-	got := append([]string(nil), oracle.Input...)
+	got := append([]string(nil), fixture.Input...)
 	sort.Strings(got)
 
-	if len(got) != len(oracle.Sorted) {
-		t.Fatalf("length mismatch: got %d, want %d", len(got), len(oracle.Sorted))
+	if len(got) != len(fixture.Sorted) {
+		t.Fatalf("length mismatch: got %d, want %d", len(got), len(fixture.Sorted))
 	}
-	for i := range oracle.Sorted {
-		if got[i] != oracle.Sorted[i] {
+	for i := range fixture.Sorted {
+		if got[i] != fixture.Sorted[i] {
 			t.Fatalf("index %d: sort.Strings gives %q, localeCompare('en') gives %q (full: got=%v want=%v)",
-				i, got[i], oracle.Sorted[i], got, oracle.Sorted)
+				i, got[i], fixture.Sorted[i], got, fixture.Sorted)
 		}
 	}
 }

@@ -1,7 +1,8 @@
 package cli
 
-// Ported from node_modules/commander/lib/help.js, restricted to what this
-// tree exercises: no colour, no custom Help subclass, no help groups beyond
+// Adapted from commander.js's lib/help.js (https://github.com/tj/commander.js),
+// restricted to what this tree exercises: no colour, no custom Help
+// subclass, no help groups beyond
 // the implicit "Options:"/"Commands:" ones, no global-options section (the
 // tree never turns showGlobalOptions on), and no argument choices or
 // defaults (none are used).

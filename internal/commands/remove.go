@@ -232,8 +232,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	if err != nil {
 		return nil, err
 	}
-	// Best effort, as src/commands/remove.ts's own `worktree remove` does:
-	// prints nothing when the refresh succeeds.
+	// Best effort: prints nothing when the refresh succeeds.
 	refreshIndexBestEffort(ctx, cctx, "worktree remove")
 	switch {
 	case result.AlreadyGone:

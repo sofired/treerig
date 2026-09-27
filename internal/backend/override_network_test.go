@@ -1,12 +1,11 @@
 package backend
 
-// Go-only pinning tests for the per-worktree router network #55 gives every
-// routed worktree: there is no TypeScript `it` to mirror here, since the
-// pre-#55 shape kept every routed service on one shared external network
-// instead. TestOverrideCorpus itself only proves every
-// routed corpus case still runs without error, having skipped the
-// byte-for-byte comparison for them; these tests pin the actual shape that
-// replaces it.
+// Pinning tests for the per-worktree router network #55 gives every routed
+// worktree, replacing the pre-#55 shape that kept every routed service on
+// one shared external network instead. TestOverrideCorpus itself only
+// proves every routed corpus case still runs without error, having skipped
+// the byte-for-byte comparison for them; these tests pin the actual shape
+// that replaces it.
 
 import (
 	"testing"

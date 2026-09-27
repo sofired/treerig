@@ -118,10 +118,9 @@ func routeSpecsFromConfig(services []config.Service) []backend.RouteSpec {
 
 // upRuntime is the Compose runtime up starts services through: the same
 // construction as CommandContext.Runtime, plus the routes and router network
-// runtime.Up needs and no other verb does. CommandContext.Runtime lives in
-// context.go, a file this work package leaves alone (see the port's shared-
-// file rule); duplicating its handful of fields here is cheaper than
-// widening that shared method's signature for one caller.
+// runtime.Up needs and no other verb does. Duplicating its handful of
+// fields here is cheaper than widening CommandContext.Runtime's own
+// signature (context.go) for one caller.
 func upRuntime(cctx *CommandContext, namespace string, routerSvc Router) *backend.Compose {
 	routes := routeSpecsFromConfig(cctx.Loaded.Config.Service)
 	return backend.NewCompose(backend.Options{
@@ -143,9 +142,8 @@ func upRuntime(cctx *CommandContext, namespace string, routerSvc Router) *backen
 // upStages is which lifecycle stages `up` asks the sequencer for: every
 // stage hooks.UpStages names, except seed on a worktree that has already
 // come up once — derived from that single source rather than a hard-coded
-// copy, the way TypeScript's own lifecycleStages filters LIFECYCLE_ORDER by
-// UP_STAGES instead of hard-coding a list of its own. Verify is never among
-// them: it is not part of UpStages at all — `doctor` runs it, on its own.
+// copy of its own. Verify is never among them: it is not part of UpStages
+// at all — `doctor` runs it, on its own.
 func upStages(firstTime bool) []config.HookStage {
 	var stages []config.HookStage
 	for _, stage := range hooks.UpStages() {
@@ -157,12 +155,12 @@ func upStages(firstTime bool) []config.HookStage {
 	return stages
 }
 
-// UpWithContext is worktree.ts's `up`, operating directly on a
-// CommandContext. Register (or reconcile), make sure the shared router is
-// up, start, then run hooks: prepare on every up, seed only the first time
-// this worktree comes up. The worktree lock is held for the mutation phase;
-// registering and waiting for the router happen unlocked, so a slow router
-// start cannot hold the worktree lock the whole time.
+// UpWithContext is `up`, operating directly on a CommandContext. Register
+// (or reconcile), make sure the shared router is up, start, then run hooks:
+// prepare on every up, seed only the first time this worktree comes up.
+// The worktree lock is held for the mutation phase; registering and
+// waiting for the router happen unlocked, so a slow router start cannot
+// hold the worktree lock the whole time.
 func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, index Index, options UpOptions) (*UpResult, error) {
 	// Refuses before anything else here — including refuseRelabelling
 	// below, which can itself make a Docker call — a control character in
@@ -327,10 +325,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			// A worktree that just dropped its last [[service]] route
 			// still has its own dedicated router network sitting around —
 			// overrideDocument no longer declares it, but Compose does not
-			// proactively remove a network it no longer declares (the same
-			// class of gap Ensure's own removeLegacyDockerAPINetwork cleans
-			// up for the retired docker-api network), and the router is
-			// very likely still attached to it from an earlier `up`. Disconnected here, only
+			// proactively remove a network it no longer declares — and the
+			// router is very likely still attached to it from an earlier
+			// `up`. Disconnected here, only
 			// after every one of this worktree's stale fragments is
 			// already gone (found in review, round 4 of #55: a first cut
 			// disconnected before removing them, leaving a window where a
@@ -383,8 +380,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	return &UpResult{Registration: *registration, Hooks: ranHooks, URLs: urls}, nil
 }
 
-// refuseRelabelling ports src/commands/worktree.ts:204-221. Compose relabels
-// containers on the next `up` but never volumes or networks, so once
+// refuseRelabelling refuses to change a worktree's label namespace once it
+// owns anything under the old one. Compose relabels containers on the next
+// `up` but never volumes or networks, so once
 // resources exist under one namespace the record must keep naming it —
 // otherwise `remove` could no longer find them. A changed label-namespace is
 // therefore honoured only for a worktree that owns nothing under the old

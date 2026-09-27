@@ -16,12 +16,10 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
-// routedRuntime is newRuntime plus routes and a router network, matching the
-// TypeScript suite's own runtime(fake, routes) helper.
+// intPtr returns a pointer to a copy of n, for taking the address of a literal.
 func intPtr(n int) *int { return &n }
 
-// routedRuntime is newRuntime plus routes and a router network, matching the
-// TypeScript suite's own runtime(fake, routes) helper.
+// routedRuntime is newRuntime plus routes and a router network.
 func routedRuntime(t *testing.T, fake *dockerFake, routes []RouteSpec) (*Compose, string) {
 	t.Helper()
 	controlHome := t.TempDir()
@@ -230,12 +228,11 @@ func TestComposeUp(t *testing.T) {
 		}
 	})
 
-	// Go-only, per #55: TypeScript stamps Traefik labels onto a routed
-	// service and joins it to one shared external network; Go instead joins
-	// it, under an alias, to this worktree's own owned router network — see
-	// override_network_test.go for the dedicated pinning tests of that
-	// shape. This is the same corpus scenario TestOverrideCorpus's "routing"
-	// cases skip the byte comparison for, exercised here end to end through
+	// Per #55: a routed service joins, under an alias, this worktree's own
+	// owned router network — see override_network_test.go for the dedicated
+	// pinning tests of that shape. This is the same corpus scenario
+	// TestOverrideCorpus's "routing" cases skip the byte comparison for,
+	// exercised here end to end through
 	// Up and the override file it writes.
 	t.Run("routes declared services onto the worktree's own router network, each under its own alias, leaving the rest alone", func(t *testing.T) {
 		fake := newFake()
@@ -337,7 +334,7 @@ func TestComposeUp(t *testing.T) {
 		}
 	})
 
-	t.Run("an unset wait timeout emits the 120-second default, matching TypeScript's ?? — not any zero value", func(t *testing.T) {
+	t.Run("an unset wait timeout emits the 120-second default, not any zero value", func(t *testing.T) {
 		fake := newFake()
 		controlHome := t.TempDir()
 		// Built directly, not through routedRuntime, which always sets one:

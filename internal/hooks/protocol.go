@@ -1,5 +1,5 @@
-// Package hooks is the other half of the public contract src/hooks/runner.ts
-// and src/hooks/protocol.ts describe: hooks are ordinary executables, the
+// Package hooks is the other half of the public contract berth's own
+// documented hook protocol describes: hooks are ordinary executables, the
 // tool never learns what they do, and everything a hook needs to know
 // arrives as environment variables — its exit code is its only answer back.
 package hooks

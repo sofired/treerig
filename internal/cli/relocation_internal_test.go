@@ -6,9 +6,8 @@ package cli
 // Exec would relocate itself and exec into the copy with argv
 // `worktree remove --yes` — no -test.run filter — restarting the whole
 // suite in place rather than running the real berth CLI; this is exactly
-// how #7's first cut leaked Compose projects through
-// legacy_integration_test.go and up_docker_integration_test.go, both of
-// which call Main in-process.
+// how #7's first cut leaked Compose projects through an integration test
+// that called Main in-process.
 //
 // This is checked here, not by actually calling Main end to end, because a
 // wrongly-wired Main that really did exec would not fail an assertion — it

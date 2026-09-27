@@ -39,19 +39,19 @@ const (
 	// RouterTimeout is how long `router up` waits for another control home's
 	// ensure to finish before giving up. It must cover Ensure's own worst
 	// case, or a waiter could give up on a holder that is still working
-	// within its own budget: previousProtocol's probe pair (2 * 30s), a
+	// within its own budget: refuseNewerRouter's probe pair (2 * 30s), a
 	// `compose up --wait` (5m), a full verify pass across all three
-	// services (6 * 30s = 3m), one recreate-and-reverify when it drifted
-	// (5m + 3m), and a protocol write. 60s + 5m + 3m + 5m + 3m = 17m, so
-	// 20m leaves comfortable room. (The probe and start timeouts referenced
-	// here are internal/router's dockerProbeTimeout and startTimeout.)
+	// services (6 * 30s = 3m), and one recreate-and-reverify when it
+	// drifted (5m + 3m). 60s + 5m + 3m + 5m + 3m = 17m, so 20m leaves
+	// comfortable room. (The probe and start timeouts referenced here are
+	// internal/router's dockerProbeTimeout and startTimeout.)
 	//
 	// Not every caller of this same lock scope waits this long: the checkout
 	// index (internal/checkoutindex.Service) shares the router's own lock
 	// target (internal/commands' routerLockScope) but times its own wait far
-	// shorter (60s, matching TypeScript's own INDEX_LOCK_TIMEOUT_MS), since
-	// it is best-effort and must never make `down`, `worktree remove`, or
-	// `up` itself stall behind a daemon that will not answer.
+	// shorter (60s), since it is best-effort and must never make `down`,
+	// `worktree remove`, or `up` itself stall behind a daemon that will not
+	// answer.
 	RouterTimeout = 20 * time.Minute
 )
 

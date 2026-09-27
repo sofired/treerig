@@ -8,12 +8,13 @@ import (
 	"github.com/sofired/berth/internal/text"
 )
 
-// jsonKV is an ordered JSON object. TypeScript builds the override document
-// with object spreads and Object.fromEntries, whose key order is insertion
-// order, and JSON.stringify preserves it; Go's map does not. jsonKV is this
-// package's ordered map, for both decoding `docker compose config`'s output
-// (see decodeOrdered) and building the override document that must match
-// TypeScript's bytes exactly (see overrideDocument in compose_up.go).
+// jsonKV is an ordered JSON object. The override document is built the way
+// a JavaScript object spread and Object.fromEntries would build it, whose
+// key order is insertion order, and JSON.stringify preserves it; Go's map
+// does not. jsonKV is this package's ordered map, for both decoding `docker
+// compose config`'s output (see decodeOrdered) and building the override
+// document with that same key order (see overrideDocument in
+// compose_up.go).
 //
 // set behaves like a JavaScript property assignment: a key already present
 // keeps its position and only its value changes; a new key is appended.
@@ -59,8 +60,7 @@ func (o *jsonKV) has(key string) bool {
 // (arrays), json.Number, string, bool, and nil (null) — preserving every
 // object's key order exactly as it appeared in data. This is what lets the
 // override document follow the model's own service, volume, and network
-// order, matching what JSON.parse followed by Object.entries would see in
-// the TypeScript build.
+// order, the same order JSON.parse followed by Object.entries would see.
 func decodeOrdered(data []byte) (any, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
@@ -133,9 +133,9 @@ func decodeOrderedToken(decoder *json.Decoder, token json.Token) (any, error) {
 }
 
 // marshalOrdered writes value as compact JSON with every jsonKV in its own
-// set order and no HTML escaping — matching TypeScript's JSON.stringify
-// exactly, unlike encoding/json's own map handling (alphabetical keys) and
-// default escaping of '<', '>' and '&'.
+// set order and no HTML escaping — matching JSON.stringify exactly, unlike
+// encoding/json's own map handling (alphabetical keys) and default escaping
+// of '<', '>' and '&'.
 func marshalOrdered(value any) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := writeOrdered(&buf, value); err != nil {
@@ -201,8 +201,8 @@ func writeOrderedArray(buf *bytes.Buffer, items []string) error {
 }
 
 // writeJSONString quotes s exactly as JSON.stringify does — see
-// text.JSONString, the one shared quoter every TypeScript-parity JSON
-// writer in this codebase uses. Not encoding/json: even with
+// text.JSONString, the one shared quoter every JSON writer in this codebase
+// that needs this exact escaping uses. Not encoding/json: even with
 // SetEscapeHTML(false), it still escapes U+2028 and U+2029 unconditionally,
 // which JSON.stringify writes raw, and a route or a branch name can carry
 // either.

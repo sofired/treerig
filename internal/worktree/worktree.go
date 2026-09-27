@@ -60,8 +60,8 @@ type EnvironmentSource struct {
 // ${BERTH_WORKTREE_HOME} means the same thing in a bind mount as in a seed
 // script. One builder, so hooks and the Compose file never disagree.
 //
-// The keys are in the TypeScript build's order: PROJECT, REPOSITORY_ID,
-// WORKTREE_ID, SLUG, HOST, WORKTREE_HOME, CONFIG, ROOT.
+// The keys are in a fixed order: PROJECT, REPOSITORY_ID, WORKTREE_ID, SLUG,
+// HOST, WORKTREE_HOME, CONFIG, ROOT.
 func Environment(source EnvironmentSource, ref Ref) [][2]string {
 	return [][2]string{
 		{"PROJECT", source.ProjectName},

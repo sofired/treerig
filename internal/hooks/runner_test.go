@@ -18,9 +18,8 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
-// testRef and testSource build the same fixed environment the TypeScript
-// suite's HookEnvironment literal does: PROJECT acme, HOST
-// feature-login.acme.localhost, ROOT /work/acme, and so on.
+// testRef and testSource build a fixed hook environment: PROJECT acme,
+// HOST feature-login.acme.localhost, ROOT /work/acme, and so on.
 var (
 	testRef = worktree.Ref{RepositoryID: "repo-a", WorktreeID: "wt-1", Slug: "feature-login"}
 	testSrc = worktree.EnvironmentSource{
@@ -39,8 +38,7 @@ func newContext(runner run.Runner, hooksCfg config.Hooks) hooks.HookContext {
 func str(s string) *string { return &s }
 
 // recordingRunner answers every command with a fixed exit code (0 by
-// default), recording every call — this package's Go counterpart of the
-// TypeScript suite's RecordingRunner.
+// default), recording every call.
 func recordingRunner(exitCodes map[string]int) *fakerun.Runner {
 	return &fakerun.Runner{Handler: func(_ context.Context, spec run.Spec) (run.Result, error) {
 		return run.Result{ExitCode: exitCodes[spec.Command]}, nil
@@ -152,10 +150,9 @@ func TestRunHook(t *testing.T) {
 	})
 
 	t.Run("a hook body of a single quoted empty string is refused as empty, not as a missing command", func(t *testing.T) {
-		// TypeScript destructures [executable, ...args] and checks
-		// `!executable`, a falsy check: splitCommand('""') answers ['']
-		// (one empty-string token), and an empty string is falsy, so this is
-		// refused the same way a whitespace-only command is — never spawned,
+		// splitCommand(`""`) answers [""] (one empty-string token), and an
+		// empty first token is refused the same way a whitespace-only
+		// command is — never spawned,
 		// never reported as "not on PATH".
 		runner := recordingRunner(nil)
 		_, err := hooks.RunHook(ctx, config.Prepare, newContext(runner, config.Hooks{Prepare: str(`""`)}), hooks.RunOptions{})

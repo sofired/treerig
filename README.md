@@ -241,12 +241,9 @@ berth router up           # start it without starting a worktree
 berth router down         # stop it; worktree services keep running, unrouted
 ```
 
-A version that changes the router's protocol upgrades it on the next `up` or
-`router up` and says so; when that upgrade is the one that changed how
-worktrees are routed, one already running stays unrouted until its own next
-`up`, and the run says that too. Every routed worktree also owns one more
-Docker bridge network, so `doctor` warns once the machine's networks start
-getting close to Docker's own default address-pool limit.
+Every routed worktree owns one more Docker bridge network, so `doctor`
+warns once the machine's networks start getting close to Docker's own
+default address-pool limit.
 
 **Index.** `http://berth.localhost` (plus the port, if changed) lists every
 checkout on the machine across every project: branch, hostname, path, whether
@@ -377,26 +374,22 @@ an `up` that moves the router to a new port says that URLs already open — the
 index page included — still use the old one.
 
 The berth root also holds the shared router's own bookkeeping: `router/`,
-with a `protocol` file naming the protocol of the last router known to have
-run there, as best the tool can tell (`router down` deliberately leaves it,
-so a later `up` can still say what changed; deleting it hands the router to
-whichever version runs next, unless a newer one's containers are still
-there), the dynamic-configuration and index directories the file provider
+with the dynamic-configuration and index directories the file provider
 watches, and the router's own lock. The router *container*, though, is one
 per Docker daemon regardless of berth root — its Compose project name never
 changes — and its containers carry a label naming the berth root that
 started them. `up` or `router up` from a different `BERTH_HOME` refuses while
 that router is running, naming the root it belongs to, rather than recreating
-it against its own bookkeeping; a router started by a build from before the
-label is adopted, and recreated once to record its owner. Taking a router
-over is an explicit step: `router down` stops it from any root, and the next
-root's `up` starts its own. `doctor` reports the owner. Every control home
-that shares one berth root shares that bookkeeping too, rather than taking
-turns recreating it.
+it against its own bookkeeping; a router carrying no such label is refused
+the same way. Taking a router over is an explicit step: `router down` stops
+it from any root, and the next root's `up` starts its own. `doctor` reports
+the owner. Every control home that shares one berth root shares that
+bookkeeping too, rather than taking turns recreating it.
 
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.berth-control-home` marker to
-recognise its own. Your home directory, anything above it, and the
+recognise its own, and refuses a directory whose marker holds anything but
+its own format, or is empty beside existing content. Your home directory, anything above it, and the
 filesystem root are always refused, whether reached through `BERTH_HOME` or
 `BERTH_CONTROL_HOME`.
 
@@ -485,8 +478,8 @@ that exits 124 makes `doctor` exit 124 too — the code `timeout(1)` uses for a
 command it had to kill — so a script that wraps `doctor` in `timeout` cannot
 tell the two apart by exit code alone. It takes no lock, writes nothing, and
 repairs nothing; it reports. When the router itself could be resolved, its
-`Router` section also names the router's owner (a `warn` for a router from
-before the label, a `fail` for another berth root's) and ends with a
+`Router` section also names the router's owner (a `fail` for a router
+without berth's owner label or one another berth root started) and ends with a
 `router port` line saying the same as `router status`'s second line, a
 `warn` when the running router publishes a different port than the one
 resolved; when port or settings resolution fails instead, the section holds
@@ -642,7 +635,7 @@ behaves (an extra thread, notably), and releases will build with it
 disabled. CI also runs the streams contract — every command's
 stdout/stderr split — as part of `go test -race -tags integration ./...`,
 against a binary it builds itself (`internal/cli/streams_integration_test.go`).
-The help and parity goldens under `internal/cli/testdata/` are
+The help and output goldens under `internal/cli/testdata/` are
 hand-maintained fixtures; [`CONTRIBUTING.md`](CONTRIBUTING.md) says how.
 
 ### Layout

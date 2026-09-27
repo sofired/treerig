@@ -1,7 +1,6 @@
 // Package lifecycle is one signal handler for the whole process, started
 // once in main, plus Hold: the lock-ordered, signal-deferring wrapper every
-// mutating command runs its work through. It replaces
-// src/signal-lifecycle.ts and src/commands/mutation.ts's withWorktreeMutation.
+// mutating command runs its work through.
 package lifecycle
 
 import (

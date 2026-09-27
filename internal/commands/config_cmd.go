@@ -10,7 +10,6 @@ import (
 )
 
 // load reads --config if given, else the nearest berth.toml above env.Cwd.
-// Ported from main.ts's own `load(explicit)` helper.
 func load(env *Env) (*config.Loaded, error) {
 	if env.ConfigPath != "" {
 		return config.Load(env.ConfigPath)
