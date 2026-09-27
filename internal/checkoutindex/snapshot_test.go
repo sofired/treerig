@@ -9,9 +9,7 @@ import (
 	"github.com/sofired/berth/internal/registry"
 )
 
-// Ported from tests/unit/checkout-index.test.ts's `parseContainerInventory`
-// and `buildSnapshot` describe blocks (rendering and planIndexUpdate are in
-// render_test.go), one t.Run per "it" title.
+// (rendering and planIndexUpdate are in render_test.go.)
 
 const (
 	testRepo      = "11111111-1111-4111-8111-111111111111"
@@ -25,8 +23,8 @@ var testWorktreeIDs = []string{
 	"22222222-2222-4222-8222-222222222224",
 }
 
-// testRegistrations is `registrations` from the TypeScript suite: feature-a,
-// feature-b, and gone in one repository/domain, main in another.
+// testRegistrations is feature-a, feature-b, and gone in one
+// repository/domain, main in another.
 func testRegistrations() []registry.RegisteredWorktree {
 	return []registry.RegisteredWorktree{
 		{RepositoryID: testRepo, WorktreeID: testWorktreeIDs[0], Slug: "feature-a", Domain: "acme.localhost"},
@@ -36,8 +34,7 @@ func testRegistrations() []registry.RegisteredWorktree {
 	}
 }
 
-// testIdentity is the TypeScript suite's `identity` fixture: a live Git
-// worktree for record, checked out at branch.
+// testIdentity is a live Git worktree for record, checked out at branch.
 func testIdentity(record registry.RegisteredWorktree, branch string) registry.WorktreeIdentity {
 	return registry.WorktreeIdentity{
 		Branch:       branch,
@@ -49,8 +46,8 @@ func testIdentity(record registry.RegisteredWorktree, branch string) registry.Wo
 	}
 }
 
-// testCard is the TypeScript suite's `card` fixture: a well-formed card for
-// record, naming project and carrying services.
+// testCard is a well-formed card for record, naming project and carrying
+// services.
 func testCard(record registry.RegisteredWorktree, project string, services ...card.IndexService) card.IndexCard {
 	if services == nil {
 		services = []card.IndexService{}
@@ -89,9 +86,8 @@ func hosted(record registry.RegisteredWorktree, services ...card.IndexService) [
 	return result
 }
 
-// testLine is the TypeScript suite's `line` fixture: one `docker ps` row for
-// record's service, defaulting to a healthy, running container when
-// stateAndStatus is omitted.
+// testLine is one `docker ps` row for record's service, defaulting to a
+// healthy, running container when stateAndStatus is omitted.
 func testLine(record registry.RegisteredWorktree, service string, stateAndStatus ...string) string {
 	state, status := "running", "Up 20 seconds (healthy)"
 	if len(stateAndStatus) > 0 {
@@ -114,8 +110,7 @@ func mustParseInventory(t *testing.T, lines ...string) []ContainerRecord {
 	return records
 }
 
-// TestParseContainerInventory ports tests/unit/checkout-index.test.ts's
-// `parseContainerInventory` describe block.
+// TestParseContainerInventory covers parseContainerInventory.
 func TestParseContainerInventory(t *testing.T) {
 	regs := testRegistrations()
 	r0, r1 := regs[0], regs[1]
@@ -153,12 +148,10 @@ func TestParseContainerInventory(t *testing.T) {
 		}
 	})
 
-	// Not a ported title: TypeScript's `[]` is always a defined value, so it
-	// has no analogue of Go's nil-vs-empty-slice distinction. Pinned here
-	// because SnapshotInput.Containers relies on that distinction — nil
-	// means Docker could not be asked at all — and a caller merging several
-	// namespaces' inventories could otherwise turn "asked, found nothing"
-	// into "never asked" by accident.
+	// Pinned because SnapshotInput.Containers relies on the nil-vs-empty-slice
+	// distinction — nil means Docker could not be asked at all — and a
+	// caller merging several namespaces' inventories could otherwise turn
+	// "asked, found nothing" into "never asked" by accident.
 	t.Run("never returns a nil slice on success, even for empty output", func(t *testing.T) {
 		records, err := ParseContainerInventory("")
 		if err != nil {
@@ -173,9 +166,8 @@ func TestParseContainerInventory(t *testing.T) {
 	})
 }
 
-// baseSnapshotInput is `snapshot()`'s defaults from the TypeScript suite's
-// `describe('buildSnapshot', …)`. Each test starts here and mutates the
-// fields it needs, in place of the TypeScript overrides object.
+// baseSnapshotInput is BuildSnapshot's defaults. Each test starts here and
+// mutates the fields it needs.
 func baseSnapshotInput(t *testing.T) SnapshotInput {
 	t.Helper()
 	regs := testRegistrations()
@@ -233,8 +225,7 @@ func servicePairs(services []IndexServiceLink) [][2]any {
 	return pairs
 }
 
-// TestBuildSnapshot ports tests/unit/checkout-index.test.ts's `buildSnapshot`
-// describe block.
+// TestBuildSnapshot covers buildSnapshot.
 func TestBuildSnapshot(t *testing.T) {
 	t.Run("derives running, partial, stopped, and missing, sorted by project with missing last", func(t *testing.T) {
 		snapshot := BuildSnapshot(baseSnapshotInput(t))

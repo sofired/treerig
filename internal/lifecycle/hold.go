@@ -98,8 +98,8 @@ func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
 // might still be running — and the process is torn down: see Lifecycle.Exit.
 //
 // The action's own error is reported first; a release failure rides along as
-// its Cause (if it had none) and always in Suppressed, as
-// src/signal-lifecycle.ts:95-104 attached a lock-release failure.
+// its Cause (if it had none) and always in Suppressed, so a lock that could
+// not be released is never silent.
 func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action func(context.Context) error) error {
 	scopes := requests.ordered()
 	held := make([]*lock.Lock, 0, len(scopes))
@@ -133,8 +133,8 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 	}
 
 	if quiesceErr != nil {
-		// As src/commands/context.ts's realProcess.forceExit logged before
-		// exiting: the reason must be seen, since nothing else will report it.
+		// Logged before exiting: the reason must be seen, since nothing
+		// else will report it.
 		message := fmt.Sprintf("Could not prove the interrupted operation stopped: %s", quiesceErr)
 		if env.Logger != nil {
 			env.Logger.Error(message)
@@ -156,9 +156,8 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 	// now — and Release itself reports no error for that case. Left
 	// unchecked, an action that returned nil despite the loss (one that
 	// does not itself watch ctx.Done()) would make this whole Hold call
-	// report success. This checks explicitly, the way
-	// src/operation-lock.ts's assertHealthy did, rather than leaving
-	// actionErr alone to speak for it.
+	// report success. This checks explicitly, rather than leaving actionErr
+	// alone to speak for it.
 	for _, lk := range held {
 		if lk.Lost() {
 			releaseErrs = append(releaseErrs, lk.Err())
@@ -202,9 +201,7 @@ func attach(primary error, secondary []error) error {
 	if !ok {
 		// Not our own mutable error type: rebuilt around its text so Cause
 		// and Suppressed still have somewhere to go; its own structure
-		// (Unwrap chain) does not survive this, which is the accepted
-		// difference from src/signal-lifecycle.ts, where every thrown value
-		// is a real Error and is mutated in place instead.
+		// (Unwrap chain) does not survive this.
 		ce = &clierr.Error{Message: primary.Error(), ExitCode: clierr.Code(primary)}
 	}
 	if ce.Cause == nil {

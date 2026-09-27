@@ -2,14 +2,12 @@
 
 package commands_test
 
-// Port of the `up` describe block in
-// tests/integration/commands.integration.test.ts: the command layer end to
-// end — a real Git repository, real hook executables, real locks, a real
-// process runner — with commandstest.Docker answering every `docker` call in
-// place of the TypeScript suite's MemoryRuntime. Plus two interrupts the
-// TypeScript suite never had: one landing in `compose up`'s own child, one
-// landing in a hook, each a real process tree that must be stopped with its
-// whole group before the worktree lock is released.
+// The command layer end to end — a real Git repository, real hook
+// executables, real locks, a real process runner — with commandstest.Docker
+// answering every `docker` call in place of a daemon. Plus two interrupts:
+// one landing in `compose up`'s own child, one landing in a hook, each a
+// real process tree that must be stopped with its whole group before the
+// worktree lock is released.
 //
 // An interrupt here is what lifecycle.Lifecycle turns a SIGINT into: the
 // root context cancelled with cause *clierr.Cancelled. Dying by the signal
@@ -41,9 +39,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// upConfig is the TypeScript suite's CONFIG, plus a port on each service:
-// commandstest.Docker's `compose config` declares no ports, and a routed
-// service with neither is refused before anything starts.
+// upConfig is a berth.toml with a port on each service: commandstest.Docker's
+// `compose config` declares no ports, and a routed service with neither is
+// refused before anything starts.
 const upConfig = `
 [project]
 name = "acme"

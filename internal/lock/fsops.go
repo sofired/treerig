@@ -12,11 +12,10 @@ import (
 func dirOf(target string) string { return filepath.Dir(target) }
 
 // openTarget creates the target file 0600 (parent 0700) if it is missing,
-// opens it O_RDWR, and reports its identity. Ported from
-// src/operation-lock.ts's ensurePlainTarget: a lock target is a managed file
-// of ours, so a directory or symbolic link there is refused rather than
-// followed or replaced — inspecting what another waiter created in between
-// is why this loops instead of trusting a single lstat.
+// opens it O_RDWR, and reports its identity. A lock target is a managed
+// file of ours, so a directory or symbolic link there is refused rather
+// than followed or replaced — inspecting what another waiter created in
+// between is why this loops instead of trusting a single lstat.
 func openTarget(path, description string) (*os.File, FileID, error) {
 	if err := os.MkdirAll(dirOf(path), 0o700); err != nil {
 		return nil, FileID{}, err

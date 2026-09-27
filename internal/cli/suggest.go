@@ -1,6 +1,6 @@
 package cli
 
-// Ported from node_modules/commander/lib/suggestSimilar.js.
+// Adapted from commander.js's lib/suggestSimilar.js (https://github.com/tj/commander.js).
 //
 // (The MIT License)
 //

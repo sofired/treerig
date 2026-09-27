@@ -10,12 +10,12 @@ import (
 	"golang.org/x/text/collate"
 )
 
-// TestCollateOracle is the collation gate for WP4a (#40): before anything
-// that sorts with Collate was ported, this checked that golang.org/x/text/
-// collate's `en` table (CLDR 23 / Unicode 6.2) agrees with Node 24's ICU
-// (CLDR 48 / Unicode 17) on internal/text/testdata/collation-corpus.json, a
-// hand-maintained fixture generated from real `localeCompare(…, 'en')`
-// calls; its origin is in git history.
+// collationFixture is the collation gate (#40): it checks that
+// golang.org/x/text/collate's `en` table (CLDR 23 / Unicode 6.2) agrees with
+// Node 24's ICU (CLDR 48 / Unicode 17) on
+// internal/text/testdata/collation-corpus.json, a hand-maintained fixture
+// generated from real `localeCompare(…, 'en')` calls; its origin is in git
+// history.
 //
 // The corpus is split in two. `realistic` is everything a Git branch, a
 // config's project name, or a domain label plausibly is: ASCII, case pairs,
@@ -43,7 +43,7 @@ import (
 // differs only where the specific strings being compared carry a wide
 // script; no row, name, or table is ever added, dropped, or renamed.
 //
-// The oracle records only `sorted`, not the unsorted corpus too — the same
+// The fixture records only `sorted`, not the unsorted corpus too — the same
 // multiset, just reordered, would double the file for no extra signal.
 // `tiedIndices` names every index i where sorted[i] and sorted[i+1] collate
 // exactly equal under Node's own localeCompare, e.g. a precomposed letter
@@ -56,7 +56,7 @@ import (
 // scrambles that order, two elements in the same tied run may swap places
 // without counting as a disagreement — anything else must land back exactly
 // where Node put it.
-type collationOracle struct {
+type collationFixture struct {
 	ICU       string          `json:"icu"`
 	CLDR      string          `json:"cldr"`
 	Unicode   string          `json:"unicode"`
@@ -65,63 +65,63 @@ type collationOracle struct {
 }
 
 type collationSubset struct {
-	Sorted      []string              `json:"sorted"`
-	TiedIndices []int                 `json:"tiedIndices"`
-	Pairs       []collationOraclePair `json:"pairs"`
+	Sorted      []string               `json:"sorted"`
+	TiedIndices []int                  `json:"tiedIndices"`
+	Pairs       []collationFixturePair `json:"pairs"`
 }
 
-type collationOraclePair struct {
+type collationFixturePair struct {
 	Left  string `json:"left"`
 	Right string `json:"right"`
 	Sign  int    `json:"sign"`
 }
 
-// loadCollationOracle reads and parses testdata/collation-corpus.json,
+// loadCollationFixture reads and parses testdata/collation-corpus.json,
 // failing the test if it is missing, malformed, or empty.
-func loadCollationOracle(t *testing.T) collationOracle {
+func loadCollationFixture(t *testing.T) collationFixture {
 	t.Helper()
 	data, err := os.ReadFile("testdata/collation-corpus.json")
 	if err != nil {
-		t.Fatalf("reading oracle data: %v", err)
+		t.Fatalf("reading fixture data: %v", err)
 	}
-	var oracle collationOracle
-	if err := json.Unmarshal(data, &oracle); err != nil {
-		t.Fatalf("parsing oracle data: %v", err)
+	var fixture collationFixture
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("parsing fixture data: %v", err)
 	}
-	if len(oracle.Realistic.Sorted) == 0 || len(oracle.Wide.Sorted) == 0 {
-		t.Fatal("empty oracle corpus")
+	if len(fixture.Realistic.Sorted) == 0 || len(fixture.Wide.Sorted) == 0 {
+		t.Fatal("empty fixture corpus")
 	}
-	return oracle
+	return fixture
 }
 
-// TestCollateOracleRealisticSortOrder sorts a reversed copy of the realistic
+// TestCollateRealisticSortOrder sorts a reversed copy of the realistic
 // subset with Collate and requires the exact order Node's own
 // localeCompare('en') produced, up to the reordering of ties that reversal
 // itself introduces (see sortMismatches). A failure here means
 // x/text/collate cannot stand in for localeCompare on the strings berth
-// actually sorts, and the rest of the checkout-index renderer must not be
-// ported until that is resolved.
-func TestCollateOracleRealisticSortOrder(t *testing.T) {
-	oracle := loadCollationOracle(t)
+// actually sorts, and the checkout-index renderer must not rely on Collate
+// until that is resolved.
+func TestCollateRealisticSortOrder(t *testing.T) {
+	fixture := loadCollationFixture(t)
 	t.Logf("Node ICU %s / CLDR %s / Unicode %s; golang.org/x/text/collate CLDR %s / Unicode %s",
-		oracle.ICU, oracle.CLDR, oracle.Unicode, collate.CLDRVersion, collate.UnicodeVersion)
+		fixture.ICU, fixture.CLDR, fixture.Unicode, collate.CLDRVersion, collate.UnicodeVersion)
 
-	mismatches, detail := sortMismatches(oracle.Realistic.Sorted, oracle.Realistic.TiedIndices)
+	mismatches, detail := sortMismatches(fixture.Realistic.Sorted, fixture.Realistic.TiedIndices)
 	for _, line := range detail {
 		t.Error(line)
 	}
 	if mismatches > 0 {
-		t.Fatalf("%d of %d realistic positions disagree with Node's localeCompare('en') order", mismatches, len(oracle.Realistic.Sorted))
+		t.Fatalf("%d of %d realistic positions disagree with Node's localeCompare('en') order", mismatches, len(fixture.Realistic.Sorted))
 	}
 }
 
-// TestCollateOracleRealisticPairs checks the pairwise sign Node's
+// TestCollateRealisticPairs checks the pairwise sign Node's
 // localeCompare('en') gave for every consecutive pair of the realistic
 // corpus, plus an all-pairs cross-check over a handful of single-character
 // probes, independent of overall sort-order agreement.
-func TestCollateOracleRealisticPairs(t *testing.T) {
-	oracle := loadCollationOracle(t)
-	checkPairs(t, oracle.Realistic.Pairs)
+func TestCollateRealisticPairs(t *testing.T) {
+	fixture := loadCollationFixture(t)
+	checkPairs(t, fixture.Realistic.Pairs)
 }
 
 // TestCollateWideScriptsDiverge pins the accepted difference: for CJK,
@@ -132,18 +132,18 @@ func TestCollateOracleRealisticPairs(t *testing.T) {
 // that closes the gap is noticed (the mismatch count drops to zero) rather
 // than silently kept.
 func TestCollateWideScriptsDiverge(t *testing.T) {
-	oracle := loadCollationOracle(t)
+	fixture := loadCollationFixture(t)
 
-	sortMismatchCount, _ := sortMismatches(oracle.Wide.Sorted, oracle.Wide.TiedIndices)
+	sortMismatchCount, _ := sortMismatches(fixture.Wide.Sorted, fixture.Wide.TiedIndices)
 	if sortMismatchCount == 0 {
 		t.Fatal("x/text/collate now reproduces Node's order for CJK/Hangul/Kana/emoji/combining-mark strings; " +
 			"promote the wide corpus into the realistic gate")
 	}
 	t.Logf("%d of %d wide-script positions disagree with Node's localeCompare('en') order (expected)",
-		sortMismatchCount, len(oracle.Wide.Sorted))
+		sortMismatchCount, len(fixture.Wide.Sorted))
 
 	pairMismatches := 0
-	for _, pair := range oracle.Wide.Pairs {
+	for _, pair := range fixture.Wide.Pairs {
 		if sign(Collate(pair.Left, pair.Right)) != pair.Sign {
 			pairMismatches++
 		}
@@ -153,7 +153,7 @@ func TestCollateWideScriptsDiverge(t *testing.T) {
 			"promote the wide corpus into the realistic gate")
 	}
 	t.Logf("%d of %d wide-script pairs disagree with Node's localeCompare('en') sign (expected)",
-		pairMismatches, len(oracle.Wide.Pairs))
+		pairMismatches, len(fixture.Wide.Pairs))
 }
 
 // sortMismatches reverses want (a deterministic permutation) and sorts the
@@ -231,7 +231,7 @@ func sameMultiset(a, b []string) bool {
 
 // checkPairs requires Collate's sign to match Node's localeCompare('en')
 // sign for every pair, reporting up to 25 disagreements before failing.
-func checkPairs(t *testing.T, pairs []collationOraclePair) {
+func checkPairs(t *testing.T, pairs []collationFixturePair) {
 	t.Helper()
 	mismatches := 0
 	for _, pair := range pairs {

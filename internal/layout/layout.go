@@ -182,9 +182,9 @@ func EnvRouterPort(getenv Getenv) (int, error) {
 	return port, nil
 }
 
-// parseJSInteger accepts what Number(raw) turns into an integer, the way the
-// TypeScript build checks it: surrounding whitespace is allowed, and so are
-// "80.0", "8e1" and the unsigned 0x/0o/0b forms.
+// parseJSInteger accepts what Number(raw) turns into an integer: surrounding
+// whitespace is allowed, and so are "80.0", "8e1" and the unsigned 0x/0o/0b
+// forms.
 func parseJSInteger(raw string) (int, error) {
 	trimmed := trimJSWhitespace(raw)
 	if strings.Contains(trimmed, "_") || trimmed == "" {
@@ -266,20 +266,19 @@ func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 }
 
 // RouterLayout is the shared router's on-disk layout, outside the control
-// home (#12, #13, #80): the stack file, the protocol record, the two
-// directories the router bind-mounts, and the router lock's own target
-// file. This layout is per berth root, so every control home under the
-// same berth root reads and writes the same one instead of taking turns
-// recreating it — but the router container itself is not: its Compose
-// project name is fixed (router.ResolveProjectName), so it is one per
-// Docker daemon regardless of berth root. A berth root with its own,
-// different RouterLayout does not get its own router; it makes `up` or
-// `router up` from that root recreate the one container against its own
-// state instead, still on the same daemon (#80's own AGENTS.md note).
+// home (#12, #13, #80): the stack file, the two directories the router
+// bind-mounts, and the router lock's own target file. This layout is per
+// berth root, so every control home under the same berth root reads and
+// writes the same one instead of taking turns recreating it — but the
+// router container itself is not: its Compose project name is fixed
+// (router.ResolveProjectName), so it is one per Docker daemon regardless of
+// berth root. A berth root with its own, different RouterLayout does not
+// get its own router; it makes `up` or `router up` from that root recreate
+// the one container against its own state instead, still on the same
+// daemon (#80's own AGENTS.md note).
 type RouterLayout struct {
-	StateDir     string
-	ComposeFile  string
-	ProtocolFile string
+	StateDir    string
+	ComposeFile string
 	// DynamicDir is bind-mounted read-only into the router; 0755, 0644 files, never secrets.
 	DynamicDir string
 	// IndexDir is bind-mounted read-only into the index server; 0755, 0644 files, never secrets.
@@ -327,13 +326,12 @@ func RouterStateFrom(home string) RouterLayout {
 	dir := RouterStateDirFrom(home)
 	indexDir := filepath.Join(dir, "index")
 	return RouterLayout{
-		StateDir:     dir,
-		ComposeFile:  filepath.Join(dir, "compose.yaml"),
-		ProtocolFile: filepath.Join(dir, "protocol"),
-		DynamicDir:   filepath.Join(dir, "dynamic"),
-		IndexDir:     indexDir,
-		IndexFile:    filepath.Join(indexDir, "index.html"),
-		LockPath:     filepath.Join(dir, "lock"),
+		StateDir:    dir,
+		ComposeFile: filepath.Join(dir, "compose.yaml"),
+		DynamicDir:  filepath.Join(dir, "dynamic"),
+		IndexDir:    indexDir,
+		IndexFile:   filepath.Join(indexDir, "index.html"),
+		LockPath:    filepath.Join(dir, "lock"),
 	}
 }
 

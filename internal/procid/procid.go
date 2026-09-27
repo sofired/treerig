@@ -5,9 +5,8 @@
 // step. Linux reads /proc directly (no `ps`, which slim images lack and
 // BusyBox answers differently); macOS asks the kernel through sysctl.
 //
-// This is a straight port of src/process-table.ts, plus Holding, which that
-// file never needed: the TypeScript build never had to say who currently
-// holds a flock, because it never used one.
+// Holding answers who currently holds a flock — needed only because this
+// build's lock design uses one.
 package procid
 
 // Identity is who a process is, in the terms a later reader can check it by.

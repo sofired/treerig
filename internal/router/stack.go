@@ -1,8 +1,7 @@
 // Package router is the shared router: one Traefik stack per Docker daemon,
 // used by every worktree of every repository on this machine; its state and
-// lock are per berth root (#80). It ports
-// src/router/stack.ts (the stack document, built from constants) and
-// src/router/router.ts (ensure/verify/status/down).
+// lock are per berth root (#80). It builds the stack document from
+// constants and implements ensure/verify/status/down against it.
 //
 // Everything is pinned by digest, runs read-only, drops every capability
 // (the router gets back only NET_BIND_SERVICE), and cannot escalate. As of
@@ -23,32 +22,16 @@ import (
 	"github.com/sofired/berth/internal/text"
 )
 
-// Protocol is bumped whenever the stack changes shape; a newer router is
-// never downgraded. WP3 (#39) bumped it from 3 to 4: the router's state
-// moves out of every control home into its own location, shared by every
-// control home under the same berth root (#12, #13; #80 later made that
-// location the berth root itself, rather than a fixed one per user
-// account), and every `docker` call now carries a timeout (#14). #55 bumps
-// it again, from 4 to 5: Traefik's Docker-provider discovery and the
-// docker-socket-proxy (docker-api) service are dropped outright — the
-// router container never has any access to the Docker socket — and routing
-// moves entirely to Traefik's file provider. berth writes and removes one
-// dynamic-config fragment per routed service (fragment.go), and every
-// worktree gets its own dedicated Docker network instead of sharing one
-// (internal/backend's RouterNetworkName); the router connects to each one
-// explicitly and reconnects them all on every Ensure.
+// Protocol names the shape of the stack this build starts; it is stamped on
+// both containers and bumped whenever that shape changes. A router at a
+// higher protocol is never recreated as this one (refuseNewerRouter). The
+// router has no access to the Docker socket: routes come only from the
+// file-provider fragments berth writes (fragment.go), and each worktree has
+// its own Docker network (internal/backend's RouterNetworkName), which the
+// router joins explicitly and rejoins on every Ensure.
 const Protocol = 5
 
-// RoutedBySinceProtocol is the protocol that introduced RoutedByLabel as a
-// *container* label: a router older than this routed every container
-// Traefik could discover, not only ones labelled for it. Superseded by
-// Protocol 5's routing model (RoutedByLabel now names a *network*, not a
-// container — see its own comment), but left in place as the historical
-// threshold noteUnroutedAfterUpgrade still consults for an upgrade that
-// crosses it.
-const RoutedBySinceProtocol = 3
-
-// RoutedByLabel, as of protocol 5, names the shared router (by its own
+// RoutedByLabel names the shared router (by its own
 // Network value) that manages one worktree's dedicated router network —
 // applied to that *network*, not to any container, since Traefik's Docker
 // provider is gone and no container label reaches Traefik at all any more.
@@ -186,12 +169,12 @@ func RouterCommand() []string {
 
 /* ------------------------------------------------------- ordered JSON objects */
 
-// labelSet is Record<string, string> in TypeScript, rendered in exactly the
-// order stack.ts builds it: JSON.stringify keeps insertion order, but Go's
-// encoding/json sorts a map's keys instead, and this order is not
-// alphabetical (dev.berth.router-protocol before traefik.enable, entrypoints
-// before rule). Its strings are quoted with text.JSONString, JSON.stringify's
-// own escaping, so the bytes match TypeScript's whatever a label holds.
+// labelSet is an ordered set of string labels, rendered in a fixed order:
+// JSON.stringify keeps insertion order, but Go's encoding/json sorts a
+// map's keys instead, and this order is not alphabetical
+// (dev.berth.router-protocol before traefik.enable, entrypoints before
+// rule). Its strings are quoted with text.JSONString, JSON.stringify's own
+// escaping, so the bytes match whatever a label holds.
 type labelSet []labelEntry
 
 // labelEntry is one key/value pair of a labelSet, in the position it was given.
@@ -235,7 +218,7 @@ func (s labelSet) MarshalJSON() ([]byte, error) {
 
 /* ---------------------------------------------------------------- the stack */
 
-// mount is one Compose bind mount, in stack.ts's own field order.
+// mount is one Compose bind mount.
 type mount struct {
 	Type     string `json:"type"`
 	Source   string `json:"source"`
@@ -252,14 +235,14 @@ type healthcheck struct {
 }
 
 // newHealthcheck is a healthcheck running test, with every service's shared
-// interval, timeout and retry count (stack.ts's HEALTHCHECK).
+// interval, timeout and retry count.
 func newHealthcheck(test []string) healthcheck {
 	return healthcheck{Test: test, Interval: "2s", Timeout: "3s", Retries: 30}
 }
 
-// routerServiceDoc is the router (Traefik) service's Compose document, in
-// stack.ts's own field order. As of protocol 5 there is no depends_on: the
-// docker-api proxy it used to wait on is gone.
+// routerServiceDoc is the router (Traefik) service's Compose document. As
+// of protocol 5 there is no depends_on: the docker-api proxy it used to
+// wait on is gone.
 type routerServiceDoc struct {
 	Image       string      `json:"image"`
 	Restart     string      `json:"restart"`
@@ -276,8 +259,7 @@ type routerServiceDoc struct {
 	Networks    []string    `json:"networks"`
 }
 
-// indexServiceDoc is the index service's Compose document, in stack.ts's own
-// field order.
+// indexServiceDoc is the index service's Compose document.
 type indexServiceDoc struct {
 	Image       string      `json:"image"`
 	Restart     string      `json:"restart"`
@@ -291,8 +273,8 @@ type indexServiceDoc struct {
 	Networks    []string    `json:"networks"`
 }
 
-// stackServices is the stack's two services, in stack.ts's own field order.
-// As of protocol 5 there is no docker-api service.
+// stackServices is the stack's two services. As of protocol 5 there is no
+// docker-api service.
 type stackServices struct {
 	Router routerServiceDoc `json:"router"`
 	Index  indexServiceDoc  `json:"index"`
@@ -311,19 +293,17 @@ type stackNetworks struct {
 
 // StackDocument is the Compose document the shared router runs: hardened,
 // pinned by digest, JSON that Compose reads as YAML. Its field order is
-// exactly stack.ts's object-literal order, so encoding it with
-// files.AtomicJSON reproduces JSON.stringify(document, null, 2) byte for
-// byte apart from the protocol-4 and protocol-5 differences described
-// above (see testdata/stack-oracle.json).
+// fixed, so encoding it with files.AtomicJSON always produces the same
+// bytes; TestStackGolden pins them against testdata/stack-golden.json.
 type StackDocument struct {
 	Services stackServices `json:"services"`
 	Networks stackNetworks `json:"networks"`
 }
 
-// hardenedCapDrop is every service's own cap_drop (stack.ts's HARDENED).
+// hardenedCapDrop is every service's own cap_drop.
 var hardenedCapDrop = []string{"ALL"}
 
-// hardenedSecurityOpt is every service's own security_opt (stack.ts's HARDENED).
+// hardenedSecurityOpt is every service's own security_opt.
 var hardenedSecurityOpt = []string{"no-new-privileges:true"}
 
 // Stack builds the stack document for options.

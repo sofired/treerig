@@ -76,8 +76,7 @@ func (DarwinTable) Inspect(pid int) (Status, error) {
 
 // Scan lists every other process from kern.proc.all, reading each one's exact
 // argv and environment from kern.procargs2. procargs2 refuses another user's
-// process without root; those fall back to a single `ps` call, as the
-// TypeScript build's DarwinProcessTable always did.
+// process without root; those fall back to a single `ps` call.
 func (DarwinTable) Scan() (Scan, error) {
 	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {

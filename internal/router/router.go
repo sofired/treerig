@@ -6,25 +6,22 @@ package router
 // Compose runtime generates for them. Nothing here is per-project, which is
 // why its settings come from the environment rather than from berth.toml.
 //
-// Ported from src/router/router.ts. Unlike there, locking is not this
-// package's job: the caller acquires the router's lock.Scope through
-// lifecycle.Hold (taken alone) before calling Ensure, the way every other
-// mutation in this build holds its lock around the action rather than the
-// action holding it around itself.
+// Locking is not this package's job: the caller acquires the router's
+// lock.Scope through lifecycle.Hold (taken alone) before calling Ensure,
+// the way every other mutation holds its lock around the action rather
+// than the action holding it around itself.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/sofired/berth/internal/brand"
@@ -35,16 +32,13 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/text"
 )
 
-// Docker-call timeouts (#14): the TypeScript build never set any on the
-// router's own calls. containerID and inspect are quick introspection,
-// timed the same as doctor.ts's own docker inspect probes
-// (DOCKER_PROBE_TIMEOUT_MS). start and Down have no TypeScript precedent, so
-// these are this port's own sensible choices: starting the router may pull
-// three images on a bare machine and wait for every health check, hence the
-// generous 5 minutes; lock.RouterTimeout is sized to cover Ensure's worst
+// Docker-call timeouts (#14): containerID and inspect are quick
+// introspection, timed the same as doctor's own docker inspect probes.
+// start and Down get their own sensible choices: starting the router may
+// pull three images on a bare machine and wait for every health check,
+// hence the generous 5 minutes; lock.RouterTimeout is sized to cover Ensure's worst
 // case in terms of these three constants, so a waiter's patience is never
 // shorter than what a first start may need — see its own comment. Stopping
 // it is ordinarily fast; a minute is generous room for a slow network
@@ -107,12 +101,11 @@ func ResolveProjectName() string { return DefaultName }
 
 // PlaceholderPage returns the bytes of the placeholder index page Ensure
 // writes before the index container's first `compose up --wait`, because
-// that container's health check fetches it (router.ts:198-201 in the
-// TypeScript build, ported as write() below). Tests may supply a stub.
+// that container's health check fetches it (see write() below). Tests may
+// supply a stub.
 type PlaceholderPage func(now time.Time) ([]byte, error)
 
-// defaultPlaceholderPage is the checkout index's own placeholder:
-// renderIndexHtml(placeholderSnapshot(now)), as the TypeScript build writes.
+// defaultPlaceholderPage is the checkout index's own placeholder.
 func defaultPlaceholderPage(now time.Time) ([]byte, error) {
 	return []byte(checkoutindex.PlaceholderHTML(now)), nil
 }
@@ -281,7 +274,7 @@ func secureState(state layout.RouterLayout) error {
 	if err := secureDirectories(state.StateDir, []string{state.DynamicDir, state.IndexDir}, 0o755); err != nil {
 		return err
 	}
-	for _, file := range []string{state.LockPath, state.IndexFile, state.ComposeFile, state.ProtocolFile} {
+	for _, file := range []string{state.LockPath, state.IndexFile, state.ComposeFile} {
 		if err := files.AssertSafeFilePathNamed(state.StateDir, file, stateNoun); err != nil {
 			return err
 		}
@@ -615,48 +608,6 @@ func OrphanedFragments(fragments []FragmentInfo, networks []string) []FragmentIn
 	return orphaned
 }
 
-// networkNotFoundTolerated matches Docker's refusal to remove a network
-// that is already gone: nothing left to clean up, from
-// removeLegacyDockerAPINetwork's point of view.
-var networkNotFoundTolerated = regexp.MustCompile(`(?i)no such network|not found`)
-
-// removeLegacyDockerAPINetwork best-effort removes the "docker-api" network
-// a router below FileProviderSinceProtocol declared with no explicit name
-// (stack.go's own pre-protocol-5 internalNetwork carried none), found by the
-// project and network-key labels Compose itself always stamps rather than a
-// guessed name — the literal string Compose derived depends on which
-// separator ("_" or "-") the Compose version in use at the time chose.
-// Nothing else in this build reads or writes either label; they exist only
-// so this one cleanup can find what it is looking for without guessing.
-// Ensure calls it on every run, ungated, so a failed cleanup is retried on
-// the next run — see its caller.
-func (r *Router) removeLegacyDockerAPINetwork(ctx context.Context) error {
-	listed, err := docker.Run(ctx, r.runner, []string{
-		"network", "ls",
-		"--filter", "label=com.docker.compose.project=" + r.ProjectName,
-		"--filter", "label=com.docker.compose.network=docker-api",
-		"--format", "{{.ID}}",
-	}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
-	if err != nil {
-		return err
-	}
-	if listed.ExitCode != 0 {
-		return &docker.UnavailableError{Detail: docker.Said(listed.Stderr,
-			fmt.Sprintf("`docker network ls` exited %d without saying why", listed.ExitCode))}
-	}
-	for _, id := range strings.Fields(listed.Stdout) {
-		result, err := docker.Run(ctx, r.runner, []string{"network", "rm", id}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
-		if err != nil {
-			return err
-		}
-		if result.ExitCode == 0 || networkNotFoundTolerated.MatchString(result.Stderr) {
-			continue
-		}
-		return clierr.Newf("Could not remove network %s:\n%s", id, docker.Said(result.Stderr, strings.TrimSpace(result.Stdout)))
-	}
-	return nil
-}
-
 // inspect is `docker inspect` for one container, parsed as ContainerInspect.
 // Returns nil, nil rather than an error when it cannot be read — gone, not
 // yet started, or an unparseable answer — since none of that is fatal to a
@@ -679,9 +630,9 @@ func (r *Router) inspect(ctx context.Context, container string) (*ContainerInspe
 // jsMaxSafeInteger is JavaScript's Number.MAX_SAFE_INTEGER (2^53 - 1).
 const jsMaxSafeInteger = 1<<53 - 1
 
-// toProtocol parses text as a protocol number the way the TypeScript build's
-// own toProtocol does: digits only ("0x10" and "1e3" are corruption, not
-// protocols), and a safe, non-negative integer of at least 1.
+// toProtocol parses text as a protocol number: digits only ("0x10" and
+// "1e3" are corruption, not protocols), and a safe, non-negative integer of
+// at least 1.
 func toProtocol(text string) (int, bool) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
@@ -697,62 +648,6 @@ func toProtocol(text string) (int, bool) {
 		return 0, false
 	}
 	return int(value), true
-}
-
-// errnoNames are the errno symbols this package's own read failures might
-// plausibly carry, the way Node's error.code names them.
-var errnoNames = map[syscall.Errno]string{
-	syscall.EACCES:  "EACCES",
-	syscall.EPERM:   "EPERM",
-	syscall.EISDIR:  "EISDIR",
-	syscall.ENOTDIR: "ENOTDIR",
-	syscall.ELOOP:   "ELOOP",
-}
-
-// errnoName is err's errno symbol (from errnoNames), or its own message when
-// it does not wrap a plain errno.
-func errnoName(err error) string {
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
-		if name, ok := errnoNames[errno]; ok {
-			return name
-		}
-		return errno.Error()
-	}
-	return err.Error()
-}
-
-// readOptional is the file's text, or "", false when it is simply not there.
-func readOptional(file string) (string, bool, error) {
-	data, err := os.ReadFile(file)
-	if err == nil {
-		return string(data), true, nil
-	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", false, nil
-	}
-	return "", false, clierr.Newf("%s could not be read (%s). Fix its permissions, or remove it and run this again.",
-		file, errnoName(err))
-}
-
-// recordedProtocol is what this control home last brought up and verified,
-// if it has recorded anything legible.
-func (r *Router) recordedProtocol() (int, bool, error) {
-	text, present, err := readOptional(r.state.ProtocolFile)
-	if err != nil {
-		return 0, false, err
-	}
-	if !present {
-		return 0, false, nil
-	}
-	recorded, ok := toProtocol(text)
-	if !ok {
-		r.logger.Warn(fmt.Sprintf(
-			"Ignoring %s: it does not name a router protocol. This run takes the previous protocol from the "+
-				"router itself, if it is still there.",
-			r.state.ProtocolFile))
-	}
-	return recorded, ok, nil
 }
 
 // protocolOf is the protocol label of the router container, running or not,
@@ -771,120 +666,41 @@ func (r *Router) protocolOf(inspected ContainerInspect) (int, bool, error) {
 	return protocol, true, nil
 }
 
-// previousProtocol settles what protocol the router was at before this run:
-// refuses a downgrade, announces an upgrade, and records what it found so a
-// failed start cannot erase it. Returns that protocol, or ok=false when this
-// machine has no router history at all.
-func (r *Router) previousProtocol(ctx context.Context) (previous int, ok bool, err error) {
-	recorded, recordedOK, err := r.recordedProtocol()
-	if err != nil {
-		return 0, false, err
-	}
+// refuseNewerRouter refuses to touch a running router already speaking a
+// newer protocol than this build does (Protocol): recreating it would
+// silently downgrade whatever a newer berth set it up to be. A stopped one
+// serves nobody, so it is replaced like any other stopped router, as
+// checkOwnership already lets it be. Reads the container's own protocol
+// label directly; keeps no record of its own.
+func (r *Router) refuseNewerRouter(ctx context.Context) error {
 	id, err := r.containerID(ctx, RouterService)
 	if err != nil {
-		return 0, false, err
+		return err
 	}
-	var container *ContainerInspect
-	if id != "" {
-		if container, err = r.inspect(ctx, id); err != nil {
-			return 0, false, err
-		}
-		if container == nil {
-			return 0, false, clierr.New("The shared router exists but could not be inspected.")
-		}
+	if id == "" {
+		return nil
 	}
-
-	var running int
-	var runningOK, serving bool
-	if container != nil {
-		if running, runningOK, err = r.protocolOf(*container); err != nil {
-			return 0, false, err
-		}
-		// `ps --all` also finds a container that was created and never
-		// started — a failed `up`'s leftover, which has served nothing.
-		serving = container.State.Status == "running"
+	container, err := r.inspect(ctx, id)
+	if err != nil {
+		return err
 	}
-
-	command := r.commandNameOr()
-	alsoRecorded := ""
-	if recordedOK && recorded > Protocol {
-		alsoRecorded = fmt.Sprintf(" and this control home's record with `rm %s`", text.ShellQuote(r.state.ProtocolFile))
+	if container == nil {
+		return clierr.New("The shared router exists but could not be inspected.")
 	}
-	// Refuse on the newest evidence there is, each case naming the remedy
-	// that actually frees the router. The router is machine-wide while the
-	// record is per control home, so either can be the newer one.
-	if runningOK && running > Protocol {
-		return 0, false, clierr.Newf(
+	if container.State.Status != "running" {
+		return nil
+	}
+	running, ok, err := r.protocolOf(*container)
+	if err != nil {
+		return err
+	}
+	if ok && running > Protocol {
+		return clierr.Newf(
 			"The shared router is at protocol %d; this version speaks %d. Upgrade rather than downgrading the "+
-				"router the other worktrees on this machine expect, or hand the router to this one: remove it with '%s router down'%s.",
-			running, Protocol, command, alsoRecorded)
+				"router the other worktrees on this machine expect, or hand the router to this one: remove it with '%s router down'.",
+			running, Protocol, r.commandNameOr())
 	}
-	if recordedOK && recorded > Protocol {
-		return 0, false, clierr.Newf(
-			"This control home last recorded the shared router at protocol %d; this version speaks %d. "+
-				"Run that version again, or remove the record with `rm %s` to hand the router to this one.",
-			recorded, Protocol, text.ShellQuote(r.state.ProtocolFile))
-	}
-
-	// Announce on the oldest evidence. A record ahead of an older running
-	// router means another control home downgraded it; a record behind a
-	// container is a failed start's leftover.
-	evidence := make([]int, 0, 2)
-	if recordedOK {
-		evidence = append(evidence, recorded)
-	}
-	if runningOK {
-		evidence = append(evidence, running)
-	}
-	if len(evidence) == 0 {
-		return 0, false, nil
-	}
-	previous = slices.Min(evidence)
-
-	// Made durable before anything overwrites the evidence: write() is about
-	// to stamp the new protocol into the stack file, and a start that fails
-	// afterwards leaves a container carrying it too.
-	if !recordedOK || recorded != previous {
-		if err := files.AtomicWrite(r.state.ProtocolFile, []byte(strconv.Itoa(previous)+"\n"), 0o600); err != nil {
-			return 0, false, clierr.Newf(
-				"Could not record the router protocol in %s: %s. Fix its permissions, or remove it and run this again.",
-				r.state.ProtocolFile, err)
-		}
-	}
-	if previous < Protocol {
-		if serving && running >= Protocol {
-			r.logger.Info(fmt.Sprintf("The shared router is already at protocol %d, but this control home last saw %d.", Protocol, previous))
-		} else {
-			r.logger.Info(fmt.Sprintf("Upgrading the shared router from protocol %d to %d.", previous, Protocol))
-		}
-	}
-	return previous, true, nil
-}
-
-// FileProviderSinceProtocol is the protocol that moved routing from
-// Traefik's Docker-provider discovery to file-provider fragments berth
-// itself writes and removes, on the worktree's own dedicated network (#55).
-// It subsumes RoutedBySinceProtocol: a router older than protocol 5 either
-// discovered every container Traefik could see (older than
-// RoutedBySinceProtocol) or discovered only containers carrying the
-// routed-by label (RoutedBySinceProtocol through 4) — either way, a
-// worktree last brought up under an older protocol carries no fragment and
-// is not attached to its own per-worktree network, so it is unrouted until
-// its next `up` just the same. One threshold, one warning: see
-// noteUnroutedAfterUpgrade.
-const FileProviderSinceProtocol = 5
-
-// noteUnroutedAfterUpgrade is said only after the upgrade is a fact: a
-// router from before FileProviderSinceProtocol routed a worktree by
-// discovering its containers, one way or another; the new one routes
-// nothing a worktree's own `up` has not written a file-provider fragment
-// and joined to its per-worktree network for. Each worktree's next `up`
-// does both.
-func (r *Router) noteUnroutedAfterUpgrade(previous int, hadHistory bool) {
-	if !hadHistory || previous >= FileProviderSinceProtocol {
-		return
-	}
-	r.logger.Warn(fmt.Sprintf("Worktrees already up elsewhere stay unrouted until their next '%s up'.", r.commandNameOr()))
+	return nil
 }
 
 /* ---- verification: every property the stack asked for, checked on the running container */
@@ -970,8 +786,8 @@ func sameSet(actual, expected []string) bool {
 
 // sortedPortKeys is otherPorts' and networks' own key order, sorted for a
 // determinism encoding/json's map iteration does not give: a real fixture
-// never carries more than one, so this never diverges from the TypeScript
-// build's JSON-insertion order in anything a test exercises.
+// never carries more than one, so this never diverges from JSON-insertion
+// order in anything a test exercises.
 func sortedPortKeys(ports map[string][]InspectPortBinding) []string {
 	keys := make([]string, 0, len(ports))
 	for key := range ports {
@@ -1174,16 +990,16 @@ type Ownership struct {
 	// but is not running; Labelled and Home are then meaningless — a router
 	// serving nobody is nothing to own.
 	Running bool
-	// Labelled is false when the running container carries no
-	// RouterHomeLabel at all (or an empty one): a router started by a build
-	// from before this label existed. A container that cannot be inspected
-	// is an error from Owner, never an unlabelled router. Home is ""
-	// in that case; Ensure treats it as adoptable rather than foreign (see
-	// checkOwnership), the same way an unparseable protocol label falls
-	// through to other evidence rather than refusing outright.
+	// Labelled is false only when the running container carries no
+	// RouterHomeLabel key at all — a router from before this label existed.
+	// A container that cannot be inspected is an error from Owner, never an
+	// unlabelled router. Home is "" in that case; checkOwnership treats an
+	// unlabelled router as foreign, exactly as it treats one labelled for a
+	// different berth root.
 	Labelled bool
 	// Home is the berth root RouterHomeLabel recorded on the running
-	// container, when Labelled.
+	// container, when Labelled — including "", a caller with no berth root
+	// to give (a test's own router, mainly).
 	Home string
 }
 
@@ -1205,43 +1021,39 @@ func (r *Router) Owner(ctx context.Context) (Ownership, error) {
 	}
 	if inspected == nil {
 		// Unparseable or unreadable: not "no label" but "no answer", and an
-		// owner that cannot be read is not one to adopt over — the same
-		// refusal previousProtocol makes of the same container a moment
-		// later, so a transient inspect failure never turns a foreign router
-		// into an adoptable one.
+		// owner that cannot be read is not one to treat as foreign or as
+		// this berth root's own, so a transient inspect failure never turns
+		// a foreign router into a takeable one.
 		return Ownership{}, clierr.New("The shared router exists but could not be inspected.")
 	}
 	// A container that exists but is not running serves nobody, so there is
 	// nothing to protect: the refusal is for a router in use (containerID
-	// lists stopped containers too, as previousProtocol needs it to). It
-	// reads as no router, and the next start takes it over the way a fresh
-	// start would.
+	// lists stopped containers too, so this still finds one). It reads as
+	// no router, and the next start takes it over the way a fresh start
+	// would.
 	if inspected.State.Status != "running" {
 		return Ownership{}, nil
 	}
-	// An empty value counts as no label: Stack stamps "" for a caller with
-	// no berth root to give (a test's own router, mainly), and an empty
-	// owner is nobody's to protect the router from.
+	// The key's mere presence is what "labelled" means: Stack always writes
+	// it, empty or not (a caller with no berth root to give — a test's own
+	// router, mainly — gets an empty value, which still matches an equally
+	// homeless r.home). Only a missing key is truly unlabelled: a router
+	// from before this label existed.
 	home, present := inspected.Config.Labels[RouterHomeLabel]
-	if !present || home == "" {
+	if !present {
 		return Ownership{Running: true}, nil
 	}
 	return Ownership{Running: true, Labelled: true, Home: home}, nil
 }
 
-// checkOwnership refuses to touch a running router that belongs to a
-// different berth root (#82): before this check, two berth roots each held
-// their own router lock over their own state but drove the same
-// machine-wide container, so a second root's Ensure force-recreated
-// whatever the first had just started, with no warning at all
-// (see docs/design/locks.md). A router
-// carrying no ownership label predates RouterHomeLabel altogether — there is
-// no foreign owner to protect it from — so it is adopted instead, logged
-// rather than silently taken over. The log line also says what follows:
-// the label is part of the container's own config, so the plain `compose
-// up` Ensure runs next recreates the container once to carry it, before
-// Verify ever looks — a recreate that would otherwise have no line of its
-// own, since it is Compose's own reconciliation, not Verify's.
+// checkOwnership refuses to touch a running router that is not this berth
+// root's own (#82): before this check, two berth roots each held their own
+// router lock over their own state but drove the same machine-wide
+// container, so a second root's Ensure force-recreated whatever the first
+// had just started, with no warning at all (see docs/design/locks.md). A
+// router carrying no ownership label at all is treated exactly like one
+// labelled for a different berth root — this berth did not start it, so it
+// is not this berth's to recreate.
 func (r *Router) checkOwnership(ctx context.Context) error {
 	owner, err := r.Owner(ctx)
 	if err != nil {
@@ -1251,8 +1063,9 @@ func (r *Router) checkOwnership(ctx context.Context) error {
 		return nil
 	}
 	if !owner.Labelled {
-		r.logger.Info("The running router carries no berth-root ownership label; it predates this check. Adopting it: this start recreates it once to record this berth root as its owner.")
-		return nil
+		return clierr.Newf(
+			"The shared router is not owned by this berth root. Hand it to this one: stop it with '%s router down', then run this again.",
+			r.commandNameOr())
 	}
 	if owner.Home == r.home {
 		return nil
@@ -1270,30 +1083,26 @@ func (r *Router) checkOwnership(ctx context.Context) error {
 // fragments whose worktree's router network is gone
 // (reconcileOrphanedFragments).
 //
-// secureState runs first, before previousProtocol's own possible write of
-// the protocol record: a symlinked state directory must be refused before
-// anything — this call included — ever touches whatever it points to.
-// checkOwnership runs next, before previousProtocol reads or writes
-// anything else: a router belonging to a different berth root is refused
-// outright rather than force-recreated (#82).
+// secureState runs first: a symlinked state directory must be refused
+// before anything — this call included — ever touches whatever it points
+// to. checkOwnership and refuseNewerRouter run next, before anything else
+// touches the router: a router belonging to a different berth root, or
+// already speaking a newer protocol, is refused outright rather than
+// force-recreated (#82).
 func (r *Router) Ensure(ctx context.Context) error {
 	if err := secureState(r.state); err != nil {
 		return err
 	}
-	// Before previousProtocol: a router belonging to a different berth root
-	// must be refused outright, not read for its protocol history — that
-	// history is not this berth root's to trust or overwrite (#82).
 	if err := r.checkOwnership(ctx); err != nil {
 		return err
 	}
-	previous, hadHistory, err := r.previousProtocol(ctx)
-	if err != nil {
+	if err := r.refuseNewerRouter(ctx); err != nil {
 		return err
 	}
 	// What port a router already running publishes, read before anything
 	// changes it, so a port change can be announced once it is a fact
-	// (notePortChange, #79). Best effort: an error here is the same class
-	// previousProtocol just handled, and a notice is not worth failing for.
+	// (notePortChange, #79). Best effort: a failure here is not worth
+	// failing the whole start for.
 	priorPort, wasRunning, _ := r.publishedPort(ctx)
 	if err := r.write(time.Now()); err != nil {
 		return err
@@ -1342,27 +1151,6 @@ func (r *Router) Ensure(ctx context.Context) error {
 			return clierr.Newf("The shared router could not be brought to its expected configuration:\n  %s", strings.Join(remaining, "\n  "))
 		}
 	}
-	// A router recreated across the protocol-5 boundary leaves its
-	// old "docker-api" network behind: `compose up --remove-orphans` above
-	// already dropped the now-undeclared *container*, but Compose never
-	// prunes a network just because the current file no longer declares
-	// it. Run unconditionally on every Ensure, the same as
-	// reconcileOrphanedFragments below, not gated on hadHistory && previous
-	// < FileProviderSinceProtocol (found in review, round 3 of #55: a first
-	// cut's own gate made a transient failure here permanent — this Ensure
-	// still writes Protocol to the record a few lines down regardless of
-	// this call's own error, so the very next Ensure would have read
-	// previous == Protocol and never tried again, leaking the network
-	// forever over one bad `docker network ls`). removeLegacyDockerAPINetwork
-	// is a cheap, label-filtered lookup that tolerates finding nothing, the
-	// same shape as reconcileOrphanedFragments's own self-healing best
-	// effort — so nothing is lost by asking every time instead of once.
-	if err := r.removeLegacyDockerAPINetwork(ctx); err != nil {
-		if ctx.Err() != nil {
-			return err
-		}
-		r.logger.Warn(fmt.Sprintf("Could not remove the retired docker-api network: %s", err))
-	}
 	// Best effort: fragments that cannot be reconciled this run (a transient
 	// `docker network ls` failure, an unreadable fragment) must not turn an
 	// otherwise healthy router start into a failure, and nothing is removed
@@ -1375,17 +1163,7 @@ func (r *Router) Ensure(ctx context.Context) error {
 		}
 		r.logger.Warn(fmt.Sprintf("Could not reconcile orphaned route fragments: %s", err))
 	}
-	// The warning is about what Verify just established, so it is said even
-	// if recording the new protocol fails.
-	r.noteUnroutedAfterUpgrade(previous, hadHistory)
 	r.notePortChange(priorPort, wasRunning)
-	if !hadHistory || previous != Protocol {
-		// A record that will not write costs a repeated announcement next
-		// time, not a router: never fail a verified `up` over it.
-		if err := files.AtomicWrite(r.state.ProtocolFile, []byte(strconv.Itoa(Protocol)+"\n"), 0o600); err != nil {
-			r.logger.Warn(fmt.Sprintf("Could not record the router protocol in %s: %s", r.state.ProtocolFile, err))
-		}
-	}
 	return nil
 }
 
@@ -1425,8 +1203,8 @@ func (r *Router) start(ctx context.Context, extra []string) error {
 // publishedPort reports the host port the running router publishes for its
 // own port 80, read off its container: 0 when it publishes none that can be
 // read, and running false when there is no container at all. A container
-// that cannot be inspected counts as running with an unknown port — the
-// same "no evidence either way" previousProtocol settles for.
+// that cannot be inspected counts as running with an unknown port, since an
+// inspect failure is no evidence either way.
 func (r *Router) publishedPort(ctx context.Context) (port int, running bool, err error) {
 	id, err := r.containerID(ctx, RouterService)
 	if err != nil {
@@ -1504,7 +1282,7 @@ type Report struct {
 	Failed bool
 }
 
-// StatusReport is routerStatusReport ported: `running` only means a
+// StatusReport builds the router's status report: `running` only means a
 // container exists, so a stack whose containers have exited or gone
 // unhealthy must not read as running on the one stream a script is told to
 // read; the reasons go to errors, and they are what makes the report failed.
@@ -1567,11 +1345,8 @@ func (r *Router) Down(ctx context.Context) error {
 	// the same wording and exit code (124 on a timeout) any other bounded
 	// call gets — a hand-built message here would silently drop all of
 	// that, the same bug class as internal/backend's Down and Reap. A
-	// plain Compose refusal keeps src/router/router.ts's own ported
-	// wording instead ("The shared router did not stop cleanly:\n…",
-	// `down()`): TypeScript has no timeout concept for this call at all, so
-	// there is nothing to diverge from for that one case, and the bytes
-	// should match exactly.
+	// plain Compose refusal instead gets its own wording ("The shared
+	// router did not stop cleanly:\n…").
 	if result.TimedOut || result.OutputOverflow || result.Signal != 0 {
 		return run.Failure(run.Spec{Command: "docker", Args: args, Timeout: spec.Timeout}, result)
 	}
@@ -1587,8 +1362,7 @@ func (r *Router) Down(ctx context.Context) error {
 // ContainerInspect is what `docker inspect` says, restricted to the fields
 // Verify reads. Every field is a plain value, not a pointer: a container
 // missing a section (never seen from a real daemon, only from a hand-built
-// test fixture) reads the same as one whose section is present but empty,
-// matching the TypeScript build's `?? {}` fallbacks.
+// test fixture) reads the same as one whose section is present but empty.
 type ContainerInspect struct {
 	Config          InspectConfig
 	HostConfig      InspectHostConfig

@@ -1,10 +1,6 @@
 package checkoutindex
 
-// Ported (where it still applies to a Go Service, tied to a lock.Scope
-// rather than TypeScript's assertNotGoManaged/secureControlDirectories
-// guards, which are TS-only and have no Go equivalent — see the final
-// report) from tests/unit/checkout-index.test.ts's `CheckoutIndexService`
-// describe block, plus new tests for #15-#18.
+// Service is tied to a lock.Scope. Plus new tests for #15-#18.
 
 import (
 	"context"
@@ -63,8 +59,7 @@ func (f *fakeIdentities) ActiveIdentities(context.Context) ([]registry.WorktreeI
 	return f.identities, f.identitiesErr
 }
 
-// dockerFake is a run.Runner double answering `docker ps` calls, mirroring
-// the TypeScript suite's own DockerFake.
+// dockerFake is a run.Runner double answering `docker ps` calls.
 type dockerFake struct {
 	mu      sync.Mutex
 	calls   []run.Spec
@@ -76,8 +71,7 @@ type dockerFake struct {
 }
 
 // Run records spec and answers per whichever of d.failure, d.missing, or
-// d.stdout/d.exit/d.timeout was set, mirroring DockerFake.run from the
-// TypeScript suite.
+// d.stdout/d.exit/d.timeout was set.
 func (d *dockerFake) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Lock()
 	d.calls = append(d.calls, spec)
@@ -193,10 +187,8 @@ func dockerLine(record registry.RegisteredWorktree, service, state, status strin
 	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service}, "\t")
 }
 
-// TestServiceRefresh ports tests/unit/checkout-index.test.ts's
-// CheckoutIndexService describe block, one t.Run per "it" title (see the
-// file's own top comment for what is and is not portable), plus this port's
-// own #1 (lock timeout) addition.
+// TestServiceRefresh covers Service.Refresh, plus #1's own lock timeout
+// addition.
 func TestServiceRefresh(t *testing.T) {
 	regs := testRegistrations()
 	a, b := regs[0], regs[1]
@@ -369,9 +361,7 @@ func TestServiceRefresh(t *testing.T) {
 
 		// Concurrent since #2 (errgroup, not a serial loop): the namespaces
 		// themselves are still exactly these two, but which one's `docker
-		// ps` call lands first in the transcript is no longer guaranteed —
-		// unlike TypeScript's Promise.all, whose synchronous issuance order
-		// this test's TS original relied on without sorting.
+		// ps` call lands first in the transcript is no longer guaranteed.
 		got := filterArgs(docker.Calls())
 		sort.Strings(got)
 		want := []string{"label=dev.berth.managed=true", "label=dev.custom.managed=true"}

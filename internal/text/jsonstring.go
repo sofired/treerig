@@ -19,11 +19,11 @@ import (
 // SetEscapeHTML) because they are not valid unescaped in JavaScript
 // *source* — irrelevant to JSON, which allows them raw, and exactly what
 // JSON.stringify does. A card or an override document that borrows a branch
-// name or a route path can carry either, and needs to match TypeScript's
-// bytes exactly, so this package writes its own quoting rather than lean on
-// an internal that was never a fit for this one case. See
-// FixJSONLineSeparators for a writer that already has encoding/json output
-// and only needs that one difference fixed.
+// name or a route path can carry either, and this package writes its own
+// quoting to match JSON.stringify exactly rather than lean on an internal
+// that was never a fit for this one case. See FixJSONLineSeparators for a
+// writer that already has encoding/json output and only needs that one
+// difference fixed.
 func JSONString(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + 2)

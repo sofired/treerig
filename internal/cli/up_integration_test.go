@@ -55,8 +55,9 @@ exit 0
 `
 
 // healthyRouter writes the three inspect documents a router started exactly
-// as the stack asks would have, one per fake container id.
-func healthyRouter(t *testing.T, state string, routerState layout.RouterLayout, port int) {
+// as the stack asks would have, one per fake container id, owned by the
+// berth root home, as a router this berth root started is.
+func healthyRouter(t *testing.T, state, home string, routerState layout.RouterLayout, port int) {
 	t.Helper()
 	labels := func(service string) map[string]string {
 		return map[string]string{
@@ -64,6 +65,7 @@ func healthyRouter(t *testing.T, state string, routerState layout.RouterLayout, 
 			"com.docker.compose.service":              service,
 			brand.LabelNamespace + ".component":       service,
 			brand.LabelNamespace + ".router-protocol": strconv.Itoa(router.Protocol),
+			router.RouterHomeLabel:                    home,
 		}
 	}
 	hardened := func(capAdd ...string) router.InspectHostConfig {
@@ -183,7 +185,7 @@ func newUpFixture(t *testing.T) upFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	healthyRouter(t, f.state, f.routerState, port)
+	healthyRouter(t, f.state, f.controlHome, f.routerState, port)
 	return f
 }
 

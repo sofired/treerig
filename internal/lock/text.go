@@ -8,20 +8,17 @@ import (
 	"github.com/sofired/berth/internal/text"
 )
 
-// quoteOneLine is JSON.stringify(oneLine(value)) the way advice() in
-// src/operation-lock.ts always quoted a holder's hostname or command: quoted
-// like the command beside it, so plain prose in a hostname cannot close the
-// clause and read as part of this tool's own sentence.
+// quoteOneLine is JSON.stringify(oneLine(value)): quoted like the command
+// beside it, so plain prose in a hostname cannot close the clause and read
+// as part of this tool's own sentence.
 func quoteOneLine(value string) string {
 	return jsonString(text.OneLine(value, 0))
 }
 
-// HolderLabel is holderLabel from src/operation-lock.ts, ported unchanged: a
-// record's PID and host, with its command in front when it recorded one. nil
-// (no record at all) is "an unidentified holder", exactly as there. Exported
+// HolderLabel is a record's PID and host, with its command in front when it
+// recorded one. nil (no record at all) is "an unidentified holder". Exported
 // for doctor's Locks section, which needs the same holder label a lock's own
-// wait notice does (see quoteOneLine): flock(2) has no heartbeat age to add,
-// so naming the holder is all either one needs.
+// wait notice does (see quoteOneLine).
 func HolderLabel(rec *Record) string {
 	if rec == nil {
 		return "an unidentified holder"

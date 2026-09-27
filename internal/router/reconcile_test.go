@@ -1,7 +1,6 @@
 package router_test
 
-// Go-only, per #55: no TypeScript `it` to mirror — route fragments and
-// their reconciliation are new in the Go build.
+// Route fragments and their reconciliation, added by #55.
 
 import (
 	"context"

@@ -8,18 +8,16 @@ import (
 
 // TestIndexGolden checks RenderIndexHTML and FormatIndexText against
 // internal/checkoutindex/testdata/index-golden.json, a hand-maintained
-// fixture generated from the real render.ts: empty, placeholder, several
-// domains and projects, missing and unknown worktrees, a checkout never
-// brought up, hostile names, long paths needing wrap, and non-ASCII. Go
-// must match every byte; its origin is in git history.
+// fixture covering: empty, placeholder, several domains and projects,
+// missing and unknown worktrees, a checkout never brought up, hostile
+// names, long paths needing wrap, and non-ASCII. Every byte must match.
 //
 // The fixtures decode straight into IndexSnapshot/IndexEntry: encoding/json
 // matches a camelCase JSON key against an exported Go field case-
 // insensitively when no tag says otherwise, so "repositoryId" reaches
 // RepositoryID, "branch" reaches Branch (nil when the key is absent, a
-// pointer to "" when it is present and empty — exactly the TypeScript
-// build's own optional-property semantics), and so on with no translation
-// layer needed.
+// pointer to "" when it is present and empty — distinguishing "absent"
+// from "empty"), and so on with no translation layer needed.
 func TestIndexGolden(t *testing.T) {
 	// Every fixture root is under /work/…, but pin it anyway: RenderIndexHTML
 	// and FormatIndexText compact each root against the real home directory,

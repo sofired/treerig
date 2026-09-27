@@ -47,16 +47,20 @@ func sliceContainsArg(args []string, want string) bool {
 }
 
 // healthyRouterDocker answers as though the shared router were already up,
-// correctly configured, and at the current protocol, so Ensure's protocol
-// dance takes its fast path: this package's own tests only need to check its
-// wiring (the state directory, port and network reaching router.New; a
-// verified up migrating legacy state and reporting where it is up), not
-// re-prove Ensure's full behaviour, which internal/router's suite already covers.
+// correctly configured, and at the current protocol, so Ensure takes its
+// fast path: this package's own tests only check its wiring (the state
+// directory, port and network reaching router.New, and a verified up
+// reporting where it is up), not Ensure's full behaviour, which
+// internal/router's suite already covers.
 type healthyRouterDocker struct {
 	mu      sync.Mutex
 	state   layout.RouterLayout
 	network string
 	port    int
+	// home is stamped as RouterHomeLabel on every container docFor answers,
+	// so Owner/checkOwnership see this router as owned by whatever berth
+	// root the test itself resolved, rather than refusing it as foreign.
+	home string
 }
 
 // Which always answers true.
@@ -94,6 +98,7 @@ func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 		"com.docker.compose.service": service,
 		"dev.berth.component":        service,
 		"dev.berth.router-protocol":  strconv.Itoa(router.Protocol),
+		router.RouterHomeLabel:       d.home,
 	}
 	hardened := router.InspectHostConfig{CapAdd: []string{}, CapDrop: []string{"ALL"}, ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"}}
 	healthy := router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}}
@@ -138,10 +143,14 @@ func TestRouterUp(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		berthRoot, err := layout.ResolveHome(getenv, "")
+		if err != nil {
+			t.Fatal(err)
+		}
 		rec := &logger.Recording{}
 		env := &commands.Env{
 			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
-			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80},
+			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80, home: berthRoot},
 		}
 
 		if err := commands.RouterUp(context.Background(), env); err != nil {
@@ -168,6 +177,10 @@ func TestRouterUp(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		berthRoot, err := layout.ResolveHome(getenv, "")
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
 			Version: 1, RepositoryID: "11111111-1111-4111-8111-111111111111",
 			WorktreeID: "22222222-2222-4222-8222-222222222221",
@@ -178,7 +191,7 @@ func TestRouterUp(t *testing.T) {
 		rec := &logger.Recording{}
 		env := &commands.Env{
 			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv, Cwd: registrytest.TempDir(t),
-			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80},
+			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80, home: berthRoot},
 		}
 
 		if err := commands.RouterUp(context.Background(), env); err != nil {
@@ -201,15 +214,14 @@ func TestRouterUp(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a symlinked state directory before the lock or the protocol record ever touch its target", func(t *testing.T) {
+	t.Run("refuses a symlinked state directory before the lock or the stack files ever touch its target", func(t *testing.T) {
 		// Resolved through layout.RouterStateDir itself — production's own
 		// function, fed the very env RouterUp will resolve BERTH_HOME
 		// through — so the symlink lands exactly where RouterUp will look,
 		// under the berth root (#80) rather than a hand-built guess.
 		// RouterUp must refuse before commands.routerHold ever takes the
 		// router lock (which would create <target>/lock and its holder
-		// record) or Ensure's previousProtocol ever writes a protocol
-		// record into it.
+		// record) or Ensure's own write() ever writes a stack file into it.
 		target := registrytest.TempDir(t)
 		fakeHome := registrytest.TempDir(t)
 		berthHome := registrytest.TempDir(t)

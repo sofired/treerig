@@ -62,7 +62,7 @@ func TestEnsureNotesAPortChange(t *testing.T) {
 
 	t.Run("says nothing about ports when the router was not running before", func(t *testing.T) {
 		w := newWorld(t, 8080, "")
-		taken(t, w, nil)
+		taken(t, w)
 		if err := w.Router.Ensure(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +94,7 @@ func TestEnsureNotesAPortChange(t *testing.T) {
 func TestStartFailureNamesTheSettingsFile(t *testing.T) {
 	t.Run("names the settings file, and the rootless caveat, for a port below 1024 the daemon refused", func(t *testing.T) {
 		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.SettingsPath = "/berth/settings.toml" })
-		taken(t, w, nil)
+		taken(t, w)
 		w.Fake.upExitCode = 1
 		w.Fake.upStderr = "Error response from daemon: driver failed programming external connectivity: bind: permission denied"
 		err := w.Router.Ensure(context.Background())
@@ -114,7 +114,7 @@ func TestStartFailureNamesTheSettingsFile(t *testing.T) {
 
 	t.Run("recognises RootlessKit's own privileged-port refusal", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		taken(t, w, nil)
+		taken(t, w)
 		w.Fake.upExitCode = 1
 		w.Fake.upStderr = "Error response from daemon: cannot expose privileged port 80, you might need to add \"net.ipv4.ip_unprivileged_port_start=0\" (currently 1024) to /etc/sysctl.conf"
 		err := w.Router.Ensure(context.Background())
@@ -125,7 +125,7 @@ func TestStartFailureNamesTheSettingsFile(t *testing.T) {
 
 	t.Run("leaves the rootless caveat out of a busy port below 1024: that is somebody else's server", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		taken(t, w, nil)
+		taken(t, w)
 		w.Fake.upExitCode = 1
 		w.Fake.upStderr = "bind: address already in use"
 		err := w.Router.Ensure(context.Background())
@@ -142,7 +142,7 @@ func TestStartFailureNamesTheSettingsFile(t *testing.T) {
 
 	t.Run("leaves the rootless caveat out for a port above 1023, and names the file generically without a path", func(t *testing.T) {
 		w := newWorld(t, 8080, "")
-		taken(t, w, nil)
+		taken(t, w)
 		w.Fake.upExitCode = 1
 		err := w.Router.Ensure(context.Background())
 		if err == nil {

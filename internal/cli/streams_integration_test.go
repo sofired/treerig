@@ -2,21 +2,12 @@
 
 package cli_test
 
-// The streams contract, ported from tests/cli/streams.test.ts: the CLI as a
-// real process, because which stream a line lands on is only a contract if
-// it survives the entry point — a unit test can prove a logger method was
-// called, only a real pipe can prove nothing else wrote to it. CI runs this
-// as part of "Integration tests" (go.yml), against a binary this package
-// builds itself (buildBinary, in signal_integration_test.go). Case titles
-// are carried over from the TypeScript `it` titles verbatim, the same way
-// every ported test's title does — though unlike a TypeScript-to-Go
-// behaviour port, wording parity was never a requirement here, only
-// behaviour.
-//
-// One TypeScript case is not ported: "is executable and starts with a
-// shebang" is a claim about src/cli/main.ts's own source file (a shebang
-// line, the executable bit Git recorded) that has no meaning for a compiled
-// Go binary.
+// The streams contract: the CLI as a real process, because which stream a
+// line lands on is only a contract if it survives the entry point — a unit
+// test can prove a logger method was called, only a real pipe can prove
+// nothing else wrote to it. CI runs this as part of "Integration tests"
+// (go.yml), against a binary this package builds itself (buildBinary, in
+// signal_integration_test.go).
 
 import (
 	"encoding/json"
@@ -39,8 +30,7 @@ import (
 // reads unambiguously in a diff instead of as an invisible control byte.
 const rtlOverride = rune(0x202e)
 
-// streamsConfig is a minimal, valid berth.toml: one service, no hooks,
-// matching streams.test.ts's own CONFIG constant.
+// streamsConfig is a minimal, valid berth.toml: one service, no hooks.
 const streamsConfig = `
 [project]
 name = "acme"
@@ -52,15 +42,14 @@ name = "api"
 `
 
 // invocation is one run of the CLI: what each stream carried and how it
-// exited, the same three facts streams.test.ts's own berth() helper reports.
+// exited.
 type invocation struct {
 	Stdout, Stderr string
 	Code           int
 }
 
 // berthOptions adjusts one run of runBerth from its defaults: the real PATH,
-// no BERTH_DEBUG, no extra environment — the Go equivalent of
-// streams.test.ts's own `options` parameter.
+// no BERTH_DEBUG, no extra environment.
 type berthOptions struct {
 	// path overrides PATH; empty keeps the real one, as Node's own child
 	// process would inherit it.
@@ -75,8 +64,7 @@ type berthOptions struct {
 // runBerth runs binary with args in cwd, giving it BERTH_HOME under cwd and
 // HOME set to cwd — never this process's own environment, so no run here
 // can touch a real developer's registered worktrees or router — and reports
-// its stdout, stderr and exit code. It is this file's port of
-// streams.test.ts's own berth() helper.
+// its stdout, stderr and exit code.
 func runBerth(t *testing.T, binary, cwd string, args []string, opts berthOptions) invocation {
 	t.Helper()
 	path := opts.path
@@ -111,8 +99,7 @@ func runBerth(t *testing.T, binary, cwd string, args []string, opts berthOptions
 }
 
 // writeStreamsProject lays out a fresh directory with the given berth.toml
-// content and a minimal compose.yaml (one "api" service backed by busybox),
-// the Go port of streams.test.ts's own project() helper.
+// content and a minimal compose.yaml (one "api" service backed by busybox).
 func writeStreamsProject(t *testing.T, config string) string {
 	t.Helper()
 	dir := registrytest.TempDir(t)
@@ -126,9 +113,9 @@ func writeStreamsProject(t *testing.T, config string) string {
 }
 
 // gitRun runs a git subcommand in dir with the developer's own global and
-// system git config disabled, the same isolation parity_integration_test.go's
-// runIn and streams.test.ts's own git() helper give it, so a real
-// commit.gpgsign on the machine running this test cannot fail it.
+// system git config disabled, the same isolation output_integration_test.go's
+// runIn gives it, so a real commit.gpgsign on the machine running this test
+// cannot fail it.
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)

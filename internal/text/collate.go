@@ -33,9 +33,9 @@ var (
 	enCollateMu    sync.Mutex
 )
 
-// Collate orders two strings the way the TypeScript build's
-// `a.localeCompare(b, 'en')` does: 0 if they collate equal, negative if a
-// sorts before b, positive if it sorts after. Every checkout-index sort
+// Collate orders two strings the way `a.localeCompare(b, 'en')` does: 0 if
+// they collate equal, negative if a sorts before b, positive if it sorts
+// after. Every checkout-index sort
 // (domain, project, branch, slug) uses it, because the fields it orders
 // carry whatever a Git branch or a config's project name allows — accented
 // letters, CJK, emoji — not just the restricted alphabet [a-z0-9.-] that
@@ -47,7 +47,7 @@ var (
 // Unicode 17 that Node 24's ICU carries.
 // internal/text/testdata/collation-corpus.json is the differential,
 // hand-maintained fixture that checks the two still agree on the strings
-// berth actually sorts — see TestCollateOracle.
+// berth actually sorts — see collationFixture in collate_test.go.
 func Collate(a, b string) int {
 	enCollatorOnce.Do(func() { enCollatorVal = collate.New(language.English) })
 	enCollateMu.Lock()

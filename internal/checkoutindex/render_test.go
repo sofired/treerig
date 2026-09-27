@@ -11,17 +11,13 @@ import (
 	"github.com/sofired/berth/internal/text"
 )
 
-// Ported from tests/unit/checkout-index.test.ts's `rendering` and
-// `planIndexUpdate` describe blocks (parseContainerInventory and
-// buildSnapshot are in snapshot_test.go), one t.Run per "it" title.
+// (parseContainerInventory and buildSnapshot are in snapshot_test.go.)
 //
-// Left out: "survives the round trip through the page as plain JavaScript"
-// (in `describe('planIndexUpdate')`). It runs planIndexUpdate.toString()
-// through node:vm's runInNewContext and liveUpdateScript() through
-// node:vm's Script to prove the embedded text is valid, self-contained
-// JavaScript — a property of the embedded asset
-// (internal/checkoutindex/assets/script.js), not of this package's Go code,
-// and not something a Go test can check.
+// Left out: "survives the round trip through the page as plain JavaScript".
+// Proving the embedded script text (internal/checkoutindex/assets/script.js)
+// is valid, self-contained JavaScript that actually runs needs a real
+// JavaScript runtime to execute it in — a property of the embedded asset,
+// not of this package's Go code, and not something a Go test can check.
 
 // strPtr takes a string literal's address, for the *string fields Branch
 // tests build fixtures with.
@@ -33,9 +29,8 @@ func countMatches(s string, re *regexp.Regexp) int {
 	return len(re.FindAllString(s, -1))
 }
 
-// renderTestEntry is the `entry` fixture the TypeScript suite's rendering
-// tests share: one partial checkout with two services, one available and one
-// not.
+// renderTestEntry is the shared rendering-test fixture: one partial
+// checkout with two services, one available and one not.
 func renderTestEntry() IndexEntry {
 	return IndexEntry{
 		RepositoryID: testRepo, WorktreeID: testWorktreeIDs[0], Project: "acme", Domain: "acme.localhost", Slug: "feature-a",
@@ -48,8 +43,8 @@ func renderTestEntry() IndexEntry {
 	}
 }
 
-// renderTestSnapshot is the TypeScript suite's shared `snapshot` fixture:
-// renderTestEntry alone, Docker reachable.
+// renderTestSnapshot is the shared snapshot fixture: renderTestEntry alone,
+// Docker reachable.
 func renderTestSnapshot() IndexSnapshot {
 	return IndexSnapshot{Entries: []IndexEntry{renderTestEntry()}, GeneratedAt: "2026-09-21T12:00:00.000Z", DockerReachable: true}
 }
@@ -73,8 +68,7 @@ func pinHomeDir(t *testing.T, home string) {
 	t.Cleanup(func() { userHomeDir = original })
 }
 
-// TestRendering ports tests/unit/checkout-index.test.ts's `rendering`
-// describe block.
+// TestRendering covers the checkout index page's own rendering.
 func TestRendering(t *testing.T) {
 	// Fixed and deliberately unrelated to every fixture's root
 	// (/Users/dev/worktrees/feature-a), so compactPath leaves those roots
@@ -718,10 +712,9 @@ func TestRendering(t *testing.T) {
 	})
 }
 
-// hiddenCharacters mirrors the TypeScript test's `hidden` helper: whatever a
-// terminal or a browser would render as invisible or cursor-moving, which
-// must never survive rendering, distinct from whitespace, which is the
-// page's own layout.
+// hiddenCharacters is whatever a terminal or a browser would render as
+// invisible or cursor-moving, which must never survive rendering, distinct
+// from whitespace, which is the page's own layout.
 func hiddenCharacters(value string) []rune {
 	var hidden []rune
 	for _, r := range value {

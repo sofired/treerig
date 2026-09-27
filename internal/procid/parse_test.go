@@ -6,7 +6,7 @@ import (
 )
 
 // statLine builds /proc/<pid>/stat with the given command name, state and
-// start ticks — the fixture tests/unit/process-table.test.ts uses.
+// start ticks.
 func statLine(comm, state string, startTicks uint64) string {
 	return "42 (" + comm + ") " + state +
 		" 1 42 42 0 -1 4194304 0 0 0 0 0 0 0 0 20 0 1 0 " +

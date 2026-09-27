@@ -1,6 +1,6 @@
-// Package registrytest is a Go port of tests/helpers/git-runner.ts: an
-// in-memory model of the handful of git queries the registry makes, wired as
-// a fakerun.Handler so it plugs straight into fakerun.Runner.
+// Package registrytest is an in-memory model of the handful of git queries
+// the registry makes, wired as a fakerun.Handler so it plugs straight into
+// fakerun.Runner.
 package registrytest
 
 import (

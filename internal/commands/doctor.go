@@ -1,32 +1,28 @@
 package commands
 
-// `doctor`, ported from src/commands/doctor.ts onto the flock lock layer.
-// Read-only, start to finish: no lock is taken, nothing is written, and
-// nothing is repaired. Every check ends as a line in the report — a check
-// that fails to even run is reported as failed rather than ending the
-// command, since the point of a diagnosis is to see everything that is
-// wrong at once (see guarded) — except a cancellation, which ends the
-// command the way it does in TypeScript (see guarded and Doctor).
+// `doctor` runs entirely on the flock lock layer. Read-only, start to
+// finish: no lock is taken, nothing is written, and nothing is repaired.
+// Every check ends as a line in the report — a check that fails to even run
+// is reported as failed rather than ending the command, since the point of
+// a diagnosis is to see everything that is wrong at once (see guarded) —
+// except a cancellation, which ends the command outright (see guarded and
+// Doctor).
 //
-// doctorSections mirrors src/commands/doctor.ts's own doctor(): every
-// external dependency arrives through doctorOptions, so it can be tested the
-// way the TypeScript suite's own DoctorRunner and RouterSource fakes test
-// doctor() — see doctor_internal_test.go. Doctor itself is the thin part
-// that builds doctorOptions from a real Env, prints the report, and turns
-// its exit code into what the CLI reports.
+// doctorSections builds every section from opts alone: every external
+// dependency arrives through doctorOptions, so each one can be swapped for
+// a fake in tests — see doctor_internal_test.go. Doctor itself is the thin
+// part that builds doctorOptions from a real Env, prints the report, and
+// turns its exit code into what the CLI reports.
 //
-// The Node.js version check has no Go counterpart and is dropped outright:
-// there is no Go runtime version for a Go build to be running under. The
-// Locks section is built entirely on lock.Describe (see internal/lock's
-// package comment): a live holder is an answer, not a problem, and an
-// unreleased-but-gone one recovers itself the next time its lock is taken,
-// so the wording here carries no heartbeat age and no "waits" clause — see
-// lockCheck and lockChecks below for the specifics. run.Runner.Which is a
-// plain PATH lookup with no failure mode of its own, so dockerChecks always
-// reaches its own Engine and Compose probes rather than folding a `which`
-// failure into one line. The Registry section's control-home check adds one
-// more line, planned from the start of the Go port, for a control home a
-// TypeScript build last used (see registrySection).
+// There is no Node.js version check: no Go runtime version applies to a Go
+// build. The Locks section is built entirely on lock.Describe (see
+// internal/lock's package comment): a live holder is an answer, not a
+// problem, and an unreleased-but-gone one recovers itself the next time its
+// lock is taken, so the wording here carries no heartbeat age and no
+// "waits" clause — see lockCheck and lockChecks below for the specifics.
+// run.Runner.Which is a plain PATH lookup with no failure mode of its own,
+// so dockerChecks always reaches its own Engine and Compose probes rather
+// than folding a `which` failure into one line.
 
 import (
 	"context"
@@ -102,8 +98,7 @@ func failureCheck(subject string, err error) Check {
 
 // guarded runs a group of checks; one that fails to even run becomes a
 // failed line instead of ending the report — except a cancellation, which
-// this re-raises exactly as src/commands/doctor.ts's own guarded() does, so
-// it ends the whole command instead of becoming a line.
+// this re-raises, so it ends the whole command instead of becoming a line.
 func guarded(subject string, run func() ([]Check, error)) ([]Check, error) {
 	checks, err := run()
 	if err != nil {
@@ -194,11 +189,10 @@ func gitCheck(ctx context.Context, runner run.Runner) (Check, error) {
 }
 
 // askDocker is one `docker` query, bounded in time; Docker being unavailable
-// is its answer, not a propagated error — but only that: src/commands/doctor.ts:140-155
-// catches DockerUnavailableError alone and rethrows everything else,
-// cancellation included, so a Ctrl-C here ends the command rather than
-// becoming a line. The successful result is returned for the caller to
-// interpret further; nil means the returned Check is the answer.
+// is its answer, not a propagated error — but only that: anything else,
+// cancellation included, propagates so a Ctrl-C here ends the command
+// rather than becoming a line. The successful result is returned for the
+// caller to interpret further; nil means the returned Check is the answer.
 func askDocker(ctx context.Context, runner run.Runner, subject string, args []string, timeout time.Duration) (Check, *run.Result, error) {
 	result, err := docker.Run(ctx, runner, args, run.Spec{AllowFailure: true, Timeout: timeout})
 	if err != nil {
@@ -231,8 +225,7 @@ type dockerState struct {
 // is only ever a propagate-worthy one — a cancellation reaching either
 // probe — since askDocker itself already turns Docker being unavailable into
 // a Check; prerequisitesSection folds anything else that still reaches it
-// into one failed "Docker" line, matching src/commands/doctor.ts's own
-// top-level try/catch around dockerChecks (doctor.ts:496-501).
+// into one failed "Docker" line.
 func dockerChecks(ctx context.Context, runner run.Runner, timeout time.Duration) (dockerState, error) {
 	if !runner.Which("docker") {
 		return dockerState{checks: []Check{
@@ -366,9 +359,8 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 }
 
 // registrySection is the "Registry" section: the berth root (#80), the
-// control home check (plus a note when it was last used by a TypeScript
-// build), the router's own state directory, and registryChecks over a fresh
-// scan of every registration.
+// control home check, the router's own state directory, and registryChecks
+// over a fresh scan of every registration.
 func registrySection(opts doctorOptions) ([]Check, error) {
 	// Neither can fail — both are already-resolved, already-checked paths,
 	// no I/O of their own — so unlike control home and registrations below,
@@ -381,16 +373,7 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 		if err != nil {
 			return nil, err
 		}
-		out := []Check{check}
-		legacy, err := files.LegacyControlHome(opts.ControlHome)
-		if err != nil {
-			return nil, err
-		}
-		if legacy {
-			out = append(out, Check{Status: StatusOK, Subject: "control home", Detail: fmt.Sprintf(
-				"was last used by a TypeScript build of %s; the next command here upgrades it", brand.Name)})
-		}
-		return out, nil
+		return []Check{check}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -425,35 +408,13 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 // hatch, `worktree unlock --registry|--router --holder-unverifiable` (#21),
 // so lockChecks passes each of them that instead of the hand removal this
 // build once had no better answer than.
-//
-// legacyRemedy is what to do about a TypeScript build's <target>.lock
-// directory that names its holder, which every acquirer in this build
-// refuses until it is gone: `worktree unlock`, with --registry or --router
-// for the registry and router locks (#21), for one that names a holder;
-// one that names no holder is never judged by anything, so it always falls
-// back to `rmdir` — the one case left where nothing but a person confirming
-// the directory's absence by hand can clear it (see internal/lock's package
-// comment, "TypeScript-era leftovers").
-func lockCheck(subject string, scope lock.Scope, handRemoval, legacyRemedy string) (check Check, ok bool) {
+func lockCheck(subject string, scope lock.Scope, handRemoval string) (check Check, ok bool) {
 	described, err := lock.Describe(scope, nil)
 	if err != nil {
 		return Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("could not be checked: %s", err)}, true
 	}
 	if described.State == lock.Held {
 		return Check{Status: StatusOK, Subject: subject, Detail: "held by " + lock.HolderLabel(described.Record)}, true
-	}
-	if described.Legacy {
-		// With no holder named, nothing can judge it gone — `worktree unlock`
-		// refuses it too — so only removing it by hand is left.
-		detail := fmt.Sprintf("%s left %s naming no holder", legacyBuild, text.Printable(scope.Target+".lock"))
-		remedy := legacyRmdir(scope)
-		if described.LegacyRecord != nil {
-			detail = fmt.Sprintf("taken by %s, %s", legacyBuild, lock.HolderLabel(described.LegacyRecord))
-			remedy = legacyRemedy
-		}
-		return Check{Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
-			"%s; this build cannot take it until that is gone. If no TypeScript build is still running here, %s",
-			detail, remedy)}, true
 	}
 	if described.Record != nil && described.Record.ReleasedAt == nil {
 		detail := fmt.Sprintf("unreleased by %s; recovered automatically the next time this lock is taken", lock.HolderLabel(described.Record))
@@ -528,26 +489,13 @@ func lockedWorktreeIDs(controlHome string) ([]lockedWorktree, error) {
 	return found, nil
 }
 
-// legacyBuild names a TypeScript build in a Locks line.
-var legacyBuild = "a TypeScript build of " + brand.Name
-
-// legacyRmdir is the remedy for a TypeScript-era lock directory that names
-// no holder — for any scope, worktree included, not just the registry and
-// router locks (#21): nothing can judge such a leftover gone, since it names
-// nobody to check, so `worktree unlock` refuses it exactly as it refuses one
-// that does name a holder, and a person confirming its absence by hand,
-// then removing it, is the only way out.
-func legacyRmdir(scope lock.Scope) string {
-	return fmt.Sprintf("remove it by hand: `rmdir %s`", text.ShellQuote(scope.Target+".lock"))
-}
-
 // lockChecks is who holds what, read without taking or touching anything: a
 // live holder is an answer, not a problem; an unreleased-but-gone one is
 // recovered automatically the next time its lock is taken (see
-// internal/lock's package comment), so it needs no advice beyond that,
-// unlike TypeScript's own heartbeat design — except the registry and
-// router locks' own --holder-unverifiable fallback (see lockCheck), now
-// that `worktree unlock --registry`/`--router` can clear them too (#21).
+// internal/lock's package comment), so it needs no advice beyond that —
+// except the registry and router locks' own --holder-unverifiable fallback
+// (see lockCheck), now that `worktree unlock --registry`/`--router` can
+// clear them too (#21).
 func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName string) ([]Check, error) {
 	scan, err := registry.ScanRegistrations(controlHome)
 	if err != nil {
@@ -558,23 +506,20 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 		byKey[record.RepositoryID+"/"+record.WorktreeID] = record
 	}
 
-	// Subjects match heldLocks in src/commands/doctor.ts exactly: "registry"
-	// and "router" (short — not their longer lock.Scope.Description), a
-	// worktree's own hostname (or "worktree <uuid>" before it has one) for
-	// its operation lock, and that plus " (development session)" for its
-	// development lock.
+	// Subjects: "registry" and "router" (short — not their longer
+	// lock.Scope.Description), a worktree's own hostname (or "worktree
+	// <uuid>" before it has one) for its operation lock, and that plus
+	// " (development session)" for its development lock.
 	var checks []Check
 	registryScope := lock.RegistryScope(controlHome)
 	registryHandRemoval := fmt.Sprintf("run '%s worktree unlock --registry --holder-unverifiable' once you have made sure its holder is gone", commandName)
-	registryLegacyRemedy := fmt.Sprintf("'%s worktree unlock --registry' checks that it is gone and clears it", commandName)
-	if check, ok := lockCheck("registry", registryScope, registryHandRemoval, registryLegacyRemedy); ok {
+	if check, ok := lockCheck("registry", registryScope, registryHandRemoval); ok {
 		checks = append(checks, check)
 	}
 	if routerLockScope != nil {
 		routerHandRemoval := fmt.Sprintf(
 			"run '%s worktree unlock --router --holder-unverifiable' once you have made sure its holder, and everything it started, is gone", commandName)
-		routerLegacyRemedy := fmt.Sprintf("'%s worktree unlock --router' checks that it is gone and clears it", commandName)
-		if check, ok := lockCheck("router", *routerLockScope, routerHandRemoval, routerLegacyRemedy); ok {
+		if check, ok := lockCheck("router", *routerLockScope, routerHandRemoval); ok {
 			checks = append(checks, check)
 		}
 	}
@@ -591,13 +536,11 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 			shown = layout.WorktreeHost(record.Slug, record.Domain)
 		}
 		operation, development := lock.WorktreeScopes(controlHome, id.RepositoryID, id.WorktreeID, name, procid.Markers{})
-		// Development, then operation — worktreeLocks' own order in
-		// src/operation-lock.ts, which heldLocks iterates unchanged.
-		unlock := fmt.Sprintf("'%s worktree unlock %s' checks that it is gone and clears it", commandName, id.WorktreeID)
-		if check, ok := lockCheck(shown+" (development session)", development, "", unlock); ok {
+		// Development, then operation.
+		if check, ok := lockCheck(shown+" (development session)", development, ""); ok {
 			checks = append(checks, check)
 		}
-		if check, ok := lockCheck(shown, operation, "", unlock); ok {
+		if check, ok := lockCheck(shown, operation, ""); ok {
 			checks = append(checks, check)
 		}
 	}
@@ -610,10 +553,9 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 
 /* -------------------------------------------------------------- router ---- */
 
-// doctorRouterSource is RouterSource from src/commands/doctor.ts: what the
-// Router section needs of the shared router. A real router.Router satisfies
-// it through realRouterSource; tests supply their own, the way the
-// TypeScript suite's routerSource() fake does.
+// doctorRouterSource is what the Router section needs of the shared router.
+// A real router.Router satisfies it through realRouterSource; tests supply
+// their own fake.
 type doctorRouterSource interface {
 	Status(ctx context.Context) (router.RouterStatus, error)
 	Network() string
@@ -919,11 +861,9 @@ func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName strin
 // routerOwnerCheck is doctor's own read-only report of which berth root
 // started the running router (#82): nil, nil when nothing is running —
 // Status already says so, and there is no owner to report. A running
-// container with no ownership label at all predates the label and is
-// reported as adoptable, not foreign, matching Router.Ensure's own
-// checkOwnership; one whose label names this berth root is ok, and one
-// naming another is a failure — the same condition that makes this berth
-// root's own `up`/`router up` refuse rather than recreate it.
+// container with no ownership label at all is reported as foreign, exactly
+// like one whose label names another root, matching Router.Ensure's own
+// checkOwnership; one whose label names this berth root is ok.
 func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, commandName string) (*Check, error) {
 	owner, err := svc.Owner(ctx)
 	if err != nil {
@@ -933,8 +873,9 @@ func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, command
 		return nil, nil
 	}
 	if !owner.Labelled {
-		return &Check{Status: StatusWarn, Subject: "router owner", Detail: fmt.Sprintf(
-			"carries no berth-root label; it predates this check and is adopted by the next '%s up' or '%s router up'", commandName, commandName)}, nil
+		return &Check{Status: StatusFail, Subject: "router owner", Detail: fmt.Sprintf(
+			"not owned by this berth root; this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
+			commandName, commandName, commandName)}, nil
 	}
 	if owner.Home == home {
 		return &Check{Status: StatusOK, Subject: "router owner", Detail: "this berth root (" + home + ")"}, nil
@@ -958,10 +899,10 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 		return []Check{{Status: StatusFail, Subject: "router", Detail: opts.RouterErr.Error()}}, nil
 	}
 	if !state.engineAnswered {
-		// One skip and nothing else, the TypeScript build's own report for
-		// this case, which the parity suite pins byte for byte: the port
-		// resolution (#79) needs no Docker, but a Go-only line here would
-		// also widen the section's subject column, so it waits for #46.
+		// One skip and nothing else: the port resolution (#79) needs no
+		// Docker, but a Go-only line here would also widen the section's
+		// subject column, so it waits for #46. Pinned byte for byte by the
+		// golden tests.
 		return []Check{{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}}, nil
 	}
 	var checks []Check
@@ -1047,9 +988,8 @@ func routerPortCheck(ctx context.Context, opts doctorOptions) (Check, error) {
 
 /* ------------------------------------------------------------ checkout ---- */
 
-// checkoutSource is CheckoutSource from src/commands/doctor.ts: where the
-// checkout section comes from — no config at all, one that does not load, or
-// one that does.
+// checkoutSource is where the checkout section comes from — no config at
+// all, one that does not load, or one that does.
 type checkoutSource struct {
 	kind         string // "none", "unloadable", or "loaded"
 	searchedFrom string
@@ -1074,17 +1014,16 @@ func checkoutIsLoaded(loaded *config.Loaded) checkoutSource {
 	return checkoutSource{kind: "loaded", loaded: loaded}
 }
 
-// checkoutRegistry is CheckoutRegistry from src/commands/doctor.ts:
-// Pick<WorktreeRegistry, 'current' | 'pruneCandidates'>. *registry.Registry
-// satisfies it without declaring so.
+// checkoutRegistry is the two registry.Registry methods checkoutChecks
+// needs. *registry.Registry satisfies it without declaring so.
 type checkoutRegistry interface {
 	Current(ctx context.Context) (*registry.WorktreeRegistration, error)
 	PruneCandidates(ctx context.Context) ([]registry.RegisteredWorktree, error)
 }
 
-// findCheckout is findCheckout from src/commands/doctor.ts: the config the
-// other commands would use here, without failing when there is none.
-// explicit is --config; "" means the nearest berth.toml above cwd.
+// findCheckout is the config the other commands would use here, without
+// failing when there is none. explicit is --config; "" means the nearest
+// berth.toml above cwd.
 func findCheckout(explicit, cwd string) (checkoutSource, error) {
 	file := explicit
 	if file == "" {
@@ -1327,10 +1266,9 @@ func doctorSummary(sections []Section) doctorSummaryLine {
 
 /* --------------------------------------------------------------- entry ---- */
 
-// doctorOptions is DoctorOptions from src/commands/doctor.ts: every external
-// dependency doctorSections needs, injectable so tests can control each one
-// exactly the way the TypeScript suite's own DoctorRunner and RouterSource
-// fakes do (see doctor_internal_test.go).
+// doctorOptions is every external dependency doctorSections needs,
+// injectable so tests can control each one via fakes (see
+// doctor_internal_test.go).
 type doctorOptions struct {
 	CommandName string
 	ControlHome string
@@ -1385,11 +1323,10 @@ func (o doctorOptions) dockerTimeout() time.Duration {
 	return dockerProbeTimeout
 }
 
-// doctorSections is doctor from src/commands/doctor.ts: every section, in
-// its order, built from opts alone. A cancellation anywhere in it — Git,
-// Docker, the router, identifying this worktree, or its verify hook —
-// aborts immediately, before anything is printed, the way TypeScript's own
-// doctor() lets one propagate out of its guarded() calls.
+// doctorSections builds every section, in order, from opts alone. A
+// cancellation anywhere in it — Git, Docker, the router, identifying this
+// worktree, or its verify hook — aborts immediately, before anything is
+// printed, by propagating out of guarded()'s calls.
 func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) {
 	prerequisiteChecks, state, err := prerequisitesSection(ctx, opts)
 	if err != nil {

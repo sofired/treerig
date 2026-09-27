@@ -1,11 +1,11 @@
-// Package commandstest is a Go port of tests/helpers/command-world.ts,
-// minus the runtime, router and checkout index: a hermetic world for
-// command tests, with a fake Git runner and a real filesystem control home.
+// Package commandstest is a hermetic world for command tests, minus the
+// runtime, router and checkout index, with a fake Git runner and a real
+// filesystem control home.
 //
 // World.Context builds a commands.CommandContext directly from a hand-built
 // config.Config rather than loading a berth.toml, so a test states its
 // config in Go. There is no Dispose: New uses a t.TempDir, which the testing
-// package removes, where the TypeScript helper needs an explicit rm.
+// package removes on its own.
 package commandstest
 
 import (
@@ -79,13 +79,12 @@ func New(t *testing.T, branch, domain string) *World {
 		ControlHome: filepath.Join(base, "control"),
 		UserHome:    filepath.Join(base, "user-home"),
 		RouterState: layout.RouterLayout{
-			StateDir:     routerDir,
-			ComposeFile:  filepath.Join(routerDir, "compose.yaml"),
-			ProtocolFile: filepath.Join(routerDir, "protocol"),
-			DynamicDir:   filepath.Join(routerDir, "dynamic"),
-			IndexDir:     filepath.Join(routerDir, "index"),
-			IndexFile:    filepath.Join(routerDir, "index", "index.html"),
-			LockPath:     filepath.Join(routerDir, "lock"),
+			StateDir:    routerDir,
+			ComposeFile: filepath.Join(routerDir, "compose.yaml"),
+			DynamicDir:  filepath.Join(routerDir, "dynamic"),
+			IndexDir:    filepath.Join(routerDir, "index"),
+			IndexFile:   filepath.Join(routerDir, "index", "index.html"),
+			LockPath:    filepath.Join(routerDir, "lock"),
 		},
 		common: filepath.Join(base, "common"),
 		t:      t,
@@ -100,7 +99,7 @@ func New(t *testing.T, branch, domain string) *World {
 		return git(ctx, spec)
 	}
 	w.Root = w.addWorktree("worktree", branch, w.common)
-	_ = domain // kept for parity with the TypeScript helper's signature; New itself needs no domain.
+	_ = domain // kept in New's signature for callers that already pass one; New itself needs no domain.
 	return w
 }
 
@@ -178,8 +177,8 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 	}
 }
 
-// projectName mirrors the TypeScript helper's own derivation: the domain
-// with a trailing ".localhost" trimmed off.
+// projectName derives a Compose project name from domain: the domain with a
+// trailing ".localhost" trimmed off.
 func projectName(domain string) string {
 	return strings.TrimSuffix(domain, ".localhost")
 }
@@ -222,7 +221,7 @@ func (w *World) WriteIndexCard(repositoryID, worktreeID, project, domain, slug, 
 	}
 }
 
-// Register is what a finished `up` leaves behind, as far as the ported verbs
+// Register is what a finished `up` leaves behind, as far as the other verbs
 // can see: identity markers, a complete registration recording namespace, the
 // worktree's home, and one running container per service plus a data volume.
 // root defaults to w.Root.

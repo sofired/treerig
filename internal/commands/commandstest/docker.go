@@ -15,8 +15,7 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
-// Docker is a stateful stand-in for the `docker` CLI, the Go counterpart of
-// the TypeScript suite's MemoryRuntime one layer down: it keeps containers,
+// Docker is a stateful stand-in for the `docker` CLI: it keeps containers,
 // volumes, networks and images with their labels, and answers the list,
 // inspect, remove and compose calls the Compose backend makes, so command
 // tests drive the real backend end to end without a daemon.

@@ -1,5 +1,6 @@
-// Package text makes borrowed strings safe to print and reproduces the few
-// JavaScript string semantics the TypeScript build's output depends on.
+// Package text makes borrowed strings safe to print and gives berth's own
+// output a few JavaScript string semantics it depends on for its column
+// widths and escaping.
 //
 // What a config file, a branch name, another process's holder record, or a
 // subprocess's stderr put in a string is made safe here. Escape sequences can
@@ -98,10 +99,10 @@ func OneLine(value string, limit int) string {
 }
 
 // SafeJSON is JSON.stringify(value, null, 2) with every UTF-16 code unit from
-// U+007F to U+FFFF escaped as \uXXXX, the way the TypeScript build prints JSON:
-// the values stay exact, and nothing a branch name or a service label carries
-// can drive the terminal printing it. Callers must not pass nil slices where
-// JSON wants [] — Go encodes them as null.
+// U+007F to U+FFFF escaped as \uXXXX: the values stay exact, and nothing a
+// branch name or a service label carries can drive the terminal printing it.
+// Callers must not pass nil slices where JSON wants [] — Go encodes them as
+// null.
 func SafeJSON(value any) (string, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
@@ -133,7 +134,7 @@ func EscapeNonASCII(value string) string {
 }
 
 // JSLen is JavaScript's String.prototype.length: UTF-16 code units, which is
-// what the TypeScript build's tables pad by.
+// what every table berth prints pads its columns by.
 func JSLen(value string) int {
 	n := 0
 	for _, r := range value {

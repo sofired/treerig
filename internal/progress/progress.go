@@ -1,8 +1,8 @@
-// Package progress is a Go port of src/progress.ts: one small utility for
-// logging a long phase and an elapsed-time heartbeat while it runs. It is
-// its own package — rather than living beside one of its callers — so that
-// both internal/commands (a mutation's own phases) and internal/hooks (one
-// hook run) can use it without either importing the other.
+// Package progress is one small utility for logging a long phase and an
+// elapsed-time heartbeat while it runs. It is its own package — rather than
+// living beside one of its callers — so that both internal/commands (a
+// mutation's own phases) and internal/hooks (one hook run) can use it
+// without either importing the other.
 package progress
 
 import (
@@ -28,9 +28,9 @@ func SetHeartbeatForTest(d time.Duration) (restore func()) {
 // WithProgress logs phase, then an elapsed-time heartbeat every heartbeat
 // while action runs. No heartbeat is ever logged once WithProgress has
 // returned: the deferred cleanup waits for the heartbeat goroutine to have
-// actually stopped, not just for it to have been told to, since a tick ready
-// at the same moment as done being closed is not guaranteed to lose a select
-// — TypeScript's clearInterval, by contrast, never fires again once called.
+// actually stopped, not just for it to have been told to, since a tick
+// ready at the same moment as done being closed is not guaranteed to lose
+// a select.
 func WithProgress(log logger.Logger, phase string, action func() error) error {
 	log.Info(phase + ".")
 	started := time.Now()

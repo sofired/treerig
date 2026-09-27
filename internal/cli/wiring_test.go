@@ -11,10 +11,10 @@ import (
 	"github.com/sofired/berth/internal/cli"
 )
 
-// TestDevNotImplemented checks `dev`, which neither build implements yet:
-// its message is fixed directly in this package (see program.go). Its wording is also covered end to end, against the oracle, by
-// TestGolden's dev-not-implemented case; this one exists to pin the exit
-// code and stream by name.
+// TestDevNotImplemented checks `dev`, which is not implemented yet: its
+// message is fixed directly in this package (see program.go). Its wording
+// is also covered end to end by TestGolden's dev-not-implemented case; this
+// one exists to pin the exit code and stream by name.
 func TestDevNotImplemented(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := cli.Main([]string{"berth", "dev"}, strings.NewReader(""), &stdout, &stderr, emptyGetenv)

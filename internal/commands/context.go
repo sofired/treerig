@@ -21,9 +21,8 @@ import (
 // process environment — see registry/registrytest and (for command-level
 // fixtures) commandstest.
 //
-// This is the Go counterpart of src/commands/context.ts's CommandContext,
-// carrying what the verbs ported so far need; the router and the checkout
-// index join it as they are ported.
+// It carries what every verb needs, including the router and the checkout
+// index.
 type CommandContext struct {
 	CommandName string
 	// Invocation is the command line as invoked, arguments space-joined;

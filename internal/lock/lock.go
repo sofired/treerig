@@ -2,12 +2,8 @@
 // lock target file itself, held by an open file description. The kernel
 // frees it the moment its holder dies — even by SIGKILL — and leaves
 // nothing stale, and it survives setsid, fork and exec for a child that
-// inherited the descriptor.
-//
-// This replaces src/operation-lock.ts and src/lock-recovery.ts's
-// mtime-heartbeat design entirely: there is no more stale window, no
-// `.recovery` mutex, no `.lock` directory. What survives the port is the
-// wording a waiter reads, and judgeHolder's proof that a silent holder is
+// inherited the descriptor. There is no stale window, no `.recovery` mutex,
+// no `.lock` directory — only judgeHolder's proof that a silent holder is
 // truly gone.
 package lock
 
@@ -84,10 +80,9 @@ func (o Options) noticeDelay() time.Duration {
 	return 2 * time.Second
 }
 
-// waitPlan mirrors ScopedLock's three schedules in src/operation-lock.ts: a
-// timeout polls at a fixed interval for its whole budget; an interval alone
-// polls at that interval for twenty tries; neither is a short exponential
-// backoff, about 4.6 s in all.
+// waitPlan is one of three schedules: a timeout polls at a fixed interval
+// for its whole budget; an interval alone polls at that interval for twenty
+// tries; neither is a short exponential backoff, about 4.6 s in all.
 func (o Options) waitPlan() (budget, first, max time.Duration) {
 	switch {
 	case o.Timeout > 0:

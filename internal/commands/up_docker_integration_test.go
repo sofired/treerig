@@ -4,11 +4,10 @@ package commands_test
 
 // `up` against a real daemon, the way a developer uses it: up, the routed
 // host answers, then down and worktree remove — once from a fresh checkout,
-// and once over a worktree writeLegacyUp brought up first, the way a
-// pre-flock build of berth would have left it. The router is a real shared
-// router, but one of this test's own name, port and state directory
-// (commands.SharedRouter), so it runs beside a developer's real one without
-// touching it.
+// and once run a second time over the same, already-registered and
+// initialized worktree. The router is a real shared router, but one of
+// this test's own name, port and state directory (commands.SharedRouter),
+// so it runs beside a developer's real one without touching it.
 
 import (
 	"context"
@@ -382,40 +381,29 @@ func TestUpUsesTheSettingsFilePortOnARealDaemon(t *testing.T) {
 	w.downAndRemove(t, result, host)
 }
 
-// TestUpAdoptsAnOldControlHome proves the other half of the clean break: a
-// control home a pre-flock build left behind — registered, initialized, and
-// running, but never routed, since it started no router — is adopted
-// cleanly by this build's own `up`, over the same registration, without
-// re-running the hooks a completed initialization already ran.
-func TestUpAdoptsAnOldControlHome(t *testing.T) {
+// TestUpOverAnAlreadyRegisteredWorktreeOnARealDaemon proves that `up` run a
+// second time over the same worktree — already registered, initialized, and
+// running — adopts the same registration and reruns only the prepare hook,
+// not seed, against a real daemon.
+func TestUpOverAnAlreadyRegisteredWorktreeOnARealDaemon(t *testing.T) {
 	w := newWalk(t)
 	const host = "feature-walk.walk.localhost"
 
-	// Up, by hand, the way a pre-flock build of berth would have left it.
-	registered := writeLegacyUp(t, w.controlHome, w.checkout)
-	if legacy, err := files.LegacyControlHome(w.controlHome); err != nil || !legacy {
-		t.Fatalf("the hand-written control home is not recognised as pre-flock: %v, %v", legacy, err)
-	}
+	first := w.up(t)
+	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
 
-	// Up, by this build, over it.
-	result := w.up(t)
-
-	if result.Registration.RepositoryID != registered.RepositoryID || result.Registration.WorktreeID != registered.WorktreeID ||
-		result.Registration.Slug != registered.Slug || result.Registration.Domain != registered.Domain {
-		t.Fatalf("registration = %+v, want the hand-written %+v", result.Registration, registered)
+	second := w.up(t)
+	if second.Registration.RepositoryID != first.Registration.RepositoryID || second.Registration.WorktreeID != first.Registration.WorktreeID ||
+		second.Registration.Slug != first.Registration.Slug || second.Registration.Domain != first.Registration.Domain {
+		t.Fatalf("registration = %+v, want the same %+v", second.Registration, first.Registration)
 	}
-	// writeLegacyUp already completed initialization, so seed never runs again.
-	if !slices.Equal(stageNames(result), []string{"prepare"}) || !slices.Equal(w.stages(t), []string{"prepare"}) {
-		t.Fatalf("hooks = %v, log = %v", result.Hooks, w.stages(t))
+	if !slices.Equal(stageNames(second), []string{"prepare"}) || !slices.Equal(w.stages(t), []string{"prepare", "seed", "prepare"}) {
+		t.Fatalf("hooks = %v, log = %v", second.Hooks, w.stages(t))
 	}
-	if running := w.owned(t, registered.WorktreeID, "ps", "-q"); len(running) != 1 {
+	if running := w.owned(t, second.Registration.WorktreeID, "ps", "-q"); len(running) != 1 {
 		t.Fatalf("running = %v, want the one api container", running)
-	}
-	marker, err := os.ReadFile(filepath.Join(w.controlHome, files.ControlHomeMarker))
-	if err != nil || string(marker) != files.ControlHomeFormat {
-		t.Fatalf("control home marker = %q, %v; want this build's own format written", marker, err)
 	}
 	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
 
-	w.downAndRemove(t, result, host)
+	w.downAndRemove(t, second, host)
 }

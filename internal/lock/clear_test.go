@@ -284,57 +284,11 @@ func TestClear(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a TypeScript-era lock directory whose target was never written, with the rmdir that clears it", func(t *testing.T) {
-		dir := t.TempDir()
-		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
-		if err := os.Mkdir(scope.Target+".lock", 0o700); err != nil {
-			t.Fatal(err)
-		}
-		_, err := Clear(context.Background(), []Scope{scope}, clearOptions(t))
-		want := "Not clearing the worktree main lock: " + scope.Target + ".lock exists but names no holder"
-		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "rmdir '"+scope.Target+".lock'") {
-			t.Fatalf("err = %v, want a refusal containing %q and the rmdir that clears it", err, want)
-		}
-		if _, statErr := os.Lstat(scope.Target + ".lock"); statErr != nil {
-			t.Fatalf("the .lock directory must be left alone: %v", statErr)
-		}
-	})
-
-	t.Run("clears a TypeScript-era leftover with no sidecar record of its own", func(t *testing.T) {
-		dir := t.TempDir()
-		target := filepath.Join(dir, "worktree")
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Mkdir(target+".lock", 0o700); err != nil {
-			t.Fatal(err)
-		}
-		legacy := `{"pid":999999,"host":"old-host","command":"berth up","startedAt":"2020-01-01T00:00:00.000Z","machineId":"m","bootId":"b","pidNs":"pid:[1]"}`
-		if err := os.WriteFile(target, []byte(legacy), 0o600); err != nil {
-			t.Fatal(err)
-		}
-
-		scope := Scope{Target: target, Description: "worktree main"}
-		result, err := Clear(context.Background(), []Scope{scope}, clearOptions(t))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(result.Scopes) != 1 || !result.Scopes[0].Cleared || len(result.Scopes[0].Verified) != 1 {
-			t.Fatalf("result = %+v", result)
-		}
-		if _, statErr := os.Lstat(target + ".lock"); !os.IsNotExist(statErr) {
-			t.Fatalf("expected the .lock directory to be gone, stat err = %v", statErr)
-		}
-	})
-
-	// Ported from tests/unit/operation-lock.test.ts:155 ("preserves a stale
-	// operation lock when its recovery guard fails"): TypeScript's
-	// clearStaleWorktreeLocks verifies every stale lock together before
-	// clearing any of them, so a guard failure on one leaves every other
-	// exactly as it was. Go's own guard is judging itself, not an injectable
-	// callback, so this drives the failure through a real judging refusal
-	// (an unverifiable holder) on one scope while the other is an ordinary
-	// dead holder, ready to clear — and confirms neither one commits.
+	// Clear verifies every stale lock in its batch together before clearing
+	// any of them, so a guard failure on one leaves every other exactly as
+	// it was. This drives the failure through a real judging refusal (an
+	// unverifiable holder) on one scope while the other is an ordinary dead
+	// holder, ready to clear — and confirms neither one commits.
 	t.Run("preserves a stale operation lock when its recovery guard fails", func(t *testing.T) {
 		dir := t.TempDir()
 		goneScope := Scope{Target: filepath.Join(dir, "development"), Description: "worktree main development session"}

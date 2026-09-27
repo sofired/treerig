@@ -65,7 +65,7 @@ func composeModelWithDebugProfile() map[string]any {
 }
 
 // dockerFake answers every docker and compose invocation the runtime makes,
-// with knobs for the failure modes; the port of the TypeScript DockerFake.
+// with knobs for the failure modes.
 type dockerFake struct {
 	mu          sync.Mutex
 	calls       []run.Spec
@@ -224,8 +224,8 @@ func (f *dockerFake) removals() bool {
 }
 
 // newRuntime builds a Compose runtime wired to fake and a fresh control
-// home, matching the TypeScript suite's own runtime(fake) helper. It returns
-// the control home too, since most tests need it to assert on written files.
+// home. It returns the control home too, since most tests need it to assert
+// on written files.
 func newRuntime(t *testing.T, fake *dockerFake) (*Compose, string) {
 	t.Helper()
 	controlHome := t.TempDir()

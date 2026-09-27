@@ -113,8 +113,8 @@ type cardJSON struct {
 // back in, so a card this package writes is always one it can read; a
 // caller that manages to violate them (every field here comes from
 // already-validated config and registration data) gets a plain error, not a
-// *clierr.Error: like the TypeScript build's zod parse, this is an
-// assertion on this package's own caller, never a user-facing failure.
+// *clierr.Error: this is an assertion on this package's own caller, never a
+// user-facing failure.
 func WriteIndexCard(controlHome, repositoryID, worktreeID string, card IndexCard) error {
 	if err := cardBounds(card); err != nil {
 		return err
@@ -139,11 +139,10 @@ func WriteIndexCard(controlHome, repositoryID, worktreeID string, card IndexCard
 
 // cardBounds is the one definition of every bound a card must satisfy —
 // length ranges, the label namespace pattern, the service count, and each
-// service's own bounds and URL shape — matching the TypeScript build's one
-// cardSchema. WriteIndexCard checks a card against it before writing;
-// parseCardJSON checks one against it after confirming every required key
-// is present, on the way back in. Neither can drift from the other, because
-// there is only the one definition.
+// service's own bounds and URL shape. WriteIndexCard checks a card against
+// it before writing; parseCardJSON checks one against it after confirming
+// every required key is present, on the way back in. Neither can drift
+// from the other, because there is only the one definition.
 func cardBounds(card IndexCard) error {
 	if !validText(&card.Project, 1, maxTextLength) {
 		return fmt.Errorf("card: project must be 1-%d characters", maxTextLength)
@@ -275,8 +274,7 @@ type rawIndexService struct {
 }
 
 // rawIndexCard is the on-disk shape of a card, decoded strictly: an unknown
-// key is a validation failure, exactly as the TypeScript schema's
-// `.strict()` treats it.
+// key is a validation failure.
 type rawIndexCard struct {
 	Version        *float64          `json:"version"`
 	Project        *string           `json:"project"`

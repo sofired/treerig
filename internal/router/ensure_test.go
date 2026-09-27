@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/router"
 )
@@ -75,16 +74,6 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 		if got := fileMode(t, w.State.ComposeFile); got != 0o600 {
 			t.Errorf("ComposeFile mode = %o, want 0600", got)
-		}
-		protocol, err := os.ReadFile(w.State.ProtocolFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(protocol) != strconv.Itoa(router.Protocol)+"\n" {
-			t.Errorf("protocol file = %q", protocol)
-		}
-		if got := fileMode(t, w.State.ProtocolFile); got != 0o600 {
-			t.Errorf("ProtocolFile mode = %o, want 0600", got)
 		}
 
 		ups := w.ups()
@@ -168,328 +157,15 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("says so when it upgrades a router started by an older version, and what that costs other worktrees", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		older := routerDoc(w.State.DynamicDir, w.Port)
-		older.Config.Labels = testLabels("router")
-		older.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.RoutedBySinceProtocol - 1)
-		w.Fake.setDoc("router-1", older)
-		w.Fake.mu.Lock()
-		w.Fake.onRecreate = w.setHealthy
-		w.Fake.mu.Unlock()
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "info: Upgrading the shared router from protocol "+strconv.Itoa(router.RoutedBySinceProtocol-1)+" to "+strconv.Itoa(router.Protocol)+".")
-		mustContain(t, lines, unrouted)
-	})
-
-	// #55: `compose up --remove-orphans` drops the now-undeclared docker-api
-	// *container* on a force-recreate, but never prunes a network the
-	// current file simply no longer declares — so without this cleanup, the
-	// retired docker-api network would survive every upgrade forever.
-	t.Run("removes the retired docker-api network on an upgrade across the file-provider boundary", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		older := routerDoc(w.State.DynamicDir, w.Port)
-		older.Config.Labels = testLabels("router")
-		older.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.FileProviderSinceProtocol - 1)
-		w.Fake.setDoc("router-1", older)
-		w.Fake.mu.Lock()
-		w.Fake.onRecreate = w.setHealthy
-		w.Fake.legacyNetworkLs = "legacy-docker-api-net-id\n"
-		w.Fake.mu.Unlock()
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "legacy-docker-api-net-id" {
-			t.Fatalf("network rm calls = %v, want exactly one for the legacy network", rms)
-		}
-	})
-
-	// Found in review, round 2 of #55: a first cut ran removeLegacyDockerAPINetwork
-	// only inside the force-recreate branch, but Compose's own plain `up`
-	// already recreates a container whose image or command line changed —
-	// exactly what a protocol upgrade's own compose file always does —
-	// which is the far more common upgrade path and never entered that
-	// branch at all, since the first Verify already read clean. Staging
-	// onUp (fired on every `up`, plain or recreate), not onRecreate,
-	// simulates that: the very first `up` already brings the router to the
-	// current shape, so Ensure never warns or recreates, yet the retired
-	// network must still be removed.
-	t.Run("removes the retired docker-api network on an upgrade Compose's own plain up already recreated, with no drift left to force a recreate over", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		older := routerDoc(w.State.DynamicDir, w.Port)
-		older.Config.Labels = testLabels("router")
-		older.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.FileProviderSinceProtocol - 1)
-		w.Fake.setDoc("router-1", older)
-		w.Fake.mu.Lock()
-		w.Fake.onUp = w.setHealthy
-		w.Fake.legacyNetworkLs = "legacy-docker-api-net-id\n"
-		w.Fake.mu.Unlock()
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if ups := w.ups(); len(ups) != 1 || containsArg(ups[0], "--force-recreate") {
-			t.Fatalf("ups = %v, want exactly one plain up, no recreate", ups)
-		}
-		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "legacy-docker-api-net-id" {
-			t.Fatalf("network rm calls = %v, want exactly one for the legacy network", rms)
-		}
-	})
-
-	// Found in review, round 3 of #55: gating this lookup on hadHistory &&
-	// previous < FileProviderSinceProtocol made a transient failure
-	// permanent, since this same Ensure call still records Protocol
-	// regardless of this cleanup's own outcome — the very next Ensure would
-	// then read previous == Protocol and never try again, leaking the
-	// network forever over one bad `docker network ls`. The fix runs the
-	// lookup unconditionally, on every Ensure, the same as
-	// reconcileOrphanedFragments: it is a cheap, label-filtered lookup that
-	// tolerates finding nothing, so a recreate that is not a protocol
-	// upgrade at all still looks — and, if a stray legacy network somehow
-	// exists anyway (left over by hand, or by an interrupted earlier run),
-	// still cleans it up rather than leaving it because "this wasn't the
-	// upgrade".
-	t.Run("looks for a legacy docker-api network on every Ensure, not only a protocol upgrade, and removes one if it is somehow still there", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		drifted := routerDoc(w.State.DynamicDir, w.Port)
-		drifted.HostConfig.ReadonlyRootfs = false
-		w.Fake.setDoc("router-1", drifted)
-		w.Fake.mu.Lock()
-		w.Fake.onRecreate = w.setHealthy
-		w.Fake.legacyNetworkLs = "would-be-removed-if-looked-up\n"
-		w.Fake.mu.Unlock()
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "would-be-removed-if-looked-up" {
-			t.Fatalf("network rm calls = %v, want exactly one: the lookup runs every Ensure, not only a protocol upgrade", rms)
-		}
-	})
-
-	// The self-healing property round 3 of #55's review asked for directly:
-	// a transient failure of the legacy-network lookup itself (the daemon
-	// briefly unreachable, say) must not be lost — the very next Ensure
-	// retries it, since nothing about running this cleanup is gated on
-	// protocol evidence any more.
-	t.Run("retries a failed legacy docker-api network cleanup on the next Ensure", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		w.Fake.mu.Lock()
-		w.Fake.legacyNetworkLsFailsOnce = true
-		w.Fake.legacyNetworkLs = "legacy-docker-api-net-id\n"
-		w.Fake.mu.Unlock()
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if rms := w.networkRms(); len(rms) != 0 {
-			t.Fatalf("network rm calls = %v, want none yet: the first lookup failed", rms)
-		}
-		lines, _ := w.Logger.Snapshot()
-		if !containsSubstring(lines, "Could not remove the retired docker-api network:") {
-			t.Fatalf("expected a warning naming the failed cleanup, got %v", lines)
-		}
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if rms := w.networkRms(); len(rms) != 1 || rms[0] != "legacy-docker-api-net-id" {
-			t.Fatalf("network rm calls = %v, want exactly one after the retry succeeds", rms)
-		}
-	})
-
-	// #55 bumps router.FileProviderSinceProtocol to router.Protocol (5)
-	// itself: every protocol below it now needs the unrouted-after-upgrade
-	// warning, since routing moved from Docker-provider discovery (whether
-	// by label, RoutedBySinceProtocol through 4, or by discovering every
-	// container, older still) to file-provider fragments on a per-worktree
-	// network that no earlier protocol ever wrote. There is therefore no
-	// "already routes the new way" previous protocol to pin a no-warning
-	// case against while the two constants coincide — mirroring the
-	// TypeScript source's own `it.skipIf(ROUTER_PROTOCOL ===
-	// ROUTED_BY_SINCE_PROTOCOL)` for the identical situation at the 3→4
-	// bump. This will need a real case again at the next protocol bump.
-	t.Run("upgrades a router that already routes the current way without warning about routing", func(t *testing.T) {
-		if router.Protocol != router.FileProviderSinceProtocol {
-			t.Fatal("router.Protocol and router.FileProviderSinceProtocol have diverged; write a real no-warning case here")
-		}
-		t.Skip("no protocol below router.Protocol already routes the current (file-provider) way; see the comment above")
-	})
-
-	t.Run("upgrades a router that was taken down across the upgrade, from what this control home last ran", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		taken(t, w, protocolPtr(router.RoutedBySinceProtocol-1))
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-
-		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "info: Upgrading the shared router from protocol "+strconv.Itoa(router.RoutedBySinceProtocol-1)+" to "+strconv.Itoa(router.Protocol)+".")
-		mustContain(t, lines, unrouted)
-		if len(w.ups()) != 1 {
-			t.Fatalf("expected the start itself to bring it back with no drift repair, got %v", w.ups())
-		}
-		if containsSubstring(lines, "not configured as expected") {
-			t.Errorf("did not expect a drift warning, got %v", lines)
-		}
-		protocol, err := os.ReadFile(w.State.ProtocolFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(protocol) != strconv.Itoa(router.Protocol)+"\n" {
-			t.Errorf("protocol file = %q, expected it promoted once it verified", protocol)
-		}
-	})
-
-	t.Run("tells a second control home its worktrees went dark when another home did the upgrading", func(t *testing.T) {
-		// Adapted: this exercised legacyProtocol(), the stack file's embedded
-		// label as a third source of evidence beside the record and the
-		// running container. WP3's brief drops legacyProtocol outright
-		// ("droppable once ROUTER_PROTOCOL is past 3", src/router/router.ts:342-351),
-		// so previousProtocol now has only two sources; a control home with
-		// neither a record nor a stale-labelled container has no way to learn
-		// it is behind, and there is nothing left this test could exercise.
-		t.Skip("the owner decided to drop legacyProtocol: protocol 4 is past 3, and every control " +
-			"home still in use by then has a record (or a running container) to read instead; " +
-			"the per-home record this test was about no longer exists")
-	})
-
-	t.Run("does not let a newer version's stack file, which never started, poison the record", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		taken(t, w, nil)
-		// A newer version wrote its stack file and then failed to start: intent, never a run.
-		legacy := map[string]any{
-			"services": map[string]any{
-				"router": map[string]any{"labels": map[string]any{testNS + ".router-protocol": strconv.Itoa(router.Protocol + 1)}},
-			},
-		}
-		encoded, _ := json.Marshal(legacy)
-		if err := os.WriteFile(w.State.ComposeFile, encoded, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		w.Fake.upExitCode = 1
-		w.Fake.upStderr = "bind: address already in use"
-		if err := w.Router.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "The shared router failed to start") {
-			t.Fatalf("got %v", err)
-		}
-
-		second := newWorldOpts(t, w.Dir, 80, nil)
-		taken(t, second, nil)
-		// If that number had been recorded, this control home would refuse itself for ever.
-		if err := second.Router.Ensure(context.Background()); err != nil {
-			t.Fatalf("expected the second ensure to succeed, got %v", err)
-		}
-	})
-
-	t.Run("names both steps when a newer router and a newer record are in the way, and both together hand it over", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		if err := os.MkdirAll(w.State.StateDir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(w.State.ProtocolFile, []byte(strconv.Itoa(router.Protocol+1)+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		newer := routerDoc(w.State.DynamicDir, w.Port)
-		newer.Config.Labels = testLabels("router")
-		newer.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.Protocol + 1)
-		w.Fake.setDoc("router-1", newer)
-
-		err := w.Router.Ensure(context.Background())
-		wantSubstr := "remove it with 'duke router down' and this control home's record with `rm '" + w.State.ProtocolFile + "'`"
-		if err == nil || !strings.Contains(err.Error(), wantSubstr) {
-			t.Fatalf("got %v, want substring %q", err, wantSubstr)
-		}
-
-		// Doing both of the things it named has to be enough.
-		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{}
-		w.Fake.mu.Unlock()
-		if err := os.Remove(w.State.ProtocolFile); err != nil {
-			t.Fatal(err)
-		}
-		taken(t, w, nil)
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatalf("expected this to succeed once both are cleared, got %v", err)
-		}
-	})
-
-	t.Run("ignores a record that has been corrupted into something that is not a protocol", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		taken(t, w, nil)
-		if err := os.WriteFile(w.State.ProtocolFile, []byte("0x10\n"), 0o600); err != nil { // reads as 16 to Number, but it is corruption
-			t.Fatal(err)
-		}
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-
-		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "warn: Ignoring "+w.State.ProtocolFile+": it does not name a router protocol. "+
-			"This run takes the previous protocol from the router itself, if it is still there.")
-		if containsSubstring(lines, "protocol 16") {
-			t.Errorf("did not expect the corrupted value to be treated as protocol 16, got %v", lines)
-		}
-		mustNotContain(t, lines, unrouted) // no history at all is not an upgrade
-	})
-
-	t.Run("reads a record of %s as no protocol at all", func(t *testing.T) {
-		for _, recorded := range []string{"0", "99999999999999999999"} {
-			t.Run(recorded, func(t *testing.T) {
-				w := newWorld(t, 80, "")
-				taken(t, w, nil)
-				if err := os.WriteFile(w.State.ProtocolFile, []byte(recorded+"\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-
-				if err := w.Router.Ensure(context.Background()); err != nil {
-					t.Fatal(err)
-				}
-
-				lines, _ := w.Logger.Snapshot()
-				if !containsSubstring(linesWithPrefix(lines, "warn: Ignoring "+w.State.ProtocolFile), "") {
-					t.Errorf("expected an ignoring warning, got %v", lines)
-				}
-			})
-		}
-	})
-
-	t.Run("refuses to guess when its own protocol record cannot be read", func(t *testing.T) {
-		skipIfRoot(t)
-		w := newWorld(t, 80, "")
-		taken(t, w, nil)
-		if err := os.WriteFile(w.State.ProtocolFile, []byte(strconv.Itoa(router.Protocol)+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chmod(w.State.ProtocolFile, 0o000); err != nil {
-			t.Fatal(err)
-		}
-		defer os.Chmod(w.State.ProtocolFile, 0o600)
-
-		// Reading it as "no record" is how a newer router gets silently downgraded.
-		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), w.State.ProtocolFile+" could not be read (EACCES)") {
-			t.Fatalf("got %v", err)
-		}
-		if len(w.ups()) != 0 {
-			t.Errorf("expected no `up` calls, got %v", w.ups())
-		}
-	})
-
 	t.Run("ignores a stack file it cannot parse, which it is about to replace anyway", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		taken(t, w, nil)
+		taken(t, w)
 		if err := os.WriteFile(w.State.ComposeFile, []byte("{ not json"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 
-		// One corrupt byte there must not brick every `up` on the machine.
+		// One corrupt byte there must not brick every `up` on the machine:
+		// write() overwrites it unconditionally rather than reading it first.
 		if err := w.Router.Ensure(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -498,7 +174,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 	t.Run("ignores a stack file it cannot read either", func(t *testing.T) {
 		skipIfRoot(t)
 		w := newWorld(t, 80, "")
-		taken(t, w, nil)
+		taken(t, w)
 		if err := os.WriteFile(w.State.ComposeFile, []byte("{}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -507,13 +183,13 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 		defer os.Chmod(w.State.ComposeFile, 0o600)
 
-		// Unreadable is no answer here, where unreadable is fatal for the record.
+		// Unreadable is no answer here either: write() never reads it, only replaces it.
 		if err := w.Router.Ensure(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	})
 
-	t.Run("lets a container carrying no protocol label fall through to the other evidence", func(t *testing.T) {
+	t.Run("lets a container carrying no protocol label through, refusing nothing", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		unlabelled := routerDoc(w.State.DynamicDir, w.Port)
 		rest := testLabels("router")
@@ -527,24 +203,6 @@ func TestRouterServiceEnsure(t *testing.T) {
 		// Not ours, or started under another namespace: no answer, not an invalid one.
 		if err := w.Router.Ensure(context.Background()); err != nil {
 			t.Fatal(err)
-		}
-	})
-
-	t.Run("records nothing when the first ever start fails, because there was no history to record", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		taken(t, w, nil)
-		w.Fake.upExitCode = 1
-		w.Fake.upStderr = "bind: address already in use"
-
-		if err := w.Router.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "The shared router failed to start") {
-			t.Fatalf("got %v", err)
-		}
-		exists, err := files.PathExists(w.State.ProtocolFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if exists {
-			t.Error("expected no protocol file to have been written")
 		}
 	})
 
@@ -581,151 +239,8 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("remembers what it last brought up, so an upgrade that failed to start is still announced next time", func(t *testing.T) {
+	t.Run("refuses to downgrade a newer router that is running", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		taken(t, w, protocolPtr(router.RoutedBySinceProtocol-1))
-		w.Fake.upExitCode = 1
-		w.Fake.upStderr = "bind: address already in use"
-
-		if err := w.Router.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "The shared router failed to start") {
-			t.Fatalf("got %v", err)
-		}
-		// write() already stamped the new protocol into the stack file; the record of what ran must not have moved.
-		lines, _ := w.Logger.Snapshot()
-		mustNotContain(t, lines, unrouted)
-
-		second := newWorldOpts(t, w.Dir, 80, nil)
-		taken(t, second, nil) // same control home, still nothing running
-
-		if err := second.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		lines2, _ := second.Logger.Snapshot()
-		mustContain(t, lines2, "info: Upgrading the shared router from protocol "+strconv.Itoa(router.RoutedBySinceProtocol-1)+" to "+strconv.Itoa(router.Protocol)+".")
-		mustContain(t, lines2, unrouted)
-	})
-
-	t.Run("trusts what it last brought up over a container a failed start left behind", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		taken(t, w, protocolPtr(router.RoutedBySinceProtocol-1))
-		// A start that failed after creating the containers leaves them already carrying
-		// the new protocol label, though no router of that protocol has ever served anything.
-		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{"router": "router-1", "index": "index-1"}
-		w.Fake.mu.Unlock()
-		w.setHealthy()
-		leftover := routerDoc(w.State.DynamicDir, w.Port)
-		leftover.State.Status = "created" // created by the failed `up`, never started
-		w.Fake.setDoc("router-1", leftover)
-
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-
-		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "info: Upgrading the shared router from protocol "+strconv.Itoa(router.RoutedBySinceProtocol-1)+" to "+strconv.Itoa(router.Protocol)+".")
-		mustContain(t, lines, unrouted)
-	})
-
-	t.Run("says nothing about upgrades when the router it brought up is the one this version speaks", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		// The record is written by ensure itself, and is the only source left once the stack file is gone.
-		protocol, err := os.ReadFile(w.State.ProtocolFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(protocol) != strconv.Itoa(router.Protocol)+"\n" {
-			t.Fatalf("protocol file = %q", protocol)
-		}
-		if err := os.Remove(w.State.ComposeFile); err != nil {
-			t.Fatal(err)
-		}
-		again := newWorldOpts(t, w.Dir, 80, nil)
-		taken(t, again, nil) // taken down, then brought back on the same version
-
-		if err := again.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		lines, _ := again.Logger.Snapshot()
-		if containsSubstring(lines, "Upgrading") {
-			t.Errorf("did not expect an upgrade announcement, got %v", lines)
-		}
-		mustNotContain(t, lines, unrouted)
-	})
-
-	t.Run("refuses to take over from a newer version this control home last ran, and hands over once that record is gone", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		taken(t, w, protocolPtr(router.Protocol+1))
-		// The newer version wrote its stack file before it ever started; that alone must not keep refusing.
-		legacy := map[string]any{
-			"services": map[string]any{
-				"router": map[string]any{"labels": map[string]any{testNS + ".router-protocol": strconv.Itoa(router.Protocol + 1)}},
-			},
-		}
-		encoded, _ := json.Marshal(legacy)
-		if err := os.WriteFile(w.State.ComposeFile, encoded, 0o600); err != nil {
-			t.Fatal(err)
-		}
-
-		err := w.Router.Ensure(context.Background())
-		wantSubstr := "This control home last recorded the shared router at protocol " + strconv.Itoa(router.Protocol+1) +
-			"; this version speaks " + strconv.Itoa(router.Protocol) + ". Run that version again, or remove the record with `rm "
-		if err == nil || !strings.Contains(err.Error(), wantSubstr) {
-			t.Fatalf("got %v, want substring %q", err, wantSubstr)
-		}
-
-		// The remedy the message names has to work, or it is not a remedy.
-		if err := os.Remove(w.State.ProtocolFile); err != nil {
-			t.Fatal(err)
-		}
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatalf("expected the remedy to work, got %v", err)
-		}
-	})
-
-	t.Run("records what it found on a control home that has none yet, so a failed start cannot erase it", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		taken(t, w, nil) // no record, as on every control home from before this version
-		legacy := map[string]any{
-			"services": map[string]any{
-				"router": map[string]any{"labels": map[string]any{testNS + ".router-protocol": strconv.Itoa(router.RoutedBySinceProtocol - 1)}},
-			},
-		}
-		encoded, _ := json.Marshal(legacy)
-		if err := os.WriteFile(w.State.ComposeFile, encoded, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		w.Fake.upExitCode = 1
-		w.Fake.upStderr = "bind: address already in use"
-
-		if err := w.Router.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "The shared router failed to start") {
-			t.Fatalf("got %v", err)
-		}
-		// Since this control home carries no legacy stack-file reading (dropped
-		// per WP3's brief: legacyProtocol is obsolete past protocol 3), there is
-		// no third source of evidence left once the record and the container are
-		// both absent; nothing is recorded here, matching "records nothing..." above.
-		exists, err := files.PathExists(w.State.ProtocolFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if exists {
-			t.Error("expected no protocol file to have been written, since legacyProtocol is dropped past protocol 3 (WP3 brief)")
-		}
-	})
-
-	t.Run("refuses to downgrade a newer router that is running, whatever its own record says", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		// The router is machine-wide; another control home may have upgraded it.
-		if err := os.MkdirAll(w.State.StateDir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(w.State.ProtocolFile, []byte(strconv.Itoa(router.Protocol)+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
 		newer := routerDoc(w.State.DynamicDir, w.Port)
 		newer.Config.Labels = testLabels("router")
 		newer.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.Protocol + 1)
@@ -736,40 +251,15 @@ func TestRouterServiceEnsure(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("got %v", err)
 		}
-		// The record is at this version's protocol, so it is not in the way and must not be named.
-		err2 := w.Router.Ensure(context.Background())
-		if err2 == nil || !strings.HasSuffix(strings.TrimRight(err2.Error(), "\n"), "remove it with 'duke router down'.") {
-			t.Fatalf("got %v", err2)
+		if !strings.HasSuffix(strings.TrimRight(err.Error(), "\n"), "remove it with 'duke router down'.") {
+			t.Fatalf("got %v", err)
 		}
 		if len(w.ups()) != 0 {
 			t.Fatalf("expected the refusal to precede every mutation, got %v", w.ups())
 		}
-		protocol, err := os.ReadFile(w.State.ProtocolFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(protocol) != strconv.Itoa(router.Protocol)+"\n" {
-			t.Errorf("expected the record left alone, got %q", protocol)
-		}
 	})
 
-	t.Run("does not announce unrouted worktrees when the upgrade itself fails", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		older := routerDoc(w.State.DynamicDir, w.Port)
-		older.Config.Labels = testLabels("router")
-		older.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.RoutedBySinceProtocol - 1)
-		w.Fake.setDoc("router-1", older)
-		w.Fake.upExitCode = 1
-		w.Fake.upStderr = "bind: address already in use"
-
-		if err := w.Router.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "The shared router failed to start") {
-			t.Fatalf("got %v", err)
-		}
-		lines, _ := w.Logger.Snapshot()
-		mustNotContain(t, lines, unrouted)
-	})
-
-	t.Run("tells Traefik to discover routes only from the file provider, never from Docker, and labels the index the old way", func(t *testing.T) {
+	t.Run("tells Traefik to discover routes only from the file provider, never from Docker, and labels the index for Traefik", func(t *testing.T) {
 		// Pinned as literal text: the verifier compares against the same constants, so it alone cannot catch a typo here.
 		for _, want := range router.RouterCommand() {
 			if strings.Contains(want, "--providers.docker") {
@@ -786,13 +276,6 @@ func TestRouterServiceEnsure(t *testing.T) {
 		if labels["dev.berth.router"] != "n" || labels["traefik.enable"] != "true" {
 			t.Errorf("IndexRouteLabels = %v", labels)
 		}
-		// Every fixture derives from these, so nothing else would notice either moving.
-		if router.RoutedBySinceProtocol != 3 {
-			t.Errorf("RoutedBySinceProtocol = %d, want 3", router.RoutedBySinceProtocol)
-		}
-		if router.FileProviderSinceProtocol != router.Protocol {
-			t.Errorf("FileProviderSinceProtocol = %d, want router.Protocol (%d)", router.FileProviderSinceProtocol, router.Protocol)
-		}
 	})
 
 	t.Run("refuses a router it cannot inspect rather than recreating it blind", func(t *testing.T) {
@@ -808,29 +291,67 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("adopts a router that carries no berth-root label, since it predates the check", func(t *testing.T) {
-		// newWorld's own fixture never stamps RouterHomeLabel, matching a
-		// router started by a build from before #82.
+	t.Run("refuses a router that carries no berth-root label, the same as one belonging to another root", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
+		unlabelled := routerDoc(w.State.DynamicDir, w.Port)
+		rest := testLabels("router")
+		delete(rest, router.RouterHomeLabel)
+		unlabelled.Config.Labels = rest
+		w.Fake.setDoc("router-1", unlabelled)
+
+		err := w.Router.Ensure(context.Background())
+		want := "The shared router is not owned by this berth root. Hand it to this one: stop it with 'duke router down', then run this again."
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("got %v, want %q", err, want)
 		}
-		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "info: The running router carries no berth-root ownership label; it predates this check. Adopting it: this start recreates it once to record this berth root as its owner.")
+		if ups := w.ups(); len(ups) != 0 {
+			t.Fatalf("expected no `compose up` at all, got %v", ups)
+		}
 	})
 
-	t.Run("adopts a router whose berth-root label is empty, the same as one with none", func(t *testing.T) {
+	t.Run("refuses a router whose berth-root label is empty, naming the empty root, when this one's own home is not also empty", func(t *testing.T) {
 		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
 		unowned := routerDoc(w.State.DynamicDir, w.Port)
 		unowned.Config.Labels = testLabels("router")
 		unowned.Config.Labels[router.RouterHomeLabel] = ""
 		w.Fake.setDoc("router-1", unowned)
 
-		if err := w.Router.Ensure(context.Background()); err != nil {
-			t.Fatal(err)
+		err := w.Router.Ensure(context.Background())
+		want := "The shared router belongs to a different berth root (). Hand it to this one: stop it with 'duke router down', then run this again."
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("got %v, want %q", err, want)
 		}
-		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "info: The running router carries no berth-root ownership label; it predates this check. Adopting it: this start recreates it once to record this berth root as its owner.")
+	})
+
+	t.Run("treats an empty berth-root label as owned when this router's own home is also empty", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "" })
+		unowned := routerDoc(w.State.DynamicDir, w.Port)
+		unowned.Config.Labels = testLabels("router")
+		unowned.Config.Labels[router.RouterHomeLabel] = ""
+		w.Fake.setDoc("router-1", unowned)
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatalf("expected an equally homeless router to be treated as this one's own, got %v", err)
+		}
+	})
+
+	t.Run("replaces a stopped router at a newer protocol rather than refusing it: it serves nobody", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		stopped := routerDoc(w.State.DynamicDir, w.Port)
+		stopped.Config.Labels = testLabels("router")
+		stopped.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.Protocol + 1)
+		stopped.State.Status = "exited"
+		w.Fake.setDoc("router-1", stopped)
+		w.Fake.mu.Lock()
+		w.Fake.onUp = w.setHealthy // the start brings it back at this protocol
+		w.Fake.mu.Unlock()
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatalf("expected a stopped newer router to be replaced, got %v", err)
+		}
+		if len(w.ups()) == 0 {
+			t.Fatal("expected the stopped router to be started again")
+		}
 	})
 
 	t.Run("takes over a stopped router whatever root it belonged to: it serves nobody", func(t *testing.T) {
@@ -853,7 +374,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses to adopt a router it cannot inspect: no answer is not no label", func(t *testing.T) {
+	t.Run("refuses a router it cannot inspect, rather than reading no answer as no label", func(t *testing.T) {
 		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-a" })
 		w.Fake.clearDocs() // the containers are there; `docker inspect` says nothing about them
 
@@ -866,12 +387,6 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 		if len(w.ups()) != 0 {
 			t.Errorf("expected no `up` calls, got %v", w.ups())
-		}
-		lines, _ := w.Logger.Snapshot()
-		for _, line := range lines {
-			if strings.Contains(line, "Adopting it") {
-				t.Fatalf("adopted a router it could not inspect: %v", lines)
-			}
 		}
 	})
 
@@ -910,35 +425,28 @@ func TestRouterServiceEnsure(t *testing.T) {
 			t.Fatal(err)
 		}
 		// The fake's own `down` does not remove containers the way a real
-		// daemon's does; taken() stages exactly what a real `down` leaves,
-		// and arranges for the next `up` to bring a fresh, correctly
-		// labelled container back.
-		taken(t, w, nil)
+		// daemon's does; taken() stages exactly what a real `down` leaves.
+		taken(t, w)
+		// taken()'s own onUp stages the package's default fixture, labelled
+		// with an empty home; this world's own home is "home-a", so the
+		// next `up` is staged by hand instead, to carry the label a real
+		// `compose up` against this world's own options would actually
+		// stamp.
+		w.Fake.mu.Lock()
+		w.Fake.onUp = func() {
+			w.Fake.mu.Lock()
+			w.Fake.ids = map[string]string{"router": "router-1", "index": "index-1"}
+			w.Fake.mu.Unlock()
+			adopted := routerDoc(w.State.DynamicDir, w.Port)
+			adopted.Config.Labels = testLabels("router")
+			adopted.Config.Labels[router.RouterHomeLabel] = "home-a"
+			w.Fake.setDoc("router-1", adopted)
+			w.Fake.setDoc("index-1", indexDoc(w.State.IndexDir))
+		}
+		w.Fake.mu.Unlock()
 
 		if err := w.Router.Ensure(context.Background()); err != nil {
 			t.Fatalf("expected 'router up' from the new berth root to adopt cleanly: %v", err)
-		}
-	})
-
-	t.Run("warns instead of failing a verified up when the protocol record cannot be written", func(t *testing.T) {
-		skipIfRoot(t)
-		w := newWorld(t, 80, "")
-		taken(t, w, protocolPtr(router.RoutedBySinceProtocol-1))
-		w.Fake.mu.Lock()
-		bring := w.Fake.onUp
-		w.Fake.onUp = func() {
-			bring()
-			_ = os.Chmod(w.State.StateDir, 0o500) // read-only by the time the record is promoted
-		}
-		w.Fake.mu.Unlock()
-		defer os.Chmod(w.State.StateDir, 0o700) // or the cleanup cannot unlink
-
-		if err := w.Router.Ensure(context.Background()); err != nil { // the router is up; only the record failed
-			t.Fatalf("expected success, got %v", err)
-		}
-		lines, _ := w.Logger.Snapshot()
-		if !containsSubstring(linesWithPrefix(lines, "warn: Could not record the router protocol in "+w.State.ProtocolFile+": "), "") {
-			t.Errorf("expected a warning naming the failed record write, got %v", lines)
 		}
 	})
 

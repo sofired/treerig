@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry/registrytest"
 )
@@ -35,13 +36,11 @@ func envGetenv(env []string) func(string) (string, bool) {
 }
 
 // isoTimestampPattern matches an ISO-8601 instant to the millisecond, the
-// shape both builds' `new Date().toISOString()`/time.Format print for
-// IndexSnapshot.GeneratedAt — the one thing that legitimately differs
-// between two separate process invocations of otherwise-identical builds,
-// since each reads the real clock at the moment it runs. Nothing else in
-// either build's output or the page it writes takes this shape (every
-// fixture UUID and host is fixed), so this is narrow by construction, not by
-// exclusion of a known-differing field.
+// shape berth prints for IndexSnapshot.GeneratedAt — the one thing that
+// legitimately differs between two runs, since each reads the real clock at
+// the moment it runs. Nothing else in the output or the page it writes takes
+// this shape (every fixture UUID and host is fixed), so this is narrow by
+// construction, not by exclusion of a known-differing field.
 var isoTimestampPattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z`)
 
 // normalizeTimestamp replaces every real-time instant in s with a fixed
@@ -53,11 +52,11 @@ func normalizeTimestamp(s string) string {
 	return isoTimestampPattern.ReplaceAllString(s, "TIMESTAMP")
 }
 
-// fixturePlaceholder stands in for a parityFixture's own base directory
+// fixturePlaceholder stands in for a outputFixture's own base directory
 // wherever scrubFixturePath finds it.
 const fixturePlaceholder = "FIXTURE"
 
-// scrubFixturePath replaces every occurrence of base (a parityFixture's own
+// scrubFixturePath replaces every occurrence of base (a outputFixture's own
 // root, itself under t.TempDir()) with fixturePlaceholder. Now that "want"
 // can be a golden recorded from a past, separate process rather than a live
 // run sharing this test's own fixture, the two sides no longer share one
@@ -76,47 +75,44 @@ func scrubFixturePath(s, base string) string {
 // fingerprint was hashed over without being able to change the hash itself,
 // which was already computed, by the build under test, before this file
 // ever sees the page. Scrubbed for the same reason as the timestamp: it
-// legitimately differs between two runs of otherwise-identical builds, by
-// construction, not by exclusion.
+// legitimately differs between two runs, by construction, not by exclusion.
 var fingerprintPattern = regexp.MustCompile(`data-body="[A-Za-z0-9_-]{16}"`)
 
-// toolVersionPattern matches doctor's "ok" line for Git or Node.js: a
-// subject whose version comes from a real binary this test never controls,
-// scrubbed to a placeholder for the same reason as the timestamp and the
-// fingerprint — it legitimately differs between two runs, this time because
-// each reads whatever git (or, for the TypeScript build, node) is actually
-// installed on whichever machine ran it, and a golden recorded on one
-// machine must still compare equal on any other. Written into the golden
-// already scrubbed, not just at compare time, so re-recording it on a
-// different runner (or after this machine's own next `apt upgrade`) is a
-// no-op rather than spurious drift. Anchored on "ok" so a "fail" line's own
-// message (“ `git` could not be started “, say) is never touched.
+// toolVersionPattern matches doctor's "ok" line for Git: a subject whose
+// version comes from a real `git` binary this test never controls, scrubbed
+// to a placeholder for the same reason as the timestamp and the
+// fingerprint — it legitimately differs between two runs, since each reads
+// whatever git is actually installed on whichever machine ran it, and a
+// golden recorded on one machine must still compare equal on any other.
+// Written into the golden already scrubbed, not just at compare time, so
+// re-recording it on a different runner (or after this machine's own next
+// `apt upgrade`) is a no-op rather than spurious drift. Anchored on "ok" so
+// a "fail" line's own message (“ `git` could not be started “, say) is never
+// touched. Node.js is matched too, for a golden's own recorded line (see
+// excludeStdoutLines below); doctor itself never prints one.
 var toolVersionPattern = regexp.MustCompile(`(?m)^(\s*ok\s+(?:Git|Node\.js)\s+)\S+$`)
 
-// What was once the TypeScript build's own output, frozen as a golden corpus
-// under testdata/parity/<name>/ — recorded from a live run of that build on
-// the same fixture the Go build gets: same paths, same UUIDs, the same fake
-// docker — and replayed against the Go binary from here on. Both builds
-// refreshed the index after `down`, `worktree remove`, and `index` itself
-// (#41), so every docker call each made was compared, with no exclusion. The
-// one thing that could never match byte for byte between two separate
-// process invocations was real wall-clock time: normalizeTimestamp scrubs
-// it, narrowly, everywhere a run's own output or the page it wrote could
-// carry one.
+// Every case's expected output, frozen as a golden corpus under
+// testdata/output/<name>/, and replayed against the live binary from here
+// on: same paths, same UUIDs, the same fake docker every time. `down`,
+// `worktree remove`, and `index` itself (#41) all refresh the index, so
+// every docker call each makes is compared, with no exclusion. The one
+// thing that could never match byte for byte between two separate process
+// invocations is real wall-clock time: normalizeTimestamp scrubs it,
+// narrowly, everywhere a run's own output or the page it wrote could carry
+// one.
 //
-// Now that the TypeScript build is gone, testdata/parity/ is a plain,
-// hand-maintained fixture corpus, the same way golden_test.go's own
-// testdata/golden/ is: update a fixture by hand after a change to the Go
-// build's own behaviour in one of these cases, the same way any other
-// testdata file in this repository is updated, or — once #46's cobra stage
-// lands — by whatever re-recording process replaces this one.
+// testdata/output/ is a plain, hand-maintained fixture corpus, the same way
+// golden_test.go's own testdata/golden/ is: update a fixture by hand after a
+// change to this build's own behaviour in one of these cases, the same way
+// any other testdata file in this repository is updated.
 
 const (
-	parityRepo = "a08b4892-5111-49f1-a47a-5ab988c7f676"
-	parityWt   = "2b41d9d4-ed88-49c1-be9c-5439bdf6a431"
+	fixtureRepo = "a08b4892-5111-49f1-a47a-5ab988c7f676"
+	fixtureWt   = "2b41d9d4-ed88-49c1-be9c-5439bdf6a431"
 )
 
-type parityRun struct {
+type outputRun struct {
 	Stdout, Stderr string
 	Exit           int
 	Docker         []string
@@ -129,19 +125,19 @@ type parityRun struct {
 	IndexPage string
 }
 
-type parityFixture struct {
+type outputFixture struct {
 	base, checkout, controlHome, bin, state string
 }
 
-// newParityFixture lays out a registered worktree at base, from scratch: a
+// newOutputFixture lays out a registered worktree at base, from scratch: a
 // git checkout with fixed identity markers, a complete record, a home, and a
 // fake docker holding one container and one volume of it.
-func newParityFixture(t *testing.T, base string, decoy bool) parityFixture {
+func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 	t.Helper()
 	if err := os.RemoveAll(base); err != nil {
 		t.Fatal(err)
 	}
-	f := parityFixture{base: base, checkout: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
+	f := outputFixture{base: base, checkout: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
 		bin: filepath.Join(base, "bin"), state: filepath.Join(base, "state")}
 	for _, dir := range []string{f.checkout, f.bin, f.state} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -163,20 +159,17 @@ func newParityFixture(t *testing.T, base string, decoy bool) parityFixture {
 	if output, err := git.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)
 	}
-	write(filepath.Join(f.checkout, ".git", "berth", "repository-id"), parityRepo+"\n", 0o600)
-	write(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), parityWt+"\n", 0o600)
-	paths := layout.WorktreeLayout(f.controlHome, parityRepo, parityWt)
-	// Empty, as every other case needs: a non-empty (Go-format) marker
-	// would make the TypeScript build itself refuse to touch this control
-	// home (assertNotGoManaged), failing every other case here. doctor's
-	// own case excludes the one line this leaves it printing that
-	// TypeScript never does (files.LegacyControlHome's "was last used by a
-	// TypeScript build" notice) the same way it excludes the Node.js line.
-	write(filepath.Join(f.controlHome, ".berth-control-home"), "", 0o600)
+	write(filepath.Join(f.checkout, ".git", "berth", "repository-id"), fixtureRepo+"\n", 0o600)
+	write(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), fixtureWt+"\n", 0o600)
+	paths := layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt)
+	// This build's own marker format: files.AssertAdoptableControlHome only
+	// cares that the marker exists, not its exact bytes, but this is what a
+	// real control home actually has.
+	write(filepath.Join(f.controlHome, ".berth-control-home"), files.ControlHomeFormat, 0o600)
 	write(paths.RecordPath, `{
   "version": 1,
-  "repositoryId": "`+parityRepo+`",
-  "worktreeId": "`+parityWt+`",
+  "repositoryId": "`+fixtureRepo+`",
+  "worktreeId": "`+fixtureWt+`",
   "slug": "feature-login",
   "domain": "acme.localhost",
   "labelNamespace": "dev.berth",
@@ -186,8 +179,8 @@ func newParityFixture(t *testing.T, base string, decoy bool) parityFixture {
 	if err := os.MkdirAll(paths.Home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	project := layout.ComposeProjectName(parityRepo, parityWt)
-	owner := parityWt
+	project := layout.ComposeProjectName(fixtureRepo, fixtureWt)
+	owner := fixtureWt
 	if decoy {
 		owner = "ffffffff-ffff-4fff-8fff-ffffffffffff"
 	}
@@ -209,8 +202,8 @@ case " $* " in
   *" --format "*)
     id=$(eval echo "\${$#}")
     case "$id" in
-      c1) printf 'true\t`+project+`\t`+parityRepo+`\t`+parityWt+`\tapi\n' ;;
-      v1) printf 'true\t`+project+`\t`+parityRepo+`\t`+owner+`\t\n' ;;
+      c1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+fixtureWt+`\tapi\n' ;;
+      v1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+owner+`\t\n' ;;
       *) echo "Error: No such object: $id" >&2; exit 1 ;;
     esac
     exit 0 ;;
@@ -224,9 +217,8 @@ exit 0
 }
 
 // excludeLines drops every line of stdout containing substr — doctor's own
-// Node.js and legacy-control-home lines, excluded from the parity
-// comparison the way the checkout-index refresh's docker calls are excluded
-// from the transcript.
+// Node.js line, excluded from the comparison the way the checkout-index
+// refresh's docker calls are excluded from the transcript.
 func excludeLines(stdout, substr string) string {
 	lines := strings.Split(stdout, "\n")
 	kept := lines[:0]
@@ -258,20 +250,18 @@ func filterDockerCalls(calls []string, substr string) []string {
 // additionally reads the checkout index page HOME's router state directory
 // holds afterward (a case whose verb refreshes the index as a side effect —
 // down, worktree remove, or index itself); a case that never touches the
-// index passes false, so IndexPage stays "" for both builds and contributes
-// nothing to the comparison.
-func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIndexPage bool) parityRun {
+// index passes false, so IndexPage stays "" and contributes nothing to the
+// comparison.
+func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIndexPage bool) outputRun {
 	t.Helper()
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		"HOME=" + f.base,
-		// BERTH_HOME is what the TypeScript build reads as the control home
-		// directly. BERTH_CONTROL_HOME is the Go build's own, more direct
-		// override (#80); set alongside it, both builds resolve the same
-		// control home from the one fixture. Left set, BERTH_HOME also moves
-		// the Go build's router under f.controlHome — readIndexPage below
-		// accounts for that.
+		// BERTH_CONTROL_HOME points directly at the control home (#80);
+		// BERTH_HOME is also set to it, which moves the router's own state
+		// under f.controlHome/router too — readIndexPage below relies on
+		// that.
 		"BERTH_HOME=" + f.controlHome, "BERTH_CONTROL_HOME=" + f.controlHome,
 		"PATH=" + f.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
@@ -295,7 +285,7 @@ func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIn
 		}
 		calls = append(calls, scrubFixturePath(line, f.base))
 	}
-	run := parityRun{
+	run := outputRun{
 		Stdout: toolVersionPattern.ReplaceAllString(scrubFixturePath(normalizeTimestamp(stdout.String()), f.base), "${1}VERSION"),
 		Stderr: scrubFixturePath(normalizeTimestamp(stderr.String()), f.base),
 		Exit:   exit, Docker: calls,
@@ -307,29 +297,13 @@ func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIn
 	return run
 }
 
-// readIndexPage reads whichever build's own index page this fixture's last
-// run wrote. Before #80 the two builds kept it at different paths: the
-// TypeScript build under its control home
-// (controlLayout(controlHome).indexFile, src/layout.ts), the Go build under
-// the machine-wide state layout.RouterState resolved from HOME alone, with
-// no BERTH_HOME involved. runIn now sets BERTH_HOME=f.controlHome for the
-// TypeScript build's sake (it has no BERTH_CONTROL_HOME of its own), which
-// also moves the Go build's own router under f.controlHome/router in this
-// fixture specifically — the two paths below coincide as a result, in a way
-// they never would in a real environment, where nothing sets BERTH_HOME to
-// what the Go build treats as a control home. Both are still checked, and
-// this stays the one place a real divergence (a future one, say) would need
-// two branches again. Each call to run() rebuilds the fixture from scratch
-// first (see newParityFixture), so only the build that actually ran can
-// have left a file at either path; "" if neither did.
-func (f parityFixture) readIndexPage(t *testing.T) []byte {
+// readIndexPage reads the checkout index page this fixture's last run
+// wrote, resolved through layout.RouterState the same way runIn's own env
+// does (HOME=f.base, BERTH_HOME=f.controlHome). Each call to run() rebuilds
+// the fixture from scratch first (see newOutputFixture), so "" means the
+// case under test never wrote one.
+func (f outputFixture) readIndexPage(t *testing.T) []byte {
 	t.Helper()
-	tsPath := filepath.Join(f.controlHome, "router", "index", "index.html")
-	if page, err := os.ReadFile(tsPath); err == nil {
-		return page
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("reading the TypeScript build's index page: %v", err)
-	}
 	state, err := layout.RouterState(func(key string) (string, bool) {
 		switch key {
 		case "HOME":
@@ -340,22 +314,22 @@ func (f parityFixture) readIndexPage(t *testing.T) []byte {
 		return "", false
 	})
 	if err != nil {
-		t.Fatalf("resolving the Go build's router state: %v", err)
+		t.Fatalf("resolving the router state: %v", err)
 	}
 	page, err := os.ReadFile(state.IndexFile)
 	if err != nil && !os.IsNotExist(err) {
-		t.Fatalf("reading the Go build's index page: %v", err)
+		t.Fatalf("reading the index page: %v", err)
 	}
 	return page
 }
 
-// readParityFixture reads back a frozen parity fixture, reconstructing the
-// parityRun the TypeScript build produced when it was recorded. IndexPage is
-// only read for a case whose checkIndexPage flag is set; every other case
-// leaves it "", matching a Go run that never checked it either.
-func readParityFixture(t *testing.T, dir string, checkIndexPage bool) parityRun {
+// readOutputGolden reads back a frozen golden fixture, reconstructing the
+// outputRun it recorded. IndexPage is only read for a case whose
+// checkIndexPage flag is set; every other case leaves it "", matching a
+// live run that never checked it either.
+func readOutputGolden(t *testing.T, dir string, checkIndexPage bool) outputRun {
 	t.Helper()
-	run := parityRun{
+	run := outputRun{
 		Stdout: readFixtureFile(t, filepath.Join(dir, "stdout")),
 		Stderr: readFixtureFile(t, filepath.Join(dir, "stderr")),
 		Exit:   readFixtureCode(t, filepath.Join(dir, "exit")),
@@ -369,7 +343,7 @@ func readParityFixture(t *testing.T, dir string, checkIndexPage bool) parityRun 
 	return run
 }
 
-func TestParityWithTheTypeScriptBuild(t *testing.T) {
+func TestOutputGoldens(t *testing.T) {
 	binary := buildBinary(t)
 	base, _ := filepath.EvalSymlinks(t.TempDir())
 
@@ -382,13 +356,10 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		// berth.toml above it.
 		outsideCheckout bool
 		// excludeStdoutLines drops any stdout line containing one of these
-		// substrings from both builds' report before comparing — doctor's
-		// Node.js line, which only TypeScript ever printed (Go has no
-		// runtime version matching Node's engines contract to check), and
-		// its "was last used by a TypeScript build" line, which only Go
-		// ever prints (files.LegacyControlHome; the fixture's own marker
-		// must stay empty, or the TypeScript build refuses to touch it at
-		// all) — the same way the checkout-index refresh's own docker
+		// substrings from both the golden and the live run before
+		// comparing — doctor's Node.js line, recorded in the golden but
+		// never printed by this build (there is no Go runtime version to
+		// check), the same way the checkout-index refresh's own docker
 		// calls are excluded from the transcript above.
 		excludeStdoutLines []string
 		// unorderedDocker compares Docker as a set instead of a sequence:
@@ -400,16 +371,15 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		// disk (timestamp normalized) for a case whose verb refreshes it.
 		checkIndexPage bool
 		// excludeDockerCalls drops any Docker transcript entry containing one
-		// of these substrings from both builds before comparing — Go's own
-		// router-network disconnect, added by issue #55: looking up the
-		// router's own container (`compose --project-name berth-router ps
-		// --all --quiet router`) and detaching it from this worktree's
-		// network (`network disconnect`). TypeScript has no per-worktree
-		// router network to disconnect and never makes either call, so this only ever removes
-		// entries from Go's own transcript — filtering both sides, the same
-		// way excludeStdoutLines does, keeps the two lists' treatment
-		// symmetric rather than favouring one build's transcript over the
-		// other's.
+		// of these substrings from both the golden and the live run before
+		// comparing — the router-network disconnect added by issue #55,
+		// after these goldens were recorded: looking up the router's own
+		// container (`compose --project-name berth-router ps --all --quiet
+		// router`) and detaching it from this worktree's network (`network
+		// disconnect`). This only ever removes entries from the live run's
+		// own transcript, since the golden has none to match, but filtering
+		// both sides — the same way excludeStdoutLines does — keeps the two
+		// lists' treatment symmetric.
 		excludeDockerCalls []string
 	}{
 		{name: "status", args: []string{"status"}},
@@ -435,32 +405,28 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		{name: "worktree remove of an unknown slug", args: []string{"worktree", "remove", "--yes", "nope"}},
 		{name: "worktree remove --label-namespace that disagrees", args: []string{"worktree", "remove", "--yes", "--label-namespace", "dev.wrong"}},
 		{name: "worktree remove --label-namespace that is not one", args: []string{"worktree", "remove", "--yes", "--label-namespace", "Not One"}},
-		// worktree unlock: only the refusals that never reach either build's
-		// own lock design (an unregistered identifier, or a worktree
-		// nothing has locked at all) are byte-identical; everything past
-		// that point is Go's own wording, built on flock(2) rather than the
-		// old heartbeat design, so those cases are not here.
+		// worktree unlock: only the refusals that never reach a lock (an
+		// unregistered identifier, or a worktree nothing has locked at all);
+		// what a lock's holder says depends on live processes, so those cases
+		// are covered by internal/lock's own tests instead.
 		{name: "worktree unlock of an unknown identifier", args: []string{"worktree", "unlock", "nope"}},
 		{name: "worktree unlock with nothing held", args: []string{"worktree", "unlock"}},
 		// doctor: every other line (Prerequisites' Git/Docker checks,
 		// Registry, Locks, Router, This checkout) is byte-identical once the
-		// Node.js, legacy-control-home, berth-root and router-state lines
-		// are excluded — the last two are Go's own, for the berth root and
-		// the router's own state directory (#80), which TypeScript has no
-		// counterpart for — removing the Node.js line does not even shift
-		// the Prerequisites column width, since "Docker Compose" is still
-		// the longest subject either way.
-		// Node.js is excluded whole because Go's own doctor never prints
-		// that line at all (there is nothing on the Go side to compare it
-		// against); Git's line stays, but toolVersionPattern above scrubs
-		// its version first, since both builds ask the real `git` on
-		// whatever machine runs this test, which a frozen golden cannot
-		// otherwise agree with on every future runner.
+		// Node.js, berth root and router state lines are excluded — the
+		// last two postdate the golden recording (#80) — removing the
+		// Node.js line does not even shift the Prerequisites column width,
+		// since "Docker Compose" is still the longest subject either way.
+		// Node.js is excluded whole because this build's own doctor never
+		// prints that line at all (there is nothing in a live run to
+		// compare it against); Git's line stays, but toolVersionPattern
+		// above scrubs its version first, since the live run asks the real
+		// `git` on whatever machine runs this test, which a frozen golden
+		// cannot otherwise agree with on every future runner.
 		{
 			name: "doctor with no checkout", args: []string{"doctor"}, outsideCheckout: true,
 			excludeStdoutLines: []string{
-				"Node.js", "was last used by a TypeScript build",
-				"berth root", "router state",
+				"Node.js", "berth root", "router state",
 			},
 			unorderedDocker: true,
 		},
@@ -468,11 +434,11 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := filepath.Join(base, "fixture")
-			dir := filepath.Join("testdata", "parity", tc.name)
+			dir := filepath.Join("testdata", "output", tc.name)
 
-			want := readParityFixture(t, dir, tc.checkIndexPage)
+			want := readOutputGolden(t, dir, tc.checkIndexPage)
 
-			gotFixture := newParityFixture(t, fixture, tc.decoy)
+			gotFixture := newOutputFixture(t, fixture, tc.decoy)
 			gotDir := gotFixture.checkout
 			if tc.outsideCheckout {
 				gotDir = gotFixture.base
@@ -492,7 +458,7 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 			}
 			t.Logf("exit %d, %d docker calls, stdout %q, stderr %q", want.Exit, len(want.Docker), want.Stdout, want.Stderr)
 			if diff := cmp.Diff(want, got); diff != "" {
-				t.Errorf("TypeScript (-) and Go (+) differ:\n%s", diff)
+				t.Errorf("golden (-) and live run (+) differ:\n%s", diff)
 			}
 		})
 	}

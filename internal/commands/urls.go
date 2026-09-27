@@ -60,8 +60,7 @@ func Urls(ctx context.Context, env *Env) error {
 	return err
 }
 
-// UrlsWithContext is worktree.ts's `urls`, operating directly on a
-// CommandContext.
+// UrlsWithContext is `urls`, operating directly on a CommandContext.
 func UrlsWithContext(ctx context.Context, cctx *CommandContext) ([]ServiceURL, error) {
 	registration, err := cctx.Registry.Current(ctx)
 	if err != nil {

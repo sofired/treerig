@@ -1,16 +1,13 @@
 package brand_test
 
-// Ported from tests/unit/brand.test.ts's `describe('cliName', ...)` block —
-// the parts that apply to CLIName. Test titles are kept verbatim so coverage
-// can be compared title by title with the TypeScript suite.
+// Tests for the parts that apply to CLIName.
 //
-// Not ported:
+// Not covered here:
 //   - "names an example config that is actually in the tree": a filesystem
 //     check on BRAND.exampleFile, nothing to do with CLIName.
 //   - "strips a script extension from a launcher name": CLIName takes
-//     argv[0] directly rather than JavaScript's argv[1] (the interpreter is
-//     argv[0] there), and a Go binary never carries a .mjs/.ts launcher
-//     extension for it to strip. Accepted difference.
+//     argv[0] directly, and a Go binary never carries a launcher script
+//     extension for it to strip.
 
 import (
 	"testing"
@@ -29,11 +26,9 @@ func TestCLIName(t *testing.T) {
 	})
 
 	t.Run("falls back to the product name when running the source directly", func(t *testing.T) {
-		// TypeScript's argv[1] is empty when running interactively (`node`
-		// alone); Go's analogue is an empty argv[0], both leaving no
-		// meaningful name. A binary built without -o and run as `./main`
-		// carries the same "no meaningful name" case for Go specifically —
-		// see brand.go's own doc comment.
+		// An empty argv[0] leaves no meaningful name. A binary built
+		// without -o and run as `./main` carries the same "no meaningful
+		// name" case — see brand.go's own doc comment.
 		if got := brand.CLIName(""); got != brand.Name {
 			t.Errorf("CLIName(%q) = %q, want %q", "", got, brand.Name)
 		}

@@ -1,8 +1,6 @@
 package settings
 
-// Go-only: settings.toml has no TypeScript counterpart (issue #79 lands
-// after TypeScript was frozen, #46), so these titles are this package's own
-// rather than ported from a TypeScript suite.
+// settings.toml is issue #79 (#46): these test titles are this package's own.
 
 import (
 	"os"

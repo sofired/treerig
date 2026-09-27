@@ -88,9 +88,9 @@ func mergeEnviron(environ []string, extra ...string) []string {
 // be scripts.
 var splitPattern = regexp.MustCompile(`"([^"]*)"|(\S+)`)
 
-// splitCommand ports src/hooks/runner.ts's splitCommand exactly, including
-// its one edge case: a quoted empty segment ("") splits to an empty string
-// token, not to nothing.
+// splitCommand splits command on whitespace, honoring double-quoted
+// segments, including one edge case: a quoted empty segment ("") splits to
+// an empty string token, not to nothing.
 func splitCommand(command string) []string {
 	indices := splitPattern.FindAllStringSubmatchIndex(command, -1)
 	parts := make([]string, 0, len(indices))
@@ -129,10 +129,9 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 		return false, nil
 	}
 	parts := splitCommand(*command)
-	// TypeScript destructures `[executable, ...args]` and checks `!executable`
-	// — a falsy check, so a command that is only whitespace (splitCommand
-	// returns no parts at all) and one that is a single empty-string token
-	// (a quoted "" as the whole command) are refused the same way.
+	// A command that is only whitespace (splitCommand returns no parts at
+	// all) and one that is a single empty-string token (a quoted "" as the
+	// whole command) are refused the same way.
 	if len(parts) == 0 || parts[0] == "" {
 		return false, clierr.Newf("Hook %q is empty.", stage)
 	}

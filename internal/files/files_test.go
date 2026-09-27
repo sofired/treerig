@@ -185,15 +185,15 @@ func TestPathContainment(t *testing.T) {
 			files.AssertSafeFilePathNamed(root, filepath.Join(filepath.Dir(root), "sibling", "file"), "the shared router's state directory"),
 			"Refusing directory outside the shared router's state directory")
 		// The default (AssertSafeDirectoryPath/AssertSafeFilePath) still says
-		// "the control home", byte-identical to what every existing caller —
-		// and TypeScript's own equivalent — has always said.
+		// "the control home", byte-identical to what every existing caller
+		// has always said.
 		requireErrorContains(t, files.AssertSafeDirectoryPath(root, filepath.Dir(root)), "Refusing directory outside the control home")
 		requireErrorContains(t, files.AssertSafeFilePath(root, filepath.Join(filepath.Dir(root), "sibling", "file")), "Refusing directory outside the control home")
 	})
 }
 
 func TestSecureDirectoryCreation(t *testing.T) {
-	t.Run("adopts an empty directory and marks it, adopts an older install, and refuses a stranger's directory", func(t *testing.T) {
+	t.Run("adopts an empty directory and marks it, and refuses a stranger's directory", func(t *testing.T) {
 		empty := filepath.Join(t.TempDir(), "control")
 		requireNoError(t, files.SecureControlDirectories(layout.ControlLayout(empty), t.TempDir()))
 		exists, err := files.PathExists(filepath.Join(empty, files.ControlHomeMarker))
@@ -202,12 +202,6 @@ func TestSecureDirectoryCreation(t *testing.T) {
 			t.Fatalf("expected control home marker to exist")
 		}
 		requireNoError(t, files.SecureControlDirectories(layout.ControlLayout(empty), t.TempDir())) // and again, idempotently
-
-		// An install from before the marker existed has at least two of the tool's directories.
-		older := filepath.Join(t.TempDir(), "older")
-		requireNoError(t, os.MkdirAll(filepath.Join(older, "repositories"), 0o700))
-		requireNoError(t, os.MkdirAll(filepath.Join(older, "locks"), 0o700))
-		requireNoError(t, files.SecureControlDirectories(layout.ControlLayout(older), t.TempDir()))
 
 		// A directory a file manager merely looked at is still empty.
 		browsed := filepath.Join(t.TempDir(), "browsed")
@@ -221,9 +215,9 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		requireErrorContains(t, files.SecureControlDirectories(layout.ControlLayout(code), t.TempDir()), "not empty (repositories) and was not created by berth")
 
 		theirs := filepath.Join(t.TempDir(), "documents")
-		// Node's default mkdir mode (0o777 masked by the process umask), not
-		// this tool's 0o700: the assertion below checks our code never widens
-		// or narrows a directory it refuses to adopt.
+		// A mode neither empty nor this tool's own 0o700: the assertion below
+		// checks our code never widens or narrows a directory it refuses to
+		// adopt.
 		requireNoError(t, os.MkdirAll(theirs, 0o755))
 		requireNoError(t, os.WriteFile(filepath.Join(theirs, "thesis.txt"), []byte("years of work"), 0o600))
 		resolvedTheirs, err := filepath.EvalSymlinks(theirs)
@@ -287,11 +281,9 @@ func TestSecureDirectoryCreation(t *testing.T) {
 				t.Fatalf("expected %s to be 0700, got %o", directory, mode)
 			}
 		}
-		// The router's own directories are no longer created here: they live
-		// under the berth root instead (internal/router, #12, #13, #80), not
-		// under any control home. layout.Control no longer even names it,
-		// so this checks the literal path a TypeScript-era control home
-		// would have used.
+		// The router's own directories are not created here: they live under
+		// the berth root instead (internal/router, #12, #13, #80), not under
+		// any control home. layout.Control no longer even names this path.
 		routerDir := filepath.Join(controlHome, "router")
 		exists, err := files.PathExists(routerDir)
 		requireNoError(t, err)

@@ -2,27 +2,13 @@
 
 package router_test
 
-// Ported from tests/integration/router-docker.integration.test.ts, plus new
-// tests for the owner decisions this work package covers (#12, #13, #14):
-// every fixture and expectation uses a unique project, network, port and
-// state directory, and cleans up after itself, so it can run beside another
-// developer's real router and beside another track's Docker suite on the
-// same daemon.
-//
-// "keeps the shared network on down while a worktree is attached" is
-// adapted below to attach a plain container to the shared network directly
-// instead of through a full worktree — the same router behaviour, reached
-// without that dependency (see its own comment). This file's own "never
-// routes a container with the wrong routed-by label..." below is the rest
-// of "routes a worktree by hostname..." that doesn't need a worktree: the
-// intruder's own labels and the unmatched-host 404. What that TypeScript
-// case and "lets doctor read the running router..." prove about an actual
-// routed worktree — a second service on its own subdomain, service
-// discovery by name, and doctor flagging a real second claimant — needed
-// WP2's Compose runtime `up` and the `doctor` port, both landed since
-// (#12/#13/#14 were this work package's own scope); that coverage is now
-// internal/commands/up_routes_docker_integration_test.go, alongside the
-// `up` command those need (#69).
+// Real-daemon tests of the shared router: sharing across control homes
+// (#12, #13), lock contention and timeouts (#14), routing, and doctor's view
+// of it. Every fixture uses a unique project, network, port and state
+// directory and cleans up after itself, so it can run beside a developer's
+// real router and beside another Docker suite on the same daemon. Tests
+// that need a routed worktree live with `up` in
+// internal/commands/up_routes_docker_integration_test.go.
 
 import (
 	"context"
@@ -49,8 +35,7 @@ import (
 	"github.com/sofired/berth/internal/run/osrun"
 )
 
-// freePortForTest asks the kernel for a free loopback port, the way the
-// TypeScript suite's freePort() helper does.
+// freePortForTest asks the kernel for a free loopback port.
 func freePortForTest(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -223,8 +208,8 @@ func TestSharedRouterOnARealDaemon(t *testing.T) {
 		}
 	})
 
-	// Ported from the TypeScript suite's "routes a worktree by hostname..."
-	// case, adapted to #55: Traefik's Docker-provider discovery is gone, so
+	// The rest of "routes a worktree by hostname..." (above), adapted to
+	// #55: Traefik's Docker-provider discovery is gone, so
 	// a container's own Traefik labels — everything a routed worktree
 	// service used to need — do nothing any more; only a
 	// dynamic-configuration fragment routes anything (fragment.go). The
@@ -290,13 +275,9 @@ func TestSharedRouterOnARealDaemon(t *testing.T) {
 		}
 	})
 
-	// Adapted from the TypeScript suite's worktree-routing scenario, which
-	// attached a worktree's own containers to prove the shared network stays
-	// while something is attached and goes once nothing is: WP2's Compose
-	// runtime (`up`, override generation) is a parallel work package not yet
-	// available here. A plain container joins the network directly instead,
-	// exercising the same router behaviour without that dependency. Runs
-	// last: it stops the router itself.
+	// A plain container joins the shared network directly, standing in for a
+	// worktree's service: the network must stay while something is attached
+	// and go once nothing is. Runs last: it stops the router itself.
 	t.Run("keeps the shared network on down while something is attached, and lets it go once free", func(t *testing.T) {
 		attachedName := "berth-router-test-attached-" + id
 		// Registered by name before creation, so a failure partway through
@@ -455,6 +436,48 @@ func TestTwoBerthRootsRouterUpRefuses(t *testing.T) {
 	adoptedLabel := dockerOutput(t, "inspect", adopted, "--format", "{{index .Config.Labels \""+router.RouterHomeLabel+"\"}}")
 	if adoptedLabel != home2 {
 		t.Fatalf("router-home label after takeover = %q, want %q", adoptedLabel, home2)
+	}
+}
+
+func TestRouterUpRefusesARouterWithoutAnOwnerLabel(t *testing.T) {
+	requireDocker(t)
+	id := suffix(t)
+	project := "berth-router-test-unowned-" + id
+	home := registrytest.TempDir(t)
+	state := newState(filepath.Join(home, "router"))
+	t.Cleanup(func() {
+		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
+	})
+
+	// A router container this berth did not start: its project and service
+	// are the router's, but it carries no owner label at all, as a real
+	// daemon reports one — the key absent from .Config.Labels, not empty.
+	dir := registrytest.TempDir(t)
+	compose := filepath.Join(dir, "compose.yaml")
+	if err := os.WriteFile(compose, []byte("services:\n  router:\n    image: busybox:1.37.0\n    command: [\"sleep\", \"600\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("docker", "compose", "-p", project, "-f", compose, "up", "--detach").CombinedOutput(); err != nil {
+		t.Fatalf("compose up: %v\n%s", err, out)
+	}
+	before := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+	if label := dockerOutput(t, "inspect", before, "--format", "{{index .Config.Labels \""+router.RouterHomeLabel+"\"}}"); label != "" {
+		t.Fatalf("fixture router carries an owner label %q; it must carry none", label)
+	}
+
+	svc, err := router.New(router.Options{
+		State: state, Port: freePortForTest(t), Runner: osrun.New(), Logger: logger.Silent{},
+		ProjectName: project, Network: project, Environ: os.Environ(), Home: home, CommandName: "berth",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = svc.Ensure(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "The shared router is not owned by this berth root.") {
+		t.Fatalf("got %v, want a refusal of a router without an owner label", err)
+	}
+	if after := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router"); after != before {
+		t.Fatalf("expected the refusal to leave the router untouched, got %q then %q", before, after)
 	}
 }
 

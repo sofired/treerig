@@ -65,13 +65,12 @@ func TestRouterState(t *testing.T) {
 			t.Fatalf("StateDir = %q, want %q", state.StateDir, dir)
 		}
 		want := RouterLayout{
-			StateDir:     dir,
-			ComposeFile:  filepath.Join(dir, "compose.yaml"),
-			ProtocolFile: filepath.Join(dir, "protocol"),
-			DynamicDir:   filepath.Join(dir, "dynamic"),
-			IndexDir:     filepath.Join(dir, "index"),
-			IndexFile:    filepath.Join(dir, "index", "index.html"),
-			LockPath:     filepath.Join(dir, "lock"),
+			StateDir:    dir,
+			ComposeFile: filepath.Join(dir, "compose.yaml"),
+			DynamicDir:  filepath.Join(dir, "dynamic"),
+			IndexDir:    filepath.Join(dir, "index"),
+			IndexFile:   filepath.Join(dir, "index", "index.html"),
+			LockPath:    filepath.Join(dir, "lock"),
 		}
 		if state != want {
 			t.Fatalf("got %+v, want %+v", state, want)

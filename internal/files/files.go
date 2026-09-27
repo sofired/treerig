@@ -41,10 +41,6 @@ import (
 // adopted again later.
 const ControlHomeMarker = "." + brand.Name + "-control-home"
 
-// controlHomeDirectories are top-level directories only the tool creates; an
-// install from before the marker existed has at least two of them.
-var controlHomeDirectories = []string{"repositories", "locks", "router"}
-
 // incidentalEntries are files the operating system drops into directories a
 // user merely looked at.
 var incidentalEntries = map[string]bool{
@@ -280,9 +276,8 @@ func AssertSafeHome(home, userHome string) error {
 // The control home is chmod'd, populated, and — under `worktree remove` —
 // recursively deleted within. So it is never a directory the user already
 // uses for something else: an existing directory is adopted only when the
-// tool created it (the marker, or two of the directories only the tool
-// creates, from before the marker existed) or it is empty. The filesystem
-// root, the home directory, and anything above it are refused outright.
+// tool created it (the marker) or it is empty. The filesystem root, the
+// home directory, and anything above it are refused outright.
 func AssertAdoptableControlHome(controlHome, userHome string) error {
 	resolved, err := canonical(controlHome)
 	if err != nil {
@@ -322,15 +317,6 @@ func AssertAdoptableControlHome(controlHome, userHome string) error {
 	if len(meaningful) == 0 || contains(meaningful, ControlHomeMarker) {
 		return nil
 	}
-	found := 0
-	for _, name := range controlHomeDirectories {
-		if contains(meaningful, name) {
-			found++
-		}
-	}
-	if found >= 2 {
-		return nil
-	}
 	shown := strings.Join(firstN(meaningful, 3), ", ")
 	if len(meaningful) > 3 {
 		shown += ", …"
@@ -356,45 +342,8 @@ func firstN(values []string, n int) []string {
 	return values[:n]
 }
 
-// ControlHomeFormat is what the Go build writes into the marker. The
-// TypeScript build left it empty, so an empty marker is how a control home it
-// created is told apart.
+// ControlHomeFormat is what this build writes into the marker.
 const ControlHomeFormat = "format 2\n"
-
-// LegacyControlHome reports whether the TypeScript build created this control
-// home and no Go build has written to it since: its marker is empty, or it
-// predates the marker and has at least two of the tool's own directories.
-//
-// Nothing that mutates a control home needs this check itself — the first
-// write upgrades the marker (see establishControlHome), and every lock's
-// leftovers are judged lock by lock as they are next taken, whatever the
-// marker says. It exists purely to report the fact: doctor's Registry
-// section calls it to add one line saying a control home was last used by
-// a TypeScript build, and that the next command here upgrades it.
-func LegacyControlHome(controlHome string) (bool, error) {
-	marker := filepath.Join(controlHome, ControlHomeMarker)
-	contents, err := os.ReadFile(marker)
-	if err == nil {
-		return len(contents) == 0, nil
-	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		return false, err
-	}
-	entries, err := os.ReadDir(controlHome)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	found := 0
-	for _, entry := range entries {
-		if contains(controlHomeDirectories, entry.Name()) {
-			found++
-		}
-	}
-	return found >= 2, nil
-}
 
 // establishControlHome creates the control home itself, after checking it is
 // ours to use, and leaves the marker. userHome is the caller's own resolved
@@ -428,26 +377,70 @@ func establishControlHome(controlHome, userHome string) error {
 	}
 	defer dir.Close()
 
+	// What else the control home holds is read before the marker, not after:
+	// a concurrent creator of this same brand new control home writes its
+	// marker in full before it creates anything else here, so anything
+	// found now means that creator's marker was already complete. An empty
+	// marker read after it is therefore never a creator mid-write, and is
+	// refused below rather than taken over.
+	populated, err := hasMeaningfulEntries(dir)
+	if err != nil {
+		return err
+	}
 	marker := filepath.Join(controlHome, ControlHomeMarker)
 	contents, err := readMarkerDirect(dir, marker)
 	if err != nil {
 		return err
 	}
-	// New, or left empty by the TypeScript build: from now on a Go build has
-	// written here. Its lock leftovers are judged lock by lock as they are
-	// next taken; its records, cards and markers are read as they are. A
-	// marker with anything else in it — a later build's format, say — is not
-	// this build's to downgrade, and is left as it is.
+	if len(contents) == 0 && populated {
+		return clierr.Newf(
+			"Refusing to use %s as the control home: its marker %s is empty but the directory already holds %s state. Point %s at an empty directory instead.",
+			controlHome, marker, brand.Name, brand.ControlHomeEnv)
+	}
 	if len(contents) == 0 {
-		// A direct write, like the TypeScript build's own touchSecure — not
-		// AtomicWrite's temp-then-rename: a concurrent adopter of this same
-		// brand new control home would otherwise see that temp file sitting
-		// in an empty directory and refuse it as not ours. The marker is nine
-		// bytes; a single write(2) of that size does not tear on any
-		// filesystem this tool supports.
+		// No marker yet, or one truncated but not yet written: writeMarkerDirect's
+		// create-open and its write are two separate steps, so a concurrent
+		// goroutine securing this same brand new control home can see the
+		// marker in between, truncated to empty. Nothing else is here yet
+		// (checked above), so there is nothing to preserve: this writes its own format,
+		// directly rather than through AtomicWrite's temp-then-rename: a
+		// concurrent securer of this same brand new control home would
+		// otherwise see that temp file sitting in what should be an empty
+		// directory and refuse it as not ours. The marker is nine bytes; a
+		// single write(2) of that size does not tear on any filesystem
+		// this tool supports.
 		return writeMarkerRacingCreators(dir, marker)
 	}
+	if string(contents) != ControlHomeFormat {
+		// A marker with real content that is not this build's own format is
+		// not this build's to rewrite: refuse rather than adopt or
+		// overwrite it.
+		return clierr.Newf(
+			"Refusing to use %s as the control home: its marker %s is not %s's own format. Point %s at an empty directory instead.",
+			controlHome, marker, brand.Name, brand.ControlHomeEnv)
+	}
 	return nil
+}
+
+// hasMeaningfulEntries reports whether dir holds anything besides the
+// control-home marker and the files an operating system drops into any
+// directory (incidentalEntries). It reads through dir's own descriptor, so
+// it sees the directory establishControlHome already opened, not whatever
+// the path names by now.
+func hasMeaningfulEntries(dir *os.File) (bool, error) {
+	names, err := dir.Readdirnames(-1)
+	if err != nil {
+		return false, err
+	}
+	if _, err := dir.Seek(0, io.SeekStart); err != nil {
+		return false, err
+	}
+	for _, name := range names {
+		if name != ControlHomeMarker && !incidentalEntries[name] {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // beforeOpenControlHomeForTest runs, if set, just after
@@ -753,15 +746,14 @@ func AtomicWrite(destination string, contents []byte, mode fs.FileMode) error {
 	return closeErr
 }
 
-// AtomicJSON is AtomicWrite of value marshalled the way the TypeScript build
-// does: JSON.stringify(value, null, 2) + "\n". Key order follows the Go
-// struct's field order, which callers keep matched to the TypeScript schema.
+// AtomicJSON is AtomicWrite of value marshalled two-space indented, with a
+// trailing newline. Key order follows the Go struct's field order.
 //
-// encoding/json already matches JSON.stringify's own string escaping except
-// for one case: it always escapes the JavaScript line separators U+2028 and
-// U+2029, which JSON.stringify writes raw. text.FixJSONLineSeparators
-// corrects exactly that, byte for byte, on the encoded output — a record's
-// domain or a card's branch is free-form enough to carry either.
+// encoding/json escapes the JavaScript line separators U+2028 and U+2029 by
+// default; text.FixJSONLineSeparators reverses exactly that, byte for byte,
+// on the encoded output, so they appear raw — a record's domain or a card's
+// branch is free-form enough to carry either, and a raw encoding is easier
+// to read and diff on disk.
 func AtomicJSON(destination string, value any) error {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
@@ -770,7 +762,7 @@ func AtomicJSON(destination string, value any) error {
 	if err := encoder.Encode(value); err != nil {
 		return err
 	}
-	// Encode already appends the trailing "\n", matching `${...}\n` in the TypeScript build.
+	// Encode already appends the trailing newline.
 	return AtomicWrite(destination, text.FixJSONLineSeparators(buffer.Bytes()), 0o600)
 }
 

@@ -1,10 +1,7 @@
 package router_test
 
-// Ported from tests/unit/router.test.ts. Test titles are kept verbatim so
-// coverage can be compared title by title with the TypeScript suite. Every
-// fixture and expectation uses router.Protocol/router.RoutedBySinceProtocol
-// symbolically, so it is automatically consistent with WP3's protocol-4 bump
-// (#39) without literal "3"s baked in anywhere the TypeScript source had them.
+// Every fixture and expectation uses router.Protocol symbolically, without
+// a literal protocol number baked in anywhere.
 
 import (
 	"context"
@@ -57,8 +54,8 @@ type dockerFake struct {
 	// clean exit — round 3 of #55's review: a timed-out down must not be
 	// read as Compose's own "has active endpoints" refusal even if its
 	// stderr happened to contain that text, and must still report through
-	// run.Failure (exit code 124), not the ported "did not stop cleanly"
-	// text TypeScript has no timeout concept to diverge from.
+	// run.Failure (exit code 124), not the "did not stop cleanly" wording a
+	// plain refusal gets.
 	downTimedOut bool
 	// psExitCode/psStderr is what `compose ps` says when Docker itself is the problem.
 	psExitCode int
@@ -74,18 +71,6 @@ type dockerFake struct {
 	networkLs string
 	// networkLsFails makes `docker network ls` exit 1, as an unreachable daemon would.
 	networkLsFails bool
-	// legacyNetworkLs is what `docker network ls` prints when filtered by
-	// the retired docker-api network's own compose labels
-	// (removeLegacyDockerAPINetwork's own lookup) — one network ID per
-	// line, distinct from networkLs (LabelledWorktreeNetworks' own filter)
-	// so a test can stage one without affecting the other.
-	legacyNetworkLs string
-	// legacyNetworkLsFailsOnce makes the next legacy-network lookup fail
-	// once, then resets to answering normally — a transient failure round
-	// 3 of #55's review pins a later Ensure retries against, since the
-	// cleanup runs unconditionally on every Ensure rather than only once
-	// per upgrade.
-	legacyNetworkLsFailsOnce bool
 	// connectExitCode/connectStderr and disconnectExitCode/disconnectStderr
 	// are what `docker network connect`/`disconnect` answer; zero exit codes
 	// mean success (the default a test that never sets them gets).
@@ -154,13 +139,6 @@ func (d *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 		if d.networkLsFails {
 			return run.Result{Stderr: "Cannot connect to the Docker daemon", ExitCode: 1}, nil
 		}
-		if containsArg(args, "label=com.docker.compose.network=docker-api") {
-			if d.legacyNetworkLsFailsOnce {
-				d.legacyNetworkLsFailsOnce = false
-				return run.Result{Stderr: "Cannot connect to the Docker daemon", ExitCode: 1}, nil
-			}
-			return run.Result{Stdout: d.legacyNetworkLs}, nil
-		}
 		return run.Result{Stdout: d.networkLs}, nil
 	case len(args) > 1 && args[0] == "network" && args[1] == "connect":
 		d.mu.Lock()
@@ -222,13 +200,18 @@ func (d *dockerFake) clearDocs() {
 /* --------------------------------------------------------------- fixtures */
 
 // testLabels is the component and protocol labels, plus Compose's own,
-// every container in a healthy default-named stack carries.
+// every container in a healthy default-named stack carries, including an
+// empty RouterHomeLabel — present, as Stack always leaves it, but empty,
+// matching every fixture's own default Options.Home ("") in this package,
+// so an ordinary Ensure test is not itself a foreign-router refusal; a test
+// of ownership itself overrides or deletes it.
 func testLabels(service string) map[string]string {
 	return map[string]string{
 		"com.docker.compose.project": testProject,
 		"com.docker.compose.service": service,
 		testNS + ".component":        service,
 		testNS + ".router-protocol":  strconv.Itoa(router.Protocol),
+		router.RouterHomeLabel:       "",
 	}
 }
 
@@ -299,13 +282,12 @@ func indexDoc(indexDir string) router.ContainerInspect {
 func newState(dir string) layout.RouterLayout {
 	indexDir := filepath.Join(dir, "index")
 	return layout.RouterLayout{
-		StateDir:     dir,
-		ComposeFile:  filepath.Join(dir, "compose.yaml"),
-		ProtocolFile: filepath.Join(dir, "protocol"),
-		DynamicDir:   filepath.Join(dir, "dynamic"),
-		IndexDir:     indexDir,
-		IndexFile:    filepath.Join(indexDir, "index.html"),
-		LockPath:     filepath.Join(dir, "lock"),
+		StateDir:    dir,
+		ComposeFile: filepath.Join(dir, "compose.yaml"),
+		DynamicDir:  filepath.Join(dir, "dynamic"),
+		IndexDir:    indexDir,
+		IndexFile:   filepath.Join(indexDir, "index.html"),
+		LockPath:    filepath.Join(dir, "lock"),
 	}
 }
 
@@ -361,9 +343,9 @@ func newWorld(t *testing.T, port int, existing string) *testWorld {
 }
 
 // taken is a control home whose router containers are gone — what `router
-// down` leaves. protocol records one as last brought up when non-nil.
-// Starting it again brings the containers back, as a real `up` would.
-func taken(t *testing.T, w *testWorld, protocol *int) {
+// down` leaves. Starting it again brings the containers back, as a real
+// `up` would.
+func taken(t *testing.T, w *testWorld) {
 	t.Helper()
 	w.Fake.mu.Lock()
 	w.Fake.ids = map[string]string{}
@@ -371,11 +353,6 @@ func taken(t *testing.T, w *testWorld, protocol *int) {
 	// As in production: the state directory exists (and is secured) before anything is written into it.
 	if err := os.MkdirAll(w.State.StateDir, 0o700); err != nil {
 		t.Fatal(err)
-	}
-	if protocol != nil {
-		if err := os.WriteFile(w.State.ProtocolFile, []byte(strconv.Itoa(*protocol)+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 	w.Fake.mu.Lock()
 	w.Fake.onUp = func() {
@@ -386,9 +363,6 @@ func taken(t *testing.T, w *testWorld, protocol *int) {
 	}
 	w.Fake.mu.Unlock()
 }
-
-// protocolPtr is a pointer to v, for taken's optional protocol argument.
-func protocolPtr(v int) *int { return &v }
 
 // ups is every `compose … up …` call so far, as raw argv.
 func (w *testWorld) ups() [][]string {
@@ -411,23 +385,6 @@ func (w *testWorld) firstUp() call {
 	}
 	return call{}
 }
-
-// networkRms is every `network rm <id>` call's own id, in order —
-// removeLegacyDockerAPINetwork's own removals, since nothing else in this
-// package calls `network rm` at all.
-func (w *testWorld) networkRms() []string {
-	var ids []string
-	for _, c := range w.Fake.snapshotCalls() {
-		if len(c.args) == 3 && c.args[0] == "network" && c.args[1] == "rm" {
-			ids = append(ids, c.args[2])
-		}
-	}
-	return ids
-}
-
-// unrouted is the exact line noteUnroutedAfterUpgrade emits, so asserting
-// its absence cannot go vacuous.
-const unrouted = "warn: Worktrees already up elsewhere stay unrouted until their next 'duke up'."
 
 // skipIfRoot skips t when running as root, which bypasses the file
 // permissions a symlink/mode-based test stages.
@@ -475,13 +432,5 @@ func mustContain(t *testing.T, lines []string, want string) {
 	t.Helper()
 	if !slices.Contains(lines, want) {
 		t.Fatalf("expected lines to contain %q; got %v", want, lines)
-	}
-}
-
-// mustNotContain fails t if want is one of lines, exactly.
-func mustNotContain(t *testing.T, lines []string, want string) {
-	t.Helper()
-	if slices.Contains(lines, want) {
-		t.Fatalf("expected lines not to contain %q; got %v", want, lines)
 	}
 }

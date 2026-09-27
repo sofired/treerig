@@ -19,17 +19,17 @@ import (
 var newRunner func() run.Runner
 
 // runContext is what a leaf action runs with: its own parsed arguments and
-// options, plus the commands.Env every ported verb takes.
+// options, plus the commands.Env every verb takes.
 type runContext struct {
 	ctx        context.Context
 	env        *commands.Env
 	positional []string
 	values     map[string]optionEntry
 	// exitCode is what an action wants the process to exit with when it
-	// returns nil: src/cli/main.ts's `process.exitCode = 1` after `router
-	// status` reports a failure it already printed in full, rather than
-	// throwing and having report() print a further, generic failure line.
-	// Zero (the default) is an ordinary success.
+	// returns nil: set to 1 after `router status` reports a failure it
+	// already printed in full, rather than returning an error and having
+	// report() print a further, generic failure line. Zero (the default)
+	// is an ordinary success.
 	exitCode int
 }
 

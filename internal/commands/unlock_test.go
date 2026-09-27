@@ -49,8 +49,7 @@ func mutateRecordMachineID(t *testing.T, scope lock.Scope, machineID string) {
 	mutateRecord(t, scope, func(rec map[string]any) { rec["machineId"] = machineID })
 }
 
-// deadPID is a PID no test system running this suite is expected to have —
-// the same choice internal/lock's own legacy_test.go makes for the same reason.
+// deadPID is a PID no test system running this suite is expected to have.
 const deadPID = 999999
 
 // unlock runs commands.UnlockWithContext against tc's own CommandContext.
@@ -65,10 +64,8 @@ func unlock(t *testing.T, tc *commandstest.TestContext, options commands.UnlockO
 // PID, which is still very much alive, so the lock is taken and cleanly
 // released first (which gives the record a correct file identity and this
 // machine's real identity) and the sidecar is then rewritten to name a dead
-// one instead — this is the Go counterpart of the TypeScript suite's
-// killedHolder helper, which simply invents a whole record because the
-// TypeScript build never has to prove one against a flock it is still
-// holding.
+// one instead, rather than simply inventing a whole record: this has to
+// prove one against a flock it is still holding.
 func killDeadHolder(t *testing.T, controlHome string, ref worktree.Ref) {
 	t.Helper()
 	markers := procid.Markers{Project: layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID), WorktreeID: ref.WorktreeID}
@@ -273,16 +270,11 @@ func TestWorktreeUnlock(t *testing.T) {
 		wantErr(t, err, `No worktree is registered as ffffffff-ffff-4fff-8fff-ffffffffffff, and no lock is held for a worktree of that UUID\.`)
 	})
 
-	// "refuses when the marker turns up during the second look, clearing
-	// nothing" exercises unlockGuard's ~12 second second look: it judges a
-	// holder gone, waits, and judges again before trusting that verdict, so
-	// a lock reclaimed in between is still caught. lock.Clear has no second
-	// look to race: flock(2) is held for the judging, marking-released and
-	// legacy-leftover cleanup in one call, so nothing else can reclaim the
-	// lock in between.
+	// This scenario does not apply to Go: lock.Clear holds the flock for the
+	// whole judge-then-clear sequence in one call, so nothing else can
+	// reclaim the lock in between, and there is no second look to race.
 	t.Run("refuses when the marker turns up during the second look, clearing nothing", func(t *testing.T) {
-		t.Skip("unlockGuard's ~12 second second look — and the race this test wins against it — has no Go counterpart: " +
-			"lock.Clear holds the flock for the whole judge-then-clear sequence, so nothing can reclaim the lock in between")
+		t.Skip("lock.Clear holds the flock for the whole judge-then-clear sequence, so nothing can reclaim the lock in between")
 	})
 }
 

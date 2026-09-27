@@ -384,20 +384,20 @@ func TestWorktreeRemove(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeRecord(t, w, identity, "widgets.localhost", "main", nil)
-		legacy := worktree.Ref{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: "main"}
-		w.Docker.Up(legacy, "dev.legacy", "api")
+		oldRef := worktree.Ref{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: "main"}
+		w.Docker.Up(oldRef, "dev.oldns", "api")
 
 		_, err = remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{Identifier: identity.WorktreeID}))
 		wantErr(t, err, `(?s)Cannot remove main\.widgets\.localhost from this repository: it belongs to a different one.*--label-namespace \(dev\.berth unless`)
 		_, err = remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{Identifier: identity.WorktreeID, LabelNamespace: "not a namespace"}))
 		wantErr(t, err, "--label-namespace must look like a reverse domain")
 
-		result, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{Identifier: identity.WorktreeID, LabelNamespace: "dev.legacy"}))
+		result, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{Identifier: identity.WorktreeID, LabelNamespace: "dev.oldns"}))
 		if err != nil || !result.Registration {
 			t.Fatalf("result = %+v, %v", result, err)
 		}
-		if left := w.Docker.Owned(legacy, "dev.legacy"); len(left) != 0 {
-			t.Fatalf("the legacy resources survived: %v", left)
+		if left := w.Docker.Owned(oldRef, "dev.oldns"); len(left) != 0 {
+			t.Fatalf("its resources survived: %v", left)
 		}
 	})
 

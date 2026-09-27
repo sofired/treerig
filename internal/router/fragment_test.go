@@ -1,7 +1,6 @@
 package router_test
 
-// Go-only, per #55: no TypeScript `it` to mirror — dynamic-configuration
-// fragments are new in the Go build.
+// Dynamic-configuration fragments, added by #55.
 
 import (
 	"encoding/json"

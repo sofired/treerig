@@ -1,13 +1,12 @@
 //go:build integration
 
-// Port of tests/integration/worktree-registry-git.integration.test.ts's
-// read-path titles: real Git, real worktrees, no fakes. Most of this file
-// predates WP2's Ensure, and still uses registrytest.Register (identity
-// markers via the real, lock-free IdentityService.Ensure, plus a
-// hand-written record) to reach an on-disk state for a read-only test to
-// exercise — that stays a fine shortcut wherever the test is about the read
-// path. TestWorktreeRegistryEnsureWithRealGit below is the one addition that
-// goes through Ensure itself, real git and the real registry lock included.
+// Real Git, real worktrees, no fakes. Most of this file predates Ensure,
+// and still uses registrytest.Register (identity markers via the real,
+// lock-free IdentityService.Ensure, plus a hand-written record) to reach an
+// on-disk state for a read-only test to exercise — that stays a fine
+// shortcut wherever the test is about the read path.
+// TestWorktreeRegistryEnsureWithRealGit below is the one addition that goes
+// through Ensure itself, real git and the real registry lock included.
 package registry_test
 
 import (
@@ -26,9 +25,9 @@ import (
 )
 
 // execRunner is a minimal real-process run.Runner for this integration
-// test. internal/run/osrun — the real implementation another work package
-// is building for the lock layer — is not a dependency of this read-path
-// package, so this stands in for it here.
+// test. internal/run/osrun is the lock layer's own real implementation, and
+// not a dependency of this read-path package, so this stands in for it
+// here.
 type execRunner struct{}
 
 // Run executes spec as a real subprocess and captures its stdout and

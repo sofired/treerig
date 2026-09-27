@@ -8,11 +8,9 @@ import (
 	"testing"
 )
 
-// Ported from tests/unit/text.test.ts, one t.Run per "it" title so coverage
-// can be compared title by title, plus oracle-driven tests below that check
-// Printable, SafeJSON and JSLower against internal/text/testdata/corpus.json,
-// a hand-maintained fixture generated from the real src/text.ts running
-// under Node; its origin is in git history.
+// Golden-driven tests below check Printable, SafeJSON and JSLower against
+// internal/text/testdata/corpus.json, a hand-maintained fixture generated
+// from real JavaScript string semantics; its origin is in git history.
 
 func TestPrintable(t *testing.T) {
 	t.Run("replaces what a terminal or a reader would be fooled by", func(t *testing.T) {
@@ -231,7 +229,7 @@ func TestSafeJSON(t *testing.T) {
 	})
 }
 
-// --- Oracle-driven coverage below, from internal/text/testdata/corpus.json.
+// --- Golden-driven coverage below, from internal/text/testdata/corpus.json.
 
 type corpus struct {
 	CfCodePointCount    int             `json:"cfCodePointCount"`
@@ -275,9 +273,9 @@ type sliceCase struct {
 	Want  string `json:"want"`
 }
 
-// TestCompareUTF16Oracle sorts as Array.prototype.sort() does with no
+// TestCompareUTF16Golden sorts as Array.prototype.sort() does with no
 // comparator, including where that differs from byte order.
-func TestCompareUTF16Oracle(t *testing.T) {
+func TestCompareUTF16Golden(t *testing.T) {
 	c := loadCorpus(t)
 	if len(c.Sort) == 0 {
 		t.Fatal("no sort cases in hand-maintained testdata/corpus.json")
@@ -293,9 +291,9 @@ func TestCompareUTF16Oracle(t *testing.T) {
 	}
 }
 
-// TestTruncateUTF16Oracle slices as String.prototype.slice(0, n) does,
+// TestTruncateUTF16Golden slices as String.prototype.slice(0, n) does,
 // including through a surrogate pair.
-func TestTruncateUTF16Oracle(t *testing.T) {
+func TestTruncateUTF16Golden(t *testing.T) {
 	c := loadCorpus(t)
 	if len(c.Slice) == 0 {
 		t.Fatal("no slice cases in hand-maintained testdata/corpus.json")
@@ -324,11 +322,11 @@ func loadCorpus(t *testing.T) corpus {
 	return c
 }
 
-// TestPrintableOracle checks Printable against every C0/C1 control, DEL, both
+// TestPrintableGolden checks Printable against every C0/C1 control, DEL, both
 // Unicode paragraph separators, and every code point Node's \p{Cf} matches —
 // not a hand-picked sample of Cf, all of it, so a Unicode-version mismatch
 // between Go's unicode.Cf table and Node's ICU would show up here.
-func TestPrintableOracle(t *testing.T) {
+func TestPrintableGolden(t *testing.T) {
 	c := loadCorpus(t)
 	if c.CfCodePointCount == 0 {
 		t.Fatal("testdata/corpus.json reports zero Cf code points")
@@ -357,9 +355,10 @@ func countCf(cases []codePointCase) int {
 	return n
 }
 
-// TestSafeJSONOracle checks SafeJSON against hostile strings and values,
-// generated from real JSON.stringify + the escape regex in src/text.ts.
-func TestSafeJSONOracle(t *testing.T) {
+// TestSafeJSONGolden checks SafeJSON against hostile strings and values,
+// generated from real JSON.stringify plus the same escape rule SafeJSON
+// applies.
+func TestSafeJSONGolden(t *testing.T) {
 	c := loadCorpus(t)
 	for _, tc := range c.SafeJSON {
 		t.Run(tc.Name, func(t *testing.T) {
@@ -380,10 +379,10 @@ func TestSafeJSONOracle(t *testing.T) {
 	}
 }
 
-// TestJSLowerOracle checks JSLower against real .toLowerCase(), centered on
+// TestJSLowerGolden checks JSLower against real .toLowerCase(), centered on
 // U+0130 (the case JSLower exists for) but broad enough to catch a silent
 // gap elsewhere in the casing table.
-func TestJSLowerOracle(t *testing.T) {
+func TestJSLowerGolden(t *testing.T) {
 	c := loadCorpus(t)
 	for _, tc := range c.Lower {
 		t.Run(tc.Name, func(t *testing.T) {

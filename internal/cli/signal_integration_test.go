@@ -148,8 +148,7 @@ func TestInterruptedMutation(t *testing.T) {
 				// newWalk fixture does, or this process — the real binary,
 				// spawned with no test hook to inject a
 				// commands.SharedRouter — reaches the real one. #55 found
-				// exactly this gap in a sibling test
-				// (legacy_integration_test.go's TestTypeScriptWritesGoRemoves).
+				// exactly this gap in a sibling integration test.
 				// The router's own state now lives under BERTH_HOME alone
 				// (#80) — HOME and XDG_STATE_HOME no longer matter to it —
 				// so BERTH_HOME=controlHome is what isolates it below, the

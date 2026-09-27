@@ -19,15 +19,15 @@ import (
 	"github.com/sofired/berth/internal/router"
 )
 
-// The one way a dead holder's worktree lock is cleared, ported from
-// src/commands/unlock.ts and src/lock-recovery.ts onto the flock lock layer
-// (see internal/lock's package comment). It never guesses: lock.Clear only
-// ever marks a holder's record released once flock(2) itself proves nobody
-// holds the lock and its record's identity checks prove that holder gone —
-// or, with --holder-unverifiable, once the person running the command has
-// said so. It takes no lock of its own: both of a worktree's locks are
-// probed read-only first (lock.ProbeHeld), so an active one is always
-// refused before anything is cleared, never partway through.
+// The one way a dead holder's worktree lock is cleared, built on the flock
+// lock layer (see internal/lock's package comment). It never guesses:
+// lock.Clear only ever marks a holder's record released once flock(2)
+// itself proves nobody holds the lock and its record's identity checks
+// prove that holder gone — or, with --holder-unverifiable, once the person
+// running the command has said so. It takes no lock of its own: both of a
+// worktree's locks are probed read-only first (lock.ProbeHeld), so an
+// active one is always refused before anything is cleared, never partway
+// through.
 
 // UnlockOptions are `worktree unlock`'s argument and flags.
 type UnlockOptions struct {
@@ -305,10 +305,8 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 		cctx.Logger.Info(fmt.Sprintf("Nothing to unlock: no lock is held for %s.", label))
 		return &UnlockResult{Name: target.name}, nil
 	}
-	// This is the ~15 s TypeScript build's own "Checking..." notice used to
-	// promise (src/commands/unlock.ts): that clause named the second look its
-	// own heartbeat design always took. flock(2) proves a lock free the
-	// instant it is probed, so there is no such wait to promise here.
+	// flock(2) proves a lock free the instant it is probed, so this notice
+	// promises no further wait.
 	cctx.Logger.Info(fmt.Sprintf("Checking that the holder of %s's lock, and every command it started on this machine, is gone.", label))
 
 	if env, ok := cctx.environWorktreeID(); ok && env == target.worktreeID {
@@ -350,8 +348,8 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 		cctx.Logger.Info(fmt.Sprintf("Nothing to unlock: the lock on %s was released while it was being checked.", label))
 		return result, nil
 	}
-	// The one line src/lock-recovery.ts's verify() always adds last, once it
-	// established no command this worktree started is still running.
+	// The one line always added last, once it established no command this
+	// worktree started is still running.
 	verified = append(verified, cleared.Proof)
 	for _, line := range verified {
 		cctx.Logger.Info(fmt.Sprintf("Verified: %s.", line))
@@ -378,13 +376,9 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 // recovers the still-unreleased record the way it would any other stale one.
 // err itself becomes the cause (see cli.go's report(), which prints it once
 // on its own "caused by" line), so its text is not repeated in the message
-// here. TypeScript's own clearStaleWorktreeLocks has nothing to compare this
-// wording against: the same kind of mid-batch failure simply propagates
-// there, uncredited (src/operation-lock.ts:826-840), so this note — naming
-// every lock already cleared before the failure — is Go's own wording. err
-// is returned unchanged when cleared
-// is empty: lock.Clear never got as far as committing anything, so there is
-// nothing to preface.
+// here; naming every lock already cleared before the failure is this note's
+// own addition. err is returned unchanged when cleared is empty: lock.Clear
+// never got as far as committing anything, so there is nothing to preface.
 func wrapPartialClearFailure(cleared []ClearedLock, err error) error {
 	if len(cleared) == 0 {
 		return err
@@ -484,29 +478,20 @@ func lstatExists(path string) (bool, error) {
 }
 
 // scopeNeedsClearing is a read-only look at whether scope has anything
-// lock.Clear would actually clear: an unreleased sidecar record, or a
-// TypeScript-era `.lock` leftover — checked only to decide whether the
-// "checking the holder" line below is worth printing before the real,
-// authoritative check Clear itself makes.
+// lock.Clear would actually clear: an unreleased sidecar record — checked
+// only to decide whether the "checking the holder" line below is worth
+// printing before the real, authoritative check Clear itself makes.
 func scopeNeedsClearing(scope lock.Scope) (bool, error) {
 	described, err := lock.Describe(scope, nil)
 	if err != nil {
 		return false, err
 	}
-	if described.Record != nil && described.Record.ReleasedAt == nil {
-		return true, nil
-	}
-	exists, err := files.PathExists(scope.Target + ".lock")
-	if err != nil {
-		return false, err
-	}
-	return exists, nil
+	return described.Record != nil && described.Record.ReleasedAt == nil, nil
 }
 
 // findOrphanWorktree scans this control home's worktree locks for one whose
 // UUID matches identifier, under any repository: a worktree that never
-// registered still leaves its lock file (and, for a TypeScript-era holder,
-// its `.lock` directory) named by its own UUID.
+// registered still leaves its lock file named by its own UUID.
 func findOrphanWorktree(controlHome, identifier string) (repositoryID string, found bool, err error) {
 	worktreesDir := filepath.Join(layout.ControlLayout(controlHome).LocksDir, "worktrees")
 	repositories, err := os.ReadDir(worktreesDir)
@@ -537,12 +522,12 @@ func findOrphanWorktree(controlHome, identifier string) (repositoryID string, fo
 }
 
 // worktreeIDOf strips every suffix a worktree lock's directory entry can
-// carry — the development lock's ".dev", a lock's own sidecar record
-// (".holder"), and a TypeScript-era lock directory (".lock") — leaving the
-// worktree UUID underneath, whichever of them named is.
+// carry — the development lock's ".dev" and a lock's own sidecar record
+// (".holder") — leaving the worktree UUID underneath, whichever of them
+// named is.
 func worktreeIDOf(name string) string {
 	for {
-		trimmed := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(name, ".holder"), ".lock"), ".dev")
+		trimmed := strings.TrimSuffix(strings.TrimSuffix(name, ".holder"), ".dev")
 		if trimmed == name {
 			return name
 		}

@@ -2,8 +2,7 @@ package lock
 
 import "github.com/sofired/berth/internal/procid"
 
-// fakeTable is a scripted procid.Table for tests — a Go port of
-// tests/unit/lock-recovery.test.ts's FakeTable.
+// fakeTable is a scripted procid.Table for tests.
 type fakeTable struct {
 	identity procid.Identity
 	states   map[int]procid.Status

@@ -37,11 +37,12 @@ const legend = "Running: every service answers. Partial: some do. Stopped: none 
 // a page with no scripting can follow a machine that keeps changing.
 const noscriptRefreshSeconds = 60
 
-// script and styles were extracted byte-for-byte from the TypeScript
-// build's own render.ts: liveUpdateScript() embeds
-// `planIndexUpdate.toString()`, whose exact text is produced by Node's type
-// stripping, which nothing outside Node can reproduce by translation. Their
-// origin is in git history.
+// script and styles are the exact JavaScript and CSS a browser runs to keep
+// the index page live-updating without a reload: this text is executed
+// as-is by the browser, so it cannot be regenerated from Go source, only
+// edited directly and kept in step with planIndexUpdate below, which pins
+// its parsing logic under ordinary Go tests. Their origin is in git
+// history.
 //
 //go:embed assets/script.js
 var script string
@@ -72,9 +73,10 @@ var htmlEscaper = strings.NewReplacer(
 	"'", "&#39;",
 )
 
-// escapeHTML is render.ts's escapeHtml. Through Printable first: escaping
-// stops markup, not a right-to-left override that reverses the rest of a
-// row, or a zero-width space that makes two checkouts look identical.
+// escapeHTML escapes value for embedding in the page, through Printable
+// first: escaping stops markup, not a right-to-left override that reverses
+// the rest of a row, or a zero-width space that makes two checkouts look
+// identical.
 func escapeHTML(value string) string {
 	return htmlEscaper.Replace(text.Printable(value))
 }
@@ -165,8 +167,8 @@ func domainHeading(domain string, entries []IndexEntry) string {
 	return strings.Join(named, ", ") + " · " + domain
 }
 
-// sections is render.ts's sections: whole tables, in the order their
-// headings read — which is not the order their domains sort in.
+// sections groups entries into whole tables, in the order their headings
+// read — which is not the order their domains sort in.
 func sections(entries []IndexEntry) []indexSection {
 	result := groupAndHeadSections(entries)
 	slices.SortStableFunc(result, func(left, right indexSection) int {
@@ -278,8 +280,8 @@ type indexUpdate struct {
 }
 
 // indexOfFrom is JavaScript's String.prototype.indexOf(substr, from): the
-// first index of substr at or after from, or -1, exactly as planIndexUpdate
-// in the TypeScript build calls html.indexOf(tag, from).
+// first index of substr at or after from, or -1, exactly as
+// planIndexUpdate's own html.indexOf(tag, from) call needs it to behave.
 func indexOfFrom(s, substr string, from int) int {
 	if from < 0 {
 		from = 0
@@ -293,14 +295,12 @@ func indexOfFrom(s, substr string, from int) int {
 	return -1
 }
 
-// planIndexUpdate is a Go port of the identically named browser function
-// embedded in the page as text (internal/checkoutindex/assets/script.js),
-// kept here so its parsing logic is pinned by ordinary Go tests rather than
-// only by the TypeScript build's node:vm suite
-// (tests/unit/checkout-index-live.test.ts, which tests browser JavaScript
-// and is not ported). Production Go code never calls this — the page runs
-// the embedded script itself — but this must keep parsing a rendered page
-// exactly as that script does, since both read the same bytes.
+// planIndexUpdate mirrors the identically named browser function embedded
+// in the page as text (internal/checkoutindex/assets/script.js), kept here
+// so its parsing logic is pinned by ordinary Go tests. Production Go code
+// never calls this — the page runs the embedded script itself — but this
+// must keep parsing a rendered page exactly as that script does, since
+// both read the same bytes.
 func planIndexUpdate(current *string, html string) indexUpdate {
 	const mainOpen = "<" + "main"
 	const mainClose = "</" + "main>"
@@ -411,7 +411,7 @@ func withCode(value string) string {
 	return codeSpanPattern.ReplaceAllString(escapeHTML(value), "<code>$1</code>")
 }
 
-// RenderIndexHTML is render.ts's renderIndexHtml.
+// RenderIndexHTML renders the checkout index page as HTML.
 func RenderIndexHTML(snapshot IndexSnapshot) string {
 	// The id counts sections rather than naming the domain: a registry
 	// record's domain is not validated as a hostname, and a space in one
@@ -496,8 +496,8 @@ func RenderIndexHTML(snapshot IndexSnapshot) string {
 }
 
 // PlaceholderHTML is the page to write before anything has been read: no
-// checkouts, and Docker not asked. The router (WP3, #39) serves this while
-// it brings itself up, long before a container has been listed.
+// checkouts, and Docker not asked. The router (#39) serves this while it
+// brings itself up, long before a container has been listed.
 func PlaceholderHTML(now time.Time) string {
 	return RenderIndexHTML(PlaceholderSnapshot(now.UTC().Format("2006-01-02T15:04:05.000Z")))
 }
@@ -538,8 +538,8 @@ const (
 	markerGone        = "- "
 )
 
-// FormatIndexText is render.ts's formatIndexText, the plain-text twin of
-// RenderIndexHTML.
+// FormatIndexText renders the checkout index as plain text, the plain-text
+// twin of RenderIndexHTML.
 func FormatIndexText(snapshot IndexSnapshot, url string) string {
 	textSections := sections(snapshot.Entries)
 	groupStrings := make([]string, len(textSections))

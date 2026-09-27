@@ -2,8 +2,7 @@
 // of the public contract — the other half is the hook protocol — so every
 // field here is a compatibility promise.
 //
-// The struct field order is the JSON key order `config show` prints, which
-// matches the TypeScript build's schema order.
+// The struct field order is the JSON key order `config show` prints.
 package config
 
 import "github.com/sofired/berth/internal/brand"

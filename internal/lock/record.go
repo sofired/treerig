@@ -23,8 +23,7 @@ type FileID struct {
 
 // Record is what the holder wrote about itself into the sidecar file when it
 // acquired the lock. Read across versions of this tool, so unknown fields
-// are ignored, not refused — the same contract src/operation-lock.ts's zod
-// schema gave holderRecordSchema.
+// are ignored, not refused.
 type Record struct {
 	PID        int        `json:"pid"`
 	Host       string     `json:"host"`
@@ -132,31 +131,28 @@ type Verdict struct {
 	Reason string
 }
 
-// startTolerance bounds how far apart a macOS holder's recorded start and a
-// fresh Inspect's may be before a PID is judged reused, the way
-// src/lock-recovery.ts's START_TOLERANCE_MS bounded ps's one-second steps.
+// startToleranceUs bounds how far apart a macOS holder's recorded start and a
+// fresh Inspect's may be before a PID is judged reused, covering ps's own
+// one-second steps.
 const startToleranceUs = 2_000_000
 
-// judgeHolder is a port of judgeHolder from src/lock-recovery.ts: same
-// machine or boot, same PID namespace, PID absent, zombie or reused.
-// skipFileIdentity is set only for a TypeScript-leftover record, whose
-// "earlier lock" concept (a `.lock` directory recreated under the same
-// target) does not exist in the flock design; the leftover's mere presence
-// already proves which target it describes.
-func judgeHolder(record *Record, currentFile FileID, self procid.Identity, hostname string, table procid.Table, skipFileIdentity bool) (Verdict, error) {
+// judgeHolder decides what a lock's record, this machine, and the process
+// table together say about a previous holder: same machine or boot, same
+// PID namespace, PID absent, zombie or reused.
+func judgeHolder(record *Record, currentFile FileID, self procid.Identity, hostname string, table procid.Table) (Verdict, error) {
 	if record == nil {
 		return Verdict{Kind: Unverifiable, Reason: "its holder left no record of who it is"}, nil
 	}
 	who := fmt.Sprintf("PID %d on %s", record.PID, quoteOneLine(record.Host))
 
-	if !skipFileIdentity && record.File != currentFile {
+	if record.File != currentFile {
 		return Verdict{Kind: Unverifiable, Reason: fmt.Sprintf(
 			"its record, naming %s, belongs to an earlier lock, so its holder never identified itself", who)}, nil
 	}
 
 	if record.MachineID == "" && record.BootID == "" {
-		// Written by an earlier version, or by a holder that could not read its
-		// machine's identity: only the hostname to go on.
+		// Written by a holder that could not read its machine's identity: only
+		// the hostname to go on.
 		if record.Host != hostname {
 			return Verdict{Kind: Unverifiable, Reason: fmt.Sprintf("its holder, %s, ran on another host", who)}, nil
 		}

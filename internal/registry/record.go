@@ -89,7 +89,7 @@ var (
 )
 
 // rawRecord is the on-disk shape, decoded strictly: an unknown key is a
-// shape error, exactly as the TypeScript build's `.strict()` schema treats it.
+// shape error.
 type rawRecord struct {
 	Version        *float64 `json:"version"`
 	RepositoryID   *string  `json:"repositoryId"`

@@ -1,14 +1,12 @@
 package registry_test
 
-// Ports the ensure()-dependent titles from tests/unit/worktree-registry.test.ts
-// ("WorktreeRegistry" and "label namespace in the record") and the whole of
-// tests/unit/registry-reconcile.test.ts, now that WP2 gives this package an
-// Ensure to test. Two titles from "WorktreeRegistry" are left out as
-// redundant: "rejects a symlinked identity-marker parent before creating
-// markers" and "ignores active sibling worktrees that do not have a worktree
-// marker" are already pinned at the IdentityService level in identity_test.go,
-// and Registry.Ensure adds no logic of its own on either path — it calls
-// IdentityService.Ensure/Inspect and returns exactly what they answer.
+// Tests Registry.Ensure and this package's reconcile behaviour.
+// Two scenarios are left out as redundant: a symlinked identity-marker
+// parent rejected before creating markers, and ignoring active sibling
+// worktrees that do not have a worktree marker, are already pinned at the
+// IdentityService level in identity_test.go, and Registry.Ensure adds no
+// logic of its own on either path — it calls IdentityService.Ensure/Inspect
+// and returns exactly what they answer.
 
 import (
 	"context"
@@ -29,8 +27,7 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
-// newTestUUID is a random v4 UUID, for reconcileWorld's plant fixtures —
-// this package's Go counterpart of the TypeScript suite's randomUUID().
+// newTestUUID is a random v4 UUID, for reconcileWorld's plant fixtures.
 func newTestUUID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
@@ -349,11 +346,10 @@ func TestLabelNamespaceInRecord(t *testing.T) {
 	})
 }
 
-// reconcileWorld is a Go port of registry-reconcile.test.ts's world(): several
-// named worktrees sharing one control home, each addressable through its own
-// Registry (a fresh domain reads as a different config), plus plant for
-// records built directly on disk, bypassing the write path — the same trick
-// its raw writeFile fixtures play.
+// reconcileWorld is several named worktrees sharing one control home, each
+// addressable through its own Registry (a fresh domain reads as a different
+// config), plus plant for records built directly on disk, bypassing the
+// write path.
 type reconcileWorld struct {
 	t           *testing.T
 	base        string

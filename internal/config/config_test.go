@@ -10,11 +10,9 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 )
 
-// Ported from tests/unit/config.test.ts, one t.Run per "it" title, nested
-// under its "describe" the way vitest groups them, so coverage can be
-// compared title by title. See corpus_test.go for the larger byte-for-byte
-// oracle comparison against real parseConfig; these exercise the same
-// package through its public API the way the original suite does.
+// See corpus_test.go for the larger byte-for-byte fixture comparison
+// against real parseConfig; these exercise the same package through its
+// public API.
 
 const minimalTOML = `
 [project]
@@ -163,8 +161,8 @@ subdomain = "b"
 	// (#16) Since `up` now records every declared service on the checkout
 	// index card, not only the ones with a [service.index] block, the
 	// config's own [[service]] array must not outgrow what a card can hold
-	// (internal/checkoutindex/card's own maxServices). TypeScript has no
-	// such limit — this is a deliberate, Go-only bound.
+	// (internal/checkoutindex/card's own maxServices) — a deliberate bound
+	// of its own.
 	t.Run("rejects more than 64 declared services", func(t *testing.T) {
 		var services strings.Builder
 		for i := 0; i < 65; i++ {
@@ -220,14 +218,13 @@ subdomain = "b"
 		}
 	})
 
-	// Go-only (#19): TypeScript's schema (src/config/schema.ts) accepts a
-	// control character in label or purpose, even though both are only
-	// ever shown through text.Printable,
-	// which silently turns it into a space or U+FFFD. Go's own base loader
-	// accepts it too — see TestStartIssues below for the separate check
-	// `up`, `config validate` and `doctor` run instead, so a command that
-	// only reads an already-running worktree's config (`down`, `worktree
-	// remove`, `status`, and so on) can still load this file and proceed.
+	// (#19) The base loader accepts a control character in label or
+	// purpose, even though both are only ever shown through text.Printable,
+	// which silently turns it into a space or U+FFFD — see TestStartIssues
+	// below for the separate check `up`, `config validate` and `doctor` run
+	// instead, so a command that only reads an already-running worktree's
+	// config (`down`, `worktree remove`, `status`, and so on) can still
+	// load this file and proceed.
 	t.Run("accepts a control character in the service index label and purpose; only a command about to start something refuses one", func(t *testing.T) {
 		cfg, err := Parse([]byte(minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\npurpose = \"the \\u202eAPI\"\n"), "test.toml")
 		if err != nil {
@@ -365,11 +362,10 @@ func TestConfigDiscovery(t *testing.T) {
 		requireErrorContains(t, err, "No berth.toml found")
 	})
 
-	// Go-only. TypeScript points at berth.example.toml in "berth's own
-	// source tree", which a release binary (built with no source tree
-	// alongside it) doesn't have.
-	// Go instead points at the file's permanent home on GitHub, true for a
-	// binary-only install today and once the repository is public.
+	// Points at the file's permanent home on GitHub rather than a source
+	// tree a release binary (built with no source tree alongside it)
+	// doesn't have — true for a binary-only install today and once the
+	// repository is public.
 	t.Run("points the missing-config hint at the example file on GitHub, not a source tree a binary install lacks", func(t *testing.T) {
 		root := t.TempDir()
 		_, err := LoadNearest(root)
