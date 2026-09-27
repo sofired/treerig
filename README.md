@@ -49,10 +49,10 @@ the tool does not have yet — never a side effect.
 
 **Locks.** Every command that changes a worktree, the registry, or the shared
 router takes an advisory lock: `flock(2)` on the lock's own file, held by an
-open file descriptor. The kernel frees the lock once every descriptor on that
-file is closed: killing the holder — even by `SIGKILL` — closes its own
-descriptor, but a `docker` or `docker compose` child it started inherits a
-copy and keeps the lock until that child exits too; hooks never inherit it.
+open file descriptor. The kernel frees the lock once every copy of that
+descriptor is closed: killing the holder — even by `SIGKILL` — closes its
+own, but a `docker` or `docker compose` child it started inherits a copy and
+keeps the lock until that child exits too; hooks never inherit it.
 Either way, there is no stale window and nothing to go quiet: recovery never
 waits on a heartbeat, because there is none. A command that finds the lock
 held waits for it — a worktree operation for up to 25 minutes, the router's
