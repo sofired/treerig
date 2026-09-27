@@ -18,16 +18,16 @@ import (
 	"github.com/sofired/berth/internal/router"
 )
 
-// oldDynamicDir/oldIndexDir are the golden fixture's own (pre-protocol-4,
-// control-home-rooted) mount sources; newDynamicDir/newIndexDir are what
-// TestStackGolden substitutes for them, and what it builds Go's own stack
-// document with, to prove agreement apart from the protocol-4 changes
-// described above (Protocol's own comment).
+// fixtureDynamicDir/fixtureIndexDir are the mount sources recorded in the
+// golden fixture; builtDynamicDir/builtIndexDir are what TestStackGolden
+// builds the stack document with, and substitutes into the fixture before
+// comparing, so the comparison is about the stack's shape, not where one
+// machine keeps its router state.
 const (
-	oldDynamicDir = "/home/dev/.berth/router/dynamic"
-	oldIndexDir   = "/home/dev/.berth/router/index"
-	newDynamicDir = "/home/dev/.local/state/berth/router/dynamic"
-	newIndexDir   = "/home/dev/.local/state/berth/router/index"
+	fixtureDynamicDir = "/home/dev/.berth/router/dynamic"
+	fixtureIndexDir   = "/home/dev/.berth/router/index"
+	builtDynamicDir   = "/home/dev/.local/state/berth/router/dynamic"
+	builtIndexDir     = "/home/dev/.local/state/berth/router/index"
 )
 
 // marshalIndented is v encoded the way files.AtomicJSON encodes a stack
@@ -65,12 +65,11 @@ func TestStackGolden(t *testing.T) {
 	}
 
 	goldenText := string(golden)
-	// The protocol-4 changes: every service's protocol label bumped (now to
-	// 5, protocol 5's own bump), and the two mounts moved out from under a
-	// control home.
+	// The fixture pins the document's shape, not this build's protocol number
+	// or mount paths: both are substituted in before comparing.
 	goldenText = strings.ReplaceAll(goldenText, `"dev.berth.router-protocol": "3"`, `"dev.berth.router-protocol": "`+strconv.Itoa(router.Protocol)+`"`)
-	goldenText = strings.ReplaceAll(goldenText, oldDynamicDir, newDynamicDir)
-	goldenText = strings.ReplaceAll(goldenText, oldIndexDir, newIndexDir)
+	goldenText = strings.ReplaceAll(goldenText, fixtureDynamicDir, builtDynamicDir)
+	goldenText = strings.ReplaceAll(goldenText, fixtureIndexDir, builtIndexDir)
 	if goldenText == string(golden) {
 		t.Fatal("substitution changed nothing; the golden fixture no longer matches this test's assumptions")
 	}
@@ -88,8 +87,8 @@ func TestStackGolden(t *testing.T) {
 		ProjectName:    "berth-router",
 		Network:        "berth-router",
 		Port:           80,
-		DynamicDir:     newDynamicDir,
-		IndexDir:       newIndexDir,
+		DynamicDir:     builtDynamicDir,
+		IndexDir:       builtIndexDir,
 		LabelNamespace: "dev.berth",
 		Home:           wantHome,
 	}))

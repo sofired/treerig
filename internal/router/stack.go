@@ -293,10 +293,8 @@ type stackNetworks struct {
 
 // StackDocument is the Compose document the shared router runs: hardened,
 // pinned by digest, JSON that Compose reads as YAML. Its field order is
-// fixed, so encoding it with files.AtomicJSON reproduces
-// JSON.stringify(document, null, 2) byte for byte apart from the
-// protocol-4 and protocol-5 differences described above (see
-// testdata/stack-golden.json).
+// fixed, so encoding it with files.AtomicJSON always produces the same
+// bytes; TestStackGolden pins them against testdata/stack-golden.json.
 type StackDocument struct {
 	Services stackServices `json:"services"`
 	Networks stackNetworks `json:"networks"`

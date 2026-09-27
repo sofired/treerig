@@ -668,8 +668,10 @@ func (r *Router) protocolOf(inspected ContainerInspect) (int, bool, error) {
 
 // refuseNewerRouter refuses to touch a running router already speaking a
 // newer protocol than this build does (Protocol): recreating it would
-// silently downgrade whatever a newer berth set it up to be. Reads the
-// container's own protocol label directly; keeps no record of its own.
+// silently downgrade whatever a newer berth set it up to be. A stopped one
+// serves nobody, so it is replaced like any other stopped router, as
+// checkOwnership already lets it be. Reads the container's own protocol
+// label directly; keeps no record of its own.
 func (r *Router) refuseNewerRouter(ctx context.Context) error {
 	id, err := r.containerID(ctx, RouterService)
 	if err != nil {
@@ -684,6 +686,9 @@ func (r *Router) refuseNewerRouter(ctx context.Context) error {
 	}
 	if container == nil {
 		return clierr.New("The shared router exists but could not be inspected.")
+	}
+	if container.State.Status != "running" {
+		return nil
 	}
 	running, ok, err := r.protocolOf(*container)
 	if err != nil {

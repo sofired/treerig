@@ -40,7 +40,7 @@ func TestRouterServiceVerify(t *testing.T) {
 			"index: routing labels differ",
 		},
 		{
-			"a router still carrying an older protocol label",
+			"a router carrying a lower protocol label",
 			func(routerDoc, _ *router.ContainerInspect) {
 				routerDoc.Config.Labels = testLabels("router")
 				routerDoc.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.Protocol - 1)

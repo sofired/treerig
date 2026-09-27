@@ -259,7 +259,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("tells Traefik to discover routes only from the file provider, never from Docker, and labels the index the old way", func(t *testing.T) {
+	t.Run("tells Traefik to discover routes only from the file provider, never from Docker, and labels the index for Traefik", func(t *testing.T) {
 		// Pinned as literal text: the verifier compares against the same constants, so it alone cannot catch a typo here.
 		for _, want := range router.RouterCommand() {
 			if strings.Contains(want, "--providers.docker") {
@@ -332,6 +332,25 @@ func TestRouterServiceEnsure(t *testing.T) {
 
 		if err := w.Router.Ensure(context.Background()); err != nil {
 			t.Fatalf("expected an equally homeless router to be treated as this one's own, got %v", err)
+		}
+	})
+
+	t.Run("replaces a stopped router at a newer protocol rather than refusing it: it serves nobody", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		stopped := routerDoc(w.State.DynamicDir, w.Port)
+		stopped.Config.Labels = testLabels("router")
+		stopped.Config.Labels[testNS+".router-protocol"] = strconv.Itoa(router.Protocol + 1)
+		stopped.State.Status = "exited"
+		w.Fake.setDoc("router-1", stopped)
+		w.Fake.mu.Lock()
+		w.Fake.onUp = w.setHealthy // the start brings it back at this protocol
+		w.Fake.mu.Unlock()
+
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatalf("expected a stopped newer router to be replaced, got %v", err)
+		}
+		if len(w.ups()) == 0 {
+			t.Fatal("expected the stopped router to be started again")
 		}
 	})
 
