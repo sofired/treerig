@@ -3,12 +3,15 @@
 package cli_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -41,8 +44,8 @@ func envGetenv(env []string) func(string) (string, bool) {
 // between two separate process invocations of otherwise-identical builds,
 // since each reads the real clock at the moment it runs. Nothing else in
 // either build's output or the page it writes takes this shape (every
-// fixture UUID, host and path is fixed), so this is narrow by construction,
-// not by exclusion of a known-differing field.
+// fixture UUID and host is fixed), so this is narrow by construction, not by
+// exclusion of a known-differing field.
 var isoTimestampPattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z`)
 
 // normalizeTimestamp replaces every real-time instant in s with a fixed
@@ -54,16 +57,69 @@ func normalizeTimestamp(s string) string {
 	return isoTimestampPattern.ReplaceAllString(s, "TIMESTAMP")
 }
 
-// The TypeScript build and the Go build, run one after the other on the same
-// fixture — same paths, same UUIDs, the same fake docker — must print the
-// same thing, exit the same way, ask docker the same questions, and (where a
-// case's own comment says so) write the same checkout index page. Both
-// builds refresh the index after `down`, `worktree remove`, and `index`
-// itself (#41), so every docker call each makes is compared, with no
-// exclusion. The one thing that can never match byte for byte between two
-// separate process invocations is real wall-clock time: normalizeTimestamp
-// scrubs it, narrowly, everywhere a run's own output or the page it wrote
-// could carry one.
+// fixturePlaceholder stands in for a parityFixture's own base directory
+// wherever scrubFixturePath finds it.
+const fixturePlaceholder = "FIXTURE"
+
+// scrubFixturePath replaces every occurrence of base (a parityFixture's own
+// root, itself under t.TempDir()) with fixturePlaceholder. Now that "want"
+// can be a golden recorded from a past, separate process rather than a live
+// run sharing this test's own fixture, the two sides no longer share one
+// t.TempDir(): every path either prints (a compose --project-directory, a
+// worktree's ROOT column, doctor's "control home" line) would otherwise
+// differ on that basis alone. Applied to stdout, stderr and each Docker
+// call; never to the exit code.
+func scrubFixturePath(s, base string) string {
+	return strings.ReplaceAll(s, base, fixturePlaceholder)
+}
+
+// fingerprintPattern matches the index page's own data-body attribute: a
+// sha256 of the rendered rows (render.go's `fingerprint`), truncated and
+// base64url-encoded. Those rows embed a checkout's absolute path (as a
+// tooltip's title attribute), so scrubFixturePath changes the bytes the
+// fingerprint was hashed over without being able to change the hash itself,
+// which was already computed, by the build under test, before this file
+// ever sees the page. Scrubbed for the same reason as the timestamp: it
+// legitimately differs between two runs of otherwise-identical builds, by
+// construction, not by exclusion.
+var fingerprintPattern = regexp.MustCompile(`data-body="[A-Za-z0-9_-]{16}"`)
+
+// toolVersionPattern matches doctor's "ok" line for Git or Node.js: a
+// subject whose version comes from a real binary this test never controls,
+// scrubbed to a placeholder for the same reason as the timestamp and the
+// fingerprint — it legitimately differs between two runs, this time because
+// each reads whatever git (or, for the TypeScript build, node) is actually
+// installed on whichever machine ran it, and a golden recorded on one
+// machine must still compare equal on any other. Written into the golden
+// already scrubbed, not just at compare time, so re-recording it on a
+// different runner (or after this machine's own next `apt upgrade`) is a
+// no-op rather than spurious drift. Anchored on "ok" so a "fail" line's own
+// message (“ `git` could not be started “, say) is never touched.
+var toolVersionPattern = regexp.MustCompile(`(?m)^(\s*ok\s+(?:Git|Node\.js)\s+)\S+$`)
+
+// The TypeScript build's own output, frozen as a golden corpus under
+// testdata/parity/<name>/ — recorded once from a live run of the TypeScript
+// build (the oracle) on the same fixture the Go build gets: same paths, same
+// UUIDs, the same fake docker — and replayed against the Go binary from here
+// on, needing no Node to run this test day to day, the same way
+// golden_test.go's own TestGolden replays testdata/golden/. Both builds
+// refresh the index after `down`, `worktree remove`, and `index` itself
+// (#41), so every docker call each makes is compared, with no exclusion. The
+// one thing that can never match byte for byte between two separate process
+// invocations is real wall-clock time: normalizeTimestamp scrubs it,
+// narrowly, everywhere a run's own output or the page it wrote could carry
+// one.
+//
+// Regenerate after a change to the TypeScript build's own behaviour, with
+// Node 24 on PATH:
+//
+//	go test -tags integration ./internal/cli/... -run TestParityWithTheTypeScriptBuild -update
+//
+// CI's oracle-drift job runs this alongside TestGolden's own -update and
+// fails on any diff, so a TypeScript-side change to one of these 15 cases
+// cannot silently drift from what is committed here — until #46 deletes the
+// TypeScript build (and that whole job), at which point these become plain,
+// hand-maintained fixtures like any other under testdata/.
 
 const (
 	parityRepo = "a08b4892-5111-49f1-a47a-5ab988c7f676"
@@ -74,10 +130,12 @@ type parityRun struct {
 	Stdout, Stderr string
 	Exit           int
 	Docker         []string
-	// IndexPage is the checkout index page on disk after the run, timestamp
-	// normalized, for a case that asks readIndexPage to read it (down and
-	// worktree remove both refresh it as a side effect; "" for a case that
-	// does not check it, so cases that never touch the index need no change).
+	// IndexPage is the checkout index page on disk after the run, timestamp-
+	// and fixture-path-normalized and with its content fingerprint scrubbed
+	// (see fingerprintPattern), for a case that asks readIndexPage to read it
+	// (down and worktree remove both refresh it as a side effect; "" for a
+	// case that does not check it, so cases that never touch the index need
+	// no change).
 	IndexPage string
 }
 
@@ -245,14 +303,16 @@ func (f parityFixture) runIn(t *testing.T, dir string, command []string, checkIn
 		if line == "" {
 			continue
 		}
-		calls = append(calls, line)
+		calls = append(calls, scrubFixturePath(line, f.base))
 	}
 	run := parityRun{
-		Stdout: normalizeTimestamp(stdout.String()), Stderr: normalizeTimestamp(stderr.String()),
-		Exit: exit, Docker: calls,
+		Stdout: toolVersionPattern.ReplaceAllString(scrubFixturePath(normalizeTimestamp(stdout.String()), f.base), "${1}VERSION"),
+		Stderr: scrubFixturePath(normalizeTimestamp(stderr.String()), f.base),
+		Exit:   exit, Docker: calls,
 	}
 	if checkIndexPage {
-		run.IndexPage = normalizeTimestamp(string(f.readIndexPage(t)))
+		page := scrubFixturePath(normalizeTimestamp(string(f.readIndexPage(t))), f.base)
+		run.IndexPage = fingerprintPattern.ReplaceAllString(page, `data-body="FINGERPRINT"`)
 	}
 	return run
 }
@@ -299,16 +359,77 @@ func (f parityFixture) readIndexPage(t *testing.T) []byte {
 	return page
 }
 
+// writeParityFixture writes a frozen parity golden for one case: run's
+// stdout, stderr, exit code and Docker transcript, plus its checkout index
+// page when checkIndexPage is set — called only under -update, from a live
+// run of the TypeScript build. Written raw, with none of the per-case
+// exclusions TestParityWithTheTypeScriptBuild applies at compare time, so
+// -update and a later behaviour change (a new excludeStdoutLines entry, say)
+// never fight each other over what the file on disk means.
+func writeParityFixture(t *testing.T, dir string, run parityRun, checkIndexPage bool) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", dir, err)
+	}
+	writeFile(t, filepath.Join(dir, "stdout"), run.Stdout)
+	writeFile(t, filepath.Join(dir, "stderr"), run.Stderr)
+	writeFile(t, filepath.Join(dir, "exit"), strconv.Itoa(run.Exit)+"\n")
+	docker := strings.Join(run.Docker, "\n")
+	if len(run.Docker) > 0 {
+		docker += "\n"
+	}
+	writeFile(t, filepath.Join(dir, "docker"), docker)
+	indexPagePath := filepath.Join(dir, "indexpage")
+	if checkIndexPage {
+		writeFile(t, indexPagePath, run.IndexPage)
+	} else if err := os.Remove(indexPagePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// A case whose checkIndexPage flag has since turned false must not
+		// leave a stale page on disk for a later run to read: readParityFixture
+		// only reads this file when checkIndexPage is true, so a leftover
+		// here would silently stop describing anything real.
+		t.Fatalf("removing stale %s: %v", indexPagePath, err)
+	}
+}
+
+// readParityFixture reads back a frozen parity golden written by
+// writeParityFixture, reconstructing the parityRun the TypeScript build
+// produced when it was recorded. IndexPage is only read for a case whose
+// checkIndexPage flag is set; every other case leaves it "", matching a Go
+// run that never checked it either.
+func readParityFixture(t *testing.T, dir string, checkIndexPage bool) parityRun {
+	t.Helper()
+	run := parityRun{
+		Stdout: readFixtureFile(t, filepath.Join(dir, "stdout")),
+		Stderr: readFixtureFile(t, filepath.Join(dir, "stderr")),
+		Exit:   readFixtureCode(t, filepath.Join(dir, "exit")),
+	}
+	if raw := strings.TrimSpace(readFixtureFile(t, filepath.Join(dir, "docker"))); raw != "" {
+		run.Docker = strings.Split(raw, "\n")
+	}
+	if checkIndexPage {
+		run.IndexPage = readFixtureFile(t, filepath.Join(dir, "indexpage"))
+	}
+	return run
+}
+
 func TestParityWithTheTypeScriptBuild(t *testing.T) {
 	binary := buildBinary(t)
-	_, file, _, _ := runtime.Caller(0)
-	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	nodeBin, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node 24 is not on PATH")
-	}
-	ts := []string{nodeBin, filepath.Join(root, "src", "cli", "main.ts")}
 	base, _ := filepath.EvalSymlinks(t.TempDir())
+
+	// Only needed under -update, to run the TypeScript build once per case;
+	// a plain run reads every "want" back from testdata/parity instead and
+	// needs neither Node nor src/cli/main.ts to be present.
+	var ts []string
+	if *update {
+		requireOracleNode(t)
+		_, file, _, _ := runtime.Caller(0)
+		root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+		nodeBin, err := exec.LookPath("node")
+		if err != nil {
+			t.Fatalf("node not on PATH, despite requireOracleNode passing: %v", err)
+		}
+		ts = []string{nodeBin, filepath.Join(root, "src", "cli", "main.ts")}
+	}
 
 	cases := []struct {
 		name  string
@@ -388,6 +509,12 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 		// row 29), which TypeScript has no counterpart for — removing the
 		// Node.js line does not even shift the Prerequisites column width,
 		// since "Docker Compose" is still the longest subject either way.
+		// Node.js is excluded whole because Go's own doctor never prints
+		// that line at all (there is nothing on the Go side to compare it
+		// against); Git's line stays, but toolVersionPattern above scrubs
+		// its version first, since both builds ask the real `git` on
+		// whatever machine runs this test, which a frozen golden cannot
+		// otherwise agree with on every future runner.
 		{
 			name: "doctor with no checkout", args: []string{"doctor"}, outsideCheckout: true,
 			excludeStdoutLines: []string{
@@ -400,12 +527,21 @@ func TestParityWithTheTypeScriptBuild(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := filepath.Join(base, "fixture")
-			wantFixture := newParityFixture(t, fixture, tc.decoy)
-			wantDir := wantFixture.checkout
-			if tc.outsideCheckout {
-				wantDir = wantFixture.base
+			dir := filepath.Join("testdata", "parity", tc.name)
+
+			var want parityRun
+			if *update {
+				wantFixture := newParityFixture(t, fixture, tc.decoy)
+				wantDir := wantFixture.checkout
+				if tc.outsideCheckout {
+					wantDir = wantFixture.base
+				}
+				want = wantFixture.runIn(t, wantDir, append(append([]string{}, ts...), tc.args...), tc.checkIndexPage)
+				writeParityFixture(t, dir, want, tc.checkIndexPage)
+			} else {
+				want = readParityFixture(t, dir, tc.checkIndexPage)
 			}
-			want := wantFixture.runIn(t, wantDir, append(append([]string{}, ts...), tc.args...), tc.checkIndexPage)
+
 			gotFixture := newParityFixture(t, fixture, tc.decoy)
 			gotDir := gotFixture.checkout
 			if tc.outsideCheckout {

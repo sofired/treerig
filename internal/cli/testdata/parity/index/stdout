@@ -1,0 +1,12 @@
+Checkout index  http://berth.localhost
+Updated         TIMESTAMP
+
+Running: every service answers. Partial: some do. Stopped: none do. Missing:
+the checkout is gone. Unknown: the state could not be read.
+Services: ! not answering, ? not checked, - checkout gone.
+
+acme.localhost
+  [Stopped]  feature/login
+    host      feature-login.acme.localhost
+    checkout  ~/checkout
+    (no services)

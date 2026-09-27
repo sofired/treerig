@@ -1,0 +1,2 @@
+compose --project-name berth-5ae52fc96f4e40fdd30f35b5 --project-directory FIXTURE/checkout -f FIXTURE/checkout/compose.yaml config --format json
+compose --project-name berth-5ae52fc96f4e40fdd30f35b5 ps --format json --all
