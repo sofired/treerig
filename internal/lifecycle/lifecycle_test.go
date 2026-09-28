@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"syscall"
 	"testing"
 	"time"
@@ -74,6 +75,31 @@ func TestLifecycleSignals(t *testing.T) {
 		}
 	})
 
+	t.Run("Repeated stays open after one signal and closes after two", func(t *testing.T) {
+		os := newFakeOS()
+		l := NewLifecycle(os, logger.Silent{})
+		l.Start()
+
+		os.send(syscall.SIGINT)
+		waitFor(t, func() bool { return l.Pending() == syscall.SIGINT })
+
+		select {
+		case <-l.Repeated():
+			t.Fatal("Repeated() closed after only one signal")
+		default:
+		}
+
+		os.send(syscall.SIGTERM)
+		waitFor(t, func() bool {
+			select {
+			case <-l.Repeated():
+				return true
+			default:
+				return false
+			}
+		})
+	})
+
 	t.Run("skips a signal already ignored at startup", func(t *testing.T) {
 		os := newFakeOS()
 		os.ignored[syscall.SIGINT] = true
@@ -115,6 +141,106 @@ func TestLifecycleSignals(t *testing.T) {
 			t.Fatal("did not expect Exit to act with no pending signal")
 		}
 	})
+}
+
+// TestFinish covers Finish's plain-versus-not split: a plain err (nil, or a
+// bare *clierr.Cancelled) ends the process by a pending signal exactly as
+// Exit alone would, reporting nothing of its own; anything else — a
+// different error, or one attach wrapped a Cancelled inside, the shape a
+// release failure racing a signal takes — is reported once and returns the
+// exit code it calls for, whether or not a signal happened to be pending
+// too, and never reaches Exit.
+func TestFinish(t *testing.T) {
+	abandoned := clierr.New("sh's process group (pgid 123) is still running — abandoned after a second interrupt")
+	// The shape Hold's own attach leaves a release failure that raced a
+	// signal in: a *clierr.Error whose Cause, not its own type, is the
+	// *clierr.Cancelled — so it must not read as plain either.
+	racedRelease := attach(&clierr.Cancelled{Signal: syscall.SIGINT}, []error{errors.New("could not release the lock")})
+
+	tests := []struct {
+		name       string
+		err        error
+		withSignal bool
+		wantCode   int
+		wantReport bool
+		wantExit   bool
+	}{
+		{
+			name:     "nil error, no signal pending: returns 0, reports nothing, never exits",
+			err:      nil,
+			wantCode: 0,
+		},
+		{
+			name:       "nil error, a signal pending: ends the process by it, reports nothing",
+			err:        nil,
+			withSignal: true,
+			wantExit:   true,
+		},
+		{
+			name:       "a bare Cancelled, a signal pending: ends the process by it, reports nothing",
+			err:        &clierr.Cancelled{Signal: syscall.SIGINT},
+			withSignal: true,
+			wantExit:   true,
+		},
+		{
+			name:       "a non-Cancelled error, no signal pending: reported, returns its own code",
+			err:        abandoned,
+			wantCode:   1,
+			wantReport: true,
+		},
+		{
+			name:       "a non-Cancelled error, a signal pending too: still reported, returns its own code, never exits",
+			err:        abandoned,
+			withSignal: true,
+			wantCode:   1,
+			wantReport: true,
+		},
+		{
+			name:       "attach wrapped a Cancelled inside a release failure, no signal pending: reported, returns its own code",
+			err:        racedRelease,
+			wantCode:   1,
+			wantReport: true,
+		},
+		{
+			name:       "attach wrapped a Cancelled inside a release failure, a signal pending too: still reported, returns its own code, never exits",
+			err:        racedRelease,
+			withSignal: true,
+			wantCode:   1,
+			wantReport: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os := newFakeOS()
+			l := NewLifecycle(os, logger.Silent{})
+			if tt.withSignal {
+				l.Start()
+				os.send(syscall.SIGINT)
+				waitFor(t, func() bool { return l.Pending() == syscall.SIGINT })
+			}
+
+			var reportCalls int
+			var reported error
+			code := l.Finish(tt.err, func(e error) {
+				reportCalls++
+				reported = e
+			})
+
+			if reportCalls != 0 != tt.wantReport {
+				t.Fatalf("report called %d time(s), want called=%v", reportCalls, tt.wantReport)
+			}
+			if tt.wantReport && reported != tt.err {
+				t.Fatalf("report was called with %v, want the same error Finish was given (%v)", reported, tt.err)
+			}
+			exited := len(os.exitCalls()) != 0
+			if exited != tt.wantExit {
+				t.Fatalf("Exit called = %v, want %v (exitCalls=%v)", exited, tt.wantExit, os.exitCalls())
+			}
+			if !tt.wantExit && code != tt.wantCode {
+				t.Fatalf("Finish returned %d, want %d", code, tt.wantCode)
+			}
+		})
+	}
 }
 
 // contains reports whether substr occurs anywhere in s.

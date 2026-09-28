@@ -235,7 +235,7 @@ func TestRunnerInteractiveOutput(t *testing.T) {
 		}
 	})
 
-	t.Run("tracks an interactive child by its bare PID, not a process group it never leads", func(t *testing.T) {
+	t.Run("tracks an interactive child by the process group it now leads", func(t *testing.T) {
 		runner := New()
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
@@ -256,13 +256,12 @@ func TestRunnerInteractiveOutput(t *testing.T) {
 		// marker file: the only thing this subtest needs to be true, and the
 		// only way to avoid a race against how fast the child is scheduled.
 		var pid int
-		var group bool
 		deadline := time.Now().Add(5 * time.Second)
 		for {
 			runner.mu.Lock()
 			n := len(runner.targets)
 			for tracked := range runner.targets {
-				pid, group = tracked.pid, tracked.group
+				pid = tracked.pid
 			}
 			runner.mu.Unlock()
 			if n == 1 {
@@ -273,11 +272,19 @@ func TestRunnerInteractiveOutput(t *testing.T) {
 			}
 			time.Sleep(5 * time.Millisecond)
 		}
-		if group {
-			t.Fatal("tracked as a process group, want a bare PID")
+		// An interactive child now gets Setpgid regardless of whether it
+		// also gets the terminal's foreground (this process's own stdin
+		// under `go test` is rarely a terminal it holds), so it always
+		// leads a process group of its own — its pgid is its own pid.
+		pgid, err := syscall.Getpgid(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pgid != pid {
+			t.Fatalf("Getpgid(%d) = %d, want the child to lead its own group", pid, pgid)
 		}
 
-		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
 			t.Fatal(err)
 		}
 		<-done

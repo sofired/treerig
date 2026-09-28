@@ -1,0 +1,239 @@
+package osrun
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/text"
+)
+
+// weHoldForeground reports whether this process's own process group is
+// currently fd's foreground group — the condition under which an
+// interactive child can be handed the terminal outright and atomically, via
+// SysProcAttr.Foreground, rather than merely getting a process group of its
+// own.
+func weHoldForeground(fd int) bool {
+	pgrp, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+	if err != nil {
+		return false
+	}
+	return pgrp == unix.Getpgrp()
+}
+
+// interactiveAttr is the SysProcAttr an interactive child starts with: given
+// the terminal outright (its own process group, made fd 0's foreground
+// group as part of the same fork+exec, atomically) when fd 0 is a terminal
+// this process currently holds the foreground of, or just its own process
+// group otherwise — a pipe, CI, or a job already running in the background.
+// foreground reports which one was chosen, since that also decides how Run
+// waits for this child.
+func interactiveAttr() (attr *syscall.SysProcAttr, foreground bool) {
+	if stdinIsTerminal() && weHoldForeground(0) {
+		return &syscall.SysProcAttr{Setpgid: true, Foreground: true, Ctty: 0}, true
+	}
+	return &syscall.SysProcAttr{Setpgid: true}, false
+}
+
+// foregroundMu serializes the part of an interactive, foreground child's run
+// that touches SIGTTOU's process-wide disposition (setForeground) and this
+// process's own terminal foreground: package-level, not per-Runner, since
+// the disposition it guards is process-wide too — only one such child may
+// be mid-flight in this whole process at a time, however many Runners
+// exist. A non-interactive or non-foreground child never touches it. Held
+// for the whole of one foreground child's run in osrun.Run, not just around
+// each individual setForeground call.
+var foregroundMu sync.Mutex
+
+// setForeground makes pgid fd's foreground process group. tcsetpgrp raises
+// SIGTTOU on a caller that is not already the terminal's foreground group —
+// which this process always is, right here, since every call site is
+// reclaiming the terminal from a child it started or handing it back to
+// one. Ignoring the signal's disposition for the call, rather than adding a
+// second listener via signal.Notify, is the point: internal/lifecycle is
+// the only thing in this process allowed to do that (see AGENTS.md). Ignore
+// and Reset are process-wide, not per-goroutine, so this is safe only with
+// foregroundMu held for the whole of one interactive, foreground child's
+// run — enforced in Run, not here. If SIGTTOU was already ignored before
+// this call (some parent shell's own choice), that disposition is left
+// exactly alone: it is never this call's place to un-ignore it.
+func setForeground(fd, pgid int) error {
+	if !signal.Ignored(syscall.SIGTTOU) {
+		signal.Ignore(syscall.SIGTTOU)
+		defer signal.Reset(syscall.SIGTTOU)
+	}
+	return unix.IoctlSetPointerInt(fd, unix.TIOCSPGRP, pgid)
+}
+
+// stopSelf suspends this whole process with SIGSTOP, which — unlike
+// SIGTSTP — can never be caught, blocked or ignored, and returns once
+// something outside this process (typically the real shell that launched
+// berth, answering the user's own `fg`) resumes it with SIGCONT. This is
+// how job control expects a foreground process to answer its own child's
+// Ctrl-Z: by actually stopping, the way any other job would. No signal
+// package call is involved on this path either way.
+func stopSelf() {
+	_ = syscall.Kill(os.Getpid(), syscall.SIGSTOP)
+}
+
+// forwardSignal is the signal Run sends a still-running child when its own
+// context ends: for an interactive child, the one berth itself received —
+// SIGINT stays SIGINT — so a shell answers it the way it would under a real
+// terminal. Anything else (a hook, Docker, a timeout, an output overflow)
+// keeps the plain SIGTERM contract regardless of what stopped berth.
+func forwardSignal(cause error, interactive bool) syscall.Signal {
+	if interactive {
+		if cancelled, ok := cause.(*clierr.Cancelled); ok {
+			return cancelled.Signal
+		}
+	}
+	return syscall.SIGTERM
+}
+
+// foregroundEvent is one state change wait4 reaped for a foreground child:
+// either it stopped (Ctrl-Z), or it is gone for good (err is set only if
+// the wait itself failed, which normally only happens if something else
+// already reaped this pid).
+type foregroundEvent struct {
+	status unix.WaitStatus
+	err    error
+}
+
+// watchForeground reaps pid on its own goroutine with its own wait4(pid,
+// WUNTRACED) loop, since that blocking call must run concurrently with
+// runForegroundChild selecting on ctx and the events it produces. It quits
+// once pid is truly gone (exited or ended by a signal); a mere stop keeps it
+// going, since the next event — resumed, then eventually gone — still needs
+// reaping.
+func watchForeground(pid int) <-chan foregroundEvent {
+	events := make(chan foregroundEvent)
+	go func() {
+		for {
+			var status unix.WaitStatus
+			var wpid int
+			var err error
+			for {
+				wpid, err = unix.Wait4(pid, &status, unix.WUNTRACED, nil)
+				if !errors.Is(err, unix.EINTR) {
+					break
+				}
+			}
+			if err != nil {
+				events <- foregroundEvent{err: err}
+				return
+			}
+			if wpid != pid {
+				continue
+			}
+			events <- foregroundEvent{status: status}
+			if status.Exited() || status.Signaled() {
+				return
+			}
+			// Stopped: loop for the next event, which is this child's
+			// eventual resume-and-continue-running, not reported here
+			// since WUNTRACED alone never reports WCONTINUED.
+		}
+	}()
+	return events
+}
+
+// runForegroundChild waits for pid — an interactive child holding the
+// terminal's foreground — with its own wait4(pid, WUNTRACED) loop instead
+// of cmd.Wait(), because only WUNTRACED can see a stop: cmd.Wait() blocks
+// straight through Ctrl-Z. ourPgid is this process's own process group,
+// reclaimed as fd 0's foreground on every path out. A stop hands the
+// terminal back to berth and stops this whole process with it, the way a
+// real shell answers Ctrl-Z on a job it started; the resume (SIGCONT from
+// outside, typically the real shell answering `fg`) hands the terminal back
+// to pid's own group and continues it. Cancelling runCtx forwards the
+// signal berth received to pid's group once, escalating to SIGKILL after
+// killAfter the way the rest of this Runner already does for every child.
+func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time.Duration) (exitCode int, sig syscall.Signal) {
+	events := watchForeground(pid)
+	done := runCtx.Done()
+	var killTimer *time.Timer
+	defer func() {
+		if killTimer != nil {
+			killTimer.Stop()
+		}
+	}()
+	for {
+		select {
+		case ev := <-events:
+			switch {
+			// wait4 fails here only if something else already reaped pid —
+			// unreachable in practice, since Run never calls cmd.Wait() on
+			// this path and nothing else in this process holds its
+			// *os.Process. Kept as a defensive fallback rather than a
+			// panic: a plain failure, the same 1-and-no-signal exitStatus
+			// falls back to for a nil ProcessState.
+			case ev.err != nil:
+				_ = setForeground(0, ourPgid)
+				return 1, 0
+			case ev.status.Stopped():
+				_ = setForeground(0, ourPgid)
+				stopSelf()
+				// Resumed: hand the terminal back to the child's own group
+				// (its pgid equals pid, since it led its own group) and
+				// let it carry on.
+				_ = setForeground(0, pid)
+				_ = syscall.Kill(-pid, syscall.SIGCONT)
+			case ev.status.Exited():
+				_ = setForeground(0, ourPgid)
+				return ev.status.ExitStatus(), 0
+			case ev.status.Signaled():
+				_ = setForeground(0, ourPgid)
+				s := ev.status.Signal()
+				return 128 + int(s), s
+			}
+		case <-done:
+			done = nil // fire the forwarded signal at most once
+			signalChild(pid, forwardSignal(context.Cause(runCtx), true))
+			killTimer = time.AfterFunc(killAfter, func() { signalChild(pid, syscall.SIGKILL) })
+		}
+	}
+}
+
+// drainGroup returns once pid's whole process group is gone — SIGTERMing
+// whatever it still holds at once, SIGKILLing it after killAfter, and
+// giving up after quiesceBudget (the same bound Quiesce uses) with an error
+// naming the command and pgid — since an interactive child's descendants
+// must never outlive the call that started them, whether or not berth
+// itself was ever signalled. A second Ctrl-C or SIGTERM, read off ctx via
+// run.Repeated so this package never calls signal.Notify itself, abandons
+// that wait early instead of running out the full budget, with its own,
+// differently worded error.
+func drainGroup(ctx context.Context, pid int, command string, killAfter time.Duration) error {
+	signalChild(pid, syscall.SIGTERM)
+	killTimer := time.AfterFunc(killAfter, func() { signalChild(pid, syscall.SIGKILL) })
+	defer killTimer.Stop()
+
+	// Clamped and made printable once, here, rather than at every call
+	// site: this is the only place either message is built. Mirrors
+	// internal/lock/notice.go's own use of text.OneLine for a PID's argv.
+	command = text.OneLine(command, 160)
+
+	repeated := run.Repeated(ctx)
+	deadline := time.Now().Add(quiesceBudget)
+	for {
+		if gone(target{pid: pid}) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return clierr.Newf("%s's process group (pgid %d) is still running after %s", command, pid, quiesceBudget)
+		}
+		select {
+		case <-repeated:
+			return clierr.Newf("%s's process group (pgid %d) is still running — abandoned after a second interrupt", command, pid)
+		case <-time.After(quiesceInterval):
+		}
+	}
+}
