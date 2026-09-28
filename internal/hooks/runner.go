@@ -39,6 +39,7 @@ const (
 type HookContext struct {
 	Source worktree.EnvironmentSource
 	Ref    worktree.Ref
+	// Hooks are the configured hooks; RunCommand does not read them.
 	Hooks  config.Hooks
 	Logger logger.Logger
 	Runner run.Runner
@@ -60,19 +61,42 @@ type RunOptions struct {
 	Timeout time.Duration
 }
 
-// environment is the BERTH_* vocabulary Compose receives, plus this stage's
-// own STAGE and hctx.Routes' URL variables (#28), laid over the inherited
+// kind is which of the two things this package runs a configured command
+// line as: a hook of a lifecycle stage, or one of the project's named
+// commands (#94). They share splitting, resolution, the BERTH_* environment
+// and the mapping of an exit to an error; a kind holds only what differs,
+// and the words a failure message uses.
+type kind struct {
+	// noun and title are the word in a message: "hook" and "Hook".
+	noun, title string
+	// own is the one variable that says which stage or command this is, and
+	// foreign the other kind's, dropped from what the child inherits: a
+	// command that runs `berth up` on another worktree must not hand its
+	// hooks a BERTH_COMMAND, nor a hook that runs a command a BERTH_STAGE.
+	own     string
+	foreign string
+}
+
+var (
+	hookKind    = kind{noun: "hook", title: "Hook", own: "STAGE", foreign: "BERTH_COMMAND"}
+	commandKind = kind{noun: "command", title: "Command", own: "COMMAND", foreign: "BERTH_STAGE"}
+)
+
+// environment is the BERTH_* vocabulary Compose receives, plus k's own
+// variable set to name (BERTH_STAGE for a hook, BERTH_COMMAND for a
+// command) and hctx.Routes' URL variables (#28), laid over the inherited
 // environment — never a replacement of it, so a hook that calls other tools
 // still sees a normal PATH and HOME. Inherited URL variables are dropped
 // first: a hook of another worktree that runs this one passes its own down,
-// and they must not stand in for routes this worktree doesn't have.
-func environment(hctx HookContext, stage config.HookStage) []string {
-	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{"STAGE", string(stage)})
+// and they must not stand in for routes this worktree doesn't have. So is
+// the other kind's variable, see kind.
+func environment(hctx HookContext, k kind, name string) []string {
+	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{k.own, name})
 	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
 	inherited := make([]string, 0, len(hctx.Environ))
 	for _, entry := range hctx.Environ {
-		name, _, _ := strings.Cut(entry, "=")
-		if name == "BERTH_URL" || strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+		key, _, _ := strings.Cut(entry, "=")
+		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || key == k.foreign {
 			continue
 		}
 		inherited = append(inherited, entry)
@@ -132,6 +156,59 @@ func resolveHookPath(root, executable string) string {
 	return filepath.Join(root, executable)
 }
 
+// resolveLine splits a configured command line and resolves its executable
+// as a hook always has been: relative to root when it starts with "." or
+// contains "/", otherwise left as a bare name for the child's own PATH. name
+// is the stage or command the line belongs to, for the refusal of an empty
+// one.
+func resolveLine(k kind, name, line, root string) (executable string, args []string, err error) {
+	parts := splitCommand(line)
+	// A command that is only whitespace (splitCommand returns no parts at
+	// all) and one that is a single empty-string token (a quoted "" as the
+	// whole command) are refused the same way.
+	if len(parts) == 0 || parts[0] == "" {
+		return "", nil, clierr.Newf("%s %q is empty.", k.title, name)
+	}
+	executable, args = parts[0], slices.Clone(parts[1:])
+	if strings.HasPrefix(executable, ".") || strings.Contains(executable, "/") {
+		executable = resolveHookPath(root, executable)
+	}
+	return executable, args, nil
+}
+
+// finish turns how a run ended into the error it is reported as: nil for
+// exit zero, otherwise a clierr carrying the exit code the process should
+// end with — the child's own, 124 for a timeout, 1 for an output overflow —
+// and a message naming k's noun and name. A command that could not be
+// started keeps the shell's 126 or 127.
+func finish(k kind, name, resolved string, timeout time.Duration, result run.Result, runErr error) error {
+	if runErr != nil {
+		var startErr *run.StartError
+		if errors.As(runErr, &startErr) {
+			return clierr.WithCode(
+				fmt.Sprintf("The %s %s could not be started: `%s` %s", name, k.noun, resolved, startErr.Detail),
+				startErr.ExitCode,
+			)
+		}
+		return runErr
+	}
+	switch {
+	case result.TimedOut:
+		// 124 is what timeout(1) reports; the child's own exit, if any, was not its verdict.
+		return clierr.WithCode(
+			fmt.Sprintf("The %s %s timed out after %d ms and was terminated.", name, k.noun, timeout.Milliseconds()),
+			124,
+		)
+	case result.OutputOverflow:
+		return clierr.WithCode(fmt.Sprintf("The %s %s produced more output than can be captured and was stopped.", name, k.noun), 1)
+	case result.Signal != 0:
+		return clierr.WithCode(fmt.Sprintf("The %s %s was terminated by %s.", name, k.noun, clierr.SignalName(result.Signal)), result.ExitCode)
+	case result.ExitCode != 0:
+		return clierr.WithCode(fmt.Sprintf("The %s %s failed (exit %d).", name, k.noun, result.ExitCode), result.ExitCode)
+	}
+	return nil
+}
+
 // RunHook runs one hook. The command is resolved relative to the project
 // root, runs with the project root as its working directory, sees the hook
 // environment on top of the parent's, and has its output streamed. Any
@@ -143,17 +220,9 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 	if command == nil {
 		return false, nil
 	}
-	parts := splitCommand(*command)
-	// A command that is only whitespace (splitCommand returns no parts at
-	// all) and one that is a single empty-string token (a quoted "" as the
-	// whole command) are refused the same way.
-	if len(parts) == 0 || parts[0] == "" {
-		return false, clierr.Newf("Hook %q is empty.", stage)
-	}
-	executable, args := parts[0], slices.Clone(parts[1:])
-	resolved := executable
-	if strings.HasPrefix(executable, ".") || strings.Contains(executable, "/") {
-		resolved = resolveHookPath(hctx.Source.ProjectRoot, executable)
+	resolved, args, err := resolveLine(hookKind, string(stage), *command, hctx.Source.ProjectRoot)
+	if err != nil {
+		return false, err
 	}
 	if opts.Argument != nil {
 		args = append(args, *opts.Argument)
@@ -164,44 +233,60 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 	}
 
 	ran := false
-	err := progress.WithProgress(hctx.Logger, fmt.Sprintf("Running %s hook", stage), func() error {
+	err = progress.WithProgress(hctx.Logger, fmt.Sprintf("Running %s hook", stage), func() error {
 		result, runErr := hctx.Runner.Run(ctx, run.Spec{
 			Command:      resolved,
 			Args:         args,
 			Dir:          hctx.Source.ProjectRoot,
-			Env:          environment(hctx, stage),
+			Env:          environment(hctx, hookKind, string(stage)),
 			Output:       output,
+			Label:        string(stage) + " hook",
 			Timeout:      opts.Timeout,
 			AllowFailure: true,
 		})
-		if runErr != nil {
-			var startErr *run.StartError
-			if errors.As(runErr, &startErr) {
-				return clierr.WithCode(
-					fmt.Sprintf("The %s hook could not be started: `%s` %s", stage, resolved, startErr.Detail),
-					startErr.ExitCode,
-				)
-			}
-			return runErr
-		}
-		switch {
-		case result.TimedOut:
-			// 124 is what timeout(1) reports; the hook's own exit, if any, was not its verdict.
-			return clierr.WithCode(
-				fmt.Sprintf("The %s hook timed out after %d ms and was terminated.", stage, opts.Timeout.Milliseconds()),
-				124,
-			)
-		case result.OutputOverflow:
-			return clierr.WithCode(fmt.Sprintf("The %s hook produced more output than can be captured and was stopped.", stage), 1)
-		case result.Signal != 0:
-			return clierr.WithCode(fmt.Sprintf("The %s hook was terminated by %s.", stage, clierr.SignalName(result.Signal)), result.ExitCode)
-		case result.ExitCode != 0:
-			return clierr.WithCode(fmt.Sprintf("The %s hook failed (exit %d).", stage, result.ExitCode), result.ExitCode)
+		if err := finish(hookKind, string(stage), resolved, opts.Timeout, result, runErr); err != nil {
+			return err
 		}
 		ran = true
 		return nil
 	})
 	return ran, err
+}
+
+// RunCommand runs one of the project's named commands (#94) for `berth run`.
+// It is resolved, split and given its environment exactly as a hook is,
+// with BERTH_COMMAND in place of BERTH_STAGE, and args appended after
+// whatever the configured line already carries. Unlike a hook it runs
+// interactively (run.Interactive): in its own process group, holding the
+// terminal when berth does, so it can prompt and answer Ctrl-C itself, its
+// own output going straight to berth's own streams. RunCommand prints
+// nothing itself: no start line and no heartbeat. Its process group is gone
+// by the time this returns, the moment the lock the caller may hold can be
+// released. hctx.Hooks is not consulted.
+//
+// The spec never sets InheritLocks: a command that outlived berth by
+// holding its lock descriptor would be the opposite of "the lock is
+// released once the whole group has exited", and an interactive child's
+// group is drained on return anyway (see run.Spec.InheritLocks).
+//
+// A non-zero exit, a start failure and a death by signal are reported as
+// clierr errors carrying the exit code, as for a hook, saying "command".
+func RunCommand(ctx context.Context, name string, command config.Command, args []string, hctx HookContext) error {
+	resolved, lineArgs, err := resolveLine(commandKind, name, command.Command, hctx.Source.ProjectRoot)
+	if err != nil {
+		return err
+	}
+	result, runErr := hctx.Runner.Run(ctx, run.Spec{
+		Command:      resolved,
+		Args:         append(lineArgs, args...),
+		Dir:          hctx.Source.ProjectRoot,
+		Env:          environment(hctx, commandKind, name),
+		Output:       run.Interactive,
+		Label:        name + " command",
+		KillAfter:    command.KillAfterDuration(),
+		AllowFailure: true,
+	})
+	return finish(commandKind, name, resolved, 0, result, runErr)
 }
 
 // LifecycleOptions configures RunLifecycle.

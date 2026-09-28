@@ -1,0 +1,4 @@
+plan	./scripts/keycloak.sh plan
+destroy	./scripts/keycloak.sh destroy
+apply	./scripts/keycloak.sh apply --with-an-argument-list-long-en…
+:36

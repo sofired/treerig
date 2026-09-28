@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/shape"
@@ -123,6 +124,49 @@ func hooksSchema() *shape.ObjectSchema {
 	).Strict().Default(shape.NewObj())
 }
 
+// killAfterPattern is the spelling of a [commands] kill-after: one or more
+// whole numbers each with a unit (ms, s, m or h), as "30s", "5m" or "1m30s".
+// No sign and no fraction, so what time.ParseDuration then reads is exactly
+// what was written.
+var killAfterPattern = regexp.MustCompile(`^([0-9]+(ms|s|m|h))+$`)
+
+// maxKillAfter caps a [commands] kill-after: an hour is far beyond any
+// graceful stop, and the cap keeps the runner's wait for a stopped command
+// (its kill-after plus a margin) from overflowing a time.Duration.
+const maxKillAfter = time.Hour
+
+// parseKillAfter reads a kill-after spelling, reporting false unless it is
+// well formed, greater than zero and at most maxKillAfter.
+func parseKillAfter(value string) (time.Duration, bool) {
+	if !killAfterPattern.MatchString(value) {
+		return 0, false
+	}
+	d, err := time.ParseDuration(value)
+	return d, err == nil && d > 0 && d <= maxKillAfter
+}
+
+// commandsSchema is the [commands] table: any number of entries, each a
+// service-style name mapped to either the command string alone or a table
+// with the command and its options.
+func commandsSchema() *shape.RecordSchema {
+	name := shape.String().
+		Regex(slugPattern, "must be lower-case letters, digits, and hyphens").
+		Max(dnsLabelMax, fmt.Sprintf("must be at most %d characters", dnsLabelMax))
+	table := shape.Object(
+		shape.F("command", shape.String().Min(1)),
+		// Takes the worktree's operation lock while it runs. Trusted, not
+		// enforced: see docs/hooks.md.
+		shape.F("lock", shape.Bool().Default(true)),
+		// How long the command's process group gets to exit once asked to
+		// stop, before it is killed.
+		shape.F("kill-after", shape.String().
+			Refine(func(value string) bool { _, ok := parseKillAfter(value); return ok },
+				"must be a duration greater than zero and at most 1h, such as 30s, 5m or 1m30s").
+			Default(DefaultCommandKillAfter)),
+	).Strict()
+	return shape.Record(name, shape.Union(shape.String().Min(1), table)).Default(shape.NewObj())
+}
+
 // rootSchema is the whole config file.
 func rootSchema() *shape.ObjectSchema {
 	project := shape.Object(
@@ -160,6 +204,7 @@ func rootSchema() *shape.ObjectSchema {
 		shape.F("service", shape.Array(serviceSchema()).Default([]any{}).Max(maxServiceEntries,
 			fmt.Sprintf("at most %d [[service]] entries; the checkout index's card can name at most that many declared services", maxServiceEntries))),
 		shape.F("hooks", hooksSchema()),
+		shape.F("commands", commandsSchema()),
 	).Strict().SuperRefine(duplicateServiceCheck)
 }
 

@@ -1,7 +1,7 @@
 package cli_test
 
 // Golden corpus for shell completion of registered values: worktree slugs,
-// domains and `up`'s service names (#98). These share TestGolden's own
+// domains, `up`'s service names (#98) and `run`'s command names (#94). These share TestGolden's own
 // fixture format and update mechanism (testdata/golden/<name>/{stdout,
 // stderr,exit}, rewritten by `-update`), but need a registry and a
 // berth.toml on disk that the plain, purely-literal goldenCases table
@@ -38,6 +38,8 @@ type completionFixture struct {
 	// configPath is the fixture's own berth.toml, passed to every case as
 	// --config so none of them depend on this test binary's cwd.
 	configPath string
+	// noCommandsConfigPath is a berth.toml with services but no [commands].
+	noCommandsConfigPath string
 	// controlHome is BERTH_CONTROL_HOME for the populated registry cases.
 	controlHome string
 	// missingControlHome names a control home nothing ever created.
@@ -125,9 +127,36 @@ name = "docs"
 path = "/docs"
 [service.index]
 label = "Docs\tGuide\nSection"
+
+[commands]
+plan = "./scripts/keycloak.sh plan"
+destroy = "./scripts/keycloak.sh\tdestroy"
+
+[commands.apply]
+command = "./scripts/keycloak.sh apply --with-an-argument-list-long-enough-to-be-clamped"
+kill-after = "60s"
 `
 	if err := os.WriteFile(configPath, []byte(berthToml), 0o644); err != nil {
 		t.Fatalf("write berth.toml: %v", err)
+	}
+
+	bare := filepath.Join(base, "bare")
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatalf("mkdir bare checkout: %v", err)
+	}
+	noCommandsConfigPath := filepath.Join(bare, brand.ConfigFile)
+	const bareToml = `[project]
+name = "fixture"
+domain = "` + completionAcmeDomain + `"
+
+[compose]
+file = "compose.yaml"
+
+[[service]]
+name = "api"
+`
+	if err := os.WriteFile(noCommandsConfigPath, []byte(bareToml), 0o644); err != nil {
+		t.Fatalf("write bare berth.toml: %v", err)
 	}
 
 	controlHome := filepath.Join(base, "control")
@@ -168,6 +197,7 @@ label = "Docs\tGuide\nSection"
 
 	return completionFixture{
 		configPath:            configPath,
+		noCommandsConfigPath:  noCommandsConfigPath,
 		controlHome:           controlHome,
 		missingControlHome:    missingControlHome,
 		emptyControlHome:      emptyControlHome,
@@ -330,6 +360,48 @@ func TestGoldenCompletion(t *testing.T) {
 		{
 			name: "complete-up-services-prefix",
 			args: []string{"__complete", "up", "--config", fixture.configPath, "w"},
+		},
+		// `run`'s [commands] (#94): file order, not sorted (plan, destroy,
+		// apply), each described by its command line clamped to one line —
+		// destroy's holds a raw tab, apply's is longer than the clamp.
+		{
+			name: "complete-run-commands",
+			args: []string{"__complete", "run", "--config", fixture.configPath, ""},
+		},
+		{
+			name: "complete-run-commands-prefix",
+			args: []string{"__complete", "run", "--config", fixture.configPath, "a"},
+		},
+		// `run` with no name or an unknown one lists the commands the
+		// config defines, or says it defines none; nothing is registered or
+		// started, so these need only the config.
+		{
+			name: "run-no-name",
+			args: []string{"run", "--config", fixture.configPath},
+		},
+		{
+			name: "run-unknown-name",
+			args: []string{"run", "--config", fixture.configPath, "nope"},
+		},
+		{
+			name: "run-no-name-after-dash",
+			args: []string{"run", "--config", fixture.configPath, "--", "plan"},
+		},
+		{
+			name: "run-no-name-no-commands",
+			args: []string{"run", "--config", fixture.noCommandsConfigPath},
+		},
+		{
+			name: "run-unknown-name-no-commands",
+			args: []string{"run", "--config", fixture.noCommandsConfigPath, "nope"},
+		},
+		{
+			name: "complete-run-commands-none-configured",
+			args: []string{"__complete", "run", "--config", fixture.noCommandsConfigPath, ""},
+		},
+		{
+			name: "complete-run-commands-after-name",
+			args: []string{"__complete", "run", "--config", fixture.configPath, "plan", ""},
 		},
 	}
 

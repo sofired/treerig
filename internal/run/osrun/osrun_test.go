@@ -524,4 +524,26 @@ func TestInheritLocks(t *testing.T) {
 	if strings.TrimSpace(result.Stdout) != "absent" {
 		t.Fatalf("got %+v", result)
 	}
+
+	// An interactive child never inherits them, even when asked: Interactive
+	// wins, since its group is drained before Run returns and the lock must
+	// not outlive that. The child's own streams are berth's, so it reports
+	// through a file.
+	t.Run("Interactive wins: an interactive child gets no lock descriptor even with InheritLocks", func(t *testing.T) {
+		marker := filepath.Join(dir, "interactive-fd3")
+		_, err := New().Run(heldCtx, run.Spec{
+			Command: "sh", Args: []string{"-c", `if test -e /dev/fd/3; then echo inherited; else echo absent; fi > "$0"`, marker},
+			Output: run.Interactive, InheritLocks: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(marker)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.TrimSpace(string(data)); got != "absent" {
+			t.Fatalf("the interactive child saw its lock descriptor: %q", got)
+		}
+	})
 }

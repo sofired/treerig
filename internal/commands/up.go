@@ -201,7 +201,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	// The host is looked up only when refusing: every other up would pay
 	// for a registry read it never uses.
 	if identity != nil && cctx.insideWorktree(identity.WorktreeID) {
-		return nil, ownWorktreeLockRefusal(hostForIdentity(cctx, *identity))
+		return nil, ownWorktreeLockRefusal(cctx.CommandName, hostForIdentity(cctx, *identity))
 	}
 	if err := refuseRelabelling(ctx, cctx, identity); err != nil {
 		return nil, err

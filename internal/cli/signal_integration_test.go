@@ -3,6 +3,7 @@
 package cli_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -98,8 +99,24 @@ func waitForFile(t *testing.T, path string) string {
 	return ""
 }
 
-// alive reports whether pid still exists, by sending it the null signal.
-func alive(pid int) bool { return unix.Kill(pid, 0) == nil }
+// alive reports whether pid is still running: it answers the null signal
+// and, where /proc says so (Linux), is not a zombie. On macOS, which has no
+// /proc, a zombie still counts as alive. A process whose parent
+// has not reaped it yet still answers, but has done all the dying it will.
+func alive(pid int) bool {
+	if unix.Kill(pid, 0) != nil {
+		return false
+	}
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return true
+	}
+	// "pid (comm) S ...": the state is the field after the last ")".
+	if i := bytes.LastIndexByte(stat, ')'); i >= 0 && i+2 < len(stat) {
+		return stat[i+2] != 'Z'
+	}
+	return true
+}
 
 func TestInterruptedMutation(t *testing.T) {
 	binary := buildBinary(t)

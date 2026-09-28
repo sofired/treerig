@@ -113,6 +113,8 @@ func expectedName(s Schema) string {
 	switch v := s.(type) {
 	case *StringSchema:
 		return "string"
+	case *BoolSchema:
+		return "boolean"
 	case *NumberSchema:
 		if v.intOnly {
 			return "int"

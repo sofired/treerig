@@ -10,8 +10,7 @@ import (
 
 // ServiceRoute is one declared service's routed URL — the shared building
 // block for `berth urls` (commands.WorktreeURLs wraps Routes), hooks
-// (ServiceURLVariables) and, once #94 gives it a `berth run`, that command
-// too. Subdomain and Path travel with it only so RootRoute can tell a route
+// and `berth run`'s commands (ServiceURLVariables). Subdomain and Path travel with it only so RootRoute can tell a route
 // claiming the host root outright from one that merely shares that host
 // under a path or a different subdomain.
 type ServiceRoute struct {
@@ -64,11 +63,11 @@ func RootRoute(routes []ServiceRoute) *ServiceRoute {
 	return nil
 }
 
-// ServiceURLVariables is the extra environment a hook — and, once #94 gives
-// it a `berth run`, that command too — receives on top of Environment:
-// BERTH_URL for the worktree's root route (RootRoute), omitted rather than
-// empty when routes has none, and BERTH_SERVICE_URL_<NAME> for every routed
-// service, its name upper-cased with each hyphen turned into an underscore.
+// ServiceURLVariables is the extra environment a hook — and a `berth run`
+// command (#94) — receives on top of Environment: BERTH_URL for the
+// worktree's root route (RootRoute), omitted rather than empty when routes
+// has none, and BERTH_SERVICE_URL_<NAME> for every routed service, its name
+// upper-cased with each hyphen turned into an underscore.
 //
 // Deliberately not folded into Environment/Variables, which also feed
 // Compose (internal/backend/compose.go): the router port is a setting of
@@ -76,8 +75,8 @@ func RootRoute(routes []ServiceRoute) *ServiceRoute {
 // handing it to Compose here would make a change to nothing but the
 // router's port look like a configuration change to every worktree,
 // recreating its containers on the next `up` (#28). This function is the
-// only place these variables are built, and only the hooks runner calls
-// it; compose_test.go pins Compose's own environment builder never calling
+// only place these variables are built, and only the hooks runner (for hooks
+// and commands alike) calls it; compose_test.go pins Compose's own environment builder never calling
 // it either.
 func ServiceURLVariables(routes []ServiceRoute) [][2]string {
 	var pairs [][2]string

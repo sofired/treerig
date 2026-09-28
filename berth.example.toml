@@ -73,3 +73,23 @@ verify = "./scripts/check.sh"
 # and `berth restore` will, each with a bundle directory as its first argument.
 backup  = "./scripts/backup.sh"
 restore = "./scripts/restore.sh"
+
+# ---------------------------------------------------------------------------
+# Commands. Named tasks for `berth run <name> [-- args...]`: on-demand work
+# that is not part of coming up, such as `terraform plan` and `apply` against
+# this worktree's services. Resolved like hooks, run from this directory with
+# the same BERTH_* environment plus BERTH_COMMAND, on your terminal, so they
+# can prompt and answer Ctrl-C. Names are lower-case letters, digits and hyphens.
+
+[commands]
+# The command line on its own: locked, and killed 10s after it is stopped.
+plan = "./scripts/keycloak.sh plan"
+
+[commands.apply]
+command    = "./scripts/keycloak.sh apply"
+# lock = true          # the default: hold this worktree's lock while it runs, so
+#                      # `up`, `down` and a second `run` wait. false skips only the
+#                      # lock, and is trusted, not enforced.
+kill-after = "60s"     # how long its process group has to exit once stopped, before
+#                      # it is killed; at most 1h. Size it for the command's own
+#                      # graceful stop.

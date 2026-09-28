@@ -4,6 +4,7 @@ up	register this worktree, start its services, and run its hooks
 down	stop this worktree's services; data is kept
 status	show service status for this worktree
 urls	print this worktree's routed URLs
+run	run one of the project's named commands from berth.toml [commands]
 index	refresh the machine-wide checkout index and print it
 doctor	check prerequisites, the registry, the router, and this checkout's verify hook
 router	manage the shared local router

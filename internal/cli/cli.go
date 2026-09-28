@@ -17,8 +17,8 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
-// startLifecycle is the process's one signal handler: the first SIGINT or
-// SIGTERM cancels the context every command runs with, mutations defer it
+// startLifecycle is the process's one signal handler: the first SIGINT, SIGTERM or
+// SIGHUP cancels the context every command runs with, mutations defer it
 // until their locks are safely released, and Main re-raises it at the end so
 // the process dies by it, as a shell expects. Main stops it when the command
 // finishes without a signal, so repeated calls leave nothing listening.
@@ -82,7 +82,7 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 	life := startLifecycle(console)
 	// Carried so a bounded wait deep under a command — an interactive
 	// child's own process-group drain, say — can select on the second
-	// SIGINT or SIGTERM without this package or internal/run/osrun
+	// SIGINT or SIGTERM (never SIGHUP) without this package or internal/run/osrun
 	// importing each other; see internal/run/repeat.go.
 	ctx := run.WithRepeated(life.Context(), life.Repeated())
 

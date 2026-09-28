@@ -6,8 +6,8 @@ import "fmt"
 // and, once accepted, validated by value — built with [Record]. Unlike
 // [Object], there is no fixed field list and no Strict/unrecognized-keys
 // issue: every key present is accepted, subject only to key's own checks.
-// This is what a table of arbitrary, caller-named entries needs — a future
-// `[commands]` (#94), a registry of named hooks, anything TOML or JSON
+// This is what a table of arbitrary, caller-named entries needs — `[commands]`
+// (#94), a registry of named hooks, anything TOML or JSON
 // would decode as an object whose keys are data, not schema.
 type RecordSchema struct {
 	mod   modifiers

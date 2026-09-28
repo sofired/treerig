@@ -14,7 +14,7 @@ health checks — arrives as a small config file and a handful of executables
 in whatever language you already use.
 
 > **Status: pre-release.** The worktree lifecycle works end to end against
-> Docker Compose: `up`, `down`, `status`, `urls`, `worktree list`,
+> Docker Compose: `up`, `down`, `status`, `urls`, `run`, `worktree list`,
 > `worktree remove`, `worktree unlock`, and `doctor` — identity, locks, the
 > registry, the hook sequencer, a runtime that stamps every resource with
 > ownership labels and refuses to touch anything it cannot prove it owns, a
@@ -52,12 +52,13 @@ router takes an advisory lock: `flock(2)` on the lock's own file, held by an
 open file descriptor. The kernel frees the lock once every copy of that
 descriptor is closed: killing the holder — even by `SIGKILL` — closes its
 own, but a `docker` or `docker compose` child it started inherits a copy and
-keeps the lock until that child exits too; hooks never inherit it.
+keeps the lock until that child exits too; hooks and `run` commands never
+inherit it.
 Either way, there is no stale window and nothing to go quiet: recovery never
 waits on a heartbeat, because there is none. A command that finds the lock
 held waits for it — a worktree operation for up to 25 minutes, the router's
-own lock for up to 20 — except one run from the worktree's own hooks, whose
-caller already holds the lock: that refuses at once (see
+own lock for up to 20 — except one run from the worktree's own hooks or
+commands, whose caller may already hold the lock: that refuses at once (see
 [docs/hooks.md](docs/hooks.md)). A waiting command, after a couple of seconds
 and then every 30 seconds, says who holds it (its command, how long) and what
 to do: wait for it to finish or stop it (`kill <pid>`), or, if the holder is
@@ -78,7 +79,10 @@ exactly what it checks and what it cannot see. `doctor` reports every lock
 currently held, and every free lock whose record is still unreleased; an
 unreleased record alone doesn't prove the holder is gone — the next command to
 take that lock checks the recorded holder itself before treating it as
-recovered.
+recovered. A berth command that holds a lock or runs children catches
+`SIGINT`, `SIGTERM` and `SIGHUP`, so closing the terminal lets it finish or
+stop cleanly, and release its lock, rather than dying at once; a read-only
+command just stops.
 
 **Homes.** Each worktree owns a directory under the control home
 (`~/.berth/control-home` by default) created owner-only, with path containment
@@ -171,6 +175,9 @@ written:
 - `up` completes the service names declared in this worktree's `berth.toml`,
   skipping any already named on the command line. Each is described by its
   `[service.index]` label, else its subdomain or path, else "host root".
+- `run` completes the command names under `[commands]`, in the order the file
+  lists them, each described by its command line. Only the name is completed,
+  never what follows it.
 
 A registry that is missing, empty or unreadable, or a `berth.toml` that
 cannot be found or parsed, completes nothing rather than failing.
@@ -213,6 +220,9 @@ subdomain = "mail"                 # mail.<slug>.acme.localhost
 prepare = "./scripts/migrate.sh"   # services healthy, nothing seeded
 seed    = "./scripts/seed.py"      # only after prepare exits zero
 verify  = "./scripts/check.sh"     # run by doctor; exit 0 means healthy
+
+[commands]
+plan = "./scripts/keycloak.sh plan"   # on demand, with `berth run plan`
 ```
 
 Then:
@@ -222,6 +232,7 @@ berth config validate     # parse and check the file
 berth up                   # register this worktree, start its services, run prepare (+ seed the first time)
 berth status               # per-service state
 berth urls                 # print its routed URLs
+berth run plan             # run one of the project's own [commands], on the terminal
 berth down                 # stop it; data is kept
 berth worktree list        # every worktree of this repository, with state
 berth worktree remove      # tear it down, verified by ownership
@@ -379,6 +390,7 @@ would orphan state.
 | `compose.file` | Compose file, relative to `berth.toml`. Paths inside it (build contexts, bind mounts, `env_file`) and its `.env` resolve against the Compose file's directory, as with `docker compose -f`; `${BERTH_ROOT}` is still `berth.toml`'s directory. |
 | `[[service]]` | `name`, optional `subdomain` (empty = host root), optional `path` (route only that prefix, so services can share a host), optional `port` (defaults to the first port the service exposes), optional `index` presence. |
 | `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. `up` runs `prepare` and `seed`, `doctor` runs `verify`; `backup` and `restore` are accepted but nothing runs them yet. |
+| `[commands]` | Optional. Named commands for `berth run <name>`, resolved like hooks. Each name (lower-case letters, digits, hyphens) maps to a command line, or to a table: `command`, `lock` (default `true`: hold the worktree's lock while it runs) and `kill-after` (default `10s`, at most `1h`: a duration such as `30s` or `5m`, how long its process group has to exit once stopped, before it is killed). See [docs/hooks.md](docs/hooks.md#commands). |
 
 Unknown keys are rejected, so a typo cannot silently disable a feature.
 
@@ -439,7 +451,9 @@ filesystem root are always refused, whether reached through `BERTH_HOME` or
 Bringing up a worktree runs the branch's code. `up` builds whatever its
 `compose.yaml` builds and runs the hooks named in its `berth.toml`, as you,
 with your full environment — the same trust a `make` or an `npm install` in
-that checkout asks for. Do not bring up a branch you would not run.
+that checkout asks for. Do not bring up a branch you would not run. `berth
+run` asks the same of a branch's `[commands]`, and gives them your terminal
+too.
 
 Three things follow from that, and this tool does not change them:
 
@@ -493,7 +507,9 @@ notices, confirmation prompts, warnings and failures go to stderr.
 
 `up`, `down`, `router down` and `worktree remove` are the exception: they pass
 your hooks' and Compose's own stdout through as those programs wrote it, and
-`up` adds its URL table there.
+`up` adds its URL table there. `run` is the same, more strictly: the command
+it runs writes straight to berth's stdout and stderr, and berth adds nothing
+while it runs, so `berth run plan > out` holds only what `plan` wrote.
 
 `router status` has a fourth vocabulary, about the shared router rather than
 any checkout: `running on <address>`, `not running (would use <address>)`,
@@ -522,7 +538,8 @@ also reports one line per configured hook — `prepare`, `seed`, `verify`,
 `backup` and `restore` alike, whether or not this worktree is registered —
 for whether the file it names would even start: as `<stage> hook file`,
 distinct from `verify hook`'s own run line so the two are never mistaken for
-one repeated check. A hook file that would not start names the exit code a
+one repeated check, and one `<name> command file` line for each `[commands]`
+entry after them. A hook file that would not start names the exit code a
 real run would give in its own line, 127 or 126
 ([docs/hooks.md](docs/hooks.md)), but that is a prediction, not an
 observation — it never supplies `doctor`'s own exit code, which stays the
@@ -544,7 +561,8 @@ changed while it looked.
 Every failure the tool itself reports, a bad command line included, ends in a
 non-zero exit code and a `[berth] ERROR:` line on stderr saying why. Set
 `BERTH_DEBUG=1` to see the stack trace behind a failure. A failing hook's own
-exit code becomes berth's — see [docs/hooks.md](docs/hooks.md) — and a verb
+exit code becomes berth's, and so does a `run` command's — see
+[docs/hooks.md](docs/hooks.md) — and a verb
 that is registered but not implemented exits 2.
 
 ## Platform notes
@@ -760,11 +778,15 @@ Shipped:
   or, with `--registry`/`--router`, the registry's or router's) once it is
   checked gone; `doctor` reports every held lock, and any left unreleased by
   a holder that is gone.
+- **`run`** — the project's own named `[commands]`, run on the terminal
+  against a registered worktree: they can prompt, answer Ctrl-C, and hold
+  the worktree's lock until everything they started has exited.
 - **`doctor`** — one read-only report: Git, Docker and Compose against the
   versions this tool needs; the berth root and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);
   the router's verification and its address-pool headroom; and, for this
-  checkout, whether every configured hook resolves to something runnable,
+  checkout, whether every configured hook and command resolves to something
+  runnable,
   its `verify` hook, and any registration of its repository whose checkout
   Git no longer lists.
 
