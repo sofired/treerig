@@ -342,7 +342,7 @@ func TestUpEndToEnd(t *testing.T) {
 		if state, _ := w.initialization(t); state != registry.Complete {
 			t.Fatalf("initialization = %v, want complete", state)
 		}
-		statuses, err := commands.StatusWithContext(context.Background(), cctx)
+		statuses, err := commands.StatusWithContext(context.Background(), cctx, commands.OutputOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

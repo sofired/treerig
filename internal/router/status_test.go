@@ -34,7 +34,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := router.RouterStatus{Reachable: true, Running: false, Problems: []string{"the router is not running"}, Port: 80, Network: testNetwork}
+		want := router.RouterStatus{Reachable: true, Running: false, Problems: []router.Problem{{Code: "router.absent", Message: "the router is not running"}}, Port: 80, Network: testNetwork}
 		if !statusEqual(status, want) {
 			t.Errorf("status = %+v, want %+v", status, want)
 		}
@@ -52,7 +52,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		}
 		want := router.RouterStatus{
 			Reachable: true, Running: true,
-			Problems: []string{"index: container is missing"},
+			Problems: []router.Problem{{Code: "index.missing", Message: "index: container is missing"}},
 			Port:     80, Network: testNetwork,
 		}
 		if !statusEqual(status, want) {
@@ -85,7 +85,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		if status.Reachable || status.Running {
 			t.Errorf("status = %+v", status)
 		}
-		if len(status.Problems) != 1 || status.Problems[0] != `Docker is not available: context "desktop-linux" not found` {
+		if len(status.Problems) != 1 || status.Problems[0] != (router.Problem{Code: "stack.unreachable", Message: `Docker is not available: context "desktop-linux" not found`}) {
 			t.Errorf("problems = %v", status.Problems)
 		}
 	})
@@ -102,8 +102,8 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		}
 		want := router.RouterStatus{
 			Reachable: false, Running: false,
-			Problems: []string{"Docker is not available: failed to connect to the docker API at unix:///var/run/docker.sock; " +
-				"check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory"},
+			Problems: []router.Problem{{Code: "stack.unreachable", Message: "Docker is not available: failed to connect to the docker API at unix:///var/run/docker.sock; " +
+				"check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory"}},
 			Port: 80, Network: testNetwork,
 		}
 		if !statusEqual(status, want) {
@@ -143,7 +143,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 			t.Fatalf("status = %+v", status)
 		}
 		want := "Docker is not available: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
-		if len(status.Problems) != 1 || status.Problems[0] != want {
+		if len(status.Problems) != 1 || status.Problems[0].Message != want {
 			t.Errorf("problems = %v, want [%q]", status.Problems, want)
 		}
 	})
@@ -158,7 +158,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := "Docker is not available: docker: unknown command: docker compose"
-		if status.Reachable || len(status.Problems) != 1 || status.Problems[0] != want {
+		if status.Reachable || len(status.Problems) != 1 || status.Problems[0].Message != want {
 			t.Errorf("status = %+v, want problems [%q]", status, want)
 		}
 	})
@@ -287,7 +287,7 @@ func TestRouterStatusReport(t *testing.T) {
 		status := base
 		status.Reachable = false
 		status.Running = false
-		status.Problems = []string{"Docker is not available: the `docker` command is not on PATH (ENOENT)."}
+		status.Problems = []router.Problem{{Code: "stack.unreachable", Message: "Docker is not available: the `docker` command is not on PATH (ENOENT)."}}
 
 		report := router.StatusReport(status)
 		want := router.Report{
@@ -305,7 +305,7 @@ func TestRouterStatusReport(t *testing.T) {
 		status := base
 		status.Reachable = true
 		status.Running = true
-		status.Problems = []string{"router: not running", "router: not healthy"}
+		status.Problems = []router.Problem{{Code: "router.not-running", Message: "router: not running"}, {Code: "router.not-healthy", Message: "router: not healthy"}}
 
 		report := router.StatusReport(status)
 		want := router.Report{
@@ -332,7 +332,7 @@ func TestRouterStatusReport(t *testing.T) {
 		stopped := base
 		stopped.Reachable = true
 		stopped.Running = false
-		stopped.Problems = []string{"the router is not running"}
+		stopped.Problems = []router.Problem{{Code: "router.absent", Message: "the router is not running"}}
 		report2 := router.StatusReport(stopped)
 		want2 := router.Report{Output: []string{"not running (would use 127.0.0.1:80, network berth-router)"}, Errors: []string{}, Failed: false}
 		if !reportEqual(report2, want2) {

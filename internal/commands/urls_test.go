@@ -2,6 +2,8 @@ package commands_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/commands"
@@ -92,7 +94,7 @@ func TestUrlsCommand(t *testing.T) {
 		register(t, w, w.Root, acmeDomain, "feature-login", "complete")
 		cctx := w.Context(w.Root, acmeDomain, nil)
 
-		list, err := commands.UrlsWithContext(ctx, cctx.CommandContext)
+		list, err := commands.UrlsWithContext(ctx, cctx.CommandContext, commands.OutputOptions{})
 		if err != nil {
 			t.Fatalf("UrlsWithContext: %v", err)
 		}
@@ -108,7 +110,7 @@ func TestUrlsCommand(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		cctx := w.Context(w.Root, acmeDomain, nil)
 
-		_, err := commands.UrlsWithContext(ctx, cctx.CommandContext)
+		_, err := commands.UrlsWithContext(ctx, cctx.CommandContext, commands.OutputOptions{})
 		if err == nil {
 			t.Fatalf("expected an error")
 		}
@@ -130,7 +132,7 @@ func TestUrlsCommand(t *testing.T) {
 		cctx := w.Context(w.Root, "bare.localhost", nil)
 		cctx.Loaded.Config.Service = nil
 
-		list, err := commands.UrlsWithContext(ctx, cctx.CommandContext)
+		list, err := commands.UrlsWithContext(ctx, cctx.CommandContext, commands.OutputOptions{})
 		if err != nil {
 			t.Fatalf("UrlsWithContext: %v", err)
 		}
@@ -145,6 +147,65 @@ func TestUrlsCommand(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("expected the routing warning, got %+v", cctx.Logger.Lines)
+		}
+	})
+}
+
+// `urls --json` prints the URLReportEntry array and nothing else on stdout.
+func TestUrlsCommandJSON(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("prints one array of the routed services", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acmeDomain)
+		register(t, w, w.Root, acmeDomain, "feature-login", "complete")
+		cctx := w.Context(w.Root, acmeDomain, nil)
+
+		if _, err := commands.UrlsWithContext(ctx, cctx.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+			t.Fatalf("UrlsWithContext: %v", err)
+		}
+		if len(cctx.Logger.Printed) != 1 {
+			t.Fatalf("stdout = %q, want one document", cctx.Logger.Printed)
+		}
+		var got []map[string]any
+		if err := json.Unmarshal([]byte(cctx.Logger.Printed[0]), &got); err != nil {
+			t.Fatalf("stdout is not one JSON document: %v\n%q", err, cctx.Logger.Printed)
+		}
+		if len(got) != 2 || got[0]["service"] != "api" || got[1]["service"] != "mail" {
+			t.Fatalf("got %+v", got)
+		}
+		// The service key is "service" here as in status and index.
+		if _, ok := got[0]["name"]; ok {
+			t.Fatalf("got a name key: %+v", got[0])
+		}
+	})
+
+	t.Run("prints [] and warns on stderr when nothing is routed", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", "bare.localhost")
+		register(t, w, w.Root, "bare.localhost", "main", "complete")
+		cctx := w.Context(w.Root, "bare.localhost", nil)
+		cctx.Loaded.Config.Service = nil
+
+		if _, err := commands.UrlsWithContext(ctx, cctx.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+			t.Fatalf("UrlsWithContext: %v", err)
+		}
+		lines, printed := cctx.Logger.Snapshot()
+		if len(printed) != 1 || printed[0] != "[]" {
+			t.Fatalf("stdout = %q", printed)
+		}
+		if len(lines) == 0 || !strings.HasPrefix(lines[len(lines)-1], "warn: No [[service]] entries") {
+			t.Fatalf("lines = %q", lines)
+		}
+	})
+
+	t.Run("still refuses an unregistered worktree, with nothing on stdout", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acmeDomain)
+		cctx := w.Context(w.Root, acmeDomain, nil)
+
+		if _, err := commands.UrlsWithContext(ctx, cctx.CommandContext, commands.OutputOptions{JSON: true}); err == nil {
+			t.Fatal("expected an error")
+		}
+		if len(cctx.Logger.Printed) != 0 {
+			t.Fatalf("stdout = %q", cctx.Logger.Printed)
 		}
 	})
 }

@@ -31,6 +31,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -76,9 +78,19 @@ const (
 
 // Check is one line of the doctor report.
 type Check struct {
-	Status  CheckStatus
-	Subject string
-	Detail  string
+	// ID is a short dotted slug naming the kind of check, the same in every
+	// run whatever the outcome; it is what `doctor --json` consumers key on,
+	// where Subject is display text. An ID names the kind of thing checked and
+	// starts with its section's ID; it may repeat, once per item, and then
+	// Instance says which item.
+	ID string
+	// Instance is the durable key of the item a per-item check is about (a
+	// worktree ID, a host, a rule, a record's file name); empty for a check
+	// that is not per item.
+	Instance string
+	Status   CheckStatus
+	Subject  string
+	Detail   string
 	// ExitCode is set for a failure that carries its own exit code — the
 	// verify hook's — making it the command's.
 	ExitCode *int
@@ -86,27 +98,55 @@ type Check struct {
 
 // Section is one area of the doctor report.
 type Section struct {
+	// ID is the section's stable slug; Title is display text.
+	ID     string
 	Title  string
 	Checks []Check
 }
 
 // failureCheck turns an error a check could not even run past into a failed
 // line for subject, carrying err's own message as the detail.
-func failureCheck(subject string, err error) Check {
-	return Check{Status: StatusFail, Subject: subject, Detail: err.Error()}
+func failureCheck(id, subject string, err error) Check {
+	return Check{ID: id, Status: StatusFail, Subject: subject, Detail: err.Error()}
+}
+
+// recordInstance is the instance of an unreadable registry record: the
+// repository directory and the file, "<repository>/<file>", which is unique
+// across stores where the file name alone (a worktree ID) is not. A path
+// without a repository directory above it is just its file name.
+func recordInstance(file string) string {
+	repository := filepath.Base(filepath.Dir(filepath.Dir(file)))
+	if repository == "." || repository == string(filepath.Separator) {
+		return filepath.Base(file)
+	}
+	return path.Join(repository, filepath.Base(file))
+}
+
+// routeClaimPattern is the rule berth writes for a route (backend.RouteRule):
+// a host, and optionally a path prefix.
+var routeClaimPattern = regexp.MustCompile("^Host\\(`([^`]*)`\\)(?: && PathPrefix\\(`([^`]*)`\\))?$")
+
+// ruleClaim is what a routing rule claims in the form users know, "<host>"
+// or "<host><path>". A rule berth did not write is its own claim, verbatim.
+func ruleClaim(rule string) string {
+	match := routeClaimPattern.FindStringSubmatch(rule)
+	if match == nil {
+		return rule
+	}
+	return match[1] + match[2]
 }
 
 // guarded runs a group of checks; one that fails to even run becomes a
 // failed line instead of ending the report — except a cancellation, which
 // this re-raises, so it ends the whole command instead of becoming a line.
-func guarded(subject string, run func() ([]Check, error)) ([]Check, error) {
+func guarded(id, subject string, run func() ([]Check, error)) ([]Check, error) {
 	checks, err := run()
 	if err != nil {
 		var cancelled *clierr.Cancelled
 		if errors.As(err, &cancelled) {
 			return nil, err
 		}
-		return []Check{failureCheck(subject, err)}, nil
+		return []Check{failureCheck(id, subject, err)}, nil
 	}
 	return checks, nil
 }
@@ -156,16 +196,16 @@ func atLeast(version, minimum [3]int) bool {
 }
 
 // versionCheck is a tool's version output against the oldest version that works.
-func versionCheck(subject, output, minimum string) Check {
+func versionCheck(id, subject, output, minimum string) Check {
 	version, ok := readVersion(output)
 	floor, floorOK := readVersion(minimum)
 	if !ok || !floorOK {
-		return Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("could not read a version from %q", text.OneLine(output, 80))}
+		return Check{ID: id, Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("could not read a version from %q", text.OneLine(output, 80))}
 	}
 	if atLeast(version.parts, floor.parts) {
-		return Check{Status: StatusOK, Subject: subject, Detail: version.text}
+		return Check{ID: id, Status: StatusOK, Subject: subject, Detail: version.text}
 	}
-	return Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("%s; %s or newer is needed", version.text, minimum)}
+	return Check{ID: id, Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("%s; %s or newer is needed", version.text, minimum)}
 }
 
 /* ------------------------------------------------------- prerequisites ---- */
@@ -183,9 +223,9 @@ func gitCheck(ctx context.Context, runner run.Runner) (Check, error) {
 		if detail == "" {
 			detail = fmt.Sprintf("exit %d", result.ExitCode)
 		}
-		return Check{Status: StatusFail, Subject: "Git", Detail: fmt.Sprintf("`git --version` failed: %s", text.OneLine(detail, 0))}, nil
+		return Check{Status: StatusFail, ID: "prerequisites.git", Subject: "Git", Detail: fmt.Sprintf("`git --version` failed: %s", text.OneLine(detail, 0))}, nil
 	}
-	return versionCheck("Git", result.Stdout, gitMinimum), nil
+	return versionCheck("prerequisites.git", "Git", result.Stdout, gitMinimum), nil
 }
 
 // askDocker is one `docker` query, bounded in time; Docker being unavailable
@@ -193,20 +233,20 @@ func gitCheck(ctx context.Context, runner run.Runner) (Check, error) {
 // cancellation included, propagates so a Ctrl-C here ends the command
 // rather than becoming a line. The successful result is returned for the
 // caller to interpret further; nil means the returned Check is the answer.
-func askDocker(ctx context.Context, runner run.Runner, subject string, args []string, timeout time.Duration) (Check, *run.Result, error) {
+func askDocker(ctx context.Context, runner run.Runner, id, subject string, args []string, timeout time.Duration) (Check, *run.Result, error) {
 	result, err := docker.Run(ctx, runner, args, run.Spec{AllowFailure: true, Timeout: timeout})
 	if err != nil {
 		if docker.Unavailable(err) {
-			return Check{Status: StatusFail, Subject: subject, Detail: err.Error()}, nil, nil
+			return Check{ID: id, Status: StatusFail, Subject: subject, Detail: err.Error()}, nil, nil
 		}
 		return Check{}, nil, err
 	}
 	if result.TimedOut {
-		return Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf(
+		return Check{ID: id, Status: StatusFail, Subject: subject, Detail: fmt.Sprintf(
 			"`docker %s` did not answer within %d s", strings.Join(args, " "), int(timeout.Seconds()))}, nil, nil
 	}
 	if result.ExitCode != 0 {
-		return Check{Status: StatusFail, Subject: subject, Detail: text.OneLine(
+		return Check{ID: id, Status: StatusFail, Subject: subject, Detail: text.OneLine(
 			docker.Said(result.Stderr, fmt.Sprintf("`docker %s` exited %d", strings.Join(args, " "), result.ExitCode)), 0)}, nil, nil
 	}
 	return Check{}, &result, nil
@@ -229,8 +269,8 @@ type dockerState struct {
 func dockerChecks(ctx context.Context, runner run.Runner, timeout time.Duration) (dockerState, error) {
 	if !runner.Which("docker") {
 		return dockerState{checks: []Check{
-			{Status: StatusFail, Subject: "Docker Engine", Detail: "the `docker` command is not on PATH; is Docker installed?"},
-			{Status: StatusSkip, Subject: "Docker Compose", Detail: "needs the `docker` command"},
+			{Status: StatusFail, ID: "prerequisites.docker.engine", Subject: "Docker Engine", Detail: "the `docker` command is not on PATH; is Docker installed?"},
+			{Status: StatusSkip, ID: "prerequisites.docker.compose", Subject: "Docker Compose", Detail: "needs the `docker` command"},
 		}}, nil
 	}
 	var engineCheck, composeCheck Check
@@ -240,11 +280,11 @@ func dockerChecks(ctx context.Context, runner run.Runner, timeout time.Duration)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		engineCheck, engineResult, engineErr = askDocker(ctx, runner, "Docker Engine", []string{"version", "--format", "{{.Server.Version}}"}, timeout)
+		engineCheck, engineResult, engineErr = askDocker(ctx, runner, "prerequisites.docker.engine", "Docker Engine", []string{"version", "--format", "{{.Server.Version}}"}, timeout)
 	}()
 	go func() {
 		defer wg.Done()
-		composeCheck, composeResult, composeErr = askDocker(ctx, runner, "Docker Compose", []string{"compose", "version", "--short"}, timeout)
+		composeCheck, composeResult, composeErr = askDocker(ctx, runner, "prerequisites.docker.compose", "Docker Compose", []string{"compose", "version", "--short"}, timeout)
 	}()
 	wg.Wait()
 	if engineErr != nil {
@@ -256,13 +296,13 @@ func dockerChecks(ctx context.Context, runner run.Runner, timeout time.Duration)
 
 	checks := make([]Check, 0, 2)
 	if engineResult != nil {
-		checks = append(checks, Check{Status: StatusOK, Subject: "Docker Engine",
+		checks = append(checks, Check{Status: StatusOK, ID: "prerequisites.docker.engine", Subject: "Docker Engine",
 			Detail: fmt.Sprintf("%s, daemon answering", text.OneLine(strings.TrimSpace(engineResult.Stdout), 80))})
 	} else {
 		checks = append(checks, engineCheck)
 	}
 	if composeResult != nil {
-		checks = append(checks, versionCheck("Docker Compose", composeResult.Stdout, composeMinimum))
+		checks = append(checks, versionCheck("prerequisites.docker.compose", "Docker Compose", composeResult.Stdout, composeMinimum))
 	} else {
 		checks = append(checks, composeCheck)
 	}
@@ -281,9 +321,9 @@ func prerequisitesSection(ctx context.Context, opts doctorOptions) ([]Check, doc
 		if errors.As(err, &cancelled) {
 			return nil, dockerState{}, err
 		}
-		state = dockerState{checks: []Check{failureCheck("Docker", err)}}
+		state = dockerState{checks: []Check{failureCheck("prerequisites.docker.engine", "Docker", err)}}
 	}
-	checks, err := guarded("Git", func() ([]Check, error) {
+	checks, err := guarded("prerequisites.git", "Git", func() ([]Check, error) {
 		check, err := gitCheck(ctx, opts.Runner)
 		if err != nil {
 			return nil, err
@@ -310,12 +350,12 @@ func controlHomeCheck(controlHome, userHome string) (Check, error) {
 		return Check{}, err
 	}
 	if !exists {
-		return Check{Status: StatusOK, Subject: "control home", Detail: fmt.Sprintf("%s (not created yet; the first up creates it)", controlHome)}, nil
+		return Check{Status: StatusOK, ID: "registry.control-home", Subject: "control home", Detail: fmt.Sprintf("%s (not created yet; the first up creates it)", controlHome)}, nil
 	}
 	if err := files.AssertAdoptableControlHome(controlHome, userHome); err != nil {
 		return Check{}, err
 	}
-	return Check{Status: StatusOK, Subject: "control home", Detail: controlHome}, nil
+	return Check{Status: StatusOK, ID: "registry.control-home", Subject: "control home", Detail: controlHome}, nil
 }
 
 // registryChecks is what the registry says about itself: records that
@@ -326,9 +366,9 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 	if len(scan.Records) > 0 {
 		count = fmt.Sprintf("%d readable", len(scan.Records))
 	}
-	checks := []Check{{Status: StatusOK, Subject: "registrations", Detail: count}}
+	checks := []Check{{Status: StatusOK, ID: "registry.registrations", Subject: "registrations", Detail: count}}
 	for _, problem := range scan.Problems {
-		checks = append(checks, Check{Status: StatusFail, Subject: "unreadable record", Detail: problem.Reason})
+		checks = append(checks, Check{Status: StatusFail, ID: "registry.unreadable-record", Instance: recordInstance(problem.File), Subject: "unreadable record", Detail: problem.Reason})
 	}
 
 	hosts := make([]string, 0, len(scan.Conflicts))
@@ -342,7 +382,7 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 		for i, record := range claimants {
 			ids[i] = record.WorktreeID
 		}
-		checks = append(checks, Check{Status: StatusFail, Subject: host, Detail: fmt.Sprintf(
+		checks = append(checks, Check{Status: StatusFail, ID: "registry.host-conflict", Instance: host, Subject: host, Detail: fmt.Sprintf(
 			"registered to %d worktrees (%s); requests for it may reach any of them that is running. Remove all but one with '%s worktree remove <uuid>'.",
 			len(claimants), text.OneLine(strings.Join(ids, ", "), 200), commandName)})
 	}
@@ -351,7 +391,7 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 		if layout.WorktreeHost(record.Slug, record.Domain) != router.IndexHost {
 			continue
 		}
-		checks = append(checks, Check{Status: StatusFail, Subject: router.IndexHost, Detail: fmt.Sprintf(
+		checks = append(checks, Check{Status: StatusFail, ID: "registry.index-host", Instance: record.WorktreeID, Subject: router.IndexHost, Detail: fmt.Sprintf(
 			"is the checkout index's own address, and worktree %s is registered to it. Set another domain in that checkout's %s and run '%s up' there.",
 			record.WorktreeID, brand.ConfigFile, commandName)})
 	}
@@ -367,8 +407,8 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 	// neither needs its own guarded() call; a person who set only
 	// BERTH_CONTROL_HOME can still see where the rest of the berth root
 	// lives (the router's own state; a future settings.toml, #79).
-	checks := []Check{{Status: StatusOK, Subject: "berth root", Detail: opts.Home}}
-	controlHomeChecks, err := guarded("control home", func() ([]Check, error) {
+	checks := []Check{{Status: StatusOK, ID: "registry.berth-root", Subject: "berth root", Detail: opts.Home}}
+	controlHomeChecks, err := guarded("registry.control-home", "control home", func() ([]Check, error) {
 		check, err := controlHomeCheck(opts.ControlHome, opts.UserHome)
 		if err != nil {
 			return nil, err
@@ -379,8 +419,8 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 		return nil, err
 	}
 	checks = append(checks, controlHomeChecks...)
-	checks = append(checks, Check{Status: StatusOK, Subject: "router state", Detail: opts.RouterStateDir})
-	registrations, err := guarded("registrations", func() ([]Check, error) {
+	checks = append(checks, Check{Status: StatusOK, ID: "registry.router-state", Subject: "router state", Detail: opts.RouterStateDir})
+	registrations, err := guarded("registry.registrations", "registrations", func() ([]Check, error) {
 		scan, err := registry.ScanRegistrations(opts.ControlHome)
 		if err != nil {
 			return nil, err
@@ -408,20 +448,20 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 // hatch, `worktree unlock --registry|--router --holder-unverifiable` (#21),
 // so lockChecks passes each of them that instead of the hand removal this
 // build once had no better answer than.
-func lockCheck(subject string, scope lock.Scope, handRemoval string) (check Check, ok bool) {
+func lockCheck(id, subject string, scope lock.Scope, handRemoval string) (check Check, ok bool) {
 	described, err := lock.Describe(scope, nil)
 	if err != nil {
-		return Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("could not be checked: %s", err)}, true
+		return Check{ID: id, Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("could not be checked: %s", err)}, true
 	}
 	if described.State == lock.Held {
-		return Check{Status: StatusOK, Subject: subject, Detail: "held by " + lock.HolderLabel(described.Record)}, true
+		return Check{ID: id, Status: StatusOK, Subject: subject, Detail: "held by " + lock.HolderLabel(described.Record)}, true
 	}
 	if described.Record != nil && described.Record.ReleasedAt == nil {
 		detail := fmt.Sprintf("unreleased by %s; recovered automatically the next time this lock is taken", lock.HolderLabel(described.Record))
 		if handRemoval != "" {
 			detail += fmt.Sprintf(". If that also refuses it as unverifiable, %s", handRemoval)
 		}
-		return Check{Status: StatusOK, Subject: subject, Detail: detail}, true
+		return Check{ID: id, Status: StatusOK, Subject: subject, Detail: detail}, true
 	}
 	return Check{}, false
 }
@@ -513,13 +553,13 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 	var checks []Check
 	registryScope := lock.RegistryScope(controlHome)
 	registryHandRemoval := fmt.Sprintf("run '%s worktree unlock --registry --holder-unverifiable' once you have made sure its holder is gone", commandName)
-	if check, ok := lockCheck("registry", registryScope, registryHandRemoval); ok {
+	if check, ok := lockCheck("locks.registry", "registry", registryScope, registryHandRemoval); ok {
 		checks = append(checks, check)
 	}
 	if routerLockScope != nil {
 		routerHandRemoval := fmt.Sprintf(
 			"run '%s worktree unlock --router --holder-unverifiable' once you have made sure its holder, and everything it started, is gone", commandName)
-		if check, ok := lockCheck("router", *routerLockScope, routerHandRemoval); ok {
+		if check, ok := lockCheck("locks.router", "router", *routerLockScope, routerHandRemoval); ok {
 			checks = append(checks, check)
 		}
 	}
@@ -537,16 +577,18 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 		}
 		operation, development := lock.WorktreeScopes(controlHome, id.RepositoryID, id.WorktreeID, name, procid.Markers{})
 		// Development, then operation.
-		if check, ok := lockCheck(shown+" (development session)", development, ""); ok {
+		if check, ok := lockCheck("locks.worktree.development", shown+" (development session)", development, ""); ok {
+			check.Instance = id.WorktreeID
 			checks = append(checks, check)
 		}
-		if check, ok := lockCheck(shown, operation, ""); ok {
+		if check, ok := lockCheck("locks.worktree.operation", shown, operation, ""); ok {
+			check.Instance = id.WorktreeID
 			checks = append(checks, check)
 		}
 	}
 
 	if len(checks) == 0 {
-		return []Check{{Status: StatusOK, Subject: "locks", Detail: "none held"}}, nil
+		return []Check{{Status: StatusOK, ID: "locks.none", Subject: "locks", Detail: "none held"}}, nil
 	}
 	return checks, nil
 }
@@ -590,22 +632,25 @@ func (r realRouterSource) Owner(ctx context.Context) (router.Ownership, error) {
 }
 
 // routerStatusChecks is the router in the words `router status` uses; not
-// running is an answer, not a problem.
+// running is an answer, not a problem. A degraded router is one failed line
+// per problem, each keyed by the problem's code (router.Problem).
 func routerStatusChecks(status router.RouterStatus) []Check {
 	report := router.StatusReport(status)
 	if !status.Reachable {
 		checks := make([]Check, len(report.Errors))
 		for i, e := range report.Errors {
-			checks[i] = Check{Status: StatusFail, Subject: "router", Detail: e}
+			checks[i] = Check{Status: StatusFail, ID: "router.container", Instance: router.CodeUnreachable, Subject: "router", Detail: e}
 		}
 		return checks
 	}
 	if !report.Failed {
-		return []Check{{Status: StatusOK, Subject: "router", Detail: strings.Join(report.Output, "; ")}}
+		return []Check{{Status: StatusOK, ID: "router.container", Subject: "router", Detail: strings.Join(report.Output, "; ")}}
 	}
+	// One line per problem, as `router status` prints them, each keyed by the
+	// problem's code (unique within a status), so (id, instance) is a key.
 	checks := make([]Check, len(status.Problems))
 	for i, problem := range status.Problems {
-		checks[i] = Check{Status: StatusFail, Subject: "router", Detail: problem}
+		checks[i] = Check{Status: StatusFail, ID: "router.container", Instance: problem.Code, Subject: "router", Detail: problem.Message}
 	}
 	return checks
 }
@@ -741,7 +786,7 @@ func orphanedFragmentsCheck(ctx context.Context, runner run.Runner, timeout time
 	if len(worktrees) == 1 {
 		worktreePlural, networkPlural, networkVerb = "", "", "is"
 	}
-	return &Check{Status: StatusWarn, Subject: "routes", Detail: fmt.Sprintf(
+	return &Check{Status: StatusWarn, ID: "router.orphaned-routes", Subject: "routes", Detail: fmt.Sprintf(
 		"%d route fragment%s for %d worktree%s whose router network%s %s gone; the next '%s up' or '%s router up' removes them",
 		len(orphaned), fragmentPlural, len(worktrees), worktreePlural, networkPlural, networkVerb, commandName, commandName)}, nil
 }
@@ -760,7 +805,7 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 	}
 	var checks []Check
 	if len(fragments) == 0 {
-		checks = append(checks, Check{Status: StatusOK, Subject: "routes", Detail: "no route fragments"})
+		checks = append(checks, Check{Status: StatusOK, ID: "router.routes", Subject: "routes", Detail: "no route fragments"})
 	} else {
 		scan, err := registry.ScanRegistrations(controlHome)
 		if err != nil {
@@ -776,7 +821,7 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 			if len(fragments) == 1 {
 				plural = ""
 			}
-			checks = append(checks, Check{Status: StatusOK, Subject: "routes", Detail: fmt.Sprintf(
+			checks = append(checks, Check{Status: StatusOK, ID: "router.routes", Subject: "routes", Detail: fmt.Sprintf(
 				"%d route fragment%s; no two routers share a rule", len(fragments), plural)})
 		} else {
 			rules := make([]string, 0, len(conflicts))
@@ -785,7 +830,7 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 			}
 			sort.Strings(rules)
 			for _, rule := range rules {
-				checks = append(checks, Check{Status: StatusFail, Subject: "routes", Detail: fmt.Sprintf(
+				checks = append(checks, Check{Status: StatusFail, ID: "router.route-conflict", Instance: ruleClaim(rule), Subject: "routes", Detail: fmt.Sprintf(
 					"%s is claimed by %s; requests for it may reach any of them",
 					text.OneLine(rule, 200), text.OneLine(strings.Join(conflicts[rule], ", "), 200))})
 			}
@@ -799,7 +844,7 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 		if errors.As(err, &cancelled) {
 			return nil, err
 		}
-		checks = append(checks, failureCheck("routes", err))
+		checks = append(checks, failureCheck("router.orphaned-routes", "routes", err))
 	} else if orphaned != nil {
 		checks = append(checks, *orphaned)
 	}
@@ -830,7 +875,7 @@ const addressPoolBridgeWarning = 20
 // doctor advisory's own quoted-command form (orphanedFragmentsCheck,
 // registrySection, checkoutSections) rather than a hardcoded "up".
 func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName string, timeout time.Duration) (Check, error) {
-	check, result, err := askDocker(ctx, runner, "address pools", []string{
+	check, result, err := askDocker(ctx, runner, "router.address-pools", "address pools", []string{
 		"network", "ls", "--filter", "driver=bridge", "--format", "{{.Name}}",
 	}, timeout)
 	if err != nil {
@@ -846,7 +891,7 @@ func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName strin
 		}
 	}
 	if count >= addressPoolBridgeWarning {
-		return Check{Status: StatusWarn, Subject: "address pools", Detail: fmt.Sprintf(
+		return Check{Status: StatusWarn, ID: "router.address-pools", Subject: "address pools", Detail: fmt.Sprintf(
 			"%d bridge networks exist; with Docker's default address pools (about 31) a later '%s up' may fail to "+
 				"create its network. Remove networks nothing uses with `docker network prune`, or give the "+
 				"Docker daemon smaller or more `default-address-pools`.", count, commandName)}, nil
@@ -855,7 +900,7 @@ func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName strin
 	if count == 1 {
 		plural = ""
 	}
-	return Check{Status: StatusOK, Subject: "address pools", Detail: fmt.Sprintf("%d bridge network%s", count, plural)}, nil
+	return Check{Status: StatusOK, ID: "router.address-pools", Subject: "address pools", Detail: fmt.Sprintf("%d bridge network%s", count, plural)}, nil
 }
 
 // routerOwnerCheck is doctor's own read-only report of which berth root
@@ -873,14 +918,14 @@ func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, command
 		return nil, nil
 	}
 	if !owner.Labelled {
-		return &Check{Status: StatusFail, Subject: "router owner", Detail: fmt.Sprintf(
+		return &Check{Status: StatusFail, ID: "router.owner", Subject: "router owner", Detail: fmt.Sprintf(
 			"not owned by this berth root; this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
 			commandName, commandName, commandName)}, nil
 	}
 	if owner.Home == home {
-		return &Check{Status: StatusOK, Subject: "router owner", Detail: "this berth root (" + home + ")"}, nil
+		return &Check{Status: StatusOK, ID: "router.owner", Subject: "router owner", Detail: "this berth root (" + home + ")"}, nil
 	}
-	return &Check{Status: StatusFail, Subject: "router owner", Detail: fmt.Sprintf(
+	return &Check{Status: StatusFail, ID: "router.owner", Subject: "router owner", Detail: fmt.Sprintf(
 		"a different berth root (%s); this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
 		owner.Home, commandName, commandName, commandName)}, nil
 }
@@ -896,18 +941,18 @@ func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, command
 // so without Compose that line states the resolution alone.
 func routerSection(ctx context.Context, opts doctorOptions, state dockerState) ([]Check, error) {
 	if opts.RouterErr != nil {
-		return []Check{{Status: StatusFail, Subject: "router", Detail: opts.RouterErr.Error()}}, nil
+		return []Check{{Status: StatusFail, ID: "router.container", Subject: "router", Detail: opts.RouterErr.Error()}}, nil
 	}
 	if !state.engineAnswered {
 		// One skip and nothing else: the port resolution (#79) needs no
 		// Docker, but a Go-only line here would also widen the section's
 		// subject column, so it waits for #46. Pinned byte for byte by the
 		// golden tests.
-		return []Check{{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}}, nil
+		return []Check{{Status: StatusSkip, ID: "router.container", Subject: "router", Detail: "needs Docker"}}, nil
 	}
 	var checks []Check
 	if state.composeAnswered {
-		routerChecks, err := guarded("router", func() ([]Check, error) {
+		routerChecks, err := guarded("router.container", "router", func() ([]Check, error) {
 			status, err := opts.Router.Status(ctx)
 			if err != nil {
 				return nil, err
@@ -927,16 +972,16 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 		}
 		checks = append(checks, routerChecks...)
 	} else {
-		checks = append(checks, Check{Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"})
+		checks = append(checks, Check{Status: StatusSkip, ID: "router.container", Subject: "router", Detail: "needs Docker Compose"})
 	}
-	routes, err := guarded("routes", func() ([]Check, error) {
+	routes, err := guarded("router.routes", "routes", func() ([]Check, error) {
 		return routeChecks(ctx, opts.Runner, opts.RouterState, opts.Router.Network(), opts.ControlHome, opts.CommandName, opts.dockerTimeout())
 	})
 	if err != nil {
 		return nil, err
 	}
 	checks = append(checks, routes...)
-	pools, err := guarded("address pools", func() ([]Check, error) {
+	pools, err := guarded("router.address-pools", "address pools", func() ([]Check, error) {
 		check, err := addressPoolsCheck(ctx, opts.Runner, opts.CommandName, opts.dockerTimeout())
 		if err != nil {
 			return nil, err
@@ -947,13 +992,13 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 		return nil, err
 	}
 	checks = append(checks, pools...)
-	port, err := guarded("router port", func() ([]Check, error) {
+	port, err := guarded("router.port", "router port", func() ([]Check, error) {
 		// The resolution needs nothing; comparing it with what the running
 		// router publishes asks Compose for the container, so without Compose
 		// the line says only where the port came from — the same skip the
 		// status check above makes, not a failure.
 		if !state.composeAnswered {
-			return []Check{{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()}}, nil
+			return []Check{{Status: StatusOK, ID: "router.port", Subject: "router port", Detail: opts.RouterPort.Describe()}}, nil
 		}
 		check, err := routerPortCheck(ctx, opts)
 		if err != nil {
@@ -979,11 +1024,11 @@ func routerPortCheck(ctx context.Context, opts doctorOptions) (Check, error) {
 		return Check{}, err
 	}
 	if running && published != 0 && published != opts.RouterPort.Port {
-		return Check{Status: StatusWarn, Subject: "router port", Detail: fmt.Sprintf(
+		return Check{Status: StatusWarn, ID: "router.port", Subject: "router port", Detail: fmt.Sprintf(
 			"%s, but the running router publishes %d; the next '%s up' or '%s router up' moves it, and URLs already open keep the old port until then",
 			described, published, opts.CommandName, opts.CommandName)}, nil
 	}
-	return Check{Status: StatusOK, Subject: "router port", Detail: described}, nil
+	return Check{Status: StatusOK, ID: "router.port", Subject: "router port", Detail: described}, nil
 }
 
 /* ------------------------------------------------------------ checkout ---- */
@@ -1055,9 +1100,9 @@ func findCheckout(explicit, cwd string) (checkoutSource, error) {
 // turns each embedded newline into a space.
 func checkoutFileCheck(loaded *config.Loaded) Check {
 	if err := config.CheckStart(loaded); err != nil {
-		return Check{Status: StatusFail, Subject: brand.ConfigFile, Detail: err.Error()}
+		return Check{Status: StatusFail, ID: "checkout.config", Subject: brand.ConfigFile, Detail: err.Error()}
 	}
-	return Check{Status: StatusOK, Subject: brand.ConfigFile, Detail: loaded.File}
+	return Check{Status: StatusOK, ID: "checkout.config", Subject: brand.ConfigFile, Detail: loaded.File}
 }
 
 // hookResolutionChecks is one line per configured hook (config.Hooks.Configured,
@@ -1091,16 +1136,18 @@ func hookResolutionChecks(loaded *config.Loaded, environ []string) []Check {
 		subject := string(stage) + " hook file"
 		resolution, _, err := hooks.ResolveHook(loaded.Config.Hooks, stage, loaded.Root, environ)
 		if err == nil {
-			checks = append(checks, Check{Status: StatusOK, Subject: subject, Detail: fmt.Sprintf("resolves to %s", resolution.Command)})
+			checks = append(checks, Check{ID: "checkout.hooks.resolve", Instance: string(stage), Status: StatusOK, Subject: subject, Detail: fmt.Sprintf("resolves to %s", resolution.Command)})
 			continue
 		}
 		var startErr *run.StartError
 		if errors.As(err, &startErr) {
-			checks = append(checks, Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf(
+			checks = append(checks, Check{ID: "checkout.hooks.resolve", Instance: string(stage), Status: StatusFail, Subject: subject, Detail: fmt.Sprintf(
 				"would not start (exit %d): `%s` %s", startErr.ExitCode, resolution.Command, startErr.Detail)})
 			continue
 		}
-		checks = append(checks, failureCheck(subject, err))
+		failed := failureCheck("checkout.hooks.resolve", subject, err)
+		failed.Instance = string(stage)
+		checks = append(checks, failed)
 	}
 	return checks
 }
@@ -1130,7 +1177,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 	var registration *registry.WorktreeRegistration
 	if regErr != nil {
 		identified = false
-		checks = append(checks, failureCheck("this worktree", regErr))
+		checks = append(checks, failureCheck("checkout.worktree", "this worktree", regErr))
 	} else {
 		var err error
 		registration, err = reg.Current(ctx)
@@ -1140,25 +1187,25 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 				return nil, err
 			}
 			identified = false
-			checks = append(checks, failureCheck("this worktree", err))
+			checks = append(checks, failureCheck("checkout.worktree", "this worktree", err))
 		} else if registration != nil {
-			checks = append(checks, Check{Status: StatusOK, Subject: "this worktree",
+			checks = append(checks, Check{Status: StatusOK, ID: "checkout.worktree", Subject: "this worktree",
 				Detail: "registered as " + layout.WorktreeHost(registration.Slug, registration.Domain)})
 		} else {
-			checks = append(checks, Check{Status: StatusSkip, Subject: "this worktree",
+			checks = append(checks, Check{Status: StatusSkip, ID: "checkout.worktree", Subject: "this worktree",
 				Detail: fmt.Sprintf("not registered; '%s up' registers it", opts.CommandName)})
 		}
 	}
 
 	if regErr == nil {
-		missing, err := guarded("missing checkouts", func() ([]Check, error) {
+		missing, err := guarded("checkout.missing-scan", "missing checkouts", func() ([]Check, error) {
 			candidates, err := reg.PruneCandidates(ctx)
 			if err != nil {
 				return nil, err
 			}
 			out := make([]Check, len(candidates))
 			for i, record := range candidates {
-				out[i] = Check{Status: StatusWarn, Subject: layout.WorktreeHost(record.Slug, record.Domain), Detail: fmt.Sprintf(
+				out[i] = Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: layout.WorktreeHost(record.Slug, record.Domain), Detail: fmt.Sprintf(
 					"registered, but Git no longer lists its checkout. Remove what it left with '%s worktree remove %s'.",
 					opts.CommandName, record.WorktreeID)}
 			}
@@ -1175,11 +1222,11 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 	command := loaded.Config.Hooks.Verify
 	switch {
 	case command == nil:
-		checks = append(checks, Check{Status: StatusSkip, Subject: "verify hook", Detail: "none configured"})
+		checks = append(checks, Check{Status: StatusSkip, ID: "checkout.hooks.verify", Subject: "verify hook", Detail: "none configured"})
 	case !identified:
-		checks = append(checks, Check{Status: StatusSkip, Subject: "verify hook", Detail: "needs this worktree to be identified"})
+		checks = append(checks, Check{Status: StatusSkip, ID: "checkout.hooks.verify", Subject: "verify hook", Detail: "needs this worktree to be identified"})
 	case registration == nil:
-		checks = append(checks, Check{Status: StatusSkip, Subject: "verify hook",
+		checks = append(checks, Check{Status: StatusSkip, ID: "checkout.hooks.verify", Subject: "verify hook",
 			Detail: fmt.Sprintf("needs a registered worktree; run '%s up' first", opts.CommandName)})
 	default:
 		ref := worktree.Ref{RepositoryID: registration.RepositoryID, WorktreeID: registration.WorktreeID, Slug: registration.Slug}
@@ -1206,12 +1253,12 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 			}
 			var hookFailure *clierr.Error
 			if errors.As(hookErr, &hookFailure) {
-				checks = append(checks, Check{Status: StatusFail, Subject: "verify hook", Detail: hookFailure.Message, ExitCode: &hookFailure.ExitCode})
+				checks = append(checks, Check{Status: StatusFail, ID: "checkout.hooks.verify", Subject: "verify hook", Detail: hookFailure.Message, ExitCode: &hookFailure.ExitCode})
 			} else {
-				checks = append(checks, failureCheck("verify hook", hookErr))
+				checks = append(checks, failureCheck("checkout.hooks.verify", "verify hook", hookErr))
 			}
 		} else {
-			checks = append(checks, Check{Status: StatusOK, Subject: "verify hook", Detail: fmt.Sprintf("%s exited 0", *command)})
+			checks = append(checks, Check{Status: StatusOK, ID: "checkout.hooks.verify", Subject: "verify hook", Detail: fmt.Sprintf("%s exited 0", *command)})
 		}
 	}
 	return checks, nil
@@ -1223,12 +1270,12 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 func thisCheckoutSection(ctx context.Context, opts doctorOptions) ([]Check, error) {
 	switch opts.Checkout.kind {
 	case "none":
-		return []Check{{Status: StatusSkip, Subject: brand.ConfigFile, Detail: fmt.Sprintf(
+		return []Check{{Status: StatusSkip, ID: "checkout.config", Subject: brand.ConfigFile, Detail: fmt.Sprintf(
 			"none in %s or above; run '%s doctor' in a checkout to check it and its verify hook", opts.Checkout.searchedFrom, opts.CommandName)}}, nil
 	case "unloadable":
-		return []Check{{Status: StatusFail, Subject: brand.ConfigFile, Detail: opts.Checkout.unloadable.Error()}}, nil
+		return []Check{{Status: StatusFail, ID: "checkout.config", Subject: brand.ConfigFile, Detail: opts.Checkout.unloadable.Error()}}, nil
 	default:
-		return guarded("this worktree", func() ([]Check, error) { return checkoutChecks(ctx, opts, opts.Checkout.loaded) })
+		return guarded("checkout.worktree", "this worktree", func() ([]Check, error) { return checkoutChecks(ctx, opts, opts.Checkout.loaded) })
 	}
 }
 
@@ -1397,7 +1444,7 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	if err != nil {
 		return nil, err
 	}
-	locksChecks, err := guarded("locks", func() ([]Check, error) { return lockChecks(opts.ControlHome, opts.RouterLockScope, opts.CommandName) })
+	locksChecks, err := guarded("locks.scan", "locks", func() ([]Check, error) { return lockChecks(opts.ControlHome, opts.RouterLockScope, opts.CommandName) })
 	if err != nil {
 		return nil, err
 	}
@@ -1409,13 +1456,14 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	if err != nil {
 		return nil, err
 	}
-	return []Section{
-		{Title: "Prerequisites", Checks: prerequisiteChecks},
-		{Title: "Registry", Checks: registryChecks},
-		{Title: "Locks", Checks: locksChecks},
-		{Title: "Router", Checks: routerChecksResult},
-		{Title: "This checkout", Checks: checkoutChecksResult},
-	}, nil
+	sections := []Section{
+		{ID: "prerequisites", Title: "Prerequisites", Checks: prerequisiteChecks},
+		{ID: "registry", Title: "Registry", Checks: registryChecks},
+		{ID: "locks", Title: "Locks", Checks: locksChecks},
+		{ID: "router", Title: "Router", Checks: routerChecksResult},
+		{ID: "checkout", Title: "This checkout", Checks: checkoutChecksResult},
+	}
+	return sections, nil
 }
 
 // doctorOptionsFor is doctorOptions built from env and an already-checked
@@ -1476,9 +1524,69 @@ func buildDoctorOptions(env *Env, home, userHome string) (doctorOptions, error) 
 	return doctorOptionsFor(env, home, userHome, svc, state, resolved, err)
 }
 
-// Doctor is `doctor`. Its report goes to stdout, one line per check; its
-// summary goes to stderr. The returned exit code is 0 when nothing failed.
-func Doctor(ctx context.Context, env *Env) (int, error) {
+// DoctorReport is `doctor --json`'s document. OK is true when no check
+// failed; ExitCode is what the command exits with, 0 exactly when OK.
+type DoctorReport struct {
+	OK       bool                  `json:"ok"`
+	ExitCode int                   `json:"exitCode"`
+	Counts   DoctorCounts          `json:"counts"`
+	Sections []DoctorReportSection `json:"sections"`
+}
+
+// DoctorCounts is how many checks ended in each status.
+type DoctorCounts struct {
+	OK   int `json:"ok"`
+	Warn int `json:"warn"`
+	Fail int `json:"fail"`
+	Skip int `json:"skip"`
+}
+
+// DoctorReportSection is one area of the report, in report order. ID is the
+// stable key; Title is display text.
+type DoctorReportSection struct {
+	ID     string              `json:"id"`
+	Title  string              `json:"title"`
+	Checks []DoctorReportCheck `json:"checks"`
+}
+
+// DoctorReportCheck is one check. ID is the stable kind, "<section>.<kind>";
+// it repeats once per item for a per-item kind, and Instance is then the
+// item's durable key. Subject and Detail are display text, always present. HookExitCode is present
+// only for a failed verify hook, and is the code doctor then exits with.
+type DoctorReportCheck struct {
+	ID           string `json:"id"`
+	Instance     string `json:"instance,omitempty"`
+	Status       string `json:"status"`
+	Subject      string `json:"subject"`
+	Detail       string `json:"detail"`
+	HookExitCode *int   `json:"hookExitCode,omitempty"`
+}
+
+// doctorReport maps sections onto the JSON document; code is
+// doctorExitCode(sections).
+func doctorReport(sections []Section, code int) DoctorReport {
+	counts := tally(sections)
+	report := DoctorReport{
+		OK: code == 0, ExitCode: code,
+		Counts:   DoctorCounts{OK: counts[StatusOK], Warn: counts[StatusWarn], Fail: counts[StatusFail], Skip: counts[StatusSkip]},
+		Sections: make([]DoctorReportSection, 0, len(sections)),
+	}
+	for _, section := range sections {
+		checks := make([]DoctorReportCheck, 0, len(section.Checks))
+		for _, check := range section.Checks {
+			checks = append(checks, DoctorReportCheck{
+				ID: check.ID, Instance: check.Instance, Status: string(check.Status), Subject: check.Subject, Detail: check.Detail, HookExitCode: check.ExitCode,
+			})
+		}
+		report.Sections = append(report.Sections, DoctorReportSection{ID: section.ID, Title: section.Title, Checks: checks})
+	}
+	return report
+}
+
+// Doctor is `doctor`. Its report goes to stdout, one line per check (or, with
+// options.JSON, one DoctorReport document); its summary goes to stderr in
+// both forms. The returned exit code is 0 when nothing failed.
+func Doctor(ctx context.Context, env *Env, options OutputOptions) (int, error) {
 	home, userHome, err := checkedHome(env.Getenv)
 	if err != nil {
 		return 0, err
@@ -1492,8 +1600,17 @@ func Doctor(ctx context.Context, env *Env) (int, error) {
 		return 0, err
 	}
 
-	for _, line := range formatDoctorReport(sections) {
-		env.Logger.Output(text.Printable(line))
+	code := doctorExitCode(sections)
+	if options.JSON {
+		out, err := text.SafeJSON(doctorReport(sections, code))
+		if err != nil {
+			return 0, err
+		}
+		env.Logger.Output(out)
+	} else {
+		for _, line := range formatDoctorReport(sections) {
+			env.Logger.Output(text.Printable(line))
+		}
 	}
 	summary := doctorSummary(sections)
 	if summary.level == "error" {
@@ -1501,5 +1618,5 @@ func Doctor(ctx context.Context, env *Env) (int, error) {
 	} else {
 		env.Logger.Info(summary.message)
 	}
-	return doctorExitCode(sections), nil
+	return code, nil
 }

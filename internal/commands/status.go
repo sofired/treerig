@@ -10,26 +10,50 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
+// StatusReport is `status --json`'s document. Registered is false, with no
+// Host and no services, for a worktree that was never registered.
+type StatusReport struct {
+	Registered bool            `json:"registered"`
+	Host       *string         `json:"host,omitempty"`
+	Services   []StatusService `json:"services"`
+}
+
+// StatusService is one declared service's state. State is one of the
+// worktree.ServiceState words; Detail is absent when there is nothing to add.
+type StatusService struct {
+	Service string `json:"service"`
+	State   string `json:"state"`
+	Detail  string `json:"detail,omitempty"`
+}
+
 // Status is `status`.
-func Status(ctx context.Context, env *Env) error {
+func Status(ctx context.Context, env *Env, options OutputOptions) error {
 	cctx, err := Context(env)
 	if err != nil {
 		return err
 	}
-	_, err = StatusWithContext(ctx, cctx)
+	_, err = StatusWithContext(ctx, cctx, options)
 	return err
 }
 
 // StatusWithContext prints every declared service's state, or says the
-// worktree is not registered. Nil statuses mean the latter.
-func StatusWithContext(ctx context.Context, cctx *CommandContext) ([]worktree.ServiceStatus, error) {
+// worktree is not registered. Nil statuses mean the latter. With
+// options.JSON it prints a StatusReport instead, and the not-registered
+// notice still goes to stderr.
+func StatusWithContext(ctx context.Context, cctx *CommandContext, options OutputOptions) ([]worktree.ServiceStatus, error) {
 	registration, err := cctx.Registry.Current(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if registration == nil {
-		// Prose, not data: stdout stays empty, which is the honest answer.
+		// Prose, not data: in the text form stdout stays empty, which is the
+		// honest answer; --json prints its report below.
 		cctx.Logger.Info(fmt.Sprintf("Not registered — run '%s up' to create this worktree's environment.", cctx.CommandName))
+		if options.JSON {
+			if err := printJSON(cctx, StatusReport{Services: []StatusService{}}); err != nil {
+				return nil, err
+			}
+		}
 		return nil, nil
 	}
 	ref := toRef(registration.RegisteredWorktree)
@@ -37,7 +61,18 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext) ([]worktree.Se
 	if err != nil {
 		return nil, err
 	}
-	cctx.Logger.Output(text.Printable(layout.WorktreeHost(ref.Slug, registration.Domain)))
+	host := layout.WorktreeHost(ref.Slug, registration.Domain)
+	if options.JSON {
+		report := StatusReport{Registered: true, Host: &host, Services: make([]StatusService, 0, len(statuses))}
+		for _, entry := range statuses {
+			report.Services = append(report.Services, StatusService{Service: entry.Service, State: string(entry.State), Detail: entry.Detail})
+		}
+		if err := printJSON(cctx, report); err != nil {
+			return nil, err
+		}
+		return statuses, nil
+	}
+	cctx.Logger.Output(text.Printable(host))
 	if len(statuses) == 0 {
 		cctx.Logger.Output("  (no services)")
 	}

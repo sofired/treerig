@@ -76,6 +76,26 @@ func (t Timeouts) withDefaults() Timeouts {
 	return t
 }
 
+// Problem is one way the running router differs from what this version would
+// start: Message is the text `router status` and `doctor` print, and Code
+// names the difference in a fixed vocabulary that scripts may key on
+// ("<service>.<what>", for example "router.image"). The set of codes may
+// grow; a Code never changes meaning. Within one status no Code appears twice.
+type Problem struct {
+	Code    string
+	Message string
+}
+
+// Codes for the problems that concern no single container, and for a router
+// that is gone. The service part of a code is "router", "index" or "stack"
+// ("stack" covers failures that concern both containers).
+const (
+	codeAbsent = "router.absent"
+	// CodeUnreachable is the code of the one problem an unreachable status
+	// carries: Docker itself could not be asked.
+	CodeUnreachable = "stack.unreachable"
+)
+
 // notRunning is Verify's answer when every container is gone.
 const notRunning = "the router is not running"
 
@@ -727,48 +747,53 @@ func unconfined(opt, profile string) bool {
 // carries — including, as of #55/#74, that none of it can be bypassed:
 // not privileged, no shared host namespace, no devices, and neither
 // seccomp nor AppArmor left unconfined.
-func (r *Router) commonProblems(inspected ContainerInspect, service string) []string {
-	var problems []string
+func (r *Router) commonProblems(inspected ContainerInspect, service string) []Problem {
+	var problems []Problem
 	labels := inspected.Config.Labels
 	if labels["com.docker.compose.project"] != r.ProjectName || labels["com.docker.compose.service"] != service {
-		problems = append(problems, service+": not the container Compose started for this project")
+		problems = append(problems, Problem{Code: service + ".container", Message: service + ": not the container Compose started for this project"})
 	}
 	if labels[r.componentLabel()] != service {
-		problems = append(problems, service+": component label")
+		problems = append(problems, Problem{Code: service + ".component-label", Message: service + ": component label"})
 	}
 	if labels[r.protocolLabelName()] != strconv.Itoa(Protocol) {
-		problems = append(problems, service+": protocol label")
+		problems = append(problems, Problem{Code: service + ".protocol-label", Message: service + ": protocol label"})
 	}
 	if inspected.State.Status != "running" {
-		problems = append(problems, service+": not running")
+		problems = append(problems, Problem{Code: service + ".not-running", Message: service + ": not running"})
 	}
 	if inspected.State.Health.Status != "healthy" {
-		problems = append(problems, service+": not healthy")
+		problems = append(problems, Problem{Code: service + ".not-healthy", Message: service + ": not healthy"})
 	}
 	if !inspected.HostConfig.ReadonlyRootfs {
-		problems = append(problems, service+": root filesystem is writable")
+		problems = append(problems, Problem{Code: service + ".writable-rootfs", Message: service + ": root filesystem is writable"})
 	}
 	if !slices.Contains(inspected.HostConfig.SecurityOpt, "no-new-privileges:true") {
-		problems = append(problems, service+": no-new-privileges is not set")
+		problems = append(problems, Problem{Code: service + ".new-privileges", Message: service + ": no-new-privileges is not set"})
 	}
 	if !slices.Contains(inspected.HostConfig.CapDrop, "ALL") {
-		problems = append(problems, service+": capabilities are not dropped")
+		problems = append(problems, Problem{Code: service + ".capabilities-kept", Message: service + ": capabilities are not dropped"})
 	}
 	if inspected.HostConfig.Privileged {
-		problems = append(problems, service+": privileged")
+		problems = append(problems, Problem{Code: service + ".privileged", Message: service + ": privileged"})
 	}
 	if slices.Contains(hostNamespaceModes(inspected.HostConfig), "host") {
-		problems = append(problems, service+": shares a host namespace")
+		problems = append(problems, Problem{Code: service + ".host-namespace", Message: service + ": shares a host namespace"})
 	}
 	if len(inspected.HostConfig.Devices) > 0 {
-		problems = append(problems, service+": devices are attached")
+		problems = append(problems, Problem{Code: service + ".devices", Message: service + ": devices are attached"})
 	}
+	// Each of these is reported once, however many entries repeat it: a code
+	// appears at most once in a status.
+	var seccompSeen, apparmorSeen bool
 	for _, opt := range inspected.HostConfig.SecurityOpt {
-		if unconfined(opt, "seccomp") {
-			problems = append(problems, service+": seccomp is unconfined")
+		if unconfined(opt, "seccomp") && !seccompSeen {
+			seccompSeen = true
+			problems = append(problems, Problem{Code: service + ".seccomp", Message: service + ": seccomp is unconfined"})
 		}
-		if unconfined(opt, "apparmor") {
-			problems = append(problems, service+": apparmor is unconfined")
+		if unconfined(opt, "apparmor") && !apparmorSeen {
+			apparmorSeen = true
+			problems = append(problems, Problem{Code: service + ".apparmor", Message: service + ": apparmor is unconfined"})
 		}
 	}
 	return problems
@@ -813,11 +838,11 @@ func sortedNetworkKeys(networks map[string]json.RawMessage) []string {
 // routerProblems is every way the router container can differ from what the
 // stack asked for: its port binding, networks, command line, image,
 // capabilities and mount, on top of commonProblems.
-func (r *Router) routerProblems(ctx context.Context, inspected ContainerInspect) []string {
+func (r *Router) routerProblems(ctx context.Context, inspected ContainerInspect) []Problem {
 	problems := r.commonProblems(inspected, RouterService)
 	bindings := inspected.NetworkSettings.Ports["80/tcp"]
 	if len(bindings) != 1 || bindings[0].HostIP != "127.0.0.1" || bindings[0].HostPort != strconv.Itoa(r.Port) {
-		problems = append(problems, fmt.Sprintf("router: port 80 is not published only on 127.0.0.1:%d", r.Port))
+		problems = append(problems, Problem{Code: "router.port", Message: fmt.Sprintf("router: port 80 is not published only on 127.0.0.1:%d", r.Port)})
 	}
 	var otherPorts []string
 	for _, port := range sortedPortKeys(inspected.NetworkSettings.Ports) {
@@ -826,12 +851,12 @@ func (r *Router) routerProblems(ctx context.Context, inspected ContainerInspect)
 		}
 	}
 	if len(otherPorts) > 0 {
-		problems = append(problems, fmt.Sprintf("router: publishes unexpected ports (%s)", strings.Join(otherPorts, ", ")))
+		problems = append(problems, Problem{Code: "router.other-ports", Message: fmt.Sprintf("router: publishes unexpected ports (%s)", strings.Join(otherPorts, ", "))})
 	}
 	networks := sortedNetworkKeys(inspected.NetworkSettings.Networks)
 	expected, err := r.labelledWorktreeNetworks(ctx)
 	if err != nil {
-		problems = append(problems, fmt.Sprintf("router: could not list this router's worktree networks: %s", err))
+		problems = append(problems, Problem{Code: "router.network-list", Message: fmt.Sprintf("router: could not list this router's worktree networks: %s", err)})
 	} else {
 		expected = append(expected, r.Network)
 		// Only an attached network outside expected, or a missing r.Network
@@ -859,20 +884,20 @@ func (r *Router) routerProblems(ctx context.Context, inspected ContainerInspect)
 				joined = "(none)"
 			}
 			wantJoined := strings.Join(expected, ", ")
-			problems = append(problems, fmt.Sprintf("router: attached to networks %s instead of %s", joined, wantJoined))
+			problems = append(problems, Problem{Code: "router.networks", Message: fmt.Sprintf("router: attached to networks %s instead of %s", joined, wantJoined)})
 		}
 	}
 	if strings.Join(inspected.Config.Cmd, "\x00") != strings.Join(RouterCommand(), "\x00") {
-		problems = append(problems, "router: command line differs")
+		problems = append(problems, Problem{Code: "router.command", Message: "router: command line differs"})
 	}
 	if inspected.Config.Image != RouterImage {
-		problems = append(problems, "router: image is not the pinned digest")
+		problems = append(problems, Problem{Code: "router.image", Message: "router: image is not the pinned digest"})
 	}
 	if !slices.Equal(inspected.Config.Entrypoint, RouterImageEntrypoint) {
-		problems = append(problems, "router: entrypoint differs from the pinned image")
+		problems = append(problems, Problem{Code: "router.entrypoint", Message: "router: entrypoint differs from the pinned image"})
 	}
 	if !sameSet(inspected.HostConfig.CapAdd, []string{"CAP_NET_BIND_SERVICE"}) {
-		problems = append(problems, "router: capabilities beyond NET_BIND_SERVICE")
+		problems = append(problems, Problem{Code: "router.capabilities", Message: "router: capabilities beyond NET_BIND_SERVICE"})
 	}
 	var dynamic *InspectMount
 	for i, mount := range inspected.Mounts {
@@ -882,7 +907,7 @@ func (r *Router) routerProblems(ctx context.Context, inspected ContainerInspect)
 		}
 	}
 	if len(inspected.Mounts) != 1 || dynamic == nil || dynamic.Type != "bind" || dynamic.Source != r.state.DynamicDir || dynamic.RW {
-		problems = append(problems, "router: mounts are not exactly the read-only dynamic-configuration directory")
+		problems = append(problems, Problem{Code: "router.mounts", Message: "router: mounts are not exactly the read-only dynamic-configuration directory"})
 	}
 	return problems
 }
@@ -890,38 +915,38 @@ func (r *Router) routerProblems(ctx context.Context, inspected ContainerInspect)
 // indexProblems is every way the index container can differ from what the
 // stack asked for: its image, command, routing labels, network, capabilities
 // and mount, on top of commonProblems.
-func (r *Router) indexProblems(inspected ContainerInspect) []string {
+func (r *Router) indexProblems(inspected ContainerInspect) []Problem {
 	problems := r.commonProblems(inspected, IndexService)
 	if inspected.Config.Image != IndexImage {
-		problems = append(problems, "index: image is not the pinned digest")
+		problems = append(problems, Problem{Code: "index.image", Message: "index: image is not the pinned digest"})
 	}
 	if !slices.Equal(inspected.Config.Entrypoint, IndexImageEntrypoint) {
-		problems = append(problems, "index: entrypoint differs from the pinned image")
+		problems = append(problems, Problem{Code: "index.entrypoint", Message: "index: entrypoint differs from the pinned image"})
 	}
 	if strings.Join(inspected.Config.Cmd, "\x00") != strings.Join(IndexCommand, "\x00") {
-		problems = append(problems, "index: command line differs")
+		problems = append(problems, Problem{Code: "index.command", Message: "index: command line differs"})
 	}
 	for _, entry := range IndexRouteLabels(r.Network) {
 		if inspected.Config.Labels[entry.key] != entry.value {
-			problems = append(problems, "index: routing labels differ")
+			problems = append(problems, Problem{Code: "index.labels", Message: "index: routing labels differ"})
 			break
 		}
 	}
 	networks := sortedNetworkKeys(inspected.NetworkSettings.Networks)
 	if !sameSet(networks, []string{r.Network}) {
-		problems = append(problems, "index: attached to a network other than the shared one")
+		problems = append(problems, Problem{Code: "index.network", Message: "index: attached to a network other than the shared one"})
 	}
 	for _, bindings := range inspected.NetworkSettings.Ports {
 		if len(bindings) > 0 {
-			problems = append(problems, "index: publishes a port")
+			problems = append(problems, Problem{Code: "index.port", Message: "index: publishes a port"})
 			break
 		}
 	}
 	if len(inspected.HostConfig.CapAdd) != 0 {
-		problems = append(problems, "index: has added capabilities")
+		problems = append(problems, Problem{Code: "index.capabilities", Message: "index: has added capabilities"})
 	}
 	if inspected.HostConfig.Init == nil || !*inspected.HostConfig.Init {
-		problems = append(problems, "index: runs without an init process, so stopping it waits out Docker's grace period")
+		problems = append(problems, Problem{Code: "index.init", Message: "index: runs without an init process, so stopping it waits out Docker's grace period"})
 	}
 	var served *InspectMount
 	for i, mount := range inspected.Mounts {
@@ -931,14 +956,28 @@ func (r *Router) indexProblems(inspected ContainerInspect) []string {
 		}
 	}
 	if len(inspected.Mounts) != 1 || served == nil || served.Type != "bind" || served.Source != r.state.IndexDir || served.RW {
-		problems = append(problems, "index: mounts are not exactly the read-only index directory")
+		problems = append(problems, Problem{Code: "index.mounts", Message: "index: mounts are not exactly the read-only index directory"})
 	}
 	return problems
 }
 
 // Verify is everything that differs between the running router and what this
-// version would start. Returns a *docker.UnavailableError when Docker cannot say.
+// version would start, as messages. Returns a *docker.UnavailableError when
+// Docker cannot say.
 func (r *Router) Verify(ctx context.Context) ([]string, error) {
+	problems, err := r.verifyProblems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]string, len(problems))
+	for i, problem := range problems {
+		messages[i] = problem.Message
+	}
+	return messages, nil
+}
+
+// verifyProblems is Verify with each difference's code.
+func (r *Router) verifyProblems(ctx context.Context) ([]Problem, error) {
 	services := []string{RouterService, IndexService}
 	ids := make([]string, len(services))
 	for i, service := range services {
@@ -960,12 +999,12 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 		}
 	}
 	if gone {
-		return []string{notRunning}, nil
+		return []Problem{{Code: codeAbsent, Message: notRunning}}, nil
 	}
-	var missing []string
+	var missing []Problem
 	for i, id := range ids {
 		if id == "" {
-			missing = append(missing, services[i]+": container is missing")
+			missing = append(missing, Problem{Code: services[i] + ".missing", Message: services[i] + ": container is missing"})
 		}
 	}
 	if len(missing) > 0 {
@@ -980,9 +1019,9 @@ func (r *Router) Verify(ctx context.Context) ([]string, error) {
 		inspected[i] = doc
 	}
 	if inspected[0] == nil || inspected[1] == nil {
-		return []string{"the router could not be inspected"}, nil
+		return []Problem{{Code: "stack.inspect", Message: "the router could not be inspected"}}, nil
 	}
-	var problems []string
+	var problems []Problem
 	problems = append(problems, r.routerProblems(ctx, *inspected[0])...)
 	problems = append(problems, r.indexProblems(*inspected[1])...)
 	return problems, nil
@@ -1260,24 +1299,36 @@ type RouterStatus struct {
 	// then unknown and reported false.
 	Reachable bool
 	Running   bool
-	// Problems is empty when the running router is exactly what this version would start.
-	Problems []string
+	// Problems is empty when the running router is exactly what this version
+	// would start. An unreachable status has exactly one, coded
+	// "stack.unreachable".
+	Problems []Problem
 	Port     int
 	Network  string
+}
+
+// Messages are the Message of each of Problems, in order.
+func (s RouterStatus) Messages() []string {
+	messages := make([]string, len(s.Problems))
+	for i, problem := range s.Problems {
+		messages[i] = problem.Message
+	}
+	return messages
 }
 
 // Status reports the router's status, translating a Docker-unavailable
 // Verify failure into an unreachable status rather than propagating it.
 func (r *Router) Status(ctx context.Context) (RouterStatus, error) {
-	problems, err := r.Verify(ctx)
+	problems, err := r.verifyProblems(ctx)
 	if err != nil {
 		var unavailable *docker.UnavailableError
 		if !errors.As(err, &unavailable) {
 			return RouterStatus{}, err
 		}
-		return RouterStatus{Reachable: false, Running: false, Problems: []string{err.Error()}, Port: r.Port, Network: r.Network}, nil
+		return RouterStatus{Reachable: false, Running: false, Problems: []Problem{{Code: CodeUnreachable, Message: err.Error()}}, Port: r.Port, Network: r.Network}, nil
 	}
-	return RouterStatus{Reachable: true, Running: !slices.Contains(problems, notRunning), Problems: problems, Port: r.Port, Network: r.Network}, nil
+	running := !slices.ContainsFunc(problems, func(problem Problem) bool { return problem.Code == codeAbsent })
+	return RouterStatus{Reachable: true, Running: running, Problems: problems, Port: r.Port, Network: r.Network}, nil
 }
 
 // Report is what `router status` says, and where.
@@ -1294,7 +1345,7 @@ type Report struct {
 func StatusReport(status RouterStatus) Report {
 	where := fmt.Sprintf("127.0.0.1:%d, network %s", status.Port, status.Network)
 	if !status.Reachable {
-		joined := strings.TrimSuffix(strings.Join(status.Problems, "; "), ".")
+		joined := strings.TrimSuffix(strings.Join(status.Messages(), "; "), ".")
 		return Report{Output: []string{}, Errors: []string{"Router state unknown: " + joined}, Failed: true}
 	}
 	// verify() answers [notRunning] and nothing else when every container is
@@ -1308,7 +1359,7 @@ func StatusReport(status RouterStatus) Report {
 	}
 	errs := make([]string, len(status.Problems))
 	for i, problem := range status.Problems {
-		errs[i] = "Router problem: " + problem
+		errs[i] = "Router problem: " + problem.Message
 	}
 	return Report{Output: []string{output}, Errors: errs, Failed: len(status.Problems) > 0}
 }

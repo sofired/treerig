@@ -13,9 +13,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -477,13 +482,13 @@ func TestVersions(t *testing.T) {
 	})
 
 	t.Run("passes a tool at the minimum, fails one below it, and fails output it cannot read", func(t *testing.T) {
-		if got := versionCheck("Git", "git version 2.36.0", "2.36"); got != (Check{Status: StatusOK, Subject: "Git", Detail: "2.36.0"}) {
+		if got := versionCheck("prerequisites.git", "Git", "git version 2.36.0", "2.36"); got != (Check{ID: "prerequisites.git", Status: StatusOK, Subject: "Git", Detail: "2.36.0"}) {
 			t.Errorf("got %+v", got)
 		}
-		if got := versionCheck("Git", "git version 2.35.1", "2.36"); got != (Check{Status: StatusFail, Subject: "Git", Detail: "2.35.1; 2.36 or newer is needed"}) {
+		if got := versionCheck("prerequisites.git", "Git", "git version 2.35.1", "2.36"); got != (Check{ID: "prerequisites.git", Status: StatusFail, Subject: "Git", Detail: "2.35.1; 2.36 or newer is needed"}) {
 			t.Errorf("got %+v", got)
 		}
-		got := versionCheck("Git", "garbled", "2.36")
+		got := versionCheck("prerequisites.git", "Git", "garbled", "2.36")
 		if got.Status != StatusFail || got.Detail != `could not read a version from "garbled"` {
 			t.Errorf("got %+v", got)
 		}
@@ -503,14 +508,14 @@ func TestRegistryChecksInternal(t *testing.T) {
 
 	t.Run("says there is nothing yet, or how many records read cleanly", func(t *testing.T) {
 		got := registryChecks(scan(nil), "berth")
-		want := []Check{{Status: StatusOK, Subject: "registrations", Detail: "none yet"}}
+		want := []Check{{ID: "registry.registrations", Status: StatusOK, Subject: "registrations", Detail: "none yet"}}
 		if len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 		got = registryChecks(scan(func(s *registry.RegistryScan) {
 			s.Records = []registry.RegisteredWorktree{testWorktree("a", "acme.localhost"), testWorktree("b", "acme.localhost")}
 		}), "berth")
-		if len(got) != 1 || got[0] != (Check{Status: StatusOK, Subject: "registrations", Detail: "2 readable"}) {
+		if len(got) != 1 || got[0] != (Check{ID: "registry.registrations", Status: StatusOK, Subject: "registrations", Detail: "2 readable"}) {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -519,7 +524,7 @@ func TestRegistryChecksInternal(t *testing.T) {
 		got := registryChecks(scan(func(s *registry.RegistryScan) {
 			s.Problems = []registry.RegistryProblem{{File: "/x.json", Reason: "Registry record is not valid JSON: /x.json"}}
 		}), "berth")
-		if got[1] != (Check{Status: StatusFail, Subject: "unreadable record", Detail: "Registry record is not valid JSON: /x.json"}) {
+		if got[1] != (Check{ID: "registry.unreadable-record", Instance: "x.json", Status: StatusFail, Subject: "unreadable record", Detail: "Registry record is not valid JSON: /x.json"}) {
 			t.Fatalf("got %+v", got[1])
 		}
 	})
@@ -530,7 +535,7 @@ func TestRegistryChecksInternal(t *testing.T) {
 			s.Records = []registry.RegisteredWorktree{first, second}
 			s.Conflicts = registry.HostnameConflicts{"shared.acme.localhost": {first, second}}
 		}), "duke")
-		if got[1].Status != StatusFail || got[1].Subject != "shared.acme.localhost" {
+		if got[1].Status != StatusFail || got[1].Subject != "shared.acme.localhost" || got[1].ID != "registry.host-conflict" || got[1].Instance != "shared.acme.localhost" {
 			t.Fatalf("got %+v", got[1])
 		}
 		want := fmt.Sprintf("registered to 2 worktrees (%s, %s); requests for it may reach any of them that is running. Remove all but one with 'duke worktree remove <uuid>'.",
@@ -609,31 +614,31 @@ func TestRouterChecksInternal(t *testing.T) {
 
 	t.Run("reports a running, clean router and a stopped one as healthy, in router status's words", func(t *testing.T) {
 		got := routerStatusChecks(status)
-		if len(got) != 1 || got[0] != (Check{Status: StatusOK, Subject: "router", Detail: "running on 127.0.0.1:80, network berth-router"}) {
+		if len(got) != 1 || got[0] != (Check{ID: "router.container", Status: StatusOK, Subject: "router", Detail: "running on 127.0.0.1:80, network berth-router"}) {
 			t.Fatalf("got %+v", got)
 		}
 		stopped := status
-		stopped.Running, stopped.Problems = false, []string{"the router is not running"}
+		stopped.Running, stopped.Problems = false, []router.Problem{{Code: "router.absent", Message: "the router is not running"}}
 		got = routerStatusChecks(stopped)
-		if len(got) != 1 || got[0] != (Check{Status: StatusOK, Subject: "router", Detail: "not running (would use 127.0.0.1:80, network berth-router)"}) {
+		if len(got) != 1 || got[0] != (Check{ID: "router.container", Status: StatusOK, Subject: "router", Detail: "not running (would use 127.0.0.1:80, network berth-router)"}) {
 			t.Fatalf("got %+v", got)
 		}
 	})
 
 	t.Run("fails each problem of a degraded router, and a router Docker could not be asked about", func(t *testing.T) {
 		degraded := status
-		degraded.Problems = []string{"router: not healthy", "index: image is not pinned"}
+		degraded.Problems = []router.Problem{{Code: "router.not-healthy", Message: "router: not healthy"}, {Code: "index.image", Message: "index: image is not pinned"}}
 		got := routerStatusChecks(degraded)
 		want := []Check{
-			{Status: StatusFail, Subject: "router", Detail: "router: not healthy"},
-			{Status: StatusFail, Subject: "router", Detail: "index: image is not pinned"},
+			{ID: "router.container", Instance: "router.not-healthy", Status: StatusFail, Subject: "router", Detail: "router: not healthy"},
+			{ID: "router.container", Instance: "index.image", Status: StatusFail, Subject: "router", Detail: "index: image is not pinned"},
 		}
 		if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 			t.Fatalf("got %+v", got)
 		}
-		unreachable := router.RouterStatus{Reachable: false, Running: false, Problems: []string{"Docker is not available: boom."}, Port: 80, Network: "berth-router"}
+		unreachable := router.RouterStatus{Reachable: false, Running: false, Problems: []router.Problem{{Code: router.CodeUnreachable, Message: "Docker is not available: boom."}}, Port: 80, Network: "berth-router"}
 		got = routerStatusChecks(unreachable)
-		if len(got) != 1 || got[0] != (Check{Status: StatusFail, Subject: "router", Detail: "Router state unknown: Docker is not available: boom"}) {
+		if len(got) != 1 || got[0] != (Check{ID: "router.container", Instance: router.CodeUnreachable, Status: StatusFail, Subject: "router", Detail: "Router state unknown: Docker is not available: boom"}) {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -649,7 +654,7 @@ func TestRouterChecksInternal(t *testing.T) {
 	t.Run("reports this berth root as the running router's own owner", func(t *testing.T) {
 		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/dev/.berth"}}
 		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
-		want := &Check{Status: StatusOK, Subject: "router owner", Detail: "this berth root (/home/dev/.berth)"}
+		want := &Check{ID: "router.owner", Status: StatusOK, Subject: "router owner", Detail: "this berth root (/home/dev/.berth)"}
 		if err != nil || got == nil || *got != *want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -658,7 +663,7 @@ func TestRouterChecksInternal(t *testing.T) {
 	t.Run("fails a router that belongs to a different berth root", func(t *testing.T) {
 		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/other/.berth"}}
 		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
-		want := &Check{Status: StatusFail, Subject: "router owner", Detail: "a different berth root (/home/other/.berth); this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
+		want := &Check{ID: "router.owner", Status: StatusFail, Subject: "router owner", Detail: "a different berth root (/home/other/.berth); this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
 		if err != nil || got == nil || *got != *want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -667,7 +672,7 @@ func TestRouterChecksInternal(t *testing.T) {
 	t.Run("fails a running router that carries no berth-root label, the same as one belonging to another root", func(t *testing.T) {
 		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: false}}
 		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
-		want := &Check{Status: StatusFail, Subject: "router owner", Detail: "not owned by this berth root; this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
+		want := &Check{ID: "router.owner", Status: StatusFail, Subject: "router owner", Detail: "not owned by this berth root; this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
 		if err != nil || got == nil || *got != *want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -850,8 +855,8 @@ func TestReportInternal(t *testing.T) {
 		}
 		failing := func(exitCode *int) []Section {
 			return append(append([]Section{}, sections...), Section{Title: "T", Checks: []Check{
-				{Status: StatusFail, Subject: "router", Detail: "x"},
-				{Status: StatusFail, Subject: "verify hook", Detail: "y", ExitCode: exitCode},
+				{ID: "router.container", Status: StatusFail, Subject: "router", Detail: "x"},
+				{ID: "checkout.hooks.verify", Status: StatusFail, Subject: "verify hook", Detail: "y", ExitCode: exitCode},
 			}})
 		}
 		if got := doctorExitCode(failing(nil)); got != 1 {
@@ -1011,10 +1016,10 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []Check{
-			{Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"},
-			{Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
-			{Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
-			{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
+			{ID: "router.container", Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"},
+			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
+			{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
+			{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}
 		got := section(sections, "Router")
 		if len(got) != 4 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
@@ -1048,7 +1053,7 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatalf("prerequisites[1:] = %v", gotPrereq)
 		}
 		gotRouter := section(sections, "Router")
-		if len(gotRouter) != 1 || gotRouter[0] != (Check{Status: StatusSkip, Subject: "router", Detail: "needs Docker"}) {
+		if len(gotRouter) != 1 || gotRouter[0] != (Check{ID: "router.container", Status: StatusSkip, Subject: "router", Detail: "needs Docker"}) {
 			t.Fatalf("router = %+v", gotRouter)
 		}
 		if fakeRouter.asked != 0 {
@@ -1069,7 +1074,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusFail, Subject: "Docker Engine",
+		want := Check{ID: "prerequisites.docker.engine", Status: StatusFail, Subject: "Docker Engine",
 			Detail: "Docker is not available: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"}
 		got := section(sections, "Prerequisites")[1]
 		if got != want {
@@ -1090,8 +1095,8 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []Check{
-			{Status: StatusFail, Subject: "Docker Engine", Detail: "`docker version --format {{.Server.Version}}` did not answer within 30 s"},
-			{Status: StatusFail, Subject: "Docker Compose", Detail: "unexpected failure"},
+			{ID: "prerequisites.docker.engine", Status: StatusFail, Subject: "Docker Engine", Detail: "`docker version --format {{.Server.Version}}` did not answer within 30 s"},
+			{ID: "prerequisites.docker.compose", Status: StatusFail, Subject: "Docker Compose", Detail: "unexpected failure"},
 		}
 		got := section(sections, "Prerequisites")[1:]
 		if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
@@ -1126,7 +1131,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusFail, Subject: "Git", Detail: "`git` could not be started: it is not on PATH (ENOENT)."}
+		want := Check{ID: "prerequisites.git", Status: StatusFail, Subject: "Git", Detail: "`git` could not be started: it is not on PATH (ENOENT)."}
 		if got := section(sections, "Prerequisites")[0]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -1136,7 +1141,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want = Check{Status: StatusFail, Subject: "Git", Detail: "`git --version` failed: fatal: bad"}
+		want = Check{ID: "prerequisites.git", Status: StatusFail, Subject: "Git", Detail: "`git --version` failed: fatal: bad"}
 		if got := section(sections, "Prerequisites")[0]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -1226,7 +1231,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []Check{{Status: StatusFail, Subject: "router", Detail: `BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "x".`}}
+		want := []Check{{ID: "router.container", Status: StatusFail, Subject: "router", Detail: `BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "x".`}}
 		if got := section(sections, "Router"); len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v", got)
 		}
@@ -1239,10 +1244,10 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		wantRouter := []Check{
-			{Status: StatusFail, Subject: "router", Detail: "exploded"},
-			{Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
-			{Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
-			{Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
+			{ID: "router.container", Status: StatusFail, Subject: "router", Detail: "exploded"},
+			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
+			{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
+			{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}
 		got := section(sections, "Router")
 		if len(got) != 4 || got[0] != wantRouter[0] || got[1] != wantRouter[1] || got[2] != wantRouter[2] || got[3] != wantRouter[3] {
@@ -1331,7 +1336,7 @@ func TestDoctorSections(t *testing.T) {
 		}
 		nameA := doctorRepoA + "." + doctorWorktreeA + ".mail"
 		nameB := doctorRepoB + "." + doctorWorktreeB + ".api"
-		want := Check{Status: StatusFail, Subject: "routes",
+		want := Check{ID: "router.route-conflict", Instance: "mail.main.acme.localhost", Status: StatusFail, Subject: "routes",
 			Detail: fmt.Sprintf("Host(`mail.main.acme.localhost`) is claimed by %s, %s; requests for it may reach any of them",
 				minString(nameA, nameB), maxString(nameA, nameB))}
 		if got := section(sections, "Router")[1]; got != want {
@@ -1430,7 +1435,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusOK, Subject: "routes", Detail: "1 route fragment; no two routers share a rule"}
+		want := Check{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "1 route fragment; no two routers share a rule"}
 		if got := section(sections, "Router")[1]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -1453,7 +1458,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusOK, Subject: "routes", Detail: "2 route fragments; no two routers share a rule"}
+		want := Check{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "2 route fragments; no two routers share a rule"}
 		if got := section(sections, "Router")[1]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -1474,7 +1479,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusWarn, Subject: "routes",
+		want := Check{ID: "router.orphaned-routes", Status: StatusWarn, Subject: "routes",
 			Detail: "1 route fragment for 1 worktree whose router network is gone; the next 'berth up' or 'berth router up' removes them"}
 		if got := section(sections, "Router")[2]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
@@ -1515,7 +1520,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusWarn, Subject: "routes",
+		want := Check{ID: "router.orphaned-routes", Status: StatusWarn, Subject: "routes",
 			Detail: "3 route fragments for 2 worktrees whose router networks are gone; the next 'berth up' or 'berth router up' removes them"}
 		if got := section(sections, "Router")[2]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
@@ -1552,9 +1557,9 @@ func TestDoctorSections(t *testing.T) {
 			own  int
 			want Check
 		}{
-			{1, Check{Status: StatusOK, Subject: "address pools", Detail: "1 bridge network"}},
-			{19, Check{Status: StatusOK, Subject: "address pools", Detail: "19 bridge networks"}},
-			{20, Check{Status: StatusWarn, Subject: "address pools", Detail: "20 bridge networks exist; with Docker's default address pools (about 31) a later 'berth up' may fail to " +
+			{1, Check{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "1 bridge network"}},
+			{19, Check{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "19 bridge networks"}},
+			{20, Check{ID: "router.address-pools", Status: StatusWarn, Subject: "address pools", Detail: "20 bridge networks exist; with Docker's default address pools (about 31) a later 'berth up' may fail to " +
 				"create its network. Remove networks nothing uses with `docker network prune`, or give the " +
 				"Docker daemon smaller or more `default-address-pools`."}},
 		} {
@@ -1587,7 +1592,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []Check{{Status: StatusFail, Subject: "berth.toml", Detail: "berth.toml: bad"}}
+		want := []Check{{ID: "checkout.config", Status: StatusFail, Subject: "berth.toml", Detail: "berth.toml: bad"}}
 		if got := section(sections, "This checkout"); len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v", got)
 		}
@@ -1668,7 +1673,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		checks := section(sections, "This checkout")
 		last := checks[len(checks)-1]
-		if last != (Check{Status: StatusSkip, Subject: "verify hook", Detail: "none configured"}) {
+		if last != (Check{ID: "checkout.hooks.verify", Status: StatusSkip, Subject: "verify hook", Detail: "none configured"}) {
 			t.Fatalf("got %+v", last)
 		}
 	})
@@ -1964,7 +1969,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		last := checks[len(checks)-1]
 		// Strictly: no exit code of its own, since no hook verdict was reached.
-		if last != (Check{Status: StatusFail, Subject: "verify hook", Detail: "spawn went wrong"}) {
+		if last != (Check{ID: "checkout.hooks.verify", Status: StatusFail, Subject: "verify hook", Detail: "spawn went wrong"}) {
 			t.Fatalf("got %+v", last)
 		}
 		if code := doctorExitCode(sections); code != 1 {
@@ -1990,11 +1995,11 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []Check{
-			{Status: StatusOK, Subject: brand.ConfigFile, Detail: f.loaded.File},
-			{Status: StatusFail, Subject: "this worktree", Detail: "Command failed (git rev-parse): not a git repository"},
-			{Status: StatusFail, Subject: "missing checkouts", Detail: "Command failed (git worktree list): not a git repository"},
-			{Status: StatusOK, Subject: "verify hook file", Detail: "resolves to " + filepath.Join(f.root, "verify")},
-			{Status: StatusSkip, Subject: "verify hook", Detail: "needs this worktree to be identified"},
+			{ID: "checkout.config", Status: StatusOK, Subject: brand.ConfigFile, Detail: f.loaded.File},
+			{ID: "checkout.worktree", Status: StatusFail, Subject: "this worktree", Detail: "Command failed (git rev-parse): not a git repository"},
+			{ID: "checkout.missing-scan", Status: StatusFail, Subject: "missing checkouts", Detail: "Command failed (git worktree list): not a git repository"},
+			{ID: "checkout.hooks.resolve", Instance: "verify", Status: StatusOK, Subject: "verify hook file", Detail: "resolves to " + filepath.Join(f.root, "verify")},
+			{ID: "checkout.hooks.verify", Status: StatusSkip, Subject: "verify hook", Detail: "needs this worktree to be identified"},
 		}
 		got := section(sections, "This checkout")
 		if len(got) != len(want) {
@@ -2016,9 +2021,9 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []Check{
-			{Status: StatusOK, Subject: brand.ConfigFile, Detail: f.loaded.File},
-			{Status: StatusFail, Subject: "this worktree", Detail: "no registry here"},
-			{Status: StatusSkip, Subject: "verify hook", Detail: "none configured"},
+			{ID: "checkout.config", Status: StatusOK, Subject: brand.ConfigFile, Detail: f.loaded.File},
+			{ID: "checkout.worktree", Status: StatusFail, Subject: "this worktree", Detail: "no registry here"},
+			{ID: "checkout.hooks.verify", Status: StatusSkip, Subject: "verify hook", Detail: "none configured"},
 		}
 		got := section(sections, "This checkout")
 		if len(got) != len(want) {
@@ -2110,7 +2115,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		if warning == nil {
 			t.Fatal("expected a warning")
 		}
-		want := Check{Status: StatusWarn, Subject: "feature-gone.acme.localhost", Detail: fmt.Sprintf(
+		want := Check{ID: "checkout.missing", Instance: registered.WorktreeID, Status: StatusWarn, Subject: "feature-gone.acme.localhost", Detail: fmt.Sprintf(
 			"registered, but Git no longer lists its checkout. Remove what it left with 'berth worktree remove %s'.", registered.WorktreeID)}
 		if *warning != want {
 			t.Fatalf("got %+v, want %+v", *warning, want)
@@ -2255,7 +2260,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 
 	t.Run("reports none held when no lock is taken", func(t *testing.T) {
 		got := locksOf(t, t.TempDir())
-		want := []Check{{Status: StatusOK, Subject: "locks", Detail: "none held"}}
+		want := []Check{{ID: "locks.none", Status: StatusOK, Subject: "locks", Detail: "none held"}}
 		if len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v", got)
 		}
@@ -2394,7 +2399,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := locksOf(t, controlHome)
-		want := []Check{{Status: StatusOK, Subject: "locks", Detail: "none held"}}
+		want := []Check{{ID: "locks.none", Status: StatusOK, Subject: "locks", Detail: "none held"}}
 		if len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v", got)
 		}
@@ -2452,7 +2457,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
+		want := Check{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
 		if got := last(t, sections); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2469,7 +2474,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusWarn, Subject: "router port", Detail: "port 8080 from BERTH_ROUTER_PORT (overriding /berth/settings.toml), but the running router publishes 80; the next 'berth up' or 'berth router up' moves it, and URLs already open keep the old port until then"}
+		want := Check{ID: "router.port", Status: StatusWarn, Subject: "router port", Detail: "port 8080 from BERTH_ROUTER_PORT (overriding /berth/settings.toml), but the running router publishes 80; the next 'berth up' or 'berth router up' moves it, and URLs already open keep the old port until then"}
 		if got := last(t, sections); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2486,7 +2491,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
+		want := Check{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
 		if got := last(t, sections); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2501,7 +2506,7 @@ func TestDoctorRouterPort(t *testing.T) {
 			t.Fatal(err)
 		}
 		checks := section(sections, "Router")
-		want := Check{Status: StatusFail, Subject: "router port", Detail: "inspect exploded"}
+		want := Check{ID: "router.port", Status: StatusFail, Subject: "router port", Detail: "inspect exploded"}
 		if got := checks[len(checks)-1]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2511,4 +2516,332 @@ func TestDoctorRouterPort(t *testing.T) {
 			}
 		}
 	})
+}
+
+// documentedDoctorIDs is every check id `doctor` can emit, mirrored by the
+// table in README.md. A new check must be added here and there, which is
+// where its id, its section and its instance key get decided.
+var documentedDoctorIDs = []string{
+	"prerequisites.git",
+	"prerequisites.docker.engine",
+	"prerequisites.docker.compose",
+	"registry.berth-root",
+	"registry.control-home",
+	"registry.router-state",
+	"registry.registrations",
+	"registry.unreadable-record",
+	"registry.host-conflict",
+	"registry.index-host",
+	"locks.none",
+	"locks.scan",
+	"locks.registry",
+	"locks.router",
+	"locks.worktree.operation",
+	"locks.worktree.development",
+	"router.container",
+	"router.owner",
+	"router.routes",
+	"router.route-conflict",
+	"router.orphaned-routes",
+	"router.address-pools",
+	"router.port",
+	"checkout.config",
+	"checkout.worktree",
+	"checkout.missing",
+	"checkout.missing-scan",
+	"checkout.hooks.resolve",
+	"checkout.hooks.verify",
+}
+
+// checkReport fails the test unless every check in sections has a documented
+// id under its section's own id (sections are found by ID, not Title), and
+// (id, instance) is a key: no pair appears twice.
+func checkReport(t *testing.T, sections []Section) {
+	t.Helper()
+	documented := map[string]bool{}
+	for _, id := range documentedDoctorIDs {
+		documented[id] = true
+	}
+	seen := map[[2]string]bool{}
+	for _, section := range sections {
+		if section.ID == "" {
+			t.Fatalf("section %q has no ID", section.Title)
+		}
+		for _, check := range section.Checks {
+			if !documented[check.ID] {
+				t.Errorf("check %q emits the undocumented id %q", check.Subject, check.ID)
+			}
+			if !strings.HasPrefix(check.ID, section.ID+".") {
+				t.Errorf("id %q is not under its section %q", check.ID, section.ID)
+			}
+			key := [2]string{check.ID, check.Instance}
+			if seen[key] {
+				t.Errorf("(id, instance) = (%q, %q) appears twice", check.ID, check.Instance)
+			}
+			seen[key] = true
+		}
+	}
+}
+
+// sectionByID is a section's checks, looked up by its ID.
+func sectionByID(sections []Section, id string) []Check {
+	for _, s := range sections {
+		if s.ID == id {
+			return s.Checks
+		}
+	}
+	return nil
+}
+
+// instanceKeys is every per-item check of one kind in checks, keyed by
+// (id, instance) and mapped to its subject.
+func instanceKeys(checks []Check, id string) map[[2]string]string {
+	out := map[[2]string]string{}
+	for _, check := range checks {
+		if check.ID == id {
+			out[[2]string{check.ID, check.Instance}] = check.Subject
+		}
+	}
+	return out
+}
+
+// TestDoctorInstancesAreDurable pins that a per-item check keeps its (id,
+// instance) whatever order the items appeared in and whichever of their
+// siblings are gone — the reason a script can key on it.
+func TestDoctorInstancesAreDurable(t *testing.T) {
+	t.Run("keeps a locked worktree's key in either order, and when the other is released", func(t *testing.T) {
+		// hold takes worktree worktreeID's operation lock. Its development
+		// lock (the second scope WorktreeScopes returns) is not taken here;
+		// only the operation kind is exercised. The release is registered
+		// with t.Cleanup as well as returned, and is idempotent, so a Fatal
+		// cannot leave a flock held.
+		hold := func(t *testing.T, controlHome, repo, worktreeID, slug string) func() {
+			t.Helper()
+			if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
+				Version: 1, RepositoryID: repo, WorktreeID: worktreeID, Slug: slug, Domain: fixtureDomain, Initialization: "complete",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			operation, _ := lock.WorktreeScopes(controlHome, repo, worktreeID, slug, procid.Markers{})
+			holder := lock.New(operation, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "berth up"})
+			if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+				t.Fatal(err)
+			}
+			var once sync.Once
+			release := func() {
+				once.Do(func() {
+					if err := holder.Release(); err != nil {
+						t.Error(err)
+					}
+				})
+			}
+			t.Cleanup(release)
+			return release
+		}
+		locks := func(t *testing.T, controlHome string) map[[2]string]string {
+			t.Helper()
+			sections, err := doctorSections(context.Background(), testOpts(t, func(o *doctorOptions) { o.ControlHome = controlHome }))
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkReport(t, sections)
+			return instanceKeys(sectionByID(sections, "locks"), "locks.worktree.operation")
+		}
+		keyA := [2]string{"locks.worktree.operation", doctorWorktreeA}
+		keyB := [2]string{"locks.worktree.operation", doctorWorktreeB}
+
+		var first map[[2]string]string
+		for _, orderAThenB := range []bool{true, false} {
+			controlHome := registrytest.TempDir(t)
+			var releaseA, releaseB func()
+			if orderAThenB {
+				releaseA = hold(t, controlHome, doctorRepoA, doctorWorktreeA, "aaa")
+				releaseB = hold(t, controlHome, doctorRepoB, doctorWorktreeB, "bbb")
+			} else {
+				releaseB = hold(t, controlHome, doctorRepoB, doctorWorktreeB, "bbb")
+				releaseA = hold(t, controlHome, doctorRepoA, doctorWorktreeA, "aaa")
+			}
+			got := locks(t, controlHome)
+			_, hasA := got[keyA]
+			_, hasB := got[keyB]
+			if len(got) != 2 || !hasA || !hasB {
+				t.Fatalf("A then B = %v: keys = %v", orderAThenB, got)
+			}
+			if first != nil && !maps.Equal(first, got) {
+				t.Fatalf("the order changed the keys: %v vs %v", got, first)
+			}
+			first = got
+			// B's lock is released cleanly, so its line goes; A's keeps its key.
+			releaseB()
+			after := locks(t, controlHome)
+			if _, ok := after[keyA]; !ok || len(after) != 1 {
+				t.Fatalf("after releasing B: keys = %v", after)
+			}
+			releaseA()
+		}
+	})
+
+	t.Run("keeps a route conflict's key when another conflict goes away", func(t *testing.T) {
+		const (
+			repoC = "55555555-5555-5555-5555-555555555555"
+			repoD = "66666666-6666-6666-6666-666666666666"
+			wtC   = "77777777-7777-7777-7777-777777777777"
+			wtD   = "88888888-8888-8888-8888-888888888888"
+		)
+		write := func(t *testing.T, state layout.RouterLayout, repo, wt, service, rule string) {
+			t.Helper()
+			if err := router.WriteFragment(state, repo, wt, service, router.NewFragmentDocument(service+wt, rule, service+wt, 8080)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		conflicts := func(t *testing.T, withSecond bool) map[[2]string]string {
+			t.Helper()
+			state := layout.RouterLayout{DynamicDir: registrytest.TempDir(t)}
+			write(t, state, doctorRepoA, doctorWorktreeA, "mail", "Host(`one.acme.localhost`)")
+			write(t, state, doctorRepoB, doctorWorktreeB, "api", "Host(`one.acme.localhost`)")
+			if withSecond {
+				write(t, state, repoC, wtC, "mail", "Host(`two.acme.localhost`) && PathPrefix(`/api`)")
+				write(t, state, repoD, wtD, "api", "Host(`two.acme.localhost`) && PathPrefix(`/api`)")
+			}
+			sections, err := doctorSections(context.Background(), testOpts(t, func(o *doctorOptions) { o.RouterState = state }))
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkReport(t, sections)
+			return instanceKeys(sectionByID(sections, "router"), "router.route-conflict")
+		}
+		both, one := conflicts(t, true), conflicts(t, false)
+		keyOne := [2]string{"router.route-conflict", "one.acme.localhost"}
+		keyTwo := [2]string{"router.route-conflict", "two.acme.localhost/api"}
+		if _, ok := both[keyOne]; !ok || len(both) != 2 {
+			t.Fatalf("both = %v", both)
+		}
+		if _, ok := both[keyTwo]; !ok {
+			t.Fatalf("both = %v", both)
+		}
+		if _, ok := one[keyOne]; !ok || len(one) != 1 {
+			t.Fatalf("removing the other conflict changed the surviving key: %v", one)
+		}
+	})
+}
+
+// TestRecordInstance pins an unreadable record's instance: the repository
+// directory and the file, or the file alone when there is no directory.
+func TestRecordInstance(t *testing.T) {
+	controlHome := registrytest.TempDir(t)
+	broken := filepath.Join(layout.RepositoryLayout(controlHome, doctorRepoA).RegistryDir, "broken.json")
+	for file, want := range map[string]string{
+		broken:    filepath.Base(filepath.Dir(filepath.Dir(broken))) + "/broken.json",
+		"/x.json": "x.json",
+	} {
+		if got := recordInstance(file); got != want {
+			t.Errorf("recordInstance(%q) = %q, want %q", file, got, want)
+		}
+	}
+	if got := recordInstance(broken); !strings.HasPrefix(got, doctorRepoA+"/") {
+		t.Errorf("recordInstance(%q) = %q, want it to start with the repository's directory %s", broken, got, doctorRepoA)
+	}
+}
+
+// TestRuleClaim pins the route-conflict instance: what a rule claims, as a
+// host and path, and a rule berth did not write as itself.
+func TestRuleClaim(t *testing.T) {
+	for rule, want := range map[string]string{
+		"Host(`auth.feature-x.acme.localhost`)":                       "auth.feature-x.acme.localhost",
+		"Host(`auth.feature-x.acme.localhost`) && PathPrefix(`/api`)": "auth.feature-x.acme.localhost/api",
+		"HostRegexp(`{sub:.+}.acme.localhost`)":                       "HostRegexp(`{sub:.+}.acme.localhost`)",
+	} {
+		if got := ruleClaim(rule); got != want {
+			t.Errorf("ruleClaim(%q) = %q, want %q", rule, got, want)
+		}
+	}
+}
+
+// TestDoctorEmitsOnlyDocumentedIDs runs the default fixture and checks its
+// report against the documented set.
+func TestDoctorEmitsOnlyDocumentedIDs(t *testing.T) {
+	sections, err := doctorSections(context.Background(), testOpts(t, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkReport(t, sections)
+}
+
+// TestDoctorIDsAreTheDocumentedSet reads doctor.go for the ids it hands to
+// Check literals and to the helpers that take one, and compares that set with
+// documentedDoctorIDs; then checks README.md has a table row for each id and
+// lists every hook stage as the instance of checkout.hooks.resolve.
+func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "doctor.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	add := func(expr ast.Expr) {
+		if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			if value, err := strconv.Unquote(lit.Value); err == nil && strings.Contains(value, ".") {
+				found[value] = true
+			}
+		}
+	}
+	// The helpers whose argument at that index is a check id.
+	idArgument := map[string]int{"failureCheck": 0, "guarded": 0, "lockCheck": 0, "versionCheck": 0, "askDocker": 2}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.CompositeLit:
+			for _, element := range node.Elts {
+				if kv, ok := element.(*ast.KeyValueExpr); ok {
+					if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "ID" {
+						add(kv.Value)
+					}
+				}
+			}
+		case *ast.CallExpr:
+			if name, ok := node.Fun.(*ast.Ident); ok {
+				if index, ok := idArgument[name.Name]; ok && index < len(node.Args) {
+					add(node.Args[index])
+				}
+			}
+		}
+		return true
+	})
+	documented := map[string]bool{}
+	for _, id := range documentedDoctorIDs {
+		documented[id] = true
+	}
+	for id := range found {
+		if !documented[id] {
+			t.Errorf("doctor.go uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
+		}
+	}
+	for id := range documented {
+		if !found[id] {
+			t.Errorf("documentedDoctorIDs lists %q, which doctor.go no longer uses", id)
+		}
+	}
+
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]string{}
+	for _, line := range strings.Split(string(readme), "\n") {
+		if cells := strings.Split(line, "|"); len(cells) > 2 && strings.HasPrefix(strings.TrimSpace(cells[1]), "`") {
+			rows[strings.Trim(strings.TrimSpace(cells[1]), "`")] = line
+		}
+	}
+	for _, id := range documentedDoctorIDs {
+		if _, ok := rows[id]; !ok {
+			t.Errorf("README.md has no table row for the id %q", id)
+		}
+	}
+	all := config.Hooks{}
+	value := "x"
+	all.Prepare, all.Seed, all.Verify, all.Backup, all.Restore = &value, &value, &value, &value, &value
+	for _, stage := range all.Configured() {
+		if !strings.Contains(rows["checkout.hooks.resolve"], "`"+string(stage)+"`") {
+			t.Errorf("the README row for checkout.hooks.resolve does not name the stage %q", stage)
+		}
+	}
 }
