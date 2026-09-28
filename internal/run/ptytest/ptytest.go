@@ -163,11 +163,11 @@ func WaitForegroundHandoff(t *testing.T, ptmx *os.File, helperPid int) int {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		fg, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
-		if err == nil && fg != 0 && fg != helperPid {
+		if fg := liveForeground(int(ptmx.Fd()), helperPid); fg != 0 {
 			return fg
 		}
 		if time.Now().After(deadline) {
+			fg, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
 			t.Fatalf("terminal foreground pgid never left berth's own group %d (last saw %d, err=%v)", helperPid, fg, err)
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -241,10 +241,45 @@ func SendTerminalSignal(t *testing.T, ptmx *os.File, helperPid int, b byte) unix
 }
 
 // ChildHoldsTerminal reports whether the pty's foreground process group is
-// still some group other than berth's own (helperPid): the interactive
-// child's. A group of 0, or an error, means no one holds it any more, which
-// also means the child's group has gone.
+// still some live group other than berth's own (helperPid): the interactive
+// child's. No group at all, an error, or a group nobody is left in means no
+// one holds it any more, which also means the child's group has gone. The
+// last matters on macOS, which does not report 0 for a terminal whose
+// foreground group has emptied but a placeholder (NO_PID, 100000) that names
+// no group: taken at face value, it would have the caller keep typing at a
+// terminal berth is about to take back.
 func ChildHoldsTerminal(ptmx *os.File, helperPid int) bool {
-	fg, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
-	return err == nil && fg != 0 && fg != helperPid
+	return liveForeground(int(ptmx.Fd()), helperPid) != 0
+}
+
+// liveForeground is the pty's foreground process group when it is a group
+// other than helperPid that still has a member, and 0 otherwise.
+func liveForeground(fd, helperPid int) int {
+	fg, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+	if err != nil || fg <= 0 || fg == helperPid {
+		return 0
+	}
+	if errors.Is(unix.Kill(-fg, 0), unix.ESRCH) {
+		return 0
+	}
+	return fg
+}
+
+// Transcript is everything ptmx's reader has collected so far, consumed by a
+// ReadUntil or not, for a failure message: what the program printed is what
+// names the signal or error behind an unexpected exit status. Called once
+// the program has exited, it first waits (up to 2s) for the reader to see the
+// slave side close, so the last line is not lost to a read still in flight.
+func Transcript(ptmx *os.File) string {
+	out := outputOf(ptmx)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		out.mu.Lock()
+		text, done := out.buf.String(), out.err != nil
+		out.mu.Unlock()
+		if done || time.Now().After(deadline) {
+			return text
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }

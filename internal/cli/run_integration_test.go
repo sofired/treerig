@@ -475,7 +475,10 @@ func TestRunOnATerminal(t *testing.T) {
 		// The terminal signalled the command's group, not berth, so berth
 		// reports how the command ended and exits with 128 plus SIGINT.
 		if !status.Exited() || status.ExitStatus() != 128+int(syscall.SIGINT) {
-			t.Fatalf("status = %+v, want exit %d", status, 128+int(syscall.SIGINT))
+			// What berth printed names the cause: "terminated by SIGHUP" is
+			// the command ending that way, anything else with 129 is berth
+			// itself having been hung up.
+			t.Fatalf("status = %+v, want exit %d\nberth printed: %q", status, 128+int(syscall.SIGINT), ptytest.Transcript(ptmx))
 		}
 		ptytest.ReadUntil(t, ptmx, "The stubborn command was terminated by SIGINT.")
 		if alive(hung) {
