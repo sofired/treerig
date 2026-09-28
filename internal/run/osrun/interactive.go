@@ -22,11 +22,34 @@ import (
 // SysProcAttr.Foreground, rather than merely getting a process group of its
 // own.
 func weHoldForeground(fd int) bool {
+	return foregroundGroupIs(fd, unix.Getpgrp())
+}
+
+// foregroundGroupIs reports whether pgid is currently fd's foreground
+// group; false if fd is not a terminal.
+func foregroundGroupIs(fd, pgid int) bool {
 	pgrp, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
 	if err != nil {
 		return false
 	}
-	return pgrp == unix.Getpgrp()
+	return pgrp == pgid
+}
+
+// reclaimFrom takes fd 0's foreground back for ourPgid unless another live
+// group holds it. Once the shell has resumed berth in the background (`bg`
+// after a Ctrl-Z), the terminal belongs to the shell, and setForeground,
+// which ignores SIGTTOU, would otherwise take it from the shell. The
+// terminal is still taken back from pid's own group, or from a group that no
+// longer exists: macOS clears the foreground group once its last member is
+// gone, so after the child exits it may name no group at all.
+func reclaimFrom(pid, ourPgid int) {
+	fg, err := unix.IoctlGetInt(0, unix.TIOCGPGRP)
+	if err != nil || fg == ourPgid {
+		return
+	}
+	if fg == pid || errors.Is(unix.Kill(-fg, 0), unix.ESRCH) {
+		_ = setForeground(0, ourPgid)
+	}
 }
 
 // interactiveAttr is the SysProcAttr an interactive child starts with: given
@@ -159,7 +182,8 @@ func watchForeground(pid int) <-chan foregroundEvent {
 // terminal's foreground — with its own wait4(pid, WUNTRACED) loop instead
 // of cmd.Wait(), because only WUNTRACED can see a stop: cmd.Wait() blocks
 // straight through Ctrl-Z. ourPgid is this process's own process group,
-// reclaimed as fd 0's foreground on every path out. A stop hands the
+// reclaimed as fd 0's foreground on every path out while the child's group
+// still holds it (reclaimFrom). A stop hands the
 // terminal back to berth and stops this whole process with it, the way a
 // real shell answers Ctrl-Z on a job it started; the resume (SIGCONT from
 // outside, typically the real shell answering `fg`) hands the terminal back
@@ -186,21 +210,26 @@ func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time
 			// panic: a plain failure, the same 1-and-no-signal exitStatus
 			// falls back to for a nil ProcessState.
 			case ev.err != nil:
-				_ = setForeground(0, ourPgid)
+				reclaimFrom(pid, ourPgid)
 				return 1, 0
 			case waitStopped(ev.status):
-				_ = setForeground(0, ourPgid)
+				reclaimFrom(pid, ourPgid)
 				stopSelf()
-				// Resumed: hand the terminal back to the child's own group
-				// (its pgid equals pid, since it led its own group) and
-				// let it carry on.
-				_ = setForeground(0, pid)
+				// Resumed. After `fg`, berth holds the terminal again and
+				// hands it back to the child's own group (its pgid equals
+				// pid, since it led its own group). After `bg`, the shell
+				// keeps it, and the child just continues in the
+				// background: a read from the terminal stops it again, and
+				// berth with it, until the next `fg`.
+				if weHoldForeground(0) {
+					_ = setForeground(0, pid)
+				}
 				_ = syscall.Kill(-pid, syscall.SIGCONT)
 			case ev.status.Exited():
-				_ = setForeground(0, ourPgid)
+				reclaimFrom(pid, ourPgid)
 				return ev.status.ExitStatus(), 0
 			case ev.status.Signaled():
-				_ = setForeground(0, ourPgid)
+				reclaimFrom(pid, ourPgid)
 				s := ev.status.Signal()
 				return 128 + int(s), s
 			}
