@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -417,6 +418,92 @@ func TestPredictStartInterpreterFormat(t *testing.T) {
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("PredictStart hung on a FIFO interpreter")
+		}
+	})
+}
+
+// lockedDir makes a directory holding one executable file, then removes
+// search permission from the directory, so stat on the file fails with
+// EACCES. Skips when running as root, which search permission never stops.
+func lockedDir(t *testing.T) (dir, file string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory search permission")
+	}
+	dir = filepath.Join(registrytest.TempDir(t), "locked")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file = filepath.Join(dir, "tool")
+	writeExecutable(t, file, []byte{0x7f, 'E', 'L', 'F', 2, 1, 1, 0}, 0o755)
+	if err := os.Chmod(dir, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	return dir, file
+}
+
+// A stat failure that isn't "does not exist" is 126 with the errno exec(2)
+// would report; only a missing file is 127.
+func TestPredictStartStatFailures(t *testing.T) {
+	t.Run("a command under an unsearchable directory is EACCES, not missing", func(t *testing.T) {
+		_, file := lockedDir(t)
+		_, err := run.PredictStart(file, "", nil)
+		if err == nil || err.ExitCode != 126 || err.Code != "EACCES" {
+			t.Fatalf("got %+v", err)
+		}
+		if want := "could not be started: it cannot be reached: a directory on its path is not searchable (EACCES)."; !strings.HasSuffix(err.Error(), want) {
+			t.Fatalf("error = %q, want it to end %q", err.Error(), want)
+		}
+	})
+
+	t.Run("a command whose path runs through a regular file is ENOTDIR, 126", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		file := filepath.Join(dir, "plain")
+		writeExecutable(t, file, []byte("data\n"), 0o644)
+		_, err := run.PredictStart(filepath.Join(file, "child"), dir, nil)
+		if err == nil || err.ExitCode != 126 || err.Code != syscall.ENOTDIR.Error() {
+			t.Fatalf("got %+v", err)
+		}
+	})
+
+	t.Run("an interpreter under an unsearchable directory is EACCES, naming the interpreter", func(t *testing.T) {
+		_, interp := lockedDir(t)
+		dir := registrytest.TempDir(t)
+		hook := filepath.Join(dir, "hook")
+		writeExecutable(t, hook, []byte("#!"+interp+"\n"), 0o755)
+		_, err := run.PredictStart(hook, dir, nil)
+		if err == nil || err.ExitCode != 126 || err.Code != "EACCES" {
+			t.Fatalf("got %+v", err)
+		}
+		if want := "has a #! interpreter `" + interp + "` that cannot be reached: a directory on its path is not searchable (EACCES)."; !strings.Contains(err.Detail, want) {
+			t.Fatalf("detail = %q, want %q", err.Detail, want)
+		}
+	})
+
+	t.Run("an interpreter whose path runs through a regular file is ENOTDIR, 126", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		writeExecutable(t, filepath.Join(dir, "plain"), []byte("data\n"), 0o644)
+		hook := filepath.Join(dir, "hook")
+		writeExecutable(t, hook, []byte("#!./plain/child\n"), 0o755)
+		_, err := run.PredictStart(hook, dir, nil)
+		if err == nil || err.ExitCode != 126 || err.Code != syscall.ENOTDIR.Error() {
+			t.Fatalf("got %+v", err)
+		}
+	})
+
+	t.Run("a #! line naming no interpreter is ENOEXEC", func(t *testing.T) {
+		for _, line := range []string{"#!\n", "#!  \t\n", "#!"} {
+			dir := registrytest.TempDir(t)
+			hook := filepath.Join(dir, "hook")
+			writeExecutable(t, hook, []byte(line), 0o755)
+			_, err := run.PredictStart(hook, dir, nil)
+			if err == nil || err.ExitCode != 126 || err.Code != "ENOEXEC" {
+				t.Fatalf("%q: got %+v", line, err)
+			}
+			if !strings.Contains(err.Detail, "names no interpreter") {
+				t.Fatalf("%q: detail = %q", line, err.Detail)
+			}
 		}
 	})
 }

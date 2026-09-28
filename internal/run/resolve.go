@@ -8,9 +8,29 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
+
+// statFailure describes an os.Stat error that is not "does not exist" the
+// way exec(2) would report it: EACCES when a directory on the path is not
+// searchable, otherwise the errno itself (ENOTDIR, ELOOP, ...), named as
+// osrun's classifyExecError names it. Each is exit 126, as a shell gives
+// it; only a missing file is 127. subject, when not empty, names what
+// cannot be reached — "has a #! interpreter `x` that" — so the detail still
+// completes StartError's own "it ...".
+func statFailure(subject string, err error) *StartError {
+	lead := strings.TrimSpace(subject + " cannot be reached")
+	if errors.Is(err, os.ErrPermission) {
+		return &StartError{Code: "EACCES", Detail: lead + ": a directory on its path is not searchable (EACCES).", ExitCode: 126}
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return &StartError{Code: errno.Error(), Detail: fmt.Sprintf("%s (%s).", lead, errno), ExitCode: 126}
+	}
+	return &StartError{Detail: fmt.Sprintf("%s: %s.", lead, strings.TrimSuffix(err.Error(), ".")), ExitCode: 126}
+}
 
 // ResolveExecutable finds command exactly as osrun's Runner does before ever
 // spawning it: a command containing "/" is checked directly — it must
@@ -27,6 +47,11 @@ import (
 func ResolveExecutable(command string, env []string) (string, *StartError) {
 	if strings.Contains(command, "/") {
 		info, err := os.Stat(command)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			startErr := statFailure("", err)
+			startErr.Command = command
+			return "", startErr
+		}
 		if err != nil {
 			return "", &StartError{
 				Command: command, Code: "ENOENT",
@@ -200,15 +225,15 @@ func classifyFormat(resolved, dir string, depth int) (bool, *StartError) {
 // in that message.
 //
 // Anything after the interpreter (an argument to env, say) is not this
-// file's concern; a shebang naming no interpreter at all is left runnable,
-// matching classifyFormat's own "found a '#!' line" verdict.
+// file's concern. A "#!" line naming no interpreter at all is ENOEXEC, as
+// both Linux's binfmt_script and macOS refuse it.
 func classifyShebang(rest []byte, dir string, depth int) (bool, *StartError) {
 	if nl := bytes.IndexByte(rest, '\n'); nl >= 0 {
 		rest = rest[:nl]
 	}
 	fields := bytes.FieldsFunc(rest, func(r rune) bool { return r == ' ' || r == '\t' })
 	if len(fields) == 0 {
-		return true, nil
+		return false, &StartError{Code: "ENOEXEC", Detail: "has a #! line that names no interpreter (ENOEXEC).", ExitCode: 126}
 	}
 	token := fields[0]
 	hadCR := bytes.HasSuffix(token, []byte("\r"))
@@ -220,6 +245,9 @@ func classifyShebang(rest []byte, dir string, depth int) (bool, *StartError) {
 		path = filepath.Join(dir, path)
 	}
 	info, err := os.Stat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, statFailure(fmt.Sprintf("has a #! interpreter `%s` that", display), err)
+	}
 	if err != nil {
 		detail := fmt.Sprintf("has a #! interpreter `%s` that does not exist (ENOENT).", display)
 		if hadCR {
