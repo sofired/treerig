@@ -1,7 +1,8 @@
 // Package worktree holds what the control plane and the backend both say
-// about a worktree: its reference, its services' states, what it owns, and
-// the environment hooks and Compose receive. It is a leaf, so the backend and
-// the hooks runner can share it without importing each other.
+// about a worktree: its reference, its services' states, what it owns, the
+// environment hooks and Compose receive, and the URLs its declared services
+// route to. It is a leaf, so the backend and the hooks runner can share it
+// without importing each other.
 package worktree
 
 import (

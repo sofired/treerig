@@ -104,6 +104,43 @@ func TestRunHook(t *testing.T) {
 		}
 	})
 
+	t.Run("passes BERTH_URL for the root route and BERTH_SERVICE_URL_<NAME> for every routed service (#28)", func(t *testing.T) {
+		runner := recordingRunner(nil)
+		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
+		hctx.Routes = worktree.Routes([]config.Service{
+			{Name: "api"},
+			{Name: "mail-relay", Subdomain: "mail"},
+		}, hctx.Ref.Slug, hctx.Source.Domain, 8443)
+		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]string{
+			"BERTH_URL":                    "http://feature-login.acme.localhost:8443",
+			"BERTH_SERVICE_URL_API":        "http://feature-login.acme.localhost:8443",
+			"BERTH_SERVICE_URL_MAIL_RELAY": "http://mail.feature-login.acme.localhost:8443",
+		}
+		env := runner.Calls()[0].Env
+		for k, v := range want {
+			if !containsEnv(env, k, v) {
+				t.Fatalf("expected %s=%s in env %v", k, v, env)
+			}
+		}
+	})
+
+	t.Run("passes neither BERTH_URL nor any BERTH_SERVICE_URL_ variable when no routes were given", func(t *testing.T) {
+		runner := recordingRunner(nil)
+		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
+		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range runner.Calls()[0].Env {
+			name, _, _ := strings.Cut(entry, "=")
+			if name == "BERTH_URL" || strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+				t.Fatalf("unexpected %s in env %v", name, runner.Calls()[0].Env)
+			}
+		}
+	})
+
 	t.Run("passes the user's control-home override through untouched, so a hook can call the tool", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})

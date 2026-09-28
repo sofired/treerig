@@ -45,6 +45,9 @@ type HookContext struct {
 	// Environ is the environment a hook inherits on top of; os.Environ() in
 	// production, so a hook that calls out to other tools sees a normal shell.
 	Environ []string
+	// Routes is this worktree's declared service routes, for
+	// worktree.ServiceURLVariables (#28); nil gives a hook neither variable.
+	Routes []worktree.ServiceRoute
 }
 
 // RunOptions configures one hook run.
@@ -58,10 +61,12 @@ type RunOptions struct {
 }
 
 // environment is the BERTH_* vocabulary Compose receives, plus this stage's
-// own STAGE, laid over the inherited environment — never a replacement of
-// it, so a hook that calls other tools still sees a normal PATH and HOME.
+// own STAGE and hctx.Routes' URL variables (#28), laid over the inherited
+// environment — never a replacement of it, so a hook that calls other tools
+// still sees a normal PATH and HOME.
 func environment(hctx HookContext, stage config.HookStage) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{"STAGE", string(stage)})
+	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
 	return mergeEnviron(hctx.Environ, worktree.Variables(pairs)...)
 }
 
