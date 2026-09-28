@@ -1,0 +1,5 @@
+feature-login	acme.localhost — /checkouts/feature-login
+feature-payments	acme.localhost
+odd-worktree	odd .localhost — /checkouts/odd worktree
+widgets-main	widgets.localhost — /checkouts/widgets-main
+:4

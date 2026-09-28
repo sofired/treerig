@@ -489,18 +489,56 @@ func scopeNeedsClearing(scope lock.Scope) (bool, error) {
 	return described.Record != nil && described.Record.ReleasedAt == nil, nil
 }
 
-// findOrphanWorktree scans this control home's worktree locks for one whose
-// UUID matches identifier, under any repository: a worktree that never
-// registered still leaves its lock file named by its own UUID.
+// findOrphanWorktree looks up one worktree among OrphanWorktrees by UUID: a
+// worktree that never registered still leaves its lock file named by its
+// own UUID.
 func findOrphanWorktree(controlHome, identifier string) (repositoryID string, found bool, err error) {
+	orphans, err := OrphanWorktrees(controlHome)
+	if err != nil {
+		return "", false, err
+	}
+	for _, orphan := range orphans {
+		if orphan.WorktreeID == identifier {
+			return orphan.RepositoryID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// OrphanWorktree is a worktree whose operation or development lock this
+// control home still has a file for, under some repository, but whose
+// registration is gone or never existed — nameable at `worktree unlock`
+// only by its own UUID (resolveUnlockTarget's own fallback below, and what
+// shell completion offers beside every registered slug).
+type OrphanWorktree struct {
+	RepositoryID string
+	WorktreeID   string
+}
+
+// OrphanWorktrees scans this control home's worktree locks for every
+// worktree UUID one exists under, across every repository: the read-only
+// scan (os.ReadDir, no flock, no write) findOrphanWorktree above narrows
+// to a single identifier — this generalises it to list every one it would
+// find, a deliberate trade of findOrphanWorktree's own single-entry lookup
+// for a full scan, so both share one implementation — for `worktree
+// unlock`'s own shell completion, which offers a worktree it can still
+// recover even though nothing is registered for it. A repository directory
+// that vanishes mid-scan (another process finishing its own unlock) is
+// skipped, not failed on, the same way findOrphanWorktree always tolerated
+// it. An entry that is not itself a worktree UUID once its own suffixes are
+// stripped — a stray file like .DS_Store, never one this tool created — is
+// skipped too, the same way the repository directory above it already is.
+func OrphanWorktrees(controlHome string) ([]OrphanWorktree, error) {
 	worktreesDir := filepath.Join(layout.ControlLayout(controlHome).LocksDir, "worktrees")
 	repositories, err := os.ReadDir(worktreesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", false, nil
+			return nil, nil
 		}
-		return "", false, err
+		return nil, err
 	}
+	var orphans []OrphanWorktree
+	seen := map[OrphanWorktree]bool{}
 	for _, repository := range repositories {
 		if !repository.IsDir() || !uuidPattern.MatchString(repository.Name()) {
 			continue
@@ -510,15 +548,22 @@ func findOrphanWorktree(controlHome, identifier string) (repositoryID string, fo
 			if os.IsNotExist(err) {
 				continue
 			}
-			return "", false, err
+			return nil, err
 		}
 		for _, entry := range entries {
-			if worktreeIDOf(entry.Name()) == identifier {
-				return repository.Name(), true, nil
+			worktreeID := worktreeIDOf(entry.Name())
+			if !uuidPattern.MatchString(worktreeID) {
+				continue
 			}
+			candidate := OrphanWorktree{RepositoryID: repository.Name(), WorktreeID: worktreeID}
+			if seen[candidate] {
+				continue
+			}
+			seen[candidate] = true
+			orphans = append(orphans, candidate)
 		}
 	}
-	return "", false, nil
+	return orphans, nil
 }
 
 // worktreeIDOf strips every suffix a worktree lock's directory entry can
