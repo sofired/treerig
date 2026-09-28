@@ -74,6 +74,12 @@ overrides, if the user set either — are *not* in this list on purpose. Both
 pass through from the parent unchanged, so a hook that invokes the tool
 itself resolves the same berth root and control home the user did.
 
+A hook may run the tool against another worktree, but not against its own:
+`up` holds that worktree's lock while its hooks run, so `up`, `down` or
+`worktree remove` on the same worktree would wait on its own caller. They
+refuse at once instead, when `BERTH_WORKTREE_ID` names the worktree they
+were asked to change.
+
 ## Output and exit codes
 
 Standard output and standard error are streamed to the terminal — both to

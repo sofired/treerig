@@ -169,7 +169,20 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	if err := config.CheckStart(cctx.Loaded); err != nil {
 		return nil, err
 	}
-	if err := refuseRelabelling(ctx, cctx); err != nil {
+	// Registry.Ensure takes the worktree's operation lock before mutate
+	// does, so the nested-invocation check runs here too, on the identity
+	// as it stands now: a checkout with none yet has no lock to wait on.
+	// mutate still checks on its own, against the registered ref.
+	identity, err := cctx.Registry.Identities.Inspect(ctx, cctx.Registry.Identities.Root, registry.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if identity != nil {
+		if err := cctx.refuseOwnWorktreeLock(identity.WorktreeID); err != nil {
+			return nil, err
+		}
+	}
+	if err := refuseRelabelling(ctx, cctx, identity); err != nil {
 		return nil, err
 	}
 	registration, err := cctx.Registry.Ensure(ctx, "")
@@ -392,12 +405,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 // lock. Two `up`s racing from one checkout with a config edit between them
 // could still slip resources in under the old namespace; the under-lock
 // re-check in UpWithContext catches the record changing, not that narrower
-// case.
-func refuseRelabelling(ctx context.Context, cctx *CommandContext) error {
-	identity, err := cctx.Registry.Identities.Inspect(ctx, cctx.Registry.Identities.Root, registry.InspectOptions{})
-	if err != nil {
-		return err
-	}
+// case. identity is this checkout's, as UpWithContext read it; nil for one
+// with no identity yet.
+func refuseRelabelling(ctx context.Context, cctx *CommandContext, identity *registry.WorktreeIdentity) error {
 	if identity == nil {
 		return nil
 	}
