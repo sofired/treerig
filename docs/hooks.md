@@ -68,6 +68,25 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_WORKTREE_HOME` | The worktree's private directory under the control home |
 | `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
 | `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
+| `BERTH_URL` | This worktree's own URL: the `[[service]]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
+| `BERTH_SERVICE_URL_<NAME>` | One per `[[service]]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
+
+`BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` are the same URLs `berth urls`
+prints, router port included exactly as it folds that in there. When
+`doctor` runs `verify` but can't resolve the router's port, it sets neither,
+and its Router section says why. Neither
+reaches Compose, so `compose.yaml` cannot reference `${BERTH_URL}` — read
+them from a hook instead:
+
+```sh
+curl -fsS "${BERTH_URL:?no service is routed at the host root}/health"
+```
+
+Under `set -u`, an unset `BERTH_URL` aborts the script; guard it with
+`${BERTH_URL:-}` or `${BERTH_URL:?…}` as above. A hook curling one of these
+is a non-browser client, so the same resolver caveats apply as anywhere else
+outside a browser — see [README.md's "Hostname resolution"
+notes](../README.md#platform-notes).
 
 `BERTH_HOME` and `BERTH_CONTROL_HOME` — the berth-root and control-home
 overrides, if the user set either — are *not* in this list on purpose. Both

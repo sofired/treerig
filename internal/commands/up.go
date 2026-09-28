@@ -218,7 +218,11 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	store := cctx.Registry.Store(ref.RepositoryID)
 	ownNamespace := cctx.Loaded.Config.LabelNamespace()
 
-	urls := WorktreeURLs(cctx.Loaded.Config, ref.Slug, registration.Domain, routerSvc.Port())
+	// serviceRoutes (named apart from the mutation closure's own routes,
+	// routeSpecsFromConfig below) feeds both urls, printed below, and the
+	// hooks' own BERTH_URL/BERTH_SERVICE_URL_<NAME> (#28) — computed once.
+	serviceRoutes := worktree.Routes(cctx.Loaded.Config.Service, ref.Slug, registration.Domain, routerSvc.Port())
+	urls := urlsFromRoutes(cctx.Loaded.Config.Service, serviceRoutes)
 
 	var ranHooks []config.HookStage
 	err = cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
@@ -396,6 +400,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 				ProjectRoot: cctx.Loaded.Root,
 			},
 			Ref: ref, Hooks: cctx.Loaded.Config.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ,
+			Routes: serviceRoutes,
 		}, hooks.LifecycleOptions{Stages: upStages(firstTime)})
 		if err != nil {
 			return err

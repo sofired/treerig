@@ -759,11 +759,9 @@ them once.
    the command that runs it forever.
 9. **`--json`** (#27) for `doctor`, `status`, `urls` and `index`, to match
    `worktree list`'s own machine-readable form.
-10. **`BERTH_URL`** (#28) — a hook's own worktree URL, alongside the
-    variables [docs/hooks.md](docs/hooks.md) already lists.
-11. **Migrating stored state between releases** (#29), once there are
+10. **Migrating stored state between releases** (#29), once there are
     releases to migrate between.
-12. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+11. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
     stronger guarantee the relocated-copy mechanism above is a step toward,
     tied to binary distribution (#8).
 
