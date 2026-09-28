@@ -101,7 +101,7 @@ func refreshIndexBestEffort(ctx context.Context, cctx *CommandContext, reason st
 // this command outright:
 // `index` exists to refresh and show the page, so silently skipping that
 // would leave it reporting success while doing nothing.
-func RefreshIndex(ctx context.Context, env *Env) error {
+func RefreshIndex(ctx context.Context, env *Env, options OutputOptions) error {
 	cctx, err := Context(env)
 	if err != nil {
 		return err
@@ -114,6 +114,87 @@ func RefreshIndex(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
+	if options.JSON {
+		return printJSON(cctx, indexReport(snapshot, index.URL()))
+	}
 	cctx.Logger.Output(checkoutindex.FormatIndexText(snapshot, index.URL()))
 	return nil
+}
+
+// IndexReport is `index --json`'s document: the snapshot the page is built
+// from, with the page's own address. Entries are in the snapshot's order.
+// DockerReachable false means no service's Available was checked; the text
+// form shows those as "?".
+type IndexReport struct {
+	URL              string              `json:"url"`
+	GeneratedAt      string              `json:"generatedAt"`
+	DockerReachable  bool                `json:"dockerReachable"`
+	DockerError      *string             `json:"dockerError,omitempty"`
+	IdentityError    *IndexIdentityError `json:"identityError,omitempty"`
+	CardReadFailures int                 `json:"cardReadFailures"`
+	Entries          []IndexReportEntry  `json:"entries"`
+}
+
+// IndexIdentityError is why Git could not say which worktrees exist.
+type IndexIdentityError struct {
+	Reason      string `json:"reason"`
+	RowsUnknown bool   `json:"rowsUnknown"`
+}
+
+// IndexReportEntry is one checkout. Branch is "" for a detached HEAD and
+// absent when nothing knows; Root is absent when unknown.
+type IndexReportEntry struct {
+	RepositoryID string               `json:"repositoryId"`
+	WorktreeID   string               `json:"worktreeId"`
+	Project      string               `json:"project"`
+	Domain       string               `json:"domain"`
+	Slug         string               `json:"slug"`
+	Host         string               `json:"host"`
+	Branch       *string              `json:"branch,omitempty"`
+	Root         string               `json:"root,omitempty"`
+	Status       string               `json:"status"`
+	Services     []IndexReportService `json:"services"`
+}
+
+// IndexReportService is one declared service of a checkout.
+type IndexReportService struct {
+	Service string `json:"service"`
+	Label   string `json:"label"`
+	Purpose string `json:"purpose,omitempty"`
+	URL     string `json:"url"`
+	// Available is set only when it was checked: Docker answered and the
+	// checkout is not missing. Absent means unknown, never false.
+	Available *bool `json:"available,omitempty"`
+}
+
+// indexReport maps a snapshot onto its JSON document, so the output does not
+// follow checkoutindex's internal types.
+func indexReport(snapshot checkoutindex.IndexSnapshot, url string) IndexReport {
+	report := IndexReport{
+		URL: url, GeneratedAt: snapshot.GeneratedAt,
+		DockerReachable: snapshot.DockerReachable, DockerError: snapshot.DockerError,
+		CardReadFailures: snapshot.CardReadFailures,
+		Entries:          make([]IndexReportEntry, 0, len(snapshot.Entries)),
+	}
+	if failure := snapshot.IdentityError; failure != nil {
+		report.IdentityError = &IndexIdentityError{Reason: failure.Reason, RowsUnknown: failure.RowsUnknown}
+	}
+	for _, entry := range snapshot.Entries {
+		services := make([]IndexReportService, 0, len(entry.Services))
+		checked := snapshot.DockerReachable && entry.Status != checkoutindex.StatusMissing
+		for _, service := range entry.Services {
+			reported := IndexReportService{Service: service.Name, Label: service.Label, Purpose: service.Purpose, URL: service.URL}
+			if checked {
+				available := service.Available
+				reported.Available = &available
+			}
+			services = append(services, reported)
+		}
+		report.Entries = append(report.Entries, IndexReportEntry{
+			RepositoryID: entry.RepositoryID, WorktreeID: entry.WorktreeID, Project: entry.Project,
+			Domain: entry.Domain, Slug: entry.Slug, Host: entry.Host, Branch: entry.Branch,
+			Root: entry.Root, Status: string(entry.Status), Services: services,
+		})
+	}
+	return report
 }

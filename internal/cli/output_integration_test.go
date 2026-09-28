@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -91,6 +92,13 @@ var fingerprintPattern = regexp.MustCompile(`data-body="[A-Za-z0-9_-]{16}"`)
 // touched. Node.js is matched too, for a golden's own recorded line (see
 // excludeStdoutLines below); doctor itself never prints one.
 var toolVersionPattern = regexp.MustCompile(`(?m)^(\s*ok\s+(?:Git|Node\.js)\s+)\S+$`)
+
+// jsonToolVersionPattern is toolVersionPattern for `doctor --json`, where
+// the same Git version is the "detail" of the check whose "id" is
+// "prerequisites.git", however the other keys are ordered or spaced.
+// runIn fails a doctor --json run this does not match, so a changed layout
+// is reported as that rather than as a Git version in a golden.
+var jsonToolVersionPattern = regexp.MustCompile(`("id": "prerequisites\.git",[^}]*?"detail": )"[^"]*"`)
 
 // Every case's expected output, frozen as a golden corpus under
 // testdata/output/<name>/, and replayed against the live binary from here
@@ -285,8 +293,12 @@ func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIn
 		}
 		calls = append(calls, scrubFixturePath(line, f.base))
 	}
+	if slices.Contains(command, "doctor") && slices.Contains(command, "--json") && !jsonToolVersionPattern.MatchString(stdout.String()) {
+		t.Fatalf("doctor --json has no check with id prerequisites.git and a detail; update jsonToolVersionPattern for the new layout:\n%s", stdout.String())
+	}
 	run := outputRun{
-		Stdout: toolVersionPattern.ReplaceAllString(scrubFixturePath(normalizeTimestamp(stdout.String()), f.base), "${1}VERSION"),
+		Stdout: jsonToolVersionPattern.ReplaceAllString(
+			toolVersionPattern.ReplaceAllString(scrubFixturePath(normalizeTimestamp(stdout.String()), f.base), "${1}VERSION"), `${1}"VERSION"`),
 		Stderr: scrubFixturePath(normalizeTimestamp(stderr.String()), f.base),
 		Exit:   exit, Docker: calls,
 	}
@@ -397,6 +409,15 @@ func TestOutputGoldens(t *testing.T) {
 		{name: "index", args: []string{"index"}, checkIndexPage: true},
 		{name: "worktree list", args: []string{"worktree", "list"}},
 		{name: "worktree list --json", args: []string{"worktree", "list", "--json"}},
+		// #27: the JSON forms of the four verbs above and doctor's, one
+		// document each on stdout, the text form's exit code.
+		{name: "status --json", args: []string{"status", "--json"}},
+		{name: "urls --json", args: []string{"urls", "--json"}},
+		{name: "index --json", args: []string{"index", "--json"}, checkIndexPage: true},
+		{
+			name: "doctor --json", args: []string{"doctor", "--json"}, unorderedDocker: true,
+			outsideCheckout: true,
+		},
 		{
 			name: "down", args: []string{"down"}, checkIndexPage: true,
 			excludeDockerCalls: []string{"--project-name berth-router ps", "network disconnect"},

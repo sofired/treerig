@@ -5,6 +5,7 @@ Usage:
 
 Flags:
   -h, --help   help for urls
+      --json   machine-readable output
 
 Global Flags:
       --config string   path to berth.toml (default: nearest above cwd)

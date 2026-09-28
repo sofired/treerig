@@ -104,7 +104,7 @@ func TestBerthHomeRefusesUnsafeRoots(t *testing.T) {
 					CommandName: "berth", Logger: &logger.Recording{}, Getenv: getenv,
 					Cwd: registrytest.TempDir(t), Runner: noRunner{t},
 				}
-				_, err := commands.Doctor(context.Background(), env)
+				_, err := commands.Doctor(context.Background(), env, commands.OutputOptions{})
 				requireBerthHomeRefusal(t, err)
 			})
 

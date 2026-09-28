@@ -2,6 +2,7 @@ package commands_test
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/sofired/berth/internal/commands/commandstest"
 	"github.com/sofired/berth/internal/config"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/run"
 )
 
 // What `status` puts on stdout, and what it refuses to put there: the service
@@ -27,7 +29,7 @@ func TestWorktreeStatus(t *testing.T) {
 		w.Docker.Services = []string{"api\x1b[2K\u202ex"}
 		tc := w.Context("", acme, nil)
 
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		// The exact row: filtered, still legible, still padded into its column.
@@ -46,10 +48,10 @@ func TestWorktreeStatus(t *testing.T) {
 			"acme\x1b[2K\u202ex.localhost", "feature-login", ns(brand.LabelNamespace))
 
 		tc := w.Context("", acme, nil)
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := commands.UrlsWithContext(ctx, tc.CommandContext); err != nil {
+		if _, err := commands.UrlsWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()
@@ -71,7 +73,7 @@ func TestWorktreeStatus(t *testing.T) {
 		tc := w.Context("", acme, nil)
 		tc.Loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb", Purpose: "the \u202eAPI"}
 
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
 			t.Fatalf("StatusWithContext: %v", err)
 		}
 	})
@@ -79,7 +81,7 @@ func TestWorktreeStatus(t *testing.T) {
 	t.Run("says, as a notice, that a worktree never brought up is not registered", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
-		statuses, err := commands.StatusWithContext(ctx, tc.CommandContext)
+		statuses, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{})
 		if err != nil || statuses != nil {
 			t.Fatalf("statuses = %v, err = %v", statuses, err)
 		}
@@ -149,6 +151,141 @@ func TestWorktreeDown(t *testing.T) {
 
 		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
 			t.Fatalf("DownWithContext: %v", err)
+		}
+	})
+}
+
+// `status --json` is one document on stdout whether or not the worktree is
+// registered; the not-registered notice stays on stderr.
+func TestWorktreeStatusJSON(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("prints the host and every service", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		w.Register("", acme, "feature-login", brand.LabelNamespace)
+		w.Docker.Services = []string{"api"}
+		tc := w.Context("", acme, nil)
+
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+			t.Fatal(err)
+		}
+		_, printed := tc.Logger.Snapshot()
+		if len(printed) != 1 {
+			t.Fatalf("stdout = %q, want one document", printed)
+		}
+		var got commands.StatusReport
+		if err := json.Unmarshal([]byte(printed[0]), &got); err != nil {
+			t.Fatalf("stdout is not one JSON document: %v\n%q", err, printed)
+		}
+		if !got.Registered || got.Host == nil || *got.Host != "feature-login."+acme {
+			t.Fatalf("report = %+v", got)
+		}
+		if len(got.Services) != 1 || got.Services[0].Service != "api" || got.Services[0].State != "absent" {
+			t.Fatalf("services = %+v", got.Services)
+		}
+		var raw struct {
+			Services []map[string]any `json:"services"`
+		}
+		if err := json.Unmarshal([]byte(printed[0]), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := raw.Services[0]["service"]; !ok {
+			t.Fatalf("a service entry must be keyed \"service\": %v", raw.Services[0])
+		}
+	})
+
+	// runStatusJSON runs `status --json` for a registered worktree whose
+	// `docker compose ps` answers per ps (nil answers as the world does).
+	runStatusJSON := func(t *testing.T, services []string, ps func(spec run.Spec) (run.Result, bool)) (*commandstest.TestContext, []commands.StatusService, error) {
+		t.Helper()
+		w := commandstest.New(t, "feature/login", acme)
+		w.Register("", acme, "feature-login", brand.LabelNamespace)
+		w.Docker.Services = services
+		inner := w.Runner.Handler
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if ps != nil && spec.Command == "docker" && slices.Contains(spec.Args, "ps") && slices.Contains(spec.Args, "compose") {
+				if result, ok := ps(spec); ok {
+					return run.Finish(spec, result)
+				}
+			}
+			return inner(ctx, spec)
+		}
+		tc := w.Context("", acme, nil)
+		_, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true})
+		if err != nil {
+			return tc, nil, err
+		}
+		_, printed := tc.Logger.Snapshot()
+		if len(printed) != 1 {
+			t.Fatalf("stdout = %q, want one document", printed)
+		}
+		var got commands.StatusReport
+		if err := json.Unmarshal([]byte(printed[0]), &got); err != nil {
+			t.Fatal(err)
+		}
+		return tc, got.Services, nil
+	}
+
+	t.Run("reports a state Docker names that berth does not as unknown, with Docker's word as the detail", func(t *testing.T) {
+		_, services, err := runStatusJSON(t, []string{"api"}, func(run.Spec) (run.Result, bool) {
+			return run.Result{Stdout: `{"Service":"api","State":"weird","Health":""}`}, true
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(services) != 1 || services[0].State != "unknown" || services[0].Detail != "weird" {
+			t.Fatalf("services = %+v", services)
+		}
+	})
+
+	t.Run("prints an empty services array for a registered worktree that declares none", func(t *testing.T) {
+		_, services, err := runStatusJSON(t, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(services) != 0 {
+			t.Fatalf("services = %+v", services)
+		}
+	})
+
+	t.Run("prints no document, and fails, when Docker cannot list the services", func(t *testing.T) {
+		tc, _, err := runStatusJSON(t, []string{"api"}, func(run.Spec) (run.Result, bool) {
+			return run.Result{ExitCode: 1, Stderr: "daemon is down"}, true
+		})
+		if err == nil || !strings.Contains(err.Error(), "Compose could not list services") {
+			t.Fatalf("err = %v", err)
+		}
+		if _, printed := tc.Logger.Snapshot(); len(printed) != 0 {
+			t.Fatalf("stdout = %q", printed)
+		}
+	})
+
+	t.Run("escapes a service name that is not ASCII", func(t *testing.T) {
+		tc, services, err := runStatusJSON(t, []string{"caf\u00e9"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(services) != 1 || services[0].Service != "caf\u00e9" {
+			t.Fatalf("services = %+v", services)
+		}
+		if _, printed := tc.Logger.Snapshot(); !strings.Contains(printed[0], `caf\u00e9`) || strings.ContainsRune(printed[0], '\u00e9') {
+			t.Fatalf("stdout = %q", printed)
+		}
+	})
+
+	t.Run("prints an unregistered report and keeps the notice on stderr", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+			t.Fatal(err)
+		}
+		lines, printed := tc.Logger.Snapshot()
+		if got := strings.Join(printed, "\n"); got != "{\n  \"registered\": false,\n  \"services\": []\n}" {
+			t.Fatalf("stdout = %q", got)
+		}
+		if !slices.Contains(lines, "info: Not registered — run 'berth up' to create this worktree's environment.") {
+			t.Fatalf("lines = %q", lines)
 		}
 	})
 }

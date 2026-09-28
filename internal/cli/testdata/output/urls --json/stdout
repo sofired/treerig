@@ -1,0 +1,10 @@
+[
+  {
+    "service": "api",
+    "url": "http://feature-login.acme.localhost"
+  },
+  {
+    "service": "mail",
+    "url": "http://mail.feature-login.acme.localhost"
+  }
+]
