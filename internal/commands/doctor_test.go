@@ -304,8 +304,19 @@ func TestDoctorInACheckout(t *testing.T) {
 		writeCheckoutConfig(t, w.Root, acme, "verify-hook-fail")
 		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		env := doctorEnv(t, w, w.Root)
+		// withDoctorDocker's fake Runner answers "verify-hook-fail" by name
+		// alone, whatever runs it — but the new hook-resolution check (#105)
+		// reads the real filesystem and PATH, so "verify-hook-fail" needs a
+		// real, executable file on a real PATH entry too, or resolution
+		// would fail before the fake run is ever reached.
+		bin := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(bin, "verify-hook-fail"), []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		env.Environ = append([]string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH")}, os.Environ()...)
 
 		code, report, _ := runDoctor(t, env)
+		wantLine(t, report, "ok", "verify hook file", "resolves to "+filepath.Join(bin, "verify-hook-fail"))
 		wantLine(t, report, "fail", "verify hook", "The verify hook failed (exit 7).")
 		if code != 7 {
 			t.Fatalf("code = %d, want the hook's own 7", code)

@@ -1060,6 +1060,51 @@ func checkoutFileCheck(loaded *config.Loaded) Check {
 	return Check{Status: StatusOK, Subject: brand.ConfigFile, Detail: loaded.File}
 }
 
+// hookResolutionChecks is one line per configured hook (config.Hooks.Configured,
+// schema order: prepare, seed, verify, backup, restore), each subject
+// "<stage> hook file" — distinct from "verify hook" below, the actual run,
+// so the two never read as one repeated line — and never one for a hook
+// that is not configured at all, matching `config validate`'s own silence
+// about them. Each line predicts, without spawning anything, exactly what
+// RunHook's own Runner would find trying to start it: hooks.ResolveHook
+// shares RunHook's own command splitting and path resolution, and
+// run.PredictStart underneath it shares osrun's own existence and
+// permission checks — so this can never drift from what `up` or `doctor`'s
+// own verify-hook run below actually does. A hook file that would not start
+// names the exit code the runner would give, 127 for missing or 126 for
+// present but not executable or not a valid executable format, in the
+// line's own Detail — never in the Check's own ExitCode, and so never
+// doctor's own exit code either: the README promises doctor exits with the
+// verify hook's own code only when that hook actually ran and failed, and 1
+// for any other failure, a predicted one included (see doctorExitCode).
+//
+// This runs whether or not this worktree is registered: unlike the verify
+// hook's own run below, resolving a hook needs no environment built from a
+// registration, so it is the only doctor check that can catch a typo in
+// prepare, seed, backup or restore — or in verify, before a first `up` ever
+// registers this worktree — matching the motivation for this check (#105).
+// Covering [commands] the same way is left to #94, once it defines what a
+// command is; nothing here assumes that shape.
+func hookResolutionChecks(loaded *config.Loaded, environ []string) []Check {
+	var checks []Check
+	for _, stage := range loaded.Config.Hooks.Configured() {
+		subject := string(stage) + " hook file"
+		resolution, _, err := hooks.ResolveHook(loaded.Config.Hooks, stage, loaded.Root, environ)
+		if err == nil {
+			checks = append(checks, Check{Status: StatusOK, Subject: subject, Detail: fmt.Sprintf("resolves to %s", resolution.Command)})
+			continue
+		}
+		var startErr *run.StartError
+		if errors.As(err, &startErr) {
+			checks = append(checks, Check{Status: StatusFail, Subject: subject, Detail: fmt.Sprintf(
+				"would not start (exit %d): `%s` %s", startErr.ExitCode, resolution.Command, startErr.Detail)})
+			continue
+		}
+		checks = append(checks, failureCheck(subject, err))
+	}
+	return checks
+}
+
 // checkoutChecks is this worktree, registered or not, and its verify hook.
 // Each step runs on its own: a checkout Git cannot identify still has a
 // config worth reporting, and its verify hook still deserves a line saying
@@ -1125,6 +1170,8 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 		checks = append(checks, missing...)
 	}
 
+	checks = append(checks, hookResolutionChecks(loaded, opts.Environ)...)
+
 	command := loaded.Config.Hooks.Verify
 	switch {
 	case command == nil:
@@ -1180,7 +1227,13 @@ func thisCheckoutSection(ctx context.Context, opts doctorOptions) ([]Check, erro
 /* -------------------------------------------------------------- report ---- */
 
 // doctorExitCode is 0 when nothing failed; the verify hook's own code when
-// it failed, as the hook contract promises; otherwise 1.
+// it ran and failed, as the hook contract and the README promise; 1 for any
+// other failure. Only the verify hook's own run (checkoutChecks' RunHook
+// call) ever sets a Check's ExitCode today — a hook-file resolution failure
+// (hookResolutionChecks) does not, on purpose: its predicted 127 or 126 is
+// what the runner would give if this hook were the one actually run, not
+// what doctor itself exits with, so it stays in the line's own Detail and
+// never overrides or races the verify hook's real, observed code here.
 func doctorExitCode(sections []Section) int {
 	var failures []Check
 	for _, section := range sections {

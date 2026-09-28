@@ -97,7 +97,10 @@ executables you point at from the config file. `up` invokes `prepare` and
 `seed`: `seed` never runs before `prepare`, and not at all if a configured
 `prepare` exited non-zero. `doctor` invokes `verify`. `backup` and `restore`
 are accepted and validated so a repository can commit them once, and future
-commands of the same names will run them. The tool never learns what they do.
+commands of the same names will run them; a `backup` or `restore` whose file
+would not start fails `doctor`'s hook-resolution check exactly the way a
+broken `prepare`, `seed` or `verify` does, even though nothing invokes them
+yet. The tool never learns what they do.
 
 **Router.** One Traefik instance per machine, started on first `up`, shared
 by every worktree of every repository. It binds a single loopback port and
@@ -492,12 +495,22 @@ is absent when Docker could not be asked.
 `warn`, `fail` or `skip`. How it went is one line on stderr, and so is the
 output of the `verify` hook it runs, so the report is alone on stdout. It exits
 0 when no check failed — warnings and skips do not count — with the `verify`
-hook's own exit code when that hook failed, and 1 when anything else failed.
-The exit code names one failure; the report names them all. A `verify` hook
-that exits 124 makes `doctor` exit 124 too — the code `timeout(1)` uses for a
-command it had to kill — so a script that wraps `doctor` in `timeout` cannot
-tell the two apart by exit code alone. It takes no lock, writes nothing, and
-repairs nothing; it reports. When the router itself could be resolved, its
+hook's own exit code when that hook ran and failed, and 1 for any other
+failure. The exit code names one failure; the report names them all. A
+`verify` hook that exits 124 makes `doctor` exit 124 too — the code
+`timeout(1)` uses for a command it had to kill — so a script that wraps
+`doctor` in `timeout` cannot tell the two apart by exit code alone. `doctor`
+also reports one line per configured hook — `prepare`, `seed`, `verify`,
+`backup` and `restore` alike, whether or not this worktree is registered —
+for whether the file it names would even start: as `<stage> hook file`,
+distinct from `verify hook`'s own run line so the two are never mistaken for
+one repeated check. A hook file that would not start names the exit code a
+real run would give in its own line, 127 or 126
+([docs/hooks.md](docs/hooks.md)), but that is a prediction, not an
+observation — it never supplies `doctor`'s own exit code, which stays the
+verify hook's own (only when verify itself actually ran and failed) or 1.
+It takes no lock, writes nothing, and repairs nothing; it reports. When the
+router itself could be resolved, its
 `Router` section also names the router's owner (a `fail` for a router
 without berth's owner label or one another berth root started) and ends with a
 `router port` line saying the same as `router status`'s second line, a
@@ -733,8 +746,9 @@ Shipped:
   versions this tool needs; the berth root and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);
   the router's verification and its address-pool headroom; and, for this
-  checkout, its `verify` hook and any registration of its repository whose
-  checkout Git no longer lists.
+  checkout, whether every configured hook resolves to something runnable,
+  its `verify` hook, and any registration of its repository whose checkout
+  Git no longer lists.
 
 Not built yet, in rough order. `dev` is registered and refuses by name
 rather than pretending; the rest are not commands at all. The config file

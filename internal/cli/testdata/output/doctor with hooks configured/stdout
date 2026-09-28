@@ -1,0 +1,23 @@
+Prerequisites
+  ok    Git             VERSION
+  fail  Docker Engine   Error: No such object: {{.Server.Version}}
+  fail  Docker Compose  could not read a version from ""
+
+Registry
+  ok    berth root     FIXTURE/control
+  ok    control home   FIXTURE/control
+  ok    router state   FIXTURE/control/router
+  ok    registrations  1 readable
+
+Locks
+  ok    locks  none held
+
+Router
+  skip  router  needs Docker
+
+This checkout
+  ok    berth.toml         FIXTURE/checkout/berth.toml
+  ok    this worktree      registered as feature-login.acme.localhost
+  ok    prepare hook file  resolves to FIXTURE/checkout/hooks/prepare
+  fail  seed hook file     would not start (exit 127): `FIXTURE/checkout/hooks/seed` does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT).
+  skip  verify hook        none configured

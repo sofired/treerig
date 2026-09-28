@@ -11,13 +11,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/lock"
@@ -85,7 +82,7 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 		return run.Result{}, startErr
 	}
 
-	resolved, startErr := resolveCommand(spec.Command, spec.Env)
+	resolved, startErr := run.ResolveExecutable(spec.Command, spec.Env)
 	if startErr != nil {
 		return run.Result{}, startErr
 	}
@@ -237,61 +234,9 @@ func checkDir(dir string) *run.StartError {
 	return nil
 }
 
-// resolveCommand finds the executable ourselves — rather than leaning on
-// os/exec's own lookup, which always reads this process's PATH — so a
-// caller-supplied Env is honored for the lookup too, and so the exact
-// "not on PATH" wording is ours to give before ever attempting to spawn.
-func resolveCommand(command string, env []string) (string, *run.StartError) {
-	if strings.Contains(command, "/") {
-		info, err := os.Stat(command)
-		if err != nil {
-			return "", &run.StartError{
-				Command: command, Code: "ENOENT",
-				Detail:   "does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT).",
-				ExitCode: 127,
-			}
-		}
-		if info.IsDir() || unix.Access(command, unix.X_OK) != nil {
-			return "", &run.StartError{Command: command, Code: "EACCES", Detail: "is not executable (EACCES).", ExitCode: 126}
-		}
-		return command, nil
-	}
-	path := pathEnv(env)
-	for _, dir := range filepath.SplitList(path) {
-		if dir == "" {
-			dir = "."
-		}
-		candidate := filepath.Join(dir, command)
-		info, err := os.Stat(candidate)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		if unix.Access(candidate, unix.X_OK) != nil {
-			continue
-		}
-		return candidate, nil
-	}
-	return "", &run.StartError{Command: command, Code: "ENOENT", Detail: "is not on PATH (ENOENT).", ExitCode: 127}
-}
-
-// pathEnv reads PATH out of env, the environment a spawned command resolves
-// against; a nil env means the command inherits ours, so PATH comes from the
-// real environment instead.
-func pathEnv(env []string) string {
-	if env == nil {
-		return os.Getenv("PATH")
-	}
-	for _, entry := range env {
-		if strings.HasPrefix(entry, "PATH=") {
-			return entry[len("PATH="):]
-		}
-	}
-	return ""
-}
-
 // classifyExecError names what a Start failure discovered only at the real
-// exec(2) call — chiefly ENOEXEC, since resolveCommand already checked
-// existence and the execute bit.
+// exec(2) call — chiefly ENOEXEC, since run.ResolveExecutable already
+// checked existence and the execute bit.
 func classifyExecError(command string, err error) *run.StartError {
 	var errno syscall.Errno
 	if !errors.As(err, &errno) {
@@ -341,7 +286,7 @@ func signalChild(pid int, group bool, sig syscall.Signal) {
 
 // Which reports whether an executable regular file by that name is on PATH.
 func (r *Runner) Which(name string) bool {
-	_, err := resolveCommand(name, nil)
+	_, err := run.ResolveExecutable(name, nil)
 	return err == nil
 }
 
