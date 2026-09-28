@@ -22,5 +22,5 @@ const execMaxDepth = 1
 // "#!" interpreter is itself a script rather than a native binary: ENOEXEC.
 func shebangDepthError(interpreter string) *StartError {
 	return &StartError{Code: "ENOEXEC", Detail: fmt.Sprintf(
-		"its #! interpreter `%s` is itself a script, which macOS will not run (ENOEXEC).", interpreter), ExitCode: 126}
+		"has a #! interpreter `%s` that is itself a script, which macOS will not run (ENOEXEC).", interpreter), ExitCode: 126}
 }

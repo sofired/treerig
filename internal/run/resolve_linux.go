@@ -40,5 +40,5 @@ const execMaxDepth = 5
 // fallback exactly rather than inventing a code of its own.
 func shebangDepthError(interpreter string) *StartError {
 	return &StartError{Code: "ELOOP", Detail: fmt.Sprintf(
-		"its #! interpreter `%s` starts a chain of #! interpreters too many levels deep (ELOOP).", interpreter), ExitCode: 126}
+		"has a #! interpreter `%s` that starts a chain of #! interpreters too many levels deep (ELOOP).", interpreter), ExitCode: 126}
 }

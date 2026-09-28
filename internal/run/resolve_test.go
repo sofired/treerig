@@ -391,6 +391,9 @@ func TestPredictStartInterpreterFormat(t *testing.T) {
 		if !strings.Contains(err.Detail, "garbage-interp") {
 			t.Fatalf("detail = %q, want it to name the interpreter, not the hook", err.Detail)
 		}
+		if want := "could not be started: it has a #! interpreter `"; !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to read %q", err.Error(), want)
+		}
 	})
 
 	// The interpreter is resolved through the very same Stat-then-Access

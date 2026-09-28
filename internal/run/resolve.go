@@ -221,16 +221,16 @@ func classifyShebang(rest []byte, dir string, depth int) (bool, *StartError) {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		detail := fmt.Sprintf("its #! interpreter `%s` does not exist (ENOENT).", display)
+		detail := fmt.Sprintf("has a #! interpreter `%s` that does not exist (ENOENT).", display)
 		if hadCR {
 			detail = fmt.Sprintf(
-				"its #! interpreter `%s` does not exist — the file's line endings are CRLF, which glues a stray \\r onto the interpreter name (ENOENT).",
+				"has a #! interpreter `%s` that does not exist — the file's line endings are CRLF, which glues a stray \\r onto the interpreter name (ENOENT).",
 				display)
 		}
 		return false, &StartError{Code: "ENOENT", Detail: detail, ExitCode: 127}
 	}
 	if !info.Mode().IsRegular() || unix.Access(path, unix.X_OK) != nil {
-		return false, &StartError{Code: "EACCES", Detail: fmt.Sprintf("its #! interpreter `%s` is not executable (EACCES).", display), ExitCode: 126}
+		return false, &StartError{Code: "EACCES", Detail: fmt.Sprintf("has a #! interpreter `%s` that is not executable (EACCES).", display), ExitCode: 126}
 	}
 	runnable, startErr := classifyFormat(path, dir, depth+1)
 	if startErr != nil {
@@ -238,7 +238,7 @@ func classifyShebang(rest []byte, dir string, depth int) (bool, *StartError) {
 	}
 	if !runnable {
 		return false, &StartError{Code: "ENOEXEC", Detail: fmt.Sprintf(
-			"its #! interpreter `%s` is not a valid executable (ENOEXEC) — needs a #! line or a native format.", display), ExitCode: 126}
+			"has a #! interpreter `%s` that is not a valid executable (ENOEXEC) — it needs a #! line or a native format.", display), ExitCode: 126}
 	}
 	return true, nil
 }

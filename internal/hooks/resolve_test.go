@@ -135,7 +135,9 @@ func TestResolveHook(t *testing.T) {
 	// real run.
 	t.Run("resolves a relative #! interpreter against root, not PATH", func(t *testing.T) {
 		root := registrytest.TempDir(t)
-		writeScript(t, filepath.Join(root, "myinterp"), "#!/bin/sh\n", 0o755)
+		// A native header, not another "#!" script: macOS refuses a script
+		// as an interpreter, and this test is about path resolution.
+		writeScript(t, filepath.Join(root, "myinterp"), "\x7fELF\x02\x01\x01\x00", 0o755)
 		writeScript(t, filepath.Join(root, "verify"), "#!./myinterp\n", 0o755)
 		command := "./verify"
 		_, ok, err := hooks.ResolveHook(config.Hooks{Verify: &command}, config.Verify, root, []string{"PATH=/nonexistent"})
