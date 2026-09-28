@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -343,6 +344,15 @@ func firstN(values []string, n int) []string {
 }
 
 // ControlHomeFormat is what this build writes into the marker.
+//
+// Its bytes must never vary by writer (no PID, timestamp or nonce):
+// writeMarkerRacingCreators claims a marker still empty after a bounded
+// wait, a narrow exception to this project's rule against recovering
+// anything by age alone, and that claim is safe only because every writer
+// it can race writes these same bytes at offset zero. A different build's
+// format landing last is refused by establishControlHome's format check,
+// not adopted. The wait is not tuned for slow network filesystems; there it
+// only makes the claim path more common, not unsafe.
 const ControlHomeFormat = "format 2\n"
 
 // establishControlHome creates the control home itself, after checking it is
@@ -377,12 +387,16 @@ func establishControlHome(controlHome, userHome string) error {
 	}
 	defer dir.Close()
 
-	// What else the control home holds is read before the marker, not after:
-	// a concurrent creator of this same brand new control home writes its
-	// marker in full before it creates anything else here, so anything
-	// found now means that creator's marker was already complete. An empty
-	// marker read after it is therefore never a creator mid-write, and is
-	// refused below rather than taken over.
+	// What else the control home holds is read before the marker, not
+	// after: a concurrent creator of this same brand new control home
+	// writes its marker in full — via writeMarkerRacingCreators, which
+	// never truncates an existing marker (see its own comment) — before it
+	// creates anything else here. So anything found now means that
+	// creator's marker was already complete, and stays complete: nothing
+	// below this point ever truncates a marker that already holds content,
+	// so an empty marker read once the directory is otherwise populated is
+	// never a creator mid-write, only a leftover this build did not write
+	// (refused below).
 	populated, err := hasMeaningfulEntries(dir)
 	if err != nil {
 		return err
@@ -392,35 +406,51 @@ func establishControlHome(controlHome, userHome string) error {
 	if err != nil {
 		return err
 	}
+	if afterMarkerReadForTest != nil {
+		afterMarkerReadForTest(controlHome)
+	}
 	if len(contents) == 0 && populated {
 		return clierr.Newf(
 			"Refusing to use %s as the control home: its marker %s is empty but the directory already holds %s state. Point %s at an empty directory instead.",
 			controlHome, marker, brand.Name, brand.ControlHomeEnv)
 	}
 	if len(contents) == 0 {
-		// No marker yet, or one truncated but not yet written: writeMarkerDirect's
-		// create-open and its write are two separate steps, so a concurrent
-		// goroutine securing this same brand new control home can see the
-		// marker in between, truncated to empty. Nothing else is here yet
-		// (checked above), so there is nothing to preserve: this writes its own format,
-		// directly rather than through AtomicWrite's temp-then-rename: a
-		// concurrent securer of this same brand new control home would
-		// otherwise see that temp file sitting in what should be an empty
-		// directory and refuse it as not ours. The marker is nine bytes; a
-		// single write(2) of that size does not tear on any filesystem
-		// this tool supports.
-		return writeMarkerRacingCreators(dir, marker)
+		// No marker yet, or one another goroutine (or process, for two
+		// berth commands starting at once on a brand new control home)
+		// created but has not yet written: writeMarkerRacingCreators
+		// either wins the create itself, or waits for whichever creator
+		// did and adopts what it wrote — directly rather than through
+		// AtomicWrite's temp-then-rename: a concurrent securer of this
+		// same brand new control home would otherwise see that temp file
+		// sitting in what should be an empty directory and refuse it as
+		// not ours. The marker is nine bytes; a single write(2) of that
+		// size does not tear on any filesystem this tool supports.
+		contents, err = writeMarkerRacingCreators(dir, marker)
+		if err != nil {
+			return err
+		}
 	}
 	if string(contents) != ControlHomeFormat {
 		// A marker with real content that is not this build's own format is
 		// not this build's to rewrite: refuse rather than adopt or
-		// overwrite it.
+		// overwrite it. Reached both for a marker this call read directly
+		// above, and for one writeMarkerRacingCreators adopted from
+		// whichever creator won a race for it — a foreign winner's marker
+		// is refused exactly the same way.
 		return clierr.Newf(
 			"Refusing to use %s as the control home: its marker %s is not %s's own format. Point %s at an empty directory instead.",
 			controlHome, marker, brand.Name, brand.ControlHomeEnv)
 	}
 	return nil
 }
+
+// afterMarkerReadForTest runs, if set, in establishControlHome right after
+// it has read populated and the marker's own contents, but before it acts on
+// what it read — the moment a goroutine (or process) that goes on to lose a
+// race to establish this same brand new control home is sitting in, with a
+// stale "nothing here yet" view, while a faster one finishes. Tests only;
+// nil in production, where establishControlHome's call is a no-op.
+var afterMarkerReadForTest func(controlHome string)
 
 // hasMeaningfulEntries reports whether dir holds anything besides the
 // control-home marker and the files an operating system drops into any
@@ -466,46 +496,119 @@ func openControlHomeNoFollow(controlHome string) (*os.File, error) {
 	return os.NewFile(uintptr(fd), controlHome), nil
 }
 
-// markerCreateAttempts bounds writeMarkerRacingCreators' retries: generous
-// headroom for a transient race, not a loop meant to run for long.
+// markerCreateAttempts bounds writeMarkerRacingCreators' retries of its own
+// create-open after the macOS ENOENT quirk described on that function:
+// generous headroom for a transient race, not a loop meant to run for long.
 const markerCreateAttempts = 10
 
+// markerWaitAttempts and markerWaitInterval bound how long
+// writeMarkerRacingCreators polls an existing, still-empty marker for
+// whichever goroutine or process created it to write it, once this call's
+// own create loses that race with EEXIST. The winner's write is a single
+// nine-byte write(2) immediately following its create (see
+// writeMarkerRacingCreators), so markerWaitAttempts*markerWaitInterval only
+// needs to survive scheduling jitter, not real work.
+const (
+	markerWaitAttempts = 50
+	markerWaitInterval = 2 * time.Millisecond
+)
+
 // writeMarkerRacingCreators writes the control home's marker, tolerating
-// another goroutine's own concurrent create of the same name.
+// another goroutine's — or, for two berth commands starting at once on a
+// brand new control home, another process's — own concurrent create of the
+// same name, and returns whatever content the marker ends up holding: this
+// call's own write, or a winner's, adopted rather than overwritten.
 //
-// macOS CI (run 35984111281, "Tests without cgo, as released") showed
-// writeMarkerDirect's O_CREAT|O_NOFOLLOW|O_NONBLOCK open fail with ENOENT
-// while 20 goroutines raced to create this same marker in
-// TestConcurrentControlHomeEstablishment, intermittently, though the same
-// test had passed on macOS before. createSecureDirectories never replaces
-// the control home directory itself, so nothing here removes the marker's
-// name out from under an O_CREAT open; this comment does not claim to know
-// what in the kernel produced that ENOENT, only that it was observed. If the
-// create-open fails with ENOENT, the marker is read again: another goroutine
-// may have already written it, in which case there is nothing left to do;
-// otherwise the create is retried, up to markerCreateAttempts times.
-func writeMarkerRacingCreators(dir *os.File, marker string) error {
+// It creates with O_EXCL and never truncates an existing marker. An earlier
+// version created with O_CREAT|O_TRUNC, which let a goroutine that lost the
+// race truncate a winner's already-complete marker back to empty for the
+// width of its own create-then-write; a third goroutine reading in that
+// window saw an empty marker beside a directory a winner had already
+// populated, and refused a control home that was never actually broken.
+//
+// On EEXIST, another creator's own create already won: this call waits,
+// polling markerWaitAttempts times over markerWaitInterval each, for that
+// creator's content to appear. If it appears, that content is returned,
+// unread — establishControlHome's own format check runs on it just the same
+// as on content this call read directly, so a foreign winner's marker is
+// still refused rather than adopted. If markerWaitAttempts polls all still
+// find it empty, no live creator is in flight: a live creator's write always
+// immediately follows its create (the invariant this function itself
+// upholds), so a marker that stays empty for that whole bounded wait is a
+// leftover from one that crashed between its create and its write, not a
+// slow one still to catch up. This call then claims it in place — open
+// without O_EXCL or O_TRUNC, so an existing file is neither refused nor
+// emptied — which is safe even if another goroutine reaches the same
+// conclusion and does the same at the same time: every claimant writes the
+// same nine bytes at offset zero, so whichever writes last leaves the
+// correct content either way.
+//
+// macOS CI (run 35984111281, "Tests without cgo, as released") showed the
+// create-open fail with ENOENT while 20 goroutines raced to create this same
+// marker in TestConcurrentControlHomeEstablishment, intermittently, though
+// the same test had passed on macOS before. createSecureDirectories never
+// replaces the control home directory itself, so nothing here removes the
+// marker's name out from under an O_CREAT open; this comment does not claim
+// to know what in the kernel produced that ENOENT, only that it was
+// observed. If the create-open fails with ENOENT, the marker is read again:
+// another goroutine may have already written it, in which case there is
+// nothing left to do; otherwise the create is retried, up to
+// markerCreateAttempts times.
+func writeMarkerRacingCreators(dir *os.File, marker string) ([]byte, error) {
+	contents := []byte(ControlHomeFormat)
 	var lastErr error
 	for attempt := 0; attempt < markerCreateAttempts; attempt++ {
-		err := writeMarkerDirect(dir, marker, []byte(ControlHomeFormat), 0o600)
+		err := writeMarkerDirect(dir, marker, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY, contents, 0o600)
 		if err == nil {
-			return nil
+			return contents, nil
+		}
+		if errors.Is(err, fs.ErrExist) {
+			won, waitErr := waitForMarkerWrite(dir, marker)
+			if waitErr != nil {
+				return nil, waitErr
+			}
+			if won != nil {
+				return won, nil
+			}
+			if err := writeMarkerDirect(dir, marker, unix.O_CREAT|unix.O_WRONLY, contents, 0o600); err != nil {
+				return nil, err
+			}
+			return contents, nil
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			return nil, err
 		}
 		lastErr = err
-		contents, readErr := readMarkerDirect(dir, marker)
+		read, readErr := readMarkerDirect(dir, marker)
 		if readErr != nil {
-			return readErr
+			return nil, readErr
 		}
-		if len(contents) != 0 {
+		if len(read) != 0 {
 			// Another goroutine's own create-and-write won the race; this one's marker is already in place.
-			return nil
+			return read, nil
 		}
 	}
-	return clierr.Newf("Could not create the control home marker at %s after %d attempts: %s",
+	return nil, clierr.Newf("Could not create the control home marker at %s after %d attempts: %s",
 		marker, markerCreateAttempts, lastErr)
+}
+
+// waitForMarkerWrite polls the marker through dir, for up to
+// markerWaitAttempts times over markerWaitInterval each, for a creator that
+// won the race to create it (see writeMarkerRacingCreators) to write it. It
+// returns that creator's content once the marker is no longer empty, or nil
+// once every poll still found it empty.
+func waitForMarkerWrite(dir *os.File, marker string) ([]byte, error) {
+	for attempt := 0; attempt < markerWaitAttempts; attempt++ {
+		contents, err := readMarkerDirect(dir, marker)
+		if err != nil {
+			return nil, err
+		}
+		if len(contents) != 0 {
+			return contents, nil
+		}
+		time.Sleep(markerWaitInterval)
+	}
+	return nil, nil
 }
 
 // openMarkerNoFollow opens name (the marker's own base name) through dir's
@@ -567,16 +670,24 @@ func readMarkerDirect(dir *os.File, marker string) ([]byte, error) {
 	return io.ReadAll(handle)
 }
 
-// writeMarkerDirect creates or truncates the control home's marker in place
-// through dir and writes contents, with no temporary file: see
-// establishControlHome for why the marker specifically must never be
-// written that way. Refused the same way readMarkerDirect is if it is not,
-// or could not be made, a regular file — and, because openMarkerNoFollow
-// opens non-blocking, a FIFO planted at the marker's name cannot block this
-// call on a reader either: with one present the open succeeds and the Stat
-// below then refuses it; with none, the open itself fails with ENXIO.
-func writeMarkerDirect(dir *os.File, marker string, contents []byte, mode fs.FileMode) error {
-	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), unix.O_CREAT|unix.O_TRUNC|unix.O_WRONLY, mode)
+// writeMarkerDirect opens the control home's marker through dir with flag —
+// always including unix.O_WRONLY, and unix.O_CREAT with or without
+// unix.O_EXCL depending on the caller (see writeMarkerRacingCreators) — and
+// writes contents, with no temporary file: see establishControlHome for why
+// the marker specifically must never be written that way. flag never
+// includes unix.O_TRUNC: this call must never shorten a marker that already
+// holds another creator's complete content down to nothing, even for the
+// width of a single syscall (the race writeMarkerRacingCreators' own
+// comment describes), so an existing marker is either refused outright by
+// unix.O_EXCL or opened and overwritten in place at offset zero, never
+// truncated first. Refused the same way readMarkerDirect is if what is
+// opened is not, or could not be made, a regular file — and, because
+// openMarkerNoFollow opens non-blocking, a FIFO planted at the marker's name
+// cannot block this call on a reader either: with one present the open
+// succeeds and the Stat below then refuses it; with none, the open itself
+// fails with ENXIO.
+func writeMarkerDirect(dir *os.File, marker string, flag int, contents []byte, mode fs.FileMode) error {
+	handle, err := openMarkerNoFollow(dir, filepath.Base(marker), flag, mode)
 	if err != nil {
 		if errors.Is(err, unix.ELOOP) {
 			return refusedMarker(marker)
