@@ -125,7 +125,7 @@ func newUpWorld(t *testing.T) *upWorld {
 	// only a group kill stops it.
 	writeFile(t, w.hook(), strings.Join([]string{
 		"#!/bin/sh",
-		fmt.Sprintf(`echo "$BERTH_STAGE $BERTH_SLUG $BERTH_HOST $BERTH_PROJECT $(pwd)" >> %q`, w.log),
+		fmt.Sprintf(`echo "$BERTH_STAGE $BERTH_SLUG $BERTH_HOST $BERTH_PROJECT $BERTH_URL $BERTH_SERVICE_URL_API $BERTH_SERVICE_URL_MAIL $(pwd)" >> %q`, w.log),
 		`touch "$BERTH_WORKTREE_HOME/touched-by-$BERTH_STAGE" || exit 9`,
 		fmt.Sprintf(`if [ "$BERTH_STAGE" = prepare ] && [ -e %q ]; then exit 7; fi`, w.failFile),
 		fmt.Sprintf(`if [ -e %q ]; then sh -c 'echo $$ > "$0"; exec sleep 60' %q & wait; fi`,
@@ -329,10 +329,13 @@ func TestUpEndToEnd(t *testing.T) {
 		if want := []string{"api   http://feature-login.acme.localhost", "mail  http://mail.feature-login.acme.localhost/inbox"}; !slices.Equal(log.Printed, want) {
 			t.Fatalf("printed = %q, want %q", log.Printed, want)
 		}
-		// Hooks saw the contract: stage, slug, host, project, and the project root as cwd.
+		// Hooks saw the contract: stage, slug, host, project, BERTH_URL and
+		// BERTH_SERVICE_URL_<NAME> for its own root and mail services (#28),
+		// and the project root as cwd.
+		urlLine := "http://feature-login.acme.localhost http://feature-login.acme.localhost http://mail.feature-login.acme.localhost/inbox"
 		if want := []string{
-			"prepare feature-login feature-login.acme.localhost acme " + w.root,
-			"seed feature-login feature-login.acme.localhost acme " + w.root,
+			"prepare feature-login feature-login.acme.localhost acme " + urlLine + " " + w.root,
+			"seed feature-login feature-login.acme.localhost acme " + urlLine + " " + w.root,
 		}; !slices.Equal(w.hookLog(t), want) {
 			t.Fatalf("hook log = %q, want %q", w.hookLog(t), want)
 		}
