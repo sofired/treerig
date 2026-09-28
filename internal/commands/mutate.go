@@ -19,9 +19,10 @@ import (
 // its subprocesses are reaped, and the lock is released — then re-raised. A
 // half-finished mutation is never left locked, and never left running.
 // exclusive also takes the development-session lock: the verb must not run
-// while `dev` is attached.
-func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, exclusive bool, action func(context.Context) error) error {
-	if err := c.refuseOwnWorktreeLock(ref.WorktreeID); err != nil {
+// while `dev` is attached. host names ref in the nested-invocation refusal,
+// as the caller already has it from layout.WorktreeHost.
+func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, host string, exclusive bool, action func(context.Context) error) error {
+	if err := c.refuseOwnWorktreeLock(ref.WorktreeID, host); err != nil {
 		return err
 	}
 	markers := procid.Markers{Project: layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID), WorktreeID: ref.WorktreeID}
@@ -42,15 +43,29 @@ func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, exclusive
 // operation lock from inside that worktree's own environment. `up` holds
 // the lock while its hooks run, and hooks do not inherit it, so a hook that
 // runs `up` or `down` on its own worktree would otherwise wait out the whole
-// lock timeout on its own caller (#102). A different worktree's ID, or none,
-// passes: a hook may still drive another worktree.
-func (c *CommandContext) refuseOwnWorktreeLock(worktreeID string) error {
-	if env, ok := c.environWorktreeID(); ok && env == worktreeID {
-		return clierr.New(
-			"This command would wait for the worktree lock its own caller holds " +
-				"(BERTH_WORKTREE_ID names this worktree, as in its hooks). Run it from an ordinary shell.")
+// lock timeout on its own caller (#102, #108). A different worktree's ID, or
+// none, passes: a hook may still drive another worktree. host names the
+// worktree in the refusal, as its caller renders it (`<slug>.<domain>`).
+func (c *CommandContext) refuseOwnWorktreeLock(worktreeID, host string) error {
+	if c.insideWorktree(worktreeID) {
+		return ownWorktreeLockRefusal(host)
 	}
 	return nil
+}
+
+// insideWorktree reports whether BERTH_WORKTREE_ID in this process's
+// environment names worktreeID, as it does inside that worktree's hooks.
+func (c *CommandContext) insideWorktree(worktreeID string) bool {
+	env, ok := c.environWorktreeID()
+	return ok && env == worktreeID
+}
+
+// ownWorktreeLockRefusal is the nested-invocation refusal, naming the
+// worktree by host.
+func ownWorktreeLockRefusal(host string) error {
+	return clierr.Newf(
+		"This command runs inside %s's own hooks, which hold its lock, so it would wait on itself. "+
+			"A hook can change other worktrees, but not its own.", host)
 }
 
 // writer names this process to whoever waits on the registry lock.
@@ -103,7 +118,7 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	if err != nil {
 		return err
 	}
-	if err := cctx.mutate(ctx, ref, false, func(ctx context.Context) error {
+	if err := cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
 		// Unroutes before the worktree's own teardown, unconditionally —
 		// see unrouteWorktree's own comment for why, and for its
 		// hard-fail/best-effort split between fragment removal and the
