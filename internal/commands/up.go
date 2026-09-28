@@ -155,6 +155,27 @@ func upStages(firstTime bool) []config.HookStage {
 	return stages
 }
 
+// hostForIdentity is the best host UpWithContext can name identity by
+// before Registry.Ensure has run — the nested-invocation check (#108) fires
+// ahead of Ensure, since Ensure itself takes the worktree lock. When
+// identity is already registered (the ordinary case: a hook only exists
+// once its own `up` has registered the worktree at least once), its stored
+// slug and domain are read without taking any lock, exactly as Ensure reads
+// them to name the lock it is about to wait on. Otherwise there is no
+// record yet to read, and the host is our best guess: the slug
+// AllocateSlug would start from, under the config's own domain, which may
+// differ from what Ensure ends up allocating if that base slug collides
+// with another worktree's. A record that cannot be read falls back the same
+// way, deliberately: the host only names the worktree in a refusal that is
+// already certain, so a registry error is no reason to replace it, and
+// Registry.Ensure reports that error on any up that is not refused.
+func hostForIdentity(cctx *CommandContext, identity registry.WorktreeIdentity) string {
+	if record, err := cctx.Registry.Store(identity.RepositoryID).Find(identity.WorktreeID); err == nil && record != nil {
+		return layout.WorktreeHost(record.Slug, record.Domain)
+	}
+	return layout.WorktreeHost(registry.BranchSlug(identity.Branch, identity.Root), cctx.Loaded.Config.Project.Domain)
+}
+
 // UpWithContext is `up`, operating directly on a CommandContext. Register
 // (or reconcile), make sure the shared router is up, start, then run hooks:
 // prepare on every up, seed only the first time this worktree comes up.
@@ -177,10 +198,10 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	if err != nil {
 		return nil, err
 	}
-	if identity != nil {
-		if err := cctx.refuseOwnWorktreeLock(identity.WorktreeID); err != nil {
-			return nil, err
-		}
+	// The host is looked up only when refusing: every other up would pay
+	// for a registry read it never uses.
+	if identity != nil && cctx.insideWorktree(identity.WorktreeID) {
+		return nil, ownWorktreeLockRefusal(hostForIdentity(cctx, *identity))
 	}
 	if err := refuseRelabelling(ctx, cctx, identity); err != nil {
 		return nil, err
@@ -204,7 +225,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	urls := urlsFromRoutes(cctx.Loaded.Config.Service, serviceRoutes)
 
 	var ranHooks []config.HookStage
-	err = cctx.mutate(ctx, ref, false, func(ctx context.Context) error {
+	err = cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
 		// The router may have taken minutes to start, and the lock was free
 		// meanwhile: a removal can have finished. Nothing is created unless
 		// the registration and the identity are still the ones Ensure saw.
