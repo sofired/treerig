@@ -56,26 +56,29 @@ keeps the lock until that child exits too; hooks never inherit it.
 Either way, there is no stale window and nothing to go quiet: recovery never
 waits on a heartbeat, because there is none. A command that finds the lock
 held waits for it — a worktree operation for up to 25 minutes, the router's
-own lock for up to 20 — and after a couple of seconds, then every 30 seconds,
-says who holds it (its command, how long) and what to do: wait for it to
-finish or stop it (`kill <pid>`), or, if the holder is merely stopped
-(`Ctrl-Z`, alive but not working), resume it (`kill -CONT <pid>`) and let it
-finish, or end it; on Linux it also lists the processes still holding the
-lock. Recovery from a holder that died is automatic and checked, never
-assumed: the moment a lock is free, whoever takes it next verifies that the
-previous holder's own record names a process that is genuinely gone — by
-machine ID (or boot ID, in a container image with none), PID, and start time,
-so a reused PID or a different boot is never mistaken for the same process —
-then scans, twice a second apart, for anything that holder started and left
-running, before treating the lock as recovered. `berth worktree unlock
-<slug|uuid>` runs that same check on demand, without waiting to acquire the
-lock itself, so a lock nobody is actively waiting on can still be cleared
-right away; `--registry` and `--router` point it at the registry and router
-locks instead of a worktree's. [Lock recovery](#lock-recovery) says exactly
-what it checks and what it cannot see. `doctor` reports every lock currently
-held, and every free lock whose record is still unreleased; an unreleased
-record alone doesn't prove the holder is gone — the next command to take that
-lock checks the recorded holder itself before treating it as recovered.
+own lock for up to 20 — except one run from the worktree's own hooks, whose
+caller already holds the lock: that refuses at once (see
+[docs/hooks.md](docs/hooks.md)). A waiting command, after a couple of seconds
+and then every 30 seconds, says who holds it (its command, how long) and what
+to do: wait for it to finish or stop it (`kill <pid>`), or, if the holder is
+merely stopped (`Ctrl-Z`, alive but not working), resume it (`kill -CONT
+<pid>`) and let it finish, or end it; on Linux it also lists the processes
+still holding the lock. Recovery from a holder that died is automatic and
+checked, never assumed: the moment a lock is free, whoever takes it next
+verifies that the previous holder's own record names a process that is
+genuinely gone — by machine ID (or boot ID, in a container image with none),
+PID, and start time, so a reused PID or a different boot is never mistaken for
+the same process — then scans, twice a second apart, for anything that holder
+started and left running, before treating the lock as recovered. `berth
+worktree unlock <slug|uuid>` runs that same check on demand, without waiting
+to acquire the lock itself, so a lock nobody is actively waiting on can still
+be cleared right away; `--registry` and `--router` point it at the registry
+and router locks instead of a worktree's. [Lock recovery](#lock-recovery) says
+exactly what it checks and what it cannot see. `doctor` reports every lock
+currently held, and every free lock whose record is still unreleased; an
+unreleased record alone doesn't prove the holder is gone — the next command to
+take that lock checks the recorded holder itself before treating it as
+recovered.
 
 **Homes.** Each worktree owns a directory under the control home
 (`~/.berth/control-home` by default) created owner-only, with path containment
