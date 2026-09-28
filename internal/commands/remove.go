@@ -81,6 +81,12 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 	ref := toRef(*target)
+	// Refused here, not only in mutate: the inventory below calls Docker and
+	// the prompt needs a terminal, and neither should stand between a hook
+	// and the reason it cannot remove its own worktree.
+	if err := cctx.refuseOwnWorktreeLock(ref.WorktreeID); err != nil {
+		return nil, err
+	}
 	host := layout.WorktreeHost(target.Slug, target.Domain)
 	paths := layout.WorktreeLayout(cctx.ControlHome, target.RepositoryID, target.WorktreeID)
 	repositoryID, present, err := cctx.Registry.Identities.RepositoryID(ctx, cctx.Registry.Identities.Root)

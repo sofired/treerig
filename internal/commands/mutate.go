@@ -21,6 +21,9 @@ import (
 // exclusive also takes the development-session lock: the verb must not run
 // while `dev` is attached.
 func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, exclusive bool, action func(context.Context) error) error {
+	if err := c.refuseOwnWorktreeLock(ref.WorktreeID); err != nil {
+		return err
+	}
 	markers := procid.Markers{Project: layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID), WorktreeID: ref.WorktreeID}
 	operation, development := lock.WorktreeScopes(c.ControlHome, ref.RepositoryID, ref.WorktreeID, ref.Slug, markers)
 	requests := lifecycle.Requests{Operation: &operation}
@@ -33,6 +36,21 @@ func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, exclusive
 		life = lifecycle.NewLifecycle(lifecycle.New(), c.Logger)
 	}
 	return life.Hold(ctx, lifecycle.Env{Logger: c.Logger, Runner: quiescer, Invocation: c.Invocation}, requests, action)
+}
+
+// refuseOwnWorktreeLock refuses, before any wait, to take worktreeID's
+// operation lock from inside that worktree's own environment. `up` holds
+// the lock while its hooks run, and hooks do not inherit it, so a hook that
+// runs `up` or `down` on its own worktree would otherwise wait out the whole
+// lock timeout on its own caller (#102). A different worktree's ID, or none,
+// passes: a hook may still drive another worktree.
+func (c *CommandContext) refuseOwnWorktreeLock(worktreeID string) error {
+	if env, ok := c.environWorktreeID(); ok && env == worktreeID {
+		return clierr.New(
+			"This command would wait for the worktree lock its own caller holds " +
+				"(BERTH_WORKTREE_ID names this worktree, as in its hooks). Run it from an ordinary shell.")
+	}
+	return nil
 }
 
 // writer names this process to whoever waits on the registry lock.
