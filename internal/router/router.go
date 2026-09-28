@@ -429,8 +429,10 @@ var networkGoneOnReconnect = regexp.MustCompile(`(?i)no such network|network .* 
 // networkDisconnectTolerated matches Docker's refusal to disconnect a
 // container that was never attached, or a network or container that no
 // longer exists: every one of them "nothing to disconnect", from
-// DisconnectNetwork's point of view.
-var networkDisconnectTolerated = regexp.MustCompile(`(?i)is not connected to (any )?network|no such network|no such container`)
+// DisconnectNetwork's point of view. A missing network reads "no such
+// network" on older engines and "network <name> not found" on Engine 29,
+// as networkGoneOnReconnect already allows.
+var networkDisconnectTolerated = regexp.MustCompile(`(?i)is not connected to (any )?network|no such network|network .* not found|no such container`)
 
 // ConnectNetwork attaches the router container to network, tolerating an
 // already-attached pair as success (Docker's own `network connect` is not
