@@ -1,2 +1,4 @@
-error: unknown option '--domai'
-(Did you mean --domain?)
+[berth] ERROR: unknown flag: --domai
+
+  Did you mean this?
+   --domain

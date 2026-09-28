@@ -1,2 +1,1 @@
-error: unknown command 'helo'
-(Did you mean help?)
+[berth] ERROR: unknown command "helo" for "berth"

@@ -1,1 +1,1 @@
-error: unknown command 'bogus'
+[berth] ERROR: unknown command "bogus" for "berth worktree"

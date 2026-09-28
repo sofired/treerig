@@ -1,6 +1,11 @@
-Usage: berth router down [options]
-
 stop the shared router; worktree services keep running but are no longer routed
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth router down [flags]
+
+Flags:
+  -h, --help   help for down
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

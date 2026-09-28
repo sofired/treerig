@@ -1,6 +1,11 @@
-Usage: berth dev [options]
-
 start this worktree's environment and follow its logs (not yet implemented)
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth dev [flags]
+
+Flags:
+  -h, --help   help for dev
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

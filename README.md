@@ -146,6 +146,21 @@ mkdir -p ~/.local/bin && go build -o ~/.local/bin/berth ./cmd/berth   # any dire
 
 `berth doctor` checks Git, Docker and Docker Compose once it is on PATH.
 
+### Shell completion
+
+`berth completion <shell>` prints a completion script for bash, zsh, fish or
+PowerShell. It completes commands, their flags with descriptions, and
+`--config` with `.toml` files. `berth completion <shell> --help` says how to
+load the script for good; to try it in the current shell:
+
+```bash
+source <(berth completion bash)   # or zsh
+berth completion fish | source    # fish
+```
+
+A renamed binary or symlink (see [Calling it something else](#calling-it-something-else))
+prints a script for the name it was invoked as.
+
 ## Quick start
 
 The tool is tested with Docker Compose 2.21 and newer (`berth doctor` checks,
@@ -314,7 +329,9 @@ from `argv[0]` and from nowhere else:
 
 ```bash
 ln -s "$(go env GOPATH)/bin/berth" ~/.local/bin/duke
-duke --help               # Usage: duke [options] [command]
+duke --help               # Usage:
+                          #   duke [flags]
+                          #   duke [command]
 ```
 
 A binary built or invoked with no meaningful name to read — `main`, a bare
@@ -490,12 +507,11 @@ cleared are notices on stderr. A refusal is an error that exits 1 and clears
 nothing: a holder that may be alive, a process it left running, or a lock that
 changed while it looked.
 
-Every failure the tool itself reports ends in a non-zero exit code and a
-`[berth] ERROR:` line on stderr saying why; a bad command line is answered by
-the argument parser in its own format. Set `BERTH_DEBUG=1` to see the stack
-trace behind a failure. A failing hook's own exit code becomes berth's — see
-[docs/hooks.md](docs/hooks.md) — and a verb that is registered but not
-implemented exits 2.
+Every failure the tool itself reports, a bad command line included, ends in a
+non-zero exit code and a `[berth] ERROR:` line on stderr saying why. Set
+`BERTH_DEBUG=1` to see the stack trace behind a failure. A failing hook's own
+exit code becomes berth's — see [docs/hooks.md](docs/hooks.md) — and a verb
+that is registered but not implemented exits 2.
 
 ## Platform notes
 

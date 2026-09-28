@@ -1,6 +1,11 @@
-Usage: berth urls [options]
-
 print this worktree's routed URLs
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth urls [flags]
+
+Flags:
+  -h, --help   help for urls
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

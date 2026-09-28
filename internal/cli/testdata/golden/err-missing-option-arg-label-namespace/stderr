@@ -1,1 +1,1 @@
-error: option '--label-namespace <namespace>' argument missing
+[berth] ERROR: flag needs an argument: --label-namespace

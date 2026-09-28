@@ -1,1 +1,1 @@
-error: unknown option '-hx'
+[berth] ERROR: unknown shorthand flag: 'x' in -x

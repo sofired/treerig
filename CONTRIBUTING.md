@@ -75,10 +75,13 @@ behaves (an extra thread, notably), and releases build with it disabled.
 a binary it builds itself.
 
 `internal/cli/testdata/golden/` and `internal/cli/testdata/output/` are
-plain, hand-maintained fixture corpora: update a fixture by hand after a
-change to the command tree, help wording or an error message, the same way
-any other testdata file in this repository is updated. See golden_test.go's
-and output_integration_test.go's own package comments.
+plain, hand-maintained fixture corpora: update a fixture by hand, or by
+running `go test ./internal/cli/... -run TestGolden -update` after a change
+to the command tree, help wording or an error message. `-update` only writes
+what `cli.Main` produced over the fixture; it never judges whether that
+output is correct, so review every diff it leaves before committing it, the
+same way any other testdata file in this repository is updated. See
+golden_test.go's and output_integration_test.go's own package comments.
 
 **Go style,** beyond gofmt, go vet, and staticcheck:
 - No naked returns — a function with named results still returns them

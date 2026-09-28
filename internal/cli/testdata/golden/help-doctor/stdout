@@ -1,6 +1,11 @@
-Usage: berth doctor [options]
-
 check prerequisites, the registry, the router, and this checkout's verify hook
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth doctor [flags]
+
+Flags:
+  -h, --help   help for doctor
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

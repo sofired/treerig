@@ -1,11 +1,18 @@
-Usage: berth config [options] [command]
-
 inspect the project configuration
 
-Options:
-  -h, --help      display help for command
+Usage:
+  berth config [flags]
+  berth config [command]
 
-Commands:
-  validate        parse and validate berth.toml
-  show            print the resolved configuration as JSON
-  help [command]  display help for command
+Available Commands:
+  validate    parse and validate berth.toml
+  show        print the resolved configuration as JSON
+
+Flags:
+  -h, --help   help for config
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number
+
+Use "berth config [command] --help" for more information about a command.

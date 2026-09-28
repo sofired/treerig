@@ -1,0 +1,20 @@
+print a shell completion script
+
+Usage:
+  berth completion [flags]
+  berth completion [command]
+
+Available Commands:
+  bash        print the completion script for bash
+  zsh         print the completion script for zsh
+  fish        print the completion script for fish
+  powershell  print the completion script for powershell
+
+Flags:
+  -h, --help   help for completion
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number
+
+Use "berth completion [command] --help" for more information about a command.

@@ -1,6 +1,11 @@
-Usage: berth index [options]
-
 refresh the machine-wide checkout index and print it
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth index [flags]
+
+Flags:
+  -h, --help   help for index
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

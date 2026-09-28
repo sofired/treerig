@@ -2,9 +2,12 @@ package cli_test
 
 // Golden corpus for the CLI's parsing, help and top-level error reporting.
 // Every fixture under testdata/golden/<name>/ (stdout, stderr, exit) is a
-// plain, hand-maintained corpus: update one by hand after a change to the
-// command tree, help wording or an error message, the same way any other
-// testdata file in this repository is updated.
+// plain, hand-maintained corpus: update one by hand, or by running this
+// file's own TestGolden with -update (see the flag's own doc comment), after
+// a change to the command tree, help wording or an error message — the same
+// way any other testdata file in this repository is updated. Either way,
+// review every diff yourself: -update writes whatever cli.Main happened to
+// produce, not what it should have.
 //
 // help-worktree, help-worktree-short, help-worktree-unlock,
 // help-cmd-worktree, help-cmd-worktree-remove, help-cmd-worktree-list and
@@ -17,6 +20,7 @@ package cli_test
 
 import (
 	"bytes"
+	"flag"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,6 +29,13 @@ import (
 
 	"github.com/sofired/berth/internal/cli"
 )
+
+// update, when passed as -update to `go test`, writes each case's observed
+// stdout, stderr and exit code over its committed fixture instead of
+// comparing against it. It never judges whether the observed output is
+// correct — that is for whoever runs it to review in the diff it leaves
+// before committing the result.
+var update = flag.Bool("update", false, "write golden fixtures from the observed output instead of checking them")
 
 type goldenCase struct {
 	name string
@@ -58,20 +69,19 @@ var goldenCases = []goldenCase{
 	{"help-worktree-remove", []string{"worktree", "remove", "--help"}},
 	{"help-worktree-unlock", []string{"worktree", "unlock", "--help"}},
 
-	// --- the "help [command]" form, including its one-word-only quirk ---
+	// --- the "help [command]" form, walking the full path given ---
 	{"help-cmd-config", []string{"help", "config"}},
 	{"help-cmd-router", []string{"help", "router"}},
 	{"help-cmd-worktree", []string{"help", "worktree"}},
-	// commander's default help command takes a single, non-variadic
-	// argument: the word after "worktree" is dropped, so this shows
-	// worktree's own group help, not remove's.
 	{"help-cmd-worktree-remove", []string{"help", "worktree", "remove"}},
 	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
 	{"help-cmd-dev", []string{"help", "dev"}},
-	// Same one-word rule: "b" is dropped, and since "a" is not a real
-	// command this falls all the way back to the program's own error help.
+	// "a" is not a real command, so this falls all the way back to the
+	// program's own error help; "b" is never reached.
 	{"help-cmd-a-b", []string{"help", "a", "b"}},
 	{"help-cmd-nonexistent", []string{"help", "nonexistent"}},
+	{"help-cmd-worktree-bogus", []string{"help", "worktree", "bogus"}},
+	{"help-cmd-leaf-extra", []string{"help", "status", "extra"}},
 
 	// --- version ---
 	{"version-short", []string{"-V"}},
@@ -86,11 +96,25 @@ var goldenCases = []goldenCase{
 	// --- dev: implemented as a fixed "not implemented yet" failure ---
 	{"dev-not-implemented", []string{"dev"}},
 
+	// --- shell completion: the scripts themselves are cobra's, so only the
+	// group, one shell's help and the requests a script sends are pinned ---
+	{"bare-completion", []string{"completion"}},
+	{"help-completion-zsh", []string{"completion", "zsh", "--help"}},
+	{"err-unknown-command-in-completion-group", []string{"completion", "tcsh"}},
+	{"complete-root", []string{"__complete", ""}},
+	{"complete-worktree", []string{"__complete", "worktree", ""}},
+	{"complete-worktree-remove-flags", []string{"__complete", "worktree", "remove", "--"}},
+	{"complete-no-descriptions", []string{"__completeNoDesc", "router", ""}},
+	{"complete-no-file-arguments", []string{"__complete", "worktree", "remove", ""}},
+	{"complete-no-file-flag-value", []string{"__complete", "worktree", "remove", "--domain", ""}},
+	{"complete-config-file", []string{"__complete", "status", "--config", ""}},
+
 	// --- unknown command, with and without a suggestion ---
 	{"err-unknown-command-far", []string{"nonsense"}},
 	{"err-unknown-command-near-status", []string{"stat"}},
 	{"err-unknown-command-near-router", []string{"route"}},
 	{"err-unknown-command-near-worktree", []string{"wroktree"}},
+	// No suggestion: cobra never suggests the help command itself.
 	{"err-unknown-command-near-help", []string{"helo"}},
 	{"err-unknown-command-near-down", []string{"dow"}},
 	{"err-unknown-command-in-group", []string{"worktree", "bogus"}},
@@ -105,9 +129,9 @@ var goldenCases = []goldenCase{
 	{"err-unknown-option-short", []string{"-x"}},
 	{"err-unknown-option-short-nested", []string{"worktree", "list", "-x"}},
 	{"err-unknown-option-short-leaf", []string{"worktree", "remove", "-x"}},
-	// "-hx": -h is never a recognised *option* (only the dedicated
-	// --help/-h check matches it exactly), so this is one unrecognised
-	// token, not -h followed by an unknown -x.
+	// "-hx": pflag reads a clustered short flag left to right, so "-h"
+	// itself is recognised before "x" is found not to be — the shorthand
+	// cluster fails on "x", not on the flag as a whole.
 	{"err-unknown-option-short-combo", []string{"-hx"}},
 
 	// --- missing option argument ---
@@ -119,10 +143,12 @@ var goldenCases = []goldenCase{
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
 	{"err-excess-arguments-remove-two", []string{"worktree", "remove", "a", "b", "c"}},
 	{"err-excess-arguments-status", []string{"status", "extra"}},
+	{"err-excess-arguments-router-down", []string{"router", "down", "now", "please"}},
 
 	// --- option-scanning edge cases ---
-	// -V is a real registered option (unlike -h): the combo scan matches it
-	// and exits on the version handler before "extra" is ever considered.
+	// "-Vextra": pflag reads a clustered short flag left to right too, the
+	// same as "-hx" above — "-V" is consumed, then the cluster fails on "e",
+	// exit 1 to stderr rather than printing the version, exit 0 to stdout.
 	{"combo-version-short-suffix", []string{"-Vextra"}},
 	// --config is root-scoped and recognised wherever it appears in the
 	// argument list, not just before the first subcommand name.
@@ -156,13 +182,19 @@ func TestGolden(t *testing.T) {
 	for _, tc := range goldenCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := filepath.Join("testdata", "golden", tc.name)
-			wantOut := readFixtureFile(t, filepath.Join(dir, "stdout"))
-			wantErr := readFixtureFile(t, filepath.Join(dir, "stderr"))
-			wantCode := readFixtureCode(t, filepath.Join(dir, "exit"))
 
 			var stdout, stderr bytes.Buffer
 			args := append([]string{"berth"}, tc.args...)
 			code := cli.Main(args, strings.NewReader(""), &stdout, &stderr, emptyGetenv)
+
+			if *update {
+				writeFixture(t, dir, stdout.String(), stderr.String(), code)
+				return
+			}
+
+			wantOut := readFixtureFile(t, filepath.Join(dir, "stdout"))
+			wantErr := readFixtureFile(t, filepath.Join(dir, "stderr"))
+			wantCode := readFixtureCode(t, filepath.Join(dir, "exit"))
 
 			if stdout.String() != wantOut {
 				t.Errorf("stdout mismatch\n--- want ---\n%s\n--- got ---\n%s", wantOut, stdout.String())
@@ -174,6 +206,28 @@ func TestGolden(t *testing.T) {
 				t.Errorf("exit code = %d, want %d", code, wantCode)
 			}
 		})
+	}
+}
+
+// writeFixture overwrites dir's stdout, stderr and exit files with the
+// observed output of one -update run, creating dir if this is a fixture's
+// first run.
+func writeFixture(t *testing.T, dir, stdout, stderr string, code int) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", dir, err)
+	}
+	writeFixtureFile(t, filepath.Join(dir, "stdout"), stdout)
+	writeFixtureFile(t, filepath.Join(dir, "stderr"), stderr)
+	writeFixtureFile(t, filepath.Join(dir, "exit"), strconv.Itoa(code)+"\n")
+}
+
+// writeFixtureFile writes one golden fixture file, failing the test if it
+// cannot be written.
+func writeFixtureFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
 	}
 }
 

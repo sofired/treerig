@@ -483,12 +483,12 @@ backup  = "./backup.sh"
 		// past its own fixture into whatever this machine's real developer
 		// has registered.
 		named := runBerth(t, link, cwd, []string{"--help"}, berthOptions{})
-		if !strings.Contains(named.Stdout, "Usage: duke [options] [command]") {
+		if !strings.Contains(named.Stdout, "Usage:\n  duke [flags]\n  duke [command]") {
 			t.Errorf("stdout = %q, want the symlinked name in the usage line", named.Stdout)
 		}
 
 		byPath := runBerth(t, binary, cwd, []string{"--help"}, berthOptions{})
-		if !strings.Contains(byPath.Stdout, "Usage: berth [options] [command]") {
+		if !strings.Contains(byPath.Stdout, "Usage:\n  berth [flags]\n  berth [command]") {
 			t.Errorf("stdout = %q, want the product name in the usage line", byPath.Stdout)
 		}
 	})

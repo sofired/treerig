@@ -1,6 +1,11 @@
-Usage: berth status [options]
-
 show service status for this worktree
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth status [flags]
+
+Flags:
+  -h, --help   help for status
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

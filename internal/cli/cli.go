@@ -1,3 +1,5 @@
+// Package cli is the command line: argument parsing, help rendering and
+// error reporting for the berth binary, built on spf13/cobra.
 package cli
 
 import (
@@ -79,18 +81,19 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 	life := startLifecycle(console)
 	ctx := life.Context()
 
-	root := buildProgram(commandName, brand.Version)
-	ps := &parseState{
-		ctx:      ctx,
-		stdout:   stdout,
-		stderr:   stderr,
-		outWidth: terminalWidth(stdout),
-		errWidth: terminalWidth(stderr),
-		root:     root,
+	exitCode := new(int)
+	p := &program{
 		buildEnv: envBuilder(commandName, invocation, console, getenv, stdin, stderr, life, args, executable, execFn),
+		exitCode: exitCode,
 	}
+	root := buildProgram(commandName, brand.Version, p, stdout, stderr)
+	if rest == nil {
+		rest = []string{}
+	}
+	root.SetArgs(rest)
+	root.SetContext(ctx)
 
-	code, err := ps.run(root, nil, rest)
+	err := root.Execute()
 	// An interrupted command dies by the signal that interrupted it, once its
 	// locks are released; what it was doing is not reported as a failure.
 	if life.Pending() != 0 {
@@ -98,10 +101,13 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 	}
 	life.Stop()
 	if err != nil {
+		if errors.Is(err, errVersionRequested) {
+			return 0
+		}
 		report(console, getenv, err)
 		return clierr.Code(err)
 	}
-	return code
+	return *exitCode
 }
 
 // report prints an expected failure (clierr.Expected)'s message and, if it

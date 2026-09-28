@@ -1,6 +1,11 @@
-Usage: berth router status [options]
-
 report whether the shared router is running as expected
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth router status [flags]
+
+Flags:
+  -h, --help   help for status
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

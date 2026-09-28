@@ -1,6 +1,11 @@
-Usage: berth up [options] [services...]
-
 register this worktree, start its services, and run its hooks
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth up [services...] [flags]
+
+Flags:
+  -h, --help   help for up
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

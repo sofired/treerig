@@ -1,2 +1,5 @@
-error: unknown command 'wroktree'
-(Did you mean worktree?)
+[berth] ERROR: unknown command "wroktree" for "berth"
+
+  Did you mean this?
+   worktree
+

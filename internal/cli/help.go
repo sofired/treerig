@@ -1,268 +1,169 @@
 package cli
 
-// Adapted from commander.js's lib/help.js (https://github.com/tj/commander.js),
-// restricted to what this tree exercises: no colour, no custom Help
-// subclass, no help groups beyond
-// the implicit "Options:"/"Commands:" ones, no global-options section (the
-// tree never turns showGlobalOptions on), and no argument choices or
-// defaults (none are used).
-//
-// (The MIT License)
-//
-// Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>
-//
-// Permission is hereby granted, free of charge, to any person obtaining
-// a copy of this software and associated documentation files (the
-// 'Software'), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to
-// permit persons to whom the Software is furnished to do so, subject to
-// the following conditions:
-//
-// The above copyright notice and this permission notice shall be
-// included in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 import (
-	"regexp"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 
-	"github.com/sofired/berth/internal/text"
+	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 )
 
-const minWidthToWrap = 40
+// defaultHelpWidth is the width help wraps to when it is not going to a
+// terminal: a pipe, a file, or a test's buffer.
+const defaultHelpWidth = 80
 
-// helpPseudoCommand is the synthetic "help [command]" entry every group
-// lists among its subcommands and recognises as an operand, the way
-// commander's lazily-created _helpCommand does (see node.hasImplicitHelp).
-var helpPseudoCommand = newCommand("help", "display help for command").addArgument("[command]", "")
+// minWrapWidth is the narrowest column worth wrapping text into; with less
+// room than this, a line is printed whole and left to the terminal.
+const minWrapWidth = 24
 
-// visibleCommands is help.js's function of the same name: this node's
-// children, with the implicit help pseudo-command appended when it has one.
-// Nothing in this tree hides a command or sorts subcommands.
-func (n *node) visibleCommands() []*node {
-	out := make([]*node, 0, len(n.children)+1)
-	out = append(out, n.children...)
-	if n.hasImplicitHelp() {
-		out = append(out, helpPseudoCommand)
+// terminalWidth is w's window width when w is a terminal, else
+// defaultHelpWidth. Only an *os.File can be a terminal, so a test's buffer
+// always gets the default, which keeps the golden corpus at a fixed width
+// whatever terminal runs the tests.
+func terminalWidth(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok {
+		return defaultHelpWidth
 	}
-	return out
+	size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	if err != nil || size.Col == 0 {
+		return defaultHelpWidth
+	}
+	return int(size.Col)
 }
 
-// visibleArguments is help.js's function of the same name: every registered
-// argument, but only if at least one has a description — none in this tree
-// do, so the "Arguments:" section never renders. Kept for fidelity.
-func (n *node) visibleArguments() []*argument {
-	for _, a := range n.args {
-		if a.description != "" {
-			return n.args
-		}
-	}
-	return nil
+// writeHelp writes cmd's help to w, wrapped to w's width.
+func writeHelp(cmd *cobra.Command, w io.Writer) {
+	_, _ = io.WriteString(w, renderHelp(cmd, terminalWidth(w)))
 }
 
-// subcommandTerm is help.js's function of the same name. It deliberately
-// ignores whether the child itself has subcommands or an implicit help
-// option — "[options]" appears only when the child registered an option of
-// its own, per the upstream comment this paraphrases.
-func subcommandTerm(child *node) string {
-	var args []string
-	for _, a := range child.args {
-		args = append(args, humanReadableArgName(a))
+// renderHelp is cobra's default help and usage output for cmd, with every
+// description wrapped to width: cobra itself prints each line whole. Its
+// sections are the ones this tree uses — description, usage, commands,
+// flags, global flags — in cobra's own order and spacing.
+func renderHelp(cmd *cobra.Command, width int) string {
+	var b strings.Builder
+	about := cmd.Long
+	if about == "" {
+		about = cmd.Short
 	}
-	term := child.name
-	if len(child.options) > 0 {
-		term += " [options]"
+	if about = strings.TrimRight(about, " \t\n"); about != "" {
+		b.WriteString(wrapIndented(about, width, 0) + "\n\n")
 	}
-	if len(args) > 0 {
-		term += " " + strings.Join(args, " ")
+	if !cmd.Runnable() && !cmd.HasSubCommands() {
+		return b.String()
 	}
-	return term
-}
 
-// optionTerm is help.js's function of the same name: the column an option
-// is listed under, its flags string as registered (e.g. "-a, --all").
-func optionTerm(o *option) string { return o.flags }
-
-// argumentTerm is help.js's function of the same name: the column an
-// argument is listed under, its bare name.
-func argumentTerm(a *argument) string { return a.name }
-
-// subcommandDescription is help.js's function of the same name: the
-// description column for a subcommand's row in "Commands:".
-func subcommandDescription(child *node) string { return child.description }
-
-// optionDescription is help.js's function of the same name: the
-// description column for an option's row in "Options:".
-func optionDescription(o *option) string { return o.description }
-
-// argumentDescription is help.js's function of the same name: the
-// description column for an argument's row in "Arguments:".
-func argumentDescription(a *argument) string { return a.description }
-
-// commandUsage is help.js's function of the same name: every ancestor's
-// name, this command's own name, then its usage string.
-func commandUsage(n *node) string {
-	var names []string
-	for ancestor := n.parent; ancestor != nil; ancestor = ancestor.parent {
-		names = append([]string{ancestor.name}, names...)
+	b.WriteString("Usage:")
+	if cmd.Runnable() {
+		b.WriteString("\n  " + cmd.UseLine())
 	}
-	names = append(names, n.name)
-	return strings.Join(names, " ") + " " + usage(n)
-}
-
-// usage is command.js's usage(): derived from whether this node has its own
-// options, children, or registered arguments. The implicit help option means
-// "[options]" always appears — helpOption is only ever disabled by
-// .helpOption(false), which this tree never calls.
-func usage(n *node) string {
-	var parts []string
-	parts = append(parts, "[options]")
-	if len(n.children) > 0 {
-		parts = append(parts, "[command]")
-	}
-	for _, a := range n.args {
-		parts = append(parts, humanReadableArgName(a))
-	}
-	return strings.Join(parts, " ")
-}
-
-// padWidth is help.js's function of the same name: the widest term across
-// options, subcommands and arguments, so their descriptions line up.
-func padWidth(n *node) int {
-	width := 0
-	for _, o := range n.visibleOptions() {
-		width = max(width, text.JSLen(optionTerm(o)))
-	}
-	for _, c := range n.visibleCommands() {
-		width = max(width, text.JSLen(subcommandTerm(c)))
-	}
-	for _, a := range n.visibleArguments() {
-		width = max(width, text.JSLen(argumentTerm(a)))
-	}
-	return width
-}
-
-var (
-	preformattedPattern = regexp.MustCompile(`\n[^\S\r\n]`)
-	lineBreakPattern    = regexp.MustCompile(`\r\n|\n`)
-	chunkPattern        = regexp.MustCompile(`[\s]*[^\s]+`)
-)
-
-// preformatted is help.js's function of the same name: a line break followed
-// by whitespace signals hand-wrapped, hand-indented text that boxWrap should
-// leave alone. Nothing in this tree's descriptions is multi-line, but the
-// check is kept for fidelity.
-func preformatted(s string) bool { return preformattedPattern.MatchString(s) }
-
-// boxWrap is help.js's function of the same name: word-wrap at width,
-// preserving existing line breaks, skipped entirely below minWidthToWrap.
-func boxWrap(s string, width int) string {
-	if width < minWidthToWrap {
-		return s
-	}
-	rawLines := lineBreakPattern.Split(s, -1)
-	var wrapped []string
-	for _, line := range rawLines {
-		chunks := chunkPattern.FindAllString(line, -1)
-		if chunks == nil {
-			wrapped = append(wrapped, "")
-			continue
-		}
-		sumChunks := []string{chunks[0]}
-		sumWidth := text.JSLen(chunks[0])
-		for _, chunk := range chunks[1:] {
-			visibleWidth := text.JSLen(chunk)
-			if sumWidth+visibleWidth <= width {
-				sumChunks = append(sumChunks, chunk)
-				sumWidth += visibleWidth
+	if cmd.HasAvailableSubCommands() {
+		b.WriteString("\n  " + cmd.CommandPath() + " [command]")
+		b.WriteString("\n\nAvailable Commands:")
+		for _, sub := range cmd.Commands() {
+			if !sub.IsAvailableCommand() && sub.Name() != "help" {
 				continue
 			}
-			wrapped = append(wrapped, strings.Join(sumChunks, ""))
-			next := strings.TrimLeft(chunk, " \t\n\r\v\f")
-			sumChunks = []string{next}
-			sumWidth = text.JSLen(next)
+			pad := sub.NamePadding()
+			fmt.Fprintf(&b, "\n  %-*s %s", pad, sub.Name(), wrapIndented(sub.Short, width, pad+3))
 		}
-		wrapped = append(wrapped, strings.Join(sumChunks, ""))
 	}
-	return strings.Join(wrapped, "\n")
+	if cmd.HasAvailableLocalFlags() {
+		b.WriteString("\n\nFlags:\n")
+		b.WriteString(wrapFlagUsages(cmd.LocalFlags().FlagUsages(), width))
+	}
+	if cmd.HasAvailableInheritedFlags() {
+		b.WriteString("\n\nGlobal Flags:\n")
+		b.WriteString(wrapFlagUsages(cmd.InheritedFlags().FlagUsages(), width))
+	}
+	if cmd.HasAvailableSubCommands() {
+		fmt.Fprintf(&b, "\n\nUse \"%s [command] --help\" for more information about a command.", cmd.CommandPath())
+	}
+	b.WriteString("\n")
+	// A description moved below its name leaves the name's padding behind.
+	lines := strings.Split(b.String(), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
-// formatItem is help.js's function of the same name: pad the term to
-// termWidth, wrap the description to what remains of helpWidth, and indent
-// wrapped and continuation lines under the term column.
-func formatItem(term string, termWidth int, description string, helpWidth int) string {
-	const itemIndent = 2
-	indent := strings.Repeat(" ", itemIndent)
-	if description == "" {
-		return indent + term
+// wrapFlagUsages rewraps pflag's unwrapped flag listing to width with
+// wrapIndented, the same wrapper the rest of help uses. pflag's own wrapping
+// breaks lines several columns short of the width it is given, and lets a
+// description's last line run to it, so it can neither match the rest of
+// help nor be widened safely.
+//
+// pflag aligns every description in a listing to one column, and a flag's
+// own part ("-h, --help", "--config string") never holds two spaces in a
+// row, so that column is where the first run of two or more spaces after the
+// flag ends.
+func wrapFlagUsages(usages string, width int) string {
+	var out []string
+	for _, line := range strings.Split(strings.TrimRight(usages, " \t\n"), "\n") {
+		flagStart := len(line) - len(strings.TrimLeft(line, " "))
+		gap := strings.Index(line[flagStart:], "  ")
+		if gap < 0 {
+			out = append(out, line)
+			continue
+		}
+		gap += flagStart
+		col := gap + len(line[gap:]) - len(strings.TrimLeft(line[gap:], " "))
+		out = append(out, line[:col]+wrapIndented(line[col:], width, col))
 	}
-
-	paddedTerm := text.PadEnd(term, termWidth)
-
-	const spacerWidth = 2
-	remaining := helpWidth - termWidth - spacerWidth - itemIndent
-	formatted := description
-	if remaining >= minWidthToWrap && !preformatted(description) {
-		wrapped := boxWrap(description, remaining)
-		formatted = strings.ReplaceAll(wrapped, "\n", "\n"+strings.Repeat(" ", termWidth+spacerWidth))
-	}
-
-	return indent + paddedTerm + strings.Repeat(" ", spacerWidth) + strings.ReplaceAll(formatted, "\n", "\n"+indent)
+	return strings.Join(out, "\n")
 }
 
-// formatItemList is help.js's function of the same name: a heading and its
-// items, followed by a blank line — or nothing at all when there are no items.
-func formatItemList(heading string, items []string) []string {
-	if len(items) == 0 {
-		return nil
+// wrapIndented word-wraps text to width, for printing from column indent:
+// the first line continues whatever the caller already printed, and every
+// later line starts with indent spaces. Line breaks already in text are
+// kept, a line that starts with a space or tab (an example command, say) is
+// kept as it is, and a word longer than a line is never split. When indent leaves
+// fewer than minWrapWidth columns, text that does not fit there starts on
+// the next line instead, far enough left to have minWrapWidth; a terminal
+// narrower than that gets text unwrapped.
+func wrapIndented(text string, width, indent int) string {
+	next := indent
+	if width-next < minWrapWidth {
+		next = width - minWrapWidth
 	}
-	out := make([]string, 0, len(items)+2)
-	out = append(out, heading)
-	out = append(out, items...)
-	out = append(out, "")
-	return out
-}
-
-// formatHelp is help.js's function of the same name: Usage, description,
-// Arguments, Options, Commands, each a titled block separated by a blank
-// line, wrapped to helpWidth.
-func formatHelp(n *node, helpWidth int) string {
-	termWidth := padWidth(n)
-	callFormatItem := func(term, description string) string {
-		return formatItem(term, termWidth, description, helpWidth)
+	pad := "\n" + strings.Repeat(" ", max(next, 0))
+	if next < 0 {
+		return strings.ReplaceAll(text, "\n", pad)
 	}
-
-	output := []string{"Usage: " + commandUsage(n), ""}
-
-	if n.description != "" {
-		output = append(output, boxWrap(n.description, helpWidth), "")
+	room := width - indent
+	if room < minWrapWidth && len(text) > room {
+		return pad + wrapIndented(text, width, next)
 	}
-
-	var argItems []string
-	for _, a := range n.visibleArguments() {
-		argItems = append(argItems, callFormatItem(argumentTerm(a), argumentDescription(a)))
+	var out []string
+	for _, para := range strings.Split(text, "\n") {
+		if strings.HasPrefix(para, " ") || strings.HasPrefix(para, "\t") {
+			out = append(out, para)
+			room = width - next
+			continue
+		}
+		// Splitting on single spaces, not strings.Fields, keeps a run of
+		// spaces as written wherever the line does not break.
+		line := ""
+		for _, word := range strings.Split(para, " ") {
+			switch {
+			case line == "" && word == "":
+				continue
+			case line == "":
+				line = word
+			case len(line)+1+len(word) <= room:
+				line += " " + word
+			default:
+				out = append(out, line)
+				line = word
+				room = width - next
+			}
+		}
+		out = append(out, line)
+		room = width - next
 	}
-	output = append(output, formatItemList("Arguments:", argItems)...)
-
-	var optItems []string
-	for _, o := range n.visibleOptions() {
-		optItems = append(optItems, callFormatItem(optionTerm(o), optionDescription(o)))
-	}
-	output = append(output, formatItemList("Options:", optItems)...)
-
-	var cmdItems []string
-	for _, c := range n.visibleCommands() {
-		cmdItems = append(cmdItems, callFormatItem(subcommandTerm(c), subcommandDescription(c)))
-	}
-	output = append(output, formatItemList("Commands:", cmdItems)...)
-
-	return strings.Join(output, "\n")
+	return strings.Join(out, pad)
 }

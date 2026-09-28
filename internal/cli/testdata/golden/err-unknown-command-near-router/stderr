@@ -1,2 +1,5 @@
-error: unknown command 'route'
-(Did you mean router?)
+[berth] ERROR: unknown command "route" for "berth"
+
+  Did you mean this?
+   router
+

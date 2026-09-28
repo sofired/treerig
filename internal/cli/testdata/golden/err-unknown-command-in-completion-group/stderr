@@ -1,0 +1,7 @@
+[berth] ERROR: unknown command "tcsh" for "berth completion"
+
+  Did you mean this?
+   bash
+   zsh
+   fish
+
