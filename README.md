@@ -146,6 +146,21 @@ mkdir -p ~/.local/bin && go build -o ~/.local/bin/berth ./cmd/berth   # any dire
 
 `berth doctor` checks Git, Docker and Docker Compose once it is on PATH.
 
+### Shell completion
+
+`berth completion <shell>` prints a completion script for bash, zsh, fish or
+PowerShell. It completes commands, their flags with descriptions, and
+`--config` with `.toml` files. `berth completion <shell> --help` says how to
+load the script for good; to try it in the current shell:
+
+```bash
+source <(berth completion bash)   # or zsh
+berth completion fish | source    # fish
+```
+
+A renamed binary or symlink (see [Calling it something else](#calling-it-something-else))
+prints a script for the name it was invoked as.
+
 ## Quick start
 
 The tool is tested with Docker Compose 2.21 and newer (`berth doctor` checks,

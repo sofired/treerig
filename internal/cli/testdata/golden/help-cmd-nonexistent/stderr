@@ -17,6 +17,7 @@ Available Commands:
               verify hook
   router      manage the shared local router
   worktree    manage registered worktrees
+  completion  print a shell completion script
   help        display help for command
 
 Flags:

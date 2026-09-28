@@ -94,6 +94,19 @@ var goldenCases = []goldenCase{
 	// --- dev: implemented as a fixed "not implemented yet" failure ---
 	{"dev-not-implemented", []string{"dev"}},
 
+	// --- shell completion: the scripts themselves are cobra's, so only the
+	// group, one shell's help and the requests a script sends are pinned ---
+	{"bare-completion", []string{"completion"}},
+	{"help-completion-zsh", []string{"completion", "zsh", "--help"}},
+	{"err-unknown-command-in-completion-group", []string{"completion", "tcsh"}},
+	{"complete-root", []string{"__complete", ""}},
+	{"complete-worktree", []string{"__complete", "worktree", ""}},
+	{"complete-worktree-remove-flags", []string{"__complete", "worktree", "remove", "--"}},
+	{"complete-no-descriptions", []string{"__completeNoDesc", "router", ""}},
+	{"complete-no-file-arguments", []string{"__complete", "worktree", "remove", ""}},
+	{"complete-no-file-flag-value", []string{"__complete", "worktree", "remove", "--domain", ""}},
+	{"complete-config-file", []string{"__complete", "status", "--config", ""}},
+
 	// --- unknown command, with and without a suggestion ---
 	{"err-unknown-command-far", []string{"nonsense"}},
 	{"err-unknown-command-near-status", []string{"stat"}},
@@ -104,11 +117,6 @@ var goldenCases = []goldenCase{
 	{"err-unknown-command-near-down", []string{"dow"}},
 	{"err-unknown-command-in-group", []string{"worktree", "bogus"}},
 	{"err-unknown-command-in-config-group", []string{"config", "nonexistentSub"}},
-	// Cobra's hidden shell-completion command is refused like any other
-	// unknown name, with or without arguments.
-	{"err-unknown-command-complete", []string{"__complete"}},
-	{"err-unknown-command-complete-args", []string{"__complete", "worktree", ""}},
-	{"err-unknown-command-complete-nodesc", []string{"__completeNoDesc", ""}},
 
 	// --- unknown option, with and without a suggestion, short and long ---
 	{"err-unknown-option-long", []string{"--frobnicate"}},

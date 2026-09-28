@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -217,21 +218,50 @@ func newHelpCommand(p *program) *cobra.Command {
 	}
 }
 
-// noCompletionCommand claims the name of cobra's hidden shell-completion
-// command, which cobra adds to every tree it executes and offers no way to
-// turn off. berth ships no completion scripts, so the name is refused like
-// any other unknown command. Cobra's Find returns the first command with a
-// matching name, and this one is added before Execute adds cobra's own.
-func noCompletionCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:                cobra.ShellCompRequestCmd,
-		Aliases:            []string{cobra.ShellCompNoDescRequestCmd},
-		Hidden:             true,
-		DisableFlagParsing: true,
-		Args: func(cmd *cobra.Command, args []string) error {
-			return usageArgs(unknownSubcommand)(cmd.Root(), []string{cmd.CalledAs()})
-		},
-		RunE: func(cmd *cobra.Command, args []string) error { return nil },
+// addCompletion adds cobra's "completion <shell>" command, which prints a
+// bash, zsh, fish or PowerShell script that completes this tree's commands
+// and flags through cobra's hidden __complete command. Cobra's completion
+// commands keep the output writer root has when they are created, so this
+// runs after root.SetOut. The group and its shells are then given this
+// tree's own conventions: lower-case descriptions, and help to stderr with
+// exit 1 when no shell is named.
+func addCompletion(root *cobra.Command, p *program) {
+	root.InitDefaultCompletionCmd()
+	completion, _, err := root.Find([]string{"completion"})
+	if err != nil || completion == root {
+		return
+	}
+	completion.Short = "print a shell completion script"
+	completion.Long = ""
+	completion.Args = usageArgs(unknownSubcommand)
+	completion.RunE = bareGroup(p)
+	for _, shell := range completion.Commands() {
+		shell.Short = fmt.Sprintf("print the completion script for %s", shell.Name())
+	}
+
+	// Cobra completes file names wherever it is told nothing else. Only
+	// --config names a file; no positional argument and no other flag value
+	// in this tree does. Flag completions live in a cobra-wide map, locked
+	// for concurrent use, that gains an entry for each flag of each tree.
+	_ = root.MarkPersistentFlagFilename("config", "toml")
+	visitCommands(root, func(cmd *cobra.Command) {
+		if cmd.ValidArgsFunction == nil && len(cmd.ValidArgs) == 0 {
+			cmd.ValidArgsFunction = cobra.NoFileCompletions
+		}
+		cmd.LocalNonPersistentFlags().VisitAll(func(f *pflag.Flag) {
+			if f.Value.Type() == "string" {
+				_ = cmd.RegisterFlagCompletionFunc(f.Name, cobra.NoFileCompletions)
+			}
+		})
+	})
+}
+
+// visitCommands calls visit on cmd and on every command beneath it, parents
+// before children.
+func visitCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
+	visit(cmd)
+	for _, child := range cmd.Commands() {
+		visitCommands(child, visit)
 	}
 }
 
@@ -252,7 +282,7 @@ func arg0(args []string) string {
 //
 // Help is rendered by renderHelp, which wraps every description to the
 // terminal, so a Short, Long or flag usage here can be as long as it needs.
-func buildProgram(commandName, version string, p *program) *cobra.Command {
+func buildProgram(commandName, version string, p *program, stdout, stderr io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:           commandName,
 		Short:         "Give every Git worktree a durable identity, an isolated home, and a routed URL.",
@@ -260,7 +290,6 @@ func buildProgram(commandName, version string, p *program) *cobra.Command {
 		SilenceUsage:  true,
 		Args:          usageArgs(unknownSubcommand),
 	}
-	root.CompletionOptions.DisableDefaultCmd = true
 	root.PersistentFlags().String("config", "", fmt.Sprintf("path to %s (default: nearest above cwd)", brand.ConfigFile))
 	root.PersistentFlags().BoolP("version", "V", false, "output the version number")
 	root.SetFlagErrorFunc(flagError)
@@ -274,7 +303,6 @@ func buildProgram(commandName, version string, p *program) *cobra.Command {
 	root.RunE = bareGroup(p)
 	root.SetHelpCommand(newHelpCommand(p))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { writeHelp(cmd, cmd.OutOrStdout()) })
-	root.AddCommand(noCompletionCommand())
 
 	config := &cobra.Command{
 		Use:   "config",
@@ -535,6 +563,10 @@ func buildProgram(commandName, version string, p *program) *cobra.Command {
 	worktree.AddCommand(unlock)
 
 	root.AddCommand(worktree)
+
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	addCompletion(root, p)
 
 	return root
 }

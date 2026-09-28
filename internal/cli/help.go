@@ -120,7 +120,8 @@ func wrapFlagUsages(usages string, width int) string {
 // wrapIndented word-wraps text to width, for printing from column indent:
 // the first line continues whatever the caller already printed, and every
 // later line starts with indent spaces. Line breaks already in text are
-// kept, and a word longer than a line is never split. When indent leaves
+// kept, a line that starts with a space or tab (an example command, say) is
+// kept as it is, and a word longer than a line is never split. When indent leaves
 // fewer than minWrapWidth columns, text that does not fit there starts on
 // the next line instead, far enough left to have minWrapWidth; a terminal
 // narrower than that gets text unwrapped.
@@ -139,9 +140,18 @@ func wrapIndented(text string, width, indent int) string {
 	}
 	var out []string
 	for _, para := range strings.Split(text, "\n") {
+		if strings.HasPrefix(para, " ") || strings.HasPrefix(para, "\t") {
+			out = append(out, para)
+			room = width - next
+			continue
+		}
+		// Splitting on single spaces, not strings.Fields, keeps a run of
+		// spaces as written wherever the line does not break.
 		line := ""
-		for _, word := range strings.Fields(para) {
+		for _, word := range strings.Split(para, " ") {
 			switch {
+			case line == "" && word == "":
+				continue
 			case line == "":
 				line = word
 			case len(line)+1+len(word) <= room:

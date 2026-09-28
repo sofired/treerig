@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestHelpWrapsToWidth(t *testing.T) {
-	root := buildProgram("berth", "0.0.0", &program{exitCode: new(int)})
+	root := buildProgram("berth", "0.0.0", &program{exitCode: new(int)}, io.Discard, io.Discard)
 	for _, width := range []int{80, 100} {
 		visitCommands(root, func(cmd *cobra.Command) {
 			if cmd.Hidden {
@@ -30,7 +31,7 @@ func TestHelpWrapsToWidth(t *testing.T) {
 // section cobra would add for a new Aliases, Example or command group, which
 // renderHelp does not draw, fails here instead of vanishing from help.
 func TestRenderHelpMatchesCobraUnwrapped(t *testing.T) {
-	root := buildProgram("berth", "0.0.0", &program{exitCode: new(int)})
+	root := buildProgram("berth", "0.0.0", &program{exitCode: new(int)}, io.Discard, io.Discard)
 	cobraHelp := (&cobra.Command{}).HelpFunc()
 	visitCommands(root, func(cmd *cobra.Command) {
 		if cmd.Hidden {
@@ -57,6 +58,8 @@ func TestWrapIndented(t *testing.T) {
 		{"wraps with hanging indent", "one two three four five six seven eight nine ten eleven", 34, 4,
 			"one two three four five six\n    seven eight nine ten eleven"},
 		{"keeps line breaks", "first line\nsecond line", 40, 2, "first line\n  second line"},
+		{"keeps indented lines as they are", "load it with:\n\tsource <(berth completion bash)   # now", 30, 0,
+			"load it with:\n\tsource <(berth completion bash)   # now"},
 		{"short text stays in a narrow room", "one two", 30, 10, "one two"},
 		{"long text moves below a narrow room", "one two three four five six seven", 30, 10,
 			"\n      one two three four five\n      six seven"},
@@ -96,14 +99,5 @@ func TestEditDistance(t *testing.T) {
 		if got := editDistance(c.a, c.b); got != c.want {
 			t.Errorf("editDistance(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
 		}
-	}
-}
-
-// visitCommands calls visit on cmd and on every command beneath it, parents
-// before children.
-func visitCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
-	visit(cmd)
-	for _, child := range cmd.Commands() {
-		visitCommands(child, visit)
 	}
 }

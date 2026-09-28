@@ -86,13 +86,11 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 		buildEnv: envBuilder(commandName, invocation, console, getenv, stdin, stderr, life, args, executable, execFn),
 		exitCode: exitCode,
 	}
-	root := buildProgram(commandName, brand.Version, p)
+	root := buildProgram(commandName, brand.Version, p, stdout, stderr)
 	if rest == nil {
 		rest = []string{}
 	}
 	root.SetArgs(rest)
-	root.SetOut(stdout)
-	root.SetErr(stderr)
 	root.SetContext(ctx)
 
 	err := root.Execute()
