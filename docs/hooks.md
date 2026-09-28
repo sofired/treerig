@@ -68,6 +68,25 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_WORKTREE_HOME` | The worktree's private directory under the control home |
 | `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
 | `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
+| `BERTH_URL` | This worktree's own URL: the `[[service]]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
+| `BERTH_SERVICE_URL_<NAME>` | One per `[[service]]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
+
+`BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` are the same URLs `berth urls`
+prints, router port included exactly as it folds that in there. When
+`doctor` runs `verify` but can't resolve the router's port, it sets neither,
+and its Router section says why. Neither
+reaches Compose, so `compose.yaml` cannot reference `${BERTH_URL}` — read
+them from a hook instead:
+
+```sh
+curl -fsS "${BERTH_URL:?no service is routed at the host root}/health"
+```
+
+Under `set -u`, an unset `BERTH_URL` aborts the script; guard it with
+`${BERTH_URL:-}` or `${BERTH_URL:?…}` as above. A hook curling one of these
+is a non-browser client, so the same resolver caveats apply as anywhere else
+outside a browser — see [README.md's "Hostname resolution"
+notes](../README.md#platform-notes).
 
 `BERTH_HOME` and `BERTH_CONTROL_HOME` — the berth-root and control-home
 overrides, if the user set either — are *not* in this list on purpose. Both
@@ -123,6 +142,17 @@ validate` checks only the file, not what its hooks point at.
 Hooks are spawned through the tool's process runner, which means an interrupt
 (`SIGINT`/`SIGTERM`) is delivered as `SIGTERM` to the hook and its descendants,
 escalating to `SIGKILL` after ten seconds. Write hooks that can be interrupted.
+This is unchanged by how a command berth runs interactively answers the same
+interrupt: there, the signal berth received is forwarded as itself (`SIGINT`
+stays `SIGINT`). The command gets the terminal's own job control, Ctrl-Z
+included, only when its stdin is a terminal and berth currently holds that
+terminal's foreground — not when the command is backgrounded, its stdin is
+piped, it runs over `ssh` without `-t`, or it runs in CI, where it still gets
+its own process group but never the terminal itself. Either way, once the
+command returns, whatever is left in its process group is sent `SIGTERM`,
+then `SIGKILL` after the same kill-after grace, whether or not berth was
+itself signalled. A hook is never interactive, so it always keeps the plain
+`SIGTERM` contract above regardless of what stopped berth.
 
 ## An example, in three languages
 

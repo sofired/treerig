@@ -7,8 +7,8 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/berth/internal/worktree"
 )
 
 // ServiceURL is one routed service's URL.
@@ -20,32 +20,26 @@ type ServiceURL struct {
 }
 
 // WorktreeURLs is pure: the URL each routed service will answer on, in
-// config order.
+// config order. It wraps worktree.Routes, the same route builder hooks use
+// for BERTH_URL and BERTH_SERVICE_URL_<NAME> (#28).
 func WorktreeURLs(cfg config.Config, slug, domain string, port int) []ServiceURL {
-	host := layout.WorktreeHost(slug, domain)
-	suffix := ""
-	if port != 80 {
-		suffix = fmt.Sprintf(":%d", port)
-	}
-	urls := make([]ServiceURL, 0, len(cfg.Service))
-	for _, service := range cfg.Service {
-		prefix := ""
-		if service.Subdomain != "" {
-			prefix = service.Subdomain + "."
-		}
-		path := ""
-		if service.Path != nil {
-			path = *service.Path
-		}
-		entry := ServiceURL{
-			Service: service.Name,
-			URL:     "http://" + prefix + host + suffix + path,
-		}
-		if service.Index != nil {
-			label, purpose := service.Index.Label, service.Index.Purpose
+	return urlsFromRoutes(cfg.Service, worktree.Routes(cfg.Service, slug, domain, port))
+}
+
+// urlsFromRoutes pairs routes with each service's [service.index] metadata,
+// aligned one-to-one and in order since worktree.Routes never filters or
+// reorders — a caller that already has both (up.go, so `berth urls` and the
+// hooks it runs derive from the one worktree.Routes call) skips computing
+// routes twice.
+func urlsFromRoutes(services []config.Service, routes []worktree.ServiceRoute) []ServiceURL {
+	urls := make([]ServiceURL, len(routes))
+	for i, route := range routes {
+		entry := ServiceURL{Service: route.Service, URL: route.URL}
+		if index := services[i].Index; index != nil {
+			label, purpose := index.Label, index.Purpose
 			entry.Label, entry.Purpose = &label, &purpose
 		}
-		urls = append(urls, entry)
+		urls[i] = entry
 	}
 	return urls
 }

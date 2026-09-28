@@ -25,8 +25,13 @@ const (
 	// TeeToStderr shows both streams on this process's stderr while capturing them, for a
 	// caller whose own stdout is a report the child's output must not interleave with.
 	TeeToStderr
-	// Interactive hands the terminal to the child; nothing is captured and the
-	// child stays in this process's session.
+	// Interactive gives the child its own process group in this process's
+	// session; nothing is captured. When this process's stdin is a terminal
+	// and it currently holds that terminal's foreground, the child gets the
+	// foreground too — atomically, as part of starting it — and the run
+	// answers Ctrl-C and Ctrl-Z with the terminal's own job control;
+	// otherwise (piped, backgrounded, ssh without -t, CI) the child gets
+	// only the process group. See internal/run/osrun for how.
 	Interactive
 )
 
@@ -72,7 +77,12 @@ type Result struct {
 }
 
 // Runner runs subprocesses. Cancelling the context stops the child: SIGTERM
-// to its process group, then SIGKILL after Spec.KillAfter.
+// to its process group, then SIGKILL after Spec.KillAfter — except an
+// interactive child, which is sent the signal this process itself received
+// (SIGINT stays SIGINT) rather than always SIGTERM, and whose whole process
+// group is drained (SIGTERM, then SIGKILL after KillAfter) once its leader
+// is gone, before Run returns, whether or not this process was ever
+// signalled.
 type Runner interface {
 	Run(ctx context.Context, spec Spec) (Result, error)
 	// Which reports whether an executable regular file by that name is on PATH.

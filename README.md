@@ -156,8 +156,26 @@ mkdir -p ~/.local/bin && go build -o ~/.local/bin/berth ./cmd/berth   # any dire
 
 `berth completion <shell>` prints a completion script for bash, zsh, fish or
 PowerShell. It completes commands, their flags with descriptions, and
-`--config` with `.toml` files. `berth completion <shell> --help` says how to
-load the script for good; to try it in the current shell:
+`--config` with `.toml` files. It also completes registered values,
+read-only: no lock is taken, Docker is never touched, and nothing is
+written:
+
+- `worktree remove` and `worktree unlock` complete a registered worktree's
+  slug, described with its domain and its last-known path; `worktree
+  unlock` also offers a worktree it can still recover a stale lock for even
+  though it was never registered (or is no longer), named by its UUID.
+- `--domain` on `worktree remove` and `worktree unlock` completes a
+  registered domain, and narrows the slugs offered to that domain once one
+  is given — hiding any recoverable, unregistered worktree `worktree
+  unlock` would otherwise also offer, since one carries no domain to match.
+- `up` completes the service names declared in this worktree's `berth.toml`,
+  skipping any already named on the command line. Each is described by its
+  `[service.index]` label, else its subdomain or path, else "host root".
+
+A registry that is missing, empty or unreadable, or a `berth.toml` that
+cannot be found or parsed, completes nothing rather than failing.
+`berth completion <shell> --help` says how to load the script for good; to
+try it in the current shell:
 
 ```bash
 source <(berth completion bash)   # or zsh
@@ -773,11 +791,9 @@ them once.
    the command that runs it forever.
 9. **`--json`** (#27) for `doctor`, `status`, `urls` and `index`, to match
    `worktree list`'s own machine-readable form.
-10. **`BERTH_URL`** (#28) — a hook's own worktree URL, alongside the
-    variables [docs/hooks.md](docs/hooks.md) already lists.
-11. **Migrating stored state between releases** (#29), once there are
+10. **Migrating stored state between releases** (#29), once there are
     releases to migrate between.
-12. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+11. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
     stronger guarantee the relocated-copy mechanism above is a step toward,
     tied to binary distribution (#8).
 

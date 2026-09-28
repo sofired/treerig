@@ -310,6 +310,16 @@ func TestDownStatus(t *testing.T) {
 		if _, ok := got["BERTH_STAGE"]; ok {
 			t.Error("BERTH_STAGE reached Compose")
 		}
+		// BERTH_URL and BERTH_SERVICE_URL_<NAME> are hook-only, so a router
+		// port change never recreates a worktree's containers (#28).
+		if _, ok := got["BERTH_URL"]; ok {
+			t.Error("BERTH_URL reached Compose")
+		}
+		for name := range got {
+			if strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+				t.Errorf("%s reached Compose", name)
+			}
+		}
 	})
 	t.Run("keeps the shell from redirecting Compose to other files", func(t *testing.T) {
 		fake := newFake()

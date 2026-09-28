@@ -279,8 +279,32 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
 - Every non-interactive child gets `SysProcAttr{Setsid: true}`. Cancelling
   its context sends SIGTERM to `-pgid`; `time.AfterFunc(KillAfter)` (10 s by
   default) then sends SIGKILL to `-pgid`. `WaitDelay` is about 2 s, so a
-  descendant holding the output pipe cannot hang `Wait`. Interactive
-  children get no session and are signalled by their own PID.
+  descendant holding the output pipe cannot hang `Wait`.
+- An interactive child always gets `SysProcAttr{Setpgid: true}` — its own
+  process group, never berth's. When its stdin is a terminal and berth
+  currently holds that terminal's foreground, it also gets `Foreground:
+  true` (with `Ctty: 0`), handing it the terminal atomically as part of the
+  same fork+exec; otherwise (piped, backgrounded, `ssh` without `-t`, CI) it
+  gets the process group alone. Only the foreground case waits with its own
+  `runForegroundChild`, a `wait4(pid, WUNTRACED)` loop instead of
+  `cmd.Wait()` — the only way to see the child stop. A stop hands the
+  terminal back to berth's own group and stops this whole process with
+  SIGSTOP, the way a real shell answers Ctrl-Z on a job it started; the
+  resume (SIGCONT from outside, typically the real shell answering `fg`)
+  hands the terminal back to the child's group and `SIGCONT`s it.
+  Reclaiming or handing back the terminal (`tcsetpgrp`) needs SIGTTOU
+  ignored for the call — a background group's own tcsetpgrp otherwise stops
+  it — done by toggling the signal's process-wide disposition rather than a
+  second `signal.Notify`, and serialized by a package-level mutex, since
+  only one foreground interactive child may be mid-flight in this process
+  at a time.
+- Once an interactive child's leader is gone, `drainGroup` always runs,
+  whether or not berth itself was ever signalled: SIGTERM to whatever the
+  group still holds, SIGKILL after `KillAfter`, bounded at `quiesceBudget`
+  (about 15 s) the way `Quiesce` bounds its own wait. A second Ctrl-C or
+  SIGTERM — read off the run's context via `run.Repeated`, never a second
+  `signal.Notify` — abandons that wait early instead of running out the
+  full budget, with its own error, naming the command and the group.
 - Start failures use a fixed message table: not on `PATH` or a missing `#!`
   interpreter exits 127; not executable (`EACCES`) or not a valid
   executable (`ENOEXEC`, needs a `#!` line) exits 126; a working directory
@@ -324,6 +348,24 @@ One lifecycle for the whole process, started once in `main`.
 - The action's own error is reported first; a release or quiesce failure
   rides along as its `Cause` (if it had none) and always in `Suppressed`, so
   a lock that could not be released is never silent.
+- `Finish(err, report)` is how the process's own top-level error becomes
+  its exit code — called once, from `internal/cli`'s `runMain`, after the
+  command has run and `Stop` has been called. `err` is "plain" when it is
+  nil or unwraps to `*clierr.Cancelled` — nothing more than the fact that a
+  signal already interrupted this process, which a signal death already
+  says on its own. A plain `err`, with a signal pending, ends the process
+  through `Exit()` above, exactly as before; anything else — a
+  non-`Cancelled` error, or one `Hold`'s own `attach` wrapped a `Cancelled`
+  inside (a release failure racing a signal, say) — is reported through
+  `report` first, and `Finish` returns the exit code it calls for
+  (`clierr.Code(err)`) instead of ending the process by the signal, so it is
+  never lost to a signal death that prints nothing of its own. A bounded
+  wait elsewhere in the process reaches `Finish` this way too: an
+  interactive child's own process-group drain (`internal/run/osrun`'s
+  `drainGroup`) selects on the second signal via `Repeated()`
+  (`internal/run`'s `WithRepeated`/`Repeated`) to abandon early instead of
+  running out its own budget, and the error it returns on that path is
+  exactly the kind `Finish` reports rather than silently re-raising.
 
 ## Real-process tests
 

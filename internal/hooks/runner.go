@@ -45,6 +45,9 @@ type HookContext struct {
 	// Environ is the environment a hook inherits on top of; os.Environ() in
 	// production, so a hook that calls out to other tools sees a normal shell.
 	Environ []string
+	// Routes is this worktree's declared service routes, for
+	// worktree.ServiceURLVariables (#28); nil gives a hook neither variable.
+	Routes []worktree.ServiceRoute
 }
 
 // RunOptions configures one hook run.
@@ -58,11 +61,23 @@ type RunOptions struct {
 }
 
 // environment is the BERTH_* vocabulary Compose receives, plus this stage's
-// own STAGE, laid over the inherited environment — never a replacement of
-// it, so a hook that calls other tools still sees a normal PATH and HOME.
+// own STAGE and hctx.Routes' URL variables (#28), laid over the inherited
+// environment — never a replacement of it, so a hook that calls other tools
+// still sees a normal PATH and HOME. Inherited URL variables are dropped
+// first: a hook of another worktree that runs this one passes its own down,
+// and they must not stand in for routes this worktree doesn't have.
 func environment(hctx HookContext, stage config.HookStage) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{"STAGE", string(stage)})
-	return mergeEnviron(hctx.Environ, worktree.Variables(pairs)...)
+	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
+	inherited := make([]string, 0, len(hctx.Environ))
+	for _, entry := range hctx.Environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if name == "BERTH_URL" || strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+			continue
+		}
+		inherited = append(inherited, entry)
+	}
+	return mergeEnviron(inherited, worktree.Variables(pairs)...)
 }
 
 // mergeEnviron overlays extra onto environ, later names replacing earlier

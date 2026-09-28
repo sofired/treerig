@@ -1,0 +1,5 @@
+api	host root
+assets	path /latest
+docs	Docs Guide Section
+web	subdomain web
+:4

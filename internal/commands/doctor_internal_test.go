@@ -1846,7 +1846,12 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 	t.Run("runs the verify hook with its output on stderr, and passes when it exits 0", func(t *testing.T) {
 		f := newCheckoutFixture(t, "./verify")
 		f.register("feature-login")
-		sections, err := doctorSections(context.Background(), f.opts())
+		opts := f.opts()
+		// #28: verify's own BERTH_URL/BERTH_SERVICE_URL_API need a resolved
+		// router port; f.opts()'s own zero value is fine for every other
+		// check here, so it is set only on this local copy.
+		opts.RouterPort = settings.PortResolution{Port: 80}
+		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1884,6 +1889,25 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		if hookCall.Output != run.TeeToStderr {
 			t.Fatalf("output = %v, want TeeToStderr", hookCall.Output)
+		}
+		// #28: the fixture's one declared service ("api", no subdomain or
+		// path — newCheckoutFixture) claims the host root, so verify sees
+		// it as both BERTH_URL and BERTH_SERVICE_URL_API.
+		wantEnv := map[string]string{
+			"BERTH_URL":             "http://feature-login.acme.localhost",
+			"BERTH_SERVICE_URL_API": "http://feature-login.acme.localhost",
+		}
+		for name, value := range wantEnv {
+			found := false
+			for _, entry := range hookCall.Env {
+				if entry == name+"="+value {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s=%s in env %v", name, value, hookCall.Env)
+			}
 		}
 	})
 

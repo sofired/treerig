@@ -19,6 +19,7 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/run"
+	"golang.org/x/sys/unix"
 )
 
 // waitDelay bounds how long Wait spends waiting for a descendant that kept
@@ -43,11 +44,11 @@ var (
 	errOutputOverflow = errors.New("run: output overflow")
 )
 
-// target is one child this Runner has started, tracked until Quiesce proves
-// its whole process group (or, for an interactive child, just its PID) gone.
+// target is one child this Runner has started, tracked by its process group
+// (every child leads one: Setsid for a regular child, Setpgid for an
+// interactive one) until Quiesce or drainGroup proves that group empty.
 type target struct {
-	pid   int
-	group bool
+	pid int
 }
 
 // Runner is the operating-system run.Runner.
@@ -63,8 +64,8 @@ func New() *Runner {
 
 var _ run.Runner = (*Runner)(nil)
 
-// track records t (a child's PID or process group) as still running, so
-// Quiesce and allGone know to wait for it.
+// track records t (a child's process group) as still running, so Quiesce and
+// allGone know to wait for it.
 func (r *Runner) track(t target) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -96,7 +97,23 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 		cmd.Env = spec.Env
 	}
 	interactive := spec.Output == run.Interactive
-	if !interactive {
+	var foreground bool
+	switch {
+	case interactive:
+		cmd.SysProcAttr, foreground = interactiveAttr()
+		if foreground {
+			// Held for the whole of this child's run, not just Start: every
+			// tcsetpgrp call this run makes (taking the terminal for the
+			// child, reclaiming it on a stop or an exit, handing it back on
+			// a resume) shares SIGTTOU's process-wide disposition with
+			// setForeground. Package-level, not per-Runner: the disposition
+			// it guards is process-wide too, so only one foreground child
+			// may be mid-flight in this whole process at a time, regardless
+			// of how many Runners exist. See foregroundMu's own doc.
+			foregroundMu.Lock()
+			defer foregroundMu.Unlock()
+		}
+	default:
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
 	cmd.WaitDelay = waitDelay
@@ -144,7 +161,11 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	if err := cmd.Start(); err != nil {
 		return run.Result{}, classifyExecError(spec.Command, err)
 	}
-	started := target{pid: cmd.Process.Pid, group: !interactive}
+	// Captured once, and used in place of cmd.Process.Pid from here on:
+	// Process.Release (below, for a foreground child) sets Process.Pid to
+	// -1 — a documented historical wart of os.Process, not a nil-out this
+	// code can rely on being absent.
+	started := target{pid: cmd.Process.Pid}
 	r.track(started)
 
 	killAfter := spec.KillAfter
@@ -152,35 +173,61 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 		killAfter = defaultKillAfter
 	}
 
-	// cmd.Wait() runs on its own goroutine so this one can select between it
-	// and runCtx.Done() without racing either against the other: killTimer
-	// is only ever touched from here, never from a second goroutine.
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
-
-	done := runCtx.Done()
-	var killTimer *time.Timer
+	var leaderExitCode int
+	var leaderSignal syscall.Signal
 	var waitErr error
-waitLoop:
-	for {
-		select {
-		case waitErr = <-waitDone:
-			break waitLoop
-		case <-done:
-			done = nil // fire the signal at most once; keep waiting for waitDone
-			signalChild(cmd.Process.Pid, !interactive, syscall.SIGTERM)
-			killTimer = time.AfterFunc(killAfter, func() {
-				signalChild(cmd.Process.Pid, !interactive, syscall.SIGKILL)
-			})
+	if foreground {
+		// Its own wait4(pid, WUNTRACED) loop, not cmd.Wait(): only WUNTRACED
+		// can see this child stop, which it must for Ctrl-Z to work.
+		leaderExitCode, leaderSignal = runForegroundChild(runCtx, started.pid, unix.Getpgrp(), killAfter)
+		_ = cmd.Process.Release() // reaped above; os/exec must never wait for it too
+	} else {
+		// cmd.Wait() runs on its own goroutine so this one can select
+		// between it and runCtx.Done() without racing either against the
+		// other: killTimer is only ever touched from here, never from a
+		// second goroutine.
+		waitDone := make(chan error, 1)
+		go func() { waitDone <- cmd.Wait() }()
+
+		done := runCtx.Done()
+		var killTimer *time.Timer
+	waitLoop:
+		for {
+			select {
+			case waitErr = <-waitDone:
+				break waitLoop
+			case <-done:
+				done = nil // fire the signal at most once; keep waiting for waitDone
+				signalChild(started.pid, forwardSignal(context.Cause(runCtx), interactive))
+				killTimer = time.AfterFunc(killAfter, func() {
+					signalChild(started.pid, syscall.SIGKILL)
+				})
+			}
+		}
+		if killTimer != nil {
+			killTimer.Stop()
 		}
 	}
-	if killTimer != nil {
-		killTimer.Stop()
+
+	// An interactive child's descendants must never outlive this call,
+	// whether or not berth itself was ever signalled: SIGTERM (then SIGKILL
+	// after killAfter) whatever the group still holds, and do not return
+	// until it is gone or this wait is itself abandoned. A non-interactive
+	// child's leftovers are deliberate — Docker left running, say — and stay
+	// Quiesce's job alone.
+	var drainErr error
+	if interactive {
+		command := strings.TrimSpace(spec.Command + " " + strings.Join(spec.Args, " "))
+		drainErr = drainGroup(ctx, started.pid, command, killAfter)
 	}
 	// Reaped, and its whole group with it: nothing left for Quiesce to wait
 	// on. Kept only while something it started lingers in the group — and
 	// never left to linger, lest its PID be reused and read as still running.
 	r.untrackIfGone(started)
+
+	if drainErr != nil {
+		return run.Result{}, drainErr
+	}
 
 	// The caller's own context ending is the story here, not a Result: a
 	// signal deferred no lock past this point, and Failure would otherwise
@@ -205,10 +252,13 @@ waitLoop:
 		result.TimedOut = true
 		result.ExitCode = 1
 	default:
-		exitCode, signal := exitStatus(cmd.ProcessState, waitErr)
+		exitCode, sig := leaderExitCode, leaderSignal
+		if !foreground {
+			exitCode, sig = exitStatus(cmd.ProcessState, waitErr)
+		}
 		result.ExitCode = exitCode
-		if signal != 0 {
-			result.Signal = signal
+		if sig != 0 {
+			result.Signal = sig
 		}
 	}
 
@@ -273,15 +323,10 @@ func exitStatus(state *os.ProcessState, waitErr error) (exitCode int, signal sys
 	return state.ExitCode(), 0
 }
 
-// signalChild sends sig to the child's whole process group (for a session
-// leader) or to its bare PID (for an interactive child, left in this
-// process's own session).
-func signalChild(pid int, group bool, sig syscall.Signal) {
-	target := pid
-	if group {
-		target = -pid
-	}
-	_ = syscall.Kill(target, sig)
+// signalChild sends sig to pid's whole process group: every child this
+// Runner starts leads one.
+func signalChild(pid int, sig syscall.Signal) {
+	_ = syscall.Kill(-pid, sig)
 }
 
 // Which reports whether an executable regular file by that name is on PATH.
@@ -291,8 +336,8 @@ func (r *Runner) Which(name string) bool {
 }
 
 // Quiesce returns once every child this Runner has started has been reaped
-// and kill(-pgid, 0) answers ESRCH for each group (or kill(pid, 0) for an
-// interactive child), bounded at about 15 s.
+// and kill(-pgid, 0) answers ESRCH for each one's process group, bounded at
+// about 15 s.
 func (r *Runner) Quiesce(ctx context.Context) error {
 	deadline := time.Now().Add(quiesceBudget)
 	for {
@@ -323,13 +368,9 @@ func (r *Runner) untrackIfGone(t target) {
 	}
 }
 
-// gone reports whether a child's process group (or, interactive, its PID) has no process left.
+// gone reports whether a child's process group has no process left in it.
 func gone(t target) bool {
-	probe := t.pid
-	if t.group {
-		probe = -t.pid
-	}
-	return errors.Is(syscall.Kill(probe, 0), syscall.ESRCH)
+	return errors.Is(syscall.Kill(-t.pid, 0), syscall.ESRCH)
 }
 
 // allGone reports whether every tracked target has exited, untracking each

@@ -349,7 +349,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		},
 	})
 
-	root.AddCommand(&cobra.Command{
+	up := &cobra.Command{
 		Use:   "up [services...]",
 		Short: "register this worktree, start its services, and run its hooks",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -359,7 +359,9 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			}
 			return commands.Up(cmd.Context(), env, commands.UpOptions{Services: args})
 		},
-	})
+	}
+	up.ValidArgsFunction = serviceCompletionFunc(p)
+	root.AddCommand(up)
 
 	root.AddCommand(&cobra.Command{
 		Use:   "down",
@@ -532,6 +534,8 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	remove.Flags().String("domain", "", "narrow a slug registered under more than one domain")
 	remove.Flags().String("label-namespace", "", "supply the Docker label namespace when nothing on disk records it (a worktree of another repository)")
 	remove.Flags().Bool("yes", false, "skip the confirmation phrase")
+	remove.ValidArgsFunction = identifierCompletionFunc(p, false)
+	_ = remove.RegisterFlagCompletionFunc("domain", domainCompletionFunc(p))
 	worktree.AddCommand(remove)
 
 	unlock := &cobra.Command{
@@ -560,12 +564,21 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	unlock.Flags().Bool("registry", false, "clear the machine-wide worktree registry lock instead of a worktree's")
 	unlock.Flags().Bool("router", false, "clear the shared router's lock instead of a worktree's")
 	unlock.Flags().Bool("holder-unverifiable", false, "accept a holder this machine cannot check (another machine or container, or no record), once you have made sure it is gone")
+	unlock.ValidArgsFunction = identifierCompletionFunc(p, true)
+	_ = unlock.RegisterFlagCompletionFunc("domain", domainCompletionFunc(p))
 	worktree.AddCommand(unlock)
 
 	root.AddCommand(worktree)
 
 	root.SetOut(stdout)
 	root.SetErr(stderr)
+	// Must run after every RegisterFlagCompletionFunc above it (identifier
+	// and --domain completion on remove and unlock): addCompletion's own
+	// loop registers cobra.NoFileCompletions on every string flag that has
+	// nothing registered yet, and cobra refuses — silently, since the error
+	// is discarded — a second registration for one that already does, so a
+	// call here ahead of those would leave --domain's own completion
+	// clobbered by the blanket default instead of the other way around.
 	addCompletion(root, p)
 
 	return root

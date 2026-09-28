@@ -322,6 +322,44 @@ func TestDoctorInACheckout(t *testing.T) {
 			t.Fatalf("code = %d, want the hook's own 7", code)
 		}
 	})
+
+	t.Run("gives the verify hook no BERTH_URL or BERTH_SERVICE_URL_ variable when the router port cannot be resolved (#28)", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		withDoctorDocker(w, "24.0.0", "2.24.0")
+		writeCheckoutConfig(t, w.Root, acme, "echo verify")
+		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		env := doctorEnv(t, w, w.Root)
+		// Overrides doctorEnv's own Getenv with a malformed
+		// BERTH_ROUTER_PORT, everything else (HOME, BERTH_CONTROL_HOME) unchanged.
+		base := env.Getenv
+		env.Getenv = func(key string) (string, bool) {
+			if key == "BERTH_ROUTER_PORT" {
+				return "not-a-port", true
+			}
+			return base(key)
+		}
+
+		_, report, _ := runDoctor(t, env)
+		wantLine(t, report, "fail", "router", `BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "not-a-port".`)
+		wantLine(t, report, "ok", "verify hook", "echo verify exited 0")
+
+		var hookCall *run.Spec
+		for _, call := range w.Runner.Calls() {
+			call := call
+			if call.Command == "echo" {
+				hookCall = &call
+			}
+		}
+		if hookCall == nil {
+			t.Fatal("verify hook was not run")
+		}
+		for _, entry := range hookCall.Env {
+			name := strings.SplitN(entry, "=", 2)[0]
+			if name == "BERTH_URL" || strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+				t.Fatalf("unexpected %s in verify hook env %v", name, hookCall.Env)
+			}
+		}
+	})
 }
 
 func TestDoctorLocks(t *testing.T) {

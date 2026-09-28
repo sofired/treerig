@@ -14,6 +14,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/run"
 )
 
 // startLifecycle is the process's one signal handler: the first SIGINT or
@@ -79,7 +80,11 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 	}
 
 	life := startLifecycle(console)
-	ctx := life.Context()
+	// Carried so a bounded wait deep under a command — an interactive
+	// child's own process-group drain, say — can select on the second
+	// SIGINT or SIGTERM without this package or internal/run/osrun
+	// importing each other; see internal/run/repeat.go.
+	ctx := run.WithRepeated(life.Context(), life.Repeated())
 
 	exitCode := new(int)
 	p := &program{
@@ -94,18 +99,30 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 	root.SetContext(ctx)
 
 	err := root.Execute()
-	// An interrupted command dies by the signal that interrupted it, once its
-	// locks are released; what it was doing is not reported as a failure.
-	if life.Pending() != 0 {
-		life.Exit()
-	}
+	// Stopped before Finish can call Exit: a signal landing in the gap
+	// between here and Exit's own signal.Reset is simply absorbed, this
+	// process's own Notify no longer listening for it, rather than left
+	// queued for something that would otherwise never read it — acceptable
+	// since Exit is about to re-raise whatever signal is already pending.
 	life.Stop()
+	// --version is reported through *exitCode/root itself, not an error a
+	// signal death or Finish's own report should ever see.
+	if err != nil && errors.Is(err, errVersionRequested) {
+		return 0
+	}
+	// Finish reports err unless it is nothing more than the plain fact
+	// that a signal interrupted this process, and, if a signal was
+	// received and it is that plain, ends the process by it (never
+	// returning) — see its own doc for why: an interrupted command dying
+	// by the signal that interrupted it, once its locks are released, is
+	// not itself reported as a failure, but an error that carries more
+	// (an interactive child's own process-group drain that timed out or
+	// was abandoned by a second signal, say) must still reach the user.
+	// Called even for a nil err, so a signal received during an otherwise
+	// clean run still ends this process by it.
+	code := life.Finish(err, func(e error) { report(console, getenv, e) })
 	if err != nil {
-		if errors.Is(err, errVersionRequested) {
-			return 0
-		}
-		report(console, getenv, err)
-		return clierr.Code(err)
+		return code
 	}
 	return *exitCode
 }
