@@ -138,7 +138,8 @@ func identifierCompletionFunc(p *program, includeOrphans bool) func(cmd *cobra.C
 		// Not sorted again here: sorting the combined value\tdescription
 		// strings would interleave orphan UUIDs among slugs instead of
 		// listing every registered worktree first, each list in its own order.
-		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp
+		// KeepOrder asks bash and zsh not to re-sort it either.
+		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
 	}
 }
 
