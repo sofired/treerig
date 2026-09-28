@@ -413,7 +413,7 @@ func TestInteractivePTYCtrlZThenFgResumes(t *testing.T) {
 	waitForegroundHandoff(t, ptmx, helperPid)
 
 	status := sendTerminalSignal(t, ptmx, helperPid, 0x1a) // Ctrl-Z
-	if !status.Stopped() {
+	if !waitStopped(status) {                              // berth stops itself with SIGSTOP, which Stopped misses on macOS
 		t.Fatalf("helper did not stop when its child did: %+v", status)
 	}
 

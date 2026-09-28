@@ -98,6 +98,15 @@ func forwardSignal(cause error, interactive bool) syscall.Signal {
 	return syscall.SIGTERM
 }
 
+// waitStopped reports whether status is a stop, whatever signal caused it.
+// WaitStatus.Stopped can't be used for this: on macOS and the other BSDs it
+// is false for a stop by SIGSTOP, which Go reports as Continued instead.
+// Both kernels encode a stop the same way, 0x7f in the low byte with the
+// signal above it; Linux's own continued status, 0xffff, doesn't match.
+func waitStopped(status unix.WaitStatus) bool {
+	return status&0xff == 0x7f
+}
+
 // foregroundEvent is one state change wait4 reaped for a foreground child:
 // either it stopped (Ctrl-Z), or it is gone for good (err is set only if
 // the wait itself failed, which normally only happens if something else
@@ -178,7 +187,7 @@ func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time
 			case ev.err != nil:
 				_ = setForeground(0, ourPgid)
 				return 1, 0
-			case ev.status.Stopped():
+			case waitStopped(ev.status):
 				_ = setForeground(0, ourPgid)
 				stopSelf()
 				// Resumed: hand the terminal back to the child's own group
