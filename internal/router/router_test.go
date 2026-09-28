@@ -246,6 +246,10 @@ func routerDoc(dynamicDir string, port int) router.ContainerInspect {
 	}
 }
 
+// initTrue is the HostConfig.Init Docker reports for a container started
+// with an init process.
+var initTrue = true
+
 // indexDoc is what Docker reports for an index container started exactly as
 // the stack asks.
 func indexDoc(indexDir string) router.ContainerInspect {
@@ -261,7 +265,7 @@ func indexDoc(indexDir string) router.ContainerInspect {
 			Labels:     labels,
 		},
 		HostConfig: router.InspectHostConfig{
-			CapAdd: []string{}, CapDrop: []string{"ALL"}, ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"},
+			CapAdd: []string{}, CapDrop: []string{"ALL"}, Init: &initTrue, ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"},
 		},
 		Mounts: []router.InspectMount{
 			{Type: "bind", Source: indexDir, Destination: router.IndexMount, RW: false},

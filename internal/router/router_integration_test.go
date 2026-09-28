@@ -47,9 +47,14 @@ func freePortForTest(t *testing.T) int {
 }
 
 // requireDocker skips t (or fails it, under BERTH_TEST_REQUIRE_DOCKER=1)
-// when no Docker daemon is reachable.
+// when no Docker daemon is reachable. BERTH_TEST_SKIP_DOCKER=1 skips it even
+// when a daemon is reachable, so CI can leave every Docker test to its own
+// job.
 func requireDocker(t *testing.T) {
 	t.Helper()
+	if os.Getenv("BERTH_TEST_SKIP_DOCKER") == "1" {
+		t.Skip("Docker tests are skipped (BERTH_TEST_SKIP_DOCKER=1)")
+	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
 		if os.Getenv("BERTH_TEST_REQUIRE_DOCKER") == "1" {
 			t.Fatalf("docker is required (BERTH_TEST_REQUIRE_DOCKER=1) but unavailable: %v", err)
@@ -454,7 +459,7 @@ func TestRouterUpRefusesARouterWithoutAnOwnerLabel(t *testing.T) {
 	// daemon reports one — the key absent from .Config.Labels, not empty.
 	dir := registrytest.TempDir(t)
 	compose := filepath.Join(dir, "compose.yaml")
-	if err := os.WriteFile(compose, []byte("services:\n  router:\n    image: busybox:1.37.0\n    command: [\"sleep\", \"600\"]\n"), 0o644); err != nil {
+	if err := os.WriteFile(compose, []byte("services:\n  router:\n    image: busybox:1.37.0\n    init: true\n    command: [\"sleep\", \"600\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command("docker", "compose", "-p", project, "-f", compose, "up", "--detach").CombinedOutput(); err != nil {

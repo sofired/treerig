@@ -918,6 +918,9 @@ func (r *Router) indexProblems(inspected ContainerInspect) []string {
 	if len(inspected.HostConfig.CapAdd) != 0 {
 		problems = append(problems, "index: has added capabilities")
 	}
+	if inspected.HostConfig.Init == nil || !*inspected.HostConfig.Init {
+		problems = append(problems, "index: runs without an init process, so stopping it waits out Docker's grace period")
+	}
 	var served *InspectMount
 	for i, mount := range inspected.Mounts {
 		if mount.Destination == IndexMount {
@@ -1385,6 +1388,7 @@ type InspectHostConfig struct {
 	CapAdd         []string
 	CapDrop        []string
 	Devices        []InspectDevice
+	Init           *bool
 	IpcMode        string
 	NetworkMode    string
 	PidMode        string

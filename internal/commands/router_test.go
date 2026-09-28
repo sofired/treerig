@@ -123,7 +123,7 @@ func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 		}
 		return router.ContainerInspect{
 			Config:     router.InspectConfig{Cmd: router.IndexCommand, Entrypoint: router.IndexImageEntrypoint, Image: router.IndexImage, Labels: labels},
-			HostConfig: hardened,
+			HostConfig: withInit(hardened),
 			Mounts:     []router.InspectMount{{Type: "bind", Source: d.state.IndexDir, Destination: router.IndexMount, RW: false}},
 			NetworkSettings: router.InspectNetworkSettings{
 				Networks: map[string]json.RawMessage{d.network: json.RawMessage("{}")},
@@ -396,4 +396,12 @@ func containsSubstringLine(lines []string, substr string) bool {
 		}
 	}
 	return false
+}
+
+// withInit is host with HostConfig.Init set, as Docker reports it for the
+// index container, which the stack starts with an init process.
+func withInit(host router.InspectHostConfig) router.InspectHostConfig {
+	enabled := true
+	host.Init = &enabled
+	return host
 }

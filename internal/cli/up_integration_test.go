@@ -75,6 +75,10 @@ func healthyRouter(t *testing.T, state, home string, routerState layout.RouterLa
 		}
 	}
 	running := router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}}
+	// The stack starts the index with an init process; see router.Stack.
+	indexHost := hardened()
+	initEnabled := true
+	indexHost.Init = &initEnabled
 	networks := func(names ...string) map[string]json.RawMessage {
 		m := map[string]json.RawMessage{}
 		for _, name := range names {
@@ -101,7 +105,7 @@ func healthyRouter(t *testing.T, state, home string, routerState layout.RouterLa
 		},
 		"index-1": {
 			Config:          router.InspectConfig{Cmd: append([]string(nil), router.IndexCommand...), Entrypoint: router.IndexImageEntrypoint, Image: router.IndexImage, Labels: indexLabels},
-			HostConfig:      hardened(),
+			HostConfig:      indexHost,
 			Mounts:          []router.InspectMount{{Type: "bind", Source: routerState.IndexDir, Destination: router.IndexMount}},
 			NetworkSettings: router.InspectNetworkSettings{Networks: networks(router.DefaultName)},
 			State:           running,

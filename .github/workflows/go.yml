@@ -20,9 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: ./.github/actions/setup-go
 
       - name: Format
         run: test -z "$(gofmt -l cmd internal)"
@@ -45,13 +43,14 @@ jobs:
         run: go build -o dist/berth ./cmd/berth
 
       # Real git, real processes and signals (flock inheritance, group kills,
-      # death by the re-raised signal), the streams contract
-      # (TestStreamsContract, against a binary it builds itself), and on
-      # Linux a real Docker daemon. The macOS leg is the one that proves the
-      # lock layer on APFS and the kern.proc sysctls.
+      # death by the re-raised signal), and the streams contract
+      # (TestStreamsContract, against a binary it builds itself). The macOS
+      # leg is the one that proves the lock layer on APFS and the kern.proc
+      # sysctls. Tests that need a real Docker daemon run in the docker job,
+      # alongside this one.
       - name: Integration tests
         env:
-          BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
+          BERTH_TEST_SKIP_DOCKER: '1'
         run: go test -race -count=1 -tags integration ./...
 
       # Releases are built with CGO_ENABLED=0, but every run above links cgo:
@@ -61,10 +60,35 @@ jobs:
       - name: Tests without cgo, as released
         env:
           CGO_ENABLED: '0'
-          BERTH_TEST_REQUIRE_DOCKER: ${{ runner.os == 'Linux' && '1' || '' }}
+          BERTH_TEST_SKIP_DOCKER: '1'
         run: |
           go test -count=1 ./...
           go test -count=1 -tags integration ./...
+
+  # The integration suite against the runner's real Docker daemon, in its own
+  # job so it runs in parallel with the rest. It runs the whole suite, not a
+  # list of packages, so a Docker test added anywhere is picked up; the tests
+  # that don't need Docker run again here, which costs a few seconds.
+  docker:
+    name: docker ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-go
+
+      - name: Integration tests against Docker
+        env:
+          BERTH_TEST_REQUIRE_DOCKER: '1'
+        run: go test -race -count=1 -tags integration ./...
+
+      # As in the go job: releases are built without cgo.
+      - name: Integration tests against Docker without cgo, as released
+        env:
+          CGO_ENABLED: '0'
+          BERTH_TEST_REQUIRE_DOCKER: '1'
+        run: go test -count=1 -tags integration ./...
 
   cross:
     name: cross-compile
@@ -72,9 +96,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: ./.github/actions/setup-go
       # linux/darwin x amd64/arm64: the same four targets release.yml
       # builds for every push to main. release.yml does not run on a pull
       # request, so this job stays here to catch a cross-compile break
