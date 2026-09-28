@@ -202,6 +202,7 @@ func newHelpCommand(p *program) *cobra.Command {
 			// nothing left over: that is success, not failure.
 			resolved := err == nil && (target != root || len(args) == 0)
 			if !resolved {
+				root.InitDefaultHelpFlag()
 				writeHelp(root, root.ErrOrStderr())
 				p.exit(1)
 				return nil
