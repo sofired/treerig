@@ -190,6 +190,11 @@ func TestRouterServiceVerify(t *testing.T) {
 			func(_, indexDoc *router.ContainerInspect) { indexDoc.Config.Entrypoint = []string{"/bin/sh"} },
 			"index: entrypoint differs from the pinned image",
 		},
+		{
+			"an index started without an init process",
+			func(_, indexDoc *router.ContainerInspect) { indexDoc.HostConfig.Init = nil },
+			"index: runs without an init process, so stopping it waits out Docker's grace period",
+		},
 	}
 
 	for _, tc := range tampering {

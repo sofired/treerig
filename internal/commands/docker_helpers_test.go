@@ -18,8 +18,13 @@ import (
 
 // dockerAvailable skips the test when no Docker daemon answers, unless
 // BERTH_TEST_REQUIRE_DOCKER=1 makes its absence a failure instead.
+// BERTH_TEST_SKIP_DOCKER=1 skips it even when a daemon answers, so CI can
+// leave every Docker test to its own job.
 func dockerAvailable(t *testing.T) {
 	t.Helper()
+	if os.Getenv("BERTH_TEST_SKIP_DOCKER") == "1" {
+		t.Skip("Docker tests are skipped (BERTH_TEST_SKIP_DOCKER=1)")
+	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
 		if os.Getenv("BERTH_TEST_REQUIRE_DOCKER") == "1" {
 			t.Fatalf("docker is required (BERTH_TEST_REQUIRE_DOCKER=1) but unavailable: %v", err)

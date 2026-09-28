@@ -47,9 +47,11 @@ that way.
 
 A Docker suite (a `*_docker_integration_test.go` file) skips itself when no
 daemon answers `docker info`, unless `BERTH_TEST_REQUIRE_DOCKER=1` turns
-that into a failure instead — set on CI's Linux leg. The Docker suites sweep
-anything a killed run left behind, without regard to age, so run one of
-them at a time on a machine.
+that into a failure instead. `BERTH_TEST_SKIP_DOCKER=1` skips it even when a
+daemon answers. CI's `go` jobs set the second and its `docker` job the first,
+so the Docker suites run once, in parallel with everything else. The Docker
+suites sweep anything a killed run left behind, without regard to age, so
+run one of them at a time on a machine.
 
 ## Go
 

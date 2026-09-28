@@ -259,10 +259,14 @@ type routerServiceDoc struct {
 	Networks    []string    `json:"networks"`
 }
 
-// indexServiceDoc is the index service's Compose document.
+// indexServiceDoc is the index service's Compose document. Init runs
+// Docker's init process as PID 1: busybox httpd installs no SIGTERM handler,
+// and the kernel ignores a signal PID 1 does not handle, so without it every
+// stop of the stack waits out Docker's 10-second grace period.
 type indexServiceDoc struct {
 	Image       string      `json:"image"`
 	Restart     string      `json:"restart"`
+	Init        bool        `json:"init"`
 	Command     []string    `json:"command"`
 	ReadOnly    bool        `json:"read_only"`
 	CapDrop     []string    `json:"cap_drop"`
@@ -333,6 +337,7 @@ func Stack(options StackOptions) StackDocument {
 			Index: indexServiceDoc{
 				Image:       IndexImage,
 				Restart:     "unless-stopped",
+				Init:        true,
 				Command:     IndexCommand,
 				ReadOnly:    true,
 				CapDrop:     hardenedCapDrop,

@@ -26,8 +26,13 @@ const decoyNamespace = "dev.berth-test-decoy"
 
 // requireDocker skips the test when no Docker daemon is reachable, unless
 // BERTH_TEST_REQUIRE_DOCKER=1 says the suite must fail loudly instead.
+// BERTH_TEST_SKIP_DOCKER=1 skips it even when a daemon is reachable, so CI
+// can leave every Docker test to its own job.
 func requireDocker(t *testing.T) {
 	t.Helper()
+	if os.Getenv("BERTH_TEST_SKIP_DOCKER") == "1" {
+		t.Skip("Docker tests are skipped (BERTH_TEST_SKIP_DOCKER=1)")
+	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
 		if os.Getenv("BERTH_TEST_REQUIRE_DOCKER") == "1" {
 			t.Fatalf("docker is required (BERTH_TEST_REQUIRE_DOCKER=1) but unavailable: %v", err)

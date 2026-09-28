@@ -625,9 +625,10 @@ CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -tags integration ./...
 
 `-tags integration` marks tests that touch something real — a process, a
 signal, or a Docker daemon — and are excluded from the default `go test
-./...`. Without a daemon the Docker suites skip; CI's Linux leg sets
+./...`. Without a daemon the Docker suites skip; CI's `docker` job sets
 `BERTH_TEST_REQUIRE_DOCKER=1`, which turns that skip into a failure, so a green
-run on a machine without Docker is not the run CI makes. The Docker suites
+run on a machine without Docker is not the run CI makes. `BERTH_TEST_SKIP_DOCKER=1`
+skips them even when a daemon is up. The Docker suites
 sweep up whatever a killed run left behind, without regard to age, so run one
 of them at a time on a machine.
 The `CGO_ENABLED=0` run matters on its own: cgo changes how the Go runtime
