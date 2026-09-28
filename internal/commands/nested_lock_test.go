@@ -111,7 +111,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		inside(tc, ref.WorktreeID)
 		router := commandstest.NewFakeRouter(80, "berth-router")
 
-		_, err := up(t, tc, router, &commandstest.FakeIndex{}, commands.UpOptions{})
+		_, err := commands.UpWithContext(ctx, tc.CommandContext, router, &commandstest.FakeIndex{}, commands.UpOptions{})
 		requireNestedRefusal(t, err, layout.WorktreeHost("feature-login", acme))
 		if router.Ensures() != 0 {
 			t.Fatalf("the router was ensured %d time(s) after the refusal", router.Ensures())
@@ -133,7 +133,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		inside(tc, identity.WorktreeID)
 		router := commandstest.NewFakeRouter(80, "berth-router")
 
-		_, err = up(t, tc, router, &commandstest.FakeIndex{}, commands.UpOptions{})
+		_, err = commands.UpWithContext(ctx, tc.CommandContext, router, &commandstest.FakeIndex{}, commands.UpOptions{})
 		requireNestedRefusal(t, err, layout.WorktreeHost("feature-login", acme))
 		if router.Ensures() != 0 {
 			t.Fatalf("the router was ensured %d time(s) after the refusal", router.Ensures())
@@ -146,7 +146,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		givePorts(tc)
 		inside(tc, "00000000-0000-4000-8000-000000000000")
 
-		result, err := up(t, tc, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{}, commands.UpOptions{})
+		result, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{}, commands.UpOptions{})
 		if err != nil {
 			t.Fatalf("Up: %v", err)
 		}
@@ -163,7 +163,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		givePorts(tc)
 		inside(tc, "00000000-0000-4000-8000-000000000000")
 
-		if _, err := up(t, tc, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+		if _, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
 			t.Fatalf("Up: %v", err)
 		}
 	})
