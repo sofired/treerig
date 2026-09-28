@@ -1,2 +1,4 @@
-error: unknown option '--hepl'
-(Did you mean --help?)
+[berth] ERROR: unknown flag: --hepl
+
+  Did you mean this?
+   --help

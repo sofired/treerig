@@ -1,2 +1,4 @@
-error: unknown option '--holder-unverifable'
-(Did you mean --holder-unverifiable?)
+[berth] ERROR: unknown flag: --holder-unverifable
+
+  Did you mean this?
+   --holder-unverifiable

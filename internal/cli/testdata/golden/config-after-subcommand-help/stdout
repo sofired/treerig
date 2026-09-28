@@ -1,8 +1,13 @@
-Usage: berth worktree list [options]
-
 list registered worktrees
 
-Options:
-  --all       every repository and domain on this machine
-  --json      machine-readable output
-  -h, --help  display help for command
+Usage:
+  berth worktree list [flags]
+
+Flags:
+      --all    every repository and domain on this machine
+  -h, --help   help for list
+      --json   machine-readable output
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

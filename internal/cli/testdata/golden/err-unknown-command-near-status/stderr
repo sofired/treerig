@@ -1,2 +1,5 @@
-error: unknown command 'stat'
-(Did you mean status?)
+[berth] ERROR: unknown command "stat" for "berth"
+
+  Did you mean this?
+   status
+

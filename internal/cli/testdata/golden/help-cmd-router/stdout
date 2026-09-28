@@ -1,13 +1,20 @@
-Usage: berth router [options] [command]
-
 manage the shared local router
 
-Options:
-  -h, --help      display help for command
+Usage:
+  berth router [flags]
+  berth router [command]
 
-Commands:
-  up              start the shared router and verify its hardened configuration
-  status          report whether the shared router is running as expected
-  down            stop the shared router; worktree services keep running but are
-                  no longer routed
-  help [command]  display help for command
+Available Commands:
+  up          start the shared router and verify its hardened configuration
+  status      report whether the shared router is running as expected
+  down        stop the shared router; worktree services keep running but are no
+              longer routed
+
+Flags:
+  -h, --help   help for router
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number
+
+Use "berth router [command] --help" for more information about a command.

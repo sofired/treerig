@@ -1,14 +1,21 @@
-Usage: berth worktree unlock [options] [identifier]
-
 clear a dead holder's lock on a worktree, the registry, or the router, once the
 holder, and anything it left running, is checked gone
 
-Options:
-  --domain <domain>      narrow a slug registered under more than one domain
-  --registry             clear the machine-wide worktree registry lock instead
-                         of a worktree's
-  --router               clear the shared router's lock instead of a worktree's
-  --holder-unverifiable  accept a holder this machine cannot check (another
-                         machine or container, or no record), once you have made
-                         sure it is gone
-  -h, --help             display help for command
+Usage:
+  berth worktree unlock [identifier] [flags]
+
+Flags:
+      --domain string         narrow a slug registered under more than one
+                              domain
+  -h, --help                  help for unlock
+      --holder-unverifiable   accept a holder this machine cannot check (another
+                              machine or container, or no record), once you have
+                              made sure it is gone
+      --registry              clear the machine-wide worktree registry lock
+                              instead of a worktree's
+      --router                clear the shared router's lock instead of a
+                              worktree's
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

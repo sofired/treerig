@@ -1,6 +1,11 @@
-Usage: berth router up [options]
-
 start the shared router and verify its hardened configuration
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth router up [flags]
+
+Flags:
+  -h, --help   help for up
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

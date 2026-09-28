@@ -1,6 +1,11 @@
-Usage: berth down [options]
-
 stop this worktree's services; data is kept
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth down [flags]
+
+Flags:
+  -h, --help   help for down
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

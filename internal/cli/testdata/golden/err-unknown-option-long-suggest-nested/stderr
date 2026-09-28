@@ -1,2 +1,4 @@
-error: unknown option '--al'
-(Did you mean --all?)
+[berth] ERROR: unknown flag: --al
+
+  Did you mean this?
+   --all

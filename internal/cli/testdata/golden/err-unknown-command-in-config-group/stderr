@@ -1,1 +1,1 @@
-error: unknown command 'nonexistentSub'
+[berth] ERROR: unknown command "nonexistentSub" for "berth config"

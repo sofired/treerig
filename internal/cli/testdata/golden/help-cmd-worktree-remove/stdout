@@ -1,16 +1,18 @@
-Usage: berth worktree [options] [command]
+remove a worktree's environment: containers, volumes, networks, images, home,
+and registration
 
-manage registered worktrees
+Usage:
+  berth worktree remove [identifier] [flags]
 
-Options:
-  -h, --help                     display help for command
+Flags:
+      --domain string            narrow a slug registered under more than one
+                                 domain
+  -h, --help                     help for remove
+      --label-namespace string   supply the Docker label namespace when nothing
+                                 on disk records it (a worktree of another
+                                 repository)
+      --yes                      skip the confirmation phrase
 
-Commands:
-  list [options]                 list registered worktrees
-  remove [options] [identifier]  remove a worktree's environment: containers,
-                                 volumes, networks, images, home, and
-                                 registration
-  unlock [options] [identifier]  clear a dead holder's lock on a worktree, the
-                                 registry, or the router, once the holder, and
-                                 anything it left running, is checked gone
-  help [command]                 display help for command
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

@@ -1,6 +1,11 @@
-Usage: berth config validate [options]
-
 parse and validate berth.toml
 
-Options:
-  -h, --help  display help for command
+Usage:
+  berth config validate [flags]
+
+Flags:
+  -h, --help   help for validate
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

@@ -1,13 +1,18 @@
-Usage: berth worktree remove [options] [identifier]
-
 remove a worktree's environment: containers, volumes, networks, images, home,
 and registration
 
-Options:
-  --domain <domain>              narrow a slug registered under more than one
+Usage:
+  berth worktree remove [identifier] [flags]
+
+Flags:
+      --domain string            narrow a slug registered under more than one
                                  domain
-  --label-namespace <namespace>  supply the Docker label namespace when nothing
+  -h, --help                     help for remove
+      --label-namespace string   supply the Docker label namespace when nothing
                                  on disk records it (a worktree of another
                                  repository)
-  --yes                          skip the confirmation phrase
-  -h, --help                     display help for command
+      --yes                      skip the confirmation phrase
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

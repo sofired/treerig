@@ -1,2 +1,6 @@
-error: unknown command 'dow'
-(Did you mean down?)
+[berth] ERROR: unknown command "dow" for "berth"
+
+  Did you mean this?
+   dev
+   down
+

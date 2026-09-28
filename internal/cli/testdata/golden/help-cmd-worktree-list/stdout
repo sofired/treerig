@@ -1,16 +1,13 @@
-Usage: berth worktree [options] [command]
+list registered worktrees
 
-manage registered worktrees
+Usage:
+  berth worktree list [flags]
 
-Options:
-  -h, --help                     display help for command
+Flags:
+      --all    every repository and domain on this machine
+  -h, --help   help for list
+      --json   machine-readable output
 
-Commands:
-  list [options]                 list registered worktrees
-  remove [options] [identifier]  remove a worktree's environment: containers,
-                                 volumes, networks, images, home, and
-                                 registration
-  unlock [options] [identifier]  clear a dead holder's lock on a worktree, the
-                                 registry, or the router, once the holder, and
-                                 anything it left running, is checked gone
-  help [command]                 display help for command
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number
