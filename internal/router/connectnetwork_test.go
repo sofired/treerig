@@ -143,6 +143,15 @@ func TestRouterServiceDisconnectNetwork(t *testing.T) {
 			t.Fatalf("err = %v, want tolerated", err)
 		}
 	})
+	t.Run("tolerates nothing to disconnect: Docker 29's 'network ... not found'", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.mu.Lock()
+		w.Fake.disconnectExitCode, w.Fake.disconnectStderr = 1, "Error response from daemon: network some-network not found"
+		w.Fake.mu.Unlock()
+		if err := w.Router.DisconnectNetwork(context.Background(), "some-network"); err != nil {
+			t.Fatalf("err = %v, want tolerated", err)
+		}
+	})
 	t.Run("tolerates nothing to disconnect: 'no such container'", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		w.Fake.mu.Lock()
