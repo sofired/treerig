@@ -74,6 +74,22 @@ func TestRunnerStartFailures(t *testing.T) {
 		}
 	})
 
+	t.Run("says a bare name found on PATH without its execute bit is not executable, not missing", func(t *testing.T) {
+		dir := scratch(t)
+		if err := os.WriteFile(filepath.Join(dir, "berth-noexec-tool"), []byte("#!/bin/sh\necho hi\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		withPath(t, dir)
+		_, err := New().Run(context.Background(), run.Spec{Command: "berth-noexec-tool"})
+		se, ok := err.(*run.StartError)
+		if !ok {
+			t.Fatalf("got %T: %v", err, err)
+		}
+		if se.ExitCode != 126 || se.Code != "EACCES" {
+			t.Fatalf("got %+v", se)
+		}
+	})
+
 	t.Run("names a working directory that does not exist, on one line", func(t *testing.T) {
 		gone := filepath.Join(scratch(t), "gone")
 		_, err := New().Run(context.Background(), run.Spec{Command: "sh", Args: []string{"-c", "true"}, Dir: gone})

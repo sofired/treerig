@@ -98,6 +98,30 @@ func TestResolveExecutable(t *testing.T) {
 			t.Fatalf("got %+v", err)
 		}
 	})
+
+	t.Run("says a bare name found on PATH only without its execute bit is EACCES, 126, naming the file", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		path := filepath.Join(dir, "tool")
+		writeExecutable(t, path, []byte("#!/bin/sh\n"), 0o644)
+		_, err := run.ResolveExecutable("tool", []string{"PATH=" + dir})
+		if err == nil || err.ExitCode != 126 || err.Code != "EACCES" {
+			t.Fatalf("got %+v", err)
+		}
+		if want := "`tool` could not be started: it is on PATH at " + path + ", but not executable (EACCES)."; err.Error() != want {
+			t.Fatalf("error = %q, want %q", err.Error(), want)
+		}
+	})
+
+	t.Run("keeps searching PATH past a non-executable match for one that runs", func(t *testing.T) {
+		first, second := registrytest.TempDir(t), registrytest.TempDir(t)
+		writeExecutable(t, filepath.Join(first, "tool"), []byte("#!/bin/sh\n"), 0o644)
+		want := filepath.Join(second, "tool")
+		writeExecutable(t, want, []byte("#!/bin/sh\n"), 0o755)
+		resolved, err := run.ResolveExecutable("tool", []string{"PATH=" + first + string(filepath.ListSeparator) + second})
+		if err != nil || resolved != want {
+			t.Fatalf("resolved = %q, err = %+v, want %q", resolved, err, want)
+		}
+	})
 }
 
 func TestPathEnv(t *testing.T) {

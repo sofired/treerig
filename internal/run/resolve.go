@@ -67,7 +67,11 @@ func ResolveExecutable(command string, env []string) (string, *StartError) {
 		}
 		return command, nil
 	}
+	// A regular file on PATH without its execute bit does not stop the
+	// search, since a later entry may still run; but if nothing does, exec
+	// and a shell report it as EACCES (126), not as missing.
 	path := PathEnv(env)
+	nonExecutable := ""
 	for _, dir := range filepath.SplitList(path) {
 		if dir == "" {
 			dir = "."
@@ -78,9 +82,15 @@ func ResolveExecutable(command string, env []string) (string, *StartError) {
 			continue
 		}
 		if unix.Access(candidate, unix.X_OK) != nil {
+			if nonExecutable == "" {
+				nonExecutable = candidate
+			}
 			continue
 		}
 		return candidate, nil
+	}
+	if nonExecutable != "" {
+		return "", &StartError{Command: command, Code: "EACCES", Detail: fmt.Sprintf("is on PATH at %s, but not executable (EACCES).", nonExecutable), ExitCode: 126}
 	}
 	return "", &StartError{Command: command, Code: "ENOENT", Detail: "is not on PATH (ENOENT).", ExitCode: 127}
 }
