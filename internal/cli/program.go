@@ -183,8 +183,9 @@ func bareGroup(p *program) func(cmd *cobra.Command, args []string) error {
 // exit the process directly on a lookup failure, bypassing this package's
 // own exit-code and signal handling entirely. Found, it shows a command's
 // own help, to stdout, exit 0 — walking the full path given, not just its
-// first word. Not found, it falls back to the whole program's own help, to
-// stderr, exit 1, the same as any other unresolvable name in this tree.
+// first word. A path with words that name no command shows the help of the
+// deepest command it did name (root's, if none), to stderr, exit 1, the same
+// as any other unresolvable name in this tree.
 func newHelpCommand(p *program) *cobra.Command {
 	return &cobra.Command{
 		Use:   "help [command]",
@@ -192,27 +193,25 @@ func newHelpCommand(p *program) *cobra.Command {
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := cmd.Root()
-			target, _, err := root.Find(args)
-			// Find never fails to match a command on this tree — every
-			// group's own Args validator (unknownSubcommand) is non-nil, so
-			// Find leaves that check to ValidateArgs instead (see
-			// unknownSubcommand's own doc comment) — so a name that matched
-			// nothing is target == root with args left unconsumed, not a
-			// non-nil err. Bare "help" also resolves to root, but with
-			// nothing left over: that is success, not failure.
-			resolved := err == nil && (target != root || len(args) == 0)
-			if !resolved {
-				root.InitDefaultHelpFlag()
-				writeHelp(root, root.ErrOrStderr())
-				p.exit(1)
-				return nil
+			target, rest, err := root.Find(args)
+			// Find stops at the deepest command the words name and returns
+			// the words it could not place, rather than failing: every
+			// command here has its own Args validator, so Find leaves
+			// unknown words to it. Only a path with nothing left over names
+			// a command; bare "help" names root.
+			if err != nil {
+				target = root
 			}
 			// Executing a command the normal way is what registers its own
 			// -h/--help flag (InitDefaultHelpFlag, called from execute());
-			// bypassing execute() to jump straight to Help(), as this does,
-			// has to register it by hand first, the same way cobra's own
-			// default help command does.
+			// jumping straight to its help, as this does, has to register
+			// it by hand first, the same way cobra's own help command does.
 			target.InitDefaultHelpFlag()
+			if err != nil || len(rest) > 0 {
+				writeHelp(target, root.ErrOrStderr())
+				p.exit(1)
+				return nil
+			}
 			writeHelp(target, root.OutOrStdout())
 			return nil
 		},

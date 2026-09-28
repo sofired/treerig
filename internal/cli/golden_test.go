@@ -80,6 +80,8 @@ var goldenCases = []goldenCase{
 	// program's own error help; "b" is never reached.
 	{"help-cmd-a-b", []string{"help", "a", "b"}},
 	{"help-cmd-nonexistent", []string{"help", "nonexistent"}},
+	{"help-cmd-worktree-bogus", []string{"help", "worktree", "bogus"}},
+	{"help-cmd-leaf-extra", []string{"help", "status", "extra"}},
 
 	// --- version ---
 	{"version-short", []string{"-V"}},
