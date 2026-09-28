@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -316,7 +317,13 @@ type checkoutFixture struct {
 // newCheckoutFixture is a checkout on branch feature/login, with a real Git
 // identity (registrytest.GitRunner) but not yet registered — this fixture
 // never runs `up` itself; register() below is what a finished `up` would
-// have left.
+// have left. When verify names a "./"-relative script (every caller's own
+// choice today), a real executable file is written there too: the fake
+// runner's own hook outcome (doctorRunnerState.hook) still decides what
+// actually running it reports, but hookResolutionChecks now predicts that
+// outcome from the real filesystem first, exactly as it would for a real
+// checkout, so a fixture with nothing on disk at that path would otherwise
+// fail resolution before the fake run is ever reached.
 func newCheckoutFixture(t *testing.T, verify string) *checkoutFixture {
 	t.Helper()
 	base := registrytest.TempDir(t)
@@ -337,6 +344,12 @@ func newCheckoutFixture(t *testing.T, verify string) *checkoutFixture {
 	var hooksCfg config.Hooks
 	if verify != "" {
 		hooksCfg.Verify = &verify
+		if rel, ok := strings.CutPrefix(verify, "./"); ok {
+			script := filepath.Join(root, rel)
+			if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	loaded := &config.Loaded{
 		Config: config.Config{
@@ -1625,7 +1638,10 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		checks := section(sections, "This checkout")
-		want := []string{"ok berth.toml", "skip this worktree", "skip verify hook"}
+		// The resolution check runs whether or not the worktree is
+		// registered — that's the whole point of #105 — so it appears
+		// before the registration-gated "skip" the run itself still gives.
+		want := []string{"ok berth.toml", "skip this worktree", "ok verify hook file", "skip verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -1638,8 +1654,8 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, want)
 			}
 		}
-		if checks[2].Detail != "needs a registered worktree; run 'berth up' first" {
-			t.Fatalf("detail = %q", checks[2].Detail)
+		if checks[3].Detail != "needs a registered worktree; run 'berth up' first" {
+			t.Fatalf("detail = %q", checks[3].Detail)
 		}
 	})
 
@@ -1657,6 +1673,176 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 	})
 
+	// hookResolutionChecks (#105): one line per configured hook, predicting
+	// the exit code a real run would give without ever spawning anything,
+	// whether or not this worktree is registered.
+	t.Run("fails a configured hook whose file is missing, naming the hook and the exit code 127", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		seed := "./hooks/seed"
+		f.loaded.Config.Hooks.Seed = &seed
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		checks := section(sections, "This checkout")
+		var found *Check
+		for i, c := range checks {
+			if c.Subject == "seed hook file" {
+				found = &checks[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("no seed hook file check in %+v", checks)
+		}
+		wantDetail := "would not start (exit 127): `" + filepath.Join(f.root, "hooks", "seed") +
+			"` does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT)."
+		if found.Status != StatusFail || found.Subject != "seed hook file" || found.Detail != wantDetail {
+			t.Fatalf("got %+v, want detail %q", *found, wantDetail)
+		}
+		// The predicted 127 lives only in the line's own Detail: a
+		// resolution failure never supplies doctorExitCode's own code (the
+		// README promise is the verify hook's own code, or 1).
+		if found.ExitCode != nil {
+			t.Fatalf("exitCode = %v, want nil", found.ExitCode)
+		}
+		if code := doctorExitCode(sections); code != 1 {
+			t.Fatalf("code = %d, want 1", code)
+		}
+	})
+
+	t.Run("fails a configured hook that exists but is not executable, naming the hook and the exit code 126", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		prepare := "./hooks/prepare"
+		f.loaded.Config.Hooks.Prepare = &prepare
+		if err := os.MkdirAll(filepath.Join(f.root, "hooks"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(f.root, "hooks", "prepare"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		checks := section(sections, "This checkout")
+		var found *Check
+		for i, c := range checks {
+			if c.Subject == "prepare hook file" {
+				found = &checks[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("no prepare hook file check in %+v", checks)
+		}
+		if found.Status != StatusFail || found.ExitCode != nil {
+			t.Fatalf("got %+v, want ExitCode nil", *found)
+		}
+		if !strings.Contains(found.Detail, "exit 126") || !strings.Contains(found.Detail, "is not executable (EACCES)") {
+			t.Fatalf("detail = %q", found.Detail)
+		}
+		if code := doctorExitCode(sections); code != 1 {
+			t.Fatalf("code = %d, want 1", code)
+		}
+	})
+
+	t.Run("fails a configured hook with no #! line and no native header, naming the hook and the exit code 126", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		backup := "./hooks/backup"
+		f.loaded.Config.Hooks.Backup = &backup
+		if err := os.MkdirAll(filepath.Join(f.root, "hooks"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(f.root, "hooks", "backup"), []byte("not a script\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		checks := section(sections, "This checkout")
+		var found *Check
+		for i, c := range checks {
+			if c.Subject == "backup hook file" {
+				found = &checks[i]
+			}
+		}
+		if found == nil {
+			t.Fatalf("no backup hook file check in %+v", checks)
+		}
+		if found.Status != StatusFail || found.ExitCode != nil {
+			t.Fatalf("got %+v, want ExitCode nil", *found)
+		}
+		if !strings.Contains(found.Detail, "exit 126") || !strings.Contains(found.Detail, "ENOEXEC") || !strings.Contains(found.Detail, "needs a #! line") {
+			t.Fatalf("detail = %q", found.Detail)
+		}
+	})
+
+	// #105 round 1 (Blocking): a broken hook file's predicted exit code must
+	// never race or override the verify hook's own, real, observed one —
+	// only the verify run's own failure ever sets doctorExitCode's code.
+	t.Run("keeps the verify hook's own exit code when a different hook file is broken", func(t *testing.T) {
+		f := newCheckoutFixture(t, "./verify")
+		f.register("feature-login")
+		backup := "./hooks/backup"
+		f.loaded.Config.Hooks.Backup = &backup // never written: missing, 127 predicted
+		f.runner.state.hook = outcome{result: run.Result{ExitCode: 7}}
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code := doctorExitCode(sections); code != 7 {
+			t.Fatalf("code = %d, want the verify hook's own 7", code)
+		}
+	})
+
+	t.Run("exits 1 for a broken hook file alone, never its own predicted code", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		backup := "./hooks/backup"
+		f.loaded.Config.Hooks.Backup = &backup // never written: missing, 127 predicted
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code := doctorExitCode(sections); code != 1 {
+			t.Fatalf("code = %d, want 1, not the predicted 127", code)
+		}
+	})
+
+	t.Run("reports one line per configured hook, in schema order, regardless of registration", func(t *testing.T) {
+		f := newCheckoutFixture(t, "./verify")
+		for name, field := range map[string]**string{
+			"prepare": &f.loaded.Config.Hooks.Prepare,
+			"seed":    &f.loaded.Config.Hooks.Seed,
+			"backup":  &f.loaded.Config.Hooks.Backup,
+			"restore": &f.loaded.Config.Hooks.Restore,
+		} {
+			command := "./" + name
+			*field = &command
+			if err := os.WriteFile(filepath.Join(f.root, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Not registered: only the resolution checks can run.
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		checks := section(sections, "This checkout")
+		var got []string
+		for _, c := range checks {
+			if strings.HasSuffix(c.Subject, " hook file") || c.Subject == "verify hook" {
+				got = append(got, string(c.Status)+" "+c.Subject)
+			}
+		}
+		want := []string{
+			"ok prepare hook file", "ok seed hook file", "ok verify hook file",
+			"ok backup hook file", "ok restore hook file", "skip verify hook",
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
 	t.Run("runs the verify hook with its output on stderr, and passes when it exits 0", func(t *testing.T) {
 		f := newCheckoutFixture(t, "./verify")
 		f.register("feature-login")
@@ -1670,7 +1856,9 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		checks := section(sections, "This checkout")
-		want := []string{"ok berth.toml", "ok this worktree", "ok verify hook"}
+		// One line for the resolution check ("verify hook file"), one for
+		// the run ("verify hook") — distinct subjects (see hookResolutionChecks).
+		want := []string{"ok berth.toml", "ok this worktree", "ok verify hook file", "ok verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -1685,6 +1873,9 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		if checks[1].Detail != "registered as feature-login.acme.localhost" {
 			t.Fatalf("detail = %q", checks[1].Detail)
+		}
+		if checks[2].Detail != "resolves to "+filepath.Join(f.root, "verify") {
+			t.Fatalf("resolution detail = %q", checks[2].Detail)
 		}
 		var hookCall *run.Spec
 		for _, call := range f.runner.state.callsSnapshot() {
@@ -1758,7 +1949,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		checks := section(sections, "This checkout")
-		want := []string{"ok berth.toml", "ok this worktree", "fail verify hook"}
+		want := []string{"ok berth.toml", "ok this worktree", "ok verify hook file", "fail verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -1802,6 +1993,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			{Status: StatusOK, Subject: brand.ConfigFile, Detail: f.loaded.File},
 			{Status: StatusFail, Subject: "this worktree", Detail: "Command failed (git rev-parse): not a git repository"},
 			{Status: StatusFail, Subject: "missing checkouts", Detail: "Command failed (git worktree list): not a git repository"},
+			{Status: StatusOK, Subject: "verify hook file", Detail: "resolves to " + filepath.Join(f.root, "verify")},
 			{Status: StatusSkip, Subject: "verify hook", Detail: "needs this worktree to be identified"},
 		}
 		got := section(sections, "This checkout")
@@ -1860,7 +2052,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok berth.toml", "ok this worktree", "fail missing checkouts", "ok verify hook"}
+		want := []string{"ok berth.toml", "ok this worktree", "fail missing checkouts", "ok verify hook file", "ok verify hook"}
 		checks := section(sections, "This checkout")
 		got := make([]string, len(checks))
 		for i, c := range checks {

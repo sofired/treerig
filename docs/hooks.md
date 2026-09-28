@@ -113,6 +113,30 @@ falls back to running a script through `/bin/sh`, on any platform). A
 hook ended by a signal exits 128 plus the signal number (137 for `SIGKILL`),
 as a shell reports it.
 
+## `doctor`'s own check
+
+`doctor` predicts this without running anything: for every configured hook
+— `prepare`, `seed`, `verify`, `backup` and `restore` alike, whether or not
+this worktree is registered — it resolves the command exactly as above and
+reports one `<stage> hook file` line, checking that the file exists, is
+executable, and is something exec(2) can run directly: a native ELF or
+Mach-O executable, or a script whose `#!` line names an interpreter that
+itself exists, is executable, and is itself checked the same way — a native
+binary always works, and a script naming another script is followed on
+Linux up to the kernel's own interpreter-chain limit and refused outright
+on Darwin, which never recurses at all (a relative interpreter path
+resolves against the hook's own working directory, never `PATH`, exactly
+like execve(2); a shebang saved with CRLF line endings is caught the same
+way a real run would fail on it, glued-on `\r` and all — see "Output and
+exit codes" above). A file whose execute bit is set but cannot be opened to check
+its format (mode `0111`, say) is left `ok`: execute-only is not a format
+problem. A hook file that would not start names the exit code a real run
+would give, 127 or 126, in its own line — a prediction, not something
+`doctor` itself exits with (see the README's own `doctor` section). This is
+separate from, and runs whether or not, `doctor` goes on to actually run
+`verify`, reported on its own unprefixed `verify hook` line; `config
+validate` checks only the file, not what its hooks point at.
+
 ## Cancellation
 
 Hooks are spawned through the tool's process runner, which means an interrupt

@@ -381,6 +381,11 @@ func TestOutputGoldens(t *testing.T) {
 		// both sides — the same way excludeStdoutLines does — keeps the two
 		// lists' treatment symmetric.
 		excludeDockerCalls []string
+		// setup runs after newOutputFixture builds the checkout and before
+		// the live binary does, for a case that needs something on disk
+		// newOutputFixture does not already put there — configured hooks,
+		// for "doctor with hooks configured" below.
+		setup func(t *testing.T, f outputFixture)
 	}{
 		{name: "status", args: []string{"status"}},
 		{name: "urls", args: []string{"urls"}},
@@ -430,6 +435,39 @@ func TestOutputGoldens(t *testing.T) {
 			},
 			unorderedDocker: true,
 		},
+		// #105: hookResolutionChecks' own "This checkout" lines — recorded
+		// against the current build, so unlike "doctor with no checkout"
+		// above it needs no Node.js/berth-root/router-state exclusions.
+		// prepare resolves (a real, executable "./hooks/prepare" with a "#!"
+		// line); seed does not (configured as "./hooks/seed", never written,
+		// so it predicts the runner's own 127); verify stays unconfigured,
+		// so "skip … none configured" still pins that unrelated line's own
+		// wording and column width unchanged. Docker Engine and Compose are
+		// asked concurrently, so unorderedDocker avoids pinning an
+		// unmeaningful race between the two.
+		{
+			name: "doctor with hooks configured", args: []string{"doctor"},
+			unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				hooksDir := filepath.Join(f.checkout, "hooks")
+				if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(hooksDir, "prepare"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				tomlPath := filepath.Join(f.checkout, "berth.toml")
+				contents, err := os.ReadFile(tomlPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				contents = append(contents, []byte("[hooks]\nprepare = \"./hooks/prepare\"\nseed = \"./hooks/seed\"\n")...)
+				if err := os.WriteFile(tomlPath, contents, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -439,6 +477,9 @@ func TestOutputGoldens(t *testing.T) {
 			want := readOutputGolden(t, dir, tc.checkIndexPage)
 
 			gotFixture := newOutputFixture(t, fixture, tc.decoy)
+			if tc.setup != nil {
+				tc.setup(t, gotFixture)
+			}
 			gotDir := gotFixture.checkout
 			if tc.outsideCheckout {
 				gotDir = gotFixture.base
