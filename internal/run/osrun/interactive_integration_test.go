@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -156,26 +157,71 @@ func startPTYHelper(t *testing.T, command string, args []string, killAfter time.
 	return ptmx, helperPid, resultPath
 }
 
-// readUntil reads from ptmx until want has appeared in what it has seen so
-// far, failing the test if it does not within a short deadline —
-// synchronising with the helper's child without a fixed sleep.
+// ptyOutput is everything read so far from one pty's master side, filled by
+// a single background reader. The master can't take a read deadline on
+// macOS, where Go's poller doesn't register terminal devices ("file type does
+// not support deadline"), so reads block in their own goroutine and callers
+// poll the buffer against their own timeout instead.
+type ptyOutput struct {
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	err      error
+	consumed int
+}
+
+// ptyOutputs holds each pty master's ptyOutput, so every readUntil on one
+// pty shares the one reader that owns its bytes.
+var ptyOutputs sync.Map
+
+// outputOf returns ptmx's ptyOutput, starting its reader on first use. The
+// reader ends when the pty's slave side closes or ptmx itself is closed.
+func outputOf(ptmx *os.File) *ptyOutput {
+	fresh := &ptyOutput{}
+	value, loaded := ptyOutputs.LoadOrStore(ptmx, fresh)
+	out := value.(*ptyOutput)
+	if !loaded {
+		go func() {
+			chunk := make([]byte, 256)
+			for {
+				n, err := ptmx.Read(chunk)
+				out.mu.Lock()
+				out.buf.Write(chunk[:n])
+				if err != nil {
+					out.err = err
+				}
+				out.mu.Unlock()
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+	return out
+}
+
+// readUntil waits up to 10s for want to appear in ptmx's output after
+// whatever an earlier readUntil on the same pty already matched.
 func readUntil(t *testing.T, ptmx *os.File, want string) {
 	t.Helper()
+	out := outputOf(ptmx)
 	deadline := time.Now().Add(10 * time.Second)
-	if err := ptmx.SetReadDeadline(deadline); err != nil {
-		t.Fatal(err)
-	}
-	var seen bytes.Buffer
-	chunk := make([]byte, 256)
-	for !bytes.Contains(seen.Bytes(), []byte(want)) {
-		n, err := ptmx.Read(chunk)
-		seen.Write(chunk[:n])
-		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				t.Fatalf("never saw %q, only %q", want, seen.String())
-			}
-			t.Fatalf("read: %v (saw %q)", err, seen.String())
+	for {
+		out.mu.Lock()
+		unread := out.buf.Bytes()[out.consumed:]
+		if i := bytes.Index(unread, []byte(want)); i >= 0 {
+			out.consumed += i + len(want)
+			out.mu.Unlock()
+			return
 		}
+		seen, err := string(unread), out.err
+		out.mu.Unlock()
+		if err != nil {
+			t.Fatalf("read: %v (saw %q)", err, seen)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("never saw %q, only %q", want, seen)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
