@@ -1136,6 +1136,13 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 			Detail: fmt.Sprintf("needs a registered worktree; run '%s up' first", opts.CommandName)})
 	default:
 		ref := worktree.Ref{RepositoryID: registration.RepositoryID, WorktreeID: registration.WorktreeID, Slug: registration.Slug}
+		// No routes when opts.RouterErr != nil: opts.RouterPort is then
+		// unresolved (its zero value), and routing on port 0 would hand the
+		// hook a wrong :0 URL rather than no URL at all.
+		var verifyRoutes []worktree.ServiceRoute
+		if opts.RouterErr == nil {
+			verifyRoutes = worktree.Routes(loaded.Config.Service, ref.Slug, registration.Domain, opts.RouterPort.Port)
+		}
 		// Its output goes to stderr: stdout is this report.
 		_, hookErr := hooks.RunHook(ctx, config.Verify, hooks.HookContext{
 			Source: worktree.EnvironmentSource{
@@ -1143,6 +1150,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 				ControlHome: opts.ControlHome, ConfigFile: loaded.File, ProjectRoot: loaded.Root,
 			},
 			Ref: ref, Hooks: loaded.Config.Hooks, Logger: opts.Logger, Runner: opts.Runner, Environ: opts.Environ,
+			Routes: verifyRoutes, // BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28)
 		}, hooks.RunOptions{Output: hooks.Stderr})
 		if hookErr != nil {
 			var cancelled *clierr.Cancelled

@@ -1,0 +1,131 @@
+package worktree_test
+
+import (
+	"testing"
+
+	"github.com/sofired/berth/internal/config"
+	"github.com/sofired/berth/internal/worktree"
+)
+
+// str returns a pointer to s, for populating *string config fields inline.
+func str(s string) *string { return &s }
+
+// mixedServices is a root service (no subdomain, no path), a
+// subdomain-only service, and a subdomain-plus-path service — the same
+// shapes commands.TestWorktreeURLs covers, plus a hyphenated name to
+// exercise the BERTH_SERVICE_URL_<NAME> mapping.
+func mixedServices() []config.Service {
+	return []config.Service{
+		{Name: "api"},
+		{Name: "mail-relay", Subdomain: "mail"},
+		{Name: "docs", Subdomain: "docs", Path: str("/latest")},
+	}
+}
+
+func TestRoutes(t *testing.T) {
+	t.Run("routes the empty subdomain at the host root, prefixes the others, and folds in a non-default port", func(t *testing.T) {
+		got := worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 8443)
+		want := []string{
+			"http://feature-login.acme.localhost:8443",
+			"http://mail.feature-login.acme.localhost:8443",
+			"http://docs.feature-login.acme.localhost:8443/latest",
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %+v", got)
+		}
+		for i, w := range want {
+			if got[i].URL != w {
+				t.Fatalf("index %d: got %q, want %q", i, got[i].URL, w)
+			}
+		}
+	})
+
+	t.Run("omits the port suffix for the default HTTP port, 80", func(t *testing.T) {
+		got := worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 80)
+		if got[0].URL != "http://feature-login.acme.localhost" {
+			t.Fatalf("got %q", got[0].URL)
+		}
+	})
+
+	t.Run("no services means no routes", func(t *testing.T) {
+		if got := worktree.Routes(nil, "feature-login", "acme.localhost", 80); len(got) != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+}
+
+func TestRootRoute(t *testing.T) {
+	t.Run("finds the service claiming the host root, with neither a subdomain nor a path", func(t *testing.T) {
+		routes := worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 80)
+		root := worktree.RootRoute(routes)
+		if root == nil || root.Service != "api" || root.URL != "http://feature-login.acme.localhost" {
+			t.Fatalf("got %+v", root)
+		}
+	})
+
+	t.Run("is nil when no service claims the host root", func(t *testing.T) {
+		services := []config.Service{
+			{Name: "mail", Subdomain: "mail"},
+			{Name: "api", Path: str("/api")}, // shares the host root, but only under a path
+		}
+		routes := worktree.Routes(services, "feature-login", "acme.localhost", 80)
+		if root := worktree.RootRoute(routes); root != nil {
+			t.Fatalf("got %+v, want nil", root)
+		}
+	})
+
+	t.Run("is nil for no routes at all", func(t *testing.T) {
+		if root := worktree.RootRoute(nil); root != nil {
+			t.Fatalf("got %+v, want nil", root)
+		}
+	})
+}
+
+func TestServiceURLVariables(t *testing.T) {
+	t.Run("BERTH_URL for the root route plus BERTH_SERVICE_URL_<NAME> for every routed service, name upper-cased with hyphens turned to underscores", func(t *testing.T) {
+		routes := worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 8443)
+		got := pairsToMap(worktree.ServiceURLVariables(routes))
+		want := map[string]string{
+			"URL":                    "http://feature-login.acme.localhost:8443",
+			"SERVICE_URL_API":        "http://feature-login.acme.localhost:8443",
+			"SERVICE_URL_MAIL_RELAY": "http://mail.feature-login.acme.localhost:8443",
+			"SERVICE_URL_DOCS":       "http://docs.feature-login.acme.localhost:8443/latest",
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Fatalf("%s = %q, want %q", k, got[k], v)
+			}
+		}
+	})
+
+	t.Run("no URL variable at all when nothing claims the host root", func(t *testing.T) {
+		services := []config.Service{{Name: "mail", Subdomain: "mail"}}
+		routes := worktree.Routes(services, "feature-login", "acme.localhost", 80)
+		got := pairsToMap(worktree.ServiceURLVariables(routes))
+		if _, ok := got["URL"]; ok {
+			t.Fatalf("got a URL variable: %+v", got)
+		}
+		if got["SERVICE_URL_MAIL"] != "http://mail.feature-login.acme.localhost" {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("no variables at all for no routes", func(t *testing.T) {
+		if got := worktree.ServiceURLVariables(nil); len(got) != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+}
+
+// pairsToMap turns worktree.ServiceURLVariables' [][2]string pairs into a
+// map, for asserting on individual variables without caring about order.
+func pairsToMap(pairs [][2]string) map[string]string {
+	m := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		m[pair[0]] = pair[1]
+	}
+	return m
+}
