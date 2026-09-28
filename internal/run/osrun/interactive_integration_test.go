@@ -349,12 +349,28 @@ func waitForegroundHandoff(t *testing.T, ptmx *os.File, helperPid int) int {
 // process exit. waitForegroundHandoff, above, is what actually keeps this
 // loud rather than silently generous: a slow or wrong handoff in berth's
 // own code fails there, promptly, before this retry ever runs.
+//
+// A write is repeated only while the child's group still holds the
+// terminal. Once berth has taken it back, the child has already had the
+// signal, and a further byte would go to berth's own group instead: under
+// -race berth takes about a second to exit, so a byte written in that
+// window used to interrupt berth itself, killing it with SIGINT on macOS.
+// From then on this only waits for the helper's own event.
 func sendTerminalSignal(t *testing.T, ptmx *os.File, helperPid int, b byte) unix.WaitStatus {
 	t.Helper()
 	events := startHelperWatch(helperPid)
 	const attempts = 60
 	const perAttempt = 50 * time.Millisecond
 	for i := 0; i < attempts; i++ {
+		if i > 0 && !childHoldsTerminal(ptmx, helperPid) {
+			select {
+			case status := <-events:
+				return status
+			case <-time.After(10 * time.Second):
+				t.Fatalf("byte %#x reached %d's child, but %d never reported an event", b, helperPid, helperPid)
+				return unix.WaitStatus(0)
+			}
+		}
 		if _, err := ptmx.Write([]byte{b}); err != nil {
 			t.Fatal(err)
 		}
@@ -366,6 +382,15 @@ func sendTerminalSignal(t *testing.T, ptmx *os.File, helperPid int, b byte) unix
 	}
 	t.Fatalf("byte %#x had no effect on %d after %d attempts (%s total)", b, helperPid, attempts, attempts*perAttempt)
 	return unix.WaitStatus(0)
+}
+
+// childHoldsTerminal reports whether the pty's foreground process group is
+// still some group other than berth's own (helperPid): the interactive
+// child's. A group of 0, or an error, means no one holds it any more, which
+// also means the child's group has gone.
+func childHoldsTerminal(ptmx *os.File, helperPid int) bool {
+	fg, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
+	return err == nil && fg != 0 && fg != helperPid
 }
 
 func TestInteractivePTYCtrlC(t *testing.T) {
