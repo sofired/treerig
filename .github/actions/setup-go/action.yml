@@ -1,0 +1,32 @@
+name: Set up Go with a cache of its own
+description: >
+  actions/setup-go, with its cache replaced by one keyed by this job's name.
+  setup-go's own key names only the platform, the Go version and go.sum, so
+  every Linux job shares one entry, and whichever finishes first saves it for
+  all of them: the cross-compile job's builds, without the race detector or
+  cgo, were restored into the jobs that need both. With a key per job, each
+  job restores what it built last time.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: false
+
+    - id: paths
+      shell: bash
+      run: |
+        echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+        # staticcheck keeps its own cache beside Go's, in the user cache directory.
+        echo "staticcheck=$(dirname "$(go env GOCACHE)")/staticcheck" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ${{ steps.paths.outputs.gocache }}
+          ${{ steps.paths.outputs.gomodcache }}
+          ${{ steps.paths.outputs.staticcheck }}
+        key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}
+        restore-keys: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-

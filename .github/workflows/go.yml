@@ -20,9 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: ./.github/actions/setup-go
 
       - name: Format
         run: test -z "$(gofmt -l cmd internal)"
@@ -78,9 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: ./.github/actions/setup-go
 
       - name: Integration tests against Docker
         env:
@@ -100,9 +96,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: ./.github/actions/setup-go
       # linux/darwin x amd64/arm64: the same four targets release.yml
       # builds for every push to main. release.yml does not run on a pull
       # request, so this job stays here to catch a cross-compile break
