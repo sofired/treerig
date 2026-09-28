@@ -64,8 +64,11 @@ var runScripts = map[string]string{
 	// Prompts, like `terraform apply` without -auto-approve.
 	"ask": "printf 'Approve? '\nread answer\necho \"got:$answer\"\n[ \"$answer\" = yes ]\n",
 	// A grandchild that ignores SIGINT (as a background job of a non-interactive
-	// shell does), so only berth's drain of the group can stop it.
-	"stubborn": "sleep 60 &\necho $! > \"$STATE/hung.pid\"\necho ready\nwait\n",
+	// shell does), so only berth's drain of the group can stop it. The leader
+	// execs sleep rather than waiting in the shell: a SIGINT during `wait`
+	// makes macOS's /bin/sh (bash 3.2) exit 129 instead of dying by the
+	// signal, while an exec'd sleep dies by SIGINT under every shell.
+	"stubborn": "sleep 60 &\necho $! > \"$STATE/hung.pid\"\necho ready\nexec sleep 60\n",
 }
 
 // newRunFixture is a worktree that has been through `up`, with a berth.toml
