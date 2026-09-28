@@ -109,3 +109,101 @@ func TestConcurrentControlHomeEstablishment(t *testing.T) {
 		}
 	})
 }
+
+// TestControlHomeMarkerSurvivesStaleReader is a deterministic regression
+// test for the fix that made writeMarkerRacingCreators create the marker
+// with O_EXCL instead of O_TRUNC (see files.go's own comment on
+// writeMarkerRacingCreators and writeMarkerDirect): before that fix, a
+// goroutine that had already read the marker as empty and the directory as
+// unpopulated, then lost the race to establish the control home, truncated
+// the winner's already-complete marker back to empty for the width of its
+// own create-then-write — the exact window
+// TestConcurrentControlHomeEstablishment's occasional failure on main
+// (about 25 times in 200 runs) came from a third goroutine reading in.
+//
+// SetAfterMarkerReadForTest pins one goroutine ("the loser") at exactly that
+// stale-read moment while a second, undisturbed call ("the winner") finishes
+// establishing the same control home for real. The loser is then released
+// into writeMarkerRacingCreators with the winner's marker already sitting
+// there in full. This is deterministic, not a timing window to get lucky on
+// like the original bug: on the fix, the loser's own create loses to EEXIST
+// and it only ever reads the winner's content back (see
+// writeMarkerRacingCreators), so the marker's mtime and size cannot change
+// no matter how the loser is scheduled — this test asserts exactly that,
+// rather than racing a reader to catch a truncation that might or might not
+// land in a narrow window.
+func TestControlHomeMarkerSurvivesStaleReader(t *testing.T) {
+	t.Run("a goroutine that read the marker as empty before a winner finished never rewrites the winner's marker", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "control")
+		control := layout.ControlLayout(home)
+		userHome := filepath.Join(t.TempDir(), "user-home")
+		marker := filepath.Join(home, files.ControlHomeMarker)
+
+		paused := make(chan struct{})
+		proceed := make(chan struct{})
+		// Released on every exit, so a failed assertion below doesn't leave
+		// the loser parked for the rest of the test binary.
+		release := sync.OnceFunc(func() { close(proceed) })
+		defer release()
+		var mu sync.Mutex
+		claimed := false
+		restore := files.SetAfterMarkerReadForTest(func(controlHome string) {
+			// Only the first call through — the loser — pauses here. The
+			// winner's own call reaches this same hook too, once the
+			// loser has been released, and must pass straight through:
+			// sync.Once won't do, since Do blocks a second, concurrent
+			// call until the first call's function returns, and the
+			// loser's is deliberately parked on <-proceed — a second
+			// caller would deadlock waiting on Once's own lock instead of
+			// passing through. A plain mutex around the flag, released
+			// before blocking, avoids that.
+			mu.Lock()
+			isLoser := !claimed
+			claimed = true
+			mu.Unlock()
+			if isLoser {
+				close(paused)
+				<-proceed
+			}
+		})
+		defer restore()
+
+		loserErr := make(chan error, 1)
+		go func() {
+			loserErr <- files.SecureControlDirectories(control, userHome)
+		}()
+
+		<-paused // the loser has read populated=false and an empty/missing marker
+
+		// The winner runs to completion on the same control home,
+		// undisturbed: marker written in full, then repositories/ and
+		// locks/ created — all while the loser is still paused above.
+		if err := files.SecureControlDirectories(control, userHome); err != nil {
+			t.Fatalf("winner: %v", err)
+		}
+		before, err := os.Stat(marker)
+		requireNoError(t, err)
+		data, err := os.ReadFile(marker)
+		requireNoError(t, err)
+		if string(data) != files.ControlHomeFormat {
+			t.Fatalf("marker after winner = %q, want %q", data, files.ControlHomeFormat)
+		}
+
+		release() // release the loser into writeMarkerRacingCreators
+		if err := <-loserErr; err != nil {
+			t.Fatalf("loser: %v", err)
+		}
+
+		after, err := os.Stat(marker)
+		requireNoError(t, err)
+		if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+			t.Fatalf("marker touched by the loser: before %v (%d bytes), after %v (%d bytes)",
+				before.ModTime(), before.Size(), after.ModTime(), after.Size())
+		}
+		data, err = os.ReadFile(marker)
+		requireNoError(t, err)
+		if string(data) != files.ControlHomeFormat {
+			t.Fatalf("marker after loser = %q, want %q", data, files.ControlHomeFormat)
+		}
+	})
+}
