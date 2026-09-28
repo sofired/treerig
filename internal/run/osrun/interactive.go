@@ -91,7 +91,8 @@ func stopSelf() {
 // keeps the plain SIGTERM contract regardless of what stopped berth.
 func forwardSignal(cause error, interactive bool) syscall.Signal {
 	if interactive {
-		if cancelled, ok := cause.(*clierr.Cancelled); ok {
+		var cancelled *clierr.Cancelled
+		if errors.As(cause, &cancelled) {
 			return cancelled.Signal
 		}
 	}

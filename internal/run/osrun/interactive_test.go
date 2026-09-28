@@ -1,11 +1,15 @@
 package osrun
 
 import (
+	"context"
+	"fmt"
 	"os/signal"
 	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/sofired/berth/internal/clierr"
 )
 
 // TestSetForegroundLeavesAlreadyIgnoredSIGTTOUIgnored proves setForeground
@@ -41,6 +45,28 @@ func TestWaitStopped(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := waitStopped(c.status); got != c.want {
 				t.Fatalf("waitStopped(%#x) = %v, want %v", uint32(c.status), got, c.want)
+			}
+		})
+	}
+}
+
+func TestForwardSignal(t *testing.T) {
+	interrupted := &clierr.Cancelled{Signal: syscall.SIGINT}
+	cases := []struct {
+		name        string
+		cause       error
+		interactive bool
+		want        syscall.Signal
+	}{
+		{"an interactive child gets the signal berth received", interrupted, true, syscall.SIGINT},
+		{"even when the cause is wrapped", fmt.Errorf("stopping: %w", interrupted), true, syscall.SIGINT},
+		{"a hook keeps SIGTERM", interrupted, false, syscall.SIGTERM},
+		{"a timeout sends SIGTERM", context.DeadlineExceeded, true, syscall.SIGTERM},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := forwardSignal(c.cause, c.interactive); got != c.want {
+				t.Fatalf("forwardSignal = %v, want %v", got, c.want)
 			}
 		})
 	}
