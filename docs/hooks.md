@@ -118,6 +118,17 @@ as a shell reports it.
 Hooks are spawned through the tool's process runner, which means an interrupt
 (`SIGINT`/`SIGTERM`) is delivered as `SIGTERM` to the hook and its descendants,
 escalating to `SIGKILL` after ten seconds. Write hooks that can be interrupted.
+This is unchanged by how a command berth runs interactively answers the same
+interrupt: there, the signal berth received is forwarded as itself (`SIGINT`
+stays `SIGINT`). The command gets the terminal's own job control, Ctrl-Z
+included, only when its stdin is a terminal and berth currently holds that
+terminal's foreground — not when the command is backgrounded, its stdin is
+piped, it runs over `ssh` without `-t`, or it runs in CI, where it still gets
+its own process group but never the terminal itself. Either way, once the
+command returns, whatever is left in its process group is sent `SIGTERM`,
+then `SIGKILL` after the same kill-after grace, whether or not berth was
+itself signalled. A hook is never interactive, so it always keeps the plain
+`SIGTERM` contract above regardless of what stopped berth.
 
 ## An example, in three languages
 

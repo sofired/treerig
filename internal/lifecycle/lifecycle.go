@@ -5,6 +5,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"sync"
@@ -79,15 +80,16 @@ type Lifecycle struct {
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 
-	mu      sync.Mutex
-	pending syscall.Signal
-	printed bool
-	sigCh   chan os.Signal
+	mu       sync.Mutex
+	pending  syscall.Signal
+	printed  bool
+	sigCh    chan os.Signal
+	repeated chan struct{}
 }
 
 // NewLifecycle builds a Lifecycle over osIface (New() for the real process) and log.
 func NewLifecycle(osIface OS, log logger.Logger) *Lifecycle {
-	l := &Lifecycle{os: osIface, logger: log}
+	l := &Lifecycle{os: osIface, logger: log, repeated: make(chan struct{})}
 	l.ctx, l.cancel = context.WithCancelCause(context.Background())
 	return l
 }
@@ -95,6 +97,19 @@ func NewLifecycle(osIface OS, log logger.Logger) *Lifecycle {
 // Context is the root context: cancelled, with cause *clierr.Cancelled, by
 // the first SIGINT or SIGTERM this process receives.
 func (l *Lifecycle) Context() context.Context { return l.ctx }
+
+// Repeated is a channel that closes the moment a second SIGINT or SIGTERM
+// arrives after the first — the signal that means "stop waiting, abandon
+// whatever is in flight" rather than merely "stop starting new work," which
+// the first signal (cancelling Context) already asked for. A bounded wait
+// still in progress when the first signal lands (an interactive child's own
+// process-group drain, for instance) selects on this to learn when to give
+// up early instead of running out its full budget. Carry it to code that
+// cannot import this package with run.WithRepeated (internal/run, not this
+// one, so osrun can read it back without importing internal/lifecycle);
+// internal/lifecycle remains the only thing in this process that calls
+// signal.Notify.
+func (l *Lifecycle) Repeated() <-chan struct{} { return l.repeated }
 
 // Start begins listening for SIGINT and SIGTERM, skipping either one this
 // process already had ignored at startup — Notifying an ignored signal would
@@ -142,6 +157,7 @@ func (l *Lifecycle) loop(ch <-chan os.Signal) {
 		}
 		if !alreadyPrinted {
 			l.logger.Info("Still stopping — the current operation is finishing up before it exits.")
+			close(l.repeated)
 		}
 	}
 }
@@ -188,4 +204,34 @@ func (l *Lifecycle) Exit() {
 	l.os.Reset(sig)
 	_ = l.os.Kill(l.os.Getpid(), sig)
 	l.os.Exit(128 + int(sig))
+}
+
+// Finish turns a command's own top-level error into this process's exit
+// code — the one call every entry point should route through once the
+// command has run and Stop has been called. err is reported through
+// report unless it is nothing more than the plain fact that a signal
+// already interrupted this process (err is nil, or unwraps to
+// *clierr.Cancelled): that alone stays silent, since a signal death,
+// below, already says it. When a signal was received and err is that
+// plain, Exit takes it from here and this call never returns: the process
+// dies by the signal, as a shell expects. Otherwise Finish returns the
+// exit code err itself calls for (clierr.Code(err)), or 0 for a nil err —
+// so an error that carries more than the interruption alone (an
+// interactive child's own process-group drain that timed out or was
+// abandoned by a second signal, say) reaches report and this process
+// exits with its own code, rather than being silently lost to a signal
+// death that prints nothing of its own. report may be nil.
+func (l *Lifecycle) Finish(err error, report func(error)) int {
+	var cancelled *clierr.Cancelled
+	plain := err == nil || errors.As(err, &cancelled)
+	if err != nil && !plain && report != nil {
+		report(err)
+	}
+	if l.Pending() != 0 && plain {
+		l.Exit() // real code never returns from this
+	}
+	if err != nil {
+		return clierr.Code(err)
+	}
+	return 0
 }
