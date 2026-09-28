@@ -1,0 +1,102 @@
+{
+  "ok": false,
+  "exitCode": 1,
+  "counts": {
+    "ok": 6,
+    "warn": 0,
+    "fail": 2,
+    "skip": 2
+  },
+  "sections": [
+    {
+      "id": "prerequisites",
+      "title": "Prerequisites",
+      "checks": [
+        {
+          "id": "prerequisites.git",
+          "status": "ok",
+          "subject": "Git",
+          "detail": "VERSION"
+        },
+        {
+          "id": "prerequisites.docker.engine",
+          "status": "fail",
+          "subject": "Docker Engine",
+          "detail": "Error: No such object: {{.Server.Version}}"
+        },
+        {
+          "id": "prerequisites.docker.compose",
+          "status": "fail",
+          "subject": "Docker Compose",
+          "detail": "could not read a version from \"\""
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "title": "Registry",
+      "checks": [
+        {
+          "id": "registry.berth-root",
+          "status": "ok",
+          "subject": "berth root",
+          "detail": "FIXTURE/control"
+        },
+        {
+          "id": "registry.control-home",
+          "status": "ok",
+          "subject": "control home",
+          "detail": "FIXTURE/control"
+        },
+        {
+          "id": "registry.router-state",
+          "status": "ok",
+          "subject": "router state",
+          "detail": "FIXTURE/control/router"
+        },
+        {
+          "id": "registry.registrations",
+          "status": "ok",
+          "subject": "registrations",
+          "detail": "1 readable"
+        }
+      ]
+    },
+    {
+      "id": "locks",
+      "title": "Locks",
+      "checks": [
+        {
+          "id": "locks.none",
+          "status": "ok",
+          "subject": "locks",
+          "detail": "none held"
+        }
+      ]
+    },
+    {
+      "id": "router",
+      "title": "Router",
+      "checks": [
+        {
+          "id": "router.container",
+          "status": "skip",
+          "subject": "router",
+          "detail": "needs Docker"
+        }
+      ]
+    },
+    {
+      "id": "checkout",
+      "title": "This checkout",
+      "checks": [
+        {
+          "id": "checkout.config",
+          "status": "skip",
+          "subject": "berth.toml",
+          "detail": "none in FIXTURE or above; run 'berth doctor' in a checkout to check it and its verify hook"
+        }
+      ]
+    }
+  ]
+}

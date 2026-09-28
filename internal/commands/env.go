@@ -11,6 +11,7 @@ import (
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/text"
 )
 
 // Env is everything a verb may take from the process it runs in.
@@ -70,6 +71,13 @@ type ListOptions struct {
 	JSON bool
 }
 
+// OutputOptions are the flags `doctor`, `status`, `urls` and `index` share:
+// JSON prints one JSON document on stdout in place of the text form. The
+// exit code is the same either way.
+type OutputOptions struct {
+	JSON bool
+}
+
 // RemoveOptions are `worktree remove`'s argument and flags.
 type RemoveOptions struct {
 	// Identifier is a slug or worktree UUID; empty means this checkout.
@@ -78,4 +86,15 @@ type RemoveOptions struct {
 	LabelNamespace string
 	// Yes skips the confirmation phrase.
 	Yes bool
+}
+
+// printJSON prints value as the command's one JSON document on stdout, the
+// way `worktree list --json` does: indented, and ASCII-only.
+func printJSON(cctx *CommandContext, value any) error {
+	out, err := text.SafeJSON(value)
+	if err != nil {
+		return err
+	}
+	cctx.Logger.Output(out)
+	return nil
 }

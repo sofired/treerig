@@ -1,0 +1,14 @@
+{
+  "registered": true,
+  "host": "feature-login.acme.localhost",
+  "services": [
+    {
+      "service": "api",
+      "state": "running"
+    },
+    {
+      "service": "mail",
+      "state": "absent"
+    }
+  ]
+}

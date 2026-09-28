@@ -145,11 +145,9 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 	})
 
 	if options.JSON {
-		out, err := text.SafeJSON(rows)
-		if err != nil {
+		if err := printJSON(cctx, rows); err != nil {
 			return nil, err
 		}
-		cctx.Logger.Output(out)
 	} else if len(rows) == 0 {
 		// Prose, not data: stdout stays empty, the way `status` answers.
 		// `--json` is the scriptable form and says `[]`.

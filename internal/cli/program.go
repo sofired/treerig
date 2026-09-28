@@ -376,7 +376,8 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		},
 	})
 
-	root.AddCommand(&cobra.Command{
+	var statusJSON bool
+	statusCmd := &cobra.Command{
 		Use:   "status",
 		Short: "show service status for this worktree",
 		Args:  maxArgs(0),
@@ -385,11 +386,14 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			if err != nil {
 				return err
 			}
-			return commands.Status(cmd.Context(), env)
+			return commands.Status(cmd.Context(), env, commands.OutputOptions{JSON: statusJSON})
 		},
-	})
+	}
+	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "machine-readable output")
+	root.AddCommand(statusCmd)
 
-	root.AddCommand(&cobra.Command{
+	var urlsJSON bool
+	urlsCmd := &cobra.Command{
 		Use:   "urls",
 		Short: "print this worktree's routed URLs",
 		Args:  maxArgs(0),
@@ -398,11 +402,14 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			if err != nil {
 				return err
 			}
-			return commands.Urls(cmd.Context(), env)
+			return commands.Urls(cmd.Context(), env, commands.OutputOptions{JSON: urlsJSON})
 		},
-	})
+	}
+	urlsCmd.Flags().BoolVar(&urlsJSON, "json", false, "machine-readable output")
+	root.AddCommand(urlsCmd)
 
-	root.AddCommand(&cobra.Command{
+	var indexJSON bool
+	indexCmd := &cobra.Command{
 		Use:   "index",
 		Short: "refresh the machine-wide checkout index and print it",
 		Args:  maxArgs(0),
@@ -411,11 +418,14 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			if err != nil {
 				return err
 			}
-			return commands.RefreshIndex(cmd.Context(), env)
+			return commands.RefreshIndex(cmd.Context(), env, commands.OutputOptions{JSON: indexJSON})
 		},
-	})
+	}
+	indexCmd.Flags().BoolVar(&indexJSON, "json", false, "machine-readable output")
+	root.AddCommand(indexCmd)
 
-	root.AddCommand(&cobra.Command{
+	var doctorJSON bool
+	doctorCmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "check prerequisites, the registry, the router, and this checkout's verify hook",
 		Args:  maxArgs(0),
@@ -424,7 +434,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			if err != nil {
 				return err
 			}
-			code, err := commands.Doctor(cmd.Context(), env)
+			code, err := commands.Doctor(cmd.Context(), env, commands.OutputOptions{JSON: doctorJSON})
 			if err != nil {
 				return err
 			}
@@ -433,7 +443,9 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			}
 			return nil
 		},
-	})
+	}
+	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "machine-readable output")
+	root.AddCommand(doctorCmd)
 
 	router := &cobra.Command{
 		Use:   "router",

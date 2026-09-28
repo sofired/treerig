@@ -257,13 +257,8 @@ be called missing — that needs Git, and `--all` lists records from other
 repositories as the registry knows them. The index page answers a different
 question — whether a checkout's services are up — with `Running`, `Partial`,
 `Stopped`, `Unknown`, and the same `Missing`, which means the same thing in
-both places. All three are pre-1.0. `worktree list --json` is the only
-machine-readable form; `status` and `index` print text. It prints one array,
-`[]` when there is nothing, sorted by domain and then slug, each row carrying
-`repositoryId`, `worktreeId`, `slug`, `domain`, `host`, `state`, `current`,
-and — when they are known — `root`, `branch` and `labelNamespace`. Every
-non-ASCII character is escaped, so the text is ASCII and parses back to what
-it was.
+both places. None of the three vocabularies is frozen before 1.0. Their
+machine-readable forms are in [Machine-readable output](#machine-readable-output).
 
 Each `[[service]]` becomes a route: the tool generates the file-provider
 fragment and joins the container to the worktree's own dedicated router
@@ -489,7 +484,9 @@ The commands that produce data — `index`, `status`, `urls`, `router status`,
 `config show`, `config validate`, `worktree list`, `doctor` — write that data to stdout
 and nothing else, so `berth index > page.txt` and
 `berth worktree list --json | jq` get what they asked for. Progress, waiting
-notices, confirmation prompts, warnings and failures go to stderr.
+notices, confirmation prompts, warnings and failures go to stderr. Five of
+these (`index`, `status`, `urls`, `worktree list` and `doctor`) take `--json`:
+see [Machine-readable output](#machine-readable-output).
 
 `up`, `down`, `router down` and `worktree remove` are the exception: they pass
 your hooks' and Compose's own stdout through as those programs wrote it, and
@@ -546,6 +543,246 @@ non-zero exit code and a `[berth] ERROR:` line on stderr saying why. Set
 `BERTH_DEBUG=1` to see the stack trace behind a failure. A failing hook's own
 exit code becomes berth's — see [docs/hooks.md](docs/hooks.md) — and a verb
 that is registered but not implemented exits 2.
+
+### Machine-readable output
+
+`worktree list`, `doctor`, `status`, `urls` and `index` take `--json`. With
+it, stdout carries exactly one JSON document, indented and ASCII-only (every
+non-ASCII character is escaped `\uXXXX`), and the exit code is the text
+form's. Notices, warnings, the `doctor` summary and errors stay on stderr in
+both forms. A command that fails before it has anything to report (not in a
+repository, `urls` in an unregistered worktree, Docker failing under `status`,
+`index` giving up after waiting up to 60 seconds for the router lock) prints
+its usual `[berth] ERROR:` on stderr, nothing on stdout, and exits 1; there is
+no JSON error document. For a check that must not wait on a lock, use `status`
+or `doctor`, which take none.
+
+Rules that hold for every document:
+
+- Keys are camelCase. Enum values (`status`, `state`) are lowercase.
+- An optional key is omitted when it has no value, never `null`; a list is
+  `[]` when empty.
+- The name of a service is always under the key `service`.
+- Free text (`subject`, `detail`, `label`, `purpose`, `branch`, paths) is for
+  people. Scripts key on the ids and enum values described below.
+- Until 1.0 any shape may change. After 1.0 changes are additive only: a new
+  key, or a new member of an enum. Consumers must ignore keys they do not know
+  and treat an unknown enum value as unknown. Documents carry no version field.
+
+**`worktree list --json`** prints one array, `[]` when there is nothing,
+sorted by domain and then slug. Each row has `repositoryId`, `worktreeId`,
+`slug`, `domain`, `host`, `state` (`ready`, `pending` or `missing`) and
+`current`, plus `root`, `branch` and `labelNamespace` when they are known.
+
+**`doctor --json`** prints the whole report and still exits non-zero when a
+check fails. `ok` is true when no check failed, and `exitCode` is what the
+command exits with (0 exactly when `ok`). `counts` always has all four
+statuses. Sections and checks are in report order, and `status` is `ok`,
+`warn`, `fail` or `skip`. `subject` and `detail` are always present (`detail`
+may be `""`).
+
+Scripts key on ids, not on text. A section's `id` is one word (`registry`); a
+check's `id` is `<section>.<kind>` (`registry.host-conflict`), and it names
+what was checked. `title`, `subject` and `detail` are display text and may be
+reworded. A per-item kind appears once per item and repeats its `id`; then
+`instance` is the item's key, and `(id, instance)` is a key for every kind in a
+document: no pair appears twice. A kind that is not per item has no
+`instance`. `instance` is opaque: compare it for equality, and do not parse
+it. Where one question can be answered in different ways, the answers have
+different ids: `locks.none` (nothing is held) versus `locks.registry`,
+`locks.router` and `locks.worktree.*` (something is held or was left
+unreleased, both `ok`), and `locks.scan` when the locks could not be read at
+all; `router.routes` (the fragment count) versus `router.route-conflict` and
+`router.orphaned-routes`; `checkout.missing` versus `checkout.missing-scan`
+when the scan itself failed. So a "no lock is held" gate selects on the id
+(`locks.none`), not on `status`. `hookExitCode` appears only on a failed
+`checkout.hooks.verify`, and is the code `doctor` then exits with. Note that
+`checkout.hooks.verify` is the run of the `verify` hook, while
+`checkout.hooks.resolve` with instance `verify` says only that its file would
+start.
+
+| id | section | instance | meaning |
+|---|---|---|---|
+| `prerequisites.git` | `prerequisites` | | Git is on PATH and new enough |
+| `prerequisites.docker.engine` | `prerequisites` | | the Docker daemon answers; also the id when Docker could not be probed at all |
+| `prerequisites.docker.compose` | `prerequisites` | | Compose is present and new enough |
+| `registry.berth-root` | `registry` | | the berth root in use |
+| `registry.control-home` | `registry` | | the control home is usable |
+| `registry.router-state` | `registry` | | the router's state directory |
+| `registry.registrations` | `registry` | | how many registrations read cleanly |
+| `registry.unreadable-record` | `registry` | `<repository>/<file>` | a registry record that could not be read |
+| `registry.host-conflict` | `registry` | the host | a hostname claimed by more than one worktree |
+| `registry.index-host` | `registry` | worktree ID | a worktree registered on the index's own hostname |
+| `locks.none` | `locks` | | no lock is held |
+| `locks.scan` | `locks` | | the locks could not be read |
+| `locks.registry` | `locks` | | the registry lock is held or was left unreleased, or could not be checked |
+| `locks.router` | `locks` | | the router lock is held or was left unreleased, or could not be checked |
+| `locks.worktree.operation` | `locks` | worktree ID | a worktree's operation lock |
+| `locks.worktree.development` | `locks` | worktree ID | a worktree's development-session lock |
+| `router.container` | `router` | the problem's code, when the router is degraded or unreachable (see below) | the router's own status: `ok` when healthy or not running, `skip` when Docker or Compose is unavailable, `fail` when it could not be resolved, or one `fail` per problem, as `router status` prints them |
+| `router.owner` | `router` | | which berth root started the router |
+| `router.routes` | `router` | | the route fragments, none claiming a shared rule |
+| `router.route-conflict` | `router` | `<host>` or `<host><path>` | a route two fragments claim |
+| `router.orphaned-routes` | `router` | | fragments left by worktrees whose network is gone |
+| `router.address-pools` | `router` | | how many bridge networks exist |
+| `router.port` | `router` | | the resolved router port and where it came from |
+| `checkout.config` | `checkout` | | this checkout's `berth.toml` |
+| `checkout.worktree` | `checkout` | | whether this worktree is registered |
+| `checkout.missing` | `checkout` | worktree ID | a registration whose checkout Git no longer lists |
+| `checkout.missing-scan` | `checkout` | | the scan for missing checkouts failed |
+| `checkout.hooks.resolve` | `checkout` | the stage: `prepare`, `seed`, `verify`, `backup` or `restore` (the set may gain values) | whether that configured hook's file would start |
+| `checkout.hooks.verify` | `checkout` | | the `verify` hook's own run |
+
+These codes appear only as the `instance` of `router.container`; they are not
+check ids like `router.port`. A code is `<service>.<what>`, where the service is
+`router`, `index` or `stack` (`stack` covers failures that concern both
+containers). Both containers share the same thirteen, so each is listed once per
+service:
+
+- `router.container`, `router.component-label`, `router.protocol-label`,
+  `router.not-running`, `router.not-healthy`, `router.writable-rootfs`,
+  `router.new-privileges`, `router.capabilities-kept`, `router.privileged`,
+  `router.host-namespace`, `router.devices`, `router.seccomp`,
+  `router.apparmor`
+- `index.container`, `index.component-label`, `index.protocol-label`,
+  `index.not-running`, `index.not-healthy`, `index.writable-rootfs`,
+  `index.new-privileges`, `index.capabilities-kept`, `index.privileged`,
+  `index.host-namespace`, `index.devices`, `index.seccomp`, `index.apparmor`
+- router only: `router.port`, `router.other-ports`, `router.network-list`,
+  `router.networks`, `router.command`, `router.image`, `router.entrypoint`,
+  `router.capabilities`, `router.mounts`
+- index only: `index.image`, `index.entrypoint`, `index.command`,
+  `index.labels`, `index.network`, `index.port`, `index.capabilities`,
+  `index.init`, `index.mounts`
+- a container that is gone or an unreadable stack: `router.missing`,
+  `index.missing`, `router.absent` (neither container exists; `doctor` reports this as `ok`,
+  not running, with no instance), `stack.inspect`, and `stack.unreachable` (Docker could not be
+  asked; the line has no problem list)
+
+A code appears at most once in a report. The set of codes may gain values.
+
+In CI, select by id and status, for example
+`jq -e '[.sections[].checks[] | select(.id=="router.container" and .status=="fail")] | length == 0'`.
+That passes when the router check is `skip`, which it is while Docker is down.
+To require that the router was actually checked and healthy, use
+`jq -e 'any(.sections[].checks[]; .id=="router.container" and .status=="ok")'`.
+For a per-item kind, filter by id and read `instance`:
+`jq -r '.sections[].checks[] | select(.id=="locks.worktree.operation") | .instance'`.
+
+```json
+{
+  "ok": false,
+  "exitCode": 1,
+  "counts": { "ok": 6, "warn": 0, "fail": 2, "skip": 2 },
+  "sections": [
+    { "id": "prerequisites", "title": "Prerequisites", "checks": [
+      { "id": "prerequisites.git", "status": "ok", "subject": "Git", "detail": "2.45.0" },
+      { "id": "prerequisites.docker.engine", "status": "fail", "subject": "Docker Engine", "detail": "…" },
+      { "id": "prerequisites.docker.compose", "status": "fail", "subject": "Docker Compose", "detail": "…" } ] },
+    { "id": "registry", "title": "Registry", "checks": [
+      { "id": "registry.berth-root", "status": "ok", "subject": "berth root", "detail": "/home/you/.berth" },
+      { "id": "registry.control-home", "status": "ok", "subject": "control home", "detail": "…" },
+      { "id": "registry.router-state", "status": "ok", "subject": "router state", "detail": "…" },
+      { "id": "registry.registrations", "status": "ok", "subject": "registrations", "detail": "1 readable" } ] },
+    { "id": "locks", "title": "Locks", "checks": [
+      { "id": "locks.none", "status": "ok", "subject": "locks", "detail": "none held" } ] },
+    { "id": "router", "title": "Router", "checks": [
+      { "id": "router.container", "status": "skip", "subject": "router", "detail": "needs Docker" } ] },
+    { "id": "checkout", "title": "This checkout", "checks": [
+      { "id": "checkout.config", "status": "skip", "subject": "berth.toml", "detail": "…" } ] }
+  ]
+}
+```
+
+(Shown compacted, and with `…` standing in for text you would see in full;
+the real output is indented, one key per line.)
+
+**`status --json`** prints the worktree's `host` and one entry per declared
+service. `state` is `running`, `starting`, `stopped`, `absent` or `unknown`.
+`detail` appears when there is something to add: for `unknown` it is Docker's
+own word for the state, and for a `running` service failing its health check
+it is `unhealthy`. A worktree that was never registered prints
+`{"registered": false, "services": []}` (the notice is still on stderr) and
+exits 0, as the text form does.
+
+```json
+{
+  "registered": true,
+  "host": "feature-login.acme.localhost",
+  "services": [
+    { "service": "api", "state": "running" },
+    { "service": "db", "state": "running", "detail": "unhealthy" }
+  ]
+}
+```
+
+**`urls --json`** prints one array, in config order, `[]` when nothing is
+routed (the warning stays on stderr). `label` and `purpose` are absent for a
+service without `[service.index]`, and both present, possibly `""`, for one
+with it. Unlike `status`, an unregistered worktree is an error: exit 1 and no
+document.
+
+```json
+[
+  {
+    "service": "api",
+    "url": "http://feature-login.acme.localhost",
+    "label": "API",
+    "purpose": "REST surface"
+  }
+]
+```
+
+**`index --json`** prints what the index page is built from, in the page's
+order. Like the text form it refreshes the page, which takes the shared
+router's lock and waits up to a minute for it; use `status` or `doctor` for a
+check that takes no lock. Only services that declare `[service.index]` are
+listed, unlike `urls`, and each has a `label`; `purpose` is absent when there
+is none.
+
+- `branch` is `""` for a detached HEAD and absent when nothing knows it;
+  `root` is absent when unknown. `project` is the project name `up` last
+  recorded, and the domain when nothing was recorded.
+- `available` on a service is set only when it was checked, which needs Docker
+  to have answered and the checkout to exist. Absent means unknown; there is no
+  `false` for "could not check".
+- When Docker did not answer, `dockerReachable` is false and `dockerError` says
+  why.
+- `identityError` (Git could not say which worktrees exist) appears only when
+  that happened, and `cardReadFailures` counts index cards that could not be
+  read.
+- `entries[].status` is `running`, `partial`, `stopped`, `missing` or `unknown`.
+
+```json
+{
+  "url": "http://berth.localhost",
+  "generatedAt": "2026-09-28T10:00:00.000Z",
+  "dockerReachable": true,
+  "cardReadFailures": 0,
+  "entries": [
+    {
+      "repositoryId": "…",
+      "worktreeId": "…",
+      "project": "acme",
+      "domain": "acme.localhost",
+      "slug": "feature-login",
+      "host": "feature-login.acme.localhost",
+      "branch": "feature/login",
+      "root": "/src/acme.feature-login",
+      "status": "running",
+      "services": [
+        {
+          "service": "api",
+          "label": "API",
+          "purpose": "REST surface",
+          "url": "http://feature-login.acme.localhost",
+          "available": true
+        }
+      ]
+    }
+  ]
+}
+```
 
 ## Platform notes
 
@@ -789,11 +1026,9 @@ them once.
 7. **Config: services keyed by name** (#3), with a published JSON Schema.
 8. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
    the command that runs it forever.
-9. **`--json`** (#27) for `doctor`, `status`, `urls` and `index`, to match
-   `worktree list`'s own machine-readable form.
-10. **Migrating stored state between releases** (#29), once there are
+9. **Migrating stored state between releases** (#29), once there are
     releases to migrate between.
-11. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+10. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
     stronger guarantee the relocated-copy mechanism above is a step toward,
     tied to binary distribution (#8).
 

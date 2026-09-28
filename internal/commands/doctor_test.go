@@ -2,10 +2,12 @@ package commands_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -120,7 +122,7 @@ func runDoctor(t *testing.T, env *commands.Env) (int, string, *logger.Recording)
 	if !ok {
 		t.Fatal("doctorEnv must be built with a *logger.Recording")
 	}
-	code, err := commands.Doctor(context.Background(), env)
+	code, err := commands.Doctor(context.Background(), env, commands.OutputOptions{})
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
@@ -445,6 +447,152 @@ func TestDoctorLocks(t *testing.T) {
 		_, report, _ := runDoctor(t, env)
 		if !strings.Contains(report, "worktree "+ref.WorktreeID) {
 			t.Fatalf("expected the orphan named by UUID:\n%s", report)
+		}
+	})
+}
+
+// `doctor --json` is one document on stdout; the exit code and the stderr
+// summary are the text form's.
+func TestDoctorJSON(t *testing.T) {
+	runJSON := func(t *testing.T, env *commands.Env) (int, commands.DoctorReport, *logger.Recording) {
+		t.Helper()
+		rec := env.Logger.(*logger.Recording)
+		code, err := commands.Doctor(context.Background(), env, commands.OutputOptions{JSON: true})
+		if err != nil {
+			t.Fatalf("Doctor: %v", err)
+		}
+		_, printed := rec.Snapshot()
+		if len(printed) != 1 {
+			t.Fatalf("stdout = %q, want one document", printed)
+		}
+		var report commands.DoctorReport
+		if err := json.Unmarshal([]byte(printed[0]), &report); err != nil {
+			t.Fatalf("stdout is not one JSON document: %v\n%q", err, printed)
+		}
+		return code, report, rec
+	}
+	// subjects maps every (id, instance) in report to its subject, failing on
+	// a blank id, one outside its section's namespace, or a pair that repeats
+	// where it is not documented to.
+	subjects := func(t *testing.T, report commands.DoctorReport) map[string]string {
+		t.Helper()
+		out := map[string]string{}
+		for _, section := range report.Sections {
+			if section.ID == "" {
+				t.Fatalf("section %q has no id", section.Title)
+			}
+			for _, check := range section.Checks {
+				if !strings.HasPrefix(check.ID, section.ID+".") {
+					t.Fatalf("check id %q is not under its section %q", check.ID, section.ID)
+				}
+				key := check.ID + "\x00" + check.Instance
+				if _, dup := out[key]; dup {
+					t.Fatalf("(%q, %q) appears twice", check.ID, check.Instance)
+				}
+				out[key] = check.Subject
+			}
+		}
+		return out
+	}
+
+	t.Run("reports ok with exit code 0 when nothing failed", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		withDoctorDocker(w, "24.0.0", "2.24.0")
+		code, report, rec := runJSON(t, doctorEnv(t, w, w.Root))
+		if code != 0 || !report.OK || report.ExitCode != 0 || report.Counts.Fail != 0 {
+			t.Fatalf("code = %d, report = %+v", code, report)
+		}
+		if len(report.Sections) != 5 || report.Sections[0].ID != "prerequisites" || report.Sections[4].ID != "checkout" {
+			t.Fatalf("sections = %+v", report.Sections)
+		}
+		lines, _ := rec.Snapshot()
+		if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "info: No checks failed") }) {
+			t.Fatalf("lines = %v, want the summary on stderr", lines)
+		}
+	})
+
+	t.Run("still prints the document, and exits 1, when a check fails", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		code, report, rec := runJSON(t, doctorEnv(t, w, w.Root)) // Docker off PATH
+		if code != 1 || report.OK || report.ExitCode != 1 || report.Counts.Fail == 0 {
+			t.Fatalf("code = %d, report = %+v", code, report)
+		}
+		failed := 0
+		for _, section := range report.Sections {
+			for _, check := range section.Checks {
+				if check.Status == "fail" {
+					failed++
+				}
+			}
+		}
+		if failed != report.Counts.Fail {
+			t.Fatalf("counts.fail = %d, but %d checks failed", report.Counts.Fail, failed)
+		}
+		lines, _ := rec.Snapshot()
+		if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "error: ") && strings.Contains(l, "check(s) failed") }) {
+			t.Fatalf("lines = %v, want a failure summary", lines)
+		}
+	})
+
+	t.Run("gives every check an id under its section, and (id, instance) is a key", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		withDoctorDocker(w, "24.0.0", "2.24.0")
+		writeCheckoutConfig(t, w.Root, acme, "echo verify")
+		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		_, report, _ := runJSON(t, doctorEnv(t, w, w.Root))
+		ids := subjects(t, report)
+		for _, want := range []string{"prerequisites.git", "prerequisites.docker.engine", "prerequisites.docker.compose", "router.container", "router.port", "checkout.hooks.verify", "checkout.config", "locks.none"} {
+			if _, ok := ids[want+"\x00"]; !ok {
+				t.Errorf("no check with id %q in %v", want, ids)
+			}
+		}
+	})
+
+	t.Run("keeps an id's meaning whatever the state", func(t *testing.T) {
+		healthy := commandstest.New(t, "feature/login", acme)
+		withDoctorDocker(healthy, "24.0.0", "2.24.0")
+		_, up, _ := runJSON(t, doctorEnv(t, healthy, healthy.Root))
+		broken := commandstest.New(t, "feature/login", acme)
+		_, down, _ := runJSON(t, doctorEnv(t, broken, broken.Root)) // Docker off PATH
+		upIDs, downIDs := subjects(t, up), subjects(t, down)
+		for id, subject := range downIDs {
+			if upSubject, ok := upIDs[id]; !ok || upSubject != subject {
+				t.Errorf("%q is %q with Docker missing but %q (present: %v) when healthy", strings.ReplaceAll(id, "\x00", "/"), subject, upSubject, ok)
+			}
+		}
+	})
+
+	t.Run("reports the verify hook's own exit code as hookExitCode", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		withDoctorDocker(w, "24.0.0", "2.24.0")
+		writeCheckoutConfig(t, w.Root, acme, "verify-hook-fail")
+		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		env := doctorEnv(t, w, w.Root)
+		bin := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(bin, "verify-hook-fail"), []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		env.Environ = append([]string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH")}, os.Environ()...)
+
+		code, report, _ := runJSON(t, env)
+		if code != 7 || report.ExitCode != 7 || report.OK {
+			t.Fatalf("code = %d, report = %+v", code, report)
+		}
+		var found bool
+		for _, section := range report.Sections {
+			for _, check := range section.Checks {
+				if check.ID == "checkout.hooks.verify" {
+					found = true
+					if check.Status != "fail" || check.HookExitCode == nil || *check.HookExitCode != 7 {
+						t.Fatalf("verify check = %+v", check)
+					}
+				} else if check.HookExitCode != nil {
+					t.Fatalf("only the verify hook carries hookExitCode: %+v", check)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no checkout.hooks.verify check")
 		}
 	})
 }

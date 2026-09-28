@@ -8,17 +8,21 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/checkoutindex"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run/fakerun"
+	"github.com/sofired/berth/internal/text"
 )
 
 // symlinkedCommandContext builds a minimal CommandContext whose router state
@@ -114,4 +118,148 @@ func TestRouterLockScope(t *testing.T) {
 			t.Errorf("HomeEnvVar = %q, want %q: the router has no control-home override of its own", scope.HomeEnvVar, brand.HomeEnv)
 		}
 	})
+}
+
+// TestIndexReportMapsTheSnapshot pins `index --json`'s document: explicit
+// keys, [] rather than null for a checkout with no services or an empty
+// index, and the failure notices the text form shows.
+func TestIndexReportMapsTheSnapshot(t *testing.T) {
+	branch, dockerErr := "main", "docker is not running"
+	snapshot := checkoutindex.IndexSnapshot{
+		GeneratedAt:     "2026-09-28T10:00:00.000Z",
+		DockerReachable: true,
+		DockerError:     &dockerErr,
+		IdentityError:   &checkoutindex.IdentityFailure{Reason: "git failed", RowsUnknown: true},
+		Entries: []checkoutindex.IndexEntry{{
+			RepositoryID: "r", WorktreeID: "w", Project: "acme", Domain: "acme.localhost", Slug: "main",
+			Host: "main.acme.localhost", Branch: &branch, Root: "/src/acme", Status: checkoutindex.StatusRunning,
+			Services: []checkoutindex.IndexServiceLink{{Name: "api", Label: "API", URL: "http://main.acme.localhost", Available: true}},
+		}, {Slug: "bare", Status: checkoutindex.StatusMissing, Services: []checkoutindex.IndexServiceLink{{Name: "db", Label: "db", Purpose: "store"}}}},
+		CardReadFailures: 2,
+	}
+	out, err := text.SafeJSON(indexReport(snapshot, "http://index.localhost"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{
+  "url": "http://index.localhost",
+  "generatedAt": "2026-09-28T10:00:00.000Z",
+  "dockerReachable": true,
+  "dockerError": "docker is not running",
+  "identityError": {
+    "reason": "git failed",
+    "rowsUnknown": true
+  },
+  "cardReadFailures": 2,
+  "entries": [
+    {
+      "repositoryId": "r",
+      "worktreeId": "w",
+      "project": "acme",
+      "domain": "acme.localhost",
+      "slug": "main",
+      "host": "main.acme.localhost",
+      "branch": "main",
+      "root": "/src/acme",
+      "status": "running",
+      "services": [
+        {
+          "service": "api",
+          "label": "API",
+          "url": "http://main.acme.localhost",
+          "available": true
+        }
+      ]
+    },
+    {
+      "repositoryId": "",
+      "worktreeId": "",
+      "project": "",
+      "domain": "",
+      "slug": "bare",
+      "host": "",
+      "status": "missing",
+      "services": [
+        {
+          "service": "db",
+          "label": "db",
+          "purpose": "store",
+          "url": ""
+        }
+      ]
+    }
+  ]
+}`
+	if out != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
+	}
+
+	// Nothing is checked while Docker is out of reach: available is absent,
+	// not false.
+	snapshot.DockerReachable = false
+	unchecked, err := text.SafeJSON(indexReport(snapshot, "u"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(unchecked, "available") {
+		t.Fatalf("available must be absent when Docker was not reachable:\n%s", unchecked)
+	}
+
+	empty, err := text.SafeJSON(indexReport(checkoutindex.IndexSnapshot{DockerReachable: true}, "u"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(empty, `"entries": []`) {
+		t.Fatalf("empty index = %s", empty)
+	}
+}
+
+// TestRefreshIndexJSON runs `index --json` through RefreshIndex itself, on
+// fake Git and Docker runners: exactly one document on stdout, the text form
+// absent.
+func TestRefreshIndexJSON(t *testing.T) {
+	base := registrytest.TempDir(t)
+	checkout := filepath.Join(base, "checkout")
+	controlHome := filepath.Join(base, "control")
+	for _, dir := range []string{checkout, controlHome} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	toml := "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[[service]]\nname = \"api\"\n"
+	if err := os.WriteFile(filepath.Join(checkout, brand.ConfigFile), []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner, git := registrytest.NewFakeRunner()
+	git.Add(checkout, "main", filepath.Join(base, "common"))
+	log := &logger.Recording{}
+	env := &Env{
+		CommandName: "berth", Invocation: "berth index", Logger: log, Runner: runner, Cwd: checkout,
+		Getenv: func(key string) (string, bool) {
+			switch key {
+			case "HOME":
+				return base, true
+			case "BERTH_CONTROL_HOME":
+				return controlHome, true
+			}
+			return "", false
+		},
+	}
+	if err := RefreshIndex(context.Background(), env, OutputOptions{JSON: true}); err != nil {
+		t.Fatalf("RefreshIndex: %v", err)
+	}
+	_, printed := log.Snapshot()
+	if len(printed) != 1 {
+		t.Fatalf("stdout = %q, want one document", printed)
+	}
+	var report IndexReport
+	if err := json.Unmarshal([]byte(printed[0]), &report); err != nil {
+		t.Fatalf("stdout is not a JSON document: %v\n%q", err, printed)
+	}
+	if report.URL == "" || report.GeneratedAt == "" || report.Entries == nil {
+		t.Fatalf("report = %+v", report)
+	}
+	if !strings.HasPrefix(printed[0], "{") {
+		t.Fatalf("stdout does not start a JSON object (the text form?): %q", printed[0])
+	}
 }
