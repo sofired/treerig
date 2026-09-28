@@ -81,13 +81,13 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 	ref := toRef(*target)
+	host := layout.WorktreeHost(target.Slug, target.Domain)
 	// Refused here, not only in mutate: the inventory below calls Docker and
 	// the prompt needs a terminal, and neither should stand between a hook
 	// and the reason it cannot remove its own worktree.
-	if err := cctx.refuseOwnWorktreeLock(ref.WorktreeID); err != nil {
+	if err := cctx.refuseOwnWorktreeLock(ref.WorktreeID, host); err != nil {
 		return nil, err
 	}
-	host := layout.WorktreeHost(target.Slug, target.Domain)
 	paths := layout.WorktreeLayout(cctx.ControlHome, target.RepositoryID, target.WorktreeID)
 	repositoryID, present, err := cctx.Registry.Identities.RepositoryID(ctx, cctx.Registry.Identities.Root)
 	if err != nil {
@@ -120,7 +120,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 
 	result := &RemoveResult{Target: *target}
 	store := cctx.Registry.Store(target.RepositoryID)
-	err = cctx.mutate(ctx, ref, true, func(ctx context.Context) error {
+	err = cctx.mutate(ctx, ref, host, true, func(ctx context.Context) error {
 		// The lock was free while the prompt was up: another removal may have
 		// finished, or an `up` may have re-labelled the worktree's resources.
 		found, err := store.Find(target.WorktreeID)
