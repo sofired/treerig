@@ -144,7 +144,8 @@ func identifierCompletionFunc(p *program, includeOrphans bool) func(cmd *cobra.C
 
 // domainCompletionFunc is `worktree remove --domain`'s and `worktree
 // unlock --domain`'s own flag completion function: every domain a worktree
-// is registered under anywhere on this machine, deduplicated and sorted.
+// is registered under anywhere on this machine, deduplicated and sorted,
+// leaving out any that carries a control character.
 func domainCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		_, candidates, err := worktreeCandidates(p, cmd)
@@ -154,15 +155,14 @@ func domainCompletionFunc(p *program) func(cmd *cobra.Command, args []string, to
 		seen := map[string]bool{}
 		var comps []cobra.Completion
 		for _, c := range candidates {
-			// Printable before the seen check: two different raw domains
-			// (one carrying a control character) must not appear as two
-			// separate but visually identical completions.
-			domain := text.Printable(c.Domain)
-			if seen[domain] {
+			// A domain Printable would change can't be offered: the shell
+			// would insert the cleaned text, which no registered worktree
+			// carries, so the command could never resolve it.
+			if text.Printable(c.Domain) != c.Domain || seen[c.Domain] {
 				continue
 			}
-			seen[domain] = true
-			comps = append(comps, domain)
+			seen[c.Domain] = true
+			comps = append(comps, c.Domain)
 		}
 		sort.Strings(comps)
 		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp
