@@ -4,7 +4,7 @@ How berth routes `<service>.<slug>.<domain>` to a worktree's services, and
 why. This note is where the spike evidence and the approved decisions live;
 #119 (pinned ports), #120 (the proxy) and #6 (host routes) are implemented
 from it, and #121 (rootless Docker) is a follow-up. Shared services (one
-instance per repository, below) is designed here and tracked in its own issue.
+instance per repository, below) is designed here and tracked in #123.
 Where an issue body disagrees with this note, this note wins.
 
 ## Goals
@@ -477,10 +477,10 @@ a recreate followed by the sweep, with a busy worktree skipped.
 2. #119, pinned ports and the record builder.
 3. #120, the proxy, on the pinned ports.
 4. #6, host routes, on the proxy.
-5. Shared services, in two pull requests. The first (connect and disconnect
-   bookkeeping, reconnect sweep, drift check, lock, CLI, raw ports) reads
-   #119's allocator and record
-   builder, so it follows #119 and can run in parallel with #120 and #6. The
+5. Shared services (#123), in two pull requests. The first (connect and
+   disconnect bookkeeping, reconnect sweep, drift check, lock, CLI, raw ports)
+   reads #119's allocator and record builder, so it follows #119 and can run
+   in parallel with #120 and #6. The
    second (the routed UI: route file, repair, `shared.` prefix, reserved slug,
    index) follows #120.
 6. #121, rootless Docker, later.
