@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -34,6 +33,7 @@ import (
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/run/ptytest"
 )
 
 // argSep joins BERTH_PTY_ARGS entries: a unit separator, so an argument
@@ -157,95 +157,11 @@ func startPTYHelper(t *testing.T, command string, args []string, killAfter time.
 	return ptmx, helperPid, resultPath
 }
 
-// ptyOutput is everything read so far from one pty's master side, filled by
-// a single background reader. The master can't take a read deadline on
-// macOS, where Go's poller doesn't register terminal devices ("file type does
-// not support deadline"), so reads block in their own goroutine and callers
-// poll the buffer against their own timeout instead.
-type ptyOutput struct {
-	mu       sync.Mutex
-	buf      bytes.Buffer
-	err      error
-	consumed int
-}
-
-// ptyOutputs holds each pty master's ptyOutput, so every readUntil on one
-// pty shares the one reader that owns its bytes.
-var ptyOutputs sync.Map
-
-// outputOf returns ptmx's ptyOutput, starting its reader on first use. The
-// reader ends when the pty's slave side closes or ptmx itself is closed.
-func outputOf(ptmx *os.File) *ptyOutput {
-	fresh := &ptyOutput{}
-	value, loaded := ptyOutputs.LoadOrStore(ptmx, fresh)
-	out := value.(*ptyOutput)
-	if !loaded {
-		go func() {
-			chunk := make([]byte, 256)
-			for {
-				n, err := ptmx.Read(chunk)
-				out.mu.Lock()
-				out.buf.Write(chunk[:n])
-				if err != nil {
-					out.err = err
-				}
-				out.mu.Unlock()
-				if err != nil {
-					return
-				}
-			}
-		}()
-	}
-	return out
-}
-
-// readUntil waits up to 10s for want to appear in ptmx's output after
-// whatever an earlier readUntil on the same pty already matched.
-func readUntil(t *testing.T, ptmx *os.File, want string) {
-	t.Helper()
-	out := outputOf(ptmx)
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		out.mu.Lock()
-		unread := out.buf.Bytes()[out.consumed:]
-		if i := bytes.Index(unread, []byte(want)); i >= 0 {
-			out.consumed += i + len(want)
-			out.mu.Unlock()
-			return
-		}
-		seen, err := string(unread), out.err
-		out.mu.Unlock()
-		if err != nil {
-			t.Fatalf("read: %v (saw %q)", err, seen)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("never saw %q, only %q", want, seen)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-// waitFile polls for path to exist with non-blank content, returning it
-// trimmed — the same synchronisation internal/cli's own signal integration
-// tests use for a background helper's marker files.
-func waitFile(t *testing.T, path string) string {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if data, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-			return strings.TrimSpace(string(data))
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("%s never appeared", path)
-	return ""
-}
-
 // readResult polls resultPath for a helper's JSON report, failing the test
 // if none appears in time.
 func readResult(t *testing.T, resultPath string) ptyResult {
 	t.Helper()
-	data := waitFile(t, resultPath)
+	data := ptytest.WaitFile(t, resultPath)
 	var report ptyResult
 	if err := json.Unmarshal([]byte(data), &report); err != nil {
 		t.Fatalf("result file %s: %v (%q)", resultPath, err, data)
@@ -253,152 +169,12 @@ func readResult(t *testing.T, resultPath string) ptyResult {
 	return report
 }
 
-// startHelperWatch reaps the helper process's own next wait4(WUNTRACED)
-// event — exited, ended by a signal, or merely stopped — the same call
-// runForegroundChild makes for an interactive child, and delivers it on the
-// returned channel. The test plays the role of the real shell that would
-// otherwise be doing this for berth itself. Wait4 has no timeout of its
-// own, so every caller bounds its own wait externally; a goroutine left
-// blocked in it past a failed assertion is the same trade the rest of this
-// package's tests already make (see osrun_test.go's own "skips the
-// SIGKILL" comment) — harmless in a test binary that is about to exit.
-func startHelperWatch(pid int) <-chan unix.WaitStatus {
-	events := make(chan unix.WaitStatus, 1)
-	go func() {
-		for {
-			var status unix.WaitStatus
-			wpid, err := unix.Wait4(pid, &status, unix.WUNTRACED, nil)
-			if errors.Is(err, unix.EINTR) {
-				continue
-			}
-			if err != nil || wpid == pid {
-				events <- status
-				return
-			}
-		}
-	}()
-	return events
-}
-
-// waitHelperEvent bounds startHelperWatch's event at 10s, failing the test
-// if none arrives.
-func waitHelperEvent(t *testing.T, pid int) unix.WaitStatus {
-	t.Helper()
-	select {
-	case status := <-startHelperWatch(pid):
-		return status
-	case <-time.After(10 * time.Second):
-		t.Fatalf("never reaped an event for %d", pid)
-		return unix.WaitStatus(0)
-	}
-}
-
-// waitForegroundHandoff polls the pty's foreground process group (TIOCGPGRP
-// on the master) until it is something other than helperPid — berth's own
-// group — and returns that value, understood to be the interactive child's
-// own pgid. It is a direct assertion that the handoff itself happened, kept
-// separate from sendTerminalSignal's write-retries: those exist for a host
-// timing race in delivering a signal to an already-correct foreground group
-// (see sendTerminalSignal's own doc), not to paper over berth being slow,
-// or wrong, about making that group the foreground in the first place —
-// that must fail loudly and promptly, here, rather than be absorbed by a
-// handful of retried writes.
-func waitForegroundHandoff(t *testing.T, ptmx *os.File, helperPid int) int {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		fg, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
-		if err == nil && fg != 0 && fg != helperPid {
-			return fg
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("terminal foreground pgid never left berth's own group %d (last saw %d, err=%v)", helperPid, fg, err)
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-}
-
-// sendTerminalSignal writes b — a control character the pty's line
-// discipline turns into a signal for its foreground process group, such as
-// Ctrl-C or Ctrl-Z — and returns once helperPid has answered with a wait4
-// event, retrying the write if none arrives within a short interval.
-//
-// The retry is load-bearing, not defensive filler: on this host, a byte
-// written this way can be lost if it lands in the narrow window right
-// after the foreground child's own fork+exec of what it runs next — this
-// reproduces identically with no berth code involved at all (a bare
-// pty.Start(exec.Command("sh", "-c", "echo ready; cat")), Ctrl-C written
-// the instant "ready" is read, loses the byte on a clean host too;
-// https://github.com/sofired/berth/issues/104). It is a characteristic of
-// this kernel/shell/scheduling combination reacting to a signal-generating
-// byte sent immediately after the previous command's own fork, not a berth
-// defect — a human pressing Ctrl-C or Ctrl-Z is never this fast, and once
-// the signal is actually delivered, berth's own handling of it (proven by
-// the rest of this file) is correct. Retrying the write is how a real
-// terminal emulator's own user would "solve" the same race by construction
-// (they cannot type faster than this).
-//
-// The budget below is wider than the kernel-level race itself needs (tens
-// of milliseconds is typically enough) because this test binary runs under
-// -race, and a -race binary's process exit itself lags os.Exit by about a
-// second — measured here directly, on the helper this retry is waiting on:
-// attempts tight enough for the race alone (10 × 50 ms) reproducibly
-// starved before that unrelated exit latency had even elapsed once, and the
-// observed ceiling across repeated runs was about 1.12 s. Nothing to do
-// with host contention or load; the race detector's own bookkeeping on
-// process exit. waitForegroundHandoff, above, is what actually keeps this
-// loud rather than silently generous: a slow or wrong handoff in berth's
-// own code fails there, promptly, before this retry ever runs.
-//
-// A write is repeated only while the child's group still holds the
-// terminal. Once berth has taken it back, the child has already had the
-// signal, and a further byte would go to berth's own group instead: under
-// -race berth takes about a second to exit, so a byte written in that
-// window used to interrupt berth itself, killing it with SIGINT on macOS.
-// From then on this only waits for the helper's own event.
-func sendTerminalSignal(t *testing.T, ptmx *os.File, helperPid int, b byte) unix.WaitStatus {
-	t.Helper()
-	events := startHelperWatch(helperPid)
-	const attempts = 60
-	const perAttempt = 50 * time.Millisecond
-	for i := 0; i < attempts; i++ {
-		if i > 0 && !childHoldsTerminal(ptmx, helperPid) {
-			select {
-			case status := <-events:
-				return status
-			case <-time.After(10 * time.Second):
-				t.Fatalf("byte %#x reached %d's child, but %d never reported an event", b, helperPid, helperPid)
-				return unix.WaitStatus(0)
-			}
-		}
-		if _, err := ptmx.Write([]byte{b}); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case status := <-events:
-			return status
-		case <-time.After(perAttempt):
-		}
-	}
-	t.Fatalf("byte %#x had no effect on %d after %d attempts (%s total)", b, helperPid, attempts, attempts*perAttempt)
-	return unix.WaitStatus(0)
-}
-
-// childHoldsTerminal reports whether the pty's foreground process group is
-// still some group other than berth's own (helperPid): the interactive
-// child's. A group of 0, or an error, means no one holds it any more, which
-// also means the child's group has gone.
-func childHoldsTerminal(ptmx *os.File, helperPid int) bool {
-	fg, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
-	return err == nil && fg != 0 && fg != helperPid
-}
-
 func TestInteractivePTYCtrlC(t *testing.T) {
 	ptmx, helperPid, resultPath := startPTYHelper(t, "sh", []string{"-c", "echo ready; cat"}, 2*time.Second)
-	readUntil(t, ptmx, "ready")
-	waitForegroundHandoff(t, ptmx, helperPid)
+	ptytest.ReadUntil(t, ptmx, "ready")
+	ptytest.WaitForegroundHandoff(t, ptmx, helperPid)
 
-	status := sendTerminalSignal(t, ptmx, helperPid, 0x03) // Ctrl-C
+	status := ptytest.SendTerminalSignal(t, ptmx, helperPid, 0x03) // Ctrl-C
 	if !status.Exited() || status.ExitStatus() != 0 {
 		t.Fatalf("helper did not exit cleanly after its child's Ctrl-C: %+v", status)
 	}
@@ -416,14 +192,14 @@ func TestInteractivePTYCtrlC(t *testing.T) {
 
 func TestInteractivePTYPromptReadsInput(t *testing.T) {
 	ptmx, helperPid, resultPath := startPTYHelper(t, "sh", []string{"-c", `echo ready; read line; echo "got:$line"`}, 2*time.Second)
-	readUntil(t, ptmx, "ready")
+	ptytest.ReadUntil(t, ptmx, "ready")
 
 	if _, err := ptmx.Write([]byte("hello\n")); err != nil {
 		t.Fatal(err)
 	}
-	readUntil(t, ptmx, "got:hello")
+	ptytest.ReadUntil(t, ptmx, "got:hello")
 
-	status := waitHelperEvent(t, helperPid)
+	status := ptytest.WaitHelperEvent(t, helperPid)
 	if !status.Exited() || status.ExitStatus() != 0 {
 		t.Fatalf("helper did not exit cleanly: %+v", status)
 	}
@@ -434,11 +210,11 @@ func TestInteractivePTYPromptReadsInput(t *testing.T) {
 
 func TestInteractivePTYCtrlZThenFgResumes(t *testing.T) {
 	ptmx, helperPid, resultPath := startPTYHelper(t, "sh", []string{"-c", "echo ready; read _; echo done"}, 2*time.Second)
-	readUntil(t, ptmx, "ready")
-	waitForegroundHandoff(t, ptmx, helperPid)
+	ptytest.ReadUntil(t, ptmx, "ready")
+	ptytest.WaitForegroundHandoff(t, ptmx, helperPid)
 
-	status := sendTerminalSignal(t, ptmx, helperPid, 0x1a) // Ctrl-Z
-	if !waitStopped(status) {                              // berth stops itself with SIGSTOP, which Stopped misses on macOS
+	status := ptytest.SendTerminalSignal(t, ptmx, helperPid, 0x1a) // Ctrl-Z
+	if !waitStopped(status) {                                      // berth stops itself with SIGSTOP, which Stopped misses on macOS
 		t.Fatalf("helper did not stop when its child did: %+v", status)
 	}
 
@@ -455,9 +231,9 @@ func TestInteractivePTYCtrlZThenFgResumes(t *testing.T) {
 	if _, err := ptmx.Write([]byte("\n")); err != nil {
 		t.Fatal(err)
 	}
-	readUntil(t, ptmx, "done")
+	ptytest.ReadUntil(t, ptmx, "done")
 
-	status = waitHelperEvent(t, helperPid)
+	status = ptytest.WaitHelperEvent(t, helperPid)
 	if !status.Exited() || status.ExitStatus() != 0 {
 		t.Fatalf("helper did not exit cleanly after resuming: %+v", status)
 	}
@@ -487,15 +263,15 @@ func TestInteractivePTYGrandchildIgnoringSIGTERMIsKilledAfterTheTimer(t *testing
 	ptmx, helperPid, resultPath := startPTYHelper(t, "sh",
 		[]string{"-c", `echo ready; "$0" "$1" & while [ ! -s "$1" ]; do :; done; exit 0`, grandchild, pidFile},
 		killAfter)
-	readUntil(t, ptmx, "ready")
+	ptytest.ReadUntil(t, ptmx, "ready")
 
-	grandchildPid, err := strconv.Atoi(waitFile(t, pidFile))
+	grandchildPid, err := strconv.Atoi(ptytest.WaitFile(t, pidFile))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	start := time.Now()
-	status := waitHelperEvent(t, helperPid)
+	status := ptytest.WaitHelperEvent(t, helperPid)
 	elapsed := time.Since(start)
 	if !status.Exited() || status.ExitStatus() != 0 {
 		t.Fatalf("helper did not exit cleanly: %+v", status)
@@ -544,13 +320,13 @@ func TestInteractivePTYAbandonedDrainReportsAndExits1(t *testing.T) {
 	ptmx, helperPid, resultPath := startPTYHelper(t, "sh",
 		[]string{"-c", `echo $$ > "$2"; echo ready; "$0" "$1" & while [ ! -s "$1" ]; do :; done; exit 0`, grandchild, pidFile, leaderPidFile},
 		killAfter)
-	readUntil(t, ptmx, "ready")
+	ptytest.ReadUntil(t, ptmx, "ready")
 
-	leaderPid, err := strconv.Atoi(waitFile(t, leaderPidFile))
+	leaderPid, err := strconv.Atoi(ptytest.WaitFile(t, leaderPidFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := strconv.Atoi(waitFile(t, pidFile)); err != nil {
+	if _, err := strconv.Atoi(ptytest.WaitFile(t, pidFile)); err != nil {
 		t.Fatal(err)
 	}
 	// The grandchild, in the leader's own group, outlives an abandoned
@@ -577,7 +353,7 @@ func TestInteractivePTYAbandonedDrainReportsAndExits1(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	status := waitHelperEvent(t, helperPid)
+	status := ptytest.WaitHelperEvent(t, helperPid)
 	if !status.Exited() || status.ExitStatus() != 1 {
 		t.Fatalf("helper did not exit 1 after an abandoned drain: %+v", status)
 	}
@@ -585,7 +361,8 @@ func TestInteractivePTYAbandonedDrainReportsAndExits1(t *testing.T) {
 	// must have reported it before whatever ended this process, rather
 	// than the drain's own error being lost to a signal death that prints
 	// nothing of its own.
-	readUntil(t, ptmx, "abandoned after a second interrupt")
+	ptytest.ReadUntil(t, ptmx, "left processes running")
+	ptytest.ReadUntil(t, ptmx, "abandoned after a second interrupt")
 
 	report := readResult(t, resultPath)
 	if !strings.Contains(report.Err, "abandoned after a second interrupt") {
@@ -652,7 +429,7 @@ func TestDrainGroupAbandonedBySecondSignal(t *testing.T) {
 	ctx := run.WithRepeated(context.Background(), repeated)
 
 	start := time.Now()
-	err := drainGroup(ctx, pid, "stubborn", time.Minute)
+	err := drainGroup(ctx, pid, "stubborn command", time.Minute, false)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -665,4 +442,126 @@ func TestDrainGroupAbandonedBySecondSignal(t *testing.T) {
 		t.Fatalf("error does not name the group: %v", err)
 	}
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
+}
+
+// leaderScript is the "leader" of the second-signal tests, run as `sh -c
+// leaderScript pidfile`: it ignores SIGINT, records each SIGTERM it receives
+// in pidfile.term (so a test knows the first signal was delivered before it
+// sends the second) and otherwise carries on, as a command mid-apply might.
+const leaderScript = `trap '' INT; trap 'echo t >> "$0.term"' TERM; echo $$ > "$0"; echo ready; while :; do sleep 1; done`
+
+// A second SIGTERM while the command's leader is still inside its kill-after
+// grace ends the grace at once with SIGKILL, rather than sitting out an hour
+// (#94). The first one is forwarded and ignored by the leader, as a
+// terraform mid-apply might take its time; the helper must die by that
+// SIGTERM only once the second has killed the group.
+func TestInteractivePTYSecondSignalKillsTheLeaderWithoutWaitingOutKillAfter(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "leader.pid")
+	const killAfter = time.Hour
+
+	ptmx, helperPid, _ := startPTYHelper(t, "sh",
+		[]string{"-c", leaderScript, pidFile},
+		killAfter)
+	ptytest.ReadUntil(t, ptmx, "ready")
+	leaderPid, err := strconv.Atoi(ptytest.WaitFile(t, pidFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-leaderPid, syscall.SIGKILL) })
+
+	if err := syscall.Kill(helperPid, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	// The first signal must have reached the leader before the second lands,
+	// or the two would be one: its trap records the delivery, and the leader
+	// shrugs it off and stays.
+	ptytest.WaitFile(t, pidFile+".term")
+	if err := syscall.Kill(leaderPid, 0); err != nil {
+		t.Fatalf("the leader did not survive the first, ignored SIGTERM: %v", err)
+	}
+
+	start := time.Now()
+	if err := syscall.Kill(helperPid, syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	status := ptytest.WaitHelperEvent(t, helperPid)
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
+		t.Fatalf("took %s after the second signal; want it to skip the hour-long grace", elapsed)
+	}
+	if !status.Signaled() || status.Signal() != syscall.SIGTERM {
+		t.Fatalf("helper status = %+v, want death by the first signal, SIGTERM", status)
+	}
+	if !errors.Is(unix.Kill(leaderPid, 0), unix.ESRCH) {
+		t.Fatalf("leader %d survived the second signal", leaderPid)
+	}
+}
+
+// TestInteractiveNonTerminalSecondSignalKillsTheLeader is the same without a
+// terminal, which waits for the child by a different path (cmd.Wait rather
+// than wait4 with WUNTRACED).
+func TestInteractiveNonTerminalSecondSignalKillsTheLeader(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "leader.pid")
+	resultPath := filepath.Join(dir, "result.json")
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = helperEnv(resultPath, "sh",
+		[]string{"-c", leaderScript, pidFile}, time.Hour)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	leaderPid, err := strconv.Atoi(ptytest.WaitFile(t, pidFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-leaderPid, syscall.SIGKILL) })
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	ptytest.WaitFile(t, pidFile+".term")
+	if err := syscall.Kill(leaderPid, 0); err != nil {
+		t.Fatalf("the leader did not survive the first, ignored SIGTERM: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || !exit.Sys().(syscall.WaitStatus).Signaled() || exit.Sys().(syscall.WaitStatus).Signal() != syscall.SIGTERM {
+			t.Fatalf("helper ended %v, want death by its first signal, SIGTERM", err)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("still waiting out the hour-long grace after the second signal")
+	}
+	if !errors.Is(unix.Kill(leaderPid, 0), unix.ESRCH) {
+		t.Fatalf("leader %d survived the second signal", leaderPid)
+	}
+}
+
+// A stop reported once the run is cancelled is shutdown, not job control: the
+// child's own SIGTERM handler stops it (as a wrapper script might), and berth
+// resumes its group rather than stopping itself, which would leave it and
+// its lock stuck until someone typed fg.
+func TestInteractivePTYStopAfterCancelIsResumedNotObeyed(t *testing.T) {
+	ptmx, helperPid, _ := startPTYHelper(t, "sh",
+		[]string{"-c", `trap 'echo stopping; kill -STOP $$; echo resumed; exit 0' TERM; echo ready; while :; do sleep 1; done`},
+		10*time.Second)
+	ptytest.ReadUntil(t, ptmx, "ready")
+
+	if err := syscall.Kill(helperPid, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	ptytest.ReadUntil(t, ptmx, "stopping")
+	ptytest.ReadUntil(t, ptmx, "resumed")
+
+	status := ptytest.WaitHelperEvent(t, helperPid)
+	if !status.Signaled() || status.Signal() != syscall.SIGTERM {
+		t.Fatalf("helper status = %+v, want death by SIGTERM once the child finished (not a stop)", status)
+	}
 }

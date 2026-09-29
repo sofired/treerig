@@ -115,11 +115,20 @@ func stopSelf() {
 func forwardSignal(cause error, interactive bool) syscall.Signal {
 	if interactive {
 		var cancelled *clierr.Cancelled
-		if errors.As(cause, &cancelled) {
+		if errors.As(cause, &cancelled) && cancelled.Signal != syscall.SIGHUP {
 			return cancelled.Signal
 		}
 	}
 	return syscall.SIGTERM
+}
+
+// forwardToChild sends an interactive child's group the signal berth
+// received (forwardSignal), then SIGCONT: a child stopped by SIGTTIN or
+// SIGTSTP (berth backgrounded on a terminal, say) would otherwise sit on the
+// pending signal until its kill-after ran out.
+func forwardToChild(pid int, cause error) {
+	signalChild(pid, forwardSignal(cause, true))
+	signalChild(pid, syscall.SIGCONT)
 }
 
 // waitStopped reports whether status is a stop, whatever signal caused it.
@@ -190,9 +199,16 @@ func watchForeground(pid int) <-chan foregroundEvent {
 // to pid's own group and continues it. Cancelling runCtx forwards the
 // signal berth received to pid's group once, escalating to SIGKILL after
 // killAfter the way the rest of this Runner already does for every child.
-func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time.Duration) (exitCode int, sig syscall.Signal) {
+// killed reports that a second SIGINT or SIGTERM cut that grace short with
+// SIGKILL to the group, which the caller's drain then need not treat as a
+// request to abandon its wait.
+func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time.Duration) (exitCode int, sig syscall.Signal, killed bool) {
 	events := watchForeground(pid)
 	done := runCtx.Done()
+	// Enabled once the first signal has been forwarded: a second SIGINT or
+	// SIGTERM while the child is still within its kill-after grace ends the
+	// grace at once (never a SIGHUP, which the lifecycle does not count).
+	var repeated <-chan struct{}
 	var killTimer *time.Timer
 	defer func() {
 		if killTimer != nil {
@@ -211,8 +227,18 @@ func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time
 			// falls back to for a nil ProcessState.
 			case ev.err != nil:
 				reclaimFrom(pid, ourPgid)
-				return 1, 0
+				return 1, 0, killed
 			case waitStopped(ev.status):
+				// A stop reported after the run was cancelled (the child's
+				// own SIGTERM handler stopping itself, say) is shutdown, not
+				// job control: berth's own signal is already being
+				// answered, and stopping berth now would leave it and the
+				// lock stuck until someone typed fg. Resume the child's group
+				// so it can finish and skip the terminal dance.
+				if runCtx.Err() != nil {
+					_ = syscall.Kill(-pid, syscall.SIGCONT)
+					continue
+				}
 				reclaimFrom(pid, ourPgid)
 				stopSelf()
 				// Resumed. After `fg`, berth holds the terminal again and
@@ -227,51 +253,89 @@ func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time
 				_ = syscall.Kill(-pid, syscall.SIGCONT)
 			case ev.status.Exited():
 				reclaimFrom(pid, ourPgid)
-				return ev.status.ExitStatus(), 0
+				return ev.status.ExitStatus(), 0, killed
 			case ev.status.Signaled():
 				reclaimFrom(pid, ourPgid)
 				s := ev.status.Signal()
-				return 128 + int(s), s
+				return 128 + int(s), s, killed
 			}
 		case <-done:
 			done = nil // fire the forwarded signal at most once
-			signalChild(pid, forwardSignal(context.Cause(runCtx), true))
+			forwardToChild(pid, context.Cause(runCtx))
 			killTimer = time.AfterFunc(killAfter, func() { signalChild(pid, syscall.SIGKILL) })
+			repeated = run.Repeated(runCtx)
+		case <-repeated:
+			repeated = nil
+			killed = true
+			signalChild(pid, syscall.SIGKILL)
 		}
 	}
 }
 
+// drainBudget is how long drainGroup waits in all: quiesceBudget, or a
+// little past the SIGKILL when killAfter is longer than that allows for.
+// A command configured to get a minute to stop gracefully (`kill-after` of
+// a [commands] entry, #94) must not be given up on at 15 seconds, before the
+// SIGKILL it asked to wait for has even been sent.
+//
+// killed says the group has already been sent SIGKILL (a second signal cut
+// the leader's grace short): nothing is left to wait out but the reaping, so
+// the budget is quiesceBudget whatever killAfter is.
+func drainBudget(killAfter time.Duration, killed bool) time.Duration {
+	if killed {
+		return quiesceBudget
+	}
+	return max(quiesceBudget, killAfter+drainGrace)
+}
+
+// drainGrace is how long past SIGKILL drainGroup keeps waiting for the group
+// to be reaped; the default killAfter (10 s) plus this is quiesceBudget.
+const drainGrace = 5 * time.Second
+
 // drainGroup returns once pid's whole process group is gone — SIGTERMing
 // whatever it still holds at once, SIGKILLing it after killAfter, and
-// giving up after quiesceBudget (the same bound Quiesce uses) with an error
+// giving up after drainBudget(killAfter, killed) (quiesceBudget for the
+// default killAfter, the same bound Quiesce uses, and always quiesceBudget
+// once a second signal has already SIGKILLed the group) with an error
 // naming the command and pgid — since an interactive child's descendants
 // must never outlive the call that started them, whether or not berth
 // itself was ever signalled. A second Ctrl-C or SIGTERM, read off ctx via
 // run.Repeated so this package never calls signal.Notify itself, abandons
 // that wait early instead of running out the full budget, with its own,
 // differently worded error.
-func drainGroup(ctx context.Context, pid int, command string, killAfter time.Duration) error {
-	signalChild(pid, syscall.SIGTERM)
+func drainGroup(ctx context.Context, pid int, label string, killAfter time.Duration, killed bool) error {
+	first := syscall.SIGTERM
+	if killed {
+		first = syscall.SIGKILL
+	}
+	signalChild(pid, first)
 	killTimer := time.AfterFunc(killAfter, func() { signalChild(pid, syscall.SIGKILL) })
 	defer killTimer.Stop()
 
 	// Clamped and made printable once, here, rather than at every call
-	// site: this is the only place either message is built. Mirrors
-	// internal/lock/notice.go's own use of text.OneLine for a PID's argv.
-	command = text.OneLine(command, 160)
+	// site: this is the only place either message is built. label names the
+	// child ("apply command"), never its arguments or an absolute path.
+	label = text.OneLine(label, 80)
 
+	// The second signal that already SIGKILLed the group (killed) was this
+	// wait's abandon signal too, spent: SIGKILL is not something to give up
+	// on, only to wait out.
 	repeated := run.Repeated(ctx)
-	deadline := time.Now().Add(quiesceBudget)
+	if killed {
+		repeated = nil
+	}
+	budget := drainBudget(killAfter, killed)
+	deadline := time.Now().Add(budget)
 	for {
 		if gone(target{pid: pid}) {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return clierr.Newf("%s's process group (pgid %d) is still running after %s", command, pid, quiesceBudget)
+			return clierr.Newf("The %s left processes running (process group %d) after %s; stop them with kill -KILL -%d.", label, pid, budget, pid)
 		}
 		select {
 		case <-repeated:
-			return clierr.Newf("%s's process group (pgid %d) is still running — abandoned after a second interrupt", command, pid)
+			return clierr.Newf("The %s left processes running (process group %d), and waiting for them was abandoned after a second interrupt; stop them with kill -KILL -%d.", label, pid, pid)
 		case <-time.After(quiesceInterval):
 		}
 	}

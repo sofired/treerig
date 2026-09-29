@@ -55,9 +55,20 @@ type Spec struct {
 	Timeout time.Duration
 	// KillAfter is how long a SIGTERMed child gets before SIGKILL; zero means 10 s.
 	KillAfter time.Duration
+	// Label names the child in a message about what it left running, as a
+	// noun phrase ("apply command"), so the message never prints its
+	// arguments or an absolute path. Empty uses the executable's base name
+	// and "command".
+	Label string
 	// InheritLocks hands the locks held in the context to the child as extra
 	// file descriptors, so the lock stays held while the child runs even if
 	// this process dies. For docker and docker compose only.
+	//
+	// It does not combine with Output: Interactive, and Interactive wins:
+	// the locks are not handed over. Inheriting lets a child outlive this
+	// process still holding the lock, whereas an interactive child's whole
+	// process group is drained (SIGTERM, then SIGKILL) before Run returns, so
+	// the lock is released only once nothing the command started is left.
 	InheritLocks bool
 }
 

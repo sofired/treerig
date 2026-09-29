@@ -1123,33 +1123,45 @@ func checkoutFileCheck(loaded *config.Loaded) Check {
 // verify hook's own code only when that hook actually ran and failed, and 1
 // for any other failure, a predicted one included (see doctorExitCode).
 //
+// Every [commands] entry follows the hooks, in file order, as
+// "<name> command file" (#94): hooks.ResolveCommand shares `berth run`'s own
+// resolution the same way, and a broken one reads and counts identically.
+//
 // This runs whether or not this worktree is registered: unlike the verify
 // hook's own run below, resolving a hook needs no environment built from a
 // registration, so it is the only doctor check that can catch a typo in
 // prepare, seed, backup or restore — or in verify, before a first `up` ever
 // registers this worktree — matching the motivation for this check (#105).
-// Covering [commands] the same way is left to #94, once it defines what a
-// command is; nothing here assumes that shape.
 func hookResolutionChecks(loaded *config.Loaded, environ []string) []Check {
 	var checks []Check
 	for _, stage := range loaded.Config.Hooks.Configured() {
-		subject := string(stage) + " hook file"
 		resolution, _, err := hooks.ResolveHook(loaded.Config.Hooks, stage, loaded.Root, environ)
-		if err == nil {
-			checks = append(checks, Check{ID: "checkout.hooks.resolve", Instance: string(stage), Status: StatusOK, Subject: subject, Detail: fmt.Sprintf("resolves to %s", resolution.Command)})
-			continue
-		}
-		var startErr *run.StartError
-		if errors.As(err, &startErr) {
-			checks = append(checks, Check{ID: "checkout.hooks.resolve", Instance: string(stage), Status: StatusFail, Subject: subject, Detail: fmt.Sprintf(
-				"would not start (exit %d): `%s` %s", startErr.ExitCode, resolution.Command, startErr.Detail)})
-			continue
-		}
-		failed := failureCheck("checkout.hooks.resolve", subject, err)
-		failed.Instance = string(stage)
-		checks = append(checks, failed)
+		checks = append(checks, resolutionCheck("checkout.hooks.resolve", string(stage), string(stage)+" hook file", resolution, err))
+	}
+	for _, entry := range loaded.Config.Commands {
+		resolution, err := hooks.ResolveCommand(entry.Name, entry.Command, loaded.Root, environ)
+		checks = append(checks, resolutionCheck("checkout.commands.resolve", entry.Name, entry.Name+" command file", resolution, err))
 	}
 	return checks
+}
+
+// resolutionCheck is the line for one hook or command file, under id with
+// instance naming the stage or command: ok naming what it
+// resolves to, a fail naming the exit code a real run would give when it
+// would not start, or the failure itself for anything else (an empty
+// command).
+func resolutionCheck(id, instance, subject string, resolution hooks.Resolution, err error) Check {
+	if err == nil {
+		return Check{ID: id, Instance: instance, Status: StatusOK, Subject: subject, Detail: fmt.Sprintf("resolves to %s", resolution.Command)}
+	}
+	var startErr *run.StartError
+	if errors.As(err, &startErr) {
+		return Check{ID: id, Instance: instance, Status: StatusFail, Subject: subject, Detail: fmt.Sprintf(
+			"would not start (exit %d): `%s` %s", startErr.ExitCode, resolution.Command, startErr.Detail)}
+	}
+	failed := failureCheck(id, subject, err)
+	failed.Instance = instance
+	return failed
 }
 
 // checkoutChecks is this worktree, registered or not, and its verify hook.

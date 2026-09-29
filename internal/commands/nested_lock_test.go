@@ -14,11 +14,11 @@ import (
 )
 
 // nestedRefusal is the exact message a verb gives when it would wait on the
-// lock its own caller — host's own hooks — already holds.
+// lock its own caller — host's own hooks or commands — already holds.
 func nestedRefusal(host string) string {
 	return fmt.Sprintf(
-		"This command runs inside %s's own hooks, which hold its lock, so it would wait on itself. "+
-			"A hook can change other worktrees, but not its own.", host)
+		"This berth invocation runs inside %s's own hooks or commands, which may hold its lock, so it would wait on itself. "+
+			"A hook or command can change other worktrees, but not its own.", host)
 }
 
 // inside sets BERTH_WORKTREE_ID in tc's environment, as a hook of that

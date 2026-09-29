@@ -6,10 +6,12 @@ import (
 	"os/signal"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/config"
 )
 
 // TestSetForegroundLeavesAlreadyIgnoredSIGTTOUIgnored proves setForeground
@@ -60,6 +62,8 @@ func TestForwardSignal(t *testing.T) {
 	}{
 		{"an interactive child gets the signal berth received", interrupted, true, syscall.SIGINT},
 		{"even when the cause is wrapped", fmt.Errorf("stopping: %w", interrupted), true, syscall.SIGINT},
+		{"a hangup is forwarded as SIGTERM, which terraform and docker wind down on", &clierr.Cancelled{Signal: syscall.SIGHUP}, true, syscall.SIGTERM},
+		{"a SIGTERM stays SIGTERM", &clierr.Cancelled{Signal: syscall.SIGTERM}, true, syscall.SIGTERM},
 		{"a hook keeps SIGTERM", interrupted, false, syscall.SIGTERM},
 		{"a timeout sends SIGTERM", context.DeadlineExceeded, true, syscall.SIGTERM},
 	}
@@ -69,5 +73,41 @@ func TestForwardSignal(t *testing.T) {
 				t.Fatalf("forwardSignal = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+func TestDrainBudget(t *testing.T) {
+	cases := []struct {
+		name      string
+		killAfter time.Duration
+		want      time.Duration
+	}{
+		{"the default kill-after keeps Quiesce's own budget", defaultKillAfter, quiesceBudget},
+		{"a short kill-after keeps it too", time.Second, quiesceBudget},
+		{"a longer one waits for its SIGKILL and a little past it", time.Minute, time.Minute + drainGrace},
+	}
+	t.Run("a group already sent SIGKILL is bounded by Quiesce's budget, however large killAfter is", func(t *testing.T) {
+		if got := drainBudget(time.Hour, true); got != quiesceBudget {
+			t.Fatalf("drainBudget(1h, killed) = %v, want %v", got, quiesceBudget)
+		}
+	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := drainBudget(c.killAfter, false); got != c.want {
+				t.Fatalf("drainBudget(%v) = %v, want %v", c.killAfter, got, c.want)
+			}
+		})
+	}
+}
+
+// A [commands] entry's default kill-after is written out in config so
+// `config show` states the effective value; it must be the runner's own.
+func TestConfigDefaultKillAfterIsTheRunners(t *testing.T) {
+	got, err := time.ParseDuration(config.DefaultCommandKillAfter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != defaultKillAfter {
+		t.Fatalf("config.DefaultCommandKillAfter = %v, osrun's defaultKillAfter = %v", got, defaultKillAfter)
 	}
 }

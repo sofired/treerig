@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -200,6 +201,48 @@ func TestHold(t *testing.T) {
 		if !sameAsOp {
 			t.Fatal("expected the operation lock's file first (fd 3)")
 		}
+	})
+
+	t.Run("a hangup delivered twice takes the graceful path: the action settles, quiesces and releases, with no abandon", func(t *testing.T) {
+		op, _, _ := testScopes(t)
+		fos := newFakeOS()
+		l := NewLifecycle(fos, logger.Silent{})
+		l.Start()
+		q := &fakeQuiescer{}
+		var abandoned bool
+		err := l.Hold(l.Context(), Env{Logger: logger.Silent{}, Runner: q, Invocation: "berth up"},
+			Requests{Operation: &op},
+			func(ctx context.Context) error {
+				fos.send(syscall.SIGHUP)
+				fos.send(syscall.SIGHUP)
+				<-ctx.Done()
+				// The wait a runner would make for its child's group: it
+				// gives up only on Repeated.
+				select {
+				case <-l.Repeated():
+					abandoned = true
+				case <-time.After(100 * time.Millisecond):
+				}
+				return context.Cause(ctx)
+			})
+		var cancelled *clierr.Cancelled
+		if !errors.As(err, &cancelled) || cancelled.Signal != syscall.SIGHUP {
+			t.Fatalf("err = %v, want the hangup", err)
+		}
+		if abandoned {
+			t.Fatal("two SIGHUPs took the abandon path")
+		}
+		if q.calls != 1 {
+			t.Fatalf("Quiesce called %d times, want 1", q.calls)
+		}
+		if exits := fos.exitCalls(); len(exits) != 0 {
+			t.Fatalf("exited %v: the locks were abandoned", exits)
+		}
+		lk := lock.New(op, lock.Options{Logger: logger.Silent{}, Timeout: 200 * time.Millisecond, Watchdog: -1})
+		if _, err := lk.Acquire(context.Background(), "probe"); err != nil {
+			t.Fatalf("the lock was not released: %v", err)
+		}
+		_ = lk.Release()
 	})
 
 	t.Run("reports a lock lost during the action instead of releasing it as if nothing happened", func(t *testing.T) {

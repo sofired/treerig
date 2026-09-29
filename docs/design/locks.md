@@ -35,8 +35,12 @@ Docker children inherit the lock: `docker` and `docker compose` get the
 worktree lock's descriptor through `ExtraFiles`, as fd 3. Hooks do not — a
 hook's leftover helper would otherwise keep the worktree locked after a
 successful `up`, so those leftovers are instead caught by the process scan
-after an unclean exit. `internal/run/inherit_guard_test.go`'s
-`TestOnlyDockerInheritsLocks` walks every non-test `.go` file in the module
+after an unclean exit. The same goes for `berth run`'s commands (#94): they
+run interactively, and `Spec.InheritLocks` does not combine with
+`Output: Interactive` — the interactive spec wins and no descriptor is handed
+over, since an interactive child's whole process group is drained before
+`Run` returns and the lock is released only after that.
+`internal/run/inherit_guard_test.go`'s `TestOnlyDockerInheritsLocks` walks every non-test `.go` file in the module
 and fails the build if anything outside `internal/docker` sets
 `Spec.InheritLocks`.
 
@@ -300,11 +304,25 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
   at a time.
 - Once an interactive child's leader is gone, `drainGroup` always runs,
   whether or not berth itself was ever signalled: SIGTERM to whatever the
-  group still holds, SIGKILL after `KillAfter`, bounded at `quiesceBudget`
-  (about 15 s) the way `Quiesce` bounds its own wait. A second Ctrl-C or
-  SIGTERM — read off the run's context via `run.Repeated`, never a second
-  `signal.Notify` — abandons that wait early instead of running out the
-  full budget, with its own error, naming the command and the group.
+  group still holds, SIGKILL after `KillAfter`, bounded at `drainBudget`:
+  `quiesceBudget` (about 15 s, the way `Quiesce` bounds its own wait), or
+  `KillAfter` plus 5 s when a command's `kill-after` is longer than that
+  leaves room for, so a minute's grace is never given up on at 15 s. A
+  second SIGINT or SIGTERM (never SIGHUP) — read off the run's context via
+  `run.Repeated`, never a second `signal.Notify` — abandons that wait early
+  instead of running out the full budget. Both errors name the child by its
+  `Spec.Label` ("apply command"), never its arguments or an absolute path,
+  and the group to clear: `The apply command left processes running (process
+  group 4242) after 15s; stop them with kill -KILL -4242.`, or, when
+  abandoned, `… and waiting for them was abandoned after a second interrupt;
+  stop them with kill -KILL -4242.`
+- The same second signal also ends an interactive leader's kill-after grace:
+  while the leader is still running after the first signal was forwarded, it
+  is sent SIGKILL to the group at once (`runForegroundChild` for a foreground
+  child, the `cmd.Wait` loop otherwise), and the drain that follows waits for
+  the kill to take rather than treating that same signal as an abandon. A
+  forwarded signal is followed by SIGCONT, so a child stopped by SIGTTIN acts
+  on it. SIGHUP is forwarded as SIGTERM.
 - Start failures use a fixed message table: not on `PATH` or a missing `#!`
   interpreter exits 127; not executable (`EACCES`) or not a valid
   executable (`ENOEXEC`, needs a `#!` line) exits 126; a working directory
@@ -327,10 +345,13 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
 
 One lifecycle for the whole process, started once in `main`.
 
-- `signal.Notify` covers SIGINT and SIGTERM, skipping any signal
+- `signal.Notify` covers SIGINT, SIGTERM and SIGHUP (a closed terminal, which
+  `berth run` forwards to its command), skipping any signal
   `signal.Ignored` already reports.
 - The first signal cancels the root context with the cause
-  `Interrupted{sig}`. Later signals print one "still stopping" line.
+  `Interrupted{sig}`. Later SIGINT or SIGTERM signals print one "still
+  stopping" line and close `Repeated()`; a later SIGHUP is ignored, because a
+  hangup often arrives twice within milliseconds.
 - `Hold(ctx, env, requests, action)`:
   1. Acquires the requested locks in order: operation, then development,
      then registry.

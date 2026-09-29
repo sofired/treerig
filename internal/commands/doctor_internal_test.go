@@ -1782,6 +1782,67 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 	})
 
+	// [commands] (#94) resolve the way hooks do, one "<name> command file"
+	// line each after the hooks, in file order.
+	t.Run("checks every configured command file after the hooks, in file order, registered or not", func(t *testing.T) {
+		f := newCheckoutFixture(t, "./verify")
+		if err := os.MkdirAll(filepath.Join(f.root, "scripts"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(f.root, "scripts", "plan.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		f.loaded.Config.Commands = config.Commands{
+			{Name: "zeta", Command: config.Command{Command: "./scripts/plan.sh plan", Lock: true, KillAfter: "10s"}},
+			{Name: "alpha", Command: config.Command{Command: "./scripts/missing.sh", Lock: false, KillAfter: "10s"}},
+		}
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []Check
+		for _, c := range section(sections, "This checkout") {
+			if strings.HasSuffix(c.Subject, " hook file") || strings.HasSuffix(c.Subject, " command file") {
+				got = append(got, c)
+			}
+		}
+		if len(got) != 3 {
+			t.Fatalf("got %+v", got)
+		}
+		if want := (Check{ID: "checkout.commands.resolve", Instance: "zeta", Status: StatusOK, Subject: "zeta command file", Detail: "resolves to " + filepath.Join(f.root, "scripts", "plan.sh")}); got[1] != want {
+			t.Errorf("got %+v, want %+v", got[1], want)
+		}
+		wantDetail := "would not start (exit 127): `" + filepath.Join(f.root, "scripts", "missing.sh") +
+			"` does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT)."
+		if got[2].ID != "checkout.commands.resolve" || got[2].Instance != "alpha" || got[2].Status != StatusFail || got[2].Subject != "alpha command file" || got[2].Detail != wantDetail || got[2].ExitCode != nil {
+			t.Errorf("got %+v, want checkout.commands.resolve/alpha failing with detail %q and no exit code", got[2], wantDetail)
+		}
+		if code := doctorExitCode(sections); code != 1 {
+			t.Errorf("code = %d, want 1: a predicted code never becomes doctor's own", code)
+		}
+	})
+
+	t.Run("fails a command that is only whitespace, as the command it is", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.loaded.Config.Commands = config.Commands{{Name: "plan", Command: config.Command{Command: "  ", Lock: true, KillAfter: "10s"}}}
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, c := range section(sections, "This checkout") {
+			if c.Subject == "plan command file" {
+				found = true
+				if c.Status != StatusFail || c.Detail != `Command "plan" is empty.` {
+					t.Errorf("got %+v", c)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no plan command file check")
+		}
+	})
+
 	// #105 round 1 (Blocking): a broken hook file's predicted exit code must
 	// never race or override the verify hook's own, real, observed one —
 	// only the verify run's own failure ever sets doctorExitCode's code.
@@ -2550,6 +2611,7 @@ var documentedDoctorIDs = []string{
 	"checkout.missing",
 	"checkout.missing-scan",
 	"checkout.hooks.resolve",
+	"checkout.commands.resolve",
 	"checkout.hooks.verify",
 }
 
@@ -2786,7 +2848,7 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 		}
 	}
 	// The helpers whose argument at that index is a check id.
-	idArgument := map[string]int{"failureCheck": 0, "guarded": 0, "lockCheck": 0, "versionCheck": 0, "askDocker": 2}
+	idArgument := map[string]int{"failureCheck": 0, "guarded": 0, "lockCheck": 0, "versionCheck": 0, "askDocker": 2, "resolutionCheck": 0}
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.CompositeLit:

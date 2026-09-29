@@ -104,10 +104,75 @@ func TestLifecycleSignals(t *testing.T) {
 		os := newFakeOS()
 		os.ignored[syscall.SIGINT] = true
 		os.ignored[syscall.SIGTERM] = true
+		os.ignored[syscall.SIGHUP] = true
 		l := NewLifecycle(os, logger.Silent{})
 		l.Start()
 		if os.ch != nil {
 			t.Fatal("did not expect Notify to be called when every signal is ignored")
+		}
+	})
+
+	t.Run("a closed terminal's SIGHUP is caught like SIGINT and SIGTERM, and re-raised as itself", func(t *testing.T) {
+		os := newFakeOS()
+		l := NewLifecycle(os, logger.Silent{})
+		l.Start()
+
+		os.send(syscall.SIGHUP)
+		waitFor(t, func() bool { return l.Context().Err() != nil })
+
+		cancelled, ok := context.Cause(l.Context()).(*clierr.Cancelled)
+		if !ok || cancelled.Signal != syscall.SIGHUP {
+			t.Fatalf("cause = %#v", context.Cause(l.Context()))
+		}
+		l.Exit()
+		if calls := os.killCalls(); len(calls) != 1 || calls[0].sig != syscall.SIGHUP {
+			t.Fatalf("re-raised %+v, want SIGHUP", calls)
+		}
+	})
+
+	t.Run("back-to-back SIGHUPs are one hangup: no still-stopping line, and Repeated stays open", func(t *testing.T) {
+		os := newFakeOS()
+		rec := &logger.Recording{}
+		l := NewLifecycle(os, rec)
+		l.Start()
+
+		os.send(syscall.SIGHUP)
+		waitFor(t, func() bool { return l.Pending() == syscall.SIGHUP })
+		os.send(syscall.SIGHUP)
+		os.send(syscall.SIGHUP)
+		time.Sleep(50 * time.Millisecond) // let a stray second notice land, if it would
+
+		select {
+		case <-l.Repeated():
+			t.Fatal("Repeated closed after a second SIGHUP")
+		default:
+		}
+		if lines, _ := rec.Snapshot(); len(lines) != 0 {
+			t.Fatalf("logged %v, want nothing", lines)
+		}
+		// A SIGINT after the hangup is a real second signal.
+		os.send(syscall.SIGINT)
+		waitFor(t, func() bool {
+			select {
+			case <-l.Repeated():
+				return true
+			default:
+				return false
+			}
+		})
+		if l.Pending() != syscall.SIGHUP {
+			t.Fatalf("Pending() = %v, want the hangup to stick", l.Pending())
+		}
+	})
+
+	t.Run("a SIGHUP already ignored, as under nohup, is left ignored while the others are still caught", func(t *testing.T) {
+		os := newFakeOS()
+		os.ignored[syscall.SIGHUP] = true
+		l := NewLifecycle(os, logger.Silent{})
+		l.Start()
+
+		if len(os.notified) != 2 || os.notified[0] != syscall.SIGINT || os.notified[1] != syscall.SIGTERM {
+			t.Fatalf("Notify asked for %v, want SIGINT and SIGTERM only", os.notified)
 		}
 	})
 
@@ -151,7 +216,7 @@ func TestLifecycleSignals(t *testing.T) {
 // exit code it calls for, whether or not a signal happened to be pending
 // too, and never reaches Exit.
 func TestFinish(t *testing.T) {
-	abandoned := clierr.New("sh's process group (pgid 123) is still running — abandoned after a second interrupt")
+	abandoned := clierr.New("The sh command left processes running (process group 123), and waiting for them was abandoned after a second interrupt; stop them with kill -KILL -123.")
 	// The shape Hold's own attach leaves a release failure that raced a
 	// signal in: a *clierr.Error whose Cause, not its own type, is the
 	// *clierr.Cancelled — so it must not read as plain either.

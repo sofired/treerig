@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -265,6 +266,81 @@ func visitCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
 	}
 }
 
+// splitRunArgs separates `run`'s arguments into the command name before
+// "--" (empty when there is none) and everything after it, which belongs to
+// the command. Without a "--", nothing is the command's.
+func splitRunArgs(cmd *cobra.Command, args []string) (name string, rest []string) {
+	dash := cmd.ArgsLenAtDash()
+	if dash < 0 {
+		return arg0(args), nil
+	}
+	return arg0(args[:dash]), args[dash:]
+}
+
+// runArgs accepts `run`'s arguments: at most the command's name before
+// "--". Anything else before it would be silently ambiguous between a
+// mistyped name and an argument meant for the command, so it is refused with
+// the spelling that says which was meant: the extra arguments moved to just
+// after "--", ahead of any already there.
+func runArgs(cmd *cobra.Command, args []string) error {
+	dash := cmd.ArgsLenAtDash()
+	before, after := args, []string(nil)
+	if dash >= 0 {
+		before, after = args[:dash], args[dash:]
+	}
+	if len(before) <= 1 {
+		return nil
+	}
+	quoted := make([]string, len(before))
+	for i, a := range before {
+		quoted[i] = strconv.Quote(a)
+	}
+	return clierr.Newf("%q takes one command name before \"--\", got %d arguments: %s. Pass the command's own arguments after \"--\", as in: %s",
+		cmd.CommandPath(), len(before), strings.Join(quoted, " "), runSuggestion(cmd.CommandPath(), before[0], append(slices.Clone(before[1:]), after...)))
+}
+
+// runSuggestion is the spelling that passes rest to the command name:
+// "berth run plan -- extra more", each argument holding whitespace (or
+// nothing) in double quotes.
+func runSuggestion(path, name string, rest []string) string {
+	words := []string{path, name, "--"}
+	for _, a := range rest {
+		if a == "" || strings.ContainsAny(a, " \t\n") {
+			a = strconv.Quote(a)
+		}
+		words = append(words, a)
+	}
+	return strings.Join(words, " ")
+}
+
+// runFlagError is `run`'s flag-parse error handler: flagError's message, and
+// for an unknown flag, where the mistake almost always was leaving out "--"
+// (`berth run plan -auto-approve`), the spelling that passes it on.
+func runFlagError(cmd *cobra.Command, err error) error {
+	base := flagError(cmd, err)
+	msg := err.Error()
+	var flag string
+	switch {
+	case strings.HasPrefix(msg, "unknown flag: "):
+		flag = strings.TrimPrefix(msg, "unknown flag: ")
+	case strings.HasPrefix(msg, "unknown shorthand flag: "):
+		_, flag, _ = strings.Cut(msg, "' in ")
+	default:
+		return base
+	}
+	name := "<name>"
+	if positional := cmd.Flags().Args(); len(positional) > 0 {
+		name = positional[0]
+	}
+	hint := fmt.Sprintf("Pass the command's own arguments after \"--\", as in: %s", runSuggestion(cmd.CommandPath(), name, []string{flag}))
+	head, suggestions, hasSuggestions := strings.Cut(base.Error(), "\n\n")
+	out := head + ". " + hint
+	if hasSuggestions {
+		out += "\n\n" + suggestions
+	}
+	return clierr.New(out)
+}
+
 // arg0 is args[0], or "" if there isn't one: every leaf in this tree that
 // takes an optional identifier takes at most one.
 func arg0(args []string) string {
@@ -407,6 +483,28 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	}
 	urlsCmd.Flags().BoolVar(&urlsJSON, "json", false, "machine-readable output")
 	root.AddCommand(urlsCmd)
+
+	run := &cobra.Command{
+		Use:   "run [name] [-- args...]",
+		Short: fmt.Sprintf("run one of the project's named commands from %s [commands]", brand.ConfigFile),
+		Long: fmt.Sprintf("Run one of the commands %s declares under [commands], in this registered worktree, "+
+			"with the worktree's BERTH_* environment and BERTH_COMMAND naming it. Everything after -- is passed to the command. "+
+			"It runs on the terminal, so it can prompt and answer Ctrl-C itself, and its output is this command's own; "+
+			"its exit code becomes berth run's. Unless it sets lock = false, it holds the worktree's lock while it runs. "+
+			"docs/hooks.md has the details.", brand.ConfigFile),
+		Args: runArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			name, rest := splitRunArgs(cmd, args)
+			return commands.Run(cmd.Context(), env, commands.RunOptions{Name: name, Args: rest})
+		},
+	}
+	run.SetFlagErrorFunc(runFlagError)
+	run.ValidArgsFunction = commandCompletionFunc(p)
+	root.AddCommand(run)
 
 	var indexJSON bool
 	indexCmd := &cobra.Command{

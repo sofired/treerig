@@ -11,7 +11,8 @@ package cli_test
 //
 // help-worktree, help-worktree-short, help-worktree-unlock,
 // help-cmd-worktree, help-cmd-worktree-remove, help-cmd-worktree-list and
-// bare-worktree show `worktree unlock --registry`/`--router` (#21).
+// bare-worktree show `worktree unlock --registry`/`--router` (#21). help-run,
+// help-cmd-run and the err-run-* and run-* cases pin `run` (#94).
 //
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
@@ -56,6 +57,7 @@ var goldenCases = []goldenCase{
 	{"help-down", []string{"down", "--help"}},
 	{"help-status", []string{"status", "--help"}},
 	{"help-urls", []string{"urls", "--help"}},
+	{"help-run", []string{"run", "--help"}},
 	{"help-index", []string{"index", "--help"}},
 	{"help-doctor", []string{"doctor", "--help"}},
 	{"help-router", []string{"router", "--help"}},
@@ -76,6 +78,7 @@ var goldenCases = []goldenCase{
 	{"help-cmd-worktree-remove", []string{"help", "worktree", "remove"}},
 	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
 	{"help-cmd-dev", []string{"help", "dev"}},
+	{"help-cmd-run", []string{"help", "run"}},
 	// "a" is not a real command, so this falls all the way back to the
 	// program's own error help; "b" is never reached.
 	{"help-cmd-a-b", []string{"help", "a", "b"}},
@@ -108,6 +111,7 @@ var goldenCases = []goldenCase{
 	{"complete-no-file-arguments", []string{"__complete", "worktree", "remove", ""}},
 	{"complete-no-file-flag-value", []string{"__complete", "worktree", "remove", "--domain", ""}},
 	{"complete-config-file", []string{"__complete", "status", "--config", ""}},
+	{"complete-run-config-missing", []string{"__complete", "run", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
 
 	// --- unknown command, with and without a suggestion ---
 	{"err-unknown-command-far", []string{"nonsense"}},
@@ -138,6 +142,14 @@ var goldenCases = []goldenCase{
 	{"err-missing-option-arg-config", []string{"--config"}},
 	{"err-missing-option-arg-domain", []string{"worktree", "remove", "--domain"}},
 	{"err-missing-option-arg-label-namespace", []string{"worktree", "remove", "--label-namespace"}},
+
+	// --- run: anything but the name before "--" is refused, however it is
+	// spelled; the arguments after "--" are the command's own ---
+	{"err-run-args-before-dash", []string{"run", "plan", "extra"}},
+	{"err-run-flag-shorthand", []string{"run", "plan", "-auto-approve"}},
+	{"err-run-flag-long", []string{"run", "plan", "--var=x"}},
+	{"err-run-flag-before-name", []string{"run", "--var", "x", "plan"}},
+	{"err-run-args-before-dash-and-after", []string{"run", "plan", "extra", "more", "--", "-auto-approve"}},
 
 	// --- too many arguments ---
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
@@ -173,6 +185,8 @@ var goldenCases = []goldenCase{
 	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"urls-missing-file", []string{"urls", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"run-missing-file", []string{"run", "plan", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"run-missing-file-after-dash", []string{"run", "--config", "/nonexistent-berth-config-x7z.toml", "plan", "--", "--config", "elsewhere"}},
 }
 
 // TestGolden replays every goldenCases entry against cli.Main and compares

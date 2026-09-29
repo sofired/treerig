@@ -5,7 +5,13 @@
 // The struct field order is the JSON key order `config show` prints.
 package config
 
-import "github.com/sofired/berth/internal/brand"
+import (
+	"bytes"
+	"encoding/json"
+	"time"
+
+	"github.com/sofired/berth/internal/brand"
+)
 
 // Config is a validated berth.toml with defaults applied.
 type Config struct {
@@ -13,6 +19,9 @@ type Config struct {
 	Compose Compose   `json:"compose"`
 	Service []Service `json:"service"`
 	Hooks   Hooks     `json:"hooks"`
+	// Commands are the project's named commands (#94), in file order; empty
+	// when the file has no [commands], and then left out of `config show`.
+	Commands Commands `json:"commands,omitempty"`
 }
 
 // Project is the [project] table.
@@ -56,6 +65,103 @@ type Hooks struct {
 	Verify  *string `json:"verify,omitempty"`
 	Backup  *string `json:"backup,omitempty"`
 	Restore *string `json:"restore,omitempty"`
+}
+
+// DefaultCommandKillAfter is how long a stopped [commands] entry gets to
+// wind down before it is killed, when the file says nothing (#94). It is the
+// runner's own 10-second default (internal/run/osrun) written out, so
+// `config show` states the effective value.
+const DefaultCommandKillAfter = "10s"
+
+// Command is one [commands] entry: what `berth run <name>` runs, and how.
+type Command struct {
+	// Command is split and resolved exactly as a hook is (docs/hooks.md).
+	Command string `json:"command"`
+	// Lock takes the worktree's operation lock while the command runs.
+	Lock bool `json:"lock"`
+	// KillAfter is a positive duration such as "30s" or "5m": how long the
+	// command's process group has to exit after it is asked to stop, before
+	// it is killed.
+	KillAfter string `json:"kill-after"`
+}
+
+// KillAfterDuration is KillAfter as a time.Duration. The schema only admits
+// a positive duration, so a Command built by hand with anything else falls
+// back to the default rather than to zero, which the runner would read as
+// its own default anyway.
+func (c Command) KillAfterDuration() time.Duration {
+	if d, ok := parseKillAfter(c.KillAfter); ok {
+		return d
+	}
+	d, _ := parseKillAfter(DefaultCommandKillAfter)
+	return d
+}
+
+// NamedCommand is a Command with the name it is run by.
+type NamedCommand struct {
+	Name string
+	Command
+}
+
+// Commands is the [commands] table in the order the file wrote it. A slice,
+// not a map, because that order is part of the contract: `config show` and
+// the list `berth run` prints both follow it.
+type Commands []NamedCommand
+
+// Get is the command called name.
+func (c Commands) Get(name string) (Command, bool) {
+	for _, entry := range c {
+		if entry.Name == name {
+			return entry.Command, true
+		}
+	}
+	return Command{}, false
+}
+
+// Names are the command names, in file order.
+func (c Commands) Names() []string {
+	names := make([]string, len(c))
+	for i, entry := range c {
+		names[i] = entry.Name
+	}
+	return names
+}
+
+// MarshalJSON writes the commands as one object keyed by name, in file
+// order, each value the full table form with its defaults filled in.
+func (c Commands) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, entry := range c {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		key, err := marshalJSON(entry.Name)
+		if err != nil {
+			return nil, err
+		}
+		value, err := marshalJSON(entry.Command)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(key)
+		b.WriteByte(':')
+		b.Write(value)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+// marshalJSON is json.Marshal without HTML escaping, the encoding every
+// other JSON this tool prints uses (text.SafeJSON).
+func marshalJSON(value any) ([]byte, error) {
+	var b bytes.Buffer
+	encoder := json.NewEncoder(&b)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
 }
 
 // Loaded is a config and where it came from.

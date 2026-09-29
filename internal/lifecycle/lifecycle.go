@@ -95,7 +95,7 @@ func NewLifecycle(osIface OS, log logger.Logger) *Lifecycle {
 }
 
 // Context is the root context: cancelled, with cause *clierr.Cancelled, by
-// the first SIGINT or SIGTERM this process receives.
+// the first SIGINT, SIGTERM or SIGHUP this process receives.
 func (l *Lifecycle) Context() context.Context { return l.ctx }
 
 // Repeated is a channel that closes the moment a second SIGINT or SIGTERM
@@ -111,11 +111,14 @@ func (l *Lifecycle) Context() context.Context { return l.ctx }
 // signal.Notify.
 func (l *Lifecycle) Repeated() <-chan struct{} { return l.repeated }
 
-// Start begins listening for SIGINT and SIGTERM, skipping either one this
-// process already had ignored at startup — Notifying an ignored signal would
-// make it stop being ignored, which is never this tool's call to make.
+// Start begins listening for SIGINT, SIGTERM and SIGHUP — the last being
+// what a closed terminal sends, which `berth run` must forward to its child
+// and wait out like the other two — skipping any of them this process
+// already had ignored at startup: Notifying an ignored signal would make it
+// stop being ignored, which is never this tool's call to make (a process
+// started under nohup keeps ignoring SIGHUP).
 func (l *Lifecycle) Start() {
-	candidates := []os.Signal{syscall.SIGINT, syscall.SIGTERM}
+	candidates := []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 	var toNotify []os.Signal
 	for _, s := range candidates {
 		if !l.os.Ignored(s) {
@@ -142,6 +145,14 @@ func (l *Lifecycle) loop(ch <-chan os.Signal) {
 		}
 		l.mu.Lock()
 		first := l.pending == 0
+		// A later SIGHUP is nothing: a hangup often arrives twice within
+		// milliseconds (the kernel's, then the shell's relay), and the
+		// second is not an operator asking to stop waiting. Only a repeated
+		// SIGINT or SIGTERM is "Still stopping" and the abandon signal.
+		if !first && sig == syscall.SIGHUP {
+			l.mu.Unlock()
+			continue
+		}
 		if first {
 			l.pending = sig
 		}

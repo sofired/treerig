@@ -1,10 +1,6 @@
 package hooks
 
 import (
-	"slices"
-	"strings"
-
-	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/config"
 	"github.com/sofired/berth/internal/run"
 )
@@ -44,18 +40,29 @@ func ResolveHook(hooksCfg config.Hooks, stage config.HookStage, root string, env
 	if command == nil {
 		return Resolution{}, false, nil
 	}
-	parts := splitCommand(*command)
-	if len(parts) == 0 || parts[0] == "" {
-		return Resolution{}, true, clierr.Newf("Hook %q is empty.", stage)
-	}
-	executable, args := parts[0], slices.Clone(parts[1:])
-	target := executable
-	if strings.HasPrefix(executable, ".") || strings.Contains(executable, "/") {
-		target = resolveHookPath(root, executable)
+	resolution, err := predict(hookKind, string(stage), *command, root, env)
+	return resolution, true, err
+}
+
+// ResolveCommand is ResolveHook for one of the project's named commands
+// (#94): the same splitting, path resolution and prediction, so `doctor`'s
+// verdict on a command can never drift from what `berth run` finds. An
+// empty command line resolves to the same clierr error RunCommand itself
+// refuses it with.
+func ResolveCommand(name string, command config.Command, root string, env []string) (Resolution, error) {
+	return predict(commandKind, name, command.Command, root, env)
+}
+
+// predict is what ResolveHook and ResolveCommand share: resolveLine, then
+// run.PredictStart's verdict on the result.
+func predict(k kind, name, line, root string, env []string) (Resolution, error) {
+	target, args, err := resolveLine(k, name, line, root)
+	if err != nil {
+		return Resolution{}, err
 	}
 	resolved, startErr := run.PredictStart(target, root, env)
 	if startErr != nil {
-		return Resolution{Command: target, Args: args}, true, startErr
+		return Resolution{Command: target, Args: args}, startErr
 	}
-	return Resolution{Command: resolved, Args: args}, true, nil
+	return Resolution{Command: resolved, Args: args}, nil
 }

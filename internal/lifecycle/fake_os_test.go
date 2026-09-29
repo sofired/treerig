@@ -12,6 +12,8 @@ type fakeOS struct {
 	mu      sync.Mutex
 	ch      chan<- os.Signal
 	ignored map[os.Signal]bool
+	// notified is the signals the last Notify asked for.
+	notified []os.Signal
 
 	stopped   bool
 	resetSig  os.Signal
@@ -34,6 +36,7 @@ func (f *fakeOS) Notify(c chan<- os.Signal, sig ...os.Signal) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ch = c
+	f.notified = sig
 }
 
 // Stop records that Stop was called; it does not close or clear the channel.

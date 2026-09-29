@@ -202,16 +202,7 @@ func serviceCompletionDescription(svc config.Service) string {
 // the command line already named, since `up` takes any number of them.
 func serviceCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
-		env, err := p.env(cmd)
-		if err != nil {
-			return noCompletions()
-		}
-		var loaded *config.Loaded
-		if env.ConfigPath != "" {
-			loaded, err = config.Load(env.ConfigPath)
-		} else {
-			loaded, err = config.LoadNearest(env.Cwd)
-		}
+		loaded, err := completionConfig(p, cmd)
 		if err != nil {
 			return noCompletions()
 		}
@@ -230,3 +221,48 @@ func serviceCompletionFunc(p *program) func(cmd *cobra.Command, args []string, t
 		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
 }
+
+// completionConfig loads the berth.toml cmd's own --config, or the nearest
+// one above the working directory, names: a config-file question, nothing a
+// CommandContext's registry or control home has any part in. Any failure is
+// returned for the caller to turn into noCompletions().
+func completionConfig(p *program, cmd *cobra.Command) (*config.Loaded, error) {
+	env, err := p.env(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if env.ConfigPath != "" {
+		return config.Load(env.ConfigPath)
+	}
+	return config.LoadNearest(env.Cwd)
+}
+
+// commandCompletionFunc is `run`'s own ValidArgsFunction: the command names
+// this worktree's berth.toml declares under [commands], in file order, each
+// described by its command line (one line, clamped). Only the name is
+// completed: nothing is offered once one is given, and so nothing after
+// "plan --", where the arguments are the command's own. (Cobra appends a
+// "--" of its own when it parses a completion request, so ArgsLenAtDash
+// cannot tell a user's "--" apart here.) A berth.toml that cannot be loaded
+// completes nothing.
+func commandCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return noCompletions()
+		}
+		loaded, err := completionConfig(p, cmd)
+		if err != nil {
+			return noCompletions()
+		}
+		var comps []cobra.Completion
+		for _, entry := range loaded.Config.Commands {
+			comps = append(comps, cobra.CompletionWithDesc(entry.Name, text.OneLine(entry.Command.Command, commandDescriptionMax)))
+		}
+		// Not sorted: file order is the order `run` itself lists them in.
+		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
+	}
+}
+
+// commandDescriptionMax clamps a command's completion description, which a
+// shell prints beside the name on one line.
+const commandDescriptionMax = 60

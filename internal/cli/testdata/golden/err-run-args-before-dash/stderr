@@ -1,0 +1,1 @@
+[berth] ERROR: "berth run" takes one command name before "--", got 2 arguments: "plan" "extra". Pass the command's own arguments after "--", as in: berth run plan -- extra

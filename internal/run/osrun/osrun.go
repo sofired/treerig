@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -148,7 +149,11 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 		}
 	}
 
-	if spec.InheritLocks {
+	// Interactive wins over InheritLocks (see run.Spec.InheritLocks): an
+	// interactive child's whole process group is drained before Run returns,
+	// so the lock it could otherwise carry past berth's own exit is never
+	// wanted, and a caller that asked for both gets the drain.
+	if spec.InheritLocks && !interactive {
 		cmd.ExtraFiles = lock.Inherited(ctx)
 	}
 
@@ -175,11 +180,12 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 
 	var leaderExitCode int
 	var leaderSignal syscall.Signal
+	var killed bool
 	var waitErr error
 	if foreground {
 		// Its own wait4(pid, WUNTRACED) loop, not cmd.Wait(): only WUNTRACED
 		// can see this child stop, which it must for Ctrl-Z to work.
-		leaderExitCode, leaderSignal = runForegroundChild(runCtx, started.pid, unix.Getpgrp(), killAfter)
+		leaderExitCode, leaderSignal, killed = runForegroundChild(runCtx, started.pid, unix.Getpgrp(), killAfter)
 		_ = cmd.Process.Release() // reaped above; os/exec must never wait for it too
 	} else {
 		// cmd.Wait() runs on its own goroutine so this one can select
@@ -190,6 +196,7 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 		go func() { waitDone <- cmd.Wait() }()
 
 		done := runCtx.Done()
+		var repeated <-chan struct{}
 		var killTimer *time.Timer
 	waitLoop:
 		for {
@@ -198,10 +205,21 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 				break waitLoop
 			case <-done:
 				done = nil // fire the signal at most once; keep waiting for waitDone
-				signalChild(started.pid, forwardSignal(context.Cause(runCtx), interactive))
+				if interactive {
+					forwardToChild(started.pid, context.Cause(runCtx))
+					// A second SIGINT or SIGTERM ends the kill-after grace
+					// at once; a hook keeps its plain timer.
+					repeated = run.Repeated(runCtx)
+				} else {
+					signalChild(started.pid, forwardSignal(context.Cause(runCtx), false))
+				}
 				killTimer = time.AfterFunc(killAfter, func() {
 					signalChild(started.pid, syscall.SIGKILL)
 				})
+			case <-repeated:
+				repeated = nil
+				killed = true
+				signalChild(started.pid, syscall.SIGKILL)
 			}
 		}
 		if killTimer != nil {
@@ -217,8 +235,11 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	// Quiesce's job alone.
 	var drainErr error
 	if interactive {
-		command := strings.TrimSpace(spec.Command + " " + strings.Join(spec.Args, " "))
-		drainErr = drainGroup(ctx, started.pid, command, killAfter)
+		label := spec.Label
+		if label == "" {
+			label = filepath.Base(spec.Command) + " command"
+		}
+		drainErr = drainGroup(ctx, started.pid, label, killAfter, killed)
 	}
 	// Reaped, and its whole group with it: nothing left for Quiesce to wait
 	// on. Kept only while something it started lingers in the group — and

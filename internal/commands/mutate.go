@@ -15,7 +15,7 @@ import (
 )
 
 // mutate runs one mutation of one worktree. The worktree lock is held
-// throughout, and SIGINT/SIGTERM are deferred until the action has settled,
+// throughout, and SIGINT, SIGTERM and SIGHUP are deferred until the action has settled,
 // its subprocesses are reaped, and the lock is released — then re-raised. A
 // half-finished mutation is never left locked, and never left running.
 // exclusive also takes the development-session lock: the verb must not run
@@ -41,14 +41,15 @@ func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, host stri
 
 // refuseOwnWorktreeLock refuses, before any wait, to take worktreeID's
 // operation lock from inside that worktree's own environment. `up` holds
-// the lock while its hooks run, and hooks do not inherit it, so a hook that
-// runs `up` or `down` on its own worktree would otherwise wait out the whole
-// lock timeout on its own caller (#102, #108). A different worktree's ID, or
+// the lock while its hooks run, and so does `run` for a command with
+// lock = true (#94); neither passes it down, so a hook or command that runs
+// `up` or `down` on its own worktree would otherwise wait out the whole lock
+// timeout on its own caller (#102, #108). A different worktree's ID, or
 // none, passes: a hook may still drive another worktree. host names the
 // worktree in the refusal, as its caller renders it (`<slug>.<domain>`).
 func (c *CommandContext) refuseOwnWorktreeLock(worktreeID, host string) error {
 	if c.insideWorktree(worktreeID) {
-		return ownWorktreeLockRefusal(host)
+		return ownWorktreeLockRefusal(c.CommandName, host)
 	}
 	return nil
 }
@@ -62,10 +63,10 @@ func (c *CommandContext) insideWorktree(worktreeID string) bool {
 
 // ownWorktreeLockRefusal is the nested-invocation refusal, naming the
 // worktree by host.
-func ownWorktreeLockRefusal(host string) error {
+func ownWorktreeLockRefusal(commandName, host string) error {
 	return clierr.Newf(
-		"This command runs inside %s's own hooks, which hold its lock, so it would wait on itself. "+
-			"A hook can change other worktrees, but not its own.", host)
+		"This %s invocation runs inside %s's own hooks or commands, which may hold its lock, so it would wait on itself. "+
+			"A hook or command can change other worktrees, but not its own.", commandName, host)
 }
 
 // writer names this process to whoever waits on the registry lock.

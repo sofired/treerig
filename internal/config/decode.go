@@ -29,6 +29,9 @@ func decodeConfig(obj *shape.Obj) Config {
 	if v, ok := obj.Get("hooks"); ok {
 		cfg.Hooks = decodeHooks(v.(*shape.Obj))
 	}
+	if v, ok := obj.Get("commands"); ok {
+		cfg.Commands = decodeCommands(v.(*shape.Obj))
+	}
 	return cfg
 }
 
@@ -114,4 +117,31 @@ func decodeHooks(o *shape.Obj) Hooks {
 		}
 	}
 	return h
+}
+
+// decodeCommands type-asserts the "commands" table out of a validated Obj,
+// keeping its key order. An entry written as a bare string gets the table
+// form's defaults; a table has had them applied by the schema already.
+func decodeCommands(o *shape.Obj) Commands {
+	var commands Commands
+	for _, name := range o.Keys() {
+		raw, _ := o.Get(name)
+		entry := NamedCommand{Name: name, Command: Command{Lock: true, KillAfter: DefaultCommandKillAfter}}
+		switch v := raw.(type) {
+		case string:
+			entry.Command.Command = v
+		case *shape.Obj:
+			if c, ok := v.Get("command"); ok {
+				entry.Command.Command = c.(string)
+			}
+			if l, ok := v.Get("lock"); ok {
+				entry.Lock = l.(bool)
+			}
+			if k, ok := v.Get("kill-after"); ok {
+				entry.KillAfter = k.(string)
+			}
+		}
+		commands = append(commands, entry)
+	}
+	return commands
 }

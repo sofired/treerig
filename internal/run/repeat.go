@@ -8,8 +8,9 @@ type repeatedContextKey struct{}
 
 // WithRepeated carries repeated — typically a Lifecycle's own Repeated()
 // channel — on ctx, so a Runner's bounded wait for an interactive child's
-// process group (osrun's drainGroup) can select on a second SIGINT or
-// SIGTERM without either package importing the other: internal/lifecycle
+// process group (osrun's drainGroup) and an interactive child's kill-after
+// grace can select on a second SIGINT or SIGTERM (never SIGHUP, which a
+// hangup often delivers twice) without either package importing the other: internal/lifecycle
 // stays the only thing in the process that calls signal.Notify, and
 // internal/run/osrun never has to import it to hear about a repeat signal
 // (the two cannot import each other — see internal/lifecycle/hold.go's own
