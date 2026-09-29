@@ -17,6 +17,7 @@ import (
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -269,6 +270,61 @@ func TestRun(t *testing.T) {
 			t.Fatalf("the lock is still held after an interrupt: %v", err)
 		}
 		_ = lk.Release()
+	})
+
+	t.Run("refuses, starting nothing, when the worktree was removed while it waited for the lock", func(t *testing.T) {
+		rw := newRunWorld(t, twoCommands())
+		holder := rw.operationLock()
+		if _, err := holder.Acquire(ctx, "berth worktree remove"); err != nil {
+			t.Fatal(err)
+		}
+		released := false
+		defer func() {
+			if !released {
+				_ = holder.Release()
+			}
+		}()
+
+		done := make(chan error, 1)
+		go func() {
+			done <- commands.RunWithContext(ctx, rw.tc.CommandContext, commands.RunOptions{Name: "apply"})
+		}()
+		// The waiting notice says run has read the registration and is now
+		// blocked on the lock.
+		log := rw.tc.Logger
+		for waiting := false; !waiting; {
+			select {
+			case err := <-done:
+				t.Fatalf("run returned before waiting for the lock: %v", err)
+			case <-ctx.Done():
+				t.Fatal("run never waited for the lock")
+			case <-time.After(20 * time.Millisecond):
+			}
+			lines, _ := log.Snapshot()
+			for _, line := range lines {
+				if strings.Contains(line, "berth worktree remove") {
+					waiting = true
+				}
+			}
+		}
+
+		if _, err := rw.tc.Registry.Store(rw.ref.RepositoryID).Remove(ctx, rw.ref.WorktreeID, rw.ref.Slug,
+			registry.Writer{Logger: logger.Silent{}, Invocation: "berth worktree remove", UserHome: rw.tc.UserHome}); err != nil {
+			t.Fatalf("remove: %v", err)
+		}
+		released = true
+		if err := holder.Release(); err != nil {
+			t.Fatal(err)
+		}
+
+		err := <-done
+		want := "feature-login.acme.localhost was removed while 'berth run apply' was waiting for its lock; run 'berth up' first."
+		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
+			t.Fatalf("err = %v, want %q", err, want)
+		}
+		if n := len(rw.started()); n != 0 {
+			t.Fatalf("started %d commands after the worktree was removed", n)
+		}
 	})
 
 	t.Run("lock = false takes no lock, and still runs the command", func(t *testing.T) {

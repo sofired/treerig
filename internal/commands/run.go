@@ -87,9 +87,24 @@ func RunWithContext(ctx context.Context, cctx *CommandContext, opts RunOptions) 
 	if !command.Lock {
 		return action(ctx)
 	}
+	host := layout.WorktreeHost(ref.Slug, registration.Domain)
+	store := cctx.Registry.Store(ref.RepositoryID)
 	locking := *cctx
 	locking.Invocation = strings.Join([]string{cctx.CommandName, "run", opts.Name}, " ")
-	return locking.mutate(ctx, ref, layout.WorktreeHost(ref.Slug, registration.Domain), false, action)
+	return locking.mutate(ctx, ref, host, false, func(ctx context.Context) error {
+		// The lock may have been held by someone else for minutes while this
+		// waited: a `worktree remove` can have finished in between, and the
+		// command would then act on a worktree that no longer exists.
+		found, err := store.Find(ref.WorktreeID)
+		if err != nil {
+			return err
+		}
+		if found == nil {
+			return clierr.Newf("%s was removed while '%s run %s' was waiting for its lock; run '%s up' first.",
+				host, cctx.CommandName, opts.Name, cctx.CommandName)
+		}
+		return action(ctx)
+	})
 }
 
 // noSuchCommand is the refusal for a missing or unknown command name: one
