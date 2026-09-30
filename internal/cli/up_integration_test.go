@@ -156,7 +156,7 @@ func newUpFixture(t *testing.T) upFixture {
 		}
 	}
 	write(filepath.Join(f.checkout, "berth.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n"+
-		"[[service]]\nname = \"api\"\nport = 8080\n[[service]]\nname = \"mail\"\nsubdomain = \"mail\"\nport = 8080\n"+
+		"[service.api]\nport = 8080\n[service.mail]\nsubdomain = \"mail\"\nport = 8080\n"+
 		"[hooks]\nprepare = \"./hooks/record\"\nseed = \"./hooks/record\"\n", 0o644)
 	write(filepath.Join(f.checkout, "compose.yaml"), "services: {}\n", 0o644)
 	// Records its stage; while hang-<stage> exists, writes its grandchild's

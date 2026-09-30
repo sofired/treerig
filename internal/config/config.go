@@ -38,9 +38,9 @@ type Compose struct {
 	File string `json:"file"`
 }
 
-// Service is one [[service]].
+// Service is one [service.<name>] table.
 type Service struct {
-	// Name is the Compose service name.
+	// Name is the Compose service name: the table's key.
 	Name string `json:"name"`
 	// Subdomain under the worktree host; empty routes at the host root.
 	Subdomain string `json:"subdomain"`
@@ -52,7 +52,7 @@ type Service struct {
 	Index *ServiceIndex `json:"index,omitempty"`
 }
 
-// ServiceIndex is [service.index].
+// ServiceIndex is [service.<name>.index].
 type ServiceIndex struct {
 	Label   string `json:"label"`
 	Purpose string `json:"purpose"`

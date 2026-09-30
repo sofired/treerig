@@ -74,9 +74,9 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_WORKTREE_HOME` | The worktree's private directory under the control home |
 | `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
 | `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
-| `BERTH_URL` | This worktree's own URL: the `[[service]]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
-| `BERTH_SERVICE_URL_<NAME>` | One per `[[service]]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
-| `BERTH_SERVICE_PORT_<NAME>` | One per `[[service]]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
+| `BERTH_URL` | This worktree's own URL: the `[service.<name>]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
+| `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
+| `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
 
 `BERTH_SERVICE_PORT_<NAME>` is the `port` of `urls --json`: unlike the URLs
 it does not go through the router, and it is allocated before any hook runs.

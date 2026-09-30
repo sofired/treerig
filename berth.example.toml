@@ -1,4 +1,14 @@
+#:schema https://raw.githubusercontent.com/sofired/berth/main/schema/berth.schema.json
 # berth.toml — commit this at the root of your repository.
+#
+# The line above points TOML editors (Even Better TOML/Taplo, or any editor
+# that takes a JSON Schema for TOML) at berth's JSON Schema, for completion,
+# hover text and unknown-key warnings. It tracks main; `berth config schema >
+# berth.schema.json` pins the schema to the version you have installed, and
+# then `#:schema ./berth.schema.json` uses that file.
+#
+# The file is plain TOML 1.0, with no multi-line inline tables, so Taplo and
+# Python's tomllib read it too.
 #
 # Everything the tool needs to know about your project lives here. Everything
 # it needs to *do* for your project lives in the hook executables you point at.
@@ -29,25 +39,25 @@ domain = "acme.localhost"
 file = "docker/compose.yaml"
 
 # ---------------------------------------------------------------------------
-# Services. Each entry names a Compose service and says how it is reached.
+# Services. Each [service.<name>] table names a Compose service and says how
+# it is reached. The name is lower-case letters, digits and hyphens.
 # Services not listed here still run; they just are not routed or indexed.
 
-[[service]]
-name = "api"
+[service.api]
 # subdomain = ""        # empty (the default) routes at the worktree host root
-[service.index]         # presence on the shared checkout index; omit to hide
+
+[service.api.index]     # presence on the shared checkout index; omit to hide
 label   = "API"
 purpose = "REST surface"
 
-[[service]]
-name      = "mail"
+[service.mail]
 subdomain = "mail"      # mail.<slug>.acme.localhost
-[service.index]
+
+[service.mail.index]
 label   = "Mailpit"
 purpose = "Captured email"
 
-[[service]]
-name      = "docs"
+[service.docs]
 subdomain = "docs"
 path      = "/latest"   # routes only this prefix; several services may share a host with different paths
 port      = 4000        # container port to route to; defaults to the first port the service exposes

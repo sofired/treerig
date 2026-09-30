@@ -161,7 +161,7 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(f.checkout, "berth.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[[service]]\nname = \"api\"\n[[service]]\nname = \"mail\"\nsubdomain = \"mail\"\n", 0o644)
+	write(filepath.Join(f.checkout, "berth.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n[service.mail]\nsubdomain = \"mail\"\n", 0o644)
 	git := exec.Command("git", "init", "--initial-branch=feature/login", ".")
 	git.Dir = f.checkout
 	if output, err := git.CombinedOutput(); err != nil {

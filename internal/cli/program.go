@@ -410,11 +410,26 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			return commands.ConfigShow(cmd.Context(), env)
 		},
 	})
+	config.AddCommand(&cobra.Command{
+		Use:   "schema",
+		Short: fmt.Sprintf("print the JSON Schema of %s", brand.ConfigFile),
+		Long: fmt.Sprintf("Print the JSON Schema (draft-07) of %s, for editors to complete and check it with. "+
+			"It is generated from the same definitions that validate the file, but it cannot state every check: "+
+			"`%s config validate` makes the rest. It needs no %s.", brand.ConfigFile, commandName, brand.ConfigFile),
+		Args: maxArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.ConfigSchema(cmd.Context(), env)
+		},
+	})
 	root.AddCommand(config)
 
 	// TODO(#5): once `dev` starts things, it needs the same
 	// config.CheckStart call `up` and `config validate` make before it
-	// touches anything, refusing a control character in a [service.index]
+	// touches anything, refusing a control character in a [service.<name>.index]
 	// label or purpose the same way.
 	root.AddCommand(&cobra.Command{
 		Use:   "dev",

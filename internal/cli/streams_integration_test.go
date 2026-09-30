@@ -37,8 +37,7 @@ name = "acme"
 domain = "acme.localhost"
 [compose]
 file = "compose.yaml"
-[[service]]
-name = "api"
+[service.api]
 `
 
 // invocation is one run of the CLI: what each stream carried and how it
@@ -187,7 +186,7 @@ backup  = "./backup.sh"
 	t.Run("prints JSON a terminal cannot be driven by, that parses back exactly", func(t *testing.T) {
 		wantLabel := "API" + string(rtlOverride)
 		cwd := writeStreamsProject(t, streamsConfig+
-			"[service.index]\n"+
+			"[service.api.index]\n"+
 			`label   = "`+wantLabel+"\"\n"+
 			`purpose = "surface"`+"\n")
 

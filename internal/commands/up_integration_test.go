@@ -48,13 +48,11 @@ name = "acme"
 domain = "acme.localhost"
 [compose]
 file = "compose.yaml"
-[[service]]
-name = "api"
+[service.api]
 port = 8080
-[service.index]
+[service.api.index]
 label = "API"
-[[service]]
-name = "mail"
+[service.mail]
 subdomain = "mail"
 path = "/inbox"
 port = 8080

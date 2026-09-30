@@ -9,6 +9,8 @@ type numberCheck struct {
 	code    string
 	message string
 	test    func(float64) bool
+	// doc, when set, adds this check's JSON Schema keywords to a node.
+	doc func(node *Obj)
 }
 
 // NumberSchema validates a number, built with [Number].
@@ -34,7 +36,8 @@ func (n *NumberSchema) Min(v float64, message ...string) *NumberSchema {
 	if len(message) > 0 {
 		msg = message[0]
 	}
-	n.checks = append(n.checks, numberCheck{code: CodeTooSmall, message: msg, test: func(x float64) bool { return x >= v }})
+	n.checks = append(n.checks, numberCheck{code: CodeTooSmall, message: msg, test: func(x float64) bool { return x >= v },
+		doc: func(node *Obj) { node.Set("minimum", v) }})
 	return n
 }
 
@@ -44,9 +47,13 @@ func (n *NumberSchema) Max(v float64, message ...string) *NumberSchema {
 	if len(message) > 0 {
 		msg = message[0]
 	}
-	n.checks = append(n.checks, numberCheck{code: CodeTooBig, message: msg, test: func(x float64) bool { return x <= v }})
+	n.checks = append(n.checks, numberCheck{code: CodeTooBig, message: msg, test: func(x float64) bool { return x <= v },
+		doc: func(node *Obj) { node.Set("maximum", v) }})
 	return n
 }
+
+// Describe sets the text JSONSchema publishes as this schema's description.
+func (n *NumberSchema) Describe(text string) *NumberSchema { n.mod.description = text; return n }
 
 // Optional lets the field be absent, with no default.
 func (n *NumberSchema) Optional() *NumberSchema { n.mod.optional = true; return n }

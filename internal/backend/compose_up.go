@@ -85,7 +85,7 @@ func RouteRule(route RouteSpec, host string) string {
 	return rule
 }
 
-// RouteSpec is one [[service]] entry, as the runtime needs it for routing.
+// RouteSpec is one [service.<name>] table, as the runtime needs it for routing.
 type RouteSpec struct {
 	Service string
 	// Subdomain empty routes at the worktree host itself.
@@ -535,13 +535,13 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 		for _, route := range c.options.Routes {
 			service, ok := services.values[route.Service].(*jsonKV)
 			if !ok {
-				return nil, clierr.Newf("[[service]] %s is not defined in %s.", route.Service, c.options.ComposeFile)
+				return nil, clierr.Newf("[service.%s] names a service that is not defined in %s.", route.Service, c.options.ComposeFile)
 			}
 			target, ok := resolvePort(route, service)
 			if !ok {
 				return nil, clierr.Newf(
-					"Service %s declares no port: set port in its [[service]] entry, or expose one in %s.",
-					route.Service, c.options.ComposeFile,
+					"Service %s declares no port: set port in its [service.%s] table, or expose one in %s.",
+					route.Service, route.Service, c.options.ComposeFile,
 				)
 			}
 			if err := refuseUnpublishable(route.Service, c.options.ComposeFile, service); err != nil {
@@ -586,14 +586,14 @@ func refuseUnpublishable(name, composeFile string, service *jsonKV) error {
 		if text, ok := mode.(string); ok && (text == "host" || strings.HasPrefix(text, "service:")) {
 			return clierr.Newf(
 				"Service %s in %s uses network_mode: %s, so %s cannot publish a loopback port for it. "+
-					"A routed service needs its own network namespace: remove network_mode, or remove %s from [[service]].",
+					"A routed service needs its own network namespace: remove network_mode, or remove its [service.%s] table.",
 				name, composeFile, text, brand.Name, name)
 		}
 	}
 	if replicas := replicaCount(service); replicas > 1 {
 		return clierr.Newf(
 			"Service %s in %s runs %d replicas, but a routed service publishes one loopback port, which replicas cannot share. "+
-				"Run one replica, or remove %s from [[service]].",
+				"Run one replica, or remove its [service.%s] table.",
 			name, composeFile, replicas, name)
 	}
 	return nil
@@ -749,13 +749,13 @@ func (c *Compose) RouteBackends(ctx context.Context, ref worktree.Ref) (map[stri
 	for _, route := range c.options.Routes {
 		service, ok := services.values[route.Service].(*jsonKV)
 		if !ok {
-			return nil, clierr.Newf("[[service]] %s is not defined in %s.", route.Service, c.options.ComposeFile)
+			return nil, clierr.Newf("[service.%s] names a service that is not defined in %s.", route.Service, c.options.ComposeFile)
 		}
 		port, ok := resolvePort(route, service)
 		if !ok {
 			return nil, clierr.Newf(
-				"Service %s declares no port: set port in its [[service]] entry, or expose one in %s.",
-				route.Service, c.options.ComposeFile,
+				"Service %s declares no port: set port in its [service.%s] table, or expose one in %s.",
+				route.Service, route.Service, c.options.ComposeFile,
 			)
 		}
 		ports[route.Service] = port

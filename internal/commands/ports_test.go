@@ -248,7 +248,7 @@ func TestUpAllocatesLoopbackPorts(t *testing.T) {
 		}
 	})
 
-	t.Run("routes nothing and records no ports for a config without [[service]]", func(t *testing.T) {
+	t.Run("routes nothing and records no ports for a config without [service.<name>] tables", func(t *testing.T) {
 		pw := newPortsWorld(t)
 		pw.tc.Loaded.Config.Service = nil
 		if _, err := pw.up(t, commands.UpOptions{}); err != nil {

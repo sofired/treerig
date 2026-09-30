@@ -42,9 +42,8 @@ func TestConfigParsing(t *testing.T) {
 
 	t.Run("defaults a service to the host root and keeps index metadata", func(t *testing.T) {
 		cfg, err := Parse([]byte(minimalTOML+`
-[[service]]
-name = "api"
-[service.index]
+[service.api]
+[service.api.index]
 label = "API"
 `), "test.toml")
 		if err != nil {
@@ -64,20 +63,16 @@ label = "API"
 
 	t.Run("rejects two services claiming the same subdomain", func(t *testing.T) {
 		_, err := Parse([]byte(minimalTOML+`
-[[service]]
-name = "api"
-[[service]]
-name = "web"
+[service.api]
+[service.web]
 `), "test.toml")
 		requireErrorContains(t, err, "the host root is already claimed")
 	})
 
 	t.Run("lets two services share a host when their paths differ, and rejects the same path twice", func(t *testing.T) {
 		shared := minimalTOML + `
-[[service]]
-name = "web"
-[[service]]
-name = "api"
+[service.web]
+[service.api]
 path = "/api"
 port = 3000
 `
@@ -96,16 +91,16 @@ port = 3000
 			t.Errorf("Service[1] = %#v", cfg.Service[1])
 		}
 
-		_, err = Parse([]byte(shared+"[[service]]\nname = \"api2\"\npath = \"/api\"\n"), "test.toml")
+		_, err = Parse([]byte(shared+"[service.api2]\npath = \"/api\"\n"), "test.toml")
 		requireErrorContains(t, err, `the host root at path "/api" is already claimed`)
 
-		_, err = Parse([]byte(minimalTOML+"[[service]]\nname = \"a\"\nport = 70000\n"), "test.toml")
+		_, err = Parse([]byte(minimalTOML+"[service.a]\nport = 70000\n"), "test.toml")
 		requireErrorContains(t, err, "port")
 	})
 
 	t.Run("keeps what reaches Traefik rules and hostnames well-formed", func(t *testing.T) {
 		service := func(body string) string {
-			return minimalTOML + "[[service]]\nname = \"s\"\n" + body
+			return minimalTOML + "[service.s]\n" + body
 		}
 		_, err := Parse([]byte(service("path = \"/api`)||Host(`evil\"\n")), "test.toml")
 		requireErrorContains(t, err, "must be a URL path starting with /")
@@ -146,36 +141,85 @@ port = 3000
 		requireErrorContains(t, err, "at most 125 characters, so that <subdomain>.<slug>.<domain> fits")
 	})
 
-	t.Run("rejects duplicate service names", func(t *testing.T) {
+	t.Run("rejects a service table defined twice, as TOML itself does", func(t *testing.T) {
+		_, err := Parse([]byte(minimalTOML+`
+[service.api]
+subdomain = "a"
+[service.api]
+subdomain = "b"
+`), "test.toml")
+		requireErrorContains(t, err, "test.toml is not valid TOML:")
+	})
+
+	t.Run("rejects [[service]], saying services are tables keyed by name", func(t *testing.T) {
 		_, err := Parse([]byte(minimalTOML+`
 [[service]]
 name = "api"
-subdomain = "a"
-[[service]]
-name = "api"
-subdomain = "b"
 `), "test.toml")
-		requireErrorContains(t, err, `duplicate service name "api"`)
+		requireErrorContains(t, err, "service: Invalid input: expected object, received array (services are tables keyed by name: write [service.<name>], not [[service]])")
+	})
+
+	t.Run("rejects a service name that is not a slug, at its key", func(t *testing.T) {
+		_, err := Parse([]byte(minimalTOML+"[service.Api]\n"), "test.toml")
+		requireErrorContains(t, err, "service.Api: must be lower-case letters, digits, and hyphens")
+	})
+
+	t.Run("rejects a name field, which is now the table's key", func(t *testing.T) {
+		_, err := Parse([]byte(minimalTOML+"[service.api]\nname = \"api\"\n"), "test.toml")
+		requireErrorContains(t, err, `service.api: Unrecognized key: "name" (the table's key is the service name: [service.api])`)
+	})
+
+	t.Run("names the service that already claimed a route", func(t *testing.T) {
+		_, err := Parse([]byte(minimalTOML+"[service.api]\nsubdomain = \"a\"\n[service.web]\nsubdomain = \"a\"\n"), "test.toml")
+		requireErrorContains(t, err, `service.web.subdomain: subdomain "a" is already claimed by service "api"`)
+	})
+
+	t.Run("caps a service name at 63 characters, as a command name is", func(t *testing.T) {
+		_, err := Parse([]byte(minimalTOML+"[service."+strings.Repeat("a", 64)+"]\n"), "test.toml")
+		requireErrorContains(t, err, "must be at most 63 characters")
+		_, err = Parse([]byte(minimalTOML+"[service."+strings.Repeat("a", 63)+"]\n"), "test.toml")
+		if err != nil {
+			t.Errorf("63 characters: %v", err)
+		}
+	})
+
+	t.Run("gives [[commands]] the same hint as [[service]]", func(t *testing.T) {
+		_, err := Parse([]byte(minimalTOML+"[[commands]]\ncommand = \"x\"\n"), "test.toml")
+		requireErrorContains(t, err, "commands are tables keyed by name: write [commands.<name>], not [[commands]]")
+	})
+
+	t.Run("keeps services in the order the file wrote them", func(t *testing.T) {
+		cfg, err := Parse([]byte(minimalTOML+"[service.web]\nsubdomain = \"w\"\n[service.api]\nsubdomain = \"a\"\n[service.mail]\nsubdomain = \"m\"\n"), "test.toml")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		var names []string
+		for _, s := range cfg.Service {
+			names = append(names, s.Name)
+		}
+		if got := strings.Join(names, ","); got != "web,api,mail" {
+			t.Errorf("service order = %s, want web,api,mail", got)
+		}
 	})
 
 	// (#16) Since `up` now records every declared service on the checkout
-	// index card, not only the ones with a [service.index] block, the
-	// config's own [[service]] array must not outgrow what a card can hold
+	// index card, not only the ones with a [service.<name>.index] table, the
+	// config's own [service] table must not outgrow what a card can hold
 	// (internal/checkoutindex/card's own maxServices) — a deliberate bound
 	// of its own.
 	t.Run("rejects more than 64 declared services", func(t *testing.T) {
 		var services strings.Builder
 		for i := 0; i < 65; i++ {
-			fmt.Fprintf(&services, "[[service]]\nname = \"s%d\"\nsubdomain = \"s%d\"\n", i, i)
+			fmt.Fprintf(&services, "[service.s%d]\nsubdomain = \"s%d\"\n", i, i)
 		}
 		_, err := Parse([]byte(minimalTOML+services.String()), "test.toml")
-		requireErrorContains(t, err, "at most 64 [[service]] entries")
+		requireErrorContains(t, err, "at most 64 [service.<name>] tables")
 	})
 
 	t.Run("accepts exactly 64 declared services", func(t *testing.T) {
 		var services strings.Builder
 		for i := 0; i < 64; i++ {
-			fmt.Fprintf(&services, "[[service]]\nname = \"s%d\"\nsubdomain = \"s%d\"\n", i, i)
+			fmt.Fprintf(&services, "[service.s%d]\nsubdomain = \"s%d\"\n", i, i)
 		}
 		cfg, err := Parse([]byte(minimalTOML+services.String()), "test.toml")
 		if err != nil {
@@ -209,7 +253,7 @@ subdomain = "b"
 	})
 
 	t.Run("accepts a label and purpose with ordinary punctuation and non-ASCII letters", func(t *testing.T) {
-		cfg, err := Parse([]byte(minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"Café — API\"\npurpose = \"the café's API\"\n"), "test.toml")
+		cfg, err := Parse([]byte(minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"Café — API\"\npurpose = \"the café's API\"\n"), "test.toml")
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -226,7 +270,7 @@ subdomain = "b"
 	// config (`down`, `worktree remove`, `status`, and so on) can still
 	// load this file and proceed.
 	t.Run("accepts a control character in the service index label and purpose; only a command about to start something refuses one", func(t *testing.T) {
-		cfg, err := Parse([]byte(minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\npurpose = \"the \\u202eAPI\"\n"), "test.toml")
+		cfg, err := Parse([]byte(minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"a\tb\"\npurpose = \"the \\u202eAPI\"\n"), "test.toml")
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -256,14 +300,14 @@ func TestStartIssues(t *testing.T) {
 	}
 
 	t.Run("finds nothing wrong with an ordinary label and purpose", func(t *testing.T) {
-		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"Café — API\"\npurpose = \"the café's API\"\n")
+		cfg := parse(t, minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"Café — API\"\npurpose = \"the café's API\"\n")
 		if issues := StartIssues(cfg); len(issues) != 0 {
 			t.Fatalf("issues = %+v, want none", issues)
 		}
 	})
 
-	t.Run("leaves a service with no [service.index] block alone", func(t *testing.T) {
-		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n")
+	t.Run("leaves a service with no [service.api.index] block alone", func(t *testing.T) {
+		cfg := parse(t, minimalTOML+"[service.api]\n")
 		if issues := StartIssues(cfg); len(issues) != 0 {
 			t.Fatalf("issues = %+v, want none", issues)
 		}
@@ -274,33 +318,33 @@ func TestStartIssues(t *testing.T) {
 		// tab is allowed unescaped), so this reaches the check through
 		// TOML's own \u escape instead — a case the TOML syntax error path
 		// never reaches.
-		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\\u001bb\"\n")
+		cfg := parse(t, minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"a\\u001bb\"\n")
 		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
-		requireErrorContains(t, err, "service.0.index.label: must not contain control characters")
+		requireErrorContains(t, err, "service.api.index.label: must not contain control characters")
 	})
 
 	t.Run("reports a control character in the service index purpose", func(t *testing.T) {
 		// A right-to-left override, unlike a C0 control, is not something
 		// TOML's own grammar refuses — it reaches the check as a plain
 		// character in the file, the same way it would from a copy-paste.
-		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"API\"\npurpose = \"the \\u202eAPI\"\n")
+		cfg := parse(t, minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"API\"\npurpose = \"the \\u202eAPI\"\n")
 		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
-		requireErrorContains(t, err, "service.0.index.purpose: must not contain control characters")
+		requireErrorContains(t, err, "service.api.index.purpose: must not contain control characters")
 	})
 
 	t.Run("reports a tab in the service index label, even though TOML itself allows one unescaped", func(t *testing.T) {
-		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\n")
+		cfg := parse(t, minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"a\tb\"\n")
 		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
-		requireErrorContains(t, err, "service.0.index.label: must not contain control characters")
+		requireErrorContains(t, err, "service.api.index.label: must not contain control characters")
 	})
 
 	t.Run("formats exactly what the old schema-level check printed", func(t *testing.T) {
-		cfg := parse(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\n")
+		cfg := parse(t, minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"a\tb\"\n")
 		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
 		if err == nil {
 			t.Fatal("CheckStart: expected an error")
 		}
-		want := "test.toml is not a valid berth.toml:\n  service.0.index.label: must not contain control characters"
+		want := "test.toml is not a valid berth.toml:\n  service.api.index.label: must not contain control characters"
 		if got := err.Error(); got != want {
 			t.Errorf("CheckStart error = %q, want %q", got, want)
 		}
@@ -308,13 +352,13 @@ func TestStartIssues(t *testing.T) {
 
 	t.Run("reports both fields, and every service, in schema order", func(t *testing.T) {
 		cfg := parse(t, minimalTOML+
-			"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\npurpose = \"c\td\"\n"+
-			"[[service]]\nname = \"mail\"\nsubdomain = \"mail\"\n[service.index]\nlabel = \"e\tf\"\n")
+			"[service.api]\n[service.api.index]\nlabel = \"a\tb\"\npurpose = \"c\td\"\n"+
+			"[service.mail]\nsubdomain = \"mail\"\n[service.mail.index]\nlabel = \"e\tf\"\n")
 		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
 		want := "test.toml is not a valid berth.toml:\n" +
-			"  service.0.index.label: must not contain control characters\n" +
-			"  service.0.index.purpose: must not contain control characters\n" +
-			"  service.1.index.label: must not contain control characters"
+			"  service.api.index.label: must not contain control characters\n" +
+			"  service.api.index.purpose: must not contain control characters\n" +
+			"  service.mail.index.label: must not contain control characters"
 		if err == nil || err.Error() != want {
 			t.Fatalf("CheckStart error = %v, want %q", err, want)
 		}

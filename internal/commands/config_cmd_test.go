@@ -113,11 +113,11 @@ func TestConfigValidatePropagatesLoadError(t *testing.T) {
 // load the same file and proceed — so this has to be its own check, not
 // something the load above already caught.
 func TestConfigValidateRefusesControlCharacters(t *testing.T) {
-	file := writeConfig(t, minimalTOML+"[[service]]\nname = \"api\"\n[service.index]\nlabel = \"a\tb\"\n")
+	file := writeConfig(t, minimalTOML+"[service.api]\n[service.api.index]\nlabel = \"a\tb\"\n")
 	env, rec := testEnv(t, file, t.TempDir())
 
 	err := ConfigValidate(context.Background(), env)
-	want := file + " is not a valid berth.toml:\n  service.0.index.label: must not contain control characters"
+	want := file + " is not a valid berth.toml:\n  service.api.index.label: must not contain control characters"
 	if err == nil || err.Error() != want {
 		t.Fatalf("ConfigValidate error = %v, want %q", err, want)
 	}

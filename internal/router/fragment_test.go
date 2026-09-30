@@ -191,7 +191,7 @@ func TestRemoveWorktreeFragments(t *testing.T) {
 // Round 2 of #55's review: `up` used to remove every fragment it owned
 // before writing the new ones, which briefly unrouted every one of a
 // worktree's own routes on every re-up, and only ran that removal at all
-// when the config currently declared at least one [[service]] — so a
+// when the config currently declared at least one [service.<name>] — so a
 // worktree whose last route was dropped kept its stale fragment forever.
 // RemoveWorktreeFragmentsExcept is the fix `up` now calls after writing
 // every current route's fragment, naming those as keep.

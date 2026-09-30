@@ -111,21 +111,17 @@ domain = "` + completionAcmeDomain + `"
 [compose]
 file = "compose.yaml"
 
-[[service]]
-name = "api"
+[service.api]
 
-[[service]]
-name = "web"
+[service.web]
 subdomain = "web"
 
-[[service]]
-name = "assets"
+[service.assets]
 path = "/latest"
 
-[[service]]
-name = "docs"
+[service.docs]
 path = "/docs"
-[service.index]
+[service.docs.index]
 label = "Docs\tGuide\nSection"
 
 [commands]
@@ -152,8 +148,7 @@ domain = "` + completionAcmeDomain + `"
 [compose]
 file = "compose.yaml"
 
-[[service]]
-name = "api"
+[service.api]
 `
 	if err := os.WriteFile(noCommandsConfigPath, []byte(bareToml), 0o644); err != nil {
 		t.Fatalf("write bare berth.toml: %v", err)

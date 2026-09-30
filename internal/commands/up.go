@@ -35,7 +35,7 @@ type Router interface {
 	ConnectNetwork(ctx context.Context, network string) error
 	// DisconnectNetwork detaches the shared router from a worktree's own
 	// dedicated router network — called when this worktree no longer
-	// declares any [[service]] route, so the router is not left uselessly
+	// declares any [service.<name>] route, so the router is not left uselessly
 	// attached to a network nothing routes through any more (found in
 	// review, round 3 of #55). The network itself is still reaped by label
 	// when this worktree is eventually torn down, whether or not it
@@ -107,7 +107,7 @@ func (i bestEffortIndex) RefreshBestEffort(ctx context.Context, reason string) {
 	refreshIndexBestEffort(ctx, i.cctx, reason)
 }
 
-// routeSpecsFromConfig is every declared [[service]] as a backend.RouteSpec,
+// routeSpecsFromConfig is every declared [service.<name>] as a backend.RouteSpec,
 // in config order — shared by upRuntime (which needs it to build the
 // worktree's own Compose runtime) and UpWithContext's own fragment-writing
 // step (which needs it again, after routerSvc's Router is out of scope, to
@@ -191,7 +191,7 @@ func hostForIdentity(cctx *CommandContext, identity registry.WorktreeIdentity) s
 func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, index Index, options UpOptions) (*UpResult, error) {
 	// Refuses before anything else here — including refuseRelabelling
 	// below, which can itself make a Docker call — a control character in
-	// [service.index] label or purpose (#19). The base loader that built
+	// [service.<name>.index] label or purpose (#19). The base loader that built
 	// cctx.Loaded stays lenient; only a command about to start something checks.
 	if err := config.CheckStart(cctx.Loaded); err != nil {
 		return nil, err
@@ -300,7 +300,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		urls = urlsFromRoutes(cctx.Loaded.Config.Service, hookRoutes)
 
 		// Every declared service is recorded, not only the ones with a
-		// [service.index] block (#16): Label (and Purpose alongside it) is
+		// [service.<name>.index] block (#16): Label (and Purpose alongside it) is
 		// "" for one that never opted in, which keeps it off the page as a
 		// link but still lets the index count it — a stopped, unindexed
 		// service must still turn a Running row into Partial, since it is a
@@ -341,9 +341,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 
 		// Routing (#55): fragments are rewritten in full on every `up`, but
 		// unconditionally — not only when this worktree currently declares
-		// a [[service]] route (found in review, round 2 of #55: a first cut
+		// a [service.<name>] route (found in review, round 2 of #55: a first cut
 		// gated the whole block on that, so a worktree whose last
-		// [[service]] route was dropped since the last `up` kept its stale
+		// [service.<name>] route was dropped since the last `up` kept its stale
 		// fragment forever, since nothing ever ran to remove it). New
 		// fragments are written before old ones are removed, and only the
 		// ones no longer current are removed, rather than deleting every
@@ -395,7 +395,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			return clierr.Newf("Could not remove this worktree's earlier route fragments: %s", err)
 		}
 		if len(routes) == 0 {
-			// A worktree that just dropped its last [[service]] route
+			// A worktree that just dropped its last [service.<name>] route
 			// still has its own dedicated router network sitting around —
 			// overrideDocument no longer declares it, but Compose does not
 			// proactively remove a network it no longer declares — and the

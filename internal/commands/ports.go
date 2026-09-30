@@ -269,7 +269,7 @@ func validateReallocation(services []config.Service, requested []string) error {
 	routed := routedServiceNames(services)
 	for _, name := range requested {
 		if !slices.Contains(routed, name) {
-			known := fmt.Sprintf("%s has no [[service]] entries.", brand.ConfigFile)
+			known := fmt.Sprintf("%s has no [service.<name>] tables.", brand.ConfigFile)
 			if len(routed) > 0 {
 				known = fmt.Sprintf("%s routes %s.", brand.ConfigFile, strings.Join(routed, ", "))
 			}

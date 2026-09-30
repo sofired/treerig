@@ -1,0 +1,195 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/sofired/berth/main/schema/berth.schema.json",
+  "title": "berth.toml",
+  "type": "object",
+  "description": "berth.toml: the committed configuration of a project. Unknown keys are rejected, so a typo cannot silently disable a feature.",
+  "properties": {
+    "project": {
+      "type": "object",
+      "description": "Identity of the project.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The project's name: lower-case letters, digits and hyphens.",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Parent domain worktrees are routed under, as <slug>.<domain>, where the slug is derived from the branch name.",
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$",
+          "maxLength": 125
+        },
+        "label-namespace": {
+          "type": "string",
+          "description": "Docker label namespace, as a reverse domain such as dev.example. Only set this to adopt resources created by a previous tool; new projects should leave it unset.",
+          "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$"
+        }
+      },
+      "required": [
+        "name",
+        "domain"
+      ],
+      "additionalProperties": false
+    },
+    "compose": {
+      "type": "object",
+      "description": "The Compose project each worktree runs.",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path to the Compose file, relative to this file.",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "description": "Services to route and index, one [service.<name>] table each, named by the Compose service. Services not listed here still run; they just are not routed or indexed.",
+      "propertyNames": {
+        "type": "string",
+        "description": "The Compose service name: lower-case letters, digits and hyphens, at most 63 characters.",
+        "pattern": "^[a-z0-9][a-z0-9-]*$",
+        "maxLength": 63
+      },
+      "additionalProperties": {
+        "type": "object",
+        "description": "One routed service. The table's key is its Compose service name.",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "description": "Subdomain under the worktree host, so the service is routed at <subdomain>.<slug>.<domain>. Empty (the default) routes at the worktree host root.",
+            "pattern": "^([a-z0-9]([a-z0-9-]*[a-z0-9])?)?$",
+            "maxLength": 63,
+            "default": ""
+          },
+          "path": {
+            "type": "string",
+            "description": "Routes only this URL path prefix, which must start with /, so several services can share one host; also where the printed URL points. Omit to route the whole host.",
+            "pattern": "^/(?:[A-Za-z0-9._~!&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$"
+          },
+          "port": {
+            "type": "integer",
+            "description": "Container port to route to. Defaults to the first port the service exposes or publishes.",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "index": {
+            "type": "object",
+            "description": "Presence on the shared checkout index. Omit to keep the service off the index.",
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Name shown for the service on the shared checkout index.",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "purpose": {
+                "type": "string",
+                "description": "What the service is for, shown beside its label on the checkout index.",
+                "maxLength": 512,
+                "default": ""
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "maxProperties": 64,
+      "default": {}
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Commands berth runs at points in a worktree's life. Each is resolved relative to this file when it starts with \".\" or contains \"/\", and looked up on PATH otherwise. See docs/hooks.md.",
+      "properties": {
+        "prepare": {
+          "type": "string",
+          "description": "Command run once the services are healthy and before anything is seeded. Migrations belong here.",
+          "minLength": 1
+        },
+        "seed": {
+          "type": "string",
+          "description": "Command that seeds data. Runs only the first time the worktree comes up, and only after prepare exits zero.",
+          "minLength": 1
+        },
+        "verify": {
+          "type": "string",
+          "description": "Command `berth doctor` runs for a registered worktree; exit zero means healthy. Its output goes to stderr.",
+          "minLength": 1
+        },
+        "backup": {
+          "type": "string",
+          "description": "Command a future `berth backup` will run. Accepted and validated now; nothing invokes it yet.",
+          "minLength": 1
+        },
+        "restore": {
+          "type": "string",
+          "description": "Command a future `berth restore` will run. Accepted and validated now; nothing invokes it yet.",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "commands": {
+      "type": "object",
+      "description": "Named commands for `berth run <name> [-- args...]`: on-demand work that is not part of coming up. Each key is a name of lower-case letters, digits and hyphens.",
+      "propertyNames": {
+        "type": "string",
+        "description": "The command's name: lower-case letters, digits and hyphens, at most 63 characters.",
+        "pattern": "^[a-z0-9][a-z0-9-]*$",
+        "maxLength": 63
+      },
+      "additionalProperties": {
+        "description": "A command line, or a table with the command line and its options.",
+        "anyOf": [
+          {
+            "type": "string",
+            "description": "The command line on its own, with the default options.",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "description": "A command with options.",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "The command line, split and resolved exactly as a hook is. See docs/hooks.md.",
+                "minLength": 1
+              },
+              "lock": {
+                "type": "boolean",
+                "description": "Hold the worktree's operation lock while the command runs, so `up`, `down` and a second `run` wait. false skips only the lock; it is trusted, not enforced.",
+                "default": true
+              },
+              "kill-after": {
+                "type": "string",
+                "description": "How long the command's process group has to exit once asked to stop, before it is killed: a duration such as 30s, 5m or 1m30s, greater than zero and at most 1h.",
+                "pattern": "^([0-9]+(ms|s|m|h))+$",
+                "default": "10s"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "default": {}
+    }
+  },
+  "required": [
+    "project",
+    "compose"
+  ],
+  "additionalProperties": false
+}

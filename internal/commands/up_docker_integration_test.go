@@ -54,9 +54,8 @@ domain = "walk.localhost"
 label-namespace = %q
 [compose]
 file = "compose.yaml"
-[[service]]
-name = "api"
-[service.index]
+[service.api]
+[service.api.index]
 label = "API"
 [hooks]
 prepare = "./hooks/record"
