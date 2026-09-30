@@ -260,6 +260,7 @@ func TestSchemaAgreesWithValidation(t *testing.T) {
 		{"a kill-after of zero", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"0s\"\n", schemaLoose},
 		{"a kill-after over an hour", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"2h\"\n", schemaLoose},
 		{"a domain label over 63 characters", "[project]\nname = \"acme\"\ndomain = \"" + strings.Repeat("a", 64) + ".localhost\"\n[compose]\nfile = \"c.yaml\"\n", schemaLoose},
+		{"a purpose of 300 emoji: 300 code points, 600 UTF-16 units", minimalTOML + "[service.a]\n[service.a.index]\nlabel = \"A\"\npurpose = \"" + strings.Repeat("\U0001F600", 300) + "\"\n", schemaLoose},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

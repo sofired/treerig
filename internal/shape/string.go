@@ -63,6 +63,9 @@ func (s *StringSchema) Describe(text string) *StringSchema { s.mod.description =
 
 // Min requires at least n UTF-16 code units — JavaScript's String.length,
 // which is what zod measures. message overrides zod's builtin wording.
+// The published minLength counts code points, so for n above 1 the schema
+// would be stricter than this check on characters outside the Basic
+// Multilingual Plane; every Min in the config is 1, where the two agree.
 func (s *StringSchema) Min(n int, message ...string) *StringSchema {
 	msg := fmt.Sprintf("Too small: expected string to have >=%d characters", n)
 	if len(message) > 0 {
@@ -74,6 +77,9 @@ func (s *StringSchema) Min(n int, message ...string) *StringSchema {
 }
 
 // Max requires at most n UTF-16 code units. message overrides zod's builtin wording.
+// The published maxLength counts code points, so a string with characters
+// outside the Basic Multilingual Plane can pass the schema and still fail
+// here; docs/design/config.md records that difference.
 func (s *StringSchema) Max(n int, message ...string) *StringSchema {
 	msg := fmt.Sprintf("Too big: expected string to have <=%d characters", n)
 	if len(message) > 0 {
