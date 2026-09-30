@@ -64,18 +64,23 @@ sentence for any table.
   claiming a route), and `StartIssues` (a control character in an index
   label, checked only by commands that start something). The schema is looser
   than validation exactly there, never stricter, and says nothing about them;
-  `berth config validate` makes those checks.
+  `berth config validate` makes those checks. `shape.CodeOnlyChecks` lists the
+  first two kinds and a test pins the list, so adding one is a visible choice.
+  A `Refine` whose rule is a pattern can be restated with `SchemaPattern`.
 - **String lengths count differently.** berth counts a string's length in
   UTF-16 code units; JSON Schema's `minLength` and `maxLength` count code
   points. A string with characters outside the Basic Multilingual Plane (an
   emoji, say) can therefore pass the published `maxLength` and still exceed
   berth's limit, so the schema is looser there too. Every `Min` in the config
-  is 1, where the two counts agree, so the schema is never stricter. `shape.CodeOnlyChecks` lists the
-  first two kinds and a test pins the list, so adding one is a visible choice.
-  A `Refine` whose rule is a pattern can be restated with `SchemaPattern`.
+  is 1, where the two counts agree, so the schema is never stricter.
 - **Patterns are ECMA-262.** Go's regexp is RE2; editors run the pattern as
   ECMA-262. A pattern must mean the same in both, and the generator panics on
-  the RE2-only spellings it can recognize.
+  the RE2-only spellings it can recognize. A closing `$` is the absolute end
+  of the value in both, but a validator built on another engine (Python's
+  `re`, say) also lets `$` match before a final newline, so it can accept a
+  value such as `"acme\n"` that `berth config validate` rejects. That only
+  makes such a validator looser; the patterns are left as they are, since the
+  lookahead that would close it is not supported by Taplo's regex engine.
 - **Agreement is tested.** A test compiles the committed schema with an
   independent JSON Schema library (`github.com/santhosh-tekuri/jsonschema/v6`,
   which is why it is in `go.mod`; nothing outside tests imports it) and checks
