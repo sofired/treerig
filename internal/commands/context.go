@@ -8,6 +8,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
@@ -52,6 +53,17 @@ type CommandContext struct {
 	// settings file consulted (#79), the one resolution this context made:
 	// `up` builds its router from it rather than resolving again.
 	RouterPortResolution settings.PortResolution
+	// PortRange is where routed services' loopback ports are allocated from
+	// (settings.toml's [ports] range, else layout.DefaultPortRange, #119);
+	// the zero value means the default.
+	PortRange layout.PortRange
+	// PortProbe decides whether a candidate or pinned port is free; nil
+	// asks the operating system (ports.LoopbackProbe). Tests set a fake
+	// so they bind nothing.
+	PortProbe ports.Probe
+	// OS is runtime.GOOS, passed in from the entry point (Env.OS): it only
+	// picks which tool a message suggests for finding a process.
+	OS string
 	// RouterState is the shared router's own on-disk layout — where its
 	// lock and its index page live (neither is under ControlHome: the
 	// router's state is machine-wide, per berth root — see
@@ -75,11 +87,14 @@ type CommandContext struct {
 }
 
 // ComposeFile is the consumer's Compose file, resolved against the config's directory.
-func (c *CommandContext) ComposeFile() string {
-	if filepath.IsAbs(c.Loaded.Config.Compose.File) {
-		return filepath.Clean(c.Loaded.Config.Compose.File)
+func (c *CommandContext) ComposeFile() string { return composeFilePath(c.Loaded) }
+
+// composeFilePath is loaded's Compose file, resolved against the config's directory.
+func composeFilePath(loaded *config.Loaded) string {
+	if filepath.IsAbs(loaded.Config.Compose.File) {
+		return filepath.Clean(loaded.Config.Compose.File)
 	}
-	return filepath.Join(c.Loaded.Root, c.Loaded.Config.Compose.File)
+	return filepath.Join(loaded.Root, loaded.Config.Compose.File)
 }
 
 // Runtime is the Compose runtime for resources labelled under namespace; a
@@ -127,6 +142,10 @@ func Context(env *Env) (*CommandContext, error) {
 		return nil, err
 	}
 	routerPort := resolvedPort.Port
+	portRange, err := settings.ResolvePortRange(home)
+	if err != nil {
+		return nil, err
+	}
 	routerState := layout.RouterStateFrom(home)
 
 	reg := registry.New(registry.Options{
@@ -152,6 +171,8 @@ func Context(env *Env) (*CommandContext, error) {
 		Home:                 home,
 		RouterPort:           routerPort,
 		RouterPortResolution: resolvedPort,
+		PortRange:            portRange,
+		OS:                   env.OS,
 		RouterState:          routerState,
 		Registry:             reg,
 		Environ:              env.Environ,

@@ -180,6 +180,9 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A scratch berth root takes its loopback ports from the test range, never
+	// the default one a developer's own worktrees use (#119).
+	registrytest.WriteScratchSettings(t, home, "")
 	w.svc, err = router.New(router.Options{
 		State: state, Port: w.port, Runner: w.env.Runner, Logger: logger.Silent{},
 		ProjectName: project, Network: project, LabelNamespace: w.namespace, Environ: os.Environ(),
@@ -365,7 +368,7 @@ func TestUpUsesTheSettingsFilePortOnARealDaemon(t *testing.T) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(root, "settings.toml"), fmt.Sprintf("[router]\nport = %d\n", w.port), 0o600)
+	registrytest.WriteScratchSettings(t, root, fmt.Sprintf("[router]\nport = %d\n", w.port))
 	const host = "feature-walk.walk.localhost"
 
 	if cctx := w.context(t); cctx.RouterPort != w.port {

@@ -118,6 +118,32 @@ func TestServiceURLVariables(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
+
+	t.Run("BERTH_SERVICE_PORT_<NAME> for every service with an allocated port, named as BERTH_SERVICE_URL_<NAME> is (#119)", func(t *testing.T) {
+		routes := worktree.WithPorts(worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 8443),
+			map[string]int{"api": 20001, "mail-relay": 20002})
+		got := pairsToMap(worktree.ServiceURLVariables(routes))
+		if got["SERVICE_PORT_API"] != "20001" || got["SERVICE_PORT_MAIL_RELAY"] != "20002" {
+			t.Fatalf("got %+v", got)
+		}
+		if _, ok := got["SERVICE_PORT_DOCS"]; ok {
+			t.Fatalf("docs has no port but got a variable: %+v", got)
+		}
+		// The URLs are still the hostname URLs through the router.
+		if got["SERVICE_URL_API"] != "http://feature-login.acme.localhost:8443" || got["URL"] != "http://feature-login.acme.localhost:8443" {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("WithPorts leaves the routes it was given untouched", func(t *testing.T) {
+		routes := worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 80)
+		_ = worktree.WithPorts(routes, map[string]int{"api": 20001})
+		for _, route := range routes {
+			if route.Port != 0 {
+				t.Fatalf("%s: Port = %d", route.Service, route.Port)
+			}
+		}
+	})
 }
 
 // pairsToMap turns worktree.ServiceURLVariables' [][2]string pairs into a

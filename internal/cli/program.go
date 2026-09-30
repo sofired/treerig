@@ -440,6 +440,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		},
 	})
 
+	var upReallocate []string
 	up := &cobra.Command{
 		Use:   "up [services...]",
 		Short: "register this worktree, start its services, and run its hooks",
@@ -448,9 +449,11 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			if err != nil {
 				return err
 			}
-			return commands.Up(cmd.Context(), env, commands.UpOptions{Services: args})
+			return commands.Up(cmd.Context(), env, commands.UpOptions{Services: args, ReallocatePorts: upReallocate})
 		},
 	}
+	up.Flags().StringArrayVar(&upReallocate, "reallocate-port", nil,
+		"move a routed service to a new loopback port (repeatable)")
 	up.ValidArgsFunction = serviceCompletionFunc(p)
 	root.AddCommand(up)
 

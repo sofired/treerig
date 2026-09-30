@@ -4,7 +4,9 @@ Usage:
   berth up [services...] [flags]
 
 Flags:
-  -h, --help   help for up
+  -h, --help                          help for up
+      --reallocate-port stringArray   move a routed service to a new loopback
+                                      port (repeatable)
 
 Global Flags:
       --config string   path to berth.toml (default: nearest above cwd)

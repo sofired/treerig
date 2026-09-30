@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry"
 )
 
@@ -21,7 +22,23 @@ type RecordJSON struct {
 	Domain         string  `json:"domain"`
 	LabelNamespace *string `json:"labelNamespace,omitempty"`
 	Initialization string  `json:"initialization"`
+	// Ports is the optional service → loopback port map (#119).
+	Ports map[string]int `json:"ports,omitempty"`
 }
+
+// PortRange is the loopback port range tests allocate from. It is not the
+// default range, so a test never takes a port from a developer's own
+// worktrees, and it sits below the OS's ephemeral range.
+var PortRange = layout.PortRange{Low: 30000, High: 30999}
+
+// FreeProbe is a ports.Probe that reports every port free except the
+// ones in Busy, so a test picks which ports are taken without binding any.
+type FreeProbe struct {
+	Busy map[int]bool
+}
+
+// Free is ports.Probe's Free.
+func (p FreeProbe) Free(_ context.Context, port int) bool { return !p.Busy[port] }
 
 // WriteRecord writes a fixture registry record directly to disk, bypassing
 // the registry lock. This build has no Ensure (only `up` creates records), so

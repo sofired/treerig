@@ -35,6 +35,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
@@ -385,6 +387,17 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 		checks = append(checks, Check{Status: StatusFail, ID: "registry.host-conflict", Instance: host, Subject: host, Detail: fmt.Sprintf(
 			"registered to %d worktrees (%s); requests for it may reach any of them that is running. Remove all but one with '%s worktree remove <uuid>'.",
 			len(claimants), text.OneLine(strings.Join(ids, ", "), 200), commandName)})
+	}
+
+	for _, conflict := range registry.PortConflicts(scan.Records) {
+		claims := make([]string, len(conflict.Claims))
+		for i, claim := range conflict.Claims {
+			claims[i] = fmt.Sprintf("%s of %s", claim.Service, layout.WorktreeHost(claim.Worktree.Slug, claim.Worktree.Domain))
+		}
+		checks = append(checks, Check{Status: StatusFail, ID: "registry.port-conflict", Instance: strconv.Itoa(conflict.Port),
+			Subject: fmt.Sprintf("port %d", conflict.Port), Detail: fmt.Sprintf(
+				"recorded for %s; only one can publish it. Run '%s up --reallocate-port <service>' for all but one of those services, each in the checkout that records it.",
+				text.OneLine(strings.Join(claims, ", "), 200), commandName)})
 	}
 
 	for _, record := range scan.Records {
@@ -1229,6 +1242,14 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 		checks = append(checks, missing...)
 	}
 
+	if identified && registration != nil && len(loaded.Config.Service) > 0 {
+		portLines, err := loopbackPortChecks(ctx, opts, loaded, registration)
+		if err != nil {
+			return nil, err
+		}
+		checks = append(checks, portLines...)
+	}
+
 	checks = append(checks, hookResolutionChecks(loaded, opts.Environ)...)
 
 	command := loaded.Config.Hooks.Verify
@@ -1247,7 +1268,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 		// hook a wrong :0 URL rather than no URL at all.
 		var verifyRoutes []worktree.ServiceRoute
 		if opts.RouterErr == nil {
-			verifyRoutes = worktree.Routes(loaded.Config.Service, ref.Slug, registration.Domain, opts.RouterPort.Port)
+			verifyRoutes = worktree.WithPorts(worktree.Routes(loaded.Config.Service, ref.Slug, registration.Domain, opts.RouterPort.Port), registration.Ports)
 		}
 		// Its output goes to stderr: stdout is this report.
 		_, hookErr := hooks.RunHook(ctx, config.Verify, hooks.HookContext{
@@ -1256,7 +1277,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 				ControlHome: opts.ControlHome, ConfigFile: loaded.File, ProjectRoot: loaded.Root,
 			},
 			Ref: ref, Hooks: loaded.Config.Hooks, Logger: opts.Logger, Runner: opts.Runner, Environ: opts.Environ,
-			Routes: verifyRoutes, // BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28)
+			Routes: verifyRoutes, // BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28), BERTH_SERVICE_PORT_<NAME> (#119)
 		}, hooks.RunOptions{Output: hooks.Stderr})
 		if hookErr != nil {
 			var cancelled *clierr.Cancelled
@@ -1432,6 +1453,16 @@ type doctorOptions struct {
 	Environ     []string
 	// DockerProbeTimeout overrides dockerProbeTimeout; zero keeps the default.
 	DockerProbeTimeout time.Duration
+	// PortProbe decides whether an allocated loopback port is free; nil asks
+	// the operating system (#119).
+	PortProbe ports.Probe
+	// OS is Env.OS, for the tool a message suggests.
+	OS string
+	// DockerAnswered is set by doctorSections from its own Docker probes:
+	// true when both the daemon and Compose answered. The checks that ask
+	// Docker who holds a port, or what a Compose file publishes, are
+	// skipped, or say they could not tell, when it is false.
+	DockerAnswered bool
 }
 
 // dockerTimeout is o.DockerProbeTimeout when set, otherwise
@@ -1464,6 +1495,7 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	if err != nil {
 		return nil, err
 	}
+	opts.DockerAnswered = state.engineAnswered && state.composeAnswered
 	checkoutChecksResult, err := thisCheckoutSection(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -1498,7 +1530,7 @@ func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state
 	opts := doctorOptions{
 		CommandName: env.CommandName, ControlHome: controlHome, Home: home,
 		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: userHome,
-		Runner: env.Runner, Logger: env.Logger,
+		Runner: env.Runner, Logger: env.Logger, OS: env.OS,
 		Checkout: checkout, Invocation: env.Invocation, Environ: env.Environ,
 	}
 	if svcErr != nil {

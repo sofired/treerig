@@ -58,7 +58,10 @@ func withLock(ctx context.Context, scope lock.Scope, opts lock.Options, invocati
 }
 
 // withRegistryLock runs write under the machine-wide registry lock. It guards
-// only milliseconds of JSON, so it polls quickly and waits patiently.
+// only short writes, so it polls quickly and waits patiently. Most are
+// milliseconds of JSON; a port allocation (SyncPorts) also scans every
+// registration and probes candidate ports, which ports.Pick bounds at a
+// fixed number of probes per call.
 func (s *Store) withRegistryLock(ctx context.Context, writer Writer, write func(context.Context) error) error {
 	return withLock(ctx, lock.RegistryScope(s.ControlHome), lock.Options{
 		Timeout: lock.RegistryTimeout,
@@ -90,53 +93,75 @@ func withSuppressed(primary, also error) error {
 	return ce
 }
 
-// recordJSON is the record as written, in a fixed key order.
+// recordJSON is the record as written, in a fixed key order. Nothing but
+// recordFor constructs one: every writer starts from a RegisteredWorktree,
+// so a field it does not know about is carried, not erased (#119).
 type recordJSON struct {
-	Version        int     `json:"version"`
-	RepositoryID   string  `json:"repositoryId"`
-	WorktreeID     string  `json:"worktreeId"`
-	Slug           string  `json:"slug"`
-	Domain         string  `json:"domain"`
-	LabelNamespace *string `json:"labelNamespace,omitempty"`
-	Initialization string  `json:"initialization"`
+	Version        int            `json:"version"`
+	RepositoryID   string         `json:"repositoryId"`
+	WorktreeID     string         `json:"worktreeId"`
+	Slug           string         `json:"slug"`
+	Domain         string         `json:"domain"`
+	LabelNamespace *string        `json:"labelNamespace,omitempty"`
+	Initialization string         `json:"initialization"`
+	Ports          map[string]int `json:"ports,omitempty"`
+}
+
+// recordFor is the one record builder: every registry writer goes through
+// it. It is total over RegisteredWorktree (TestRecordCarriesEveryField
+// fills each field by reflection), so a writer that changes one field of a
+// registration and passes the rest through cannot drop the others.
+func recordFor(registration RegisteredWorktree, initialization WorktreeInitialization) recordJSON {
+	return recordJSON{
+		Version:        1,
+		RepositoryID:   registration.RepositoryID,
+		WorktreeID:     registration.WorktreeID,
+		Slug:           registration.Slug,
+		Domain:         registration.Domain,
+		LabelNamespace: registration.LabelNamespace,
+		Initialization: string(initialization),
+		Ports:          nonEmptyPorts(registration.Ports),
+	}
+}
+
+// readOwnedRecord reads worktreeID's record for a writer that holds the
+// registry lock, refusing if it is missing or its slug no longer matches
+// expectedSlug — the same reconciliation guard Ensure itself applies.
+func (s *Store) readOwnedRecord(worktreeID, expectedSlug string) (string, *storedRecord, error) {
+	file := s.RecordPath(worktreeID)
+	exists, err := files.PathExists(file)
+	if err != nil {
+		return "", nil, err
+	}
+	if !exists {
+		return "", nil, clierr.Newf("Worktree registration is missing: %s", file)
+	}
+	stored, err := s.readStoredRecord(file)
+	if err != nil {
+		return "", nil, err
+	}
+	if stored.Registration.Slug != expectedSlug {
+		return "", nil, clierr.Newf("Worktree %s no longer owns registration %s", expectedSlug, file)
+	}
+	return file, stored, nil
 }
 
 // setInitialization writes state into worktreeID's record under the registry
 // lock, refusing if the record is missing or its slug no longer matches
-// expectedSlug — the same reconciliation guard Ensure itself applies —
-// and doing nothing if the record already names state.
+// expectedSlug, and doing nothing if the record already names state.
 func (s *Store) setInitialization(ctx context.Context, worktreeID, expectedSlug string, writer Writer, state WorktreeInitialization) error {
 	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID), writer.UserHome); err != nil {
 		return err
 	}
 	return s.withRegistryLock(ctx, writer, func(context.Context) error {
-		file := s.RecordPath(worktreeID)
-		exists, err := files.PathExists(file)
+		file, stored, err := s.readOwnedRecord(worktreeID, expectedSlug)
 		if err != nil {
 			return err
-		}
-		if !exists {
-			return clierr.Newf("Worktree registration is missing: %s", file)
-		}
-		stored, err := s.readStoredRecord(file)
-		if err != nil {
-			return err
-		}
-		if stored.Registration.Slug != expectedSlug {
-			return clierr.Newf("Worktree %s no longer owns registration %s", expectedSlug, file)
 		}
 		if stored.Initialization == state {
 			return nil
 		}
-		return files.AtomicJSON(file, recordJSON{
-			Version:        1,
-			RepositoryID:   stored.Registration.RepositoryID,
-			WorktreeID:     stored.Registration.WorktreeID,
-			Slug:           stored.Registration.Slug,
-			Domain:         stored.Registration.Domain,
-			LabelNamespace: stored.Registration.LabelNamespace,
-			Initialization: string(state),
-		})
+		return files.AtomicJSON(file, recordFor(stored.Registration, state))
 	})
 }
 
@@ -199,17 +224,12 @@ func (s *Store) Ensure(
 				return nil
 			}
 			// Same hostname, different labels: rewrite in place; nothing to allocate.
-			if err := files.AtomicJSON(file, recordJSON{
-				Version: 1, RepositoryID: s.RepositoryID, WorktreeID: worktreeID,
-				Slug: stored.Registration.Slug, Domain: domain,
-				LabelNamespace: labelNamespace, Initialization: string(stored.Initialization),
-			}); err != nil {
+			relabelled := stored.Registration
+			relabelled.LabelNamespace = labelNamespace
+			if err := files.AtomicJSON(file, recordFor(relabelled, stored.Initialization)); err != nil {
 				return err
 			}
-			result := EnsuredWorktree{RegisteredWorktree: RegisteredWorktree{
-				RepositoryID: s.RepositoryID, WorktreeID: worktreeID,
-				Slug: stored.Registration.Slug, Domain: domain, LabelNamespace: labelNamespace,
-			}}
+			result := EnsuredWorktree{RegisteredWorktree: relabelled}
 			if previous := stored.Registration.LabelNamespace; previous != nil {
 				result.PreviousLabelNamespace = previous
 			}
@@ -222,16 +242,8 @@ func (s *Store) Ensure(
 			return err
 		}
 		if len(scan.Problems) > 0 {
-			var listing strings.Builder
-			for _, problem := range scan.Problems {
-				fmt.Fprintf(&listing, "  %s: %s\n", problem.File, problem.Reason)
-			}
-			return clierr.Newf(
-				"Refusing to allocate a hostname while the registry has unreadable records:\n%s"+
-					"Each reason is beside its file above. Move a file aside once you know what it is: "+
-					"a record that cannot be read is one whose Docker resources removal can no longer find.",
-				listing.String(),
-			)
+			return refuseUnreadable("a hostname",
+				"a record that cannot be read is one whose Docker resources removal can no longer find.", scan.Problems)
 		}
 		var others []RegisteredWorktree
 		for _, record := range scan.Records {
@@ -240,8 +252,11 @@ func (s *Store) Ensure(
 			}
 		}
 		preferred := ""
+		var ports map[string]int
 		if stored != nil {
 			preferred = stored.Registration.Slug
+			// A rename or a re-domain changes the hostname, never the ports.
+			ports = stored.Registration.Ports
 		}
 		slug, err := allocate(others, preferred)
 		if err != nil {
@@ -262,16 +277,14 @@ func (s *Store) Ensure(
 				return err
 			}
 		}
-		if err := files.AtomicJSON(file, recordJSON{
-			Version: 1, RepositoryID: s.RepositoryID, WorktreeID: worktreeID,
-			Slug: slug, Domain: domain, LabelNamespace: namespace, Initialization: string(initState),
-		}); err != nil {
+		written := RegisteredWorktree{
+			RepositoryID: s.RepositoryID, WorktreeID: worktreeID, Slug: slug, Domain: domain, LabelNamespace: namespace, Ports: ports,
+		}
+		if err := files.AtomicJSON(file, recordFor(written, initState)); err != nil {
 			return err
 		}
 
-		result := EnsuredWorktree{RegisteredWorktree: RegisteredWorktree{
-			RepositoryID: s.RepositoryID, WorktreeID: worktreeID, Slug: slug, Domain: domain, LabelNamespace: namespace,
-		}}
+		result := EnsuredWorktree{RegisteredWorktree: written}
 		if stored != nil {
 			host := layout.WorktreeHost(stored.Registration.Slug, stored.Registration.Domain)
 			result.PreviousHost = &host
@@ -286,6 +299,22 @@ func (s *Store) Ensure(
 		return nil, err
 	}
 	return ensured, nil
+}
+
+// refuseUnreadable is the refusal to allocate what (a hostname, a port)
+// while the registry holds records that could not be read: an unreadable
+// record may be occupying it. consequence says why that matters, and each
+// problem is listed with its reason beside its file.
+func refuseUnreadable(what, consequence string, problems []RegistryProblem) error {
+	var listing strings.Builder
+	for _, problem := range problems {
+		fmt.Fprintf(&listing, "  %s: %s\n", problem.File, problem.Reason)
+	}
+	return clierr.Newf(
+		"Refusing to allocate %s while the registry has unreadable records:\n%s"+
+			"Each reason is beside its file above. Move a file aside once you know what it is: %s",
+		what, listing.String(), consequence,
+	)
 }
 
 // Remove deletes a registration, reporting whether there was one to delete.

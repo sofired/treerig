@@ -388,6 +388,35 @@ One lifecycle for the whole process, started once in `main`.
   running out its own budget, and the error it returns on that path is
   exactly the kind `Finish` reports rather than silently re-raising.
 
+## Loopback port allocation (#119)
+
+No new lock, and no new order. `up` allocates a routed service's port inside
+its `Hold` of the worktree's operation lock, by calling
+`registry.Store.SyncPorts`, which takes the registry lock for its own short
+read-scan-write: operation, then registry, the order every other registry
+write already uses. The scan of every registration in the control home that
+picks a free port, the loopback probes, and the write of the worktree's
+record all happen under that one registry hold, so two worktrees of one
+control home cannot pick the same port. `worktree remove` releases a
+worktree's ports with `Store.ReleasePorts` in the same order, after the
+containers are reaped and before the record is deleted. Nothing takes the
+router lock and the registry lock together.
+
+The router's own index and ping ports (#120) are allocated from the same
+range under the router lock, not the registry lock, and the two locks are
+never nested. Within one control home a worktree allocation and an
+index/ping allocation can therefore race for the same port. That race is
+accepted, like the two-control-home race below: `PortPlan.Reserved` keeps a
+worktree from taking a port the router state already names, and the losing
+side is caught by Docker's bind error and by the pre-start port check in
+`Ensure` and `up`.
+
+The registry lock is per control home, as it is for hostnames: two control
+homes on one machine can pick the same port at the same moment. That race is
+accepted (docs/design/routing.md, decision 3a); the second `up`'s bind error
+is its catch, and `up` re-probes and names the holder rather than parsing
+Docker's message.
+
 ## Real-process tests
 
 `//go:build integration` tests in `internal/lock`, `internal/lifecycle`, and

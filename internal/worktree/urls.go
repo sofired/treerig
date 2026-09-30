@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/sofired/berth/internal/config"
@@ -18,6 +19,9 @@ type ServiceRoute struct {
 	Subdomain string
 	Path      *string
 	URL       string
+	// Port is the loopback port berth allocated to the service (#119), 0
+	// when none has been. Routes never sets it; WithPorts does.
+	Port int
 }
 
 // Routes is the URL each of services will answer on, in config order: the
@@ -51,6 +55,18 @@ func Routes(services []config.Service, slug, domain string, port int) []ServiceR
 	return routes
 }
 
+// WithPorts is routes with each service's allocated loopback port filled in
+// from ports, keyed by service name. A service with no entry keeps Port 0.
+// routes itself is not modified.
+func WithPorts(routes []ServiceRoute, ports map[string]int) []ServiceRoute {
+	withPorts := make([]ServiceRoute, len(routes))
+	for i, route := range routes {
+		route.Port = ports[route.Service]
+		withPorts[i] = route
+	}
+	return withPorts
+}
+
 // RootRoute is the route claiming the host root outright — no subdomain, no
 // path — or nil if none does; config's duplicate-route check allows at most
 // one.
@@ -66,8 +82,11 @@ func RootRoute(routes []ServiceRoute) *ServiceRoute {
 // ServiceURLVariables is the extra environment a hook — and a `berth run`
 // command (#94) — receives on top of Environment: BERTH_URL for the
 // worktree's root route (RootRoute), omitted rather than empty when routes
-// has none, and BERTH_SERVICE_URL_<NAME> for every routed service, its name
-// upper-cased with each hyphen turned into an underscore.
+// has none, BERTH_SERVICE_URL_<NAME> for every routed service, its name
+// upper-cased with each hyphen turned into an underscore, and
+// BERTH_SERVICE_PORT_<NAME> (same name mapping) for every routed service
+// that has an allocated loopback port (#119): the port on 127.0.0.1 that
+// bypasses the router, for tools that must reach the service directly.
 //
 // Deliberately not folded into Environment/Variables, which also feed
 // Compose (internal/backend/compose.go): the router port is a setting of
@@ -85,6 +104,11 @@ func ServiceURLVariables(routes []ServiceRoute) [][2]string {
 	}
 	for _, route := range routes {
 		pairs = append(pairs, [2]string{"SERVICE_URL_" + serviceEnvName(route.Service), route.URL})
+	}
+	for _, route := range routes {
+		if route.Port > 0 {
+			pairs = append(pairs, [2]string{"SERVICE_PORT_" + serviceEnvName(route.Service), strconv.Itoa(route.Port)})
+		}
 	}
 	return pairs
 }

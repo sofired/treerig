@@ -94,7 +94,14 @@ type RouteSpec struct {
 	Path *string
 	// Port is the container port; nil defaults to the first the service exposes or publishes.
 	Port *int
+	// HostPort, when set, is the loopback port (#119) the override publishes
+	// the service's routed container port on, at 127.0.0.1. Zero publishes
+	// nothing.
+	HostPort int
 }
+
+// loopbackHost is the host address a routed service's port is published on.
+const loopbackHost = "127.0.0.1"
 
 // home is the worktree's own directory, where its override document is written.
 func (c *Compose) home(ref worktree.Ref) string {
@@ -530,11 +537,15 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 			if !ok {
 				return nil, clierr.Newf("[service.%s] names a service that is not defined in %s.", route.Service, c.options.ComposeFile)
 			}
-			if _, ok := resolvePort(route, service); !ok {
+			target, ok := resolvePort(route, service)
+			if !ok {
 				return nil, clierr.Newf(
 					"Service %s declares no port: set port in its [service.%s] table, or expose one in %s.",
 					route.Service, route.Service, c.options.ComposeFile,
 				)
+			}
+			if err := refuseUnpublishable(route.Service, c.options.ComposeFile, service); err != nil {
+				return nil, err
 			}
 			name := RouteName(ref, route)
 			entry, _ := outServices.values[route.Service].(*jsonKV)
@@ -547,6 +558,16 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 			}
 			svcNetworks.set(routerNetworkKey, newJSONKV().set("aliases", []string{name}))
 			entry.set("networks", svcNetworks)
+			if route.HostPort > 0 {
+				// Compose merges this with the service's own ports; the long
+				// syntax pins the address to loopback, which the short one
+				// can too but with a string that has to be built and parsed.
+				entry.set("ports", []any{newJSONKV().
+					set("target", target).
+					set("published", strconv.Itoa(route.HostPort)).
+					set("host_ip", loopbackHost).
+					set("protocol", "tcp")})
+			}
 		}
 		outNetworks.set(routerNetworkKey, newJSONKV().
 			set("name", RouterNetworkName(ref.RepositoryID, ref.WorktreeID)).
@@ -554,6 +575,49 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 	}
 
 	return newJSONKV().set("services", outServices).set("volumes", outVolumes).set("networks", outNetworks), nil
+}
+
+// refuseUnpublishable refuses a routed service berth cannot publish one
+// loopback port for (docs/design/routing.md, decision 12): a service in the
+// host's network namespace or another service's has no port of its own to
+// publish, and several replicas cannot share one.
+func refuseUnpublishable(name, composeFile string, service *jsonKV) error {
+	if mode, ok := service.get("network_mode"); ok {
+		if text, ok := mode.(string); ok && (text == "host" || strings.HasPrefix(text, "service:")) {
+			return clierr.Newf(
+				"Service %s in %s uses network_mode: %s, so %s cannot publish a loopback port for it. "+
+					"A routed service needs its own network namespace: remove network_mode, or remove its [service.%s] table.",
+				name, composeFile, text, brand.Name, name)
+		}
+	}
+	if replicas := replicaCount(service); replicas > 1 {
+		return clierr.Newf(
+			"Service %s in %s runs %d replicas, but a routed service publishes one loopback port, which replicas cannot share. "+
+				"Run one replica, or remove its [service.%s] table.",
+			name, composeFile, replicas, name)
+	}
+	return nil
+}
+
+// replicaCount is how many containers a service asks for: the larger of
+// deploy.replicas and scale, either of which Compose accepts; 1 when neither is set.
+func replicaCount(service *jsonKV) int {
+	count := 1
+	read := func(value any, present bool) {
+		if !present {
+			return
+		}
+		if number, ok := value.(json.Number); ok {
+			if n, err := number.Int64(); err == nil && int(n) > count {
+				count = int(n)
+			}
+		}
+	}
+	read(service.get("scale"))
+	if deploy, ok := service.values["deploy"].(*jsonKV); ok {
+		read(deploy.get("replicas"))
+	}
+	return count
 }
 
 // resolvePort is route's explicit port if it named one, otherwise the

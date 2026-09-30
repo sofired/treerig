@@ -58,6 +58,10 @@ type UpOptions struct {
 	// Services are the Compose services to start; empty means every service
 	// the backend's definition declares.
 	Services []string
+	// ReallocatePorts names routed services to give a new loopback port
+	// (--reallocate-port), refused while this worktree's own container
+	// holds the current one.
+	ReallocatePorts []string
 }
 
 // UpResult is what `up` did.
@@ -107,11 +111,13 @@ func (i bestEffortIndex) RefreshBestEffort(ctx context.Context, reason string) {
 // in config order — shared by upRuntime (which needs it to build the
 // worktree's own Compose runtime) and UpWithContext's own fragment-writing
 // step (which needs it again, after routerSvc's Router is out of scope, to
-// name and rule each route the same way).
-func routeSpecsFromConfig(services []config.Service) []backend.RouteSpec {
+// name and rule each route the same way). ports are the loopback ports
+// allocated to the routed services (#119); a service without one publishes
+// nothing.
+func routeSpecsFromConfig(services []config.Service, ports map[string]int) []backend.RouteSpec {
 	routes := make([]backend.RouteSpec, len(services))
 	for i, service := range services {
-		routes[i] = backend.RouteSpec{Service: service.Name, Subdomain: service.Subdomain, Path: service.Path, Port: service.Port}
+		routes[i] = backend.RouteSpec{Service: service.Name, Subdomain: service.Subdomain, Path: service.Path, Port: service.Port, HostPort: ports[service.Name]}
 	}
 	return routes
 }
@@ -121,8 +127,8 @@ func routeSpecsFromConfig(services []config.Service) []backend.RouteSpec {
 // runtime.Up needs and no other verb does. Duplicating its handful of
 // fields here is cheaper than widening CommandContext.Runtime's own
 // signature (context.go) for one caller.
-func upRuntime(cctx *CommandContext, namespace string, routerSvc Router) *backend.Compose {
-	routes := routeSpecsFromConfig(cctx.Loaded.Config.Service)
+func upRuntime(cctx *CommandContext, namespace string, routerSvc Router, ports map[string]int) *backend.Compose {
+	routes := routeSpecsFromConfig(cctx.Loaded.Config.Service, ports)
 	return backend.NewCompose(backend.Options{
 		ComposeFile:    cctx.ComposeFile(),
 		ProjectRoot:    cctx.Loaded.Root,
@@ -190,6 +196,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	if err := config.CheckStart(cctx.Loaded); err != nil {
 		return nil, err
 	}
+	if err := validateReallocation(cctx.Loaded.Config.Service, options.ReallocatePorts); err != nil {
+		return nil, err
+	}
 	// Registry.Ensure takes the worktree's operation lock before mutate
 	// does, so the nested-invocation check runs here too, on the identity
 	// as it stands now: a checkout with none yet has no lock to wait on.
@@ -224,6 +233,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	serviceRoutes := worktree.Routes(cctx.Loaded.Config.Service, ref.Slug, registration.Domain, routerSvc.Port())
 	urls := urlsFromRoutes(cctx.Loaded.Config.Service, serviceRoutes)
 
+	// hookRoutes are serviceRoutes with each service's loopback port, which
+	// only exists once the mutation has allocated it (#119).
+	hookRoutes := serviceRoutes
 	var ranHooks []config.HookStage
 	err = cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
 		// The router may have taken minutes to start, and the lock was free
@@ -267,6 +279,26 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			return err
 		}
 
+		// Ports exist before anything starts: allocated under the registry
+		// lock (inside this operation lock), refused if something else holds
+		// one, and published by the override the runtime writes (#119).
+		inspector := upRuntime(cctx, ownNamespace, routerSvc, nil)
+		// Refused before allocating, so no port is ever recorded for a
+		// service that cannot publish one.
+		if err := inspector.CheckPublishable(ctx, ref); err != nil {
+			return err
+		}
+		ports, err := allocatePorts(ctx, cctx, inspector, ref, host, options)
+		if err != nil {
+			return err
+		}
+		routed := startingRouted(routedServiceNames(cctx.Loaded.Config.Service), options.Services)
+		if err := checkPortsFree(ctx, cctx, inspector, ref, routed, ports); err != nil {
+			return err
+		}
+		hookRoutes = worktree.WithPorts(serviceRoutes, ports)
+		urls = urlsFromRoutes(cctx.Loaded.Config.Service, hookRoutes)
+
 		// Every declared service is recorded, not only the ones with a
 		// [service.<name>.index] block (#16): Label (and Purpose alongside it) is
 		// "" for one that never opted in, which keeps it off the page as a
@@ -297,10 +329,13 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		if len(options.Services) > 0 {
 			what = strings.Join(options.Services, ", ")
 		}
-		runtime := upRuntime(cctx, ownNamespace, routerSvc)
+		runtime := upRuntime(cctx, ownNamespace, routerSvc, ports)
 		if err := withProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
 			return runtime.Up(ctx, ref, options.Services)
 		}); err != nil {
+			return explainStartFailure(ctx, cctx, inspector, ref, routed, ports, err)
+		}
+		if err := releaseDroppedPorts(ctx, cctx, ref, options); err != nil {
 			return err
 		}
 
@@ -316,8 +351,8 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		// order briefly unrouted every one of this worktree's routes on
 		// every re-up, for however long it took to write them back —
 		// wrong even when nothing about the routes actually changed.
-		routes := routeSpecsFromConfig(cctx.Loaded.Config.Service)
-		ports := map[string]int{}
+		routes := routeSpecsFromConfig(cctx.Loaded.Config.Service, ports)
+		backends := map[string]int{}
 		network := backend.RouterNetworkName(ref.RepositoryID, ref.WorktreeID)
 		if len(routes) > 0 {
 			// RouteBackends and ConnectNetwork are still skipped with no
@@ -326,7 +361,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			// per-worktree router network to read a port from or connect
 			// to in the first place.
 			var err error
-			ports, err = runtime.RouteBackends(ctx, ref)
+			backends, err = runtime.RouteBackends(ctx, ref)
 			if err != nil {
 				return err
 			}
@@ -350,7 +385,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		for _, route := range routes {
 			name := backend.RouteName(ref, route)
 			rule := backend.RouteRule(route, host)
-			doc := router.NewFragmentDocument(name, rule, name, ports[route.Service])
+			doc := router.NewFragmentDocument(name, rule, name, backends[route.Service])
 			if err := router.WriteFragment(cctx.RouterState, ref.RepositoryID, ref.WorktreeID, route.Service, doc); err != nil {
 				return clierr.Newf("Could not write %s's route fragment: %s", route.Service, err)
 			}
@@ -400,7 +435,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 				ProjectRoot: cctx.Loaded.Root,
 			},
 			Ref: ref, Hooks: cctx.Loaded.Config.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ,
-			Routes: serviceRoutes,
+			Routes: hookRoutes,
 		}, hooks.LifecycleOptions{Stages: upStages(firstTime)})
 		if err != nil {
 			return err

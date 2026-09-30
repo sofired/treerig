@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -23,9 +24,12 @@ type Docker struct {
 	mu        sync.Mutex
 	resources map[string]map[string]map[string]string // kind → id → labels
 	inspected map[string]int
-	tampers   map[string]tamper
-	next      int
-	calls     []run.Spec
+	names     map[string]string // container id → name
+	// serviceConfig adds keys to a service's entry in `compose config`.
+	serviceConfig map[string]map[string]any
+	tampers       map[string]tamper
+	next          int
+	calls         []run.Spec
 	// Services is what `compose config` reports the Compose file declares.
 	Services []string
 	// before runs once, ahead of the first docker call, outside the lock: the
@@ -47,6 +51,35 @@ type Docker struct {
 	// retried removal.
 	removeNetworkExitCode int
 	removeNetworkStderr   string
+	// upStderr, when set, makes `compose up` fail with it after upDuring
+	// runs: FailUp's own state, for a test where a port is taken between
+	// the check and the start.
+	upStderr  string
+	upDuring  func()
+	upFailing bool
+}
+
+// FailUp makes every subsequent `docker compose up` run during, outside the
+// fake's lock, then exit 1 with stderr: Docker's bind error, say, after a
+// rival took a port.
+func (d *Docker) FailUp(stderr string, during func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.upFailing, d.upStderr, d.upDuring = true, stderr, during
+}
+
+// SetServiceConfig adds key to service's entry in what `compose config`
+// reports, such as network_mode or scale.
+func (d *Docker) SetServiceConfig(service, key string, value any) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.serviceConfig == nil {
+		d.serviceConfig = map[string]map[string]any{}
+	}
+	if d.serviceConfig[service] == nil {
+		d.serviceConfig[service] = map[string]any{}
+	}
+	d.serviceConfig[service][key] = value
 }
 
 // FailNetworkDisconnect makes every subsequent `docker network disconnect`
@@ -77,6 +110,7 @@ func NewDocker(services ...string) *Docker {
 	return &Docker{
 		resources: map[string]map[string]map[string]string{"container": {}, "volume": {}, "network": {}, "image": {}},
 		inspected: map[string]int{},
+		names:     map[string]string{},
 		tampers:   map[string]tamper{},
 		Services:  services,
 	}
@@ -106,6 +140,43 @@ func (d *Docker) Up(ref worktree.Ref, namespace string, services ...string) []st
 	}
 	ids = append(ids, d.add("volume", Ownership(ref, namespace)))
 	return ids
+}
+
+// Publish adds a running container of ref's service that publishes host port
+// on loopback, with the ownership labels ref's Up gives it, and returns its
+// id. The fake answers `ps --filter publish=<port>` from the "publish" label
+// it sets.
+func (d *Docker) Publish(ref worktree.Ref, namespace, service, name string, port int) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	labels := Ownership(ref, namespace)
+	labels["com.docker.compose.service"] = service
+	labels["publish"] = strconv.Itoa(port)
+	id := d.add("container", labels)
+	d.names[id] = name
+	return id
+}
+
+// PublishForeign adds a running container that publishes host port and is
+// none of berth's: it carries no ownership labels.
+func (d *Docker) PublishForeign(name string, port int) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	id := d.add("container", map[string]string{"publish": strconv.Itoa(port)})
+	d.names[id] = name
+	return id
+}
+
+// PublishManaged adds a running container that publishes host port and
+// carries berth's ownership labels for some other worktree.
+func (d *Docker) PublishManaged(other worktree.Ref, namespace, name string, port int) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	labels := Ownership(other, namespace)
+	labels["publish"] = strconv.Itoa(port)
+	id := d.add("container", labels)
+	d.names[id] = name
+	return id
 }
 
 // Add puts one resource in the daemon with exactly these labels.
@@ -175,6 +246,9 @@ func (d *Docker) Calls() []string {
 
 var labelName = regexp.MustCompile(`"([^"]+)"`)
 
+// formatToken is one {{ … }} action of an inspect --format template.
+var formatToken = regexp.MustCompile(`\{\{[^}]*\}\}`)
+
 // Handle answers one docker call.
 func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Lock()
@@ -183,6 +257,15 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Unlock()
 	if before != nil {
 		before()
+	}
+
+	if len(spec.Args) > 0 && spec.Args[0] == "compose" && slices.Contains(spec.Args, "up") {
+		d.mu.Lock()
+		failing, during := d.upFailing, d.upDuring
+		d.mu.Unlock()
+		if failing && during != nil {
+			during()
+		}
 	}
 
 	d.mu.Lock()
@@ -197,7 +280,11 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 		case slices.Contains(args, "config"):
 			services := map[string]any{}
 			for _, name := range d.Services {
-				services[name] = map[string]any{"image": "busybox"}
+				entry := map[string]any{"image": "busybox"}
+				for key, value := range d.serviceConfig[name] {
+					entry[key] = value
+				}
+				services[name] = entry
 			}
 			encoded, _ := json.Marshal(map[string]any{"name": project, "services": services})
 			return ok(string(encoded))
@@ -211,6 +298,8 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 				}
 			}
 			return ok(strings.Join(lines, "\n"))
+		case slices.Contains(args, "up") && d.upFailing:
+			return run.Finish(spec, run.Result{Stderr: d.upStderr, ExitCode: 1})
 		case slices.Contains(args, "down"):
 			// Containers go; named volumes are left for reap, as Compose leaves them.
 			for id, labels := range d.resources["container"] {
@@ -262,8 +351,14 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			d.resources[kind][id] = labels
 		}
 		var values []string
-		for _, match := range labelName.FindAllStringSubmatch(after(args, "--format"), -1) {
-			values = append(values, labels[match[1]])
+		for _, token := range formatToken.FindAllString(after(args, "--format"), -1) {
+			if strings.Contains(token, ".Name") {
+				values = append(values, "/"+d.names[id])
+				continue
+			}
+			for _, match := range labelName.FindAllStringSubmatch(token, -1) {
+				values = append(values, labels[match[1]])
+			}
 		}
 		return ok(strings.Join(values, "\t"))
 	case slices.Contains(args, "rm"):

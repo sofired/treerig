@@ -1,7 +1,8 @@
 // Package settings loads and validates settings.toml (#79): a machine-wide,
 // per-berth-root file that is not committed to any repository, unlike
 // berth.toml (internal/config). It holds defaults that apply before any
-// project config is even found — today, just the router's port.
+// project config is even found — the router's port and the range routed
+// services' loopback ports are allocated from.
 //
 // It is decoded the same strict way berth.toml is: BurntSushi/toml, rebuilt
 // into shape's ordered object (config.DecodeOrderedTOML) and validated
@@ -27,6 +28,14 @@ import (
 // value is what a missing file resolves to.
 type Settings struct {
 	Router Router `json:"router"`
+	Ports  Ports  `json:"ports"`
+}
+
+// Ports is the [ports] table (#119).
+type Ports struct {
+	// Range is where routed services' loopback ports are allocated from;
+	// nil means unset, so layout.DefaultPortRange applies.
+	Range *layout.PortRange `json:"range,omitempty"`
 }
 
 // Router is the [router] table.
@@ -36,16 +45,24 @@ type Router struct {
 	Port *int `json:"port,omitempty"`
 }
 
-// rootSchema is settings.toml's whole shape: a [router] table, currently
-// just its port, both strict about unrecognized keys the way berth.toml's
+// rootSchema is settings.toml's whole shape: a [router] table (its port) and
+// a [ports] table (the loopback port range), both strict about unrecognized keys the way berth.toml's
 // own rootSchema (internal/config/schema.go) is.
 func rootSchema() *shape.ObjectSchema {
 	router := shape.Object(
 		shape.F("port", shape.Number().Int().Min(1).Max(65_535).Optional()),
 	).Strict().Default(shape.NewObj())
 
+	ports := shape.Object(
+		shape.F("range", shape.String().Refine(func(value string) bool {
+			_, err := layout.ParsePortRange(value)
+			return err == nil
+		}, "must be <low>-<high>, both between 1024 and 65535 with low no greater than high, for example \"20000-29999\"").Optional()),
+	).Strict().Default(shape.NewObj())
+
 	return shape.Object(
 		shape.F("router", router),
+		shape.F("ports", ports),
 	).Strict()
 }
 
@@ -79,18 +96,23 @@ func Parse(contents []byte, file string) (Settings, error) {
 // today) still reads clearly at the call site.
 const settingsFileNoun = "settings.toml"
 
-// decode type-asserts the "router" table out of a validated Obj, the same
-// way config's own decodeConfig does for berth.toml.
+// decode type-asserts the "router" and "ports" tables out of a validated
+// Obj, the same way config's own decodeConfig does for berth.toml.
 func decode(obj *shape.Obj) Settings {
 	var s Settings
-	v, ok := obj.Get("router")
-	if !ok {
-		return s
+	if v, ok := obj.Get("router"); ok {
+		if p, ok := v.(*shape.Obj).Get("port"); ok {
+			port := p.(int)
+			s.Router.Port = &port
+		}
 	}
-	router := v.(*shape.Obj)
-	if p, ok := router.Get("port"); ok {
-		port := p.(int)
-		s.Router.Port = &port
+	if v, ok := obj.Get("ports"); ok {
+		if r, ok := v.(*shape.Obj).Get("range"); ok {
+			// Validated by the schema above, so it parses.
+			if parsed, err := layout.ParsePortRange(r.(string)); err == nil {
+				s.Ports.Range = &parsed
+			}
+		}
 	}
 	return s
 }
@@ -187,4 +209,20 @@ func ResolveRouterPort(getenv layout.Getenv, home string) (PortResolution, error
 	}
 
 	return PortResolution{Port: layout.DefaultRouterPort, Source: PortDefault, SettingsPath: path}, nil
+}
+
+// ResolvePortRange is settings.toml's [ports] range under home, or
+// layout.DefaultPortRange when the file or the key is absent. home is the
+// already-checked berth root (commands.checkedHome). Scratch roots and tests
+// set their own range here so they never collide with a developer's real
+// allocations.
+func ResolvePortRange(home string) (layout.PortRange, error) {
+	loaded, err := Load(layout.SettingsPathFrom(home))
+	if err != nil {
+		return layout.PortRange{}, err
+	}
+	if loaded.Ports.Range != nil {
+		return *loaded.Ports.Range, nil
+	}
+	return layout.DefaultPortRange, nil
 }

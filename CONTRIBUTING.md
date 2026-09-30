@@ -99,6 +99,14 @@ and the README stay TOML 1.0 (no multi-line inline tables); a test checks them.
 - A temp directory that meets a path comparison is physical: use
   `registrytest.TempDir`, not `t.TempDir()` directly, since macOS's temp
   directory is a symlink into `/private`.
+- A test that runs `up` never takes a port from the default loopback range
+  (20000-29999), which a developer's own worktrees use. A unit test gets
+  `registrytest.PortRange` and a probe that binds nothing from
+  `commandstest.World`; a scratch berth root under a real binary or daemon
+  writes its `settings.toml` with `registrytest.WriteScratchSettings`. Where
+  the berth root and the control home are one directory, claim it first with
+  `registrytest.ClaimControlHome`, since berth adopts only a directory it
+  created.
 - A helper process that must stay alive parks with a `for { time.Sleep(...) }`
   loop, never `select {}` — with nothing else runnable, Go's deadlock
   detector exits a process blocked in `select {}` unless cgo is linked, which

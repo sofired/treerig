@@ -174,6 +174,9 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 	// cares that the marker exists, not its exact bytes, but this is what a
 	// real control home actually has.
 	write(filepath.Join(f.controlHome, ".berth-control-home"), files.ControlHomeFormat, 0o600)
+	// BERTH_HOME is the control home in this fixture: the scratch root's own
+	// port range lives beside the marker, so no run takes the default one (#119).
+	registrytest.WriteScratchSettings(t, f.controlHome, "")
 	write(paths.RecordPath, `{
   "version": 1,
   "repositoryId": "`+fixtureRepo+`",

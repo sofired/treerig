@@ -76,11 +76,14 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
 | `BERTH_URL` | This worktree's own URL: the `[service.<name>]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
 | `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
+| `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
 
+`BERTH_SERVICE_PORT_<NAME>` is the `port` of `urls --json`: unlike the URLs
+it does not go through the router, and it is allocated before any hook runs.
 `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` are the same URLs `berth urls`
 prints, router port included exactly as it folds that in there. When
-`doctor` runs `verify` but can't resolve the router's port, it sets neither,
-and its Router section says why. Neither
+`doctor` runs `verify` but can't resolve the router's port, it sets none of
+these three, and its Router section says why. None of them
 reaches Compose, so `compose.yaml` cannot reference `${BERTH_URL}` — read
 them from a hook instead:
 
@@ -165,8 +168,9 @@ that says so. The command's own flags go after `--`.
 ### What a command gets
 
 - The environment above, with `BERTH_COMMAND` set to its name and no
-  `BERTH_STAGE`, whatever the caller had in its own environment. `BERTH_URL`
-  and `BERTH_SERVICE_URL_<NAME>` are set as for a hook.
+  `BERTH_STAGE`, whatever the caller had in its own environment. `BERTH_URL`,
+  `BERTH_SERVICE_URL_<NAME>` and `BERTH_SERVICE_PORT_<NAME>` are set as for a
+  hook.
 - The terminal. A command runs interactively, in a process group of its own,
   and holds the terminal's foreground when berth's stdin is a terminal and
   berth holds it: `terraform apply` can ask for its approval, and Ctrl-C and
