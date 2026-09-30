@@ -63,12 +63,13 @@ type World struct {
 	// Docker answers every docker call the world's commands make.
 	Docker *Docker
 	// Probe answers every loopback-port probe the world's commands make: every
-	// port is free until a test marks one in Probe.Busy.
+	// port is free until a test marks it with Probe.Occupy.
 	Probe *Probe
 }
 
-// Probe is a registry.PortProbe that reports every port free except the ones
-// in Busy, and is safe for a test to change while commands run.
+// Probe is a ports.Probe that reports every port free except the ones a test
+// marks with Occupy (and clears with Vacate), and is safe for a test to change
+// while commands run.
 type Probe struct {
 	mu   sync.Mutex
 	busy map[int]bool
@@ -213,7 +214,7 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 			RouterState: w.RouterState,
 			Registry:    reg,
 			// A range of its own, and a probe that binds nothing: a test
-			// that means to occupy a port sets w.Probe.Busy.
+			// that means to occupy a port calls w.Probe.Occupy.
 			PortRange: registrytest.PortRange,
 			PortProbe: w.Probe,
 		},

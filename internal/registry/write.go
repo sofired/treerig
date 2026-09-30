@@ -108,7 +108,7 @@ type recordJSON struct {
 }
 
 // recordFor is the one record builder: every registry writer goes through
-// it. It is total over RegisteredWorktree (TestRecordForCarriesEveryField
+// it. It is total over RegisteredWorktree (TestRecordCarriesEveryField
 // fills each field by reflection), so a writer that changes one field of a
 // registration and passes the rest through cannot drop the others.
 func recordFor(registration RegisteredWorktree, initialization WorktreeInitialization) recordJSON {

@@ -396,7 +396,7 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 		}
 		checks = append(checks, Check{Status: StatusFail, ID: "registry.port-conflict", Instance: strconv.Itoa(conflict.Port),
 			Subject: fmt.Sprintf("port %d", conflict.Port), Detail: fmt.Sprintf(
-				"recorded for %s; only one can publish it. Run '%s up --reallocate-port <service>' in all but one of those checkouts.",
+				"recorded for %s; only one can publish it. Run '%s up --reallocate-port <service>' for all but one of those services, each in the checkout that records it.",
 				text.OneLine(strings.Join(claims, ", "), 200), commandName)})
 	}
 

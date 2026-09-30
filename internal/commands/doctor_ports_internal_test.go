@@ -224,9 +224,16 @@ func TestRegistryChecksPortConflicts(t *testing.T) {
 		twice := testWorktree("gamma", "acme.localhost")
 		twice.Ports = map[string]int{"api": 30020, "web": 30020}
 		for _, check := range registryChecks(registry.RegistryScan{Records: []registry.RegisteredWorktree{twice}}, "berth") {
-			if check.ID == "registry.port-conflict" {
-				return
+			if check.ID != "registry.port-conflict" {
+				continue
 			}
+			// The remedy fits one checkout as well as several.
+			for _, want := range []string{"api of gamma.acme.localhost", "web of gamma.acme.localhost", "for all but one of those services, each in the checkout that records it"} {
+				if !strings.Contains(check.Detail, want) {
+					t.Errorf("detail %q lacks %q", check.Detail, want)
+				}
+			}
+			return
 		}
 		t.Fatal("no port conflict reported")
 	})
