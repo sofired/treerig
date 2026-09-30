@@ -173,6 +173,11 @@ func (w *upWorld) context(t *testing.T, runner *fakeDockerRunner) (*commands.Com
 		return "", false
 	}
 	registrytest.RequireIsolatedRouterState(t, getenv)
+	root, err := layout.ResolveHome(getenv, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registrytest.WriteScratchSettings(t, root, "")
 	cctx, err := commands.Context(&commands.Env{
 		CommandName: "berth", Invocation: "berth up", Logger: log, Getenv: getenv,
 		Environ: os.Environ(), Cwd: w.root, Runner: runner,

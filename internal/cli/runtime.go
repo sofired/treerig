@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 	"os"
+	"runtime"
 
 	"golang.org/x/sys/unix"
 
@@ -43,6 +44,7 @@ func envBuilder(commandName, invocation string, console *logger.Console, getenv 
 			Logger:      console,
 			Getenv:      getenv,
 			Environ:     os.Environ(),
+			OS:          runtime.GOOS,
 			Args:        args,
 			Cwd:         cwd,
 			ConfigPath:  configPath,

@@ -69,7 +69,10 @@ type doctorRunnerState struct {
 	gitVersion   outcome
 	dockerOnPath bool
 	docker       map[string]outcome
-	hook         outcome
+	// composeConfig is what `docker compose config` answers; the "compose"
+	// entry of docker answers every other compose call.
+	composeConfig outcome
+	hook          outcome
 }
 
 // recordCall appends spec to the call log under mu, safe for the concurrent
@@ -105,7 +108,8 @@ func newDoctorRunnerState(git *registrytest.GitRunner) *doctorRunnerState {
 			"ps":      okOutcome(""),
 			"inspect": okOutcome(""),
 		},
-		hook: okOutcome(""),
+		composeConfig: okOutcome(`{"services":{}}`),
+		hook:          okOutcome(""),
 	}
 }
 
@@ -148,6 +152,9 @@ func (d *doctorRunner) Run(ctx context.Context, spec run.Spec) (run.Result, erro
 			key = spec.Args[0]
 		}
 		o, ok := d.state.docker[key]
+		if key == "compose" && slices.Contains(spec.Args, "config") {
+			o, ok = d.state.composeConfig, true
+		}
 		if !ok {
 			o = okOutcome("")
 		}
@@ -1924,7 +1931,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		checks := section(sections, "This checkout")
 		// One line for the resolution check ("verify hook file"), one for
 		// the run ("verify hook") — distinct subjects (see hookResolutionChecks).
-		want := []string{"ok berth.toml", "ok this worktree", "ok verify hook file", "ok verify hook"}
+		want := []string{"ok berth.toml", "ok this worktree", "skip api port", "ok verify hook file", "ok verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -1940,8 +1947,8 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		if checks[1].Detail != "registered as feature-login.acme.localhost" {
 			t.Fatalf("detail = %q", checks[1].Detail)
 		}
-		if checks[2].Detail != "resolves to "+filepath.Join(f.root, "verify") {
-			t.Fatalf("resolution detail = %q", checks[2].Detail)
+		if checks[3].Detail != "resolves to "+filepath.Join(f.root, "verify") {
+			t.Fatalf("resolution detail = %q", checks[3].Detail)
 		}
 		var hookCall *run.Spec
 		for _, call := range f.runner.state.callsSnapshot() {
@@ -2015,7 +2022,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		checks := section(sections, "This checkout")
-		want := []string{"ok berth.toml", "ok this worktree", "ok verify hook file", "fail verify hook"}
+		want := []string{"ok berth.toml", "ok this worktree", "skip api port", "ok verify hook file", "fail verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -2118,7 +2125,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok berth.toml", "ok this worktree", "fail missing checkouts", "ok verify hook file", "ok verify hook"}
+		want := []string{"ok berth.toml", "ok this worktree", "fail missing checkouts", "skip api port", "ok verify hook file", "ok verify hook"}
 		checks := section(sections, "This checkout")
 		got := make([]string, len(checks))
 		for i, c := range checks {
@@ -2593,6 +2600,7 @@ var documentedDoctorIDs = []string{
 	"registry.unreadable-record",
 	"registry.host-conflict",
 	"registry.index-host",
+	"registry.port-conflict",
 	"locks.none",
 	"locks.scan",
 	"locks.registry",
@@ -2610,6 +2618,9 @@ var documentedDoctorIDs = []string{
 	"checkout.worktree",
 	"checkout.missing",
 	"checkout.missing-scan",
+	"checkout.ports",
+	"checkout.published-port",
+	"checkout.published-port-scan",
 	"checkout.hooks.resolve",
 	"checkout.commands.resolve",
 	"checkout.hooks.verify",
@@ -2829,15 +2840,19 @@ func TestDoctorEmitsOnlyDocumentedIDs(t *testing.T) {
 	checkReport(t, sections)
 }
 
-// TestDoctorIDsAreTheDocumentedSet reads doctor.go for the ids it hands to
+// TestDoctorIDsAreTheDocumentedSet reads doctor.go and doctor_ports.go for the ids they hand to
 // Check literals and to the helpers that take one, and compares that set with
 // documentedDoctorIDs; then checks README.md has a table row for each id and
 // lists every hook stage as the instance of checkout.hooks.resolve.
 func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "doctor.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
+	var doctorFiles []*ast.File
+	for _, name := range []string{"doctor.go", "doctor_ports.go"} {
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doctorFiles = append(doctorFiles, file)
 	}
 	found := map[string]bool{}
 	add := func(expr ast.Expr) {
@@ -2849,37 +2864,39 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	}
 	// The helpers whose argument at that index is a check id.
 	idArgument := map[string]int{"failureCheck": 0, "guarded": 0, "lockCheck": 0, "versionCheck": 0, "askDocker": 2, "resolutionCheck": 0}
-	ast.Inspect(file, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.CompositeLit:
-			for _, element := range node.Elts {
-				if kv, ok := element.(*ast.KeyValueExpr); ok {
-					if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "ID" {
-						add(kv.Value)
+	for _, file := range doctorFiles {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.CompositeLit:
+				for _, element := range node.Elts {
+					if kv, ok := element.(*ast.KeyValueExpr); ok {
+						if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "ID" {
+							add(kv.Value)
+						}
+					}
+				}
+			case *ast.CallExpr:
+				if name, ok := node.Fun.(*ast.Ident); ok {
+					if index, ok := idArgument[name.Name]; ok && index < len(node.Args) {
+						add(node.Args[index])
 					}
 				}
 			}
-		case *ast.CallExpr:
-			if name, ok := node.Fun.(*ast.Ident); ok {
-				if index, ok := idArgument[name.Name]; ok && index < len(node.Args) {
-					add(node.Args[index])
-				}
-			}
-		}
-		return true
-	})
+			return true
+		})
+	}
 	documented := map[string]bool{}
 	for _, id := range documentedDoctorIDs {
 		documented[id] = true
 	}
 	for id := range found {
 		if !documented[id] {
-			t.Errorf("doctor.go uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
+			t.Errorf("doctor.go or doctor_ports.go uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
 		}
 	}
 	for id := range documented {
 		if !found[id] {
-			t.Errorf("documentedDoctorIDs lists %q, which doctor.go no longer uses", id)
+			t.Errorf("documentedDoctorIDs lists %q, which doctor.go and doctor_ports.go no longer use", id)
 		}
 	}
 

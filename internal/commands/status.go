@@ -20,10 +20,13 @@ type StatusReport struct {
 
 // StatusService is one declared service's state. State is one of the
 // worktree.ServiceState words; Detail is absent when there is nothing to add.
+// Port is the routed service's loopback port (#119); absent for a service
+// that is not routed or has none yet.
 type StatusService struct {
 	Service string `json:"service"`
 	State   string `json:"state"`
 	Detail  string `json:"detail,omitempty"`
+	Port    int    `json:"port,omitempty"`
 }
 
 // Status is `status`.
@@ -65,7 +68,7 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 	if options.JSON {
 		report := StatusReport{Registered: true, Host: &host, Services: make([]StatusService, 0, len(statuses))}
 		for _, entry := range statuses {
-			report.Services = append(report.Services, StatusService{Service: entry.Service, State: string(entry.State), Detail: entry.Detail})
+			report.Services = append(report.Services, StatusService{Service: entry.Service, State: string(entry.State), Detail: entry.Detail, Port: registration.Ports[entry.Service]})
 		}
 		if err := printJSON(cctx, report); err != nil {
 			return nil, err

@@ -73,6 +73,10 @@ break them are not merged.
   daemon, whichever home starts it. `up` and `router up` refuse to touch a
   router another berth root started (#82), but `router down` stops it from
   anywhere. Ask before starting or stopping it by hand.
+- A scratch `BERTH_HOME` has its own registry, which cannot see the pinned
+  loopback ports (#119) of the real worktrees. Before the first `up` there,
+  write `[ports]` / `range = "30000-30999"` into its `settings.toml`, so the
+  trial never takes a port a real worktree holds.
 
 ## Commits and pull requests
 

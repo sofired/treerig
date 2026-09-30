@@ -30,6 +30,9 @@ type Env struct {
 	// unchanged (Remove, internal/binstore) so the process it hands the
 	// destructive verb to presents itself exactly as this one was invoked.
 	Args []string
+	// OS is runtime.GOOS, set by the entry point: library code does not ask
+	// the runtime, so a test names the OS it means.
+	OS string
 	// Cwd is the physical working directory.
 	Cwd string
 	// ConfigPath is --config; empty means the nearest berth.toml above Cwd.

@@ -79,16 +79,7 @@ func (s *Store) readStoredRecord(file string) (*storedRecord, error) {
 	if parsed.RepositoryID != s.RepositoryID || parsed.WorktreeID != base {
 		return nil, clierr.Newf("Worktree registration identity does not match its path: %s", file)
 	}
-	return &storedRecord{
-		Initialization: parsed.Initialization,
-		Registration: RegisteredWorktree{
-			RepositoryID:   s.RepositoryID,
-			WorktreeID:     base,
-			Slug:           parsed.Slug,
-			Domain:         parsed.Domain,
-			LabelNamespace: parsed.LabelNamespace,
-		},
-	}, nil
+	return &storedRecord{Initialization: parsed.Initialization, Registration: parsed.RegisteredWorktree}, nil
 }
 
 // Scan reads every readable record in this repository, plus the files that

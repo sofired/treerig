@@ -17,16 +17,22 @@ type ServiceURL struct {
 	URL     string
 	Label   *string
 	Purpose *string
+	// Port is the loopback port berth allocated to the service (#119), 0
+	// when none has been. URL is unchanged by it: still the hostname URL
+	// through the router.
+	Port int
 }
 
 // URLReportEntry is one element of `urls --json`'s array. Label and
 // Purpose are absent for a service without [service.index]; when it has
-// one, both are present, "" included.
+// one, both are present, "" included. Port is the service's loopback port
+// (#119), absent until `up` has allocated one.
 type URLReportEntry struct {
 	Service string  `json:"service"`
 	URL     string  `json:"url"`
 	Label   *string `json:"label,omitempty"`
 	Purpose *string `json:"purpose,omitempty"`
+	Port    int     `json:"port,omitempty"`
 }
 
 // urlsReport maps the URLs onto their JSON array, never nil.
@@ -55,7 +61,7 @@ func WorktreeURLs(cfg config.Config, slug, domain string, port int) []ServiceURL
 func urlsFromRoutes(services []config.Service, routes []worktree.ServiceRoute) []ServiceURL {
 	urls := make([]ServiceURL, len(routes))
 	for i, route := range routes {
-		entry := ServiceURL{Service: route.Service, URL: route.URL}
+		entry := ServiceURL{Service: route.Service, URL: route.URL, Port: route.Port}
 		if index := services[i].Index; index != nil {
 			label, purpose := index.Label, index.Purpose
 			entry.Label, entry.Purpose = &label, &purpose
@@ -85,7 +91,9 @@ func UrlsWithContext(ctx context.Context, cctx *CommandContext, options OutputOp
 	if registration == nil {
 		return nil, clierr.Newf("This worktree is not registered. Run '%s up' first.", cctx.CommandName)
 	}
-	list := WorktreeURLs(cctx.Loaded.Config, registration.Slug, registration.Domain, cctx.RouterPort)
+	routes := worktree.WithPorts(
+		worktree.Routes(cctx.Loaded.Config.Service, registration.Slug, registration.Domain, cctx.RouterPort), registration.Ports)
+	list := urlsFromRoutes(cctx.Loaded.Config.Service, routes)
 	if len(list) == 0 {
 		cctx.Logger.Warn(fmt.Sprintf("No [[service]] entries in %s; nothing is routed.", brand.ConfigFile))
 	}

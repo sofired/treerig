@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/sofired/berth/internal/text"
 )
@@ -162,6 +163,10 @@ func writeOrdered(buf *bytes.Buffer, value any) error {
 		return writeOrderedObject(buf, v)
 	case []string:
 		return writeOrderedArray(buf, v)
+	case []any:
+		return writeOrderedItems(buf, v)
+	case int:
+		buf.WriteString(strconv.Itoa(v))
 	default:
 		return fmt.Errorf("backend: unsupported value type %T in override document", value)
 	}
@@ -195,6 +200,22 @@ func writeOrderedArray(buf *bytes.Buffer, items []string) error {
 			buf.WriteByte(',')
 		}
 		writeJSONString(buf, item)
+	}
+	buf.WriteByte(']')
+	return nil
+}
+
+// writeOrderedItems writes items to buf as a compact JSON array of any value
+// writeOrdered supports — the shape of a published-port list.
+func writeOrderedItems(buf *bytes.Buffer, items []any) error {
+	buf.WriteByte('[')
+	for i, item := range items {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		if err := writeOrdered(buf, item); err != nil {
+			return err
+		}
 	}
 	buf.WriteByte(']')
 	return nil

@@ -185,6 +185,12 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 		for _, match := range quoted.FindAllStringSubmatch(args[index+1], -1) {
 			values = append(values, labels[match[1]])
 		}
+		if strings.Contains(args[index+1], "{{ .Name }}") {
+			values = append(values, "/"+labels["name"])
+		}
+		if strings.Contains(args[index+1], "json .NetworkSettings.Ports") {
+			values = append(values, labels["ports"])
+		}
 		return ok(strings.Join(values, "\t"))
 	}
 	if f.removeTimedOut && slices.Contains(args, "rm") {

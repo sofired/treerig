@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sofired/berth/internal/brand"
@@ -61,6 +62,44 @@ type World struct {
 	Runner *fakerun.Runner
 	// Docker answers every docker call the world's commands make.
 	Docker *Docker
+	// Probe answers every loopback-port probe the world's commands make: every
+	// port is free until a test marks one in Probe.Busy.
+	Probe *Probe
+}
+
+// Probe is a registry.PortProbe that reports every port free except the ones
+// in Busy, and is safe for a test to change while commands run.
+type Probe struct {
+	mu   sync.Mutex
+	busy map[int]bool
+}
+
+// Occupy marks ports as in use by something outside berth.
+func (p *Probe) Occupy(ports ...int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.busy == nil {
+		p.busy = map[int]bool{}
+	}
+	for _, port := range ports {
+		p.busy[port] = true
+	}
+}
+
+// Vacate marks ports as free again.
+func (p *Probe) Vacate(ports ...int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, port := range ports {
+		delete(p.busy, port)
+	}
+}
+
+// Free is registry.PortProbe's Free.
+func (p *Probe) Free(_ context.Context, port int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.busy[port]
 }
 
 // TestContext is a commands.CommandContext plus the recording logger behind it.
@@ -88,6 +127,7 @@ func New(t *testing.T, branch, domain string) *World {
 		},
 		common: filepath.Join(base, "common"),
 		t:      t,
+		Probe:  &Probe{},
 	}
 	w.Runner, w.Git = registrytest.NewFakeRunner()
 	w.Docker = NewDocker("api", "mail")
@@ -160,7 +200,7 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 		CommandName:    "berth",
 		UserHome:       w.UserHome,
 	})
-	return &TestContext{
+	tc := &TestContext{
 		CommandContext: &commands.CommandContext{
 			CommandName: "berth",
 			Invocation:  "berth",
@@ -172,9 +212,19 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 			RouterPort:  80,
 			RouterState: w.RouterState,
 			Registry:    reg,
+			// A range of its own, and a probe that binds nothing: a test
+			// that means to occupy a port sets w.Probe.Busy.
+			PortRange: registrytest.PortRange,
+			PortProbe: w.Probe,
 		},
 		Logger: log,
 	}
+	// Never the default range or the operating system's probe: a test that
+	// runs `up` must not take a port a developer's own worktree holds.
+	if tc.PortRange == (layout.PortRange{}) || tc.PortProbe == nil {
+		w.t.Fatal("commandstest: a test context must carry its own port range and probe")
+	}
+	return tc
 }
 
 // projectName derives a Compose project name from domain: the domain with a
@@ -245,4 +295,21 @@ func (w *World) Register(root, domain, slug, namespace string, services ...strin
 	ref := worktree.Ref{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: slug}
 	w.Docker.Up(ref, namespace, services...)
 	return ref
+}
+
+// SetPorts records ports in ref's registration, as a finished `up` leaves
+// them. The rest of the record is kept.
+func (w *World) SetPorts(ref worktree.Ref, ports map[string]int) {
+	w.t.Helper()
+	record, err := registry.NewStore(w.ControlHome, ref.RepositoryID).Find(ref.WorktreeID)
+	if err != nil || record == nil {
+		w.t.Fatalf("SetPorts: no registration for %s: %v", ref.Slug, err)
+	}
+	if _, err := registrytest.WriteRecord(w.ControlHome, registrytest.RecordJSON{
+		Version: 1, RepositoryID: record.RepositoryID, WorktreeID: record.WorktreeID,
+		Slug: record.Slug, Domain: record.Domain, LabelNamespace: record.LabelNamespace,
+		Initialization: "complete", Ports: ports,
+	}); err != nil {
+		w.t.Fatalf("SetPorts: %v", err)
+	}
 }

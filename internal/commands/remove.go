@@ -224,6 +224,13 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if result.Home, err = removeHome(paths, cctx.CommandName); err != nil {
 			return err
 		}
+		// The containers are gone (Reap above), so no old owner can still
+		// hold the worktree's loopback ports: release them before the record
+		// itself goes, so a removal interrupted between the two leaves the
+		// ports reachable from a record that still names them (#119).
+		if err := store.ReleasePorts(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
+			return err
+		}
 		if result.Registration, err = store.Remove(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 			return err
 		}

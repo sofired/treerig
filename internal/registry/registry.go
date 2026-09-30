@@ -93,17 +93,9 @@ func (r *Registry) Store(repositoryID string) *Store {
 // registration combines identity's own identifying fields with record's
 // registered ones into the WorktreeRegistration Ensure reports.
 func registration(identity WorktreeIdentity, record RegisteredWorktree) WorktreeRegistration {
-	return WorktreeRegistration{
-		RegisteredWorktree: RegisteredWorktree{
-			RepositoryID:   identity.RepositoryID,
-			WorktreeID:     identity.WorktreeID,
-			Slug:           record.Slug,
-			Domain:         record.Domain,
-			LabelNamespace: record.LabelNamespace,
-		},
-		Root:   identity.Root,
-		Branch: identity.Branch,
-	}
+	// Starts from the record, so a field the record gains is carried; the
+	// identity only supplies where the worktree lives now.
+	return WorktreeRegistration{RegisteredWorktree: record, Root: identity.Root, Branch: identity.Branch}
 }
 
 // Ensure registers this checkout (or reconciles its record with the current

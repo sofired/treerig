@@ -106,6 +106,35 @@ would not start fails `doctor`'s hook-resolution check exactly the way a
 broken `prepare`, `seed` or `verify` does, even though nothing invokes them
 yet. The tool never learns what they do.
 
+**Ports.** Each routed service also gets a port of its own on
+`127.0.0.1`, allocated when `up` first needs it, recorded in the worktree's
+registration and published by the override `up` generates. It is *pinned*: a
+container restart, `down` and `up`, or a reboot leaves it where it was, and
+the same worktree and service pick the same port again if the record is ever
+lost. A port comes from a range (20000-29999 by default, `[ports] range` in
+`settings.toml`), starting at a hash of the worktree and the service and
+probing forward, past every port in any registration of this control home and
+any port something on the machine is already using. The router still reaches
+the service by its hostname exactly as before; the port is for tools that
+must bypass it, and reaches them as `BERTH_SERVICE_PORT_<NAME>` and the
+`port` key of `urls --json` and `status --json`. `up` refuses to start when a
+pinned port is held by anything but this worktree's own container, proven by
+its ownership labels rather than its name, and says who holds it: another
+berth worktree, a container by name, or another process. `berth up
+--reallocate-port <service>` gives that service a new port (and says its
+loopback URL changed); it refuses while the worktree's own container holds
+the current one. Removing a service from `berth.toml` releases its port on
+the next `up` that starts every service, once Compose has removed the dropped
+service's container; an `up` that names some services keeps that port
+reserved until the next full `up` or `worktree remove`. `worktree remove`
+releases the rest once the worktree's containers are gone. Two worktrees on different control homes can pick the
+same port at once (each home has its own registry lock); the second `up`'s
+clean bind error catches it, and `up` names the holder. A routed service
+with `network_mode: host`, `network_mode: service:…` or more than one replica
+is refused, because it has no port berth can publish; `doctor` warns on a
+routed service whose Compose file also publishes a fixed host port of its
+own.
+
 **Router.** One Traefik instance per machine, started on first `up`, shared
 by every worktree of every repository. It binds a single loopback port and
 routes by hostname, reading routes only from Traefik's file provider: `up`
@@ -407,15 +436,43 @@ a synced folder would put the whole team's state on iCloud Drive.
 
 `settings.toml` is the machine's own file, never committed, for what is true
 of this machine rather than of a project. Today that is the router's
-loopback port:
+loopback port and the range routed services' loopback ports are allocated
+from:
 
 ```toml
 [router]
 port = 8080
+
+[ports]
+range = "20000-29999"   # the default; <low>-<high>, 1024 to 65535
 ```
 
+`[ports] range` is where each routed service's pinned `127.0.0.1` port comes
+from (see *Ports* above). The default, 20000-29999, sits below Linux's
+ephemeral range (from 32768) and macOS's (from 49152), so the operating
+system does not hand those ports out on its own. A range of your own should
+stay clear of them too, and on Linux of anything in `ip_local_port_range`
+and `ip_local_reserved_ports` (`sysctl net.ipv4.ip_local_port_range
+net.ipv4.ip_local_reserved_ports`). Widen it when a range fills up; narrowing
+it never moves a port already allocated, only where new ones come from. A
+scratch berth root (`BERTH_HOME`) set up for testing should give itself a
+range of its own, so it never takes a port a real worktree of yours holds.
+
+Publishing the pinned port is part of a routed service's Compose
+configuration, so the first `up` that gives a service one changes that
+configuration and Compose recreates the service's running containers once,
+keeping their volumes. Every later `up` writes the same configuration and
+recreates nothing.
+
+When a port is held by something that is not a container, `up` and `doctor`
+say "another process" and how to find it: `ss -ltnp 'sport = :<port>'` on
+Linux, `lsof -nP -iTCP:<port> -sTCP:LISTEN` on macOS. On Docker Desktop and
+OrbStack the daemon runs in a VM, so those tools name its backend process
+rather than a container; `docker ps --filter publish=<port>` finds the
+container.
+
 Unknown keys are rejected, as in `berth.toml`; a missing file means the
-defaults. The port is `BERTH_ROUTER_PORT` when that is set, else the file's,
+defaults. The router's port is `BERTH_ROUTER_PORT` when that is set, else the file's,
 else 80. `router status` and `doctor` say which one applied and name the
 file; `doctor` warns when the running router publishes a different port; and
 an `up` that moves the router to a new port says that URLs already open — the
@@ -450,7 +507,7 @@ that checkout asks for. Do not bring up a branch you would not run. `berth
 run` asks the same of a branch's `[commands]`, and gives them your terminal
 too.
 
-Three things follow from that, and this tool does not change them:
+Four things follow from that, and this tool does not change them:
 
 - **Hooks and builds see your environment.** Nothing is allow-listed; a hook
   is a program you pointed the config at, and it runs with everything you
@@ -479,6 +536,11 @@ Three things follow from that, and this tool does not change them:
   through the router, by hostname over HTTP, the way the host itself reaches
   them, it can still reach any checkout's routed services and the index
   page. Containers you do not declare stay on their project's own networks.
+- **A routed service's loopback port is open to every local user.** It is
+  published on `127.0.0.1` only, never on the network, but any local user or
+  process can connect to it, as they can to the router's port. It bypasses
+  the router, so anything the router would have decided about a request is
+  not in the way.
 - **The index page is machine-wide and unauthenticated.** It lists every
   checkout's branch, path, hostnames and service links. Its only exposure to
   the host is the router's loopback port; a routed container is not on the
@@ -631,6 +693,7 @@ start.
 | `registry.unreadable-record` | `registry` | `<repository>/<file>` | a registry record that could not be read |
 | `registry.host-conflict` | `registry` | the host | a hostname claimed by more than one worktree |
 | `registry.index-host` | `registry` | worktree ID | a worktree registered on the index's own hostname |
+| `registry.port-conflict` | `registry` | the port | a loopback port recorded for more than one service, in one worktree or several |
 | `locks.none` | `locks` | | no lock is held |
 | `locks.scan` | `locks` | | the locks could not be read |
 | `locks.registry` | `locks` | | the registry lock is held or was left unreleased, or could not be checked |
@@ -648,6 +711,9 @@ start.
 | `checkout.worktree` | `checkout` | | whether this worktree is registered |
 | `checkout.missing` | `checkout` | worktree ID | a registration whose checkout Git no longer lists |
 | `checkout.missing-scan` | `checkout` | | the scan for missing checkouts failed |
+| `checkout.ports` | `checkout` | the routed service's name | whether its allocated loopback port is free or held by this worktree's own container (`fail` when anything else holds it, `skip` before one is allocated) |
+| `checkout.published-port` | `checkout` | the routed service's name | a routed service whose own Compose file also publishes a fixed host port |
+| `checkout.published-port-scan` | `checkout` | | reading the Compose file's published ports failed |
 | `checkout.hooks.resolve` | `checkout` | the stage: `prepare`, `seed`, `verify`, `backup` or `restore` (the set may gain values) | whether that configured hook's file would start |
 | `checkout.commands.resolve` | `checkout` | the command's name from `[commands]` | whether that command's file would start |
 | `checkout.hooks.verify` | `checkout` | | the `verify` hook's own run |
@@ -720,7 +786,9 @@ the real output is indented, one key per line.)
 service. `state` is `running`, `starting`, `stopped`, `absent` or `unknown`.
 `detail` appears when there is something to add: for `unknown` it is Docker's
 own word for the state, and for a `running` service failing its health check
-it is `unhealthy`. A worktree that was never registered prints
+it is `unhealthy`. `port` is a number (for example `20417`): the routed
+service's pinned port on `127.0.0.1`, absent for a service that is not routed
+or has none allocated yet. A worktree that was never registered prints
 `{"registered": false, "services": []}` (the notice is still on stderr) and
 exits 0, as the text form does.
 
@@ -729,7 +797,7 @@ exits 0, as the text form does.
   "registered": true,
   "host": "feature-login.acme.localhost",
   "services": [
-    { "service": "api", "state": "running" },
+    { "service": "api", "state": "running", "port": 20417 },
     { "service": "db", "state": "running", "detail": "unhealthy" }
   ]
 }
@@ -738,7 +806,9 @@ exits 0, as the text form does.
 **`urls --json`** prints one array, in config order, `[]` when nothing is
 routed (the warning stays on stderr). `label` and `purpose` are absent for a
 service without `[service.index]`, and both present, possibly `""`, for one
-with it. Unlike `status`, an unregistered worktree is an error: exit 1 and no
+with it. `port` is a number (for example `20417`): the service's pinned port
+on `127.0.0.1`, absent until `up` has allocated one; `url` is still the
+hostname URL through the router. Unlike `status`, an unregistered worktree is an error: exit 1 and no
 document.
 
 ```json
@@ -747,7 +817,8 @@ document.
     "service": "api",
     "url": "http://feature-login.acme.localhost",
     "label": "API",
-    "purpose": "REST surface"
+    "purpose": "REST surface",
+    "port": 20417
   }
 ]
 ```
@@ -959,6 +1030,7 @@ internal/
                           against, strict about unknown keys
   hooks/                  hook protocol and sequencer
   progress/               phase logging with an elapsed-time heartbeat
+  ports/                  the lock-free loopback port allocator and its free-port probe
   checkoutindex/          per-worktree cards, the snapshot, and the rendered page
   router/                 the shared router's Compose stack, its file-provider
                           fragments, and the verifier

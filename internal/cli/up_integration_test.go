@@ -185,6 +185,10 @@ func newUpFixture(t *testing.T) upFixture {
 	)
 	getenv := envGetenv(f.env)
 	registrytest.RequireIsolatedRouterState(t, getenv)
+	// The berth root is the control home here, so it is claimed before it
+	// holds a settings.toml: berth adopts only a directory it created.
+	registrytest.ClaimControlHome(t, f.controlHome)
+	registrytest.WriteScratchSettings(t, f.controlHome, "")
 	f.routerState, err = layout.RouterState(getenv)
 	if err != nil {
 		t.Fatal(err)

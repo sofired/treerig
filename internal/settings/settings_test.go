@@ -236,3 +236,79 @@ func TestPortResolutionDescribe(t *testing.T) {
 		}
 	})
 }
+
+func TestPortsRange(t *testing.T) {
+	t.Run("an empty file leaves the range unset", func(t *testing.T) {
+		got, err := Parse([]byte(""), "settings.toml")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got.Ports.Range != nil {
+			t.Errorf("Ports.Range = %v, want nil", got.Ports.Range)
+		}
+	})
+
+	t.Run("reads a valid [ports] range", func(t *testing.T) {
+		got, err := Parse([]byte("[ports]\nrange = \"30000-30999\"\n"), "settings.toml")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got.Ports.Range == nil || *got.Ports.Range != (layout.PortRange{Low: 30000, High: 30999}) {
+			t.Errorf("Ports.Range = %v, want 30000-30999", got.Ports.Range)
+		}
+	})
+
+	for name, value := range map[string]string{
+		"not a range":       "many",
+		"low above high":    "30000-29999",
+		"privileged low":    "80-30000",
+		"high out of range": "30000-70000",
+		"a sign":            "+30000-30999",
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := Parse([]byte("[ports]\nrange = \""+value+"\"\n"), "/x/settings.toml")
+			requireErrorContains(t, err, "/x/settings.toml is not a valid settings.toml:")
+			requireErrorContains(t, err, "ports.range: must be <low>-<high>")
+		})
+	}
+
+	t.Run("rejects a number where the string belongs", func(t *testing.T) {
+		_, err := Parse([]byte("[ports]\nrange = 30000\n"), "settings.toml")
+		requireErrorContains(t, err, "ports.range")
+	})
+
+	t.Run("rejects an unknown key inside [ports]", func(t *testing.T) {
+		_, err := Parse([]byte("[ports]\nlow = 1\n"), "settings.toml")
+		requireErrorContains(t, err, `Unrecognized key: "low"`)
+	})
+}
+
+func TestResolvePortRange(t *testing.T) {
+	t.Run("is the default with no settings file", func(t *testing.T) {
+		got, err := ResolvePortRange(registrytest.TempDir(t))
+		if err != nil || got != layout.DefaultPortRange {
+			t.Fatalf("ResolvePortRange = %v, %v; want %v", got, err, layout.DefaultPortRange)
+		}
+	})
+
+	t.Run("is the file's range when it sets one", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(home, "settings.toml"), []byte("[ports]\nrange = \"31000-31099\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ResolvePortRange(home)
+		if err != nil || got != (layout.PortRange{Low: 31000, High: 31099}) {
+			t.Fatalf("ResolvePortRange = %v, %v; want 31000-31099", got, err)
+		}
+	})
+
+	t.Run("reports an invalid file", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(home, "settings.toml"), []byte("[ports]\nrange = \"x\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ResolvePortRange(home); err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+}

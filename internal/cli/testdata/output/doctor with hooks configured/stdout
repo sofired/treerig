@@ -18,6 +18,8 @@ Router
 This checkout
   ok    berth.toml         FIXTURE/checkout/berth.toml
   ok    this worktree      registered as feature-login.acme.localhost
+  skip  api port           none allocated yet; 'berth up' allocates one
+  skip  mail port          none allocated yet; 'berth up' allocates one
   ok    prepare hook file  resolves to FIXTURE/checkout/hooks/prepare
   fail  seed hook file     would not start (exit 127): `FIXTURE/checkout/hooks/seed` does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT).
   skip  verify hook        none configured
