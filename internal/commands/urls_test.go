@@ -141,7 +141,7 @@ func TestUrlsCommand(t *testing.T) {
 		}
 		found := false
 		for _, line := range cctx.Logger.Lines {
-			if line == "warn: No [[service]] entries in berth.toml; nothing is routed." {
+			if line == "warn: No [service.<name>] tables in berth.toml; nothing is routed." {
 				found = true
 			}
 		}
@@ -192,7 +192,7 @@ func TestUrlsCommandJSON(t *testing.T) {
 		if len(printed) != 1 || printed[0] != "[]" {
 			t.Fatalf("stdout = %q", printed)
 		}
-		if len(lines) == 0 || !strings.HasPrefix(lines[len(lines)-1], "warn: No [[service]] entries") {
+		if len(lines) == 0 || !strings.HasPrefix(lines[len(lines)-1], "warn: No [service.<name>] tables") {
 			t.Fatalf("lines = %q", lines)
 		}
 	})

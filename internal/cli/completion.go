@@ -171,16 +171,16 @@ func domainCompletionFunc(p *program) func(cmd *cobra.Command, args []string, to
 }
 
 // serviceCompletionDescription is one declared service's own completion
-// description, from berth.toml alone: its [service.index] label when the
-// config gave it one, otherwise the shape of its own route — its subdomain,
-// its path, or "host root" for neither — so a completion candidate still
-// says something useful without ever reading the registry. Subdomain and
-// path are both schema-constrained (subdomainPattern, urlPathPattern in
-// internal/config/schema.go), so, unlike the label, neither needs
-// text.Printable: schema.go's own comment on [service.index] says plainly
-// that neither label nor purpose refuses a control character, so this base
-// stays lenient for every command that only reads an already-running
-// worktree's config — a completion candidate is exactly such a reader.
+// description, from berth.toml alone: its [service.<name>.index] label when
+// the config gave it one, otherwise the shape of its own route — its
+// subdomain, its path, or "host root" for neither — so a completion
+// candidate still says something useful without ever reading the registry.
+// Subdomain and path are both schema-constrained (subdomainPattern,
+// urlPathPattern in internal/config/schema.go), so, unlike the label,
+// neither needs text.Printable. schema.go says plainly that neither label
+// nor purpose refuses a control character, so this base stays lenient for
+// every command that only reads an already-running worktree's config — a
+// completion candidate is exactly such a reader.
 func serviceCompletionDescription(svc config.Service) string {
 	if svc.Index != nil && svc.Index.Label != "" {
 		return text.Printable(svc.Index.Label)

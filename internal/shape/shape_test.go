@@ -210,7 +210,7 @@ func TestArrayDefaultAndElementPaths(t *testing.T) {
 }
 
 // TestArrayMax pins ArraySchema.Max, added for internal/config's own
-// [[service]] limit (#16): a custom message is reported verbatim, and the
+// [service.<name>] limit (#16): a custom message is reported verbatim, and the
 // check runs whether or not an element itself also failed, matching
 // StringSchema.Max's own "every check runs" contract.
 func TestArrayMax(t *testing.T) {

@@ -20,7 +20,7 @@ type ServiceURL struct {
 }
 
 // URLReportEntry is one element of `urls --json`'s array. Label and
-// Purpose are absent for a service without [service.index]; when it has
+// Purpose are absent for a service without [service.<name>.index]; when it has
 // one, both are present, "" included.
 type URLReportEntry struct {
 	Service string  `json:"service"`
@@ -47,7 +47,7 @@ func WorktreeURLs(cfg config.Config, slug, domain string, port int) []ServiceURL
 	return urlsFromRoutes(cfg.Service, worktree.Routes(cfg.Service, slug, domain, port))
 }
 
-// urlsFromRoutes pairs routes with each service's [service.index] metadata,
+// urlsFromRoutes pairs routes with each service's [service.<name>.index] metadata,
 // aligned one-to-one and in order since worktree.Routes never filters or
 // reorders — a caller that already has both (up.go, so `berth urls` and the
 // hooks it runs derive from the one worktree.Routes call) skips computing
@@ -87,7 +87,7 @@ func UrlsWithContext(ctx context.Context, cctx *CommandContext, options OutputOp
 	}
 	list := WorktreeURLs(cctx.Loaded.Config, registration.Slug, registration.Domain, cctx.RouterPort)
 	if len(list) == 0 {
-		cctx.Logger.Warn(fmt.Sprintf("No [[service]] entries in %s; nothing is routed.", brand.ConfigFile))
+		cctx.Logger.Warn(fmt.Sprintf("No [service.<name>] tables in %s; nothing is routed.", brand.ConfigFile))
 	}
 	if options.JSON {
 		if err := printJSON(cctx, urlsReport(list)); err != nil {

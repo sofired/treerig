@@ -1,0 +1,11 @@
+# Taplo (Even Better TOML) settings for this repository. berth.example.toml
+# names the published schema; this rule points the checked-out copy at the
+# schema next to it, so editing here works offline and picks up a schema
+# change before it reaches main.
+
+[[rule]]
+include = ["berth.example.toml", "**/berth.toml"]
+exclude = ["**/testdata/**"]
+
+[rule.schema]
+path = "./schema/berth.schema.json"

@@ -1,0 +1,4 @@
+validate	parse and validate berth.toml
+show	print the resolved configuration as JSON
+schema	print the JSON Schema of berth.toml
+:4

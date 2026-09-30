@@ -35,7 +35,7 @@ func jsonWiringFixture(t *testing.T) func(string) (string, bool) {
 	if err := os.Symlink(gitPath, filepath.Join(bin, "git")); err != nil {
 		t.Fatal(err)
 	}
-	toml := "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[[service]]\nname = \"api\"\n"
+	toml := "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n"
 	if err := os.WriteFile(filepath.Join(checkout, "berth.toml"), []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
 	}

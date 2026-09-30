@@ -302,7 +302,7 @@ func TestComposeUp(t *testing.T) {
 		fake2 := newFake()
 		rt2, controlHome2 := routedRuntime(t, fake2, []RouteSpec{{Service: "ghost", Subdomain: ""}})
 		ensureHome(t, controlHome2)
-		if err := rt2.Up(ctx, ref, nil); err == nil || !strings.Contains(err.Error(), "[[service]] ghost is not defined") {
+		if err := rt2.Up(ctx, ref, nil); err == nil || !strings.Contains(err.Error(), "[service.ghost] names a service that is not defined") {
 			t.Fatalf("got %v", err)
 		}
 	})

@@ -14,17 +14,16 @@ func decodeConfig(obj *shape.Obj) Config {
 	if v, ok := obj.Get("compose"); ok {
 		cfg.Compose = decodeCompose(v.(*shape.Obj))
 	}
-	// service always comes back present: the schema defaults it to [].
+	// service always comes back present: the schema defaults it to an empty
+	// table. The list follows the file's order of the tables, and each
+	// table's key is the service's name.
+	cfg.Service = []Service{}
 	if v, ok := obj.Get("service"); ok {
-		if elements, ok := v.([]any); ok {
-			cfg.Service = make([]Service, len(elements))
-			for i, element := range elements {
-				cfg.Service[i] = decodeService(element.(*shape.Obj))
-			}
-		}
-	}
-	if cfg.Service == nil {
-		cfg.Service = []Service{}
+		cfg.Service = decodeKeyed(v.(*shape.Obj), func(name string, table any) Service {
+			service := decodeService(table.(*shape.Obj))
+			service.Name = name
+			return service
+		})
 	}
 	if v, ok := obj.Get("hooks"); ok {
 		cfg.Hooks = decodeHooks(v.(*shape.Obj))
@@ -60,13 +59,10 @@ func decodeCompose(o *shape.Obj) Compose {
 	return c
 }
 
-// decodeService type-asserts one element of the "service" array out of a
-// validated Obj.
+// decodeService type-asserts one [service.<name>] table out of a validated
+// Obj. The caller sets Name from the table's key.
 func decodeService(o *shape.Obj) Service {
 	var s Service
-	if v, ok := o.Get("name"); ok {
-		s.Name = v.(string)
-	}
 	if v, ok := o.Get("subdomain"); ok {
 		s.Subdomain = v.(string)
 	}
@@ -119,13 +115,22 @@ func decodeHooks(o *shape.Obj) Hooks {
 	return h
 }
 
+// decodeKeyed reads a table of named entries in the order the file wrote
+// them, converting each with decode; the result is never nil.
+func decodeKeyed[T any](o *shape.Obj, decode func(name string, entry any) T) []T {
+	out := make([]T, 0, o.Len())
+	for _, name := range o.Keys() {
+		entry, _ := o.Get(name)
+		out = append(out, decode(name, entry))
+	}
+	return out
+}
+
 // decodeCommands type-asserts the "commands" table out of a validated Obj,
 // keeping its key order. An entry written as a bare string gets the table
 // form's defaults; a table has had them applied by the schema already.
 func decodeCommands(o *shape.Obj) Commands {
-	var commands Commands
-	for _, name := range o.Keys() {
-		raw, _ := o.Get(name)
+	commands := decodeKeyed(o, func(name string, raw any) NamedCommand {
 		entry := NamedCommand{Name: name, Command: Command{Lock: true, KillAfter: DefaultCommandKillAfter}}
 		switch v := raw.(type) {
 		case string:
@@ -141,7 +146,10 @@ func decodeCommands(o *shape.Obj) Commands {
 				entry.KillAfter = k.(string)
 			}
 		}
-		commands = append(commands, entry)
+		return entry
+	})
+	if len(commands) == 0 {
+		return nil
 	}
 	return commands
 }

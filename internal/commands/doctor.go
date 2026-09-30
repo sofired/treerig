@@ -1091,7 +1091,7 @@ func findCheckout(explicit, cwd string) (checkoutSource, error) {
 // checkoutFileCheck is the first line of "This checkout": ok when loaded
 // parsed cleanly (the base loader is lenient — see internal/config/start.go),
 // fail when config.CheckStart finds a control character in a
-// [service.index] label or purpose (#19), with the exact wording
+// [service.<name>.index] label or purpose (#19), with the exact wording
 // `config validate` itself would refuse with. doctor answers "would up work?", so this is a
 // failed check, not a warning: `up` against this same file refuses outright.
 // A multi-line message like this one prints on the section's single line

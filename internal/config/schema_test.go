@@ -1,0 +1,279 @@
+package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/BurntSushi/toml"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/sofired/berth/internal/shape"
+)
+
+// schemaFile is the committed JSON Schema, relative to this package.
+const schemaFile = "../../schema/berth.schema.json"
+
+// TestSchemaFileIsCurrent fails when schema/berth.schema.json is not what
+// `berth config schema` prints, and says how to bring it back in line.
+func TestSchemaFileIsCurrent(t *testing.T) {
+	committed, err := os.ReadFile(schemaFile)
+	if err != nil {
+		t.Fatalf("reading %s: %v\nRegenerate it with: go run ./cmd/berth config schema > schema/berth.schema.json", schemaFile, err)
+	}
+	if generated := SchemaJSON(); !bytes.Equal(committed, generated) {
+		t.Errorf("schema/berth.schema.json differs from the generated schema.\n"+
+			"Regenerate it from the repository root with:\n\n\tgo run ./cmd/berth config schema > schema/berth.schema.json\n\n"+
+			"and review the diff. Committed %d bytes, generated %d bytes.", len(committed), len(generated))
+	}
+}
+
+// TestSchemaJSON checks what the generated schema promises editors.
+func TestSchemaJSON(t *testing.T) {
+	var root map[string]any
+	if err := json.Unmarshal(SchemaJSON(), &root); err != nil {
+		t.Fatalf("the schema is not JSON: %v", err)
+	}
+
+	t.Run("is draft-07 and names the file", func(t *testing.T) {
+		if got := root["$schema"]; got != "http://json-schema.org/draft-07/schema#" {
+			t.Errorf("$schema = %v", got)
+		}
+		if got := root["$id"]; got != SchemaID {
+			t.Errorf("$id = %v, want %s", got, SchemaID)
+		}
+		if got := root["title"]; got != "berth.toml" {
+			t.Errorf("title = %v", got)
+		}
+	})
+
+	t.Run("covers every table of the file", func(t *testing.T) {
+		properties := root["properties"].(map[string]any)
+		var got []string
+		for name := range properties {
+			got = append(got, name)
+		}
+		sort.Strings(got)
+		if want := "commands,compose,hooks,project,service"; strings.Join(got, ",") != want {
+			t.Errorf("top-level keys = %v, want %s", got, want)
+		}
+		service := properties["service"].(map[string]any)
+		entry := service["additionalProperties"].(map[string]any)
+		if _, ok := entry["properties"].(map[string]any)["name"]; ok {
+			t.Error("a service table has a name property; its key is the name")
+		}
+		if entry["additionalProperties"] != false {
+			t.Error("a service table accepts unknown keys")
+		}
+		commands := properties["commands"].(map[string]any)
+		alternatives := commands["additionalProperties"].(map[string]any)["anyOf"].([]any)
+		if len(alternatives) != 2 {
+			t.Errorf("a commands entry has %d alternatives, want the string and the table", len(alternatives))
+		}
+	})
+
+	t.Run("states which keys are required", func(t *testing.T) {
+		if got := root["required"]; !equalStrings(got, "project", "compose") {
+			t.Errorf("required = %v", got)
+		}
+		project := root["properties"].(map[string]any)["project"].(map[string]any)
+		if got := project["required"]; !equalStrings(got, "name", "domain") {
+			t.Errorf("project.required = %v", got)
+		}
+	})
+
+	t.Run("gives every field a description", func(t *testing.T) {
+		var missing []string
+		var walk func(path string, node map[string]any)
+		walk = func(path string, node map[string]any) {
+			if d, _ := node["description"].(string); strings.TrimSpace(d) == "" {
+				missing = append(missing, path)
+			}
+			if properties, ok := node["properties"].(map[string]any); ok {
+				for name, child := range properties {
+					walk(path+"."+name, child.(map[string]any))
+				}
+			}
+			if child, ok := node["additionalProperties"].(map[string]any); ok {
+				walk(path+".*", child)
+			}
+			if child, ok := node["propertyNames"].(map[string]any); ok {
+				if child["type"] != "string" {
+					missing = append(missing, path+".<key> (no type)")
+				}
+				walk(path+".<key>", child)
+			}
+			if child, ok := node["items"].(map[string]any); ok {
+				walk(path+"[]", child)
+			}
+			if alternatives, ok := node["anyOf"].([]any); ok {
+				for i, child := range alternatives {
+					walk(path+"|"+string(rune('0'+i)), child.(map[string]any))
+				}
+			}
+		}
+		walk("(root)", root)
+		sort.Strings(missing)
+		if len(missing) > 0 {
+			t.Errorf("no description for: %s", strings.Join(missing, ", "))
+		}
+	})
+
+	t.Run("is plain ASCII, so it reads the same in any terminal", func(t *testing.T) {
+		for i, b := range SchemaJSON() {
+			if b >= 0x7f || (b < 0x20 && b != '\n') {
+				t.Fatalf("byte %d is %#x", i, b)
+			}
+		}
+	})
+}
+
+// equalStrings reports whether v is a JSON array of exactly want.
+func equalStrings(v any, want ...string) bool {
+	list, ok := v.([]any)
+	if !ok || len(list) != len(want) {
+		return false
+	}
+	for i, item := range list {
+		if item != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestCodeOnlyChecks pins where validation checks something the published
+// schema cannot state, so adding a Refine or SuperRefine is a visible choice:
+// either restate it with SchemaPattern, or add it here, and to the README's
+// note that berth config validate makes the checks the schema cannot.
+func TestCodeOnlyChecks(t *testing.T) {
+	want := []string{
+		"(root)",         // two services claiming the same route
+		"project.domain", // each label at most 63 characters
+	}
+	if got := shape.CodeOnlyChecks(rootSchema()); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("CodeOnlyChecks = %v, want %v", got, want)
+	}
+}
+
+// TestSchemaAgreesWithValidation compiles the committed schema as draft-07,
+// with a JSON Schema library that shares no code with berth, and checks that
+// it and Parse reach the same verdict on each document. The cases where the
+// schema is looser are the code-only checks TestCodeOnlyChecks lists, and
+// kill-after's range; it is never stricter.
+func TestSchemaAgreesWithValidation(t *testing.T) {
+	committed, err := os.ReadFile(schemaFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(committed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource(SchemaID, doc); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := compiler.Compile(SchemaID)
+	if err != nil {
+		t.Fatalf("the schema does not compile as draft-07: %v", err)
+	}
+
+	// schemaAccepts is the library's verdict on a TOML document.
+	schemaAccepts := func(t *testing.T, source string) bool {
+		t.Helper()
+		var decoded map[string]any
+		if _, err := toml.Decode(source, &decoded); err != nil {
+			t.Fatalf("the case is not TOML: %v", err)
+		}
+		encoded, err := json.Marshal(decoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(encoded))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return compiled.Validate(instance) == nil
+	}
+
+	example, err := os.ReadFile(filepath.Join("..", "..", "berth.example.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := func(n int) string {
+		var b strings.Builder
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&b, "[service.s%d]\nsubdomain = \"s%d\"\n", i, i)
+		}
+		return b.String()
+	}
+
+	type verdict int
+	const (
+		valid       verdict = iota // both accept
+		invalid                    // both reject
+		schemaLoose                // Parse rejects a check the schema cannot state
+	)
+	cases := []struct {
+		name string
+		toml string
+		want verdict
+	}{
+		{"the example file", string(example), valid},
+		{"the minimal file", minimalTOML, valid},
+		{"a fully spelled service", minimalTOML + "[service.api]\nsubdomain = \"a\"\npath = \"/x\"\nport = 80\n[service.api.index]\nlabel = \"A\"\npurpose = \"p\"\n", valid},
+		{"two services sharing a host by path", minimalTOML + "[service.a]\npath = \"/a\"\n[service.b]\npath = \"/b\"\n", valid},
+		{"commands in both forms", minimalTOML + "[commands]\nplan = \"./p.sh\"\n[commands.apply]\ncommand = \"./a.sh\"\nlock = false\nkill-after = \"1m30s\"\n", valid},
+		{"all hooks", minimalTOML + "[hooks]\nprepare = \"a\"\nseed = \"b\"\nverify = \"c\"\nbackup = \"d\"\nrestore = \"e\"\n", valid},
+		{"64 services", minimalTOML + services(64), valid},
+		{"an unknown top-level key", minimalTOML + "extra = 1\n", invalid},
+		{"an unknown key in a service", minimalTOML + "[service.api]\nbogus = 1\n", invalid},
+		{"a name inside a service", minimalTOML + "[service.api]\nname = \"api\"\n", invalid},
+		{"an unknown key in a hooks table", minimalTOML + "[hooks]\nbogus = \"x\"\n", invalid},
+		{"an unknown key in a command", minimalTOML + "[commands.a]\ncommand = \"x\"\nbogus = 1\n", invalid},
+		{"a service name that is not a slug", minimalTOML + "[service.Api]\n", invalid},
+		{"a service name of 64 characters", minimalTOML + "[service." + strings.Repeat("a", 64) + "]\n", invalid},
+		{"a service name of 63 characters", minimalTOML + "[service." + strings.Repeat("a", 63) + "]\n", valid},
+		{"a command name that is not a slug", minimalTOML + "[commands]\nBad = \"x\"\n", invalid},
+		{"65 services", minimalTOML + services(65), invalid},
+		{"a missing project name", "[project]\ndomain = \"acme.localhost\"\n[compose]\nfile = \"c.yaml\"\n", invalid},
+		{"a missing compose table", "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n", invalid},
+		{"a port of 0", minimalTOML + "[service.a]\nport = 0\n", invalid},
+		{"a port of 65536", minimalTOML + "[service.a]\nport = 65536\n", invalid},
+		{"a port that is a string", minimalTOML + "[service.a]\nport = \"80\"\n", invalid},
+		{"a port that is fractional", minimalTOML + "[service.a]\nport = 80.5\n", invalid},
+		{"a path without a leading slash", minimalTOML + "[service.a]\npath = \"x\"\n", invalid},
+		{"a subdomain starting with a hyphen", minimalTOML + "[service.a]\nsubdomain = \"-x\"\n", invalid},
+		{"an empty index label", minimalTOML + "[service.a]\n[service.a.index]\nlabel = \"\"\n", invalid},
+		{"a bad label namespace", "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\nlabel-namespace = \"nope\"\n[compose]\nfile = \"c.yaml\"\n", invalid},
+		{"a kill-after that is not a duration", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"soon\"\n", invalid},
+		{"an empty hook", minimalTOML + "[hooks]\nprepare = \"\"\n", invalid},
+		{"services as an array of tables", minimalTOML + "[[service]]\nname = \"api\"\n", invalid},
+		{"services as a string", strings.Replace(minimalTOML, "[compose]", "service = \"x\"\n[compose]", 1), invalid},
+		{"two services on the same route", minimalTOML + "[service.a]\n[service.b]\n", schemaLoose},
+		{"a kill-after of zero", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"0s\"\n", schemaLoose},
+		{"a kill-after over an hour", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"2h\"\n", schemaLoose},
+		{"a domain label over 63 characters", "[project]\nname = \"acme\"\ndomain = \"" + strings.Repeat("a", 64) + ".localhost\"\n[compose]\nfile = \"c.yaml\"\n", schemaLoose},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, parseErr := Parse([]byte(c.toml), "test.toml")
+			parseAccepts := parseErr == nil
+			schemaVerdict := schemaAccepts(t, c.toml)
+			wantParse := c.want == valid
+			wantSchema := c.want != invalid
+			if parseAccepts != wantParse {
+				t.Errorf("Parse accepts = %v, want %v (error: %v)", parseAccepts, wantParse, parseErr)
+			}
+			if schemaVerdict != wantSchema {
+				t.Errorf("schema accepts = %v, want %v", schemaVerdict, wantSchema)
+			}
+		})
+	}
+}

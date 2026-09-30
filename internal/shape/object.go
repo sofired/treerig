@@ -26,6 +26,7 @@ type ObjectSchema struct {
 	fields   []Field
 	strict   bool
 	refiners []Refiner
+	keyHints map[string]func(path []string) string
 }
 
 // Object declares a schema with these fields, in this order. Add [ObjectSchema.Strict]
@@ -38,12 +39,27 @@ func Object(fields ...Field) *ObjectSchema {
 // unrecognized_keys issue naming all of them (zod's `.strict()`).
 func (o *ObjectSchema) Strict() *ObjectSchema { o.strict = true; return o }
 
+// KeyHint adds a hint, in parentheses, to the unrecognized_keys issue when
+// key is among the rejected keys: for a key that a likely mistake puts here
+// and that has a better home. hint receives the path of this object, so it
+// can name the table the key was found in.
+func (o *ObjectSchema) KeyHint(key string, hint func(path []string) string) *ObjectSchema {
+	if o.keyHints == nil {
+		o.keyHints = map[string]func(path []string) string{}
+	}
+	o.keyHints[key] = hint
+	return o
+}
+
 // SuperRefine adds a cross-field check. More than one may be added; they run
 // in the order added.
 func (o *ObjectSchema) SuperRefine(fn Refiner) *ObjectSchema {
 	o.refiners = append(o.refiners, fn)
 	return o
 }
+
+// Describe sets the text JSONSchema publishes as this schema's description.
+func (o *ObjectSchema) Describe(text string) *ObjectSchema { o.mod.description = text; return o }
 
 // Optional lets the field be absent, with no default.
 func (o *ObjectSchema) Optional() *ObjectSchema { o.mod.optional = true; return o }
@@ -96,7 +112,13 @@ func (o *ObjectSchema) parse(ctx *context, raw any) (any, bool) {
 		}
 		if len(extra) > 0 {
 			sound = false
-			ctx.issue(CodeUnrecognizedKeys, unrecognizedKeysMessage(extra))
+			message := unrecognizedKeysMessage(extra)
+			for _, k := range extra {
+				if hint, ok := o.keyHints[k]; ok {
+					message += " (" + hint(ctx.path) + ")"
+				}
+			}
+			ctx.issue(CodeUnrecognizedKeys, message)
 		}
 	}
 

@@ -41,7 +41,7 @@ var urlPattern = regexp.MustCompile(`^https?://[A-Za-z0-9\-._~%!$&'()*+,;=:@/?#\
 
 // IndexService is one routed service a card advertises on the shared index.
 //
-// Label is "" for a service the config never opted into `[service.index]`
+// Label is "" for a service the config never opted into `[service.<name>.index]`
 // for: `up` still records its name so the index can count it — a stopped,
 // unindexed service is exactly what should turn a Running row into
 // Partial (#16) — but it never becomes a link, since there is no label or
@@ -175,7 +175,7 @@ func cardBounds(card IndexCard) error {
 		if !validText(&service.Name, 1, maxTextLength) {
 			return fmt.Errorf("card: service name must be 1-%d characters", maxTextLength)
 		}
-		// "" is a declared service the config never gave a [service.index]
+		// "" is a declared service the config never gave a [service.<name>.index]
 		// block, not an absent field: see IndexService's own comment (#16).
 		if !validText(&service.Label, 0, maxTextLength) {
 			return fmt.Errorf("card: service label must be at most %d characters", maxTextLength)

@@ -13,6 +13,12 @@ type RecordSchema struct {
 	mod   modifiers
 	key   *StringSchema
 	value Schema
+	// hint is appended to the wrong-type issue, in parentheses.
+	hint string
+	// hasMax, maxEntries and maxMessage are set by Max.
+	hasMax     bool
+	maxEntries int
+	maxMessage string
 }
 
 // Record declares a schema for an object whose keys must each satisfy key
@@ -42,6 +48,28 @@ func Record(key *StringSchema, value Schema) *RecordSchema {
 	return &RecordSchema{key: key, value: value}
 }
 
+// Describe sets the text JSONSchema publishes as this schema's description.
+func (r *RecordSchema) Describe(text string) *RecordSchema { r.mod.description = text; return r }
+
+// Hint adds text, in parentheses, to the issue reported when the value is
+// not an object at all: for a schema whose likeliest mistake is another
+// shape, such as an array of tables where a table of tables is expected.
+func (r *RecordSchema) Hint(text string) *RecordSchema { r.hint = text; return r }
+
+// Max allows at most n entries, reporting message (as too_big) at the
+// record's own path when there are more; message defaults to a plain
+// statement of the limit, as [ArraySchema.Max]'s does.
+func (r *RecordSchema) Max(n int, message ...string) *RecordSchema {
+	msg := fmt.Sprintf("Too big: expected object to have <=%d entries", n)
+	if len(message) > 0 {
+		msg = message[0]
+	}
+	r.hasMax = true
+	r.maxEntries = n
+	r.maxMessage = msg
+	return r
+}
+
 // Optional lets the field be absent, with no default.
 func (r *RecordSchema) Optional() *RecordSchema { r.mod.optional = true; return r }
 
@@ -69,7 +97,11 @@ func (r *RecordSchema) parse(ctx *context, raw any) (any, bool) {
 	}
 	input, ok := raw.(*Obj)
 	if !ok {
-		ctx.issue(CodeInvalidType, fmt.Sprintf("Invalid input: expected object, received %s", typeName(raw)))
+		message := fmt.Sprintf("Invalid input: expected object, received %s", typeName(raw))
+		if r.hint != "" {
+			message += " (" + r.hint + ")"
+		}
+		ctx.issue(CodeInvalidType, message)
 		return nil, false
 	}
 
@@ -91,6 +123,9 @@ func (r *RecordSchema) parse(ctx *context, raw any) (any, bool) {
 		if value != Undefined {
 			out.Set(key, value)
 		}
+	}
+	if r.hasMax && len(input.Keys()) > r.maxEntries {
+		ctx.issue(CodeTooBig, r.maxMessage)
 	}
 	return out, sound
 }

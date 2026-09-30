@@ -10,6 +10,9 @@ type BoolSchema struct {
 // Bool starts a boolean schema.
 func Bool() *BoolSchema { return &BoolSchema{} }
 
+// Describe sets the text JSONSchema publishes as this schema's description.
+func (b *BoolSchema) Describe(text string) *BoolSchema { b.mod.description = text; return b }
+
 // Optional lets the field be absent, with no default.
 func (b *BoolSchema) Optional() *BoolSchema { b.mod.optional = true; return b }
 

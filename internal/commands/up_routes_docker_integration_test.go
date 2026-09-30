@@ -56,11 +56,9 @@ label-namespace = %q
 [compose]
 file = "compose.yaml"
 
-[[service]]
-name = "api"
+[service.api]
 
-[[service]]
-name = "worker"
+[service.worker]
 subdomain = "jobs"
 `
 
