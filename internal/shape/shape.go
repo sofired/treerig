@@ -80,6 +80,9 @@ type modifiers struct {
 	optional     bool
 	hasDefault   bool
 	defaultValue any
+	// description is documentation only: JSONSchema publishes it as the
+	// schema's "description", and parsing never reads it.
+	description string
 }
 
 // context carries the path issues are reported against, and the shared slice

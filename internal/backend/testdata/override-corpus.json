@@ -366,7 +366,7 @@
       "volumes": {},
       "networks": {}
     },
-    "error": "[[service]] ghost is not defined in /work/acme/docker/compose.yaml."
+    "error": "[service.ghost] names a service that is not defined in /work/acme/docker/compose.yaml."
   },
   {
     "name": "routing a service with no derivable port is refused",
@@ -393,7 +393,7 @@
       "volumes": {},
       "networks": {}
     },
-    "error": "Service quiet declares no port: set port in its [[service]] entry, or expose one in /work/acme/docker/compose.yaml."
+    "error": "Service quiet declares no port: set port in its [service.quiet] table, or expose one in /work/acme/docker/compose.yaml."
   },
   {
     "name": "a router network that collides with an already-declared network is overwritten in place, not duplicated",

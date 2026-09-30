@@ -85,6 +85,14 @@ output is correct, so review every diff it leaves before committing it, the
 same way any other testdata file in this repository is updated. See
 golden_test.go's and output_integration_test.go's own package comments.
 
+`schema/berth.schema.json` is generated, not written: `berth config schema`
+prints it from the same `internal/shape` definitions that validate
+`berth.toml`. After changing the config schema or a field's description,
+regenerate it with `go run ./cmd/berth config schema > schema/berth.schema.json`;
+`TestSchemaFileIsCurrent` fails until you do. Every field needs a
+`Describe(...)`, which editors show on hover. Examples in `berth.example.toml`
+and the README stay TOML 1.0 (no multi-line inline tables); a test checks them.
+
 **Go style,** beyond gofmt, go vet, and staticcheck:
 - No naked returns — a function with named results still returns them
   explicitly.

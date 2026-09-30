@@ -24,8 +24,8 @@ func up(t *testing.T, tc *commandstest.TestContext, router commands.Router, inde
 	return commands.UpWithContext(context.Background(), tc.CommandContext, router, index, options)
 }
 
-// givePorts sets an explicit port on every [[service]] the world's default
-// config declares: World's fake Compose file exposes none, and a [[service]]
+// givePorts sets an explicit port on every [service.<name>] the world's default
+// config declares: World's fake Compose file exposes none, and a [service.<name>]
 // with neither is exactly the "declares no port" refusal — real behavior
 // this package's other Up tests are not about.
 func givePorts(tc *commandstest.TestContext) {
@@ -125,7 +125,7 @@ func TestUpWithContext(t *testing.T) {
 	})
 
 	// Found in review, round 3 of #55: a worktree that drops its last
-	// [[service]] route used to leave the shared router connected to its
+	// [service.<name>] route used to leave the shared router connected to its
 	// now-unused dedicated network forever — nothing ever called
 	// DisconnectNetwork for it, since that only ran on the connect side.
 	t.Run("disconnects the shared router from its own network when a later up declares no routes at all", func(t *testing.T) {
@@ -308,7 +308,7 @@ func TestUpWithContext(t *testing.T) {
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
-		want := tc.Loaded.File + " is not a valid berth.toml:\n  service.0.index.label: must not contain control characters"
+		want := tc.Loaded.File + " is not a valid berth.toml:\n  service.api.index.label: must not contain control characters"
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}

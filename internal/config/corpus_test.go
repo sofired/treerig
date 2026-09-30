@@ -12,7 +12,7 @@ import (
 // corpusCase is one entry of the hand-maintained testdata/config-corpus.json
 // (its origin is in git history): a TOML fixture plus the exact
 // byte-for-byte result the real parseConfig (real smol-toml, real zod
-// schema, under Node) produced for it.
+// schema, under Node) produced for it. The service cases are hand-edited.
 type corpusCase struct {
 	Name            string `json:"name"`
 	TOML            string `json:"toml"`

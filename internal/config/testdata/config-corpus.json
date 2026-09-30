@@ -8,126 +8,147 @@
   },
   {
     "name": "service defaults to host root and keeps index metadata",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n[service.index]\nlabel = \"API\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.api.index]\nlabel = \"API\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"api\",\n      \"subdomain\": \"\",\n      \"index\": {\n        \"label\": \"API\",\n        \"purpose\": \"\"\n      }\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "index.purpose defaults to empty string when given",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n[service.index]\nlabel = \"API\"\npurpose = \"the API\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.api.index]\nlabel = \"API\"\npurpose = \"the API\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"api\",\n      \"subdomain\": \"\",\n      \"index\": {\n        \"label\": \"API\",\n        \"purpose\": \"the API\"\n      }\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "two services share a host when their paths differ",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"web\"\n[[service]]\nname = \"api\"\npath = \"/api\"\nport = 3000\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.web]\n[service.api]\npath = \"/api\"\nport = 3000\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"web\",\n      \"subdomain\": \"\"\n    },\n    {\n      \"name\": \"api\",\n      \"subdomain\": \"\",\n      \"path\": \"/api\",\n      \"port\": 3000\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "duplicate host root claim",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n[[service]]\nname = \"web\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.web]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.1.subdomain: the host root is already claimed by another service",
+    "want": "test.toml is not a valid berth.toml:\n  service.web.subdomain: the host root is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
     "name": "duplicate path claim on the host root",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"web\"\n[[service]]\nname = \"api\"\npath = \"/api\"\n[[service]]\nname = \"api2\"\npath = \"/api\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.web]\n[service.api]\npath = \"/api\"\n[service.api2]\npath = \"/api\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.2.path: the host root at path \"/api\" is already claimed by another service",
+    "want": "test.toml is not a valid berth.toml:\n  service.api2.path: the host root at path \"/api\" is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
     "name": "duplicate claim on a named subdomain",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nsubdomain = \"app\"\n[[service]]\nname = \"b\"\nsubdomain = \"app\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nsubdomain = \"app\"\n[service.b]\nsubdomain = \"app\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.1.subdomain: subdomain \"app\" is already claimed by another service",
+    "want": "test.toml is not a valid berth.toml:\n  service.b.subdomain: subdomain \"app\" is already claimed by service \"a\"",
     "tomlSyntaxError": false
   },
   {
-    "name": "duplicate service name",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\nsubdomain = \"a\"\n[[service]]\nname = \"api\"\nsubdomain = \"b\"\n",
+    "name": "a service table defined twice is a TOML error",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\nsubdomain = \"a\"\n[service.api]\nsubdomain = \"b\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.1.name: duplicate service name \"api\"",
+    "want": "test.toml is not valid TOML: toml: line 10 (last key \"service\"): Key 'service.api' has already been defined.",
+    "tomlSyntaxError": true
+  },
+  {
+    "name": "[[service]] rejected, saying services are tables keyed by name",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n",
+    "ok": false,
+    "want": "test.toml is not a valid berth.toml:\n  service: Invalid input: expected object, received array (services are tables keyed by name: write [service.<name>], not [[service]])",
     "tomlSyntaxError": false
   },
   {
-    "name": "duplicate name and duplicate route reported for the same service",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n[[service]]\nname = \"api\"\n",
+    "name": "name inside a service table rejected, with a hint at the key",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\nname = \"api\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.1.name: duplicate service name \"api\"\n  service.1.subdomain: the host root is already claimed by another service",
+    "want": "test.toml is not a valid berth.toml:\n  service.api: Unrecognized key: \"name\" (the table's key is the service name: [service.api])",
+    "tomlSyntaxError": false
+  },
+  {
+    "name": "service name that is not a slug rejected at its key",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.Api]\n",
+    "ok": false,
+    "want": "test.toml is not a valid berth.toml:\n  service.Api: must be lower-case letters, digits, and hyphens",
+    "tomlSyntaxError": false
+  },
+  {
+    "name": "a second service on the host root is a route collision",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.web]\n",
+    "ok": false,
+    "want": "test.toml is not a valid berth.toml:\n  service.web.subdomain: the host root is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
     "name": "path with backtick and Host() injection rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\npath = \"/api`)||Host(`evil\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/api`)||Host(`evil\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
     "name": "path with bad percent-escape rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\npath = \"/a%zz\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/a%zz\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
     "name": "path with query string rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\npath = \"/search?q=1\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/search?q=1\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
     "name": "path with dollar sign rejected (Compose would interpolate it)",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\npath = \"/api$HOME\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/api$HOME\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
     "name": "path with RFC 3986 punctuation and percent-escapes accepted",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\npath = \"/v1/things:list/@scope/c++%2Fx\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/v1/things:list/@scope/c++%2Fx\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"s\",\n      \"subdomain\": \"\",\n      \"path\": \"/v1/things:list/@scope/c++%2Fx\"\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "path of just the root slash accepted",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\npath = \"/\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"s\",\n      \"subdomain\": \"\",\n      \"path\": \"/\"\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "subdomain starting with a hyphen rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\nsubdomain = \"-mail\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\nsubdomain = \"-mail\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
+    "want": "test.toml is not a valid berth.toml:\n  service.s.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
     "tomlSyntaxError": false
   },
   {
     "name": "subdomain ending with a hyphen rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\nsubdomain = \"mail-\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\nsubdomain = \"mail-\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
+    "want": "test.toml is not a valid berth.toml:\n  service.s.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
     "tomlSyntaxError": false
   },
   {
     "name": "subdomain over 63 characters rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\nsubdomain = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\nsubdomain = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.subdomain: must be at most 63 characters",
+    "want": "test.toml is not a valid berth.toml:\n  service.s.subdomain: must be at most 63 characters",
     "tomlSyntaxError": false
   },
   {
     "name": "subdomain of exactly 63 characters accepted",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"s\"\nsubdomain = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\nsubdomain = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"s\",\n      \"subdomain\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
@@ -189,17 +210,17 @@
     "tomlSyntaxError": false
   },
   {
-    "name": "unknown key on a service element rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\nbogus = 1\n",
+    "name": "unknown key on a service table rejected",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\nbogus = 1\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid berth.toml:\n  service.api: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
-    "name": "unknown key under service.index rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n[service.index]\nlabel = \"API\"\nextra = 1\n",
+    "name": "unknown key under a service index rejected",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.api.index]\nlabel = \"API\"\nextra = 1\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.index: Unrecognized key: \"extra\"",
+    "want": "test.toml is not a valid berth.toml:\n  service.api.index: Unrecognized key: \"extra\"",
     "tomlSyntaxError": false
   },
   {
@@ -232,72 +253,72 @@
   },
   {
     "name": "port over 65535 rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = 70000\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 70000\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.port: Too big: expected number to be <=65535",
+    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too big: expected number to be <=65535",
     "tomlSyntaxError": false
   },
   {
     "name": "port of zero rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = 0\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 0\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.port: Too small: expected number to be >=1",
+    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too small: expected number to be >=1",
     "tomlSyntaxError": false
   },
   {
     "name": "port of exactly 1 accepted",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = 1\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 1\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"a\",\n      \"subdomain\": \"\",\n      \"port\": 1\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "port of exactly 65535 accepted",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = 65535\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 65535\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"a\",\n      \"subdomain\": \"\",\n      \"port\": 65535\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "fractional port rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = 80.5\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 80.5\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.port: Invalid input: expected int, received number",
+    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Invalid input: expected int, received number",
     "tomlSyntaxError": false
   },
   {
     "name": "port written as 80.0 accepted as the integer 80",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = 80.0\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 80.0\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"a\",\n      \"subdomain\": \"\",\n      \"port\": 80\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "port of 1e20, integral but beyond a safe integer, rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = 1e20\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 1e20\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.port: Too big: expected int to be <=9007199254740991\n  service.0.port: Too big: expected number to be <=65535",
+    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too big: expected int to be <=9007199254740991\n  service.a.port: Too big: expected number to be <=65535",
     "tomlSyntaxError": false
   },
   {
     "name": "port of -1e20 rejected as below a safe integer and below 1",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = -1e20\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = -1e20\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.port: Too small: expected int to be >=-9007199254740991\n  service.0.port: Too small: expected number to be >=1",
+    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too small: expected int to be >=-9007199254740991\n  service.a.port: Too small: expected number to be >=1",
     "tomlSyntaxError": false
   },
   {
     "name": "port of inf rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = inf\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = inf\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.port: Invalid input: expected number, received number",
+    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Invalid input: expected number, received number",
     "tomlSyntaxError": false
   },
   {
     "name": "port given as a string rejected",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"a\"\nport = \"80\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = \"80\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0.port: Invalid input: expected number, received string",
+    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Invalid input: expected number, received string",
     "tomlSyntaxError": false
   },
   {
@@ -358,30 +379,30 @@
   },
   {
     "name": "several issues at once, unrecognized key reported last",
-    "toml": "[project]\nname = \"BAD NAME\"\ndomain = 5\n\n[compose]\n\n[[service]]\nname = \"BAD\"\n\nbogus = true\n",
+    "toml": "[project]\nname = \"BAD NAME\"\ndomain = 5\n\n[compose]\n\n[service.api]\n\nbogus = true\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  project.domain: Invalid input: expected string, received number\n  compose.file: Invalid input: expected string, received undefined\n  service.0.name: must be lower-case letters, digits, and hyphens\n  service.0: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid berth.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  project.domain: Invalid input: expected string, received number\n  compose.file: Invalid input: expected string, received undefined\n  service.api: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
-    "name": "a non-fatal issue does not suppress the duplicate-service check",
-    "toml": "[project]\nname = \"BAD NAME\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"x\"\n\n[[service]]\nname = \"api\"\n[[service]]\nname = \"api\"\n",
+    "name": "a non-fatal issue does not suppress the route-collision check",
+    "toml": "[project]\nname = \"BAD NAME\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"x\"\n\n[service.api]\n[service.web]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  service.1.name: duplicate service name \"api\"\n  service.1.subdomain: the host root is already claimed by another service",
+    "want": "test.toml is not a valid berth.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  service.web.subdomain: the host root is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
-    "name": "a missing required field suppresses the duplicate-service check",
-    "toml": "[project]\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"x\"\n\n[[service]]\nname = \"api\"\n[[service]]\nname = \"api\"\n",
+    "name": "a missing required field suppresses the route-collision check",
+    "toml": "[project]\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"x\"\n\n[service.api]\n[service.web]\n",
     "ok": false,
     "want": "test.toml is not a valid berth.toml:\n  project.name: Invalid input: expected string, received undefined",
     "tomlSyntaxError": false
   },
   {
-    "name": "an unrecognized key on one service suppresses the duplicate-service check",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"web\"\nbogus = 1\n[[service]]\nname = \"web\"\n",
+    "name": "an unrecognized key on one service suppresses the route-collision check",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.web]\nbogus = 1\n[service.api]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.0: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid berth.toml:\n  service.web: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
@@ -414,30 +435,30 @@
   },
   {
     "name": "service field order in output follows the schema, not the file",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nport = 3000\nname = \"api\"\nsubdomain = \"x\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\nport = 3000\nsubdomain = \"x\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"api\",\n      \"subdomain\": \"x\",\n      \"port\": 3000\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "a table between two [[service]] blocks leaves both services whole",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n[hooks]\nverify = \"./check.sh\"\n[[service]]\nname = \"mail\"\nsubdomain = \"mail\"\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[hooks]\nverify = \"./check.sh\"\n[service.mail]\nsubdomain = \"mail\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"docker/compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"api\",\n      \"subdomain\": \"\"\n    },\n    {\n      \"name\": \"mail\",\n      \"subdomain\": \"mail\"\n    }\n  ],\n  \"hooks\": {\n    \"verify\": \"./check.sh\"\n  }\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "an index table after an interleaved table belongs to the service above it",
-    "toml": "[[service]]\nname = \"api\"\n[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[[service]]\nname = \"mail\"\nsubdomain = \"mail\"\n[service.index]\nlabel = \"Mail\"\n[compose]\nfile = \"compose.yaml\"\n",
+    "toml": "[service.api]\n[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[service.mail]\nsubdomain = \"mail\"\n[service.mail.index]\nlabel = \"Mail\"\n[compose]\nfile = \"compose.yaml\"\n",
     "ok": true,
     "want": "{\n  \"project\": {\n    \"name\": \"acme\",\n    \"domain\": \"acme.localhost\"\n  },\n  \"compose\": {\n    \"file\": \"compose.yaml\"\n  },\n  \"service\": [\n    {\n      \"name\": \"api\",\n      \"subdomain\": \"\"\n    },\n    {\n      \"name\": \"mail\",\n      \"subdomain\": \"mail\",\n      \"index\": {\n        \"label\": \"Mail\",\n        \"purpose\": \"\"\n      }\n    }\n  ],\n  \"hooks\": {}\n}",
     "tomlSyntaxError": false
   },
   {
     "name": "unknown keys in an interleaved second service are reported in file order",
-    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n[hooks]\nseed = \"./seed.sh\"\n[[service]]\nzeta = 1\nname = \"mail\"\nalpha = 2\n",
+    "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[hooks]\nseed = \"./seed.sh\"\n[service.mail]\nzeta = 1\nalpha = 2\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.1: Unrecognized keys: \"zeta\", \"alpha\"",
+    "want": "test.toml is not a valid berth.toml:\n  service.mail: Unrecognized keys: \"zeta\", \"alpha\"",
     "tomlSyntaxError": false
   },
   {

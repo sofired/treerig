@@ -1,8 +1,6 @@
 package config
 
 import (
-	"strconv"
-
 	"github.com/sofired/berth/internal/shape"
 	"github.com/sofired/berth/internal/text"
 )
@@ -10,7 +8,7 @@ import (
 // StartIssues is the one rule the base loader (Parse, Load, LoadNearest)
 // deliberately does not enforce: no control character — an escape
 // sequence, a bidi override, a zero-width character, a raw C1 byte — in any
-// declared service's [service.index] label or purpose (#19).
+// declared service's [service.<name>.index] label or purpose (#19).
 //
 // Every command that only reads an already-running worktree's config —
 // `down`, `worktree remove`, `status`, `urls`, `index`, `worktree list`,
@@ -24,20 +22,19 @@ import (
 // worktree it is not itself starting.
 func StartIssues(cfg Config) []shape.Issue {
 	var issues []shape.Issue
-	for i, svc := range cfg.Service {
+	for _, svc := range cfg.Service {
 		if svc.Index == nil {
 			continue
 		}
-		index := strconv.Itoa(i)
 		if text.HasControl(svc.Index.Label) {
 			issues = append(issues, shape.Issue{
-				Path: []string{"service", index, "index", "label"}, Code: shape.CodeCustom,
+				Path: []string{"service", svc.Name, "index", "label"}, Code: shape.CodeCustom,
 				Message: "must not contain control characters",
 			})
 		}
 		if text.HasControl(svc.Index.Purpose) {
 			issues = append(issues, shape.Issue{
-				Path: []string{"service", index, "index", "purpose"}, Code: shape.CodeCustom,
+				Path: []string{"service", svc.Name, "index", "purpose"}, Code: shape.CodeCustom,
 				Message: "must not contain control characters",
 			})
 		}

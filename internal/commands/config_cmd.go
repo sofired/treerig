@@ -19,7 +19,7 @@ func load(env *Env) (*config.Loaded, error) {
 
 // ConfigValidate is `config validate`. It answers "would up work?", so it
 // runs config.CheckStart the same as `up` itself: the base load above stays
-// lenient about a control character in [service.index] label or purpose
+// lenient about a control character in [service.<name>.index] label or purpose
 // (#19), and only this check refuses.
 func ConfigValidate(ctx context.Context, env *Env) error {
 	loaded, err := load(env)
@@ -75,5 +75,12 @@ func ConfigShow(ctx context.Context, env *Env) error {
 		return err
 	}
 	env.Logger.Output(out)
+	return nil
+}
+
+// ConfigSchema is `config schema`: the JSON Schema of the config file's
+// input shape. It reads no configuration, so it works anywhere.
+func ConfigSchema(ctx context.Context, env *Env) error {
+	env.Logger.Output(strings.TrimSuffix(string(config.SchemaJSON()), "\n"))
 	return nil
 }

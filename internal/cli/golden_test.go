@@ -52,6 +52,7 @@ var goldenCases = []goldenCase{
 	{"help-config-short", []string{"config", "-h"}},
 	{"help-config-validate", []string{"config", "validate", "--help"}},
 	{"help-config-show", []string{"config", "show", "--help"}},
+	{"help-config-schema", []string{"config", "schema", "--help"}},
 	{"help-dev", []string{"dev", "--help"}},
 	{"help-up", []string{"up", "--help"}},
 	{"help-down", []string{"down", "--help"}},
@@ -73,6 +74,7 @@ var goldenCases = []goldenCase{
 
 	// --- the "help [command]" form, walking the full path given ---
 	{"help-cmd-config", []string{"help", "config"}},
+	{"help-cmd-config-schema", []string{"help", "config", "schema"}},
 	{"help-cmd-router", []string{"help", "router"}},
 	{"help-cmd-worktree", []string{"help", "worktree"}},
 	{"help-cmd-worktree-remove", []string{"help", "worktree", "remove"}},
@@ -105,6 +107,7 @@ var goldenCases = []goldenCase{
 	{"help-completion-zsh", []string{"completion", "zsh", "--help"}},
 	{"err-unknown-command-in-completion-group", []string{"completion", "tcsh"}},
 	{"complete-root", []string{"__complete", ""}},
+	{"complete-config", []string{"__complete", "config", ""}},
 	{"complete-worktree", []string{"__complete", "worktree", ""}},
 	{"complete-worktree-remove-flags", []string{"__complete", "worktree", "remove", "--"}},
 	{"complete-no-descriptions", []string{"__completeNoDesc", "router", ""}},
@@ -155,6 +158,7 @@ var goldenCases = []goldenCase{
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
 	{"err-excess-arguments-remove-two", []string{"worktree", "remove", "a", "b", "c"}},
 	{"err-excess-arguments-status", []string{"status", "extra"}},
+	{"err-excess-arguments-config-schema", []string{"config", "schema", "extra"}},
 	{"err-excess-arguments-router-down", []string{"router", "down", "now", "please"}},
 
 	// --- option-scanning edge cases ---

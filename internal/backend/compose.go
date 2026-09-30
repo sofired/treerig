@@ -109,7 +109,7 @@ type Options struct {
 	Logger         logger.Logger
 	// Environ is the environment Compose inherits; os.Environ() in production.
 	Environ []string
-	// Routes are the services to route, from [[service]] in config.
+	// Routes are the services to route, from [service.<name>] in config.
 	Routes []RouteSpec
 	// RouterNetwork is the shared router's network; routed services join it.
 	RouterNetwork string

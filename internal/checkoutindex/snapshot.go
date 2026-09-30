@@ -254,7 +254,7 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 		status := entryStatus(local, hasIdentity, dockerReachable, cardReadFailed, identityError, declared, owned)
 
 		// (#16) declared is every service the config declared for this
-		// checkout, whether or not it opted into [service.index] — see
+		// checkout, whether or not it opted into [service.<name>.index] — see
 		// entryStatus below and card.IndexService's own comment — but only
 		// the ones that did get a Label are shown as a link: an unlabelled
 		// entry has no href text or purpose to publish, only a name that
@@ -342,10 +342,10 @@ func entryStatus(local, hasIdentity, dockerReachable, cardReadFailed bool, ident
 		return StatusUnknown
 	}
 	// Counted per service the card names — every service the config
-	// declares, whether or not it also opted into [service.index] (#16) —
+	// declares, whether or not it also opted into [service.<name>.index] (#16) —
 	// union the containers that exist. A service that never got a container
 	// at all is exactly the one a `Running` pill would lie about, and that
-	// is as true of one with no [service.index] block as one with: a
+	// is as true of one with no [service.<name>.index] block as one with: a
 	// stopped, unindexed service still keeps its checkout from reading
 	// Running. A checkout that names none and has none reads Stopped, which
 	// is what a registration that has never been up is.

@@ -1,0 +1,14 @@
+Print the JSON Schema (draft-07) of berth.toml, for editors to complete and
+check it with. It is generated from the same definitions that validate the file,
+but it cannot state every check: `berth config validate` makes the rest. It
+needs no berth.toml.
+
+Usage:
+  berth config schema [flags]
+
+Flags:
+  -h, --help   help for schema
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

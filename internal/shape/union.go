@@ -42,6 +42,9 @@ func Union(schemas ...Schema) *UnionSchema {
 	return &UnionSchema{schemas: schemas}
 }
 
+// Describe sets the text JSONSchema publishes as this schema's description.
+func (u *UnionSchema) Describe(text string) *UnionSchema { u.mod.description = text; return u }
+
 // Optional lets the field be absent, with no default.
 func (u *UnionSchema) Optional() *UnionSchema { u.mod.optional = true; return u }
 

@@ -9,6 +9,8 @@ type arrayCheck struct {
 	code    string
 	message string
 	test    func(length int) bool
+	// doc, when set, adds this check's JSON Schema keywords to a node.
+	doc func(node *Obj)
 }
 
 // ArraySchema validates a list of elements each matching one schema, built
@@ -21,6 +23,9 @@ type ArraySchema struct {
 
 // Array declares a schema whose elements each match element.
 func Array(element Schema) *ArraySchema { return &ArraySchema{element: element} }
+
+// Describe sets the text JSONSchema publishes as this schema's description.
+func (a *ArraySchema) Describe(text string) *ArraySchema { a.mod.description = text; return a }
 
 // Optional lets the field be absent, with no default.
 func (a *ArraySchema) Optional() *ArraySchema { a.mod.optional = true; return a }
@@ -41,7 +46,8 @@ func (a *ArraySchema) Max(n int, message ...string) *ArraySchema {
 	if len(message) > 0 {
 		msg = message[0]
 	}
-	a.checks = append(a.checks, arrayCheck{code: CodeTooBig, message: msg, test: func(length int) bool { return length <= n }})
+	a.checks = append(a.checks, arrayCheck{code: CodeTooBig, message: msg, test: func(length int) bool { return length <= n },
+		doc: func(node *Obj) { node.Set("maxItems", n) }})
 	return a
 }
 

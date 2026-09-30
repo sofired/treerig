@@ -82,7 +82,7 @@ func writeCheckoutConfig(t *testing.T, root, domain, verify string) {
 	if verify != "" {
 		hooks = fmt.Sprintf("\n[hooks]\nverify = %q\n", verify)
 	}
-	contents := fmt.Sprintf("[project]\nname = %q\ndomain = %q\n[compose]\nfile = \"compose.yaml\"\n[[service]]\nname = \"api\"\n%s",
+	contents := fmt.Sprintf("[project]\nname = %q\ndomain = %q\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n%s",
 		name, domain, hooks)
 	if err := os.WriteFile(filepath.Join(root, brand.ConfigFile), []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
