@@ -25,11 +25,13 @@ import (
 	"github.com/sofired/berth/internal/run/osrun"
 )
 
-// The helper's environment: where to run, what to wait for, where to report.
+// The helper's environment: where to run, where to say it is ready, what to
+// wait for, where to report.
 const (
 	helperMode   = "BERTH_TEST_SHARED_UP_HELPER"
 	helperCwd    = "BERTH_TEST_HELPER_CWD"
 	helperGo     = "BERTH_TEST_HELPER_GO"
+	helperReady  = "BERTH_TEST_HELPER_READY"
 	helperReport = "BERTH_TEST_HELPER_REPORT"
 )
 
@@ -41,16 +43,22 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// runUpHelper waits for the go file, runs `up` in the working directory it was
+// runUpHelper reports ready, waits for the go file, runs `up` in the working
+// directory it was
 // given with a fake router (the config declares no routed service) against the
 // real daemon, and writes every line it logged to the report file. It exits 0
 // on success.
 func runUpHelper() int {
 	// The barrier both processes start behind: a file the parent writes once
-	// they are both running. Polling a file with a short sleep is the whole
+	// both have reported ready, by writing their own ready file just before
+	// they begin polling for it, so neither can be still starting up when the
+	// other is released. Polling a file with a short sleep is the whole
 	// synchronisation here (no signal or pipe is needed, and the sleep orders
 	// nothing: the shared lock is what the test is about), and a loop that
 	// sleeps is what a helper must do (it never parks in select {}).
+	if err := os.WriteFile(os.Getenv(helperReady), []byte("ready"), 0o600); err != nil {
+		return 1
+	}
 	for {
 		if _, err := os.Stat(os.Getenv(helperGo)); err == nil {
 			break
@@ -98,13 +106,16 @@ func TestConcurrentFirstUpsStartOneSharedServiceAcrossProcesses(t *testing.T) {
 		report string
 	}
 	var helpers []helper
+	var readyFiles []string
 	for i, checkout := range []string{w.checkout, w.second} {
 		report := filepath.Join(w.base, "report"+string(rune('a'+i)))
+		ready := filepath.Join(w.base, "ready"+string(rune('a'+i)))
+		readyFiles = append(readyFiles, ready)
 		cmd := exec.Command(os.Args[0], "-test.run=^$")
 		home, _ := w.env.Getenv("HOME")
 		router, _ := w.env.Getenv("BERTH_ROUTER_PORT")
 		cmd.Env = helperEnvironment(
-			helperMode+"=1", helperCwd+"="+checkout, helperGo+"="+goFile, helperReport+"="+report,
+			helperMode+"=1", helperCwd+"="+checkout, helperGo+"="+goFile, helperReady+"="+ready, helperReport+"="+report,
 			"BERTH_CONTROL_HOME="+w.controlHome, "HOME="+home, "BERTH_ROUTER_PORT="+router)
 		output := &strings.Builder{}
 		cmd.Stdout, cmd.Stderr = output, output
@@ -114,6 +125,21 @@ func TestConcurrentFirstUpsStartOneSharedServiceAcrossProcesses(t *testing.T) {
 		process := cmd.Process
 		t.Cleanup(func() { _ = process.Kill() })
 		helpers = append(helpers, helper{cmd: cmd, report: report})
+	}
+	// Release them only once both have reported that they are polling: a
+	// started process may still be initialising, and the first `up` could
+	// then finish before the second begins, which would test nothing.
+	deadline := time.Now().Add(time.Minute)
+	for _, ready := range readyFiles {
+		for {
+			if _, err := os.Stat(ready); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("a helper never reported ready (%s)", ready)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
 	}
 	writeFile(t, goFile, "go", 0o600)
 

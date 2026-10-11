@@ -251,8 +251,10 @@ func commandsSchema() *shape.RecordSchema {
 		Describe("Named commands for `berth run <name> [-- args...]`: on-demand work that is not part of coming up. Each key is a name of lower-case letters, digits and hyphens.")
 }
 
-// rootSchema is the whole config file.
-func rootSchema() *shape.ObjectSchema {
+// rootSchema is the whole config file. root is the directory holding the file
+// being checked, which the relative paths in it resolve from; the published
+// JSON Schema has no file and passes "".
+func rootSchema(root string) *shape.ObjectSchema {
 	project := shape.Object(
 		shape.F("name", shape.String().Regex(slugPattern, "must be lower-case letters, digits, and hyphens").
 			Describe("The project's name: lower-case letters, digits and hyphens.")),
@@ -287,7 +289,9 @@ func rootSchema() *shape.ObjectSchema {
 		shape.F("shared", sharedSchema()),
 		shape.F("hooks", hooksSchema()),
 		shape.F("commands", commandsSchema()),
-	).Strict().SuperRefine(routeCollisionCheck).SuperRefine(sharedChecks).
+	).Strict().SuperRefine(routeCollisionCheck).SuperRefine(func(value *shape.Obj, addIssue func(path []string, message string)) {
+		sharedChecks(value, root, addIssue)
+	}).
 		Describe("berth.toml: the committed configuration of a project. Unknown keys are rejected, so a typo cannot silently disable a feature.")
 }
 
@@ -335,7 +339,7 @@ func routeCollisionCheck(value *shape.Obj, addIssue func(path []string, message 
 // the services live in, and what each service claims against its siblings
 // and against the worktree's own services. Everything here needs more than
 // one value at once, so none of it is in the published JSON Schema.
-func sharedChecks(value *shape.Obj, addIssue func(path []string, message string)) {
+func sharedChecks(value *shape.Obj, root string, addIssue func(path []string, message string)) {
 	raw, _ := value.Get("shared")
 	shared, _ := raw.(*shape.Obj)
 	if shared == nil {
@@ -350,7 +354,7 @@ func sharedChecks(value *shape.Obj, addIssue func(path []string, message string)
 	file, hasFile := stringField(shared, "file")
 	if !hasFile {
 		addIssue([]string{"shared", "file"}, "required when any [shared.service.<name>] table is declared")
-	} else if compose, ok := composeFile(value); ok && filepath.Clean(file) == filepath.Clean(compose) {
+	} else if compose, ok := composeFile(value); ok && resolveFrom(root, file) == resolveFrom(root, compose) {
 		addIssue([]string{"shared", "file"}, "must not be the [compose] file: shared services run in their own Compose project, from their own file")
 	}
 
@@ -410,6 +414,16 @@ func sharedChecks(value *shape.Obj, addIssue func(path []string, message string)
 func hasKey(o *shape.Obj, key string) bool {
 	_, ok := o.Get(key)
 	return ok
+}
+
+// resolveFrom is path as the file in root names it: absolute as it is,
+// relative from root, either way cleaned. Two spellings of one file therefore
+// compare equal, whichever way each was written.
+func resolveFrom(root, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(root, path)
 }
 
 // composeFile is [compose] file as written, when the table and key are there.
@@ -478,5 +492,5 @@ func stringField(o *shape.Obj, key string) (string, bool) {
 // with. schema/berth.schema.json is a committed copy; a test fails when the
 // two differ.
 func SchemaJSON() []byte {
-	return shape.JSONSchema(rootSchema(), SchemaID, brand.ConfigFile)
+	return shape.JSONSchema(rootSchema(""), SchemaID, brand.ConfigFile)
 }

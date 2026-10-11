@@ -150,9 +150,6 @@ func sharedChecks(ctx context.Context, opts doctorOptions, loaded *config.Loaded
 		return nil, err
 	}
 	checks = append(checks, orphans...)
-	if len(checks) == 0 && len(declaredNames) > 0 {
-		return []Check{{Status: StatusOK, ID: "shared.services", Subject: "shared services", Detail: "nothing to report"}}, nil
-	}
 	return checks, nil
 }
 

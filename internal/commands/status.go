@@ -70,7 +70,10 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
 	sharedEntries, err := sharedStatuses(ctx, cctx, ref.RepositoryID, ref.WorktreeID)
 	if err != nil {
-		return nil, err
+		// The worktree's own services are the answer; a shared lookup that
+		// failed must not take them with it.
+		cctx.Logger.Warn(fmt.Sprintf("Could not read the shared services' state, so they are left out: %s", text.OneLine(err.Error(), 300)))
+		sharedEntries = nil
 	}
 	if options.JSON {
 		report := StatusReport{Registered: true, Host: &host, Services: make([]StatusService, 0, len(statuses)), Shared: sharedEntries}

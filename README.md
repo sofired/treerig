@@ -1090,7 +1090,10 @@ container or a pending health check), `stopped`, `absent` or `unknown`, with
 `detail` `unhealthy` for a running one failing its check. One inconsistent
 container is an `unknown` entry with a `detail`, not a failure of the whole
 command; a record that cannot be read leaves `addrs` out with a warning and
-makes the definition `unknown`.
+makes the definition `unknown`. If Docker cannot be asked about the shared
+services at all, `status` warns on stderr, leaves the `shared` array out (and
+the `shared services` block in the text form) and still reports the worktree's
+own services, exiting 0.
 `addrs` lists the declared container ports that have a pinned loopback port,
 `{"port": <container port>, "addr": "127.0.0.1:<host port>"}`, running or not.
 `definition` is `current` when the running instance was started from the

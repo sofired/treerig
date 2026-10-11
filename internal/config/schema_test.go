@@ -161,7 +161,7 @@ func TestCodeOnlyChecks(t *testing.T) {
 		"(root)",         // two services claiming the same route
 		"project.domain", // each label at most 63 characters
 	}
-	if got := shape.CodeOnlyChecks(rootSchema()); strings.Join(got, ",") != strings.Join(want, ",") {
+	if got := shape.CodeOnlyChecks(rootSchema("")); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("CodeOnlyChecks = %v, want %v", got, want)
 	}
 }

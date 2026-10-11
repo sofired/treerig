@@ -35,9 +35,9 @@ func (w *sharedWorld) sharedDown(tc *commandstest.TestContext, options commands.
 
 // downgrade is tc with no usable berth.toml, as `shared down` may run.
 func downgrade(tc *commandstest.TestContext) *commandstest.TestContext {
-	copy := *tc.CommandContext
-	copy.Loaded = nil
-	return &commandstest.TestContext{CommandContext: &copy, Logger: tc.Logger}
+	bare := *tc.CommandContext
+	bare.Loaded = nil
+	return &commandstest.TestContext{CommandContext: &bare, Logger: tc.Logger}
 }
 
 func TestSharedUp(t *testing.T) {
@@ -261,6 +261,53 @@ func TestRemoveDisconnectsTheStackUnderTheCommandsNamespaceFromTheWorktreesOwnNe
 	}
 	if !w.Docker.Exists("container", stack) {
 		t.Error("the shared container was removed with the worktree")
+	}
+}
+
+// TestRemoveOfAnotherRepositorysWorktreeFindsItsStackUnderTheRecordedNamespace
+// pins the other half of the namespace split: a worktree of another
+// repository is removed from a checkout whose berth.toml says nothing about
+// that repository's stack, so the stack is read under the namespace the
+// target recorded, and each side is still proven by its own labels.
+func TestRemoveOfAnotherRepositorysWorktreeFindsItsStackUnderTheRecordedNamespace(t *testing.T) {
+	w := newSharedWorld(t)
+	here := w.context("")
+	widgetsRoot := w.Worktree("widgets", "main", filepath.Join(w.Base, "widgets-common"))
+	widgets := w.Context(widgetsRoot, "widgets.localhost", ns("dev.widgets"))
+	givePorts(widgets)
+	port := 8025
+	widgets.Loaded.Config.Shared = &config.Shared{
+		File:    "compose.shared.yaml",
+		Service: []config.SharedService{{Name: "mailpit", Port: &port, Ports: []int{1025}, UsedBy: []string{"api"}}},
+	}
+	result := w.mustUp(t, widgets)
+	stack := w.mailpit(t, widgets)
+	network := w.Docker.WorktreeDefaultNetwork(refOf(result))
+	if stack == "" || network == "" {
+		t.Fatalf("stack %q, network %q", stack, network)
+	}
+	if got := w.Docker.Aliases(stack, network); len(got) != 1 {
+		t.Fatalf("the stack was not connected by up: %v", got)
+	}
+
+	removed, err := remove(t, here, approved(commands.RemoveOptions{Identifier: result.Registration.WorktreeID}))
+	if err != nil {
+		t.Fatalf("remove: %v\n%s", err, lines(here))
+	}
+	if removed.NetworkKept {
+		t.Errorf("the network was kept: the stack was not found under the recorded namespace\n%s", lines(here))
+	}
+	if got := w.Docker.Aliases(stack, network); len(got) != 0 {
+		t.Errorf("the shared container is still attached: %v", got)
+	}
+	if w.Docker.Exists("network", network) {
+		t.Error("the removed worktree's network survived")
+	}
+	if !w.Docker.Exists("container", stack) {
+		t.Error("the shared container was removed with the worktree")
+	}
+	if out := lines(here); !strings.Contains(out, "shared services are still running (mailpit)") {
+		t.Errorf("no hint that the stack still runs:\n%s", out)
 	}
 }
 
@@ -633,6 +680,33 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		}
 		if !slices.Equal(entry.Addrs, want) {
 			t.Errorf("addrs = %+v, want %+v", entry.Addrs, want)
+		}
+	})
+
+	t.Run("a failed shared lookup is a warning: the worktree's own services are reported and shared is left out", func(t *testing.T) {
+		w := newSharedWorld(t)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		w.Docker.FailCall("label="+brand.SharedLabel(brand.LabelNamespace), "Cannot connect to the Docker daemon", 1, -1)
+
+		tc.Logger.Lines, tc.Logger.Printed = nil, nil
+		statuses, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true})
+		if err != nil {
+			t.Fatalf("status failed over the shared lookup: %v", err)
+		}
+		if len(statuses) == 0 {
+			t.Error("the worktree's own services were not reported")
+		}
+		_, printed := tc.Logger.Snapshot()
+		var report commands.StatusReport
+		if err := json.Unmarshal([]byte(strings.Join(printed, "\n")), &report); err != nil {
+			t.Fatalf("status --json is not JSON: %v\n%v", err, printed)
+		}
+		if !report.Registered || len(report.Services) == 0 || report.Shared != nil {
+			t.Errorf("report = %+v", report)
+		}
+		if out := lines(tc); !strings.Contains(out, "Could not read the shared services' state, so they are left out") {
+			t.Errorf("no warning:\n%s", out)
 		}
 	})
 
