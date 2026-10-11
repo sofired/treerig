@@ -824,8 +824,10 @@ func refuseUnknownNames(names []string, containers []docker.Container, records [
 // hintSharedDown tells the person who just removed a repository's last
 // registered worktree that its shared services are still running, and how to
 // stop them. It is best effort with a bounded Docker probe, and never fails
-// the removal: any error is swallowed.
-func hintSharedDown(ctx context.Context, cctx *CommandContext, repositoryID, namespace string) {
+// the removal: any error is swallowed. local says the repository is the one
+// this checkout belongs to; for another, `shared down` run here would act on
+// this repository instead, so the hint says to run it from that one.
+func hintSharedDown(ctx context.Context, cctx *CommandContext, repositoryID, namespace string, local bool) {
 	probe, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	registered, err := cctx.Registry.Store(repositoryID).List()
@@ -847,6 +849,13 @@ func hintSharedDown(ctx context.Context, cctx *CommandContext, repositoryID, nam
 		return
 	}
 	slices.Sort(services)
+	if !local {
+		cctx.Logger.Info(fmt.Sprintf(
+			"That was its repository's last registered worktree, and that repository's shared services are still running (%s). "+
+				"Run '%s shared down' from a checkout of that repository to stop them; add --volumes to delete their data too.",
+			strings.Join(services, ", "), cctx.CommandName))
+		return
+	}
 	cctx.Logger.Info(fmt.Sprintf(
 		"That was this repository's last registered worktree, and its shared services are still running (%s). "+
 			"'%s shared down' stops them; add --volumes to delete their data too.",

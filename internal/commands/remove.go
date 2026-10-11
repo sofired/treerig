@@ -256,7 +256,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			host, summarize(result), cctx.CommandName))
 	default:
 		cctx.Logger.Info(fmt.Sprintf("Removed %s: %s.", host, summarize(result)))
-		hintSharedDown(ctx, cctx, target.RepositoryID, stackNamespace)
+		hintSharedDown(ctx, cctx, target.RepositoryID, stackNamespace, local)
 	}
 	return result, nil
 }
