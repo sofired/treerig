@@ -3,7 +3,10 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +19,7 @@ import (
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/shared"
 )
 
@@ -563,6 +567,31 @@ func TestSharedDown(t *testing.T) {
 	})
 }
 
+func TestSharedDependencyPorts(t *testing.T) {
+	t.Run("a declared service that is only started as a dependency gets its pinned ports published", func(t *testing.T) {
+		w := newSharedWorld(t)
+		w.Docker.SetSharedService("db", map[string]any{"image": "busybox"})
+		w.Docker.SetSharedService("mailpit", map[string]any{
+			"image": "axllent/mailpit:v1.31.3", "depends_on": map[string]any{"db": map[string]any{}},
+			"volumes": []any{map[string]any{"type": "volume", "source": "mailbox", "target": "/data"}},
+		})
+		tc := w.context("")
+		// db is declared but used by no worktree service, so `up` asks only for mailpit.
+		tc.Loaded.Config.Shared.Service = append(tc.Loaded.Config.Shared.Service, config.SharedService{Name: "db", Ports: []int{5432}})
+		result := w.mustUp(t, tc)
+
+		record, err := tc.Registry.Store(result.Registration.RepositoryID).FindShared("db")
+		if err != nil || record == nil || record.Ports[5432] == 0 {
+			t.Fatalf("db record = %+v, %v", record, err)
+		}
+		id := w.Docker.ContainerNamed(w.project(t, tc) + "-db-1")
+		want := fmt.Sprintf("127.0.0.1:%d", record.Ports[5432])
+		if got := w.Docker.Published(id, 5432); !slices.Equal(got, []string{want}) {
+			t.Fatalf("db publishes %v, want [%s]", got, want)
+		}
+	})
+}
+
 // configShared is a shared service used by one worktree service, with one port.
 func configShared(name string, port int, usedBy ...string) config.SharedService {
 	return config.SharedService{Name: name, Ports: []int{port}, UsedBy: usedBy}
@@ -806,6 +835,27 @@ func TestUnlockShared(t *testing.T) {
 		if err != nil || len(result.Cleared) != 1 {
 			t.Fatalf("result = %+v, %v", result, err)
 		}
+	})
+
+	t.Run("runs where berth.toml is broken, since recovery needs only labels and records", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		file := filepath.Join(dir, "berth.toml")
+		if err := os.WriteFile(file, []byte("not = [valid"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		home := registrytest.TempDir(t)
+		getenv := func(key string) (string, bool) {
+			switch key {
+			case "BERTH_HOME":
+				return filepath.Join(home, "berth"), true
+			case "HOME":
+				return filepath.Join(home, "user"), true
+			}
+			return "", false
+		}
+		env := &commands.Env{CommandName: "berth", Logger: &logger.Recording{}, Getenv: getenv, Cwd: dir, ConfigPath: file, Runner: noRunner{t}}
+		err := commands.Unlock(context.Background(), env, commands.UnlockOptions{Shared: true, Identifier: "nosuch"})
+		wantErr(t, err, `^No worktree is registered as nosuch\.`)
 	})
 
 	t.Run("cannot be combined with --registry or --router", func(t *testing.T) {

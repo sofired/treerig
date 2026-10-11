@@ -164,11 +164,16 @@ func ensureSharedLocked(ctx context.Context, cctx *CommandContext, repositoryID,
 
 	// Pinned ports are committed before anything starts, and a pin something
 	// else holds is refused with the way out, instead of Docker's bind error.
+	// A declared service that is not asked for but is absent is created too
+	// when something that is asked for needs it (depends_on), so its ports
+	// are pinned and published like the others'; one already there keeps
+	// the ports it was created with.
+	toPin, needed, err := sharedToPin(ctx, cctx, stack, definition, plan, start, recreate)
+	if err != nil {
+		return outcome, err
+	}
 	published := map[string]map[int]int{}
-	for _, service := range plan.Services {
-		if !slices.Contains(start, service.Name) && !slices.Contains(recreate, service.Name) {
-			continue
-		}
+	for _, service := range toPin {
 		result, err := pinSharedPorts(ctx, cctx, repositoryID, service, true, plan.Reallocate[service.Name])
 		if err != nil {
 			return outcome, err
@@ -180,7 +185,7 @@ func ensureSharedLocked(ctx context.Context, cctx *CommandContext, repositoryID,
 		}
 		published[service.Name] = result.Ports
 	}
-	for _, name := range slices.Concat(start, recreate) {
+	for _, name := range slices.Concat(start, recreate, needed) {
 		// A running container that is to be replaced holds its own pins, so
 		// only services that are not running are probed.
 		if instances[name].Live() {
@@ -248,6 +253,41 @@ func ensureSharedLocked(ctx context.Context, cctx *CommandContext, repositoryID,
 	}
 	outcome.Created = everything
 	return outcome, nil
+}
+
+// sharedToPin is the declared services whose ports this start pins and
+// publishes: those to start or recreate, and every other declared service
+// that is absent and in the dependency closure of one of them, which Compose
+// creates as a side effect. needed names the latter.
+func sharedToPin(ctx context.Context, cctx *CommandContext, stack *shared.Stack, definition shared.Definition, plan sharedPlan, start, recreate []string) (toPin []config.SharedService, needed []string, err error) {
+	asked := slices.Concat(start, recreate)
+	for _, service := range plan.Services {
+		if slices.Contains(asked, service.Name) {
+			toPin = append(toPin, service)
+		}
+	}
+	var candidates []string
+	for _, name := range asked {
+		for _, member := range definition.Closure(name) {
+			if !slices.Contains(asked, member) && !slices.Contains(candidates, member) {
+				candidates = append(candidates, member)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return toPin, nil, nil
+	}
+	instances, err := stack.Instances(ctx, candidates)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, service := range cctx.Loaded.Config.SharedServices() {
+		if slices.Contains(candidates, service.Name) && instances[service.Name].State == shared.Absent {
+			toPin = append(toPin, service)
+			needed = append(needed, service.Name)
+		}
+	}
+	return toPin, needed, nil
 }
 
 // sharedPhrase names services for a progress line: "shared service a" or

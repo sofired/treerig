@@ -130,7 +130,7 @@ func Context(env *Env) (*CommandContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	return buildContext(env, loaded)
+	return buildContext(env, loaded, "")
 }
 
 // ContextWithoutConfig is Context for a verb that works from labels and
@@ -143,10 +143,16 @@ func Context(env *Env) (*CommandContext, error) {
 func ContextWithoutConfig(env *Env) (*CommandContext, error) {
 	var loaded *config.Loaded
 	var err error
-	if env.ConfigPath != "" {
-		loaded, err = config.Load(env.ConfigPath)
+	// file is the config the repository is taken from; fallbackRoot is its
+	// directory, used when the file cannot be loaded, so a broken file still
+	// names its own repository and never the working directory's.
+	file, fallbackRoot := env.ConfigPath, ""
+	if file != "" {
+		loaded, err = config.Load(file)
 	} else {
-		file, found, findErr := config.FindConfigFile(env.Cwd)
+		found := false
+		var findErr error
+		file, found, findErr = config.FindConfigFile(env.Cwd)
 		if findErr != nil {
 			return nil, findErr
 		}
@@ -157,15 +163,23 @@ func ContextWithoutConfig(env *Env) (*CommandContext, error) {
 	if err != nil {
 		env.Logger.Warn(fmt.Sprintf("Going on without %s: %s", brand.ConfigFile, err))
 		loaded = nil
+		resolved, resolveErr := layout.Resolve(file)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		fallbackRoot = filepath.Dir(resolved)
 	}
-	return buildContext(env, loaded)
+	return buildContext(env, loaded, fallbackRoot)
 }
 
 // buildContext assembles the CommandContext around loaded, which may be nil
 // (ContextWithoutConfig): the registry then answers for the working
-// directory, with no domain.
-func buildContext(env *Env, loaded *config.Loaded) (*CommandContext, error) {
+// directory, or for fallbackRoot when that is set, with no domain.
+func buildContext(env *Env, loaded *config.Loaded, fallbackRoot string) (*CommandContext, error) {
 	root, domain, namespace := env.Cwd, "", ""
+	if fallbackRoot != "" {
+		root = fallbackRoot
+	}
 	if loaded != nil {
 		root, domain, namespace = loaded.Root, loaded.Config.Project.Domain, loaded.Config.LabelNamespace()
 	}

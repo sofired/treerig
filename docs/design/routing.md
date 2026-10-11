@@ -532,7 +532,7 @@ Verified while implementing #123, Linux, Docker
 |----------|--------|
 | `docker compose config --format json` of a service with `depends_on: [db]`, `env_file` and a relative bind mount | `depends_on` is printed as a map (`db: {condition, required}`), `env_file` is inlined into `environment`, a bind `source` is the absolute path, and a named volume's `name` carries the project name. berth reads both `depends_on` forms |
 | `compose up --no-recreate <svc>` with the running container's definition changed | Leaves the container alone. Without the flag Compose recreates it |
-| `compose up --no-recreate <svc>` with the container stopped | Starts the stopped container with the definition it was created from, not the file's current one, so berth removes a stopped shared container (keeping its volumes) before starting it from the caller's definition |
+| `compose up --no-recreate <svc>` with the container stopped | Starts the stopped container with the definition it was created from, not the file's current one, so berth replaces a stopped shared container with `compose up --force-recreate --no-deps <svc>`, which keeps its named and anonymous volumes, to start it from the caller's definition |
 | Two processes' first `up`s of two worktrees at the same moment | The shared lock serialises them: one runs `compose up`, the other finds the container running; both end connected |
 | `docker network disconnect` before `compose down` of a worktree whose network the shared container is on | The worktree's network is removed cleanly and the shared container keeps running |
 | `worktree remove` of a worktree the shared container is attached to | Succeeds, with the shared container, its volume and its pinned ports untouched |

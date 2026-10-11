@@ -465,8 +465,8 @@ func sharedLockChecks(controlHome string, byRepository map[string]string, comman
 	}
 	var checks []Check
 	for _, entry := range entries {
-		id := strings.TrimSuffix(entry.Name(), ".holder")
-		if entry.IsDir() || !uuidPattern.MatchString(id) || id != entry.Name() {
+		id := entry.Name()
+		if entry.IsDir() || !uuidPattern.MatchString(id) {
 			continue
 		}
 		scope := lock.SharedScope(controlHome, id)

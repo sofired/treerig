@@ -97,12 +97,18 @@ func Unlock(ctx context.Context, env *Env, options UnlockOptions) error {
 		_, err := UnlockGlobal(ctx, env, options)
 		return err
 	}
-	cctx, err := Context(env)
-	if err != nil {
+	if options.Shared {
+		// Recovery works from labels and records, so a missing or broken
+		// berth.toml must not stand in its way.
+		cctx, err := ContextWithoutConfig(env)
+		if err != nil {
+			return err
+		}
+		_, err = UnlockSharedWithContext(ctx, cctx, options)
 		return err
 	}
-	if options.Shared {
-		_, err = UnlockSharedWithContext(ctx, cctx, options)
+	cctx, err := Context(env)
+	if err != nil {
 		return err
 	}
 	_, err = UnlockWithContext(ctx, cctx, options)
