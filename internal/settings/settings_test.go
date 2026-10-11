@@ -312,3 +312,67 @@ func TestResolvePortRange(t *testing.T) {
 		}
 	})
 }
+
+func TestRouterMode(t *testing.T) {
+	t.Run("leaves the mode unset for an empty file", func(t *testing.T) {
+		got, err := Parse([]byte(""), "settings.toml")
+		if err != nil || got.Router.Mode != "" {
+			t.Fatalf("Parse = %+v, %v", got, err)
+		}
+	})
+
+	t.Run("accepts host and bridge", func(t *testing.T) {
+		for _, mode := range []string{ModeHost, ModeBridge} {
+			got, err := Parse([]byte("[router]\nmode = \""+mode+"\"\n"), "settings.toml")
+			if err != nil || got.Router.Mode != mode {
+				t.Fatalf("Parse(%s) = %+v, %v", mode, got, err)
+			}
+		}
+	})
+
+	t.Run("accepts a mode beside a port", func(t *testing.T) {
+		got, err := Parse([]byte("[router]\nport = 8080\nmode = \"bridge\"\n"), "settings.toml")
+		if err != nil || got.Router.Mode != ModeBridge || got.Router.Port == nil || *got.Router.Port != 8080 {
+			t.Fatalf("Parse = %+v, %v", got, err)
+		}
+	})
+
+	t.Run("rejects any other value, naming the key and the allowed ones", func(t *testing.T) {
+		for _, value := range []string{`"auto"`, `"HOST"`, `""`, `1`} {
+			_, err := Parse([]byte("[router]\nmode = "+value+"\n"), "settings.toml")
+			requireErrorContains(t, err, "router.mode")
+		}
+		_, err := Parse([]byte("[router]\nmode = \"vm\"\n"), "settings.toml")
+		requireErrorContains(t, err, `must be "host" or "bridge"`)
+	})
+}
+
+func TestResolveRouterMode(t *testing.T) {
+	t.Run("is empty with no settings file, meaning detect it", func(t *testing.T) {
+		got, err := ResolveRouterMode(registrytest.TempDir(t))
+		if err != nil || got != "" {
+			t.Fatalf("ResolveRouterMode = %q, %v", got, err)
+		}
+	})
+
+	t.Run("is the file's mode when it sets one", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(home, "settings.toml"), []byte("[router]\nmode = \"bridge\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ResolveRouterMode(home)
+		if err != nil || got != ModeBridge {
+			t.Fatalf("ResolveRouterMode = %q, %v", got, err)
+		}
+	})
+
+	t.Run("reports an invalid file", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(home, "settings.toml"), []byte("[router]\nmode = \"vm\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ResolveRouterMode(home); err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+}

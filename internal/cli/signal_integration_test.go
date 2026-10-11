@@ -159,13 +159,10 @@ func TestInterruptedMutation(t *testing.T) {
 				}
 				fakeDocker(t, bin, state, identity.RepositoryID, identity.WorktreeID)
 
-				// Both verbs here reach the shared router (unrouteWorktree,
-				// then a best-effort index refresh): isolate its state
-				// directory and port the way internal/commands' own
-				// newWalk fixture does, or this process — the real binary,
-				// spawned with no test hook to inject a
-				// commands.SharedRouter — reaches the real one. #55 found
-				// exactly this gap in a sibling integration test.
+				// Both verbs here remove route files and refresh the index
+				// page, which live in the shared router's state directory:
+				// isolate it the way internal/commands' own newWalk fixture
+				// does, or this real binary writes to the machine's real one.
 				// The router's own state now lives under BERTH_HOME alone
 				// (#80) — HOME and XDG_STATE_HOME no longer matter to it —
 				// so BERTH_HOME=controlHome is what isolates it below, the

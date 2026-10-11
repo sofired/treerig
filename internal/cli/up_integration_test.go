@@ -47,6 +47,12 @@ case " $* " in
   *" compose "*" config "*) echo '{"name":"x","services":{"api":{"image":"busybox"},"mail":{"image":"busybox"}}}'; exit 0 ;;
   *" compose "*" up "*) [ -e "$state/hang-up" ] && hang; exit 0 ;;
 esac
+if [ "$1" = info ]; then
+  echo '{"OSType":"linux","OperatingSystem":"Ubuntu 24.04 LTS","Name":"fake","SecurityOptions":["name=seccomp"]}'; exit 0
+fi
+if [ "$1" = context ]; then
+  echo "unix:///var/run/docker.sock"; exit 0
+fi
 if [ "$1" = inspect ]; then
   [ -e "$state/$2.json" ] || exit 1
   cat "$state/$2.json"; exit 0
@@ -54,10 +60,11 @@ fi
 exit 0
 `
 
-// healthyRouter writes the three inspect documents a router started exactly
-// as the stack asks would have, one per fake container id, owned by the
-// berth root home, as a router this berth root started is.
-func healthyRouter(t *testing.T, state, home string, routerState layout.RouterLayout, port int) {
+// healthyRouter writes the two inspect documents a running, healthy router
+// would have, one per fake container id: the proxy in host mode serving port,
+// owned by the berth root home, as a router this berth root started is, and
+// the index beside it.
+func healthyRouter(t *testing.T, state, home string, port int) {
 	t.Helper()
 	labels := func(service string) map[string]string {
 		return map[string]string{
@@ -68,47 +75,20 @@ func healthyRouter(t *testing.T, state, home string, routerState layout.RouterLa
 			router.RouterHomeLabel:                    home,
 		}
 	}
-	hardened := func(capAdd ...string) router.InspectHostConfig {
-		return router.InspectHostConfig{
-			CapAdd: append([]string{}, capAdd...), CapDrop: []string{"ALL"},
-			ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"},
-		}
-	}
 	running := router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}}
-	// The stack starts the index with an init process; see router.Stack.
-	indexHost := hardened()
-	initEnabled := true
-	indexHost.Init = &initEnabled
-	networks := func(names ...string) map[string]json.RawMessage {
-		m := map[string]json.RawMessage{}
-		for _, name := range names {
-			m[name] = json.RawMessage("{}")
-		}
-		return m
-	}
-
-	indexLabels := labels("index")
-	for key, value := range router.IndexRouteLabels(router.DefaultName).Map() {
-		indexLabels[key] = value
-	}
+	routerLabels := labels("router")
+	routerLabels[router.RouterModeLabel] = string(router.ModeHost)
+	routerLabels[router.RouterPortLabel] = strconv.Itoa(port)
 
 	docs := map[string]router.ContainerInspect{
 		"router-1": {
-			Config:     router.InspectConfig{Cmd: router.RouterCommand(), Entrypoint: router.RouterImageEntrypoint, Image: router.RouterImage, Labels: labels("router")},
-			HostConfig: hardened("CAP_NET_BIND_SERVICE"),
-			Mounts:     []router.InspectMount{{Type: "bind", Source: routerState.DynamicDir, Destination: router.DynamicConfigMount}},
-			NetworkSettings: router.InspectNetworkSettings{
-				Networks: networks(router.DefaultName),
-				Ports:    map[string][]router.InspectPortBinding{"80/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(port)}}},
-			},
-			State: running,
+			Config:     router.InspectConfig{Labels: routerLabels, Cmd: []string{fmt.Sprintf("--entrypoints.web.address=127.0.0.1:%d", port)}},
+			HostConfig: router.InspectHostConfig{NetworkMode: "host"},
+			State:      running,
 		},
 		"index-1": {
-			Config:          router.InspectConfig{Cmd: append([]string(nil), router.IndexCommand...), Entrypoint: router.IndexImageEntrypoint, Image: router.IndexImage, Labels: indexLabels},
-			HostConfig:      indexHost,
-			Mounts:          []router.InspectMount{{Type: "bind", Source: routerState.IndexDir, Destination: router.IndexMount}},
-			NetworkSettings: router.InspectNetworkSettings{Networks: networks(router.DefaultName)},
-			State:           running,
+			Config: router.InspectConfig{Labels: labels("index")},
+			State:  running,
 		},
 	}
 	for id, doc := range docs {
@@ -193,7 +173,7 @@ func newUpFixture(t *testing.T) upFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	healthyRouter(t, f.state, f.controlHome, f.routerState, port)
+	healthyRouter(t, f.state, f.controlHome, port)
 	return f
 }
 

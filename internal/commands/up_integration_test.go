@@ -201,7 +201,7 @@ func (w *upWorld) up(t *testing.T, cctx *commands.CommandContext, services ...st
 // upWithContext runs `up` against ctx, so a test can cancel it mid-flight,
 // with a fake router and index.
 func (w *upWorld) upWithContext(ctx context.Context, cctx *commands.CommandContext, services ...string) (*commands.UpResult, error) {
-	return commands.UpWithContext(ctx, cctx, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{},
+	return commands.UpWithContext(ctx, cctx, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{},
 		commands.UpOptions{Services: services})
 }
 

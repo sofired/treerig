@@ -20,8 +20,8 @@ import (
 // set behaves like a JavaScript property assignment: a key already present
 // keeps its position and only its value changes; a new key is appended.
 // That is exactly what the override document's own construction relies on —
-// see a routed service's networks entry merging onto its existing ones, and
-// a router network that happens to collide with an already-declared one.
+// see a routed service's ports entry and the labels stamped onto an entry
+// that already carries some.
 type jsonKV struct {
 	keys   []string
 	values map[string]any
@@ -191,8 +191,7 @@ func writeOrderedObject(buf *bytes.Buffer, o *jsonKV) error {
 }
 
 // writeOrderedArray writes items to buf as a compact JSON array of strings —
-// the one array shape the override document ever builds itself: a routed
-// service's network aliases (RouterNetworkName's own network entry).
+// the array shape a caller building an override entry by hand may hand it.
 func writeOrderedArray(buf *bytes.Buffer, items []string) error {
 	buf.WriteByte('[')
 	for i, item := range items {

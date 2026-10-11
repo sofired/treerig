@@ -41,7 +41,6 @@ func TestOverrideCorpus(t *testing.T) {
 			ref := decodeCorpusRef(t, obj)
 			domain := mustString(t, obj, "domain")
 			labelNamespace := mustString(t, obj, "labelNamespace")
-			routerNetwork := mustString(t, obj, "routerNetwork")
 			routes := decodeCorpusRoutes(t, obj)
 			configValue, _ := obj.get("config")
 			configObj, ok := configValue.(*jsonKV)
@@ -65,7 +64,7 @@ func TestOverrideCorpus(t *testing.T) {
 				ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
 				ConfigFile: "/work/acme/berth.toml", ProjectName: "acme",
 				ControlHome: "/control", Domain: domain, LabelNamespace: labelNamespace,
-				Routes: routes, RouterNetwork: routerNetwork, Logger: logger.Silent{},
+				Routes: routes, Logger: logger.Silent{},
 			})
 
 			document, buildErr := rt.overrideDocument(ref, services, volumes, networks)
@@ -81,18 +80,6 @@ func TestOverrideCorpus(t *testing.T) {
 			}
 			if buildErr != nil {
 				t.Fatalf("overrideDocument: %v", buildErr)
-			}
-			if len(routes) > 0 {
-				// Go gives every worktree its own dedicated, owned router
-				// network instead of sharing one external network (#55; see
-				// RouterNetworkName's own comment in compose_up.go); this
-				// fixture's bytes for a routed case are the pre-#55 shape
-				// and no longer match. The corpus case still ran
-				// overrideDocument above (label merging, hostile names,
-				// refusals) — only the byte-for-byte comparison is skipped.
-				// See override_network_test.go for the Go-only pinning
-				// tests of the current network/alias shape.
-				t.Skip("routed case: network shape predates #55's per-worktree router network")
 			}
 			gotBytes, err := marshalOverrideDocument(document)
 			if err != nil {

@@ -1,0 +1,111 @@
+{
+  "services": {
+    "router": {
+      "image": "traefik:v3.7.9@sha256:652929a140a32d7cafafb13c6cdfab5376cfeff800f51397b87b524501ed02a8",
+      "restart": "unless-stopped",
+      "command": [
+        "--entrypoints.web.address=:80",
+        "--entrypoints.traefik.address=127.0.0.1:8082",
+        "--providers.file.directory=/etc/berth/dynamic",
+        "--providers.file.watch=true",
+        "--api.dashboard=false",
+        "--ping=true",
+        "--ping.entryPoint=traefik"
+      ],
+      "ports": [
+        "127.0.0.1:8080:80"
+      ],
+      "extra_hosts": [
+        "berth-loopback:host-gateway"
+      ],
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_add": [
+        "NET_BIND_SERVICE"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/home/dev/.berth/router/dynamic",
+          "target": "/etc/berth/dynamic",
+          "read_only": true
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "traefik",
+          "healthcheck",
+          "--ping",
+          "--ping.entryPoint=traefik",
+          "--entrypoints.traefik.address=127.0.0.1:8082"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 30
+      },
+      "labels": {
+        "dev.berth.component": "router",
+        "dev.berth.router-protocol": "6",
+        "dev.berth.router-home": "/home/dev/.berth",
+        "dev.berth.router-mode": "bridge",
+        "dev.berth.router-port": "8080"
+      }
+    },
+    "index": {
+      "image": "busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0",
+      "restart": "unless-stopped",
+      "init": true,
+      "command": [
+        "httpd",
+        "-f",
+        "-p",
+        "8080",
+        "-h",
+        "/srv/index"
+      ],
+      "ports": [
+        "127.0.0.1:21000:8080"
+      ],
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/home/dev/.berth/router/index",
+          "target": "/srv/index",
+          "read_only": true
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-qO-",
+          "http://127.0.0.1:8080/index.html"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 30
+      },
+      "labels": {
+        "dev.berth.component": "index",
+        "dev.berth.router-protocol": "6",
+        "dev.berth.router-home": "/home/dev/.berth"
+      }
+    }
+  }
+}

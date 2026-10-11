@@ -15,7 +15,7 @@ package commands_test
 // Assertions stick to what a user can observe through the router — a host
 // answers, an unmatched one 404s, one service reaches another by name — and
 // to doctor's own report text, never to the routing labels' own mechanics,
-// so they survive #55's move to file-provider routing.
+// so they survive changes to how routes are carried.
 
 import (
 	"context"
@@ -97,7 +97,7 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 		t.Fatalf("unmatched host answered %d %q", status, body)
 	}
 
-	// Service discovery inside the worktree: api reaches worker by name, over the worktree's own network.
+	// Service discovery inside the worktree: api reaches worker by name, over the worktree's own default network.
 	project := layout.ComposeProjectName(result.Registration.RepositoryID, result.Registration.WorktreeID)
 	apiIDs := dockerIDs(t, "compose", "-p", project, "ps", "-q", "api")
 	if len(apiIDs) != 1 {
@@ -111,42 +111,69 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 		t.Fatalf("worker over the worktree's own network answered %q", reached)
 	}
 
-	// doctor sees both services' own route fragments, and no two routers
-	// sharing a rule yet. Under #55 doctor reads route fragments
-	// (router.ListFragments), never container labels, so the Router section
-	// gains more checks than a pre-#55 build's own two (status, routes):
-	// status, its owner (#82), routes, doctor's address-pools check, and the
-	// port it resolved and where that came from (#79).
+	// The routes are files naming loopback ports, and no network of the
+	// worktree's carries a route.
+	w.requireNoRoutingNetwork(t, result.Registration.WorktreeID)
+	if routes := w.routeFiles(t, result.Registration.WorktreeID); len(routes) != 2 {
+		t.Fatalf("route files = %+v", routes)
+	}
+
+	// doctor reads the route files and probes each route through the proxy.
 	sections, err := commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
 	if err != nil {
 		t.Fatalf("DoctorSections: %v", err)
 	}
 	checks := routerChecks(sections)
-	if len(checks) != 5 {
-		t.Fatalf("router checks before the impostor = %+v", checks)
+	byID := func(id string) []commands.Check {
+		var found []commands.Check
+		for _, check := range checks {
+			if check.ID == id {
+				found = append(found, check)
+			}
+		}
+		return found
 	}
-	if last := checks[4]; last.Status != commands.StatusOK || last.Subject != "router port" || !strings.Contains(last.Detail, fmt.Sprintf("port %d from BERTH_ROUTER_PORT", w.port)) {
-		t.Fatalf("router port before the impostor = %+v", last)
+	if status := byID("router.container"); len(status) != 1 || status[0].Status != commands.StatusOK ||
+		!strings.Contains(status[0].Detail, fmt.Sprintf("running on 127.0.0.1:%d, host mode", w.port)) {
+		t.Fatalf("router status before the impostor = %+v", status)
 	}
-	if checks[0].Status != commands.StatusOK || !strings.Contains(checks[0].Detail, fmt.Sprintf("running on 127.0.0.1:%d", w.port)) || !strings.Contains(checks[0].Detail, w.svc.Network) {
-		t.Fatalf("router status before the impostor = %+v", checks[0])
+	if owner := byID("router.owner"); len(owner) != 1 || owner[0].Status != commands.StatusOK || !strings.HasPrefix(owner[0].Detail, "this berth root (") {
+		t.Fatalf("router owner before the impostor = %+v", owner)
 	}
-	if checks[1].Status != commands.StatusOK || checks[1].Subject != "router owner" || !strings.HasPrefix(checks[1].Detail, "this berth root (") {
-		t.Fatalf("router owner before the impostor = %+v", checks[1])
+	if mode := byID("router.mode"); len(mode) != 1 || mode[0].Status != commands.StatusOK || !strings.Contains(mode[0].Detail, "host mode") {
+		t.Fatalf("router mode before the impostor = %+v", mode)
 	}
-	if checks[2].Status != commands.StatusOK || !strings.Contains(checks[2].Detail, "2 route fragments; no two routers share a rule") {
-		t.Fatalf("routes before the impostor = %+v", checks[2])
+	if bind := byID("router.bind"); len(bind) != 1 || bind[0].Status != commands.StatusOK {
+		t.Fatalf("router bind before the impostor = %+v", bind)
+	}
+	if routes := byID("router.routes"); len(routes) != 1 || routes[0].Status != commands.StatusOK || !strings.Contains(routes[0].Detail, "2 route files; no two routers share a rule") {
+		t.Fatalf("routes before the impostor = %+v", routes)
+	}
+	// Every route answers: the index, the host root and the subdomain.
+	probes := byID("router.route-probe")
+	answered := map[string]bool{}
+	for _, probe := range probes {
+		if probe.Status != commands.StatusOK {
+			t.Fatalf("route probe = %+v", probe)
+		}
+		answered[probe.Instance] = true
+	}
+	for _, claim := range []string{router.IndexHost, host, workerHost} {
+		if !answered[claim] {
+			t.Fatalf("no passing probe for %s in %+v", claim, probes)
+		}
+	}
+	if port := byID("router.port"); len(port) != 1 || port[0].Status != commands.StatusOK || !strings.Contains(port[0].Detail, fmt.Sprintf("port %d from BERTH_ROUTER_PORT", w.port)) {
+		t.Fatalf("router port before the impostor = %+v", port)
 	}
 
-	// Not a Compose service, so not a replica of anything: a second,
-	// unrelated route fragment claiming the worktree's own host. Under #55
-	// only a fragment claims a route at all — Traefik's Docker-provider
-	// discovery is gone, so a container's own labels do nothing — so this
-	// writes one directly rather than labelling a container, proving doctor
-	// reads a claimed route from the fragment itself.
+	// A second, unrelated route file claiming the worktree's own host. Only a
+	// route file claims a route, so this writes one directly rather than
+	// labelling a container, proving doctor reads a claimed route from the
+	// file itself.
 	impostorRepositoryID, impostorWorktreeID := "33333333-3333-3333-3333-333333333333", "44444444-4444-4444-4444-444444444444"
 	t.Cleanup(func() { _ = router.RemoveWorktreeFragments(w.state, impostorRepositoryID, impostorWorktreeID) })
-	impostorDoc := router.NewFragmentDocument("impostor", fmt.Sprintf("Host(`%s`)", host), "impostor", 8080)
+	impostorDoc := router.NewFragmentDocument("impostor", fmt.Sprintf("Host(`%s`)", host), 8080)
 	if err := router.WriteFragment(w.state, impostorRepositoryID, impostorWorktreeID, "impostor", impostorDoc); err != nil {
 		t.Fatalf("writing the impostor's route fragment: %v", err)
 	}

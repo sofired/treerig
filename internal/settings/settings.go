@@ -43,7 +43,18 @@ type Router struct {
 	// Port overrides the router's default port (80); nil means unset, so
 	// ResolveRouterPort's own precedence continues past it.
 	Port *int `json:"port,omitempty"`
+	// Mode overrides which network mode the proxy runs in ("host" or
+	// "bridge"); "" means detect it from `docker info`.
+	Mode string `json:"mode,omitempty"`
 }
+
+// Router modes settings.toml's [router] mode accepts.
+const (
+	// ModeHost is the proxy sharing the host's network namespace.
+	ModeHost = "host"
+	// ModeBridge is the proxy on a bridge network with its port published.
+	ModeBridge = "bridge"
+)
 
 // rootSchema is settings.toml's whole shape: a [router] table (its port) and
 // a [ports] table (the loopback port range), both strict about unrecognized keys the way berth.toml's
@@ -51,6 +62,9 @@ type Router struct {
 func rootSchema() *shape.ObjectSchema {
 	router := shape.Object(
 		shape.F("port", shape.Number().Int().Min(1).Max(65_535).Optional()),
+		shape.F("mode", shape.String().Refine(func(value string) bool {
+			return value == ModeHost || value == ModeBridge
+		}, "must be \"host\" or \"bridge\"").Optional()),
 	).Strict().Default(shape.NewObj())
 
 	ports := shape.Object(
@@ -104,6 +118,9 @@ func decode(obj *shape.Obj) Settings {
 		if p, ok := v.(*shape.Obj).Get("port"); ok {
 			port := p.(int)
 			s.Router.Port = &port
+		}
+		if m, ok := v.(*shape.Obj).Get("mode"); ok {
+			s.Router.Mode = m.(string)
 		}
 	}
 	if v, ok := obj.Get("ports"); ok {
@@ -209,6 +226,18 @@ func ResolveRouterPort(getenv layout.Getenv, home string) (PortResolution, error
 	}
 
 	return PortResolution{Port: layout.DefaultRouterPort, Source: PortDefault, SettingsPath: path}, nil
+}
+
+// ResolveRouterMode is settings.toml's [router] mode under home: "host",
+// "bridge", or "" when the file or the key is absent, which means the
+// proxy's mode is detected from `docker info`. home is the already-checked
+// berth root.
+func ResolveRouterMode(home string) (string, error) {
+	loaded, err := Load(layout.SettingsPathFrom(home))
+	if err != nil {
+		return "", err
+	}
+	return loaded.Router.Mode, nil
 }
 
 // ResolvePortRange is settings.toml's [ports] range under home, or

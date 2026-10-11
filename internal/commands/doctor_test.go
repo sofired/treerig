@@ -97,7 +97,7 @@ func doctorEnv(t *testing.T, w *commandstest.World, cwd string) *commands.Env {
 	home := registrytest.TempDir(t)
 	return &commands.Env{
 		CommandName: "berth", Invocation: "berth doctor", Logger: &logger.Recording{},
-		Getenv: doctorGetenv(home, w.ControlHome), Runner: w.Runner, Cwd: cwd,
+		Getenv: doctorGetenv(home, w.ControlHome), Runner: w.Runner, Cwd: cwd, OS: "linux",
 	}
 }
 

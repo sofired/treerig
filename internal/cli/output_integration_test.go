@@ -387,14 +387,7 @@ func TestOutputGoldens(t *testing.T) {
 		checkIndexPage bool
 		// excludeDockerCalls drops any Docker transcript entry containing one
 		// of these substrings from both the golden and the live run before
-		// comparing — the router-network disconnect added by issue #55,
-		// after these goldens were recorded: looking up the router's own
-		// container (`compose --project-name berth-router ps --all --quiet
-		// router`) and detaching it from this worktree's network (`network
-		// disconnect`). This only ever removes entries from the live run's
-		// own transcript, since the golden has none to match, but filtering
-		// both sides — the same way excludeStdoutLines does — keeps the two
-		// lists' treatment symmetric.
+		// comparing, filtering both sides the way excludeStdoutLines does.
 		excludeDockerCalls []string
 		// setup runs after newOutputFixture builds the checkout and before
 		// the live binary does, for a case that needs something on disk
@@ -421,14 +414,8 @@ func TestOutputGoldens(t *testing.T) {
 			name: "doctor --json", args: []string{"doctor", "--json"}, unorderedDocker: true,
 			outsideCheckout: true,
 		},
-		{
-			name: "down", args: []string{"down"}, checkIndexPage: true,
-			excludeDockerCalls: []string{"--project-name berth-router ps", "network disconnect"},
-		},
-		{
-			name: "worktree remove --yes", args: []string{"worktree", "remove", "--yes"}, checkIndexPage: true,
-			excludeDockerCalls: []string{"--project-name berth-router ps", "network disconnect"},
-		},
+		{name: "down", args: []string{"down"}, checkIndexPage: true},
+		{name: "worktree remove --yes", args: []string{"worktree", "remove", "--yes"}, checkIndexPage: true},
 		{name: "worktree remove without --yes, not a terminal", args: []string{"worktree", "remove"}},
 		{name: "worktree remove --yes, refusing a decoy", args: []string{"worktree", "remove", "--yes"}, decoy: true},
 		{name: "worktree remove of an unknown slug", args: []string{"worktree", "remove", "--yes", "nope"}},

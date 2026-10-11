@@ -314,6 +314,8 @@ backup  = "./backup.sh"
 		if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(strings.Join([]string{
 			"#!/bin/sh",
 			`if [ "$1" = version ]; then echo 29.0.0; fi`,
+			`if [ "$1" = info ]; then echo '{"OSType":"linux","OperatingSystem":"Ubuntu","Name":"fake","SecurityOptions":[]}'; fi`,
+			`if [ "$1" = context ]; then echo unix:///var/run/docker.sock; fi`,
 			`if [ "$1" = compose ] && [ "$2" = version ]; then echo 2.30.0; fi`,
 			"exit 0", "",
 		}, "\n")), 0o755); err != nil {

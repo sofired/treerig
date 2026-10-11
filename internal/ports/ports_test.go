@@ -117,3 +117,60 @@ func TestLoopbackProbe(t *testing.T) {
 		}
 	})
 }
+
+func TestDialProbe(t *testing.T) {
+	ctx := context.Background()
+	probe := ports.DialProbe{}
+
+	t.Run("reports a port with a listener busy, and free again once it closes", func(t *testing.T) {
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Skipf("no loopback: %v", err)
+		}
+		port := listener.Addr().(*net.TCPAddr).Port
+		if probe.Free(ctx, port) {
+			t.Fatalf("port %d has a listener but was reported free", port)
+		}
+		if err := listener.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if !probe.Free(ctx, port) {
+			t.Fatalf("port %d was closed but reported busy", port)
+		}
+	})
+
+	t.Run("reports a privileged port nothing listens on free, which a bind probe cannot for an unprivileged user", func(t *testing.T) {
+		if conn, err := net.Dial("tcp4", "127.0.0.1:80"); err == nil {
+			_ = conn.Close()
+			t.Skip("something listens on 127.0.0.1:80 here")
+		}
+		if !probe.Free(ctx, 80) {
+			t.Fatal("a free privileged port was reported busy")
+		}
+	})
+
+	t.Run("does not call a port free once the context is cancelled", func(t *testing.T) {
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		if probe.Free(cancelled, 39999) {
+			t.Fatal("a cancelled context reported a port free")
+		}
+	})
+}
+
+func TestLookupHint(t *testing.T) {
+	t.Run("suggests ss on Linux", func(t *testing.T) {
+		if got, want := ports.LookupHint("linux", 8080), "find it with: ss -ltnp 'sport = :8080'"; got != want {
+			t.Fatalf("LookupHint = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("suggests lsof anywhere else", func(t *testing.T) {
+		want := "find it with: lsof -nP -iTCP:8080 -sTCP:LISTEN"
+		for _, goos := range []string{"darwin", "freebsd", ""} {
+			if got := ports.LookupHint(goos, 8080); got != want {
+				t.Errorf("LookupHint(%q) = %q, want %q", goos, got, want)
+			}
+		}
+	})
+}

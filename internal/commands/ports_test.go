@@ -43,7 +43,7 @@ func newPortsWorld(t *testing.T) *portsWorld {
 	w := commandstest.New(t, "feature/login", acme)
 	tc := w.Context("", acme, nil)
 	givePorts(tc)
-	return &portsWorld{World: w, tc: tc, router: commandstest.NewFakeRouter(80, "berth-router"), index: &commandstest.FakeIndex{}}
+	return &portsWorld{World: w, tc: tc, router: commandstest.NewFakeRouter(80), index: &commandstest.FakeIndex{}}
 }
 
 // up runs `up` for pw's worktree.

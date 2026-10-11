@@ -5,7 +5,7 @@ Usage:
   berth router [command]
 
 Available Commands:
-  up          start the shared router and verify its hardened configuration
+  up          start the shared router and wait until it is healthy
   status      report whether the shared router is running as expected
   down        stop the shared router; worktree services keep running but are no
               longer routed

@@ -1,4 +1,4 @@
-start the shared router and verify its hardened configuration
+start the shared router and wait until it is healthy
 
 Usage:
   berth router up [flags]

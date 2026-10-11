@@ -97,8 +97,8 @@ func TestRefusesUnpublishableRoutedServices(t *testing.T) {
 	route := func(t *testing.T, model string) error {
 		t.Helper()
 		services, volumes, networks := decodeModel(t, model)
-		rt := composeWithRoute("web", nil)
-		_, err := rt.overrideDocument(networkFixtureRef, services, volumes, networks)
+		rt := composeWithRoute("web", nil, 0)
+		_, err := rt.overrideDocument(routesFixtureRef, services, volumes, networks)
 		return err
 	}
 	for name, tc := range map[string]struct{ model, want string }{
@@ -141,8 +141,8 @@ func TestRefusesUnpublishableRoutedServices(t *testing.T) {
 
 	t.Run("does not refuse an unrouted service that uses the host network", func(t *testing.T) {
 		services, volumes, networks := decodeModel(t, `{"services":{"web":{"expose":["80"]},"agent":{"network_mode":"host"}}}`)
-		rt := composeWithRoute("web", nil)
-		if _, err := rt.overrideDocument(networkFixtureRef, services, volumes, networks); err != nil {
+		rt := composeWithRoute("web", nil, 0)
+		if _, err := rt.overrideDocument(routesFixtureRef, services, volumes, networks); err != nil {
 			t.Fatalf("err = %v", err)
 		}
 	})

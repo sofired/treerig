@@ -1,6 +1,7 @@
 package router_test
 
-// Dynamic-configuration fragments, added by #55.
+// Dynamic-configuration route files: one per routed service, targeting a
+// loopback port.
 
 import (
 	"encoding/json"
@@ -14,6 +15,18 @@ import (
 	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/router"
 )
+
+// documentTargeting decodes a route document whose only backend is url.
+func documentTargeting(t *testing.T, url string) router.FragmentDocument {
+	t.Helper()
+	var doc router.FragmentDocument
+	text := `{"http":{"routers":{"n":{"rule":"Host(` + "`h`" + `)","entryPoints":["web"],"service":"n"}},` +
+		`"services":{"n":{"loadBalancer":{"servers":[{"url":"` + url + `"}]}}}}}`
+	if err := json.Unmarshal([]byte(text), &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
 
 // fragmentState is a layout.RouterLayout rooted at a fresh temp directory,
 // with only DynamicDir set — the one field every fragment function needs.
@@ -42,7 +55,7 @@ func TestFragmentPath(t *testing.T) {
 
 	t.Run("keeps a service name that itself contains a dot as one field", func(t *testing.T) {
 		state := fragmentState(t)
-		doc := router.NewFragmentDocument("x", "Host(`x`)", "x", 8080)
+		doc := router.NewFragmentDocument("x", "Host(`x`)", 8080)
 		if err := router.WriteFragment(state, fragRepoA, fragWtA, "a.b", doc); err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +72,7 @@ func TestFragmentPath(t *testing.T) {
 func TestWriteFragment(t *testing.T) {
 	t.Run("writes a Traefik dynamic-configuration document at 0644, JSON that Traefik's file provider reads as YAML", func(t *testing.T) {
 		state := fragmentState(t)
-		doc := router.NewFragmentDocument("acme-api", "Host(`acme.localhost`)", "acme-api", 8080)
+		doc := router.NewFragmentDocument("acme-api", "Host(`acme.localhost`)", 30010)
 		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", doc); err != nil {
 			t.Fatal(err)
 		}
@@ -111,17 +124,17 @@ func TestWriteFragment(t *testing.T) {
 			t.Fatalf("servers = %v", lb["servers"])
 		}
 		server, ok := servers[0].(map[string]any)
-		if !ok || server["url"] != "http://acme-api:8080" {
-			t.Fatalf("server = %v, want url http://acme-api:8080", server)
+		if !ok || server["url"] != "http://berth-loopback:30010" {
+			t.Fatalf("server = %v, want url http://berth-loopback:30010", server)
 		}
 	})
 
 	t.Run("overwrites in place on a repeated write, rather than leaving a stale copy", func(t *testing.T) {
 		state := fragmentState(t)
-		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", router.NewFragmentDocument("x", "Host(`old`)", "x", 80)); err != nil {
+		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", router.NewFragmentDocument("x", "Host(`old`)", 80)); err != nil {
 			t.Fatal(err)
 		}
-		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", router.NewFragmentDocument("x", "Host(`new`)", "x", 80)); err != nil {
+		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", router.NewFragmentDocument("x", "Host(`new`)", 80)); err != nil {
 			t.Fatal(err)
 		}
 		fragments, err := router.ListFragments(state)
@@ -137,7 +150,7 @@ func TestWriteFragment(t *testing.T) {
 func TestRemoveWorktreeFragments(t *testing.T) {
 	t.Run("removes every fragment for one worktree, leaving another worktree's and the index's own alone", func(t *testing.T) {
 		state := fragmentState(t)
-		doc := router.NewFragmentDocument("x", "Host(`x`)", "x", 80)
+		doc := router.NewFragmentDocument("x", "Host(`x`)", 80)
 		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", doc); err != nil {
 			t.Fatal(err)
 		}
@@ -147,7 +160,7 @@ func TestRemoveWorktreeFragments(t *testing.T) {
 		if err := router.WriteFragment(state, fragRepoB, fragWtB, "web", doc); err != nil {
 			t.Fatal(err)
 		}
-		if err := router.WriteIndexFragment(state, router.DefaultName); err != nil {
+		if err := router.WriteIndexFragment(state, 30500); err != nil {
 			t.Fatal(err)
 		}
 
@@ -172,7 +185,7 @@ func TestRemoveWorktreeFragments(t *testing.T) {
 		if err := router.RemoveWorktreeFragments(state, fragRepoA, fragWtA); err != nil {
 			t.Fatalf("removing from a directory that was never created: %v", err)
 		}
-		if err := router.WriteFragment(state, fragRepoB, fragWtB, "api", router.NewFragmentDocument("x", "Host(`x`)", "x", 80)); err != nil {
+		if err := router.WriteFragment(state, fragRepoB, fragWtB, "api", router.NewFragmentDocument("x", "Host(`x`)", 80)); err != nil {
 			t.Fatal(err)
 		}
 		if err := router.RemoveWorktreeFragments(state, fragRepoA, fragWtA); err != nil {
@@ -188,17 +201,13 @@ func TestRemoveWorktreeFragments(t *testing.T) {
 	})
 }
 
-// Round 2 of #55's review: `up` used to remove every fragment it owned
-// before writing the new ones, which briefly unrouted every one of a
-// worktree's own routes on every re-up, and only ran that removal at all
-// when the config currently declared at least one [service.<name>] — so a
-// worktree whose last route was dropped kept its stale fragment forever.
-// RemoveWorktreeFragmentsExcept is the fix `up` now calls after writing
-// every current route's fragment, naming those as keep.
+// RemoveWorktreeFragmentsExcept is what `up` calls after writing every
+// current route's fragment, naming those as keep: only a route no longer
+// declared is removed, so a re-up is never briefly unrouted.
 func TestRemoveWorktreeFragmentsExcept(t *testing.T) {
 	t.Run("removes only this worktree's own fragments whose service is not in keep, leaving another worktree's alone", func(t *testing.T) {
 		state := fragmentState(t)
-		doc := router.NewFragmentDocument("x", "Host(`x`)", "x", 80)
+		doc := router.NewFragmentDocument("x", "Host(`x`)", 80)
 		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", doc); err != nil {
 			t.Fatal(err)
 		}
@@ -234,7 +243,7 @@ func TestRemoveWorktreeFragmentsExcept(t *testing.T) {
 
 	t.Run("removes every fragment this worktree owns when keep is nil or empty, the same as RemoveWorktreeFragments", func(t *testing.T) {
 		state := fragmentState(t)
-		doc := router.NewFragmentDocument("x", "Host(`x`)", "x", 80)
+		doc := router.NewFragmentDocument("x", "Host(`x`)", 80)
 		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", doc); err != nil {
 			t.Fatal(err)
 		}
@@ -257,7 +266,7 @@ func TestRemoveWorktreeFragmentsExcept(t *testing.T) {
 
 	t.Run("recovers a service name carrying a dot exactly, rather than truncating it", func(t *testing.T) {
 		state := fragmentState(t)
-		doc := router.NewFragmentDocument("x", "Host(`x`)", "x", 80)
+		doc := router.NewFragmentDocument("x", "Host(`x`)", 80)
 		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api.internal", doc); err != nil {
 			t.Fatal(err)
 		}
@@ -287,7 +296,7 @@ func TestListFragments(t *testing.T) {
 
 	t.Run("skips a filename that does not parse as <uuid>.<uuid>.<service>.yaml, including the index's own", func(t *testing.T) {
 		state := fragmentState(t)
-		if err := router.WriteIndexFragment(state, router.DefaultName); err != nil {
+		if err := router.WriteIndexFragment(state, 30500); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(state.DynamicDir, 0o755); err != nil {
@@ -298,7 +307,7 @@ func TestListFragments(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", router.NewFragmentDocument("x", "Host(`x`)", "x", 80)); err != nil {
+		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", router.NewFragmentDocument("x", "Host(`x`)", 80)); err != nil {
 			t.Fatal(err)
 		}
 
@@ -313,8 +322,8 @@ func TestListFragments(t *testing.T) {
 }
 
 func TestIndexFragmentDocument(t *testing.T) {
-	t.Run("routes the checkout index's own host to its container by name, never to a service name a worktree could also use", func(t *testing.T) {
-		doc := router.IndexFragmentDocument("berth-router")
+	t.Run("routes the checkout index's own host to the loopback port it is published on", func(t *testing.T) {
+		doc := router.IndexFragmentDocument(30500)
 		encoded, err := json.Marshal(doc)
 		if err != nil {
 			t.Fatal(err)
@@ -329,12 +338,86 @@ func TestIndexFragmentDocument(t *testing.T) {
 		if !ok {
 			t.Fatalf("no berth-index service: %v", services)
 		}
-		lb := berthIndex["loadBalancer"].(map[string]any)
-		servers := lb["servers"].([]any)
-		server := servers[0].(map[string]any)
-		want := "http://berth-router-index-1:" + strconv.Itoa(router.IndexPort)
-		if server["url"] != want {
+		server := berthIndex["loadBalancer"].(map[string]any)["servers"].([]any)[0].(map[string]any)
+		if want := "http://berth-loopback:" + strconv.Itoa(30500); server["url"] != want {
 			t.Fatalf("url = %v, want %v", server["url"], want)
+		}
+		rule := http["routers"].(map[string]any)["berth-index"].(map[string]any)["rule"]
+		if rule != "Host(`"+router.IndexHost+"`)" {
+			t.Fatalf("rule = %v", rule)
+		}
+	})
+}
+
+func TestTargets(t *testing.T) {
+	t.Run("names a loopback port through the alias, and reads it back", func(t *testing.T) {
+		if got := router.TargetURL(30010); got != "http://berth-loopback:30010" {
+			t.Fatalf("TargetURL = %q", got)
+		}
+		doc := router.NewFragmentDocument("n", "Host(`h`)", 30010)
+		if got := doc.TargetPort(); got != 30010 {
+			t.Fatalf("TargetPort = %d, want 30010", got)
+		}
+	})
+
+	t.Run("reads no port out of a target that is not the alias", func(t *testing.T) {
+		for _, url := range []string{"http://other-host:30010", "http://berth-loopback:abc", "http://berth-loopback:0", "http://berth-loopback:70000", "http://berth-loopback"} {
+			doc := documentTargeting(t, url)
+			if got := doc.TargetPort(); got != 0 {
+				t.Errorf("TargetPort(%q) = %d, want 0", url, got)
+			}
+		}
+	})
+}
+
+func TestReservedNamesAreNeverServiceFiles(t *testing.T) {
+	t.Run("never matches the index, host. and shared. files, or a repository named host, in a service sweep", func(t *testing.T) {
+		state := fragmentState(t)
+		if err := router.WriteIndexFragment(state, 30500); err != nil {
+			t.Fatal(err)
+		}
+		reserved := []string{
+			"host." + fragRepoA + "." + fragWtA + ".dev.yaml",
+			"host.host." + fragWtA + ".dev.yaml",
+			"shared." + fragRepoA + ".mailpit.yaml",
+			// A repository literally named "host" is no UUID, so this reads as a host route.
+			"host." + fragWtA + ".api.yaml",
+		}
+		for _, name := range reserved {
+			if err := os.WriteFile(filepath.Join(state.DynamicDir, name), []byte("{}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := router.WriteFragment(state, fragRepoA, fragWtA, "api", router.NewFragmentDocument("x", "Host(`x`)", 80)); err != nil {
+			t.Fatal(err)
+		}
+
+		fragments, err := router.ListFragments(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(fragments) != 1 || fragments[0].Service != "api" {
+			t.Fatalf("ListFragments = %+v, want the one service file", fragments)
+		}
+		if err := router.RemoveWorktreeFragments(state, fragRepoA, fragWtA); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.RemoveWorktreeFragmentsExcept(state, fragRepoA, fragWtA, nil); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := os.ReadDir(state.DynamicDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var left []string
+		for _, entry := range entries {
+			left = append(left, entry.Name())
+		}
+		want := append([]string{"index.yaml"}, reserved...)
+		slices.Sort(left)
+		slices.Sort(want)
+		if !slices.Equal(left, want) {
+			t.Fatalf("files left = %v, want %v", left, want)
 		}
 	})
 }

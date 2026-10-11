@@ -66,13 +66,16 @@ go vet -tags integration ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags integration ./...
 go test -race ./...                                         # unit
-go test -race -tags integration ./...                        # real git, processes, signals, Docker, goldens
-CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -tags integration ./...
+go test -race -p 1 -tags integration ./...                   # real git, processes, signals, Docker, goldens
+CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -p 1 -tags integration ./...
 ```
 
 The `CGO_ENABLED=0` run matters on its own: cgo changes how the Go runtime
 behaves (an extra thread, notably), and releases build with it disabled.
-`go test -race -tags integration ./...` also runs the streams contract
+The integration runs use `-p 1`, one package at a time: the Docker suites pick the
+router's index and ping ports from a deterministic hash start, so packages running in
+parallel collide on them.
+`go test -race -p 1 -tags integration ./...` also runs the streams contract
 (`internal/cli/streams_integration_test.go`'s `TestStreamsContract`), against
 a binary it builds itself.
 

@@ -125,6 +125,7 @@ func New(t *testing.T, branch, domain string) *World {
 			IndexDir:    filepath.Join(routerDir, "index"),
 			IndexFile:   filepath.Join(routerDir, "index", "index.html"),
 			LockPath:    filepath.Join(routerDir, "lock"),
+			StateFile:   filepath.Join(routerDir, "state.json"),
 		},
 		common: filepath.Join(base, "common"),
 		t:      t,

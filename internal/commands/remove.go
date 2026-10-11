@@ -44,10 +44,9 @@ type RemoveResult struct {
 	Marker bool
 	// AlreadyGone means another removal finished first; nothing was left for this one.
 	AlreadyGone bool
-	// NetworkKept means the worktree's own router network could not be
+	// NetworkKept means one of the worktree's networks could not be
 	// removed (backend.ErrNetworkKept: Compose's "has active endpoints"
-	// refusal, tolerated rather than failed) even after a retried
-	// disconnect. When true, the home directory, registration and identity
+	// refusal, tolerated rather than failed). When true, the home directory, registration and identity
 	// marker are deliberately left in place too — Home, Registration and
 	// Marker all read false — so a later `worktree remove` still finds this
 	// worktree and can finish once the network clears.
@@ -99,10 +98,6 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 	runtime := cctx.Runtime(namespace)
-	routerSvc, err := routerFromContext(cctx)
-	if err != nil {
-		return nil, err
-	}
 
 	// Everything that will go, verified before anything is touched. A resource
 	// that cannot be proven ours fails here, before the prompt.
@@ -142,11 +137,10 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			}
 		}
 		// Unroutes before this worktree's own resources are reaped — see
-		// unrouteWorktree's own comment for the ordering and the
-		// hard-fail/best-effort split. Runs regardless of which resource
+		// unrouteWorktree's own comment. Runs regardless of which resource
 		// kinds current (below) turns out to hold, and works even for a
 		// target this process has no berth.toml for at all.
-		if err := unrouteWorktree(ctx, cctx, routerSvc, ref); err != nil {
+		if err := unrouteWorktree(cctx, ref); err != nil {
 			return err
 		}
 		// `down` acts on the project name, so any target can be stopped
@@ -162,7 +156,6 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 				return err
 			}
 		}
-		network := backend.RouterNetworkName(ref.RepositoryID, ref.WorktreeID)
 		if err := withProgress(cctx.Logger, "Removing "+host, func() error {
 			// Re-verified after `down`; every resource is checked before any is removed.
 			owned, err := runtime.Inventory(ctx, ref)
@@ -176,18 +169,6 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			}
 			var removed, kept []worktree.OwnedResource
 			for _, resource := range owned {
-				if resource.Kind == "network" {
-					// Narrows the same race unrouteWorktree's own comment
-					// describes: a concurrent Ensure may have reattached the
-					// router between its own disconnect and here. Best
-					// effort — Reap's own ErrNetworkKept tolerance below is
-					// what actually saves the day if this retry loses the
-					// race too; only a cancellation is worth ending the
-					// command over.
-					if err := routerSvc.DisconnectNetwork(ctx, network); err != nil && ctx.Err() != nil {
-						return err
-					}
-				}
 				if err := runtime.Reap(ctx, ref, resource); err != nil {
 					if errors.Is(err, backend.ErrNetworkKept) {
 						kept = append(kept, resource)
@@ -251,7 +232,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	case result.AlreadyGone:
 	case result.NetworkKept:
 		cctx.Logger.Warn(fmt.Sprintf(
-			"%s: %s, but its router network is still attached elsewhere and was left in place, so its home directory, "+
+			"%s: %s, but a network of it is still in use and was left in place, so its home directory, "+
 				"registration and identity marker were kept too. Run '%s worktree remove' again once that clears to finish.",
 			host, summarize(result), cctx.CommandName))
 	default:

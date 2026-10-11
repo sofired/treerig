@@ -21,14 +21,28 @@ import (
 	"github.com/sofired/berth/internal/run"
 )
 
-// testProject, testNetwork and testNS are the default router's own name,
-// network and label namespace (router.DefaultName and brand.LabelNamespace),
-// spelled out literally so a fixture can build them without importing brand.
+// testProject and testNS are the default router's own Compose project name
+// and label namespace (router.DefaultName and brand.LabelNamespace), spelled
+// out literally so a fixture can build them without importing brand.
 const (
 	testProject = "berth-router"
-	testNetwork = "berth-router"
 	testNS      = "dev.berth"
 )
+
+// Index and ping ports a seeded state file holds in these tests. They sit
+// in registrytest.PortRange, never in the default allocation range.
+const (
+	seedIndexPort = 30500
+	seedPingPort  = 30501
+)
+
+// linuxInfo is `docker info --format '{{json .}}'` of a native rootful Linux
+// engine, with the field values a real one reports.
+const linuxInfo = `{"Name":"cc-worker","OperatingSystem":"Ubuntu 24.04.4 LTS","OSType":"linux","SecurityOptions":["name=apparmor","name=seccomp,profile=builtin","name=cgroupns"]}`
+
+// localSocket is the endpoint `docker context inspect` reports for the
+// default context.
+const localSocket = "unix:///var/run/docker.sock"
 
 /* --------------------------------------------------------------- the fake */
 
@@ -38,55 +52,57 @@ type call struct {
 	env  []string
 }
 
-// dockerFake answers the compose/inspect calls the router makes; docs is
-// what `docker inspect` would return.
+// dockerFake answers the compose, info, context, ps and inspect calls the
+// router makes; docs is what `docker inspect` would return.
 type dockerFake struct {
 	mu    sync.Mutex
 	calls []call
 	ids   map[string]string
 	docs  map[string]router.ContainerInspect
 
+	// info is what `docker info --format {{json .}}` prints.
+	info string
+	// infoExitCode and infoStderr make `docker info` fail.
+	infoExitCode int
+	infoStderr   string
+	// endpoint is what `docker context inspect` prints; endpointExitCode
+	// makes it fail.
+	endpoint         string
+	endpointExitCode int
+	// publishers maps a host port to the names of the containers `docker ps
+	// --filter publish=<port>` lists.
+	publishers map[string][]string
+	// logs is what `compose logs` prints.
+	logs string
+
 	upExitCode   int
 	upStderr     string
 	downExitCode int
 	downStderr   string
 	// downTimedOut makes `compose down` answer as a timeout instead of a
-	// clean exit — round 3 of #55's review: a timed-out down must not be
-	// read as Compose's own "has active endpoints" refusal even if its
-	// stderr happened to contain that text, and must still report through
-	// run.Failure (exit code 124), not the "did not stop cleanly" wording a
-	// plain refusal gets.
+	// clean exit: a timed-out down must still report through run.Failure
+	// (exit code 124), not the "did not stop cleanly" wording a plain
+	// refusal gets.
 	downTimedOut bool
 	// psExitCode/psStderr is what `compose ps` says when Docker itself is the problem.
 	psExitCode int
 	psStderr   string
 	// dockerMissing pretends `docker` is not installed at all.
 	dockerMissing bool
-	// onUp is called on every `up`, so a test can make the start itself bring containers back.
+	// onUp is called on every successful `up`, so a test can make the start itself bring containers back.
 	onUp func()
-	// onRecreate is called when `up --force-recreate` runs, so a test can make the recreation "fix" things.
-	onRecreate func()
-	// networkLs is what `docker network ls` prints: the labelled worktree
-	// networks, one name per line. Empty means the router labels none.
-	networkLs string
-	// networkLsFails makes `docker network ls` exit 1, as an unreachable daemon would.
-	networkLsFails bool
-	// connectExitCode/connectStderr and disconnectExitCode/disconnectStderr
-	// are what `docker network connect`/`disconnect` answer; zero exit codes
-	// mean success (the default a test that never sets them gets).
-	connectExitCode    int
-	connectStderr      string
-	disconnectExitCode int
-	disconnectStderr   string
 }
 
-// newDockerFake is a dockerFake with a healthy stack already "running":
-// every service has a container id, and its own docs entry is left for the
-// caller to set.
+// newDockerFake is a dockerFake on a native Linux engine with a healthy
+// stack already "running": every service has a container id, and its own
+// docs entry is left for the caller to set.
 func newDockerFake() *dockerFake {
 	return &dockerFake{
-		ids:  map[string]string{"router": "router-1", "index": "index-1"},
-		docs: map[string]router.ContainerInspect{},
+		ids:        map[string]string{"router": "router-1", "index": "index-1"},
+		docs:       map[string]router.ContainerInspect{},
+		info:       linuxInfo,
+		endpoint:   localSocket,
+		publishers: map[string][]string{},
 	}
 }
 
@@ -104,50 +120,58 @@ func (d *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	}
 
 	args := spec.Args
+	compose := len(args) > 0 && args[0] == "compose"
 	switch {
-	case len(args) > 0 && args[0] == "compose" && containsArg(args, "ps"):
+	case len(args) > 0 && args[0] == "info":
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return run.Result{Stdout: d.info, Stderr: d.infoStderr, ExitCode: d.infoExitCode}, nil
+	case len(args) > 1 && args[0] == "context" && args[1] == "inspect":
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.endpointExitCode != 0 {
+			return run.Result{Stderr: "context not found", ExitCode: d.endpointExitCode}, nil
+		}
+		return run.Result{Stdout: d.endpoint + "\n"}, nil
+	case len(args) > 0 && args[0] == "ps":
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		var names []string
+		for _, arg := range args {
+			if port, ok := strings.CutPrefix(arg, "publish="); ok {
+				names = d.publishers[port]
+			}
+		}
+		return run.Result{Stdout: strings.Join(names, "\n")}, nil
+	case compose && containsArg(args, "ps"):
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		if d.psExitCode != 0 {
 			return run.Result{Stderr: d.psStderr, ExitCode: d.psExitCode}, nil
 		}
 		return run.Result{Stdout: d.ids[args[len(args)-1]]}, nil
-	case len(args) > 0 && args[0] == "compose" && containsArg(args, "up"):
+	case compose && containsArg(args, "up"):
 		d.mu.Lock()
-		upExit, upStderr, onUp, onRecreate := d.upExitCode, d.upStderr, d.onUp, d.onRecreate
+		upExit, upStderr, onUp := d.upExitCode, d.upStderr, d.onUp
 		d.mu.Unlock()
 		// A failed start brings nothing back in this fake; a leftover container is staged by hand.
 		if upExit == 0 && onUp != nil {
 			onUp()
 		}
-		if containsArg(args, "--force-recreate") && onRecreate != nil {
-			onRecreate()
-		}
 		return run.Result{Stderr: upStderr, ExitCode: upExit}, nil
-	case len(args) > 0 && args[0] == "compose" && containsArg(args, "down"):
+	case compose && containsArg(args, "logs"):
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return run.Result{Stdout: d.logs}, nil
+	case compose && containsArg(args, "down"):
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		if d.downTimedOut {
 			return run.Result{Stderr: d.downStderr, ExitCode: 1, TimedOut: true}, nil
 		}
 		return run.Result{Stderr: d.downStderr, ExitCode: d.downExitCode}, nil
-	case len(args) > 0 && args[0] == "compose":
+	case compose:
 		return run.Result{}, nil
-	case len(args) > 1 && args[0] == "network" && args[1] == "ls":
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		if d.networkLsFails {
-			return run.Result{Stderr: "Cannot connect to the Docker daemon", ExitCode: 1}, nil
-		}
-		return run.Result{Stdout: d.networkLs}, nil
-	case len(args) > 1 && args[0] == "network" && args[1] == "connect":
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		return run.Result{Stderr: d.connectStderr, ExitCode: d.connectExitCode}, nil
-	case len(args) > 1 && args[0] == "network" && args[1] == "disconnect":
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		return run.Result{Stderr: d.disconnectStderr, ExitCode: d.disconnectExitCode}, nil
 	case len(args) > 0 && args[0] == "inspect":
 		d.mu.Lock()
 		doc, present := d.docs[args[1]]
@@ -190,11 +214,11 @@ func (d *dockerFake) deleteDoc(id string) {
 	delete(d.docs, id)
 }
 
-// clearDocs makes every `docker inspect` answer "no such object".
-func (d *dockerFake) clearDocs() {
+// setIDs replaces the containers `compose ps` knows.
+func (d *dockerFake) setIDs(ids map[string]string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.docs = map[string]router.ContainerInspect{}
+	d.ids = ids
 }
 
 /* --------------------------------------------------------------- fixtures */
@@ -215,65 +239,40 @@ func testLabels(service string) map[string]string {
 	}
 }
 
-// routerDoc is what Docker reports for a router started exactly as the stack
-// asks, attached to only its own network — every fixture in this package
-// runs with no worktree ever having brought a per-worktree router network up
-// (`docker network ls --filter label=...` answers empty by default, see
-// dockerFake.Run), so labelledWorktreeNetworks is always empty here too.
-func routerDoc(dynamicDir string, port int) router.ContainerInspect {
-	networks := map[string]json.RawMessage{testNetwork: json.RawMessage("{}")}
-	return router.ContainerInspect{
-		Config: router.InspectConfig{
-			Cmd:        router.RouterCommand(),
-			Entrypoint: router.RouterImageEntrypoint,
-			Image:      router.RouterImage,
-			Labels:     testLabels("router"),
-		},
-		HostConfig: router.InspectHostConfig{
-			CapAdd: []string{"CAP_NET_BIND_SERVICE"}, CapDrop: []string{"ALL"},
-			ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"},
-		},
-		Mounts: []router.InspectMount{
-			{Type: "bind", Source: dynamicDir, Destination: router.DynamicConfigMount, RW: false},
-		},
-		NetworkSettings: router.InspectNetworkSettings{
-			Networks: networks,
-			Ports: map[string][]router.InspectPortBinding{
-				"80/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(port)}},
-			},
-		},
-		State: router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}},
-	}
+// stackOptions are the options a healthy stack of mode and port is built from
+// with the seeded index and ping ports.
+func stackOptions(mode router.Mode, port int) router.StackOptions {
+	return router.StackOptions{Mode: mode, Port: port, IndexPort: seedIndexPort, PingPort: seedPingPort, LabelNamespace: testNS}
 }
 
-// initTrue is the HostConfig.Init Docker reports for a container started
-// with an init process.
-var initTrue = true
+// routerDoc is what Docker reports for a router started exactly as the
+// stack asks, in mode on port.
+func routerDoc(mode router.Mode, port int) router.ContainerInspect {
+	labels := testLabels("router")
+	labels[router.RouterModeLabel] = string(mode)
+	labels[router.RouterPortLabel] = strconv.Itoa(port)
+	doc := router.ContainerInspect{
+		Config: router.InspectConfig{Cmd: router.RouterCommand(stackOptions(mode, port)), Labels: labels},
+		State:  router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}},
+	}
+	if mode == router.ModeHost {
+		doc.HostConfig.NetworkMode = "host"
+		return doc
+	}
+	doc.NetworkSettings.Ports = map[string][]router.InspectPortBinding{
+		"80/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(port)}},
+	}
+	return doc
+}
 
 // indexDoc is what Docker reports for an index container started exactly as
 // the stack asks.
-func indexDoc(indexDir string) router.ContainerInspect {
-	labels := testLabels("index")
-	for key, value := range router.IndexRouteLabels(testNetwork).Map() {
-		labels[key] = value
-	}
+func indexDoc() router.ContainerInspect {
 	return router.ContainerInspect{
-		Config: router.InspectConfig{
-			Cmd:        append([]string(nil), router.IndexCommand...),
-			Entrypoint: router.IndexImageEntrypoint,
-			Image:      router.IndexImage,
-			Labels:     labels,
-		},
-		HostConfig: router.InspectHostConfig{
-			CapAdd: []string{}, CapDrop: []string{"ALL"}, Init: &initTrue, ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"},
-		},
-		Mounts: []router.InspectMount{
-			{Type: "bind", Source: indexDir, Destination: router.IndexMount, RW: false},
-		},
-		NetworkSettings: router.InspectNetworkSettings{
-			Networks: map[string]json.RawMessage{testNetwork: json.RawMessage("{}")},
-			Ports:    map[string][]router.InspectPortBinding{},
-		},
+		Config: router.InspectConfig{Cmd: append([]string(nil), router.IndexCommand...), Labels: testLabels("index")},
+		NetworkSettings: router.InspectNetworkSettings{Ports: map[string][]router.InspectPortBinding{
+			"8080/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(seedIndexPort)}},
+		}},
 		State: router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}},
 	}
 }
@@ -281,8 +280,8 @@ func indexDoc(indexDir string) router.ContainerInspect {
 /* ------------------------------------------------------------------ world */
 
 // newState is a layout.RouterLayout rooted directly at dir, bypassing
-// layout.RouterState's own HOME/XDG resolution — dir is whatever a test
-// already has (a symlink, say), not derived from an environment.
+// layout.RouterState's own HOME resolution — dir is whatever a test already
+// has (a symlink, say), not derived from an environment.
 func newState(dir string) layout.RouterLayout {
 	indexDir := filepath.Join(dir, "index")
 	return layout.RouterLayout{
@@ -292,30 +291,50 @@ func newState(dir string) layout.RouterLayout {
 		IndexDir:    indexDir,
 		IndexFile:   filepath.Join(indexDir, "index.html"),
 		LockPath:    filepath.Join(dir, "lock"),
+		StateFile:   filepath.Join(dir, "state.json"),
 	}
 }
 
 // testWorld is one hermetic router.Router plus its fake docker and logger.
 type testWorld struct {
-	t      *testing.T
-	Dir    string
-	State  layout.RouterLayout
-	Fake   *dockerFake
-	Logger *logger.Recording
-	Router *router.Router
-	Port   int
+	t           *testing.T
+	Dir         string
+	ControlHome string
+	State       layout.RouterLayout
+	Fake        *dockerFake
+	Logger      *logger.Recording
+	Router      *router.Router
+	Probe       registrytest.FreeProbe
+	Port        int
 }
 
-// setHealthy stages docs for both services exactly as the stack asks, under
-// their default fake ids.
-func (w *testWorld) setHealthy() {
-	w.Fake.setDoc("router-1", routerDoc(w.State.DynamicDir, w.Port))
-	w.Fake.setDoc("index-1", indexDoc(w.State.IndexDir))
+// setHealthy stages docs for both services exactly as the stack asks, in
+// mode, under their default fake ids.
+func (w *testWorld) setHealthy(mode router.Mode) {
+	w.Fake.setDoc("router-1", routerDoc(mode, w.Port))
+	w.Fake.setDoc("index-1", indexDoc())
 }
 
-// newWorldOpts builds a world; existing reuses a state directory (a second
-// control home run against the same machine-wide router), and extra can
-// override the Router's options (e.g. a custom Environ).
+// seedState writes the router state file with the seeded index and ping
+// ports, as an earlier start would have left it.
+func (w *testWorld) seedState() {
+	w.t.Helper()
+	if err := os.MkdirAll(w.State.StateDir, 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+	data, err := json.Marshal(router.State{Version: 1, IndexPort: seedIndexPort, PingPort: seedPingPort})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if err := os.WriteFile(w.State.StateFile, data, 0o600); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// newWorldOpts builds a world with a healthy host-mode stack running on
+// port and the state file seeded; existing reuses a state directory, and
+// extra can override the Router's options (a custom Environ, a mode
+// override, Registrations).
 func newWorldOpts(t *testing.T, existing string, port int, extra func(*router.Options)) *testWorld {
 	t.Helper()
 	dir := existing
@@ -325,10 +344,18 @@ func newWorldOpts(t *testing.T, existing string, port int, extra func(*router.Op
 	state := newState(dir)
 	fake := newDockerFake()
 	rec := &logger.Recording{}
-	w := &testWorld{t: t, Dir: dir, State: state, Fake: fake, Logger: rec, Port: port}
-	w.setHealthy()
+	probe := registrytest.FreeProbe{Busy: map[int]bool{}}
+	w := &testWorld{
+		t: t, Dir: dir, ControlHome: registrytest.TempDir(t), State: state, Fake: fake, Logger: rec,
+		Probe: probe, Port: port,
+	}
+	w.setHealthy(router.ModeHost)
+	w.seedState()
 
-	opts := router.Options{State: state, Port: port, Runner: fake, Logger: rec, CommandName: "duke"}
+	opts := router.Options{
+		State: state, Port: port, Runner: fake, Logger: rec, CommandName: "duke",
+		ControlHome: w.ControlHome, PortRange: registrytest.PortRange, Probe: probe, ClientOS: "linux",
+	}
 	if extra != nil {
 		extra(&opts)
 	}
@@ -346,24 +373,15 @@ func newWorld(t *testing.T, port int, existing string) *testWorld {
 	return newWorldOpts(t, existing, port, nil)
 }
 
-// taken is a control home whose router containers are gone — what `router
-// down` leaves. Starting it again brings the containers back, as a real
-// `up` would.
-func taken(t *testing.T, w *testWorld) {
+// stopped makes the world's router not running — what `router down` leaves
+// — and has a start bring the containers back in mode, as a real `up` would.
+func stopped(t *testing.T, w *testWorld, mode router.Mode) {
 	t.Helper()
-	w.Fake.mu.Lock()
-	w.Fake.ids = map[string]string{}
-	w.Fake.mu.Unlock()
-	// As in production: the state directory exists (and is secured) before anything is written into it.
-	if err := os.MkdirAll(w.State.StateDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	w.Fake.setIDs(map[string]string{})
 	w.Fake.mu.Lock()
 	w.Fake.onUp = func() {
-		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{"router": "router-1", "index": "index-1"}
-		w.Fake.mu.Unlock()
-		w.setHealthy()
+		w.Fake.setIDs(map[string]string{"router": "router-1", "index": "index-1"})
+		w.setHealthy(mode)
 	}
 	w.Fake.mu.Unlock()
 }
@@ -388,16 +406,6 @@ func (w *testWorld) firstUp() call {
 		}
 	}
 	return call{}
-}
-
-// skipIfRoot skips t when running as root, which bypasses the file
-// permissions a symlink/mode-based test stages.
-func skipIfRoot(t *testing.T) {
-	t.Helper()
-	// Root reads a 0000 file regardless, so there would be nothing to refuse or warn about.
-	if os.Getuid() == 0 {
-		t.Skip("running as root bypasses the file permissions this test tampers with")
-	}
 }
 
 // fileMode is file's permission bits.
@@ -431,10 +439,5 @@ func containsSubstring(lines []string, substr string) bool {
 	return false
 }
 
-// mustContain fails t unless want is one of lines, exactly.
-func mustContain(t *testing.T, lines []string, want string) {
-	t.Helper()
-	if !slices.Contains(lines, want) {
-		t.Fatalf("expected lines to contain %q; got %v", want, lines)
-	}
-}
+// hasLine reports whether lines holds exactly want.
+func hasLine(lines []string, want string) bool { return slices.Contains(lines, want) }
