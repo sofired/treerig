@@ -168,7 +168,9 @@ func newUpFixture(t *testing.T) upFixture {
 	// The berth root is the control home here, so it is claimed before it
 	// holds a settings.toml: berth adopts only a directory it created.
 	registrytest.ClaimControlHome(t, f.controlHome)
-	registrytest.WriteScratchSettings(t, f.controlHome, "")
+	// The fake engine is a Linux one, which berth on any other client OS
+	// cannot place, so the mode is set: host, as the fake router above runs.
+	registrytest.WriteScratchSettings(t, f.controlHome, "[router]\nmode = \"host\"\n")
 	f.routerState, err = layout.RouterState(getenv)
 	if err != nil {
 		t.Fatal(err)

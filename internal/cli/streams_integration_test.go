@@ -325,6 +325,10 @@ backup  = "./backup.sh"
 			t.Fatal(err)
 		}
 
+		// The fake engine is a Linux one, which berth on any other client OS
+		// cannot place, so the router mode is set in runBerth's berth root.
+		registrytest.WriteScratchSettings(t, filepath.Join(cwd, "control-home"), "[router]\nmode = \"host\"\n")
+
 		result := runBerth(t, binary, cwd, []string{"doctor"}, berthOptions{path: bin})
 
 		if result.Code != 0 {
