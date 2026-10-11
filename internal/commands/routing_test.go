@@ -90,6 +90,17 @@ func TestWorktreeRoutingCleanup(t *testing.T) {
 	})
 }
 
+// isRouterCall reports whether a rendered docker call is aimed at the shared
+// router: a network connect or disconnect, the router's Compose project (as a
+// flag or a label filter), or the router service's label filter. A call about
+// a worktree's own project or services is not.
+func isRouterCall(call string) bool {
+	return strings.HasPrefix(call, "network connect ") || strings.HasPrefix(call, "network disconnect ") ||
+		strings.Contains(call, "--project-name "+router.DefaultName) ||
+		strings.Contains(call, "com.docker.compose.project="+router.DefaultName) ||
+		strings.Contains(call, "com.docker.compose.service=router")
+}
+
 // TestRoutingNeverTouchesTheRouterContainer pins that unrouting is file
 // removal alone: neither `down` nor `worktree remove` asks Docker about the
 // router, connects or disconnects anything.
@@ -99,13 +110,35 @@ func TestRoutingNeverTouchesTheRouterContainer(t *testing.T) {
 	routerCalls := func(w *commandstest.World) []string {
 		var found []string
 		for _, call := range w.Docker.Calls() {
-			if strings.HasPrefix(call, "network connect ") || strings.HasPrefix(call, "network disconnect ") ||
-				strings.Contains(call, "--project-name "+router.DefaultName) {
+			if isRouterCall(call) {
 				found = append(found, call)
 			}
 		}
 		return found
 	}
+
+	t.Run("recognizes connects, project flags, label filters and service filters aimed at the router, and no worktree's", func(t *testing.T) {
+		for _, call := range []string{
+			"network connect berth-net abc",
+			"network disconnect berth-net abc",
+			"compose --project-name " + router.DefaultName + " ps",
+			"ps --all --filter label=com.docker.compose.project=" + router.DefaultName + " --format {{.ID}}",
+			"ps --filter label=com.docker.compose.service=router --quiet",
+		} {
+			if !isRouterCall(call) {
+				t.Errorf("isRouterCall(%q) = false, want true", call)
+			}
+		}
+		for _, call := range []string{
+			"ps --all --filter label=com.docker.compose.project=acme-feature-login --quiet",
+			"inspect abc123",
+			"container ls --filter label=com.docker.compose.service=api",
+		} {
+			if isRouterCall(call) {
+				t.Errorf("isRouterCall(%q) = true, want false", call)
+			}
+		}
+	})
 
 	t.Run("down removes the route files without a call about the router", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)

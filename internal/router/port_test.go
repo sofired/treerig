@@ -125,6 +125,22 @@ func TestEnsureNotesAPortChange(t *testing.T) {
 		}
 	})
 
+	t.Run("says nothing about ports when a stopped router carried another port", func(t *testing.T) {
+		w := newWorld(t, 8080, "")
+		doc := routerDoc(router.ModeHost, 80)
+		doc.State.Status = "exited"
+		w.Fake.setDoc("router-1", doc)
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		lines, _ := w.Logger.Snapshot()
+		for _, line := range lines {
+			if strings.Contains(line, "moved from port") {
+				t.Fatalf("unexpected port notice for a router that served nothing: %v", lines)
+			}
+		}
+	})
+
 	t.Run("says nothing about ports when the router already served this one", func(t *testing.T) {
 		w := newWorld(t, 8080, "")
 		if err := w.Router.Ensure(context.Background()); err != nil {

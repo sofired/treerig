@@ -1050,7 +1050,7 @@ func TestDoctorSections(t *testing.T) {
 		}
 		want := []Check{
 			{ID: "router.container", Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"},
-			{ID: "router.mode", Status: StatusOK, Subject: "router mode", Detail: "would start in host mode; whether it runs is unknown, as Compose did not answer"},
+			{ID: "router.mode", Status: StatusOK, Subject: "router mode", Detail: "would start in host mode; whether it runs is unknown, as its status could not be read"},
 			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route files"},
 			{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}
@@ -1278,7 +1278,7 @@ func TestDoctorSections(t *testing.T) {
 		}
 		wantRouter := []Check{
 			{ID: "router.container", Status: StatusFail, Subject: "router", Detail: "exploded"},
-			{ID: "router.mode", Status: StatusOK, Subject: "router mode", Detail: "would start in host mode; whether it runs is unknown, as Compose did not answer"},
+			{ID: "router.mode", Status: StatusOK, Subject: "router mode", Detail: "would start in host mode; whether it runs is unknown, as its status could not be read"},
 			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route files"},
 			{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}

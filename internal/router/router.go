@@ -787,9 +787,10 @@ func (r *Router) Ensure(ctx context.Context) error {
 	}
 	// What port a router already running serves, from the same read, so a
 	// port change can be announced once it is a fact (notePortChange, #79).
-	priorPort, wasRunning := 0, read.present
+	priorPort, wasRunning := 0, false
 	if read.inspected != nil {
-		priorPort = runningFrom(*read.inspected).Port
+		prior := runningFrom(*read.inspected)
+		priorPort, wasRunning = prior.Port, prior.Up
 	}
 	options := StackOptions{
 		Mode:           mode,

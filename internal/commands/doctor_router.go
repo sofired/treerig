@@ -311,9 +311,9 @@ func routerProtocolProblem(status *router.RouterStatus) (router.Problem, bool) {
 // label, against the mode this build would start it in. A daemon berth
 // refuses (remote, rootless, unrecognized) is a failure whether or not a
 // router is running: nothing berth starts can work there. status is nil when
-// Compose did not answer, which says nothing about whether a router runs. A
-// [router] mode override is named, and a warning when detection alone would
-// pick another mode.
+// Compose did not answer or its status could not be read, which says nothing
+// about whether a router runs. A [router] mode override is named, and a
+// warning when detection alone would pick another mode.
 func routerModeCheck(ctx context.Context, opts doctorOptions, status *router.RouterStatus) (Check, error) {
 	check := Check{ID: "router.mode", Subject: "router mode", Status: StatusOK}
 	choice, err := opts.Router.ModeChoice(ctx)
@@ -335,7 +335,7 @@ func routerModeCheck(ctx context.Context, opts doctorOptions, status *router.Rou
 	}
 	switch {
 	case status == nil:
-		check.Detail = fmt.Sprintf("would start in %s mode%s; whether it runs is unknown, as Compose did not answer", choice.Mode, source)
+		check.Detail = fmt.Sprintf("would start in %s mode%s; whether it runs is unknown, as its status could not be read", choice.Mode, source)
 	case !status.Running:
 		check.Detail = fmt.Sprintf("not running; would start in %s mode%s", choice.Mode, source)
 	default:
