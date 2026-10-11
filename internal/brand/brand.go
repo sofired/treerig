@@ -91,6 +91,34 @@ func RepositoryLabel(namespace string) string { return namespace + ".repository-
 // WorktreeLabel carries the owning worktree's UUID.
 func WorktreeLabel(namespace string) string { return namespace + ".worktree-uuid" }
 
+// SharedLabel marks a resource as part of a repository's shared-services
+// stack (docs/design/routing.md, decision 17): it is the label that, with
+// the managed and repository labels, finds the stack's containers, volumes
+// and networks, and that no worktree's own resource ever carries. A storage
+// name: changing it orphans every running shared service.
+func SharedLabel(namespace string) string { return namespace + ".shared" }
+
+// SharedDefinitionLabel carries the definition hash of the shared service a
+// container runs, "v1:<sha256>" (decision 16): the only record of what the
+// running instance was started from.
+func SharedDefinitionLabel(namespace string) string { return namespace + ".shared-definition" }
+
+// SharedDefinedByLabel carries the UUID of the worktree whose definition
+// started a shared container, so a warning can say whose it is (decision 16).
+func SharedDefinedByLabel(namespace string) string { return namespace + ".shared-defined-by" }
+
+// SharedUseLabel is stamped "true" on a worktree's own container that uses
+// the shared service called name (decision 22), so a sweep finds consumers by
+// label without loading any worktree's configuration.
+func SharedUseLabel(namespace, name string) string { return SharedUseLabelPrefix(namespace) + name }
+
+// SharedUseLabelPrefix is what every SharedUseLabel starts with.
+func SharedUseLabelPrefix(namespace string) string { return namespace + ".shared-use." }
+
+// SharedProjectPrefix starts the name of a repository's shared Compose
+// project: berth-shared-<24 hex> (layout.SharedProjectName). A storage name.
+const SharedProjectPrefix = Name + "-shared-"
+
 // CLIName is the name this CLI was invoked as: the basename of argv[0], which
 // is the symlink an installation is reached through. A binary built as `main`
 // (or no argv[0] at all) leaves no meaningful name, so the product name is used.

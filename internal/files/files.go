@@ -776,6 +776,30 @@ func SecureRegistrationDirectories(l layout.Worktree, userHome string) error {
 	return AssertSafeFilePath(l.ControlHome, l.DevelopmentLockPath)
 }
 
+// SecureSharedDirectories are the directories a repository's shared services
+// need before anything is written for them: the records and override
+// directory, and the directory the shared lock lives in. Owner-only like the
+// rest of the control home, and checked the same way against a symlinked or
+// foreign one.
+func SecureSharedDirectories(l layout.Shared, userHome string) error {
+	if err := establishControlHome(l.ControlHome, userHome); err != nil {
+		return err
+	}
+	if err := createSecureDirectories(l.ControlHome, []string{
+		l.RepositoriesDir,
+		l.LocksDir,
+		l.RepositoryDir,
+		l.Dir,
+		l.LockDir,
+	}, 0o700); err != nil {
+		return err
+	}
+	if err := AssertSafeFilePath(l.ControlHome, l.RegistryLockPath); err != nil {
+		return err
+	}
+	return AssertSafeFilePath(l.ControlHome, l.LockPath)
+}
+
 // SecureWorktreeDirectories are the directories a worktree needs to run.
 // Refuses if a previous removal was interrupted, since the quarantine
 // directory means state is half-deleted.

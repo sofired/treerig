@@ -129,5 +129,31 @@ func (l *Lock) notice(fileID FileID) {
 func (l *Lock) giveUpError(now time.Time, fileID FileID) error {
 	rec, _ := readRecord(l.recordPath())
 	holding := l.holdingProcs(fileID)
-	return clierr.Newf("Another process holds the %s lock. %s", l.scope.Description, l.advice(rec, now, true, holding))
+	return &BusyError{refusal: clierr.Newf("Another process holds the %s lock. %s", l.scope.Description, l.advice(rec, now, true, holding))}
+}
+
+// BusyError is what Acquire returns when its wait budget ran out with the
+// lock still held by someone else, as opposed to a failure of the lock
+// machinery itself. It is the plain refusal under a type of its own, so a
+// caller that may skip a busy lock (the reconnect sweep, docs/design/routing.md
+// decision 18) can tell the two apart with errors.As rather than by matching
+// text. The refusal is not its cause: Unwrap answers nil, so a report prints
+// the message once; errors.As for a *clierr.Error still reaches the refusal,
+// with its Suppressed errors, through As.
+type BusyError struct{ refusal *clierr.Error }
+
+// Error is the refusal's text.
+func (e *BusyError) Error() string { return e.refusal.Error() }
+
+// ExitStatus is the refusal's exit code.
+func (e *BusyError) ExitStatus() int { return e.refusal.ExitStatus() }
+
+// As lets errors.As find the refusal as a *clierr.Error without making it a
+// link in the error chain.
+func (e *BusyError) As(target any) bool {
+	if ce, ok := target.(**clierr.Error); ok {
+		*ce = e.refusal
+		return true
+	}
+	return false
 }

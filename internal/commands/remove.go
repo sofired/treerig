@@ -149,6 +149,12 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if err := unrouteWorktree(ctx, cctx, routerSvc, ref); err != nil {
 			return err
 		}
+		// Shared services are disconnected before anything of this worktree
+		// is stopped or reaped, from the networks it owns: an attached
+		// shared container would keep a network from being removed.
+		if err := disconnectShared(ctx, cctx, ref, cctx.stackNamespace(), namespace); err != nil {
+			return err
+		}
 		// `down` acts on the project name, so any target can be stopped
 		// gracefully before its containers are reaped; skipped when there is
 		// nothing to stop. Decided under the lock, so a container that appeared
@@ -172,6 +178,11 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			// From here on data is destroyed. Should this be interrupted, the
 			// next `up` must seed again rather than start on empty volumes.
 			if err := store.MarkPending(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
+				return err
+			}
+			// Again, immediately before the first Reap: cheap, idempotent,
+			// and it closes a connect that slipped in since the first.
+			if err := disconnectShared(ctx, cctx, ref, cctx.stackNamespace(), namespace); err != nil {
 				return err
 			}
 			var removed, kept []worktree.OwnedResource
@@ -256,6 +267,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			host, summarize(result), cctx.CommandName))
 	default:
 		cctx.Logger.Info(fmt.Sprintf("Removed %s: %s.", host, summarize(result)))
+		hintSharedDown(ctx, cctx, target.RepositoryID, cctx.stackNamespace())
 	}
 	return result, nil
 }

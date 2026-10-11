@@ -1,9 +1,11 @@
 package commands
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/sofired/berth/internal/backend"
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/config"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
@@ -128,7 +130,45 @@ func Context(env *Env) (*CommandContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	return buildContext(env, loaded)
+}
 
+// ContextWithoutConfig is Context for a verb that works from labels and
+// records alone and must still run where there is no usable berth.toml — a
+// checkout of an old branch, or a file with a mistake in it: `shared down`
+// has to be able to clean up from anywhere. It loads the config when there is
+// a usable one, and warns and goes on without it when the file is there but
+// invalid. Loaded is nil without one, so a verb that calls this reads nothing
+// from it unchecked.
+func ContextWithoutConfig(env *Env) (*CommandContext, error) {
+	var loaded *config.Loaded
+	var err error
+	if env.ConfigPath != "" {
+		loaded, err = config.Load(env.ConfigPath)
+	} else {
+		file, found, findErr := config.FindConfigFile(env.Cwd)
+		if findErr != nil {
+			return nil, findErr
+		}
+		if found {
+			loaded, err = config.Load(file)
+		}
+	}
+	if err != nil {
+		env.Logger.Warn(fmt.Sprintf("Going on without %s: %s", brand.ConfigFile, err))
+		loaded = nil
+	}
+	return buildContext(env, loaded)
+}
+
+// buildContext assembles the CommandContext around loaded, which may be nil
+// (ContextWithoutConfig): the registry then answers for the working
+// directory, with no domain.
+func buildContext(env *Env, loaded *config.Loaded) (*CommandContext, error) {
+	root, domain, namespace := env.Cwd, "", ""
+	if loaded != nil {
+		root, domain, namespace = loaded.Root, loaded.Config.Project.Domain, loaded.Config.LabelNamespace()
+	}
 	home, userHome, err := checkedHome(env.Getenv)
 	if err != nil {
 		return nil, err
@@ -150,9 +190,9 @@ func Context(env *Env) (*CommandContext, error) {
 
 	reg := registry.New(registry.Options{
 		ControlHome:    controlHome,
-		Root:           loaded.Root,
-		Domain:         loaded.Config.Project.Domain,
-		LabelNamespace: loaded.Config.LabelNamespace(),
+		Root:           root,
+		Domain:         domain,
+		LabelNamespace: namespace,
 		Runner:         env.Runner,
 		Logger:         env.Logger,
 		CommandName:    env.CommandName,

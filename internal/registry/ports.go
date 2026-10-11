@@ -134,9 +134,10 @@ func (s *Store) SyncPorts(ctx context.Context, worktreeID, expectedSlug string, 
 }
 
 // takenPorts are the ports the allocator must not hand out: every port in
-// any registration of controlHome, plus reserved. A record that cannot be
-// read refuses the call, since it may hold ports. Shared-service records
-// (#123) join here.
+// any registration or shared-service record of controlHome, plus reserved. A
+// record that cannot be read refuses the call, since it may hold ports. A
+// worktree's allocation and a shared service's both read this one set, so
+// neither can take a port the other holds.
 func takenPorts(controlHome string, reserved []int) (map[int]bool, error) {
 	scan, err := ScanRegistrations(controlHome)
 	if err != nil {
@@ -146,8 +147,21 @@ func takenPorts(controlHome string, reserved []int) (map[int]bool, error) {
 		return nil, refuseUnreadable("a port",
 			"a record that cannot be read may hold a port this worktree would take.", scan.Problems)
 	}
+	shared, sharedProblems, err := ScanSharedRecords(controlHome)
+	if err != nil {
+		return nil, err
+	}
+	if len(sharedProblems) > 0 {
+		return nil, refuseUnreadable("a port",
+			"a record that cannot be read may hold a port this would take.", sharedProblems)
+	}
 	taken := map[int]bool{}
 	for _, record := range scan.Records {
+		for _, port := range record.Ports {
+			taken[port] = true
+		}
+	}
+	for _, record := range shared {
 		for _, port := range record.Ports {
 			taken[port] = true
 		}

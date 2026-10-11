@@ -8,9 +8,9 @@ Available Commands:
   list        list registered worktrees
   remove      remove a worktree's environment: containers, volumes, networks,
               images, home, and registration
-  unlock      clear a dead holder's lock on a worktree, the registry, or the
-              router, once the holder, and anything it left running, is checked
-              gone
+  unlock      clear a dead holder's lock on a worktree, its repository's shared
+              services, the registry, or the router, once the holder, and
+              anything it left running, is checked gone
 
 Flags:
   -h, --help   help for worktree

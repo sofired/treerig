@@ -17,6 +17,7 @@ Available Commands:
   doctor      check prerequisites, the registry, the router, and this checkout's
               verify hook
   router      manage the shared local router
+  shared      manage the repository's shared services
   worktree    manage registered worktrees
   completion  print a shell completion script
   help        display help for command

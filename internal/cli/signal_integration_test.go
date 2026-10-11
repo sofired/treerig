@@ -69,7 +69,7 @@ func fakeDocker(t *testing.T, bin, state string, repositoryID, worktreeID string
 state=%q
 case " $* " in
   *" compose "*" down "*) sh -c 'echo $$ > "$0/grandchild.pid"; exec sleep 60' "$state" & echo $$ > "$state/down.pid"; wait; exit 0 ;;
-  *" --filter "*) case "$1" in ps) [ -e "$state/c1" ] && echo c1 ;; esac; exit 0 ;;
+  *" --filter "*) case "$1" in ps) case " $* " in *"label=dev.berth.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;; esac; exit 0 ;;
   *" --format "*) printf 'true\t%s\t%s\t%s\tapi\n'; exit 0 ;;
   *" rm "*) rm -f "$state/c1"; exit 0 ;;
 esac

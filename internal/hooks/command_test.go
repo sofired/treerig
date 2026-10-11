@@ -114,6 +114,18 @@ func TestRunCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("hands the command the shared service addresses like a hook", func(t *testing.T) {
+		runner := recordingRunner(nil)
+		hctx := newContext(runner, config.Hooks{})
+		hctx.Shared = []worktree.SharedAddr{{Name: "mailpit", Port: 1025, Addr: "127.0.0.1:30001"}}
+		if err := hooks.RunCommand(ctx, "apply", applyCommand("./apply.sh"), nil, hctx); err != nil {
+			t.Fatal(err)
+		}
+		if env := runner.Calls()[0].Env; !containsEnv(env, "BERTH_SHARED_ADDR_MAILPIT_1025", "127.0.0.1:30001") {
+			t.Errorf("env = %v", env)
+		}
+	})
+
 	t.Run("a hook never sees BERTH_COMMAND, even inherited from a command that ran berth", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./prepare.sh")})

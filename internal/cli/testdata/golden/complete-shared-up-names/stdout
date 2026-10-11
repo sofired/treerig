@@ -1,0 +1,4 @@
+mailpit	used by api, web
+objects	shared service
+queue	used by api
+:36

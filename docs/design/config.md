@@ -7,7 +7,7 @@ promise.
 
 ## Named things are tables keyed by name
 
-`service` and `commands` are tables whose keys are the names:
+`service`, `commands` and `shared.service` are tables whose keys are the names:
 
 ```toml
 [service.api]

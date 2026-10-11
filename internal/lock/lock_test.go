@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
 )
@@ -128,6 +130,12 @@ func TestLockAcquireRelease(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), `"berth up api"`) {
 			t.Fatalf("expected the holder's command in %q", err)
+		}
+		// A caller that may skip a busy lock tells this refusal from a
+		// failure of the lock machinery by type, never by its text.
+		var busy *BusyError
+		if !errors.As(err, &busy) || clierr.Code(err) != 1 {
+			t.Fatalf("err = %T, want a *BusyError exiting 1", err)
 		}
 	})
 
@@ -324,4 +332,34 @@ func TestWithHeldInherited(t *testing.T) {
 	if files[0] != opLock.File() || files[1] != devLock.File() {
 		t.Fatal("expected operation lock's file first")
 	}
+}
+
+func TestSharedScope(t *testing.T) {
+	t.Run("targets one lock per repository under locks/shared, marked by the shared project", func(t *testing.T) {
+		const repository = "a08b4892-5111-49f1-a47a-5ab988c7f676"
+		scope := SharedScope("/control", repository)
+		if want := filepath.Join("/control", "locks", "shared", repository); scope.Target != want {
+			t.Errorf("Target = %q, want %q", scope.Target, want)
+		}
+		if scope.Markers.Project != layout.SharedProjectName(repository) || scope.Markers.WorktreeID != "" {
+			t.Errorf("Markers = %+v", scope.Markers)
+		}
+		if scope.HomeEnvVar != brand.ControlHomeEnv || scope.Description != "shared-services" {
+			t.Errorf("scope = %+v", scope)
+		}
+		other := SharedScope("/control", "another")
+		if other.Target == scope.Target {
+			t.Error("two repositories share a lock")
+		}
+		worktreeLocks := layout.RepositoryLayout("/control", repository).WorktreeLocksDir
+		if strings.HasPrefix(scope.Target, worktreeLocks) {
+			t.Error("the shared lock lives among a repository's worktree locks")
+		}
+	})
+
+	t.Run("waits no longer than a quarter of an hour, and a reconnect no longer than five seconds", func(t *testing.T) {
+		if SharedTimeout != 15*time.Minute || ReconnectTimeout != 5*time.Second {
+			t.Errorf("SharedTimeout = %v, ReconnectTimeout = %v", SharedTimeout, ReconnectTimeout)
+		}
+	})
 }

@@ -1,5 +1,6 @@
-clear a dead holder's lock on a worktree, the registry, or the router, once the
-holder, and anything it left running, is checked gone
+clear a dead holder's lock on a worktree, its repository's shared services, the
+registry, or the router, once the holder, and anything it left running, is
+checked gone
 
 Usage:
   berth worktree unlock [identifier] [flags]
@@ -15,6 +16,8 @@ Flags:
                               instead of a worktree's
       --router                clear the shared router's lock instead of a
                               worktree's
+      --shared                clear the shared-services lock of the worktree's
+                              repository instead of the worktree's own locks
 
 Global Flags:
       --config string   path to berth.toml (default: nearest above cwd)

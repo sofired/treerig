@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +46,10 @@ const (
 	// index is one feature among several that read it — the dependency
 	// belongs pointing the other way. A deliberate limit of its own.
 	maxServiceEntries = 64
+	// maxSharedPorts is how many ports one shared service may declare, its
+	// routed port and its raw ports together (docs/design/routing.md,
+	// decision 19): each gets a pinned host port, so the count is bounded.
+	maxSharedPorts = 16
 )
 
 // hostnameSchema validates project.domain.
@@ -143,6 +150,42 @@ func serviceSchema() *shape.ObjectSchema {
 		Describe("One routed service. The table's key is its Compose service name.")
 }
 
+// sharedPortSchema is one container port of a shared service.
+func sharedPortSchema() *shape.NumberSchema {
+	return shape.Number().Int().Min(1).Max(65_535)
+}
+
+// sharedServiceSchema is one [shared.service.<name>] table. The name is the
+// table's key, as for [service.<name>].
+func sharedServiceSchema() *shape.ObjectSchema {
+	return shape.Object(
+		shape.F("port", sharedPortSchema().Optional().
+			Describe("Container port of the service's web UI, published on a pinned loopback port: BERTH_SHARED_ADDR_<NAME>_<PORT> names the address. Omit if the service has no web UI.")),
+		shape.F("ports", shape.Array(sharedPortSchema().Describe("A container TCP port, 1 to 65535.")).
+			Max(maxSharedPorts, fmt.Sprintf("at most %d ports per shared service, port and ports together", maxSharedPorts)).
+			Default([]any{}).
+			Describe("Container ports published on pinned loopback ports, for processes on the host (an IDE-run app, `berth run`): BERTH_SHARED_ADDR_<NAME>_<PORT> names each address. Containers reach the service at <name>:<port> instead. At most 16 with port.")),
+		shape.F("used-by", shape.Array(nameKey("A service of the worktree's Compose file")).
+			Default([]any{}).
+			Describe("Services of the worktree's Compose file that use this shared service. A worktree whose Compose file has any of them starts the shared service, and the shared service joins the networks they are on, answering to its name as an alias.")),
+	).Strict().
+		KeyHint("name", func(path []string) string {
+			return fmt.Sprintf("the table's key is the service name: [%s]", shape.PathString(path))
+		}).
+		Describe("One shared service: a service of the shared Compose file that runs once per repository. The table's key is its Compose service name, and the name containers reach it by.")
+}
+
+// sharedSchema is the [shared] table.
+func sharedSchema() *shape.ObjectSchema {
+	return shape.Object(
+		shape.F("file", shape.String().Min(1).Optional().
+			Describe("Path to the shared services' Compose file, relative to this file. It is its own Compose project, run once per repository, and may not build images or bind-mount paths inside a worktree. Required when any [shared.service.<name>] table is declared.")),
+		shape.F("service", keyedTables(nameKey("The shared Compose service name"), sharedServiceSchema(), "shared services", "shared.service", 0, "").
+			Describe("Shared services, one [shared.service.<name>] table each, named by the service in the shared Compose file.")),
+	).Strict().Optional().
+		Describe("Services that run once per repository and are shared by all of its worktrees, such as an email catcher.")
+}
+
 // hooksSchema is the [hooks] table.
 func hooksSchema() *shape.ObjectSchema {
 	return shape.Object(
@@ -241,9 +284,10 @@ func rootSchema() *shape.ObjectSchema {
 			maxServiceEntries,
 			fmt.Sprintf("at most %d [service.<name>] tables; the checkout index's card can name at most that many declared services", maxServiceEntries)).
 			Describe("Services to route and index, one [service.<name>] table each, named by the Compose service. Services not listed here still run; they just are not routed or indexed.")),
+		shape.F("shared", sharedSchema()),
 		shape.F("hooks", hooksSchema()),
 		shape.F("commands", commandsSchema()),
-	).Strict().SuperRefine(routeCollisionCheck).
+	).Strict().SuperRefine(routeCollisionCheck).SuperRefine(sharedChecks).
 		Describe("berth.toml: the committed configuration of a project. Unknown keys are rejected, so a typo cannot silently disable a feature.")
 }
 
@@ -285,6 +329,135 @@ func routeCollisionCheck(value *shape.Obj, addIssue func(path []string, message 
 		}
 		claimedBy[route] = name
 	}
+}
+
+// sharedChecks is a cross-table check of rootSchema for [shared]: the file
+// the services live in, and what each service claims against its siblings
+// and against the worktree's own services. Everything here needs more than
+// one value at once, so none of it is in the published JSON Schema.
+func sharedChecks(value *shape.Obj, addIssue func(path []string, message string)) {
+	raw, _ := value.Get("shared")
+	shared, _ := raw.(*shape.Obj)
+	if shared == nil {
+		return
+	}
+	rawServices, _ := shared.Get("service")
+	services, _ := rawServices.(*shape.Obj)
+	if services == nil || services.Len() == 0 {
+		return
+	}
+
+	file, hasFile := stringField(shared, "file")
+	if !hasFile {
+		addIssue([]string{"shared", "file"}, "required when any [shared.service.<name>] table is declared")
+	} else if compose, ok := composeFile(value); ok && filepath.Clean(file) == filepath.Clean(compose) {
+		addIssue([]string{"shared", "file"}, "must not be the [compose] file: shared services run in their own Compose project, from their own file")
+	}
+
+	own := map[string]bool{}
+	if rawOwn, ok := value.Get("service"); ok {
+		if table, ok := rawOwn.(*shape.Obj); ok {
+			for _, name := range table.Keys() {
+				own[name] = true
+			}
+		}
+	}
+
+	for _, name := range services.Keys() {
+		item, _ := services.Get(name)
+		service, ok := item.(*shape.Obj)
+		if !ok {
+			continue
+		}
+		at := []string{"shared", "service", name}
+		if own[name] {
+			addIssue(at, fmt.Sprintf("%q is also a [service.%s] table: a shared service's name is the alias containers reach it by, so it cannot name one of the worktree's own services", name, name))
+		}
+
+		declared := map[int]bool{}
+		count := 0
+		if port, ok := intField(service, "port"); ok {
+			declared[port] = true
+			count++
+		}
+		for i, port := range intsField(service, "ports") {
+			if declared[port] {
+				addIssue(append(slices.Clone(at), "ports", strconv.Itoa(i)), fmt.Sprintf("port %d is listed more than once for this service", port))
+				continue
+			}
+			declared[port] = true
+			count++
+		}
+		if count > maxSharedPorts {
+			addIssue(append(slices.Clone(at), "ports"), fmt.Sprintf("at most %d ports per shared service, port and ports together; this declares %d", maxSharedPorts, count))
+		}
+
+		seen := map[string]bool{}
+		for i, use := range stringsField(service, "used-by") {
+			where := append(slices.Clone(at), "used-by", strconv.Itoa(i))
+			switch {
+			case seen[use]:
+				addIssue(where, fmt.Sprintf("service %q is listed twice", use))
+			case hasKey(services, use):
+				addIssue(where, fmt.Sprintf("%q is a shared service: used-by lists the worktree's own Compose services, and a shared service cannot use another", use))
+			}
+			seen[use] = true
+		}
+	}
+}
+
+// hasKey reports whether o has key.
+func hasKey(o *shape.Obj, key string) bool {
+	_, ok := o.Get(key)
+	return ok
+}
+
+// composeFile is [compose] file as written, when the table and key are there.
+func composeFile(root *shape.Obj) (string, bool) {
+	raw, _ := root.Get("compose")
+	table, _ := raw.(*shape.Obj)
+	if table == nil {
+		return "", false
+	}
+	return stringField(table, "file")
+}
+
+// intField reads key from o as a whole number the schema has already vetted.
+func intField(o *shape.Obj, key string) (int, bool) {
+	raw, ok := o.Get(key)
+	if !ok {
+		return 0, false
+	}
+	n, ok := raw.(int)
+	return n, ok
+}
+
+// intsField reads key from o as a list of whole numbers the schema has
+// already vetted; absent reads as none.
+func intsField(o *shape.Obj, key string) []int {
+	raw, _ := o.Get(key)
+	list, _ := raw.([]any)
+	out := make([]int, 0, len(list))
+	for _, item := range list {
+		if n, ok := item.(int); ok {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// stringsField reads key from o as a list of strings the schema has already
+// vetted; absent reads as none.
+func stringsField(o *shape.Obj, key string) []string {
+	raw, _ := o.Get(key)
+	list, _ := raw.([]any)
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // stringField reads key from o as a string, reporting whether it was

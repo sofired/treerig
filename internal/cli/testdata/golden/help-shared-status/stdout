@@ -1,0 +1,12 @@
+show the shared services: state, addresses, definition and connection
+
+Usage:
+  berth shared status [flags]
+
+Flags:
+  -h, --help   help for status
+      --json   machine-readable output
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

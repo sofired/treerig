@@ -150,6 +150,47 @@ func TestRunHook(t *testing.T) {
 		}
 	})
 
+	t.Run("passes BERTH_SHARED_ADDR_<NAME>_<PORT> for every pinned shared address, and drops inherited ones", func(t *testing.T) {
+		runner := recordingRunner(nil)
+		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
+		hctx.Shared = []worktree.SharedAddr{
+			{Name: "mailpit", Port: 1025, Addr: "127.0.0.1:30001"},
+			{Name: "mail-relay", Port: 8025, Addr: "127.0.0.1:30002"},
+		}
+		hctx.Environ = []string{"BERTH_SHARED_ADDR_OLD_25=127.0.0.1:1"}
+		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		env := runner.Calls()[0].Env
+		for k, v := range map[string]string{
+			"BERTH_SHARED_ADDR_MAILPIT_1025":    "127.0.0.1:30001",
+			"BERTH_SHARED_ADDR_MAIL_RELAY_8025": "127.0.0.1:30002",
+		} {
+			if !containsEnv(env, k, v) {
+				t.Fatalf("expected %s=%s in env %v", k, v, env)
+			}
+		}
+		for _, entry := range env {
+			if strings.HasPrefix(entry, "BERTH_SHARED_ADDR_OLD_") {
+				t.Fatalf("inherited %s leaked into env %v", entry, env)
+			}
+		}
+	})
+
+	t.Run("passes no BERTH_SHARED_ADDR_ variable when there are no shared addresses, even inherited ones", func(t *testing.T) {
+		runner := recordingRunner(nil)
+		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
+		hctx.Environ = []string{"BERTH_SHARED_ADDR_OLD_25=127.0.0.1:1"}
+		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range runner.Calls()[0].Env {
+			if strings.HasPrefix(entry, "BERTH_SHARED_ADDR_") {
+				t.Fatalf("unexpected %s", entry)
+			}
+		}
+	})
+
 	t.Run("passes the user's control-home override through untouched, so a hook can call the tool", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})

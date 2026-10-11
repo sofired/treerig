@@ -1,0 +1,21 @@
+Start the named shared services, or all of them, and reconnect every worktree
+that uses them. A service that is already running is left alone: one whose
+definition differs from this worktree's is refused unless you pass --recreate
+with its name, which replaces that service with this worktree's definition and
+keeps its data. This is also how a worktree left unconnected, by a busy lock or
+a daemon restart, is repaired.
+
+Usage:
+  berth shared up [name...] [flags]
+
+Flags:
+  -h, --help                          help for up
+      --reallocate-port stringArray   move a container port to a new loopback
+                                      port, as <name>:<container port>; refused
+                                      while the service runs (repeatable)
+      --recreate                      replace running services with this
+                                      worktree's definition, keeping their data
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

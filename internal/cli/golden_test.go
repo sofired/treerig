@@ -9,6 +9,9 @@ package cli_test
 // review every diff yourself: -update writes whatever cli.Main happened to
 // produce, not what it should have.
 //
+// help-shared*, bare-shared, complete-shared* and the err-*-shared* cases pin
+// `shared up|down|status` (#123); help-worktree-unlock also shows `--shared`.
+//
 // help-worktree, help-worktree-short, help-worktree-unlock,
 // help-cmd-worktree, help-cmd-worktree-remove, help-cmd-worktree-list and
 // bare-worktree show `worktree unlock --registry`/`--router` (#21). help-run,
@@ -66,6 +69,10 @@ var goldenCases = []goldenCase{
 	{"help-router-up", []string{"router", "up", "--help"}},
 	{"help-router-status", []string{"router", "status", "--help"}},
 	{"help-router-down", []string{"router", "down", "--help"}},
+	{"help-shared", []string{"shared", "--help"}},
+	{"help-shared-up", []string{"shared", "up", "--help"}},
+	{"help-shared-down", []string{"shared", "down", "--help"}},
+	{"help-shared-status", []string{"shared", "status", "--help"}},
 	{"help-worktree", []string{"worktree", "--help"}},
 	{"help-worktree-short", []string{"worktree", "-h"}},
 	{"help-worktree-list", []string{"worktree", "list", "--help"}},
@@ -76,6 +83,8 @@ var goldenCases = []goldenCase{
 	{"help-cmd-config", []string{"help", "config"}},
 	{"help-cmd-config-schema", []string{"help", "config", "schema"}},
 	{"help-cmd-router", []string{"help", "router"}},
+	{"help-cmd-shared", []string{"help", "shared"}},
+	{"help-cmd-shared-down", []string{"help", "shared", "down"}},
 	{"help-cmd-worktree", []string{"help", "worktree"}},
 	{"help-cmd-worktree-remove", []string{"help", "worktree", "remove"}},
 	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
@@ -96,6 +105,7 @@ var goldenCases = []goldenCase{
 	{"bare-root", nil},
 	{"bare-config", []string{"config"}},
 	{"bare-router", []string{"router"}},
+	{"bare-shared", []string{"shared"}},
 	{"bare-worktree", []string{"worktree"}},
 
 	// --- dev: implemented as a fixed "not implemented yet" failure ---
@@ -108,6 +118,9 @@ var goldenCases = []goldenCase{
 	{"err-unknown-command-in-completion-group", []string{"completion", "tcsh"}},
 	{"complete-root", []string{"__complete", ""}},
 	{"complete-config", []string{"__complete", "config", ""}},
+	{"complete-shared", []string{"__complete", "shared", ""}},
+	{"complete-shared-down-flags", []string{"__complete", "shared", "down", "--"}},
+	{"complete-shared-up-no-config", []string{"__complete", "shared", "up", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
 	{"complete-worktree", []string{"__complete", "worktree", ""}},
 	{"complete-worktree-remove-flags", []string{"__complete", "worktree", "remove", "--"}},
 	{"complete-no-descriptions", []string{"__completeNoDesc", "router", ""}},
@@ -125,6 +138,10 @@ var goldenCases = []goldenCase{
 	{"err-unknown-command-near-help", []string{"helo"}},
 	{"err-unknown-command-near-down", []string{"dow"}},
 	{"err-unknown-command-in-group", []string{"worktree", "bogus"}},
+	{"err-unknown-command-in-shared", []string{"shared", "dwon"}},
+	{"err-unknown-option-shared-up", []string{"shared", "up", "--recrate"}},
+	{"err-excess-arguments-shared-status", []string{"shared", "status", "now"}},
+	{"shared-up-missing-file", []string{"shared", "up", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"err-unknown-command-in-config-group", []string{"config", "nonexistentSub"}},
 
 	// --- unknown option, with and without a suggestion, short and long ---

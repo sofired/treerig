@@ -53,6 +53,16 @@ const (
 	// `worktree remove`, or `up` itself stall behind a daemon that will not
 	// answer.
 	RouterTimeout = 20 * time.Minute
+	// SharedTimeout is how long a command waits for a repository's shared
+	// lock (docs/design/routing.md, decision 18). It covers the longest thing
+	// done under it: a `compose up --wait` of five minutes, a pull, and a
+	// recreate, as RouterTimeout is derived. 3 * 5m = 15m.
+	SharedTimeout = 15 * time.Minute
+	// ReconnectTimeout is how long the reconnect sweep waits for one
+	// worktree's operation lock (and the shared lock beside it) before it
+	// skips that worktree: a busy worktree is repaired by its own next `up`,
+	// by `shared up`, or found by `doctor`, never waited for.
+	ReconnectTimeout = 5 * time.Second
 )
 
 // RegistryScope is the machine-wide worktree registry lock.
@@ -60,6 +70,19 @@ func RegistryScope(controlHome string) Scope {
 	return Scope{
 		Target:      layout.ControlLayout(controlHome).RegistryLockPath,
 		Description: "global worktree registry",
+		HomeEnvVar:  brand.ControlHomeEnv,
+	}
+}
+
+// SharedScope is one repository's shared lock: one lock for all of the
+// repository's shared services (docs/design/routing.md, decision 18), at
+// <control home>/locks/shared/<repo>. Its markers name the shared Compose
+// project, so a survivor scan finds a `compose up` it started.
+func SharedScope(controlHome, repositoryID string) Scope {
+	return Scope{
+		Target:      layout.SharedLayout(controlHome, repositoryID).LockPath,
+		Description: "shared-services",
+		Markers:     procid.Markers{Project: layout.SharedProjectName(repositoryID)},
 		HomeEnvVar:  brand.ControlHomeEnv,
 	}
 }

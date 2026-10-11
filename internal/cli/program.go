@@ -614,6 +614,75 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	})
 	root.AddCommand(router)
 
+	sharedGroup := &cobra.Command{
+		Use:   "shared",
+		Short: "manage the repository's shared services",
+		Long: fmt.Sprintf("Shared services run once per repository, in a Compose project of their own, and are connected to each worktree whose services use them: "+
+			"declare them under [shared] in %s. `%s up` starts the ones a worktree uses; these commands start, replace, stop and inspect them yourself.", brand.ConfigFile, commandName),
+		Args: usageArgs(unknownSubcommand),
+		RunE: bareGroup(p),
+	}
+	var sharedRecreate bool
+	var sharedReallocate []string
+	sharedUp := &cobra.Command{
+		Use:   "up [name...]",
+		Short: "start shared services, and reconnect every worktree that uses them (--recreate <name> replaces a running one)",
+		Long: "Start the named shared services, or all of them, and reconnect every worktree that uses them. " +
+			"A service that is already running is left alone: one whose definition differs from this worktree's is refused unless you pass --recreate with its name, " +
+			"which replaces that service with this worktree's definition and keeps its data. This is also how a worktree left unconnected, by a busy lock or a daemon restart, is repaired.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.SharedUp(cmd.Context(), env, commands.SharedUpOptions{Names: args, Recreate: sharedRecreate, ReallocatePorts: sharedReallocate})
+		},
+	}
+	sharedUp.Flags().BoolVar(&sharedRecreate, "recreate", false, "replace running services with this worktree's definition, keeping their data")
+	sharedUp.Flags().StringArrayVar(&sharedReallocate, "reallocate-port", nil,
+		"move a container port to a new loopback port, as <name>:<container port>; refused while the service runs (repeatable)")
+	sharedUp.ValidArgsFunction = sharedCompletionFunc(p)
+	sharedGroup.AddCommand(sharedUp)
+
+	var sharedVolumes, sharedYes bool
+	var sharedNamespace string
+	sharedDown := &cobra.Command{
+		Use:   "down [name...]",
+		Short: "stop shared services; their data is kept unless you pass --volumes",
+		Long: "Stop and remove the named shared services' containers, or all of them, found by their labels from any checkout of the repository: " +
+			"no " + brand.ConfigFile + " is needed. Their data and pinned ports are kept; --volumes deletes the data and releases the ports, and asks you to confirm, " +
+			"as `worktree remove` does. It does not ask whether worktrees are using them.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.SharedDown(cmd.Context(), env, commands.SharedDownOptions{Names: args, Volumes: sharedVolumes, Yes: sharedYes, LabelNamespace: sharedNamespace})
+		},
+	}
+	sharedDown.Flags().BoolVar(&sharedVolumes, "volumes", false, "also delete the data volumes and release the pinned ports")
+	sharedDown.Flags().BoolVar(&sharedYes, "yes", false, "skip the confirmation phrase")
+	sharedDown.Flags().StringVar(&sharedNamespace, "label-namespace", "", "supply the Docker label namespace when there is no usable "+brand.ConfigFile+" to say it")
+	sharedDown.ValidArgsFunction = sharedCompletionFunc(p)
+	sharedGroup.AddCommand(sharedDown)
+
+	var sharedStatusJSON bool
+	sharedStatus := &cobra.Command{
+		Use:   "status",
+		Short: "show the shared services: state, addresses, definition and connection",
+		Args:  maxArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.SharedStatus(cmd.Context(), env, commands.OutputOptions{JSON: sharedStatusJSON})
+		},
+	}
+	sharedStatus.Flags().BoolVar(&sharedStatusJSON, "json", false, "machine-readable output")
+	sharedGroup.AddCommand(sharedStatus)
+	root.AddCommand(sharedGroup)
+
 	worktree := &cobra.Command{
 		Use:   "worktree",
 		Short: "manage registered worktrees",
@@ -668,7 +737,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 
 	unlock := &cobra.Command{
 		Use:   "unlock [identifier]",
-		Short: "clear a dead holder's lock on a worktree, the registry, or the router, once the holder, and anything it left running, is checked gone",
+		Short: "clear a dead holder's lock on a worktree, its repository's shared services, the registry, or the router, once the holder, and anything it left running, is checked gone",
 		Args:  maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)
@@ -678,12 +747,14 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			domain, _ := cmd.Flags().GetString("domain")
 			registry, _ := cmd.Flags().GetBool("registry")
 			routerFlag, _ := cmd.Flags().GetBool("router")
+			sharedFlag, _ := cmd.Flags().GetBool("shared")
 			allowUnverifiable, _ := cmd.Flags().GetBool("holder-unverifiable")
 			return commands.Unlock(cmd.Context(), env, commands.UnlockOptions{
 				Identifier:        arg0(args),
 				Domain:            domain,
 				Registry:          registry,
 				Router:            routerFlag,
+				Shared:            sharedFlag,
 				AllowUnverifiable: allowUnverifiable,
 			})
 		},
@@ -691,6 +762,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	unlock.Flags().String("domain", "", "narrow a slug registered under more than one domain")
 	unlock.Flags().Bool("registry", false, "clear the machine-wide worktree registry lock instead of a worktree's")
 	unlock.Flags().Bool("router", false, "clear the shared router's lock instead of a worktree's")
+	unlock.Flags().Bool("shared", false, "clear the shared-services lock of the worktree's repository instead of the worktree's own locks")
 	unlock.Flags().Bool("holder-unverifiable", false, "accept a holder this machine cannot check (another machine or container, or no record), once you have made sure it is gone")
 	unlock.ValidArgsFunction = identifierCompletionFunc(p, true)
 	_ = unlock.RegisterFlagCompletionFunc("domain", domainCompletionFunc(p))

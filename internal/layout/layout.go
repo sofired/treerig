@@ -363,6 +363,55 @@ func ComposeProjectName(repositoryID, worktreeID string) string {
 	return brand.Name + "-" + hex.EncodeToString(sum[:])[:24]
 }
 
+// SharedProjectName is the Compose project of a repository's shared
+// services (docs/design/routing.md, decision 15): berth-shared-<first 24 hex
+// of sha256("shared:" + repositoryID)>. Derived from the repository ID alone,
+// so it is stable, cannot collide with another repository's or with any
+// worktree's ComposeProjectName, and `shared down` can name it from any
+// checkout without a berth.toml. A storage name.
+func SharedProjectName(repositoryID string) string {
+	sum := sha256.Sum256([]byte("shared:" + repositoryID))
+	return brand.SharedProjectPrefix + hex.EncodeToString(sum[:])[:24]
+}
+
+// Shared is one repository's shared-services paths.
+type Shared struct {
+	Repository
+	// Dir holds the repository's shared-service records, one JSON per
+	// service, and the shared project's override file.
+	Dir string
+	// LockDir holds every repository's shared lock; LockPath is this one's.
+	LockDir  string
+	LockPath string
+	// OverridePath is the Compose override berth writes for the shared
+	// project: ownership labels, the definition label and the pinned ports.
+	OverridePath string
+}
+
+// SharedLayout derives one repository's shared-services paths:
+//
+//	repositories/<repo>/shared/<name>.json   a service's pinned ports
+//	repositories/<repo>/shared/berth.override.yaml
+//	locks/shared/<repo>                      the shared lock (decision 18)
+func SharedLayout(controlHome, repositoryID string) Shared {
+	repository := RepositoryLayout(controlHome, repositoryID)
+	dir := filepath.Join(repository.RepositoryDir, "shared")
+	lockDir := filepath.Join(repository.LocksDir, "shared")
+	return Shared{
+		Repository:   repository,
+		Dir:          dir,
+		LockDir:      lockDir,
+		LockPath:     filepath.Join(lockDir, repositoryID),
+		OverridePath: filepath.Join(dir, brand.Name+".override.yaml"),
+	}
+}
+
+// RecordPath is where the shared service called name keeps its pinned
+// ports.
+func (s Shared) RecordPath(name string) string {
+	return filepath.Join(s.Dir, name+".json")
+}
+
 // WorktreeRouterNetwork is the name of one worktree's own dedicated router
 // network (#55): <compose project>-router. Derived from the two IDs alone,
 // never from a loaded config, so everything that must name it agrees: the

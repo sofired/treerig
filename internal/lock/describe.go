@@ -19,6 +19,15 @@ func WithHeld(ctx context.Context, held ...*Lock) context.Context {
 	return context.WithValue(ctx, heldContextKey{}, held)
 }
 
+// AddHeld is ctx with l carried after the locks it already carries, so a lock
+// taken later than the ones a Hold acquired (the shared lock nested inside a
+// worktree's operation lock, docs/design/routing.md decision 18) is handed to
+// a Docker child behind them, at the next descriptor.
+func AddHeld(ctx context.Context, l *Lock) context.Context {
+	held, _ := ctx.Value(heldContextKey{}).([]*Lock)
+	return WithHeld(ctx, append(append([]*Lock(nil), held...), l)...)
+}
+
 // Inherited is the *os.File of every lock WithHeld carried on ctx that is
 // still held, in the same order — ExtraFiles for the child.
 func Inherited(ctx context.Context) []*os.File {

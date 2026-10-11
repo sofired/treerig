@@ -2605,6 +2605,7 @@ var documentedDoctorIDs = []string{
 	"locks.scan",
 	"locks.registry",
 	"locks.router",
+	"locks.shared",
 	"locks.worktree.operation",
 	"locks.worktree.development",
 	"router.container",
@@ -2624,6 +2625,17 @@ var documentedDoctorIDs = []string{
 	"checkout.hooks.resolve",
 	"checkout.commands.resolve",
 	"checkout.hooks.verify",
+	"shared.scan",
+	"shared.services",
+	"shared.definition",
+	"shared.service",
+	"shared.port",
+	"shared.record",
+	"shared.unreadable-record",
+	"shared.connection",
+	"shared.attachment",
+	"shared.orphan",
+	"shared.unused",
 }
 
 // checkReport fails the test unless every check in sections has a documented
@@ -2840,14 +2852,14 @@ func TestDoctorEmitsOnlyDocumentedIDs(t *testing.T) {
 	checkReport(t, sections)
 }
 
-// TestDoctorIDsAreTheDocumentedSet reads doctor.go and doctor_ports.go for the ids they hand to
+// TestDoctorIDsAreTheDocumentedSet reads doctor.go, doctor_ports.go and doctor_shared.go for the ids they hand to
 // Check literals and to the helpers that take one, and compares that set with
 // documentedDoctorIDs; then checks README.md has a table row for each id and
 // lists every hook stage as the instance of checkout.hooks.resolve.
 func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	fset := token.NewFileSet()
 	var doctorFiles []*ast.File
-	for _, name := range []string{"doctor.go", "doctor_ports.go"} {
+	for _, name := range []string{"doctor.go", "doctor_ports.go", "doctor_shared.go"} {
 		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -2891,12 +2903,12 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	}
 	for id := range found {
 		if !documented[id] {
-			t.Errorf("doctor.go or doctor_ports.go uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
+			t.Errorf("doctor.go, doctor_ports.go or doctor_shared.go uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
 		}
 	}
 	for id := range documented {
 		if !found[id] {
-			t.Errorf("documentedDoctorIDs lists %q, which doctor.go and doctor_ports.go no longer use", id)
+			t.Errorf("documentedDoctorIDs lists %q, which doctor.go, doctor_ports.go and doctor_shared.go no longer use", id)
 		}
 	}
 

@@ -142,6 +142,7 @@ func upRuntime(cctx *CommandContext, namespace string, routerSvc Router, ports m
 		Environ:        cctx.Environ,
 		Routes:         routes,
 		RouterNetwork:  routerSvc.Network(),
+		SharedUse:      sharedUseMap(cctx.Loaded.Config),
 	})
 }
 
@@ -226,6 +227,15 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
 	store := cctx.Registry.Store(ref.RepositoryID)
 	ownNamespace := cctx.Loaded.Config.LabelNamespace()
+
+	// Shared services (docs/design/routing.md, decision 18): started or
+	// reused under the shared lock alone, before the worktree's operation
+	// lock is taken, so that lock is never held waiting on a slow start. If
+	// one cannot start, nothing of the worktree is touched.
+	sharedUsed, err := startSharedForUp(ctx, cctx, ref, ownNamespace)
+	if err != nil {
+		return nil, err
+	}
 
 	// serviceRoutes (named apart from the mutation closure's own routes,
 	// routeSpecsFromConfig below) feeds both urls, printed below, and the
@@ -330,13 +340,39 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			what = strings.Join(options.Services, ", ")
 		}
 		runtime := upRuntime(cctx, ownNamespace, routerSvc, ports)
-		if err := withProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
-			return runtime.Up(ctx, ref, options.Services)
-		}); err != nil {
+		start := func() error {
+			return withProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
+				return runtime.Up(ctx, ref, options.Services)
+			})
+		}
+		err = start()
+		if err != nil && len(sharedUsed) > 0 && backend.IsActiveEndpoints(err) {
+			// Compose wanted to recreate the worktree's network, which a shared
+			// container is attached to, and had already stopped the containers
+			// when it failed: a second `compose up` cannot succeed. Detach the
+			// shared containers, which needs only the operation lock this
+			// closure holds, so the `down` and `up` the message asks for work.
+			if derr := disconnectShared(ctx, cctx, ref, ownNamespace, ownNamespace); derr != nil {
+				cctx.Logger.Warn(fmt.Sprintf("Could not disconnect the shared services from this worktree's network: %v", derr))
+			} else {
+				cctx.Logger.Info("Disconnected the shared services from this worktree's network.")
+			}
+			return clierr.Wrap(fmt.Sprintf("Compose cannot recreate this worktree's network while a shared service is attached to it. Run '%s down' and then '%s up' again; the shared services keep running.", cctx.CommandName, cctx.CommandName), err)
+		}
+		if err != nil {
 			return explainStartFailure(ctx, cctx, inspector, ref, routed, ports, err)
 		}
 		if err := releaseDroppedPorts(ctx, cctx, ref, options); err != nil {
 			return err
+		}
+
+		// Connect the shared services to this worktree's networks: after its
+		// own `compose up` and before its hooks, which may send mail. This
+		// is inside the operation lock, with the shared lock nested.
+		if len(sharedUsed) > 0 {
+			if err := connectWorktree(ctx, cctx, ref, ownNamespace, sharedUsed, true); err != nil {
+				return err
+			}
 		}
 
 		// Routing (#55): fragments are rewritten in full on every `up`, but
@@ -435,7 +471,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 				ProjectRoot: cctx.Loaded.Root,
 			},
 			Ref: ref, Hooks: cctx.Loaded.Config.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ,
-			Routes: hookRoutes,
+			Routes: hookRoutes, Shared: sharedAddrs(cctx, ref.RepositoryID),
 		}, hooks.LifecycleOptions{Stages: upStages(firstTime)})
 		if err != nil {
 			return err

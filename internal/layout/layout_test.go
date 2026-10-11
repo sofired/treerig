@@ -175,3 +175,51 @@ func TestDerivedNames(t *testing.T) {
 		}
 	})
 }
+
+func TestSharedLayout(t *testing.T) {
+	t.Run("names the shared project from the repository alone, as a storage name", func(t *testing.T) {
+		name := layout.SharedProjectName(repository)
+		if again := layout.SharedProjectName(repository); again != name {
+			t.Fatalf("not stable: %q then %q", name, again)
+		}
+		if !regexp.MustCompile("^" + brand.Name + "-shared-[0-9a-f]{24}$").MatchString(name) {
+			t.Fatalf("name %q has the wrong shape", name)
+		}
+		if other := layout.SharedProjectName("another"); other == name {
+			t.Fatal("two repositories share a project name")
+		}
+		// Pinned: a change here strands every running shared service, so it
+		// is a migration. sha256("shared:" + repository), first 24 hex.
+		if want := "berth-shared-" + "c2bb8b3b64ebd849cac0bd0c"; name != want {
+			t.Fatalf("SharedProjectName = %q, want %q", name, want)
+		}
+	})
+
+	t.Run("never collides with a worktree's project, whatever its ID", func(t *testing.T) {
+		if layout.SharedProjectName(repository) == layout.ComposeProjectName(repository, worktree) {
+			t.Fatal("the shared project is a worktree's project")
+		}
+		if strings.HasPrefix(layout.ComposeProjectName(repository, worktree), brand.SharedProjectPrefix) {
+			t.Fatal("a worktree project carries the shared prefix")
+		}
+	})
+
+	t.Run("places records, the override and the lock apart from every worktree path", func(t *testing.T) {
+		l := layout.SharedLayout("/control", repository)
+		for got, want := range map[string]string{
+			l.Dir:                   filepath.Join("/control", "repositories", repository, "shared"),
+			l.RecordPath("mailpit"): filepath.Join("/control", "repositories", repository, "shared", "mailpit.json"),
+			l.OverridePath:          filepath.Join("/control", "repositories", repository, "shared", "berth.override.yaml"),
+			l.LockDir:               filepath.Join("/control", "locks", "shared"),
+			l.LockPath:              filepath.Join("/control", "locks", "shared", repository),
+		} {
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		}
+		w := layout.WorktreeLayout("/control", repository, worktree)
+		if strings.HasPrefix(l.LockPath, w.WorktreeLocksDir) || strings.HasPrefix(l.Dir, w.RegistryDir) {
+			t.Error("a shared path is under a worktree directory")
+		}
+	})
+}

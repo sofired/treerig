@@ -116,3 +116,45 @@ func TestSlugDerivation(t *testing.T) {
 		}
 	})
 }
+
+// TestReservedSlug pins that no worktree is given the slug "shared": a
+// repository's shared services are routed beneath it, as
+// <name>.shared.<domain>, so a worktree's own hostname must not be there.
+func TestReservedSlug(t *testing.T) {
+	t.Run("a branch called shared gets a suffix, in an empty registry too", func(t *testing.T) {
+		id := slugIdentity("shared", "")
+		slug, err := registry.AllocateSlug(id, acmeDomain, nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slug == registry.ReservedSlug || !strings.HasPrefix(slug, "shared-") || len(slug) > 63 {
+			t.Fatalf("slug = %q", slug)
+		}
+		again, _ := registry.AllocateSlug(id, acmeDomain, nil, "")
+		if again != slug {
+			t.Fatalf("the suffix is not stable: %q then %q", slug, again)
+		}
+	})
+
+	t.Run("a worktree that held it before is moved off it when its slug is next allocated", func(t *testing.T) {
+		id := slugIdentity("shared", "")
+		slug, err := registry.AllocateSlug(id, acmeDomain, nil, registry.ReservedSlug)
+		if err != nil || slug == registry.ReservedSlug {
+			t.Fatalf("slug = %q, %v", slug, err)
+		}
+	})
+
+	t.Run("ordinary branches are unaffected, and so is a branch that only contains the word", func(t *testing.T) {
+		for branch, want := range map[string]string{"feature/login": "feature-login", "shared-cache": "shared-cache", "sharedx": "sharedx"} {
+			if got, _ := registry.AllocateSlug(slugIdentity(branch, ""), acmeDomain, nil, ""); got != want {
+				t.Errorf("%s -> %q, want %q", branch, got, want)
+			}
+		}
+	})
+
+	t.Run("is reserved in every domain", func(t *testing.T) {
+		if got, _ := registry.AllocateSlug(slugIdentity("shared", ""), "other.localhost", nil, ""); got == registry.ReservedSlug {
+			t.Fatalf("got %q", got)
+		}
+	})
+}

@@ -124,6 +124,14 @@ path = "/docs"
 [service.docs.index]
 label = "Docs\tGuide\nSection"
 
+[shared]
+file = "compose.shared.yaml"
+[shared.service.mailpit]
+used-by = ["api", "web"]
+[shared.service.objects]
+[shared.service.queue]
+used-by = ["api"]
+
 [commands]
 plan = "./scripts/keycloak.sh plan"
 destroy = "./scripts/keycloak.sh\tdestroy"
@@ -286,6 +294,24 @@ func TestGoldenCompletion(t *testing.T) {
 	fixture := newCompletionFixture(t)
 
 	cases := []completionGoldenCase{
+		{
+			// Shared services in file order, each described by what uses it.
+			name: "complete-shared-up-names",
+			args: []string{"__complete", "shared", "up", "--config", fixture.configPath, ""},
+		},
+		{
+			name: "complete-shared-up-names-prefix-and-given",
+			args: []string{"__complete", "shared", "up", "--config", fixture.configPath, "mailpit", "q"},
+		},
+		{
+			name: "complete-shared-down-names",
+			args: []string{"__complete", "shared", "down", "--config", fixture.configPath, ""},
+		},
+		{
+			// A berth.toml without [shared] has nothing to offer.
+			name: "complete-shared-up-none-declared",
+			args: []string{"__complete", "shared", "up", "--config", fixture.noCommandsConfigPath, ""},
+		},
 		{
 			name: "complete-worktree-remove-identifier",
 			args: []string{"__complete", "worktree", "remove", "--config", fixture.configPath, ""},

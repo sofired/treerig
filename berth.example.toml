@@ -63,6 +63,24 @@ path      = "/latest"   # routes only this prefix; several services may share a 
 port      = 4000        # container port to route to; defaults to the first port the service exposes
 
 # ---------------------------------------------------------------------------
+# Shared services. Some services are wasteful once per worktree: an email
+# catcher, an object-store emulator. A shared service runs once per
+# repository, from a Compose file of its own, and is connected to each
+# worktree whose services use it, under its name as a network alias
+# (mailpit:1025 from a container). The first `up` that needs it starts it.
+# It may not build an image or bind-mount a path inside a worktree.
+
+[shared]
+file = "docker/compose.shared.yaml"   # relative to this file
+
+[shared.service.mailpit]               # a service in that file; also the alias
+port    = 8025                         # optional: the web UI's container port
+ports   = [1025]                       # optional: more container ports, for processes on the host
+# Each of those is published on a pinned 127.0.0.1 port: a hook gets it as
+# BERTH_SHARED_ADDR_MAILPIT_1025.
+used-by = ["api"]                      # this worktree's Compose services that use it
+
+# ---------------------------------------------------------------------------
 # Hooks. Each is an executable — any language. A command that starts with "."
 # or contains "/" is resolved relative to this file; anything else is looked up
 # on PATH. Each runs with this directory as its working directory and is handed

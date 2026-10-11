@@ -155,3 +155,52 @@ func pairsToMap(pairs [][2]string) map[string]string {
 	}
 	return m
 }
+
+func TestSharedAddrVariables(t *testing.T) {
+	addrs := []worktree.SharedAddr{
+		{Name: "mailpit", Port: 1025, Addr: "127.0.0.1:30001"},
+		{Name: "mailpit", Port: 8025, Addr: "127.0.0.1:30002"},
+		{Name: "object-store", Port: 9000, Addr: "127.0.0.1:30003"},
+	}
+	t.Run("one variable per pinned address, name upper-cased with hyphens turned into underscores", func(t *testing.T) {
+		got := pairsToMap(worktree.SharedAddrVariables(addrs))
+		want := map[string]string{
+			"SHARED_ADDR_MAILPIT_1025":      "127.0.0.1:30001",
+			"SHARED_ADDR_MAILPIT_8025":      "127.0.0.1:30002",
+			"SHARED_ADDR_OBJECT_STORE_9000": "127.0.0.1:30003",
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %+v", got)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s = %q, want %q", k, got[k], v)
+			}
+		}
+	})
+
+	t.Run("no two names and ports share a variable, though a name may end in digits", func(t *testing.T) {
+		got := worktree.SharedAddrVariables([]worktree.SharedAddr{
+			{Name: "mail", Port: 25, Addr: "a"}, {Name: "mail-25", Port: 25, Addr: "b"}, {Name: "mail", Port: 2525, Addr: "c"},
+		})
+		seen := map[string]bool{}
+		for _, pair := range got {
+			if seen[pair[0]] {
+				t.Fatalf("%s twice in %v", pair[0], got)
+			}
+			seen[pair[0]] = true
+		}
+	})
+
+	t.Run("none for no addresses, and Variables adds the BERTH_ prefix", func(t *testing.T) {
+		if got := worktree.SharedAddrVariables(nil); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+		if got := worktree.Variables(worktree.SharedAddrVariables(addrs[:1])); got[0] != "BERTH_SHARED_ADDR_MAILPIT_1025=127.0.0.1:30001" {
+			t.Fatalf("got %v", got)
+		}
+		if !worktree.IsSharedAddrVariable("BERTH_SHARED_ADDR_X_1") || worktree.IsSharedAddrVariable("BERTH_SERVICE_URL_X") {
+			t.Fatal("IsSharedAddrVariable is wrong")
+		}
+	})
+}

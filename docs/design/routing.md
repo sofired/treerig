@@ -94,7 +94,7 @@ services (the owner ruled on the network model, 22, and on raw ports).
 | 19 | **State, ports and routes.** State is `<control home>/repositories/<repo>/shared/<name>.json`: `{version: 1, name, domain, ports: {"<container port>": <host port>}}`, written through `files.AtomicJSON` by one record builder. Every declared port (`port` and each of `ports`, at most 16 per service, TCP) gets a pinned host port from the same allocator, keyed by (repository ID, `shared:<name>:<container port>`); the allocator's skip set reads these records. Each is published on `127.0.0.1:<host port>` by the shared project's override. Ports are kept across `down`, released only by `down --volumes` (after the containers and volumes are gone, before the record is deleted, decision 5), and never by `worktree remove`. The web UI (`port`) is also routed at **`<name>.shared.<domain>`** using the domain recorded at allocation, through the route file `shared.<repo>.<name>.yaml` (router name `<shared project>_shared_<name>`; `shared.` is a prefix the service and host sweeps never match). Slug `shared` is reserved by the slug allocator so `<name>.shared.<domain>` cannot be a worktree's host. Decision 9's repair covers shared route files against these records. `berth shared up --reallocate-port <name>:<port>` (decision 4) refuses while the container runs (proven by labels). Two repositories that share a domain and a shared name conflict at allocation; the second is refused, naming the first. | A record is needed because the container is gone after `down` while its ports must stay pinned. Raw ports are for host processes (an IDE-run app, host routes, `berth run`); containers use `<alias>:<port>` on their network. The hostname must not be a worktree slug: any single label under the domain could be a branch name, so `shared` is the one word reserved. |
 | 20 | **Discovery.** Container side: the alias is the declared name, so `mailpit:1025`; no variable is injected into Compose (that would tie the worktree's Compose environment to shared state, and a changed variable recreates its containers, #28). Host side (hooks, `berth run`): `BERTH_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port>` for every declared port (`<PORT>` is the container port; `<NAME>` maps as in `BERTH_SERVICE_URL_<NAME>`, and the trailing number keeps it unambiguous), and `BERTH_SHARED_URL_<NAME>` for a routed `port`. Built next to `ServiceURLVariables`. `status` and `status --json` (an object) gain a `shared` array: `{name, state, url?, addrs: [{port, addr}], definition: "current"\|"differs"\|"unknown", connected: bool, definedBy?}`. `urls` and `urls --json` (a top-level array, a contract) are unchanged. `doctor` lists shared services; the index lists routed UIs. | The name in `berth.toml` is the contract for containers. Hooks and host processes are on the host, where an in-network alias does not resolve. |
 | 21 | **CLI.** `berth shared up [name...] [--recreate] [--reallocate-port <name>:<port>]`, `shared down [name...] [--volumes]`, `shared status [--json]`. `shared up` on a running instance with the same definition still runs the reconnect sweep (the repair path). `down --volumes` deletes data and prompts as `worktree remove` does. `worktree remove` of a repository's last registered worktree prints one line, best effort with a bounded Docker probe that never fails the remove, if shared services are still running, naming `berth shared down`. `shared down` works from any checkout of the repository and needs no `berth.toml` (label namespace from `--label-namespace`, as `worktree remove`). | Auto-start, explicit stop: the owner's lifecycle needs a stop command, and a way to reclaim data needs one destructive path. |
-| 22 | **Network model: per-worktree connect (Owner ruling).** The shared container joins each consuming worktree's own network with the declared alias, by `docker network connect --alias <name>`. There is no shared network and no external network in any override. All worktrees of a repository share service names, so on one flat network a `used-by` service calling another (`web` to `api`) can resolve to another worktree's container: silent cross-worktree traffic, which the spike confirmed is ambiguous. Every connect and disconnect target is proven by labels first. Connect: after the worktree's `compose up` and before its hooks, for each network a running `used-by` container is on (found by the `shared-use` label) that carries this worktree's ownership labels. Disconnect: `down` before `compose down`, and `worktree remove` before the first Reap, from each network in the verified inventory. Repair: `berth up` and `berth shared up` reconnect idempotently, `doctor` reports a running consumer that is not connected. A network that fails proof is reported and never touched. | This brings back connect and disconnect bookkeeping of the kind the redesign removed from the router. What made the router's version fragile was the host hop and the machine-wide router lock, and neither applies: the traffic is bridge-internal, and every step is under the one worktree's operation lock. Disconnecting before Reap is what stops the attached container from making a worktree's network unremovable. |
+| 22 | **Network model: per-worktree connect (Owner ruling).** The shared container joins each consuming worktree's own network with the declared alias, by `docker network connect --alias <name>`. There is no shared network and no external network in any override. All worktrees of a repository share service names, so on one flat network a `used-by` service calling another (`web` to `api`) can resolve to another worktree's container: silent cross-worktree traffic, which the spike confirmed is ambiguous. Every connect and disconnect target is proven by labels first. Connect: after the worktree's `compose up` and before its hooks, for each network a running `used-by` container is on (found by the `shared-use` label) that carries this worktree's ownership labels. Disconnect: `down` before `compose down`, and `worktree remove` before the first Reap, from each network in the verified inventory. Removal reads the stack under the running command's label namespace (its `berth.toml`'s, or the default when it has none) and proves each network under the removed worktree's own namespace; run from outside the repository it finds only a stack under the default namespace, and a stack it cannot find stays attached, so the Reap keeps that network and a later `worktree remove` retries. If the Docker listing or a disconnect itself fails, `down` and `worktree remove` stop with that error before anything is stopped or reaped, rather than leave a network that cannot be removed. Repair: `berth up` and `berth shared up` reconnect idempotently, `doctor` reports a running consumer that is not connected. A network that fails proof is reported and never touched. | This brings back connect and disconnect bookkeeping of the kind the redesign removed from the router. What made the router's version fragile was the host hop and the machine-wide router lock, and neither applies: the traffic is bridge-internal, and every step is under the one worktree's operation lock. Disconnecting before Reap is what stops the attached container from making a worktree's network unremovable. |
 
 ### Proxy container
 
@@ -312,6 +312,90 @@ exist for the repository:
 A lost record is not data loss: down and reap work from labels alone, and
 re-allocation lands on the same ports by the allocator's hash start.
 
+### Implementation details (#123)
+
+Where the decisions above leave a choice, this is what the implementation does.
+
+- `used-by` may be empty or absent. A shared service nothing uses is never
+  started by `up`, only by `berth shared up`; it still gets pinned ports.
+- `up` considers every `used-by` service of the Compose file, whether or not
+  `up` names it: starting a shared service nothing needs is harmless, and
+  failing to start one something needs is not. A `used-by` service that only
+  an inactive profile defines passes the existence check (the file is read
+  again with every profile on) and is stamped when its profile is active.
+- A `used-by` service with `network_mode: none` or `container:…` is refused
+  with the host and `service:…` ones: none of them has a network to join.
+- Stopped and absent are both "started from the caller's definition": a
+  stopped container is replaced with `compose up --force-recreate --no-deps
+  <service>` (the caller's definition), which carries named and anonymous
+  volumes over; `rm` followed by `--no-recreate` would orphan the anonymous
+  ones. A running instance is only ever touched by `--no-recreate`, which
+  guarantees that a dependency already running, or a sibling whose definition
+  differs, is not recreated by a start.
+- `shared up --recreate` replaces the running services it names whether or
+  not the definition differs; it is how to restart one. It needs at least one
+  name: the no-name form is refused, listing the running services (decision
+  16). Approved by the owner. A differing definition without `--recreate` refuses before
+  anything is changed.
+- A shared file may not declare `ports:` (nor any non-loopback publish); the
+  refusal points at `[shared.service.<name>]`, where berth publishes on
+  127.0.0.1. The worktree slug `shared` is reserved by the slug allocator.
+  Approved.
+- The drift hash uses pinned inputs: the file is read with an explicit empty
+  `--env-file` and `--profile '*'`, and the hash covers the top-level volumes,
+  networks, configs and secrets the closure references (prefix `v1:` kept). A
+  Compose upgrade can change `compose config` output and show `differs` once;
+  `shared up --recreate <name>` restamps. Approved.
+- Named `shared down` takes along helper containers started only to serve the
+  named services, once no declared service still uses them. Approved.
+- `shared down --volumes` with names removes only the volumes a selected
+  container mounts; without names it removes every volume of the stack. It
+  also removes anonymous volumes (label `com.docker.volume.anonymous`) of
+  containers it has proven are its own, and the prompt lists volume names.
+  The plan is made again under the lock and the command refuses if it grew
+  while the user decided. Names are validated against the slug pattern before
+  they touch a record path, and a name with no record, declared service or
+  container is refused up front. Approved.
+- `shared up --recreate` deliberately makes two Compose calls: the services
+  being started (dependencies included) with `--no-recreate`, then the target
+  with `--force-recreate --no-deps`. A kill between them is harmless: the next
+  `up` or `shared up` finds the dependencies running and replaces the target.
+  A plain `shared down` strands the anonymous volumes of the containers it
+  removes (the next container gets a fresh one, and `--volumes` can no longer
+  find the old one), so it warns, naming them; named volumes keep their data.
+- When `compose up` of a worktree fails with "has active endpoints" (Compose
+  wanted to recreate a network a shared container is attached to) and shared
+  services are in use, `up` disconnects them (`disconnectShared`, which needs
+  only the operation lock it holds) and fails at once, telling the user to run
+  `berth down` and then `berth up`, with Compose's error as the cause. It does
+  not run `compose up` a second time: on the real daemon (Docker 29.7.2,
+  Compose 5.5.0) the first attempt has already stopped the worktree's
+  containers and half-removed the network, so a second attempt fails with "is
+  not connected to the network". The real-daemon test pins this, then follows
+  the message (`down`, `up`) and checks the shared service never stopped.
+- A shared definition is hashed from the file read with the inherited
+  environment minus every `BERTH_*` variable except `BERTH_HOME` and
+  `BERTH_CONTROL_HOME`, plus `BERTH_PROJECT`, `BERTH_REPOSITORY_ID` and the
+  Compose project name, so a process started from a worktree's hook reads the
+  same file as one started from a shell. Each service of the file carries the
+  hash of its own closure, not only the declared ones.
+- "Inside a worktree" for the bind-mount refusal is the config's directory and
+  every live worktree of the repository Git lists, compared as written and
+  with symbolic links resolved. A config or secret `file:` is refused the same
+  way.
+- `shared down` with names removes those services' containers, and the
+  containers that were started only to serve them once no declared service's
+  container is left; the stack's network goes when no container does. With
+  `--volumes`, a volume goes when no container that stays mounts it. Only
+  `--volumes` asks for confirmation, since only it deletes data.
+- A record exists only for a service that declares a port. Starting a
+  container prunes the pinned ports of container ports no longer declared
+  (nothing runs that could still publish them); a running container's are
+  left alone until it is recreated.
+- `shared status --json` is `{"shared": [...]}`, the same entries as
+  `status --json`'s `shared` array, which is omitted when nothing is declared.
+  `definedBy` is the starting worktree's hostname or "a removed worktree".
+
 ### Platforms
 
 Per-worktree connect behaves the same on Docker Desktop and OrbStack as on
@@ -441,11 +525,27 @@ busybox consumers.
 | Disconnect when not connected / container gone / network gone | rc 1: "is not connected to network", "No such container", "network ... not found" (all treated as done, matched on the message) |
 | Connect or disconnect a stopped container | Succeeds |
 
+Verified while implementing #123, Linux, Docker
+29.7.2, Compose 5.5.0, busybox stand-ins:
+
+| Question | Result |
+|----------|--------|
+| `docker compose config --format json` of a service with `depends_on: [db]`, `env_file` and a relative bind mount | `depends_on` is printed as a map (`db: {condition, required}`), `env_file` is inlined into `environment`, a bind `source` is the absolute path, and a named volume's `name` carries the project name. berth reads both `depends_on` forms |
+| `compose up --no-recreate <svc>` with the running container's definition changed | Leaves the container alone. Without the flag Compose recreates it |
+| `compose up --no-recreate <svc>` with the container stopped | Starts the stopped container with the definition it was created from, not the file's current one, so berth removes a stopped shared container (keeping its volumes) before starting it from the caller's definition |
+| Two processes' first `up`s of two worktrees at the same moment | The shared lock serialises them: one runs `compose up`, the other finds the container running; both end connected |
+| `docker network disconnect` before `compose down` of a worktree whose network the shared container is on | The worktree's network is removed cleanly and the shared container keeps running |
+| `worktree remove` of a worktree the shared container is attached to | Succeeds, with the shared container, its volume and its pinned ports untouched |
+
+| `up` of an already-up worktree whose network Compose wants to recreate (a changed network label), the shared container attached | Fails: the network removal says "has active endpoints" and the worktree's containers were already stopped. `up` recognises that message when a shared service is in use, disconnects the shared services and stops with the message saying to run `berth down` and then `berth up`; it does not retry, because a second `compose up` cannot succeed here |
+| `compose up --force-recreate --no-deps` on a stopped shared container with `volumes: ["/data"]` | The new container mounts the same anonymous volume; a file written before the stop is still there. `shared down --volumes` removes it |
+
 Not verified, to check during implementation:
 
 - Whether user-connected networks survive a daemon restart (a plain
   `docker restart` keeps them). The reconnect sweep covers the case either
-  way.
+  way. Still open: the daemon was not restarted, because it belongs to every
+  other project on the machine.
 - A stale endpoint: a worktree network removed after the shared container was
   killed mid-connect.
 - Mailpit checks for its own updates (`/api/v1/info` reports
@@ -492,3 +592,12 @@ a recreate followed by the sweep, with a busy worktree skipped.
    second (the routed UI: route file, repair, `shared.` prefix, reserved slug,
    index) follows #120.
 6. #121, rootless Docker, later.
+
+## Handoff to the routed-web-UI pull request (#123 PR 2)
+
+- The route-file write must happen under the shared lock after `stack.Up`;
+  `startSharedForUp` and `sharedPlan` need a router handle for that.
+- Repair (`shared up`'s sweep) needs the config to know the routed port.
+- The cross-repository domain+name conflict check belongs in `SyncSharedPorts`.
+- Once #120 lands, the allocators must read its router-state index and ping
+  ports as Reserved.

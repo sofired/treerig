@@ -138,7 +138,8 @@ func report(console *logger.Console, getenv layout.Getenv, err error) {
 	if cause != nil {
 		console.Error("  caused by: " + cause.Error())
 	}
-	if ce, ok := err.(*clierr.Error); ok {
+	var ce *clierr.Error
+	if errors.As(err, &ce) {
 		for _, suppressed := range ce.Suppressed {
 			if suppressed == cause {
 				continue

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +16,10 @@ import (
 
 	"github.com/sofired/berth/internal/shape"
 )
+
+// sharedTOML is the [shared] table every shared-service case needs ahead of
+// its [shared.service.<name>] tables.
+const sharedTOML = "[shared]\nfile = \"compose.shared.yaml\"\n"
 
 // schemaFile is the committed JSON Schema, relative to this package.
 const schemaFile = "../../schema/berth.schema.json"
@@ -59,7 +64,7 @@ func TestSchemaJSON(t *testing.T) {
 			got = append(got, name)
 		}
 		sort.Strings(got)
-		if want := "commands,compose,hooks,project,service"; strings.Join(got, ",") != want {
+		if want := "commands,compose,hooks,project,service,shared"; strings.Join(got, ",") != want {
 			t.Errorf("top-level keys = %v, want %s", got, want)
 		}
 		service := properties["service"].(map[string]any)
@@ -214,6 +219,15 @@ func TestSchemaAgreesWithValidation(t *testing.T) {
 		return b.String()
 	}
 
+	// portList is n distinct ports as a TOML array.
+	portList := func(n int) string {
+		ports := make([]string, n)
+		for i := range ports {
+			ports[i] = strconv.Itoa(1000 + i)
+		}
+		return "[" + strings.Join(ports, ", ") + "]"
+	}
+
 	type verdict int
 	const (
 		valid       verdict = iota // both accept
@@ -232,7 +246,31 @@ func TestSchemaAgreesWithValidation(t *testing.T) {
 		{"commands in both forms", minimalTOML + "[commands]\nplan = \"./p.sh\"\n[commands.apply]\ncommand = \"./a.sh\"\nlock = false\nkill-after = \"1m30s\"\n", valid},
 		{"all hooks", minimalTOML + "[hooks]\nprepare = \"a\"\nseed = \"b\"\nverify = \"c\"\nbackup = \"d\"\nrestore = \"e\"\n", valid},
 		{"64 services", minimalTOML + services(64), valid},
+		{"a fully spelled shared service", minimalTOML + sharedTOML + "[shared.service.mailpit]\nport = 8025\nports = [1025, 1110]\nused-by = [\"web\", \"worker\"]\n", valid},
+		{"a shared file with no service", minimalTOML + sharedTOML, valid},
+		{"a shared service with nothing but its table", minimalTOML + sharedTOML + "[shared.service.db]\n", valid},
 		{"an unknown top-level key", minimalTOML + "extra = 1\n", invalid},
+		{"an unknown key in [shared]", minimalTOML + sharedTOML + "bogus = 1\n", invalid},
+		{"an unknown key in a shared service", minimalTOML + sharedTOML + "[shared.service.db]\nbogus = 1\n", invalid},
+		{"a name inside a shared service", minimalTOML + sharedTOML + "[shared.service.db]\nname = \"db\"\n", invalid},
+		{"a shared service name that is not a slug", minimalTOML + sharedTOML + "[shared.service.Db]\n", invalid},
+		{"a shared port of 0", minimalTOML + sharedTOML + "[shared.service.db]\nport = 0\n", invalid},
+		{"a shared raw port of 65536", minimalTOML + sharedTOML + "[shared.service.db]\nports = [65536]\n", invalid},
+		{"a shared raw port that is a string", minimalTOML + sharedTOML + "[shared.service.db]\nports = [\"25\"]\n", invalid},
+		{"seventeen shared raw ports", minimalTOML + sharedTOML + "[shared.service.db]\nports = " + portList(17) + "\n", invalid},
+		{"sixteen shared raw ports", minimalTOML + sharedTOML + "[shared.service.db]\nports = " + portList(16) + "\n", valid},
+		{"a used-by that is not a slug", minimalTOML + sharedTOML + "[shared.service.db]\nused-by = [\"Web\"]\n", invalid},
+		{"an empty shared file", minimalTOML + "[shared]\nfile = \"\"\n", invalid},
+		{"shared services as an array of tables", minimalTOML + sharedTOML + "[[shared.service]]\nname = \"db\"\n", invalid},
+		{"shared as a string", strings.Replace(minimalTOML, "[compose]", "shared = \"x\"\n[compose]", 1), invalid},
+		{"a shared service without a shared file", minimalTOML + "[shared.service.db]\n", schemaLoose},
+		{"the shared file being the compose file", minimalTOML + "[shared]\nfile = \"docker/compose.yaml\"\n[shared.service.db]\n", schemaLoose},
+		{"a shared service named like a worktree service", minimalTOML + sharedTOML + "[service.db]\n[shared.service.db]\n", schemaLoose},
+		{"a used-by listed twice", minimalTOML + sharedTOML + "[shared.service.db]\nused-by = [\"web\", \"web\"]\n", schemaLoose},
+		{"a used-by naming a shared service", minimalTOML + sharedTOML + "[shared.service.db]\n[shared.service.mail]\nused-by = [\"db\"]\n", schemaLoose},
+		{"a port repeated in ports", minimalTOML + sharedTOML + "[shared.service.db]\nports = [25, 25]\n", schemaLoose},
+		{"port also listed in ports", minimalTOML + sharedTOML + "[shared.service.db]\nport = 25\nports = [25]\n", schemaLoose},
+		{"seventeen ports between port and ports", minimalTOML + sharedTOML + "[shared.service.db]\nport = 9000\nports = " + portList(16) + "\n", schemaLoose},
 		{"an unknown key in a service", minimalTOML + "[service.api]\nbogus = 1\n", invalid},
 		{"a name inside a service", minimalTOML + "[service.api]\nname = \"api\"\n", invalid},
 		{"an unknown key in a hooks table", minimalTOML + "[hooks]\nbogus = \"x\"\n", invalid},

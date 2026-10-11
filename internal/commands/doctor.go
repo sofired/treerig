@@ -600,6 +600,12 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 		}
 	}
 
+	sharedLocks, err := sharedLockChecks(controlHome, repositoryNames(scan.Records), commandName)
+	if err != nil {
+		return nil, err
+	}
+	checks = append(checks, sharedLocks...)
+
 	if len(checks) == 0 {
 		return []Check{{Status: StatusOK, ID: "locks.none", Subject: "locks", Detail: "none held"}}, nil
 	}
@@ -1277,7 +1283,10 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 				ControlHome: opts.ControlHome, ConfigFile: loaded.File, ProjectRoot: loaded.Root,
 			},
 			Ref: ref, Hooks: loaded.Config.Hooks, Logger: opts.Logger, Runner: opts.Runner, Environ: opts.Environ,
-			Routes: verifyRoutes, // BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28), BERTH_SERVICE_PORT_<NAME> (#119)
+			// BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28), BERTH_SERVICE_PORT_<NAME> (#119)
+			Routes: verifyRoutes,
+			// BERTH_SHARED_ADDR_<NAME>_<PORT>
+			Shared: sharedAddrsFor(opts.ControlHome, registration.RepositoryID, loaded.Config),
 		}, hooks.RunOptions{Output: hooks.Stderr})
 		if hookErr != nil {
 			var cancelled *clierr.Cancelled
@@ -1500,12 +1509,21 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 	if err != nil {
 		return nil, err
 	}
+	sharedChecksResult, err := sharedSection(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	sections := []Section{
 		{ID: "prerequisites", Title: "Prerequisites", Checks: prerequisiteChecks},
 		{ID: "registry", Title: "Registry", Checks: registryChecks},
 		{ID: "locks", Title: "Locks", Checks: locksChecks},
 		{ID: "router", Title: "Router", Checks: routerChecksResult},
 		{ID: "checkout", Title: "This checkout", Checks: checkoutChecksResult},
+	}
+	// Only when berth.toml declares shared services or Docker still holds
+	// some of this repository's.
+	if len(sharedChecksResult) > 0 {
+		sections = append(sections, Section{ID: "shared", Title: "Shared services", Checks: sharedChecksResult})
 	}
 	return sections, nil
 }

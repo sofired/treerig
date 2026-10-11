@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -471,6 +472,9 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 	for _, name := range services.keys {
 		service, _ := services.values[name].(*jsonKV)
 		entry := stamp()
+		if uses := c.options.SharedUse[name]; len(uses) > 0 {
+			entry.set("labels", c.withSharedUse(labels, uses))
+		}
 		// Service labels reach the container; only build.labels reach the image it builds.
 		if service.has("build") {
 			entry.set("build", newJSONKV().set("labels", labels))
@@ -575,6 +579,20 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 	}
 
 	return newJSONKV().set("services", outServices).set("volumes", outVolumes).set("networks", outNetworks), nil
+}
+
+// withSharedUse is labels plus a shared-use label for each shared service a
+// container uses, in sorted order so the override is the same bytes each time.
+func (c *Compose) withSharedUse(labels *jsonKV, uses []string) *jsonKV {
+	stamped := newJSONKV()
+	for _, key := range labels.keys {
+		value, _ := labels.get(key)
+		stamped.set(key, value)
+	}
+	for _, name := range slices.Sorted(slices.Values(uses)) {
+		stamped.set(brand.SharedUseLabel(c.options.LabelNamespace, name), "true")
+	}
+	return stamped
 }
 
 // refuseUnpublishable refuses a routed service berth cannot publish one

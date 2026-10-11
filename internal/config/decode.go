@@ -25,6 +25,10 @@ func decodeConfig(obj *shape.Obj) Config {
 			return service
 		})
 	}
+	if v, ok := obj.Get("shared"); ok {
+		shared := decodeShared(v.(*shape.Obj))
+		cfg.Shared = &shared
+	}
 	if v, ok := obj.Get("hooks"); ok {
 		cfg.Hooks = decodeHooks(v.(*shape.Obj))
 	}
@@ -78,6 +82,28 @@ func decodeService(o *shape.Obj) Service {
 		s.Index = decodeServiceIndex(v.(*shape.Obj))
 	}
 	return s
+}
+
+// decodeShared type-asserts the "shared" table out of a validated Obj. The
+// service list follows the file's order, each table's key its name.
+func decodeShared(o *shape.Obj) Shared {
+	shared := Shared{Service: []SharedService{}}
+	if v, ok := o.Get("file"); ok {
+		shared.File = v.(string)
+	}
+	if v, ok := o.Get("service"); ok {
+		shared.Service = decodeKeyed(v.(*shape.Obj), func(name string, table any) SharedService {
+			service := SharedService{Name: name, Ports: []int{}, UsedBy: []string{}}
+			t := table.(*shape.Obj)
+			if port, ok := intField(t, "port"); ok {
+				service.Port = &port
+			}
+			service.Ports = append(service.Ports, intsField(t, "ports")...)
+			service.UsedBy = append(service.UsedBy, stringsField(t, "used-by")...)
+			return service
+		})
+	}
+	return shared
 }
 
 // decodeServiceIndex type-asserts a service's "index" table out of a
