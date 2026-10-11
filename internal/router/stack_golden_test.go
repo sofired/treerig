@@ -1,34 +1,29 @@
 package router_test
 
-// Compares the stack document against a hand-maintained fixture
-// (testdata/stack-golden.json): the index service in full, and the router
-// service's image, restart, ports, hardening, tmpfs, volumes, healthcheck
-// and labels, plus explicit assertions that the router has no Docker
-// socket, no Docker-provider flags and no dependency on another service.
+// Compares the stack document against hand-maintained fixtures, one per
+// mode and privilege level (testdata/stack-golden-*.json), byte for byte,
+// plus explicit assertions on the properties the design rests on: nothing
+// listens on a wildcard address, nothing publishes the ping, the proxy has
+// no Docker socket and no Docker-provider flag, and no network is declared.
+//
+// `go test ./internal/router -run TestStackGolden -update` rewrites the
+// fixtures from what Stack builds; it never judges the result, so read every
+// diff it leaves.
 
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"os"
-	"reflect"
-	"strconv"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/router"
 )
 
-// fixtureDynamicDir/fixtureIndexDir are the mount sources recorded in the
-// golden fixture; builtDynamicDir/builtIndexDir are what TestStackGolden
-// builds the stack document with, and substitutes into the fixture before
-// comparing, so the comparison is about the stack's shape, not where one
-// machine keeps its router state.
-const (
-	fixtureDynamicDir = "/home/dev/.berth/router/dynamic"
-	fixtureIndexDir   = "/home/dev/.berth/router/index"
-	builtDynamicDir   = "/home/dev/.local/state/berth/router/dynamic"
-	builtIndexDir     = "/home/dev/.local/state/berth/router/index"
-)
+// updateGoldens rewrites the stack fixtures from the current output.
+var updateGoldens = flag.Bool("update", false, "rewrite the stack golden files")
 
 // marshalIndented is v encoded the way files.AtomicJSON encodes a stack
 // document: no HTML escaping, two-space indent, trailing newline.
@@ -43,111 +38,121 @@ func marshalIndented(v any) (string, error) {
 	return buf.String(), nil
 }
 
-// objectAt is doc[key] as a map, failing the test with a clear message when
-// it is missing or of another shape.
-func objectAt(t *testing.T, doc map[string]any, key string) map[string]any {
-	t.Helper()
-	value, present := doc[key]
-	if !present {
-		t.Fatalf("missing %q", key)
+// goldenOptions are the options a golden is built from: fixed paths, ports
+// and berth root, so the fixture pins the document's shape and not where one
+// machine keeps its router state.
+func goldenOptions(mode router.Mode, port int) router.StackOptions {
+	return router.StackOptions{
+		Mode: mode, Port: port, IndexPort: 21000, PingPort: 21001,
+		DynamicDir: "/home/dev/.berth/router/dynamic", IndexDir: "/home/dev/.berth/router/index",
+		LabelNamespace: "dev.berth", Home: "/home/dev/.berth",
 	}
-	obj, ok := value.(map[string]any)
-	if !ok {
-		t.Fatalf("%q is not an object: %T", key, value)
-	}
-	return obj
 }
 
 func TestStackGolden(t *testing.T) {
-	golden, err := os.ReadFile("testdata/stack-golden.json")
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name    string
+		file    string
+		options router.StackOptions
+	}{
+		{"host mode on a privileged port runs as root with NET_BIND_SERVICE", "stack-golden-host-privileged.json", goldenOptions(router.ModeHost, 80)},
+		{"host mode on an unprivileged port runs as nobody with no capability", "stack-golden-host-unprivileged.json", goldenOptions(router.ModeHost, 8080)},
+		{"bridge mode publishes the router port on loopback and keeps the ping inside", "stack-golden-bridge.json", goldenOptions(router.ModeBridge, 8080)},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := marshalIndented(router.Stack(tc.options))
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join("testdata", tc.file)
+			if *updateGoldens {
+				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != string(want) {
+				t.Errorf("stack document differs from %s:\n got:\n%s\nwant:\n%s", path, got, want)
+			}
+		})
+	}
+}
 
-	goldenText := string(golden)
-	// The fixture pins the document's shape, not this build's protocol number
-	// or mount paths: both are substituted in before comparing.
-	goldenText = strings.ReplaceAll(goldenText, `"dev.berth.router-protocol": "3"`, `"dev.berth.router-protocol": "`+strconv.Itoa(router.Protocol)+`"`)
-	goldenText = strings.ReplaceAll(goldenText, fixtureDynamicDir, builtDynamicDir)
-	goldenText = strings.ReplaceAll(goldenText, fixtureIndexDir, builtIndexDir)
-	if goldenText == string(golden) {
-		t.Fatal("substitution changed nothing; the golden fixture no longer matches this test's assumptions")
-	}
-	var goldenDoc map[string]any
-	if err := json.Unmarshal([]byte(goldenText), &goldenDoc); err != nil {
-		t.Fatalf("decoding the substituted golden: %v", err)
-	}
+func TestStackProperties(t *testing.T) {
+	for name, options := range map[string]router.StackOptions{
+		"host, privileged":   goldenOptions(router.ModeHost, 80),
+		"host, unprivileged": goldenOptions(router.ModeHost, 8080),
+		"bridge":             goldenOptions(router.ModeBridge, 8080),
+	} {
+		t.Run(name+": nothing is wildcard-bound, ping is on its own loopback entrypoint, and no network or socket is in the document", func(t *testing.T) {
+			text, err := marshalIndented(router.Stack(options))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]any
+			if err := json.Unmarshal([]byte(text), &doc); err != nil {
+				t.Fatal(err)
+			}
+			if _, present := doc["networks"]; present {
+				t.Error("the stack declares top-level networks")
+			}
+			services := doc["services"].(map[string]any)
+			for serviceName, raw := range services {
+				service := raw.(map[string]any)
+				if _, present := service["networks"]; present {
+					t.Errorf("%s joins a named network", serviceName)
+				}
+				if _, present := service["depends_on"]; present {
+					t.Errorf("%s depends on another service", serviceName)
+				}
+			}
+			if strings.Contains(text, "docker.sock") || strings.Contains(text, "--providers.docker") {
+				t.Error("the stack touches the Docker socket or Docker provider")
+			}
 
-	// wantHome is this test's own fixture berth root, stamped as
-	// router.RouterHomeLabel (#82) — an addition the fixture never carries
-	// at all, so it is asserted directly below and stripped from gotDoc
-	// before the comparisons against the fixture that follow.
-	const wantHome = "/home/dev/.berth"
-	gotText, err := marshalIndented(router.Stack(router.StackOptions{
-		ProjectName:    "berth-router",
-		Network:        "berth-router",
-		Port:           80,
-		DynamicDir:     builtDynamicDir,
-		IndexDir:       builtIndexDir,
-		LabelNamespace: "dev.berth",
-		Home:           wantHome,
-	}))
-	if err != nil {
-		t.Fatal(err)
+			command := router.RouterCommand(options)
+			var ping, web string
+			for _, argument := range command {
+				if value, ok := strings.CutPrefix(argument, "--entrypoints.traefik.address="); ok {
+					ping = value
+				}
+				if value, ok := strings.CutPrefix(argument, "--entrypoints.web.address="); ok {
+					web = value
+				}
+			}
+			if !strings.HasPrefix(ping, "127.0.0.1:") {
+				t.Errorf("ping entrypoint = %q, want a loopback address", ping)
+			}
+			if !containsSubstring(command, "--ping.entryPoint=traefik") {
+				t.Errorf("ping is not on its own entrypoint: %v", command)
+			}
+			if options.Mode == router.ModeHost && !strings.HasPrefix(web, "127.0.0.1:") {
+				t.Errorf("host-mode web entrypoint = %q, want a loopback address", web)
+			}
+			if strings.Contains(strings.Join(command, " "), "8080") && options.Port != 8080 {
+				t.Errorf("command names Traefik's default :8080: %v", command)
+			}
+			router := services["router"].(map[string]any)
+			health := strings.Join(toStrings(router["healthcheck"].(map[string]any)["test"]), " ")
+			if !strings.Contains(health, "--entrypoints.traefik.address="+ping) {
+				t.Errorf("healthcheck %q does not carry the ping address %q", health, ping)
+			}
+			if ports, present := router["ports"]; present && strings.Contains(strings.Join(toStrings(ports), " "), ping) {
+				t.Errorf("the ping is published: %v", ports)
+			}
+		})
 	}
-	var gotDoc map[string]any
-	if err := json.Unmarshal([]byte(gotText), &gotDoc); err != nil {
-		t.Fatalf("decoding Go's own stack document: %v", err)
-	}
+}
 
-	goldenServices := objectAt(t, goldenDoc, "services")
-	gotServices := objectAt(t, gotDoc, "services")
-
-	for _, service := range []string{"index", "router"} {
-		labels := objectAt(t, objectAt(t, gotServices, service), "labels")
-		if got := labels[router.RouterHomeLabel]; got != wantHome {
-			t.Errorf("%s.labels[%s] = %#v, want %q", service, router.RouterHomeLabel, got, wantHome)
-		}
-		delete(labels, router.RouterHomeLabel)
+// toStrings is v, a decoded JSON array of strings, as a slice.
+func toStrings(v any) []string {
+	var out []string
+	for _, item := range v.([]any) {
+		out = append(out, item.(string))
 	}
-
-	if !reflect.DeepEqual(gotServices["index"], goldenServices["index"]) {
-		t.Errorf("index service does not match the fixture (plus the substitutions above).\n got: %#v\nwant: %#v",
-			gotServices["index"], goldenServices["index"])
-	}
-
-	goldenRouter := objectAt(t, goldenServices, "router")
-	gotRouter := objectAt(t, gotServices, "router")
-	for _, field := range []string{"image", "restart", "ports", "read_only", "cap_drop", "security_opt", "cap_add", "tmpfs", "volumes", "healthcheck", "labels"} {
-		if !reflect.DeepEqual(gotRouter[field], goldenRouter[field]) {
-			t.Errorf("router.%s does not match the golden:\n got: %#v\nwant: %#v", field, gotRouter[field], goldenRouter[field])
-		}
-	}
-
-	// #55: no Docker-provider flag survives on the router's own command
-	// line, it no longer depends on a docker-api healthcheck, and it is no
-	// longer attached to the docker-api network — all deliberately
-	// divergent from the golden, not compared field for field above.
-	command, ok := gotRouter["command"].([]any)
-	if !ok {
-		t.Fatalf("router.command is not an array: %#v", gotRouter["command"])
-	}
-	for _, arg := range command {
-		if s, ok := arg.(string); ok && strings.Contains(s, "--providers.docker") {
-			t.Errorf("router.command still names a Docker-provider flag: %v", arg)
-		}
-	}
-	if _, present := gotRouter["depends_on"]; present {
-		t.Error("router.depends_on is still present; #55 drops the docker-api dependency outright")
-	}
-	if got, want := gotRouter["networks"], []any{"router"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("router.networks = %v, want %v", got, want)
-	}
-	if _, present := gotServices["docker-api"]; present {
-		t.Error("services.docker-api is still present; #55 drops it outright")
-	}
-	gotNetworks := objectAt(t, gotDoc, "networks")
-	if _, present := gotNetworks["docker-api"]; present {
-		t.Error("networks.docker-api is still present; #55 drops it outright")
-	}
+	return out
 }

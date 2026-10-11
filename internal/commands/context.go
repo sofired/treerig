@@ -11,7 +11,6 @@ import (
 	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/settings"
 )
@@ -79,11 +78,6 @@ type CommandContext struct {
 	Table procid.Table
 	// Lifecycle holds mutations' locks and defers signals; nil builds one that never listens.
 	Lifecycle *lifecycle.Lifecycle
-	// SharedRouter is the router `down` and `worktree remove` unroute a
-	// worktree from; nil builds the real one (routerFromContext). A test
-	// running its own router beside a developer's real one sets it, so
-	// those verbs never reach the real router's project.
-	SharedRouter *router.Router
 }
 
 // ComposeFile is the consumer's Compose file, resolved against the config's directory.
@@ -172,6 +166,7 @@ func Context(env *Env) (*CommandContext, error) {
 		RouterPort:           routerPort,
 		RouterPortResolution: resolvedPort,
 		PortRange:            portRange,
+		PortProbe:            env.PortProbe,
 		OS:                   env.OS,
 		RouterState:          routerState,
 		Registry:             reg,

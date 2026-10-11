@@ -314,6 +314,8 @@ backup  = "./backup.sh"
 		if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(strings.Join([]string{
 			"#!/bin/sh",
 			`if [ "$1" = version ]; then echo 29.0.0; fi`,
+			`if [ "$1" = info ]; then echo '{"OSType":"linux","OperatingSystem":"Ubuntu","Name":"fake","SecurityOptions":[]}'; fi`,
+			`if [ "$1" = context ]; then echo unix:///var/run/docker.sock; fi`,
 			`if [ "$1" = compose ] && [ "$2" = version ]; then echo 2.30.0; fi`,
 			"exit 0", "",
 		}, "\n")), 0o755); err != nil {
@@ -322,6 +324,10 @@ backup  = "./backup.sh"
 		if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\necho \"git version 2.43.0\"\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+
+		// The fake engine is a Linux one, which berth on any other client OS
+		// cannot place, so the router mode is set in runBerth's berth root.
+		registrytest.WriteScratchSettings(t, filepath.Join(cwd, "control-home"), "[router]\nmode = \"host\"\n")
 
 		result := runBerth(t, binary, cwd, []string{"doctor"}, berthOptions{path: bin})
 

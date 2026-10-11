@@ -109,7 +109,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
 		inside(tc, ref.WorktreeID)
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 
 		_, err := commands.UpWithContext(ctx, tc.CommandContext, router, &commandstest.FakeIndex{}, commands.UpOptions{})
 		requireNestedRefusal(t, err, layout.WorktreeHost("feature-login", acme))
@@ -131,7 +131,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 			t.Fatalf("Ensure identity: %v", err)
 		}
 		inside(tc, identity.WorktreeID)
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 
 		_, err = commands.UpWithContext(ctx, tc.CommandContext, router, &commandstest.FakeIndex{}, commands.UpOptions{})
 		requireNestedRefusal(t, err, layout.WorktreeHost("feature-login", acme))
@@ -146,7 +146,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		givePorts(tc)
 		inside(tc, "00000000-0000-4000-8000-000000000000")
 
-		result, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{}, commands.UpOptions{})
+		result, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{})
 		if err != nil {
 			t.Fatalf("Up: %v", err)
 		}
@@ -163,7 +163,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		givePorts(tc)
 		inside(tc, "00000000-0000-4000-8000-000000000000")
 
-		if _, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+		if _, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
 			t.Fatalf("Up: %v", err)
 		}
 	})

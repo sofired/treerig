@@ -17,6 +17,13 @@ func SharedRouter(env *Env, svc *router.Router, state layout.RouterLayout) Route
 	return sharedRouter{env: env, svc: svc, state: state}
 }
 
+// Registrations is the router.Registrations a real router reads route
+// repair's records through, over controlHome: a test router built by hand
+// gets the same lookup the router `up` builds has.
+func Registrations(controlHome string) router.Registrations {
+	return controlHomeRegistrations{controlHome: controlHome}
+}
+
 // BestEffortIndex is the Index Up builds.
 func BestEffortIndex(cctx *CommandContext) Index { return bestEffortIndex{cctx} }
 

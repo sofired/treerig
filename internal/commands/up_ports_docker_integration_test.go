@@ -202,7 +202,6 @@ func TestTwoWorktreesOfOneStackOnARealDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cctx.SharedRouter = first.svc
 	two, err := commands.UpWithContext(context.Background(), cctx, commands.SharedRouter(&env, first.svc, first.state),
 		commands.BestEffortIndex(cctx), commands.UpOptions{})
 	if err != nil {
@@ -227,7 +226,6 @@ func TestTwoWorktreesOfOneStackOnARealDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cctx2.SharedRouter = first.svc
 	if _, err := commands.RemoveWithContext(context.Background(), cctx2, &env, commands.RemoveOptions{Yes: true}); err != nil {
 		t.Fatalf("remove second: %v", err)
 	}

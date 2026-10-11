@@ -247,3 +247,12 @@ func PortConflicts(records []RegisteredWorktree) []PortConflict {
 func (c PortClaim) String() string {
 	return fmt.Sprintf("%s of %s", c.Service, c.Worktree.WorktreeID)
 }
+
+// TakenPorts is takenPorts for a caller outside this package that allocates
+// a port beside the registrations without holding the registry lock: the
+// router, for its index and ping ports (#120). It reads every record
+// without a lock, which is safe because every registry writer goes through
+// files.AtomicJSON, a temporary file then a rename.
+func TakenPorts(controlHome string, reserved []int) (map[int]bool, error) {
+	return takenPorts(controlHome, reserved)
+}

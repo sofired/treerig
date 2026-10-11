@@ -1,19 +1,23 @@
 package router
 
-// Dynamic-configuration fragments: what routes a worktree's services once
-// Traefik's Docker-provider discovery is gone (#55, protocol 5). Traefik's
-// file provider is already wired on the router's own command line
+// Dynamic-configuration route files: what routes a worktree's services.
+// Traefik's file provider is wired on the router's own command line
 // (RouterCommand), watching DynamicConfigMount, which is state.DynamicDir
-// bind-mounted read-only into the router container. berth itself — not
-// Traefik, not Docker — is responsible for writing and removing one
-// fragment per routed service here.
+// bind-mounted read-only into the router container. berth itself, not
+// Traefik and not Docker, writes and removes one file per routed service.
 //
-// One fragment file per (repository, worktree, service) triple, not one per
-// worktree: a future `berth route` (#6) will write fragments into this same
-// directory for native, non-Docker processes on the same worktree, and must
-// neither collide with nor clobber what `up` writes for a Docker service,
-// and must be able to remove its own independently. RemoveWorktreeFragments
-// is deliberately generic by worktree ID alone, so it is shared by both.
+// Every file targets http://berth-loopback:<port> (LoopbackAlias), so the
+// files never depend on the proxy's mode. A file's name decides what owns
+// it, and a sweep only ever touches the names it understands:
+//
+//	<repository-uuid>.<worktree-uuid>.<service>.yaml   a worktree's routed service
+//	index.yaml                                         the checkout index
+//	host.<...>.yaml                                    reserved: host routes (#6)
+//	shared.<...>.yaml                                  reserved: shared services (#123)
+//
+// ListFragments and RemoveWorktreeFragments match the first form only: the
+// reserved prefixes are not UUIDs, so a service sweep never matches them.
+// RemoveWorktreeFragments is generic by worktree ID alone.
 
 import (
 	"bytes"
@@ -24,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sofired/berth/internal/files"
@@ -81,20 +86,66 @@ type FragmentDocument struct {
 }
 
 // NewFragmentDocument builds the dynamic-configuration fragment that routes
-// name to alias:port on rule. name is both the router's and the service's
-// name — the same string a routed service's Traefik router/service name and
-// its network alias share (see internal/backend's RouteName), which is what
-// keeps the alias collision-free across every worktree network the router
-// is simultaneously connected to.
-func NewFragmentDocument(name, rule, alias string, port int) FragmentDocument {
+// name on rule to the loopback port port. name is both the router's and the
+// service's name; for a routed Compose service it is internal/backend's
+// RouteName.
+func NewFragmentDocument(name, rule string, port int) FragmentDocument {
 	return FragmentDocument{HTTP: fragmentHTTP{
 		Routers: map[string]fragmentRouter{
 			name: {Rule: rule, EntryPoints: []string{RouterEntrypoint}, Service: name},
 		},
 		Services: map[string]fragmentService{
-			name: {LoadBalancer: fragmentLoadBalancer{Servers: []fragmentServer{{URL: fmt.Sprintf("http://%s:%d", alias, port)}}}},
+			name: {LoadBalancer: fragmentLoadBalancer{Servers: []fragmentServer{{URL: TargetURL(port)}}}},
 		},
 	}}
+}
+
+// TargetURL is where a route file sends requests for a service published on
+// the loopback port port.
+func TargetURL(port int) string {
+	return fmt.Sprintf("http://%s:%d", LoopbackAlias, port)
+}
+
+// TargetPort is the loopback port a route file's first backend names, or 0
+// when it names none this build writes (a hand-placed file, another host).
+func (d FragmentDocument) TargetPort() int {
+	for _, service := range d.HTTP.Services {
+		for _, server := range service.LoadBalancer.Servers {
+			if port, ok := parseTargetURL(server.URL); ok {
+				return port
+			}
+		}
+	}
+	return 0
+}
+
+// parseTargetURL reads the port out of a TargetURL.
+func parseTargetURL(target string) (int, bool) {
+	rest, ok := strings.CutPrefix(target, "http://"+LoopbackAlias+":")
+	if !ok {
+		return 0, false
+	}
+	port, err := strconv.Atoi(rest)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+	return port, true
+}
+
+// withTargetPort is the document with every backend of ours retargeted to port.
+func (d FragmentDocument) withTargetPort(port int) FragmentDocument {
+	services := make(map[string]fragmentService, len(d.HTTP.Services))
+	for name, service := range d.HTTP.Services {
+		servers := make([]fragmentServer, len(service.LoadBalancer.Servers))
+		for i, server := range service.LoadBalancer.Servers {
+			servers[i] = server
+			if _, ok := parseTargetURL(server.URL); ok {
+				servers[i] = fragmentServer{URL: TargetURL(port)}
+			}
+		}
+		services[name] = fragmentService{LoadBalancer: fragmentLoadBalancer{Servers: servers}}
+	}
+	return FragmentDocument{HTTP: fragmentHTTP{Routers: d.HTTP.Routers, Services: services}}
 }
 
 // marshalFragment is JSON.stringify(doc, null, 2) + "\n": the same encoding
@@ -126,40 +177,22 @@ func IndexFragmentPath(state layout.RouterLayout) string {
 	return filepath.Join(state.DynamicDir, indexFragmentFile)
 }
 
-// IndexContainerName is the index container's own name, as Compose v2
-// names a service's first container: <router project>-index-1.
-func IndexContainerName(projectName string) string {
-	return projectName + "-" + IndexService + "-1"
-}
-
 // IndexFragmentDocument is the checkout index's own dynamic-configuration
-// fragment. As of protocol 5 (#55), Traefik's Docker-provider discovery is
-// gone, so the index's own IndexRouteLabels — still stamped onto its
-// container, which keeps the stack document as it was — route nothing on
-// their own any more: a file-provider fragment is the only thing Traefik
-// reads now.
-//
-// It targets the index by container name, not by its Compose service name.
-// Compose aliases every container by its service name on each network it
-// joins, and the router is attached to every routed worktree's network as
-// well as its own, so a worktree service that happens to be called "index"
-// would make that name ambiguous from the router's side, and the index's
-// host could reach it. A container name is unique on the daemon.
-func IndexFragmentDocument(projectName string) FragmentDocument {
-	return NewFragmentDocument(indexRouteName, fmt.Sprintf("Host(`%s`)", IndexHost), IndexContainerName(projectName), IndexPort)
+// fragment: the index is routed like any service, to the loopback port it is
+// published on.
+func IndexFragmentDocument(indexPort int) FragmentDocument {
+	return NewFragmentDocument(IndexRouteName, fmt.Sprintf("Host(`%s`)", IndexHost), indexPort)
 }
 
 // WriteIndexFragment writes the checkout index's own dynamic-configuration
-// fragment, atomically, at 0o644 — the same mode contract WriteFragment
-// uses. Called by write() on every Ensure, alongside the stack document
-// itself: both describe the same router's own stack, and both are rewritten
-// every time regardless of whether anything actually changed.
-func WriteIndexFragment(state layout.RouterLayout, projectName string) error {
+// fragment, atomically, at 0o644 (WriteFragment's mode contract). Called by
+// Ensure on every start, alongside the stack document itself.
+func WriteIndexFragment(state layout.RouterLayout, indexPort int) error {
 	path := IndexFragmentPath(state)
 	if err := files.AssertSafeFilePathNamed(state.DynamicDir, path, dynamicNoun); err != nil {
 		return err
 	}
-	encoded, err := marshalFragment(IndexFragmentDocument(projectName))
+	encoded, err := marshalFragment(IndexFragmentDocument(indexPort))
 	if err != nil {
 		return err
 	}

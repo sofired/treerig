@@ -571,7 +571,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	}
 	router.AddCommand(&cobra.Command{
 		Use:   "up",
-		Short: "start the shared router and verify its hardened configuration",
+		Short: "start the shared router and wait until it is healthy",
 		Args:  maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)

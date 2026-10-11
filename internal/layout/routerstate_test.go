@@ -71,6 +71,7 @@ func TestRouterState(t *testing.T) {
 			IndexDir:    filepath.Join(dir, "index"),
 			IndexFile:   filepath.Join(dir, "index", "index.html"),
 			LockPath:    filepath.Join(dir, "lock"),
+			StateFile:   filepath.Join(dir, "state.json"),
 		}
 		if state != want {
 			t.Fatalf("got %+v, want %+v", state, want)

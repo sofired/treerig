@@ -61,7 +61,7 @@ func newEdgeCaseRuntime(composeFile, projectRoot, controlHome string) *Compose {
 		ComposeFile: composeFile, ProjectRoot: projectRoot, ConfigFile: filepath.Join(projectRoot, "berth.toml"),
 		ProjectName: "berth-test", Domain: "test.localhost", ControlHome: controlHome,
 		LabelNamespace: composeNamespace, Runner: osrun.New(), Logger: logger.Silent{},
-		RouterNetwork: "berth-router-unused", WaitTimeoutSeconds: intPtr(60), Environ: os.Environ(),
+		WaitTimeoutSeconds: intPtr(60), Environ: os.Environ(),
 	})
 }
 
