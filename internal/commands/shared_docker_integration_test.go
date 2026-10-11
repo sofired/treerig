@@ -78,7 +78,7 @@ func newSharedWalk(t *testing.T) *sharedWalk {
 	t.Helper()
 	w := newWalkFixture(t, "shared", "feature/walk", sharedWalkToml, sharedWalkCompose)
 	w.writeShared(t, w.checkout, "shared v1")
-	sw := &sharedWalk{walk: w, router: commandstest.NewFakeRouter(80, "berth-router")}
+	sw := &sharedWalk{walk: w, router: commandstest.NewFakeRouter(80)}
 	sw.second = filepath.Join(w.base, "checkout2")
 	gitIn(t, w.checkout, "worktree", "add", "-b", "feature/two", sw.second)
 	for _, name := range []string{"berth.toml", "compose.yaml", "compose.shared.yaml"} {
@@ -106,7 +106,6 @@ func (w *sharedWalk) contextFor(t *testing.T, env *commands.Env) *commands.Comma
 	if err != nil {
 		t.Fatal(err)
 	}
-	cctx.SharedRouter = w.svc
 	return cctx
 }
 

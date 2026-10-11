@@ -50,7 +50,7 @@ func labelsOf(t *testing.T, document *jsonKV, service string) map[string]string 
 
 func TestOverrideStampsSharedUse(t *testing.T) {
 	services, volumes, networks := decodeModel(t, `{"services":{"web":{},"worker":{},"db":{}}}`)
-	document, err := sharedUseCompose().overrideDocument(networkFixtureRef, services, volumes, networks)
+	document, err := sharedUseCompose().overrideDocument(routesFixtureRef, services, volumes, networks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestOverrideStampsSharedUse(t *testing.T) {
 	})
 
 	t.Run("is the same bytes every time, whatever order the services were listed in", func(t *testing.T) {
-		again, err := sharedUseCompose().overrideDocument(networkFixtureRef, services, volumes, networks)
+		again, err := sharedUseCompose().overrideDocument(routesFixtureRef, services, volumes, networks)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +100,7 @@ func TestOverrideStampsSharedUse(t *testing.T) {
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
 			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", ControlHome: "/control", Domain: "acme.localhost", LabelNamespace: "dev.berth",
 		})
-		document, err := plain.overrideDocument(networkFixtureRef, services, volumes, networks)
+		document, err := plain.overrideDocument(routesFixtureRef, services, volumes, networks)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +112,7 @@ func TestOverrideStampsSharedUse(t *testing.T) {
 
 	t.Run("a used-by service the model lacks is skipped, not an error: an inactive profile", func(t *testing.T) {
 		only, volumes, networks := decodeModel(t, `{"services":{"web":{}}}`)
-		if _, err := sharedUseCompose().overrideDocument(networkFixtureRef, only, volumes, networks); err != nil {
+		if _, err := sharedUseCompose().overrideDocument(routesFixtureRef, only, volumes, networks); err != nil {
 			t.Fatal(err)
 		}
 	})

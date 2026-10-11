@@ -46,36 +46,51 @@ func sliceContainsArg(args []string, want string) bool {
 	return false
 }
 
-// healthyRouterDocker answers as though the shared router were already up,
-// correctly configured, and at the current protocol, so Ensure takes its
-// fast path: this package's own tests only check its wiring (the state
-// directory, port and network reaching router.New, and a verified up
-// reporting where it is up), not Ensure's full behaviour, which
-// internal/router's suite already covers.
+// healthyRouterDocker answers as though the shared router were already up
+// and healthy, on a native Linux engine, so Ensure takes its fast path: this
+// package's own tests only check wiring (the state directory, port, mode and
+// ports reaching router.New, and a verified up reporting where it is up),
+// not Ensure's full behaviour, which internal/router's suite covers.
 type healthyRouterDocker struct {
-	mu      sync.Mutex
-	state   layout.RouterLayout
-	network string
-	port    int
+	mu   sync.Mutex
+	port int
+	// mode is the mode label the router container carries; "host" when empty.
+	mode string
+	// unhealthy makes the router container report an unhealthy state.
+	unhealthy bool
 	// home is stamped as RouterHomeLabel on every container docFor answers,
 	// so Owner/checkOwnership see this router as owned by whatever berth
 	// root the test itself resolved, rather than refusing it as foreign.
 	home string
 }
 
+// owned makes the containers this fake answers carry home as their owner,
+// and gives them port 80 unless a test chose one.
+func (d *healthyRouterDocker) owned(home string) {
+	d.home = home
+	if d.port == 0 {
+		d.port = 80
+	}
+}
+
 // Which always answers true.
 func (d *healthyRouterDocker) Which(string) bool { return true }
 
-// Run answers as a healthy, current-protocol router.
+// nativeLinuxInfo is `docker info --format {{json .}}` as a native, rootful
+// Linux engine reports the fields mode detection reads.
+const nativeLinuxInfo = `{"Name":"cc-worker","OperatingSystem":"Ubuntu 24.04.4 LTS","OSType":"linux",` +
+	`"SecurityOptions":["name=apparmor","name=seccomp,profile=builtin","name=cgroupns"]}`
+
+// Run answers as a healthy router on a native Linux engine.
 func (d *healthyRouterDocker) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	args := spec.Args
 	switch {
+	case len(args) > 0 && args[0] == "info":
+		return run.Result{Stdout: nativeLinuxInfo}, nil
+	case len(args) > 1 && args[0] == "context" && args[1] == "inspect":
+		return run.Result{Stdout: "unix:///var/run/docker.sock\n"}, nil
 	case len(args) > 0 && args[0] == "compose" && sliceContainsArg(args, "ps"):
 		return run.Result{Stdout: "c-" + args[len(args)-1]}, nil
-	case len(args) > 0 && args[0] == "compose" && sliceContainsArg(args, "up"):
-		return run.Result{}, nil
-	case len(args) > 0 && args[0] == "compose" && sliceContainsArg(args, "down"):
-		return run.Result{}, nil
 	case len(args) > 0 && args[0] == "inspect":
 		d.mu.Lock()
 		doc := d.docFor(strings.TrimPrefix(args[1], "c-"))
@@ -90,8 +105,7 @@ func (d *healthyRouterDocker) Run(_ context.Context, spec run.Spec) (run.Result,
 	}
 }
 
-// docFor is what `docker inspect` answers for one healthy, current-protocol
-// service container.
+// docFor is what `docker inspect` answers for one running service container.
 func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 	labels := map[string]string{
 		"com.docker.compose.project": router.DefaultName,
@@ -100,67 +114,130 @@ func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 		"dev.berth.router-protocol":  strconv.Itoa(router.Protocol),
 		router.RouterHomeLabel:       d.home,
 	}
-	hardened := router.InspectHostConfig{CapAdd: []string{}, CapDrop: []string{"ALL"}, ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges:true"}}
-	healthy := router.InspectState{Status: "running", Health: router.InspectHealth{Status: "healthy"}}
-
-	switch service {
-	case router.RouterService:
-		host := hardened
-		host.CapAdd = []string{"CAP_NET_BIND_SERVICE"}
-		return router.ContainerInspect{
-			Config:     router.InspectConfig{Cmd: router.RouterCommand(), Entrypoint: router.RouterImageEntrypoint, Image: router.RouterImage, Labels: labels},
-			HostConfig: host,
-			Mounts:     []router.InspectMount{{Type: "bind", Source: d.state.DynamicDir, Destination: router.DynamicConfigMount, RW: false}},
-			NetworkSettings: router.InspectNetworkSettings{
-				Networks: map[string]json.RawMessage{d.network: json.RawMessage("{}")},
-				Ports:    map[string][]router.InspectPortBinding{"80/tcp": {{HostIP: "127.0.0.1", HostPort: strconv.Itoa(d.port)}}},
-			},
-			State: healthy,
-		}
-	default: // index
-		for key, value := range router.IndexRouteLabels(d.network).Map() {
-			labels[key] = value
-		}
-		return router.ContainerInspect{
-			Config:     router.InspectConfig{Cmd: router.IndexCommand, Entrypoint: router.IndexImageEntrypoint, Image: router.IndexImage, Labels: labels},
-			HostConfig: withInit(hardened),
-			Mounts:     []router.InspectMount{{Type: "bind", Source: d.state.IndexDir, Destination: router.IndexMount, RW: false}},
-			NetworkSettings: router.InspectNetworkSettings{
-				Networks: map[string]json.RawMessage{d.network: json.RawMessage("{}")},
-				Ports:    map[string][]router.InspectPortBinding{},
-			},
-			State: healthy,
-		}
+	health := "healthy"
+	if d.unhealthy && service == router.RouterService {
+		health = "unhealthy"
 	}
+	state := router.InspectState{Status: "running", Health: router.InspectHealth{Status: health}}
+	if service == router.RouterService {
+		mode := d.mode
+		if mode == "" {
+			mode = string(router.ModeHost)
+		}
+		labels[router.RouterModeLabel] = mode
+		labels[router.RouterPortLabel] = strconv.Itoa(d.port)
+	}
+	return router.ContainerInspect{Config: router.InspectConfig{Labels: labels}, State: state}
+}
+
+// scratchRouterEnv is an Env over a scratch HOME whose berth root holds a
+// settings.toml with the test port range plus extra, a fake probe that binds
+// nothing, and Linux as the client OS.
+func scratchRouterEnv(t *testing.T, extra string, runner run.Runner) (*commands.Env, layout.RouterLayout, *logger.Recording) {
+	t.Helper()
+	home := registrytest.TempDir(t)
+	controlHome := registrytest.TempDir(t)
+	getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_CONTROL_HOME": controlHome})
+	berthRoot, err := layout.ResolveHome(getenv, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registrytest.WriteScratchSettings(t, berthRoot, extra)
+	state := layout.RouterStateFrom(berthRoot)
+	if docker, ok := runner.(interface{ owned(home string) }); ok {
+		docker.owned(berthRoot)
+	}
+	rec := &logger.Recording{}
+	env := &commands.Env{
+		CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv, Cwd: registrytest.TempDir(t),
+		Runner: runner, OS: "linux", PortProbe: registrytest.FreeProbe{},
+	}
+	return env, state, rec
 }
 
 func TestRouterUp(t *testing.T) {
-	t.Run("starts the router and reports where it is up", func(t *testing.T) {
-		home := registrytest.TempDir(t)
-		controlHome := registrytest.TempDir(t)
-		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_CONTROL_HOME": controlHome})
-		state, err := layout.RouterState(getenv)
-		if err != nil {
-			t.Fatal(err)
-		}
-		berthRoot, err := layout.ResolveHome(getenv, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		rec := &logger.Recording{}
-		env := &commands.Env{
-			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
-			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80, home: berthRoot},
-		}
+	t.Run("starts the router in the mode Docker reports and says where it is up", func(t *testing.T) {
+		env, state, rec := scratchRouterEnv(t, "", &healthyRouterDocker{})
 
 		if err := commands.RouterUp(context.Background(), env); err != nil {
 			t.Fatalf("RouterUp: %v", err)
 		}
 
 		lines, _ := rec.Snapshot()
-		want := "info: Router is up on 127.0.0.1:80 (network " + router.DefaultName + "); index at " + router.IndexURL(80) + "."
+		want := "info: Router is up on 127.0.0.1:80 (host mode); index at " + router.IndexURL(80) + "."
 		if !slicesContainsLine(lines, want) {
 			t.Errorf("expected %q, got %v", want, lines)
+		}
+		stack, err := os.ReadFile(state.ComposeFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(stack), `"network_mode": "host"`) {
+			t.Errorf("expected a host-mode stack, got:\n%s", stack)
+		}
+		saved, found, err := router.ReadState(state)
+		if err != nil || !found {
+			t.Fatalf("router state: found %v, err %v", found, err)
+		}
+		for _, port := range []int{saved.IndexPort, saved.PingPort} {
+			if !registrytest.PortRange.Contains(port) {
+				t.Errorf("port %d is outside the test range %s", port, registrytest.PortRange)
+			}
+		}
+	})
+
+	t.Run("passes settings.toml's [router] mode through to the stack", func(t *testing.T) {
+		env, state, rec := scratchRouterEnv(t, "[router]\nmode = \"bridge\"\n", &healthyRouterDocker{mode: "bridge"})
+
+		if err := commands.RouterUp(context.Background(), env); err != nil {
+			t.Fatalf("RouterUp: %v", err)
+		}
+
+		stack, err := os.ReadFile(state.ComposeFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{`"127.0.0.1:80:80"`, `berth-loopback:host-gateway`} {
+			if !strings.Contains(string(stack), want) {
+				t.Errorf("expected %s in the bridge-mode stack, got:\n%s", want, stack)
+			}
+		}
+		if strings.Contains(string(stack), `"network_mode"`) {
+			t.Errorf("a bridge-mode stack must not set network_mode:\n%s", stack)
+		}
+		lines, _ := rec.Snapshot()
+		if want := "info: Router is up on 127.0.0.1:80 (bridge mode); index at " + router.IndexURL(80) + "."; !slicesContainsLine(lines, want) {
+			t.Errorf("expected %q, got %v", want, lines)
+		}
+		saved, _, err := router.ReadState(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if saved.PingPort != 0 {
+			t.Errorf("bridge mode allocates no ping port, got %d", saved.PingPort)
+		}
+	})
+
+	t.Run("rejects a malformed [router] mode, naming the settings file", func(t *testing.T) {
+		env, _, _ := scratchRouterEnv(t, "[router]\nmode = \"hybrid\"\n", &healthyRouterDocker{})
+
+		err := commands.RouterUp(context.Background(), env)
+		if err == nil {
+			t.Fatal("expected a refusal")
+		}
+		for _, want := range []string{"settings.toml", "router.mode", `"host" or "bridge"`} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q lacks %q", err, want)
+			}
+		}
+	})
+
+	t.Run("refuses a daemon it cannot route through, with the reason", func(t *testing.T) {
+		env, _, _ := scratchRouterEnv(t, "", &rootlessDocker{})
+
+		err := commands.RouterUp(context.Background(), env)
+		if err == nil || !strings.Contains(err.Error(), "Rootless Docker is not supported") {
+			t.Fatalf("expected the rootless refusal, got %v", err)
 		}
 	})
 
@@ -170,17 +247,8 @@ func TestRouterUp(t *testing.T) {
 	// replaced it. Deleting the page and running `router up` again must show
 	// every checkout again, not leave the placeholder in place.
 	t.Run("refreshes a missing index page once the router has started, showing every checkout again", func(t *testing.T) {
-		home := registrytest.TempDir(t)
-		controlHome := registrytest.TempDir(t)
-		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_CONTROL_HOME": controlHome})
-		state, err := layout.RouterState(getenv)
-		if err != nil {
-			t.Fatal(err)
-		}
-		berthRoot, err := layout.ResolveHome(getenv, "")
-		if err != nil {
-			t.Fatal(err)
-		}
+		env, state, rec := scratchRouterEnv(t, "", &healthyRouterDocker{})
+		controlHome, _ := env.Getenv("BERTH_CONTROL_HOME")
 		if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
 			Version: 1, RepositoryID: "11111111-1111-4111-8111-111111111111",
 			WorktreeID: "22222222-2222-4222-8222-222222222221",
@@ -188,11 +256,7 @@ func TestRouterUp(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		rec := &logger.Recording{}
-		env := &commands.Env{
-			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv, Cwd: registrytest.TempDir(t),
-			Runner: &healthyRouterDocker{state: state, network: router.DefaultName, port: 80, home: berthRoot},
-		}
+		_ = rec
 
 		if err := commands.RouterUp(context.Background(), env); err != nil {
 			t.Fatalf("RouterUp: %v", err)
@@ -240,7 +304,7 @@ func TestRouterUp(t *testing.T) {
 		rec := &logger.Recording{}
 		env := &commands.Env{
 			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
-			Runner: &healthyRouterDocker{network: router.DefaultName, port: 80},
+			Runner: &healthyRouterDocker{port: 80},
 		}
 
 		err = commands.RouterUp(context.Background(), env)
@@ -293,6 +357,49 @@ func TestRouterStatus(t *testing.T) {
 	})
 }
 
+func TestRouterStatusRunning(t *testing.T) {
+	t.Run("says the mode and port the running router's container reports", func(t *testing.T) {
+		env, _, _ := scratchRouterEnv(t, "", &healthyRouterDocker{mode: "bridge", port: 8080})
+
+		failed, err := commands.RouterStatus(context.Background(), env)
+		if err != nil || failed {
+			t.Fatalf("RouterStatus: failed %v, err %v", failed, err)
+		}
+		_, printed := env.Logger.(*logger.Recording).Snapshot()
+		if len(printed) == 0 || printed[0] != "running on 127.0.0.1:8080, bridge mode" {
+			t.Fatalf("stdout = %q", printed)
+		}
+	})
+
+	t.Run("reports an unhealthy router as degraded and fails", func(t *testing.T) {
+		env, _, _ := scratchRouterEnv(t, "", &healthyRouterDocker{unhealthy: true})
+
+		failed, err := commands.RouterStatus(context.Background(), env)
+		if err != nil || !failed {
+			t.Fatalf("RouterStatus: failed %v, err %v", failed, err)
+		}
+		lines, printed := env.Logger.(*logger.Recording).Snapshot()
+		if len(printed) == 0 || printed[0] != "degraded on 127.0.0.1:80, host mode (1 problem(s) reported on stderr)" {
+			t.Fatalf("stdout = %q", printed)
+		}
+		if !containsSubstringLine(lines, "Router problem: router: not healthy") {
+			t.Fatalf("stderr = %q", lines)
+		}
+	})
+}
+
+// rootlessDocker is healthyRouterDocker on a rootless engine.
+type rootlessDocker struct{ healthyRouterDocker }
+
+// Run answers `docker info` as a rootless engine and everything else as
+// healthyRouterDocker does.
+func (d *rootlessDocker) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	if len(spec.Args) > 0 && spec.Args[0] == "info" {
+		return run.Result{Stdout: `{"Name":"cc-worker","OperatingSystem":"Ubuntu 24.04.4 LTS","OSType":"linux","SecurityOptions":["name=seccomp,profile=builtin","name=rootless"]}`}, nil
+	}
+	return d.healthyRouterDocker.Run(ctx, spec)
+}
+
 // TestRouterStatusPortLine is #79: beside its status line, `router status`
 // says on stdout which port it resolved and where that came from.
 func TestRouterStatusPortLine(t *testing.T) {
@@ -320,7 +427,7 @@ func TestRouterStatusPortLine(t *testing.T) {
 		}
 		_, printed := rec.Snapshot()
 		want := []string{
-			"not running (would use 127.0.0.1:8080, network berth-router)",
+			"not running (would use 127.0.0.1:8080)",
 			"port 8080 from " + filepath.Join(root, "settings.toml"),
 		}
 		if len(printed) != len(want) || printed[0] != want[0] || printed[1] != want[1] {
@@ -396,12 +503,4 @@ func containsSubstringLine(lines []string, substr string) bool {
 		}
 	}
 	return false
-}
-
-// withInit is host with HostConfig.Init set, as Docker reports it for the
-// index container, which the stack starts with an init process.
-func withInit(host router.InspectHostConfig) router.InspectHostConfig {
-	enabled := true
-	host.Init = &enabled
-	return host
 }

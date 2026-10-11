@@ -72,20 +72,20 @@ services (the owner ruled on the network model, 22, and on raw ports).
 
 | # | Decision | Why |
 |---|----------|-----|
-| 1 | The proxy's mode comes from `docker info`, not the host OS: **host** network on a native rootful Linux Engine; **bridge** network on Docker Desktop and OrbStack. Rootless, remote daemons and anything unrecognized are refused with a clear message (rootless points at #121). `[router] mode` in `settings.toml` overrides detection. A mode change recreates the proxy through Compose, because its configuration changes. `doctor` and `router status` show the running container's mode, read from a label on it, not the configured one. | The daemon decides what "localhost" means to a container, not the OS the CLI runs on (Docker Desktop for Linux is a VM). Refusing the unknown beats guessing a mode that half-works. |
+| 1 | The proxy's mode comes from `docker info`, not the host OS: **host** network on a native rootful Linux Engine; **bridge** network on Docker Desktop and OrbStack. Rootless, remote daemons and anything unrecognized are refused with a clear message (rootless points at #121). `[router] mode` in `settings.toml` overrides detection: the override replaces only the "unrecognized" refusal and never lifts the remote, rootless or non-Linux-containers refusals. A mode change recreates the proxy through Compose, because its configuration changes. `doctor` and `router status` show the running container's mode, read from a label on it, not the configured one. | The daemon decides what "localhost" means to a container, not the OS the CLI runs on (Docker Desktop for Linux is a VM). Refusing the unknown beats guessing a mode that half-works. |
 | 2 | Route files target the alias `berth-loopback`, which the proxy's `extra_hosts` maps to `127.0.0.1` in host mode and to `host-gateway` in bridge mode. | Route files never depend on the mode, so a mode change never rewrites them. |
-| 3 | Ports live in an optional `ports` map on the registration record (record version stays 1; a record without it is valid). Allocation runs under the registry lock: start at a hash of (worktree ID, service), probe forward, skip any port in any registration and any port that fails a loopback bind probe. Default range 20000-29999, configurable in `settings.toml`; tests and scratch roots use a separate range. The allocator also skips the index port and the ping port (decisions 7 and 8), which live in router state. One record builder serves every registry writer, so no writer can drop `ports`. A user's own dev server may take an allocated port later; the bind probe at allocation, Docker's clean bind error on `up`, and `--reallocate-port` (decision 4) cover that. | Stable across restarts and reboots; the hash start makes re-allocation after a lost record land on the same port. 20000-29999 sits below Linux's ephemeral range (32768) and macOS's (49152), so the OS does not hand it out. A single builder is the only way to guarantee a writer that does not know about `ports` cannot erase it. |
-| 3a | Registry locks are per control home. Two control homes can allocate the same port at once; this race is accepted, and Docker's bind error on the second `up` catches it. | A machine-wide registry lock is not this design (the same trade `docs/design/locks.md` records for the router). The failure is clean and recoverable (decision 4). |
+| 3 | Ports live in an optional `ports` map on the registration record (record version stays 1; a record without it is valid). Allocation runs under the registry lock: start at a hash of (worktree ID, service), probe forward, skip any port in any registration and any port that fails a loopback bind probe. Default range 20000-29999, configurable in `settings.toml`; tests and scratch roots use a separate range. Both allocators, a worktree's and a shared service's, also skip the index port and the ping port (decisions 7 and 8), which live in router state. One record builder serves every registry writer, so no writer can drop `ports`. A user's own dev server may take an allocated port later; the bind probe at allocation, Docker's clean bind error on `up`, and `--reallocate-port` (decision 4) cover that. | Stable across restarts and reboots; the hash start makes re-allocation after a lost record land on the same port. 20000-29999 sits below Linux's ephemeral range (32768) and macOS's (49152), so the OS does not hand it out. A single builder is the only way to guarantee a writer that does not know about `ports` cannot erase it. |
+| 3a | Registry locks are per control home. Two control homes can allocate the same port at once; this race is accepted, and Docker's bind error on the second `up` catches it. It covers the router's index and ping ports too (decisions 7 and 8): the remedy is `--reallocate-port` on the worktree side, or removing `router/state.json` for the router's. | A machine-wide registry lock is not this design (the same trade `docs/design/locks.md` records for the router). The failure is clean and recoverable (decision 4). |
 | 4 | Stuck port: `berth up --reallocate-port <service>`. It refuses when the port is held by this worktree's own container, proven by its ownership labels, and says the URL changes. | The escape hatch for a port another program took. Ownership proof stops it from moving a port out from under a running container. |
 | 5 | `up` releases the allocation of a service removed from `berth.toml`. Otherwise only `worktree remove` releases allocations, after the worktree's containers are gone (after Reap) and before the record itself is deleted. | A port may not be reused while a container of the old owner could still hold it. Releasing before the record is deleted keeps the allocation reachable if the process dies in between; the step is idempotent. |
 | 6 | `urls`, `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` stay hostname URLs. New: `BERTH_SERVICE_PORT_<NAME>` for hooks and `berth run`, and a `port` key in `urls --json` and `status --json` (additive). | Hostnames are the contract users bookmark; the port is for tools that must bypass the proxy. |
 | 7 | The checkout index (busybox) publishes on its own `127.0.0.1` port and is routed like a service. Its port is stored in router state under `BERTH_HOME`, not in any registration, and is allocated once from the same range under the router lock. | One routing path for everything; no shared network for the index either. The index belongs to no worktree, so it has no record to hold a port; router state is where the router's other per-root facts live. |
 | 8 | Traefik's ping gets a dedicated entrypoint, never `web`. Host mode: `--entrypoints.traefik.address=127.0.0.1:<ping port>` with `--ping.entryPoint=traefik`, and the healthcheck carries the same address flag. The ping port is allocated like the index port (once, from the same range, under the router lock) and stored in router state. Bridge mode: the ping entrypoint listens on a fixed port inside the container, is never published, and takes no port from the range. The index and ping ports share one router-state file. Never Traefik's default `*:8080`. | Ping on `web` would shadow every routed service's own `/ping` on every hostname. `--ping=true` alone opens `*:8080`, a wildcard listener (spike). The healthcheck runs as a separate process and needs its own copy of the entrypoint flags (verified on Linux). |
-| 9 | A route file with no matching registration, or pointing at a port not in that registration, is repaired (removed or rewritten) by `router up`/`Ensure` and reported by `doctor`. `up` commits a port allocation to the registration before it writes the route file. Repair reads registrations without the registry lock (every registry writer goes through `files.AtomicJSON`, a temporary file then a rename) and re-reads a record immediately before removing a file, so it never removes a file for a just-allocated port or a just-added host route. The router lock and the registry lock are never nested. | Once ports are reused, a stale file would send an old hostname to another worktree's service. |
-| 10 | The name `router`, the router-home ownership check (#82) and the refusal of a router started by a newer berth stay. A running router with the per-worktree-network layout is refused with "run `berth router down` first". | Those are safety properties, independent of the transport. No code converts the old layout. |
-| 11 | Host routes (#6) are stored in the registration record (`hostRoutes`); route files are derived from it, named `host.<repo>.<wt>.<name>.yaml`; the Traefik router name is `<project>_host_<name>`. A host route may not share a service's name. It takes the same routing fields as a `[service.<name>]` table (`--subdomain`, `--path`) and gets the hostname a service with that name and those fields would get. `route add` and `doctor` warn on a listener that answers only on `::1`, on every platform. | The record is the source of truth and route files are a cache, so decision 9's repair covers host routes too. `host.` is a prefix the service-route sweeps and `ListFragments` never match; `_` is outside the service-name alphabet, so the router name cannot collide with a service's. Repository and worktree IDs are UUIDs and service names are `[a-z0-9-]`, so `host.<repo>.<wt>.<name>.yaml` cannot collide with `<repo>.<wt>.<service>.yaml`; a test uses a repository named `host`. The `::1` warning holds everywhere: Docker Desktop cannot reach `::1`, and in host mode `berth-loopback` is `127.0.0.1` (spike: 502). The fix is to bind `127.0.0.1`. |
+| 9 | A route file is judged only when this control home holds a record for that exact repository and worktree. For such a file, a record with no port for its service gets the file removed and a record with another port gets the file rewritten to the recorded one, by `router up`/`Ensure`; `doctor` reports both. A file with no such record is reported by `doctor` (`router.orphaned-routes`) with the count and how to remove it (delete it from the dynamic directory), and never removed, because the router's state is per berth root and it may belong to another control home. It is a warning (instance `unmatched`) when this control home knows the repository but not the worktree, likely stale, and a notice (instance `other-home`, status ok) when it does not know the repository, likely another control home's. `up` commits a port allocation to the registration before it writes the route file. Repair reads registrations without the registry lock (every registry writer goes through `files.AtomicJSON`, a temporary file then a rename) and re-reads a record immediately before acting, which narrows the window against a concurrent `up` or a just-added host route without closing it; the rewrite is eventually consistent with the writer, whose next `up` writes the same port. The router lock and the registry lock are never nested. | Once ports are reused, a stale file would send an old hostname to another worktree's service. |
+| 10 | The name `router`, the router-home ownership check (#82) and the refusal of a router started by a newer berth stay. A running router with the per-worktree-network layout is refused with "run `berth router down` first". `Protocol` is bumped only when Compose cannot recreate a router of the older generation into the new one; a change of mode, port or digest never bumps it. `router status` and `doctor` report a running router at another protocol with the same advice. The labels `dev.berth.router-mode` and `dev.berth.router-port` and the file `router/state.json` are storage names, pinned by tests. | Those are safety properties, independent of the transport. No code converts the old layout. |
+| 11 | Host routes (#6) are stored in the registration record (`hostRoutes`); route files are derived from it, named `host.<repo>.<wt>.<name>.yaml`; the Traefik router name is `<project>_host_<name>`. A host route may not share a service's name. It takes the same routing fields as a `[service.<name>]` table (`--subdomain`, `--path`) and gets the hostname a service with that name and those fields would get. `route add` and `doctor` warn on a listener that answers only on `::1` in bridge mode (#120 maps `berth-loopback` to both `127.0.0.1` and `::1` in host mode, so there it is reachable; see Open items). | The record is the source of truth and route files are a cache, so decision 9's repair covers host routes too. `host.` is a prefix the service-route sweeps and `ListFragments` never match; `_` is outside the service-name alphabet, so the router name cannot collide with a service's. Repository and worktree IDs are UUIDs and service names are `[a-z0-9-]`, so `host.<repo>.<wt>.<name>.yaml` cannot collide with `<repo>.<wt>.<service>.yaml`; a test uses a repository named `host`. The `::1` warning holds in bridge mode: Docker Desktop cannot reach `::1`. In host mode `berth-loopback` maps to `::1` as well, which reaches a `::1`-only listener (verified). The fix is to bind `127.0.0.1`. |
 | 12 | `doctor` warns on a routed service with a fixed published host port. `up` refuses a routed service with `network_mode: host`, `network_mode: service:...`, or replicas above 1. | Berth needs to own the published port. A host-network or shared-namespace service has no port to publish; several replicas cannot share one. |
-| 13 | No Traefik API. `doctor` probes each route over HTTP with retries of at least 5-10 s, telling the proxy's own 404 (route not loaded) from 502 or a timeout (target down or unreachable). | The file provider picks changes up after about a 2 s throttle. Without the API, the response itself is the evidence. |
+| 13 | No Traefik API. `doctor` probes each route over HTTP. A 404 is judged by sending the same request (path and Host) straight to the route file's target on `127.0.0.1:<port>`: the same 404 there is the service's own and the route is fine; a 404 the target does not give means the route is not loaded (a failure), retried for 5-10 s. A 502, 503 or 504, an unreachable target or a router that does not answer is retried at most twice, and the total is capped. The comparison has limits: a service that itself 404s at the probed path makes an unloaded route read OK, and a router 404 with an unreachable target reads as target down (a warning), not as an unloaded route. | The file provider picks changes up after about a 2 s throttle. Without the API, the response itself is the evidence. |
 | 14 | This note lands in its own docs PR before #119. | So the decisions are reviewable apart from code. |
 | 15 | **Model.** A shared service is one instance per repository UUID, defined in a separate Compose file named by `[shared] file` and run as one Compose project per repository, `berth-shared-<24 hex of sha256("shared:" + repositoryID)>`. `[shared.service.<name>]` names a service in that file by its key (an optional routed `port`; optional raw `ports`; `used-by`), keyed like `[service.<name>]` and `[commands.<name>]`. `used-by` lists the worktree services that use it: they make a worktree "need" the service (auto-start) and are the services whose networks it joins (decision 22). A shared name may not equal a service in the worktree's Compose file, a `[service.<name>]` or a host route (the alias would resolve to two things). Host-run shared services (a service running natively outside Docker, used by containers) are out of scope: on Linux with ufw a container cannot reach the host. | A separate file keeps the service out of every worktree's own project (a shared service in the worktree file would start in each of them, and each branch's copy of the file would differ). One project means one ownership label set. Listing consumers puts the opt-in on the shared side, so no `[[service]]` change is needed and non-routed workers can use it. |
 | 16 | **Definition drift.** "First up wins" compares a definition hash, label `dev.berth.shared-definition=v1:<sha256>`, on the running container: the canonical JSON of the entries for that service and every service it transitively names in `depends_on`, from `docker compose config --format json` on the shared file, before berth's override (so published ports are not in it), interpolated with the shared environment only (no per-worktree variables). While the container runs, berth never calls `compose up` for it, so Compose cannot recreate it on its own. A difference is a **warning** on `berth up` (it names the worktree in label `dev.berth.shared-defined-by`, or "a removed worktree", and the remedy) and a **refusal** on `berth shared up` without `--recreate`. Stopped or absent: the caller's definition starts it. `berth shared up --recreate <name>` force-recreates that service only, keeps its volumes and reconnects every consuming worktree (decision 22). The hash is not stored in the record. | A branch bumping an image pin must not block an unrelated feature branch's `up`, but an explicit request that cannot be honoured is a failure. The label is the only truth about what runs; a second copy in a file could disagree with it. Compose's own config hash includes berth's override and is Compose-version specific. |
@@ -110,22 +110,85 @@ In bridge mode the `web` entrypoint binds `:80` inside the container and the
 `127.0.0.1` restriction comes from the publish; the `127.0.0.1` bind is host
 mode only.
 
+Mode detection (decision 1) is a pure function over the parsed `docker info`,
+the endpoint the client talks to (`DOCKER_HOST`, else the current context's
+docker endpoint) and the client's operating system. The rules, in order, as
+implemented in `internal/router/mode.go` and pinned by its fixture table:
+
+| # | Condition | Result |
+|---|-----------|--------|
+| 1 | Endpoint is not a unix socket, a named pipe or TCP on a loopback address (ssh, TCP to another host) | refused: remote |
+| 2 | `OSType` is not `linux` | refused |
+| 3 | `SecurityOptions` contains `name=rootless` | refused, points at #121 |
+| 4 | `[router] mode` is set | that mode (replaces only rule 7's refusal) |
+| 5 | `OperatingSystem` or `Name` is `Docker Desktop` / `docker-desktop` or `OrbStack` / `orbstack` (case-insensitive) | bridge |
+| 6 | `Name` is (lower-cased) `colima`, `lima` or `rancher-desktop`, or begins with one followed by a dash (`lima-default`, `lima-rancher-desktop`); a host merely named like `limassol` is not matched | refused as unrecognized, on any client; the message names `[router] mode` |
+| 7 | Client is Linux | host |
+| 8 | Anything else (a Linux engine reached from macOS) | refused as unrecognized; the message names `[router] mode` and leads with `bridge` |
+
+A Linux client reaching a VM engine over a forwarded socket or an SSH tunnel
+cannot be told apart from a native engine and gets host mode.
+
+Real values: a native Ubuntu 24.04 engine reports `OperatingSystem` "Ubuntu
+24.04.4 LTS", `Name` "cc-worker" (the machine's host name), `OSType` "linux"
+and `SecurityOptions` `["name=apparmor", "name=seccomp,profile=builtin",
+"name=cgroupns"]`; Docker Desktop reports "Docker Desktop" / "docker-desktop"
+and OrbStack "OrbStack" / "orbstack", on macOS and (Desktop) on Linux alike.
+The override sits after the refusals that no mode can fix (1 to 3), so it never
+turns a rootless or remote daemon into a working one.
+
 Before starting, `Ensure` checks that the proxy, index and (in host mode) ping
 ports are free and names the holder. When a start comes up unhealthy it shows
 the container's last log lines, because a taken `:80` otherwise crash-loops
 with Compose reporting only "unhealthy".
 
+Details #120 settled that the decisions above leave open:
+
+- The index and ping ports live in `<BERTH_HOME>/router/state.json`
+  (`{"version": 1, "indexPort": N, "pingPort": M}`), written by `Ensure` under
+  the router lock the first time they are needed and kept. A stored port that
+  became the router's own port is replaced, and an unusable stored port is
+  dropped from the file too, so it does not stay reserved. `pingPort` appears the first time
+  the router runs in host mode.
+- Bridge mode's ping entrypoint listens on `127.0.0.1:8082` inside the
+  container (`router.BridgePingPort`), reachable only by the health check.
+- A running router that carries a lower protocol label, or none, is refused
+  with "run `berth router down` first", as one with a higher label is refused
+  with the downgrade advice. The protocol number is 6.
+- The check that a port is free dials a privileged port and binds an
+  unprivileged one (a bind to port 80 fails for a non-root user whether or not
+  anything holds it). A port the stack's own running containers already hold
+  (published bindings, or the proxy's entrypoint addresses in host mode) is not
+  a conflict.
+- Route repair judges a file only when this control home holds a record for
+  its exact repository and worktree. The router's state is per berth root and
+  registries are per control home, so a file without such a record may belong
+  to another control home (the same repository used under two): `doctor`
+  reports it and nothing removes it. A file pointing at a stale port is
+  rewritten to the recorded one; a file whose record holds no port for its
+  service is removed.
+- When a port the router needs is held, the message for the index or ping
+  port suggests removing `router/state.json` so the next start picks another,
+  and for a container holder shows `docker ps --filter publish=<port>`.
+- `doctor` checks the router, index and (host mode) ping ports are free while
+  the router is absent (a failure) or present but unhealthy (a warning), and
+  the container's last log lines accompany an unhealthy problem in `router
+  status` and `doctor`.
+- The proxy's route probe and loopback-only proof (`router.route-probe`,
+  `router.bind`) run only while the router is running. `router.bind` dials
+  every global-unicast address of the machine on the router's port and counts
+  an address as answering only when it returns an HTTP response.
+
 ### Trust model
 
 - A published loopback port is reachable by any local user and process, the
   same as the router port today.
-- In host mode the proxy shares the host's network namespace.
+- In host mode the proxy shares the host's network namespace, and with it
+  the host's abstract unix sockets.
 - On Docker Desktop and OrbStack, containers can reach the host through
   `host.docker.internal`, so any container can reach a routed loopback port
   directly.
 - The proxy has no Docker socket and no path to the Docker API.
-
-The README's Router and Trust model sections are rewritten in the #120 PR.
 
 With shared services, a shared container is attached to each
 consuming worktree's network (decision 22). Worktrees do not resolve each
@@ -479,8 +542,8 @@ macOS, 2026-09-29: macOS 26.5.1 arm64; Docker Desktop 29.7.2 with Compose
 | A `--network host` container reaching the Mac's `127.0.0.1` | Works on both |
 
 Consequence: a dev server must bind `127.0.0.1` (or all IPv4 addresses), not
-only `::1`, on Docker Desktop, and also in Linux host mode while
-`berth-loopback` is `127.0.0.1` only (see open items).
+only `::1`, on Docker Desktop. In Linux host mode `berth-loopback` also maps to
+`::1`, so a `::1`-only listener works there (see Open items).
 
 Two early stalls (about 45 s on Docker Desktop's first run, and after a proxy
 restart on a freshly installed OrbStack) did not reproduce in a targeted
@@ -552,19 +615,50 @@ Not verified, to check during implementation:
   `LatestVersion`); whether the shared definition should turn that off is a
   Mailpit setting, not a berth one.
 
-## Open items to verify during implementation
+## Open items
 
-- The `berth-loopback` alias in Linux host mode (`extra_hosts:
-  berth-loopback:127.0.0.1`). Verified in bridge mode on both Macs only.
-- `ss -ltnp` as root on the Linux host-mode proxy, confirming there is no
-  wildcard listener.
+Resolved while implementing #120 (Linux, 2026-10-10: Ubuntu 24.04, Docker
+29.7.2, Traefik v3.7.9, a native rootful engine, so host mode):
+
+- **The `berth-loopback` alias in host mode.** `extra_hosts` works with
+  `network_mode: host`: the container's `/etc/hosts` gets `127.0.0.1
+  berth-loopback`.
+- **Mapping it to both `127.0.0.1` and `::1`.** Works. With `extra_hosts:
+  ["berth-loopback:127.0.0.1", "berth-loopback:::1"]` a host process listening
+  only on `[::1]` answers through the proxy (200), as does one on `127.0.0.1`
+  only, and a target nothing listens on answers 502. The stack maps both in
+  host mode, so a `::1`-only listener is reachable on Linux host mode and the
+  `::1` warning of decision 11 (#6) can be limited to bridge mode, where it
+  still holds on Docker Desktop (`host-gateway` is IPv4 only).
+- **No wildcard listener.** `ss -ltn` with the proxy running in host mode,
+  router on `127.0.0.1:30700` and ping on `127.0.0.1:30701`, lists those two
+  and no `0.0.0.0` or `[::]` listener for the proxy; a request to the
+  machine's other addresses on the router port is refused. As a non-root user
+  `ss -ltnp` shows no process names for them (the proxy is root's, or
+  uid 65534's); the integration test therefore asserts on `ss -ltn`. `sudo ss -ltnp` during an integration run showed traefik on `127.0.0.1:<router port>` and `127.0.0.1:<ping port>` only, and docker-proxy on `127.0.0.1:<index port>`.
+- **Healthcheck flags.** `traefik healthcheck --ping` alone fails ("dial tcp
+  :8080"): the healthcheck process needs the ping entrypoint's address, and
+  `--ping.entryPoint` defaults to `traefik`. The stack passes both flags.
+- **Ping on its own entrypoint.** `/ping` on the `web` entrypoint for an
+  unrouted host answers the proxy's own 404, and the ping entrypoint answers
+  `OK` on its loopback port.
+- **The proxy's own 404 and 502 bodies.** An unmatched host gets `404 page not
+  found` as `text/plain`; a loaded route whose target refuses gets `502 Bad
+  Gateway`. `doctor` tells the two apart by that body (decision 13).
+- **The `docker info` rules.** The table under "Proxy container" above, pinned
+  in `internal/router/mode_test.go`.
+
+Still open:
+
 - Compose long-syntax `ports` merging with a user's own `ports` on Compose
   5.x.
-- Mapping `berth-loopback` to both `127.0.0.1` and `::1` in host mode (Go's
-  dialer tries each address). If it works, a `::1`-only listener becomes
-  reachable on Linux host mode and the warning can drop there.
-- Exact `docker info` fields and values that separate the modes, and the
-  refused cases (rootless, remote, unrecognized). Pin them in a test table.
+- Bridge mode on Docker Desktop and OrbStack against the implemented stack
+  (the spike verified the transport on macOS; the macOS smoke test below
+  covers the stack), and on Docker Desktop for Linux and for Windows, which
+  no spike covered. On a Linux engine bridge mode can be started with `[router] mode =
+  "bridge"` and is tested for its wiring only: a bridge container on this
+  machine's engine reaching `host-gateway` for a listener on `127.0.0.1` times
+  out, so routing to targets does not work there.
 
 ## Testing
 
@@ -599,5 +693,3 @@ a recreate followed by the sweep, with a busy worktree skipped.
   `startSharedForUp` and `sharedPlan` need a router handle for that.
 - Repair (`shared up`'s sweep) needs the config to know the routed port.
 - The cross-repository domain+name conflict check belongs in `SyncSharedPorts`.
-- Once #120 lands, the allocators must read its router-state index and ping
-  ports as Reserved.

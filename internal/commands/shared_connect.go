@@ -12,6 +12,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/lock"
+	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/shared"
 	"github.com/sofired/berth/internal/worktree"
@@ -313,7 +314,7 @@ func heldPin(ctx context.Context, cctx *CommandContext, service string, pins map
 		refusal := clierr.Newf(
 			"Cannot start shared service %s: its pinned port %s (container port %d) is held by another process (%s). "+
 				"Stop what holds it, or run '%s shared up --reallocate-port %s:%d' to give the port another number.",
-			service, loopbackAddr(host), container, processLookupHint(cctx.OS, host), cctx.CommandName, service, container)
+			service, loopbackAddr(host), container, ports.LookupHint(cctx.OS, host), cctx.CommandName, service, container)
 		if cause != nil {
 			refusal.ExitCode = clierr.Code(cause)
 			refusal.Cause = cause

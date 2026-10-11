@@ -15,26 +15,24 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		w := newWorld(t, 80, "")
 		w.Fake.deleteDoc("index-1") // the containers are listed; one of them says nothing
 
-		problems, err := w.Router.Verify(context.Background())
+		status, err := w.Router.Status(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(problems) != 1 || problems[0] != "the router could not be inspected" {
-			t.Errorf("problems = %v", problems)
+		if got := status.Messages(); len(got) != 1 || got[0] != "the router could not be inspected" {
+			t.Errorf("problems = %v", got)
 		}
 	})
 
 	t.Run("reports a router that is not running", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{}
-		w.Fake.mu.Unlock()
+		w.Fake.setIDs(map[string]string{})
 
 		status, err := w.Router.Status(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := router.RouterStatus{Reachable: true, Running: false, Problems: []router.Problem{{Code: "router.absent", Message: "the router is not running"}}, Port: 80, Network: testNetwork}
+		want := router.RouterStatus{Reachable: true, Running: false, Problems: []router.Problem{{Code: "router.absent", Message: "the router is not running"}}, Port: 80}
 		if !statusEqual(status, want) {
 			t.Errorf("status = %+v, want %+v", status, want)
 		}
@@ -42,9 +40,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 
 	t.Run("names the containers a half-present stack is missing rather than calling it stopped", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{"router": "router-1"}
-		w.Fake.mu.Unlock()
+		w.Fake.setIDs(map[string]string{"router": "router-1"})
 
 		status, err := w.Router.Status(context.Background())
 		if err != nil {
@@ -53,7 +49,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		want := router.RouterStatus{
 			Reachable: true, Running: true,
 			Problems: []router.Problem{{Code: "index.missing", Message: "index: container is missing"}},
-			Port:     80, Network: testNetwork,
+			Port:     80,
 		}
 		if !statusEqual(status, want) {
 			t.Errorf("status = %+v, want %+v", status, want)
@@ -62,13 +58,13 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 
 	t.Run("says nothing is missing when every container is there", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		problems, err := w.Router.Verify(context.Background())
+		status, err := w.Router.Status(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, p := range problems {
+		for _, p := range status.Messages() {
 			if strings.Contains(p, "container is missing") {
-				t.Errorf("did not expect a missing-container problem, got %v", problems)
+				t.Errorf("did not expect a missing-container problem, got %v", status.Messages())
 			}
 		}
 	})
@@ -104,7 +100,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 			Reachable: false, Running: false,
 			Problems: []router.Problem{{Code: "stack.unreachable", Message: "Docker is not available: failed to connect to the docker API at unix:///var/run/docker.sock; " +
 				"check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory"}},
-			Port: 80, Network: testNetwork,
+			Port: 80,
 		}
 		if !statusEqual(status, want) {
 			t.Errorf("status = %+v, want %+v", status, want)
@@ -163,21 +159,6 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		}
 	})
 
-	t.Run("does not blame the port when the socket is not ours", func(t *testing.T) {
-		w := newWorld(t, 80, "")
-		w.Fake.mu.Lock()
-		w.Fake.ids = map[string]string{}
-		w.Fake.mu.Unlock()
-		w.Fake.upExitCode = 1
-		w.Fake.upStderr = "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n"
-
-		err := w.Router.Ensure(context.Background())
-		want := "Docker is not available: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"
-		if err == nil || err.Error() != want {
-			t.Fatalf("got %v, want %q", err, want)
-		}
-	})
-
 	t.Run("says that docker is not installed instead of blaming the port when it cannot be started", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		w.Fake.dockerMissing = true
@@ -223,33 +204,22 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		}
 	})
 
-	t.Run("treats the shared network staying behind as the expected outcome of down", func(t *testing.T) {
+	t.Run("reports a refusal of Compose, with its own words", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		w.Fake.downExitCode = 1
-		w.Fake.downStderr = "Error response from daemon: error while removing network: network berth-router has active endpoints"
-
-		if err := w.Router.Down(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		lines, _ := w.Logger.Snapshot()
-		mustContain(t, lines, "info: Network "+testNetwork+" is kept while worktree services are attached to it.")
-
 		w.Fake.downStderr = "permission denied"
 		err := w.Router.Down(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "did not stop cleanly") {
+		if err == nil || !strings.Contains(err.Error(), "did not stop cleanly") || !strings.Contains(err.Error(), "permission denied") {
 			t.Fatalf("got %v", err)
 		}
 	})
 
-	// Found in review, round 3 of #55: a first cut of Down's own
-	// active-endpoints tolerance (the same bug class already fixed in
-	// internal/backend's Down and Reap) let AllowFailure's own bare exit-code
-	// check swallow run.Failure's wording for every failure that was not the
-	// one tolerated case, including a timeout's own exit code 124.
+	// A timeout is reported through run.Failure, with its own exit code 124,
+	// not the plain-refusal wording.
 	t.Run("keeps run.Failure's own timeout code, not stderr's wording, for a compose down that times out", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		w.Fake.downTimedOut = true
-		w.Fake.downStderr = "Error response from daemon: error while removing network: network berth-router has active endpoints"
+		w.Fake.downStderr = "Error response from daemon: error while removing network"
 
 		err := w.Router.Down(context.Background())
 		if err == nil {
@@ -266,7 +236,7 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 
 // statusEqual reports whether got and want are the same RouterStatus.
 func statusEqual(got, want router.RouterStatus) bool {
-	if got.Reachable != want.Reachable || got.Running != want.Running || got.Port != want.Port || got.Network != want.Network {
+	if got.Reachable != want.Reachable || got.Running != want.Running || got.Port != want.Port || got.RunningPort != want.RunningPort || got.Mode != want.Mode {
 		return false
 	}
 	if len(got.Problems) != len(want.Problems) {
@@ -281,7 +251,7 @@ func statusEqual(got, want router.RouterStatus) bool {
 }
 
 func TestRouterStatusReport(t *testing.T) {
-	base := router.RouterStatus{Port: 80, Network: "berth-router"}
+	base := router.RouterStatus{Port: 80}
 
 	t.Run("says nothing on stdout when Docker could not be asked, and fails", func(t *testing.T) {
 		status := base
@@ -309,7 +279,7 @@ func TestRouterStatusReport(t *testing.T) {
 
 		report := router.StatusReport(status)
 		want := router.Report{
-			Output: []string{"degraded on 127.0.0.1:80, network berth-router (2 problem(s) reported on stderr)"},
+			Output: []string{"degraded on 127.0.0.1:80, mode unknown (2 problem(s) reported on stderr)"},
 			Errors: []string{"Router problem: router: not running", "Router problem: router: not healthy"},
 			Failed: true,
 		}
@@ -324,7 +294,16 @@ func TestRouterStatusReport(t *testing.T) {
 		clean.Running = true
 		clean.Problems = nil
 		report := router.StatusReport(clean)
-		want := router.Report{Output: []string{"running on 127.0.0.1:80, network berth-router"}, Errors: []string{}, Failed: false}
+		want := router.Report{Output: []string{"running on 127.0.0.1:80, mode unknown"}, Errors: []string{}, Failed: false}
+		if !reportEqual(report, want) {
+			t.Errorf("report = %+v, want %+v", report, want)
+		}
+
+		hosted := clean
+		hosted.Mode = router.ModeHost
+		hosted.RunningPort = 8080
+		report = router.StatusReport(hosted)
+		want = router.Report{Output: []string{"running on 127.0.0.1:8080, host mode"}, Errors: []string{}, Failed: false}
 		if !reportEqual(report, want) {
 			t.Errorf("report = %+v, want %+v", report, want)
 		}
@@ -334,7 +313,7 @@ func TestRouterStatusReport(t *testing.T) {
 		stopped.Running = false
 		stopped.Problems = []router.Problem{{Code: "router.absent", Message: "the router is not running"}}
 		report2 := router.StatusReport(stopped)
-		want2 := router.Report{Output: []string{"not running (would use 127.0.0.1:80, network berth-router)"}, Errors: []string{}, Failed: false}
+		want2 := router.Report{Output: []string{"not running (would use 127.0.0.1:80)"}, Errors: []string{}, Failed: false}
 		if !reportEqual(report2, want2) {
 			t.Errorf("report = %+v, want %+v", report2, want2)
 		}
@@ -360,4 +339,56 @@ func reportEqual(got, want router.Report) bool {
 		}
 	}
 	return true
+}
+
+func TestRouterStatusReadsTheContainers(t *testing.T) {
+	t.Run("reports the mode and port the running router was started with", func(t *testing.T) {
+		w := newWorld(t, 8080, "")
+		status, err := w.Router.Status(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := router.RouterStatus{Reachable: true, Running: true, Port: 8080, RunningPort: 8080, Mode: router.ModeHost}
+		if !statusEqual(status, want) {
+			t.Errorf("status = %+v, want %+v", status, want)
+		}
+	})
+
+	t.Run("reports a container that is not running or not healthy by service, once each", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		bad := indexDoc()
+		bad.State = router.InspectState{Status: "restarting", Health: router.InspectHealth{Status: "unhealthy"}}
+		w.Fake.setDoc("index-1", bad)
+		sick := routerDoc(router.ModeHost, 80)
+		sick.State.Health.Status = "starting"
+		w.Fake.setDoc("router-1", sick)
+
+		status, err := w.Router.Status(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var codes []string
+		for _, problem := range status.Problems {
+			codes = append(codes, problem.Code)
+		}
+		want := []string{"router.not-healthy", "index.not-running", "index.not-healthy"}
+		if strings.Join(codes, ",") != strings.Join(want, ",") {
+			t.Errorf("codes = %v, want %v", codes, want)
+		}
+		if !status.Running {
+			t.Error("a degraded stack is still running")
+		}
+	})
+
+	t.Run("does not read a configuration that differs from this build's as a problem: Compose recreates it", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		doc := routerDoc(router.ModeHost, 80)
+		doc.Config.Cmd = []string{"--something=else"}
+		doc.HostConfig.NetworkMode = "bridge"
+		w.Fake.setDoc("router-1", doc)
+		status, err := w.Router.Status(context.Background())
+		if err != nil || len(status.Problems) != 0 {
+			t.Fatalf("status = %+v, %v", status, err)
+		}
+	})
 }

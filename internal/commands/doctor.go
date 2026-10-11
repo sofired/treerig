@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -619,17 +620,22 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 // their own fake.
 type doctorRouterSource interface {
 	Status(ctx context.Context) (router.RouterStatus, error)
-	Network() string
 	// Owner reports which berth root started the running router (#82); see
 	// routerOwnerCheck.
 	Owner(ctx context.Context) (router.Ownership, error)
-	// PublishedPort is the host port the running router publishes, and
+	// RunningPort is the loopback port the running router serves, and
 	// whether one is running at all (#79); see routerPortCheck.
-	PublishedPort(ctx context.Context) (port int, running bool, err error)
+	RunningPort(ctx context.Context) (port int, running bool, err error)
+	// ModeChoice is the mode this build would start the router in beside
+	// what detection alone would pick, or why it would refuse; see
+	// routerModeCheck.
+	ModeChoice(ctx context.Context) (router.ModeChoice, error)
+	// CheckPorts lists the ports the router needs that something else
+	// holds; see routerPortsCheck.
+	CheckPorts(ctx context.Context) ([]router.PortConflict, error)
 }
 
-// realRouterSource adapts a real *router.Router — whose Network is a plain
-// field, not a method — to doctorRouterSource.
+// realRouterSource adapts a real *router.Router to doctorRouterSource.
 type realRouterSource struct{ svc *router.Router }
 
 // Status delegates to the wrapped router.Router's own Status.
@@ -637,13 +643,20 @@ func (r realRouterSource) Status(ctx context.Context) (router.RouterStatus, erro
 	return r.svc.Status(ctx)
 }
 
-// PublishedPort delegates to the wrapped router.Router's own PublishedPort.
-func (r realRouterSource) PublishedPort(ctx context.Context) (int, bool, error) {
-	return r.svc.PublishedPort(ctx)
+// RunningPort delegates to the wrapped router.Router's own RunningPort.
+func (r realRouterSource) RunningPort(ctx context.Context) (int, bool, error) {
+	return r.svc.RunningPort(ctx)
 }
 
-// Network returns the wrapped router.Router's Network field.
-func (r realRouterSource) Network() string { return r.svc.Network }
+// ModeChoice delegates to the wrapped router.Router's own ModeChoice.
+func (r realRouterSource) ModeChoice(ctx context.Context) (router.ModeChoice, error) {
+	return r.svc.ModeChoice(ctx)
+}
+
+// CheckPorts delegates to the wrapped router.Router's own CheckPorts.
+func (r realRouterSource) CheckPorts(ctx context.Context) ([]router.PortConflict, error) {
+	return r.svc.CheckPorts(ctx)
+}
 
 // Owner delegates to the wrapped router.Router's own Owner.
 func (r realRouterSource) Owner(ctx context.Context) (router.Ownership, error) {
@@ -669,7 +682,11 @@ func routerStatusChecks(status router.RouterStatus) []Check {
 	// problem's code (unique within a status), so (id, instance) is a key.
 	checks := make([]Check, len(status.Problems))
 	for i, problem := range status.Problems {
-		checks[i] = Check{Status: StatusFail, ID: "router.container", Instance: problem.Code, Subject: "router", Detail: problem.Message}
+		detail := problem.Message
+		if problem.Log != "" {
+			detail += "; last log lines: " + text.OneLine(strings.ReplaceAll(problem.Log, "\n", " | "), 300)
+		}
+		checks[i] = Check{Status: StatusFail, ID: "router.container", Instance: problem.Code, Subject: "router", Detail: detail}
 	}
 	return checks
 }
@@ -775,41 +792,6 @@ func routeConflicts(dynamicDir string, fragments []router.FragmentInfo, byKey ma
 	return conflicts
 }
 
-// orphanedFragmentsCheck warns — never fails, and never removes anything,
-// matching doctor's own "it takes no lock, writes nothing, and repairs
-// nothing" invariant — when fragments exist whose worktree's own router
-// network is gone (router.OrphanedFragments, the same definition the
-// router's own Ensure uses to actually remove them). nil, nil means nothing
-// worth a line.
-func orphanedFragmentsCheck(ctx context.Context, runner run.Runner, timeout time.Duration, routerNetwork, commandName string, fragments []router.FragmentInfo) (*Check, error) {
-	if len(fragments) == 0 {
-		return nil, nil
-	}
-	networks, err := router.LabelledWorktreeNetworks(ctx, runner, timeout, routerNetwork)
-	if err != nil {
-		return nil, err
-	}
-	orphaned := router.OrphanedFragments(fragments, networks)
-	if len(orphaned) == 0 {
-		return nil, nil
-	}
-	type worktreeKey struct{ repositoryID, worktreeID string }
-	worktrees := map[worktreeKey]bool{}
-	for _, fragment := range orphaned {
-		worktrees[worktreeKey{fragment.RepositoryID, fragment.WorktreeID}] = true
-	}
-	fragmentPlural, worktreePlural, networkPlural, networkVerb := "s", "s", "s", "are"
-	if len(orphaned) == 1 {
-		fragmentPlural = ""
-	}
-	if len(worktrees) == 1 {
-		worktreePlural, networkPlural, networkVerb = "", "", "is"
-	}
-	return &Check{Status: StatusWarn, ID: "router.orphaned-routes", Subject: "routes", Detail: fmt.Sprintf(
-		"%d route fragment%s for %d worktree%s whose router network%s %s gone; the next '%s up' or '%s router up' removes them",
-		len(orphaned), fragmentPlural, len(worktrees), worktreePlural, networkPlural, networkVerb, commandName, commandName)}, nil
-}
-
 // routeChecks reads every dynamic-configuration fragment under the router's
 // own state directory (router.ListFragments) rather than any container's
 // own labels — Traefik's Docker-provider discovery is gone (#55), so a
@@ -817,14 +799,14 @@ func orphanedFragmentsCheck(ctx context.Context, runner run.Runner, timeout time
 // any rule two fragments both claim, the same conflict the pre-#55 version
 // reported from container labels, and warns (never fails or repairs) about
 // fragments an orphaned worktree left behind.
-func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayout, routerNetwork, controlHome, commandName string, timeout time.Duration) ([]Check, error) {
+func routeChecks(state layout.RouterLayout, controlHome, commandName string) ([]Check, error) {
 	fragments, err := router.ListFragments(state)
 	if err != nil {
 		return nil, err
 	}
 	var checks []Check
 	if len(fragments) == 0 {
-		checks = append(checks, Check{Status: StatusOK, ID: "router.routes", Subject: "routes", Detail: "no route fragments"})
+		checks = append(checks, Check{Status: StatusOK, ID: "router.routes", Subject: "routes", Detail: "no route files"})
 	} else {
 		scan, err := registry.ScanRegistrations(controlHome)
 		if err != nil {
@@ -841,7 +823,7 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 				plural = ""
 			}
 			checks = append(checks, Check{Status: StatusOK, ID: "router.routes", Subject: "routes", Detail: fmt.Sprintf(
-				"%d route fragment%s; no two routers share a rule", len(fragments), plural)})
+				"%d route file%s; no two routers share a rule", len(fragments), plural)})
 		} else {
 			rules := make([]string, 0, len(conflicts))
 			for rule := range conflicts {
@@ -855,71 +837,80 @@ func routeChecks(ctx context.Context, runner run.Runner, state layout.RouterLayo
 			}
 		}
 	}
-	// The orphan check is advisory: a failure to list networks becomes its
-	// own failed line rather than replacing the conflict lines above.
-	orphaned, err := orphanedFragmentsCheck(ctx, runner, timeout, routerNetwork, commandName, fragments)
+	// The orphan check is advisory: a failure to read it becomes its own
+	// failed line rather than replacing the conflict lines above.
+	orphaned, err := orphanedRoutesChecks(state, controlHome, commandName)
 	if err != nil {
 		var cancelled *clierr.Cancelled
 		if errors.As(err, &cancelled) {
 			return nil, err
 		}
 		checks = append(checks, failureCheck("router.orphaned-routes", "routes", err))
-	} else if orphaned != nil {
-		checks = append(checks, *orphaned)
+	} else {
+		checks = append(checks, orphaned...)
 	}
 	return checks, nil
 }
 
-// addressPoolBridgeWarning is how many existing bridge-driver networks
-// (Docker's own built-in "bridge" excluded) doctor warns at. Since #55 every
-// routed worktree that is up owns one more bridge network, each carved from
-// the daemon's default address pools. Docker exposes no way to read those
-// pools' configuration, and doctor writes nothing — so no throwaway
-// `docker network create` probe — so this counts what already exists.
-//
-// Docker's built-in default pools are fifteen /16s (172.17.0.0 through
-// 172.31.0.0) and sixteen /20s carved from 192.168.0.0/16: about 31
-// networks, docker0 taking one, before `compose up` fails with "could not
-// find an available, non-overlapping IPv4 address pool among the defaults".
-// 20 warns with roughly a third of that left. It is a heuristic: a daemon
-// with its own default-address-pools, or other networks' explicit subnets,
-// moves the real limit either way; the threshold is the owner's to tune.
-const addressPoolBridgeWarning = 20
+// unmatchedDetail describes route files no registration of this control home
+// matches, with the pronouns agreeing with their count, and how to delete
+// them: nothing removes them automatically.
+func unmatchedDetail(names []string, why, dynamicDir string) string {
+	if len(names) == 1 {
+		return fmt.Sprintf("1 route file matches no registration of this control home (%s); %s; nothing removes it. If its worktree is gone, delete it from %s",
+			text.OneLine(names[0], 300), why, dynamicDir)
+	}
+	return fmt.Sprintf("%d route files match no registration of this control home (%s); %s; nothing removes them. If their worktrees are gone, delete them from %s",
+		len(names), text.OneLine(strings.Join(names, ", "), 300), why, dynamicDir)
+}
 
-// addressPoolsCheck warns when the number of existing bridge-driver
-// networks suggests Docker's default address pools may be close to
-// exhausted — see addressPoolBridgeWarning's own comment for how
-// approximate this is. commandName names this build's own invocation in the
-// warning's advisory text (found in review of #55), matching every other
-// doctor advisory's own quoted-command form (orphanedFragmentsCheck,
-// registrySection, checkoutSections) rather than a hardcoded "up".
-func addressPoolsCheck(ctx context.Context, runner run.Runner, commandName string, timeout time.Duration) (Check, error) {
-	check, result, err := askDocker(ctx, runner, "router.address-pools", "address pools", []string{
-		"network", "ls", "--filter", "driver=bridge", "--format", "{{.Name}}",
-	}, timeout)
+// orphanedRoutesChecks warns — never fails, and never removes anything,
+// matching doctor's own "it takes no lock, writes nothing, and repairs
+// nothing" invariant — about route files that disagree with a registration
+// (router.FindRouteProblems, the same definition the router's own Ensure uses
+// to repair them). Files that match no record of this control home get a line
+// of their own (instance "unmatched", or "other-home" for a repository it does
+// not know): the router never removes them, because they may belong to another
+// control home, so it says how to. An empty result means nothing worth a line.
+func orphanedRoutesChecks(state layout.RouterLayout, controlHome, commandName string) ([]Check, error) {
+	problems, err := router.FindRouteProblems(state, controlHomeRegistrations{controlHome: controlHome})
 	if err != nil {
-		return Check{}, err
+		return nil, err
 	}
-	if result == nil {
-		return check, nil
-	}
-	count := 0
-	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
-		if name := strings.TrimSpace(line); name != "" && name != "bridge" {
-			count++
+	var repairable, stale, foreign []string
+	for _, problem := range problems {
+		switch {
+		case problem.Repairable():
+			repairable = append(repairable, problem.Describe())
+		case problem.Kind == router.RouteUnknownRepository:
+			foreign = append(foreign, filepath.Base(problem.Fragment.Path))
+		default:
+			stale = append(stale, filepath.Base(problem.Fragment.Path))
 		}
 	}
-	if count >= addressPoolBridgeWarning {
-		return Check{Status: StatusWarn, ID: "router.address-pools", Subject: "address pools", Detail: fmt.Sprintf(
-			"%d bridge networks exist; with Docker's default address pools (about 31) a later '%s up' may fail to "+
-				"create its network. Remove networks nothing uses with `docker network prune`, or give the "+
-				"Docker daemon smaller or more `default-address-pools`.", count, commandName)}, nil
+	var checks []Check
+	if len(repairable) > 0 {
+		detail := fmt.Sprintf("%d route files disagree with the registrations (%s); the next '%s up' or '%s router up' repairs them",
+			len(repairable), text.OneLine(strings.Join(repairable, "; "), 300), commandName, commandName)
+		if len(repairable) == 1 {
+			detail = fmt.Sprintf("1 route file disagrees with its registration (%s); the next '%s up' or '%s router up' repairs it",
+				text.OneLine(repairable[0], 300), commandName, commandName)
+		}
+		checks = append(checks, Check{Status: StatusWarn, ID: "router.orphaned-routes", Subject: "routes", Detail: detail})
 	}
-	plural := "s"
-	if count == 1 {
-		plural = ""
+	// Both unmatched kinds are left alone, because the router's state is per
+	// berth root while registries are per control home. A file of a worktree
+	// this home knows the repository of is likely stale (a warning); one of a
+	// repository it does not know is likely another control home's (a notice).
+	if len(stale) > 0 {
+		checks = append(checks, Check{Status: StatusWarn, ID: "router.orphaned-routes", Instance: "unmatched", Subject: "routes",
+			Detail: unmatchedDetail(stale, "the repository is known here but no registration holds the worktree, so this file is probably stale", state.DynamicDir)})
 	}
-	return Check{Status: StatusOK, ID: "router.address-pools", Subject: "address pools", Detail: fmt.Sprintf("%d bridge network%s", count, plural)}, nil
+	if len(foreign) > 0 {
+		checks = append(checks, Check{Status: StatusOK, ID: "router.orphaned-routes", Instance: "other-home", Subject: "routes",
+			Detail: unmatchedDetail(foreign, "this control home does not know the repository, so this file probably belongs to another control home", state.DynamicDir)})
+	}
+	return checks, nil
 }
 
 // routerOwnerCheck is doctor's own read-only report of which berth root
@@ -953,11 +944,13 @@ func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, command
 // router could not even be described, and one skip if Docker Engine did not
 // answer. Otherwise it is the router's status, plus routerOwnerCheck's own
 // report of which berth root started it (#82), or a skip when Docker
-// Compose did not answer, since both need Compose, followed by routeChecks
-// and addressPoolsCheck, which need only the Engine, and last the port that
-// was resolved and where it came from (#79) — which needs nothing, though
-// comparing it with the port the running router publishes needs Compose,
-// so without Compose that line states the resolution alone.
+// Compose did not answer, since both need Compose. Then the mode the proxy
+// runs in and would run in (needs only the Engine), that it answers on
+// loopback alone, routeChecks (which need no Docker), a probe of each route
+// through the running proxy, and last the port that was resolved and where
+// it came from (#79) — which needs nothing, though comparing it with the
+// port the running router serves needs Compose, so without Compose that
+// line states the resolution alone.
 func routerSection(ctx context.Context, opts doctorOptions, state dockerState) ([]Check, error) {
 	if opts.RouterErr != nil {
 		return []Check{{Status: StatusFail, ID: "router.container", Subject: "router", Detail: opts.RouterErr.Error()}}, nil
@@ -970,13 +963,15 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 		return []Check{{Status: StatusSkip, ID: "router.container", Subject: "router", Detail: "needs Docker"}}, nil
 	}
 	var checks []Check
+	var status *router.RouterStatus
 	if state.composeAnswered {
 		routerChecks, err := guarded("router.container", "router", func() ([]Check, error) {
-			status, err := opts.Router.Status(ctx)
+			answered, err := opts.Router.Status(ctx)
 			if err != nil {
 				return nil, err
 			}
-			result := routerStatusChecks(status)
+			status = &answered
+			result := routerStatusChecks(answered)
 			owner, err := routerOwnerCheck(ctx, opts.Router, opts.Home, opts.CommandName)
 			if err != nil {
 				return nil, err
@@ -993,15 +988,8 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 	} else {
 		checks = append(checks, Check{Status: StatusSkip, ID: "router.container", Subject: "router", Detail: "needs Docker Compose"})
 	}
-	routes, err := guarded("router.routes", "routes", func() ([]Check, error) {
-		return routeChecks(ctx, opts.Runner, opts.RouterState, opts.Router.Network(), opts.ControlHome, opts.CommandName, opts.dockerTimeout())
-	})
-	if err != nil {
-		return nil, err
-	}
-	checks = append(checks, routes...)
-	pools, err := guarded("router.address-pools", "address pools", func() ([]Check, error) {
-		check, err := addressPoolsCheck(ctx, opts.Runner, opts.CommandName, opts.dockerTimeout())
+	mode, err := guarded("router.mode", "router mode", func() ([]Check, error) {
+		check, err := routerModeCheck(ctx, opts, status)
 		if err != nil {
 			return nil, err
 		}
@@ -1010,10 +998,56 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 	if err != nil {
 		return nil, err
 	}
-	checks = append(checks, pools...)
+	checks = append(checks, mode...)
+	portChecks, err := guarded("router.ports", "router ports", func() ([]Check, error) {
+		check, err := routerPortsCheck(ctx, opts, status)
+		if err != nil || check == nil {
+			return nil, err
+		}
+		return []Check{*check}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	checks = append(checks, portChecks...)
+	// The running router's port when it says one, else the resolved one.
+	servedPort := opts.RouterPort.Port
+	if status != nil && status.RunningPort != 0 {
+		servedPort = status.RunningPort
+	}
+	running := status != nil && status.Running
+	if running {
+		bind, err := guarded("router.bind", "router bind", func() ([]Check, error) {
+			check, err := routerBindCheck(ctx, opts, servedPort)
+			if err != nil || check == nil {
+				return nil, err
+			}
+			return []Check{*check}, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		checks = append(checks, bind...)
+	}
+	routes, err := guarded("router.routes", "routes", func() ([]Check, error) {
+		return routeChecks(opts.RouterState, opts.ControlHome, opts.CommandName)
+	})
+	if err != nil {
+		return nil, err
+	}
+	checks = append(checks, routes...)
+	if running {
+		probes, err := guarded("router.route-probe", "routes", func() ([]Check, error) {
+			return routeProbeChecks(ctx, opts, servedPort)
+		})
+		if err != nil {
+			return nil, err
+		}
+		checks = append(checks, probes...)
+	}
 	port, err := guarded("router.port", "router port", func() ([]Check, error) {
 		// The resolution needs nothing; comparing it with what the running
-		// router publishes asks Compose for the container, so without Compose
+		// router serves asks Compose for the container, so without Compose
 		// the line says only where the port came from — the same skip the
 		// status check above makes, not a failure.
 		if !state.composeAnswered {
@@ -1032,20 +1066,20 @@ func routerSection(ctx context.Context, opts doctorOptions, state dockerState) (
 }
 
 // routerPortCheck reports the router port doctor resolved and where it came
-// from (#79), and warns when the running router publishes a different one:
+// from (#79), and warns when the running router serves a different one:
 // the next `up` or `router up` moves it, and URLs already open keep the old
 // port until then. Nothing running, or a port that cannot be read off the
 // container, is just the resolution itself.
 func routerPortCheck(ctx context.Context, opts doctorOptions) (Check, error) {
 	described := opts.RouterPort.Describe()
-	published, running, err := opts.Router.PublishedPort(ctx)
+	served, running, err := opts.Router.RunningPort(ctx)
 	if err != nil {
 		return Check{}, err
 	}
-	if running && published != 0 && published != opts.RouterPort.Port {
+	if running && served != 0 && served != opts.RouterPort.Port {
 		return Check{Status: StatusWarn, ID: "router.port", Subject: "router port", Detail: fmt.Sprintf(
-			"%s, but the running router publishes %d; the next '%s up' or '%s router up' moves it, and URLs already open keep the old port until then",
-			described, published, opts.CommandName, opts.CommandName)}, nil
+			"%s, but the running router serves %d; the next '%s up' or '%s router up' moves it, and URLs already open keep the old port until then",
+			described, served, opts.CommandName, opts.CommandName)}, nil
 	}
 	return Check{Status: StatusOK, ID: "router.port", Subject: "router port", Detail: described}, nil
 }
@@ -1467,6 +1501,15 @@ type doctorOptions struct {
 	PortProbe ports.Probe
 	// OS is Env.OS, for the tool a message suggests.
 	OS string
+	// RouteClient sends the route probes (decision 13); nil skips them.
+	RouteClient routeClient
+	// RouteProbeBudget and RouteProbeInterval override routeProbeBudget and
+	// routeProbeInterval; zero keeps the default. Tests shorten them.
+	RouteProbeBudget   time.Duration
+	RouteProbeInterval time.Duration
+	// LANProbe reports which non-loopback addresses answer on the router's
+	// port; nil skips the check.
+	LANProbe lanProbe
 	// DockerAnswered is set by doctorSections from its own Docker probes:
 	// true when both the daemon and Compose answered. The checks that ask
 	// Docker who holds a port, or what a Compose file publishes, are
@@ -1573,6 +1616,12 @@ func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state
 	opts.RouterPort = resolved
 	routerScope := routerLockScope(state, svc.ProjectName)
 	opts.RouterLockScope = &routerScope
+	opts.RouteClient = &http.Client{
+		Timeout: routeRequestTimeout,
+		// A redirect is an answer; following it would probe somewhere else.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	opts.LANProbe = lanAnswering
 	return opts, nil
 }
 

@@ -111,8 +111,6 @@ type Options struct {
 	Environ []string
 	// Routes are the services to route, from [service.<name>] in config.
 	Routes []RouteSpec
-	// RouterNetwork is the shared router's network; routed services join it.
-	RouterNetwork string
 	// SharedUse maps a service of the consumer's Compose file to the shared
 	// services it uses (config's used-by, inverted); the override stamps each
 	// such container with its shared-use labels (docs/design/routing.md,
@@ -218,13 +216,7 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 }
 
 // activeEndpoints matches Compose's refusal to remove a network something is
-// still attached to — the shared router, most likely, whose disconnect
-// (internal/commands's DownWithContext and RemoveWithContext) is best
-// effort and may not have finished before this runs. Mirrors
-// internal/router's own activeEndpoints regex: a local, decoupled copy,
-// matching this codebase's existing pattern for a literal shared between
-// the two packages (see compose_up.go's own routedByLabel comment) rather
-// than an import between them.
+// still attached to.
 var activeEndpoints = regexp.MustCompile(`(?i)has active endpoints`)
 
 // IsActiveEndpoints reports whether err is Compose's refusal to remove a
@@ -236,16 +228,13 @@ func IsActiveEndpoints(err error) bool {
 // Down stops the project; data is kept. Deliberately carries no Timeout
 // (#14): see this file's own timeouts comment for why. Tolerates Compose's
 // own refusal to remove a network something is still attached to as the
-// expected outcome, not a failure — the same way the shared router's own
-// Down already does — since the router itself may still be
-// attached to this worktree's own router network (#55) when this runs. Only
-// that one, specific outcome is intercepted (found in review, round 2 of
-// #55): AllowFailure lets this read the result instead of Finish rejecting
-// it automatically, so every other failure — a genuine Compose refusal, a
-// timeout, a signal, an output overflow — must still be reported through
-// run.Failure, the same wording and exit code (124 on a timeout) any other
-// bounded call gets, rather than a bespoke message that silently dropped
-// all of it.
+// expected outcome, not a failure. Only that one, specific outcome is
+// intercepted: AllowFailure lets this read the result instead of Finish
+// rejecting it automatically, so every other failure — a genuine Compose
+// refusal, a timeout, a signal, an output overflow — must still be reported
+// through run.Failure, the same wording and exit code (124 on a timeout) any
+// other bounded call gets, rather than a bespoke message that silently
+// dropped all of it.
 func (c *Compose) Down(ctx context.Context, ref worktree.Ref) error {
 	args := []string{"down", "--remove-orphans"}
 	spec := run.Spec{AllowFailure: true, Output: run.Tee}
@@ -540,26 +529,18 @@ func (c *Compose) Inventory(ctx context.Context, ref worktree.Ref) ([]worktree.O
 // refusal, tolerated the same way Down already tolerates it, rather than
 // failed. Always wrapped (`fmt.Errorf("%w: …", ErrNetworkKept)` or similar),
 // never returned bare, so a caller checks with errors.Is against whatever
-// context Reap's own error adds. Found in review (round 2 of #55): a first
-// cut of this tolerance let Reap report success for a resource that was
-// not actually gone, which let RemoveWithContext go on to delete the
-// worktree's home, registration and identity marker over a network still
-// sitting on the daemon — see RemoveWithContext's own handling of this
-// error for the fix.
+// context Reap's own error adds. Reap must not report success for a
+// resource that is not actually gone, or RemoveWithContext would go on to
+// delete the worktree's home, registration and identity marker over a
+// network still sitting on the daemon — see RemoveWithContext's own
+// handling of this error.
 var ErrNetworkKept = errors.New("network still has active endpoints; left in place")
 
 // Reap verifies a resource again and removes it. A network's own removal
 // tolerates Compose's "has active endpoints" refusal the same way Down
-// already does, reporting ErrNetworkKept instead of succeeding:
-// #55 gives every routed worktree its own router network, and the shared
-// router's disconnect from it (internal/commands's DownWithContext and
-// RemoveWithContext) is best effort, and may not have finished — or a
-// concurrent Ensure may have just reattached the router to it, since its
-// RoutedByLabel persists until this worktree's own removal actually
-// finishes — by the time this runs, after every other resource is already
-// reaped. RemoveWithContext's own retried disconnect immediately before
-// this call narrows that window further; ErrNetworkKept is what tells it
-// the retry did not close it, so it must not treat the worktree as gone.
+// already does, reporting ErrNetworkKept instead of succeeding: something
+// else is still attached to the network, and the caller must not treat the
+// worktree as gone while a network it owns sits on the daemon.
 func (c *Compose) Reap(ctx context.Context, ref worktree.Ref, resource worktree.OwnedResource) error {
 	index := slices.IndexFunc(resourceTypes, func(kind resourceType) bool { return kind.kind == resource.Kind })
 	if index < 0 {

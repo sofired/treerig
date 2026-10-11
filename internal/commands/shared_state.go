@@ -214,6 +214,10 @@ func definedByHost(cctx *CommandContext, repositoryID, worktreeID string) string
 // allocator, kept across restarts. prune drops a port no longer declared,
 // which only a caller about to create the container afresh may ask for.
 func pinSharedPorts(ctx context.Context, cctx *CommandContext, repositoryID string, service config.SharedService, prune bool, reallocate []int) (registry.SharedPortResult, error) {
+	reserved, err := routerReservedPorts(cctx)
+	if err != nil {
+		return registry.SharedPortResult{}, err
+	}
 	return cctx.Registry.Store(repositoryID).SyncSharedPorts(ctx, cctx.writer(), registry.SharedPortPlan{
 		Name:       service.Name,
 		Domain:     cctx.Loaded.Config.Project.Domain,
@@ -222,6 +226,7 @@ func pinSharedPorts(ctx context.Context, cctx *CommandContext, repositoryID stri
 		Reallocate: reallocate,
 		Range:      cctx.portRange(),
 		Probe:      cctx.portProbe(),
+		Reserved:   reserved,
 	})
 }
 

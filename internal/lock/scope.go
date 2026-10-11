@@ -39,12 +39,13 @@ const (
 	// RouterTimeout is how long `router up` waits for another control home's
 	// ensure to finish before giving up. It must cover Ensure's own worst
 	// case, or a waiter could give up on a holder that is still working
-	// within its own budget: refuseNewerRouter's probe pair (2 * 30s), a
-	// `compose up --wait` (5m), a full verify pass across all three
-	// services (6 * 30s = 3m), and one recreate-and-reverify when it
-	// drifted (5m + 3m). 60s + 5m + 3m + 5m + 3m = 17m, so 20m leaves
-	// comfortable room. (The probe and start timeouts referenced here are
-	// internal/router's dockerProbeTimeout and startTimeout.)
+	// within its own budget: ten bounded Docker probes (the router
+	// container's `compose ps` and `inspect`, `docker info` and `context
+	// inspect`, the index container's two, three holder lookups and the log
+	// read after a failed start: 10 * 30s = 5m) and a `compose up --wait`
+	// (5m). 5m + 5m = 10m, so 20m leaves comfortable room. (The probe and
+	// start timeouts referenced here are internal/router's dockerProbeTimeout
+	// and startTimeout.)
 	//
 	// Not every caller of this same lock scope waits this long: the checkout
 	// index (internal/checkoutindex.Service) shares the router's own lock

@@ -175,23 +175,35 @@ func finishOutcome(spec run.Spec, o outcome) (run.Result, error) {
 // fakeRouterSource fakes the shared router for doctor's Router section,
 // plus owner/ownerErr for the router-owner check (#82).
 type fakeRouterSource struct {
-	network  string
 	status   router.RouterStatus
 	owner    router.Ownership
 	ownerErr error
 	err      error
 	asked    int
-	// published, publishedRunning and publishedErr are what PublishedPort
+	// published, publishedRunning and publishedErr are what RunningPort
 	// answers (#79).
 	published        int
 	publishedRunning bool
 	publishedErr     error
+	// mode and modeErr are what ModeChoice answers; override and detected
+	// refine the choice (detected defaults to mode).
+	mode     router.Mode
+	modeErr  error
+	override router.Mode
+	detected router.Mode
+	// conflicts and portsErr are what CheckPorts answers; portsAsked counts the calls.
+	conflicts  []router.PortConflict
+	portsErr   error
+	portsAsked int
 }
 
 // newFakeRouterSource is a fakeRouterSource reporting a reachable, running,
-// clean router on network "berth-router".
+// clean router in host mode on port 80.
 func newFakeRouterSource() *fakeRouterSource {
-	return &fakeRouterSource{network: "berth-router", status: router.RouterStatus{Reachable: true, Running: true, Port: 80, Network: "berth-router"}, published: 80, publishedRunning: true}
+	return &fakeRouterSource{
+		status:    router.RouterStatus{Reachable: true, Running: true, Port: 80, RunningPort: 80, Mode: router.ModeHost},
+		published: 80, publishedRunning: true, mode: router.ModeHost,
+	}
 }
 
 // Status counts the call and returns f.err if set, otherwise f.status.
@@ -203,9 +215,6 @@ func (f *fakeRouterSource) Status(ctx context.Context) (router.RouterStatus, err
 	return f.status, nil
 }
 
-// Network returns f.network.
-func (f *fakeRouterSource) Network() string { return f.network }
-
 // Owner returns f.ownerErr if set, otherwise f.owner — the zero Ownership
 // (not running) by default, so a test that never sets it sees no "router
 // owner" line at all.
@@ -216,8 +225,27 @@ func (f *fakeRouterSource) Owner(ctx context.Context) (router.Ownership, error) 
 	return f.owner, nil
 }
 
-// PublishedPort answers the staged published port, running flag and error.
-func (f *fakeRouterSource) PublishedPort(context.Context) (int, bool, error) {
+// ModeChoice answers the staged mode, override and error. The detected mode
+// is the staged one unless a test set it.
+func (f *fakeRouterSource) ModeChoice(context.Context) (router.ModeChoice, error) {
+	if f.modeErr != nil {
+		return router.ModeChoice{}, f.modeErr
+	}
+	detected := f.detected
+	if detected == "" && f.override == "" {
+		detected = f.mode
+	}
+	return router.ModeChoice{Mode: f.mode, Override: f.override, Detected: detected}, nil
+}
+
+// CheckPorts counts the call and answers the staged conflicts and error.
+func (f *fakeRouterSource) CheckPorts(context.Context) ([]router.PortConflict, error) {
+	f.portsAsked++
+	return f.conflicts, f.portsErr
+}
+
+// RunningPort answers the staged served port, running flag and error.
+func (f *fakeRouterSource) RunningPort(context.Context) (int, bool, error) {
 	return f.published, f.publishedRunning, f.publishedErr
 }
 
@@ -617,17 +645,17 @@ func indexOf(haystack, needle string) int {
 /* -------------------------------------------------------------- router ---- */
 
 func TestRouterChecksInternal(t *testing.T) {
-	status := router.RouterStatus{Reachable: true, Running: true, Port: 80, Network: "berth-router"}
+	status := router.RouterStatus{Reachable: true, Running: true, Port: 80, RunningPort: 80, Mode: router.ModeHost}
 
 	t.Run("reports a running, clean router and a stopped one as healthy, in router status's words", func(t *testing.T) {
 		got := routerStatusChecks(status)
-		if len(got) != 1 || got[0] != (Check{ID: "router.container", Status: StatusOK, Subject: "router", Detail: "running on 127.0.0.1:80, network berth-router"}) {
+		if len(got) != 1 || got[0] != (Check{ID: "router.container", Status: StatusOK, Subject: "router", Detail: "running on 127.0.0.1:80, host mode"}) {
 			t.Fatalf("got %+v", got)
 		}
 		stopped := status
 		stopped.Running, stopped.Problems = false, []router.Problem{{Code: "router.absent", Message: "the router is not running"}}
 		got = routerStatusChecks(stopped)
-		if len(got) != 1 || got[0] != (Check{ID: "router.container", Status: StatusOK, Subject: "router", Detail: "not running (would use 127.0.0.1:80, network berth-router)"}) {
+		if len(got) != 1 || got[0] != (Check{ID: "router.container", Status: StatusOK, Subject: "router", Detail: "not running (would use 127.0.0.1:80)"}) {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -643,7 +671,7 @@ func TestRouterChecksInternal(t *testing.T) {
 		if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 			t.Fatalf("got %+v", got)
 		}
-		unreachable := router.RouterStatus{Reachable: false, Running: false, Problems: []router.Problem{{Code: router.CodeUnreachable, Message: "Docker is not available: boom."}}, Port: 80, Network: "berth-router"}
+		unreachable := router.RouterStatus{Reachable: false, Running: false, Problems: []router.Problem{{Code: router.CodeUnreachable, Message: "Docker is not available: boom."}}, Port: 80, RunningPort: 80, Mode: router.ModeHost}
 		got = routerStatusChecks(unreachable)
 		if len(got) != 1 || got[0] != (Check{ID: "router.container", Instance: router.CodeUnreachable, Status: StatusFail, Subject: "router", Detail: "Router state unknown: Docker is not available: boom"}) {
 			t.Fatalf("got %+v", got)
@@ -701,7 +729,7 @@ func TestRouterChecksInternal(t *testing.T) {
 func writeFragmentInfo(t *testing.T, dir, repositoryID, worktreeID, service, routerName, rule string) router.FragmentInfo {
 	t.Helper()
 	state := layout.RouterLayout{DynamicDir: dir}
-	if err := router.WriteFragment(state, repositoryID, worktreeID, service, router.NewFragmentDocument(routerName, rule, routerName, 8080)); err != nil {
+	if err := router.WriteFragment(state, repositoryID, worktreeID, service, router.NewFragmentDocument(routerName, rule, 8080)); err != nil {
 		t.Fatal(err)
 	}
 	return router.FragmentInfo{
@@ -937,7 +965,7 @@ func TestDoctorSections(t *testing.T) {
 		if !contains(section(sections, "Registry")[1].Detail, "not created yet") {
 			t.Fatalf("registry[1] = %+v", section(sections, "Registry")[1])
 		}
-		wantRouter := []string{"ok router", "ok routes", "ok address pools", "ok router port"}
+		wantRouter := []string{"ok router", "ok router mode", "ok routes", "ok router port"}
 		gotRouter := statuses(sections, "Router")
 		if len(gotRouter) != 4 || gotRouter[0] != wantRouter[0] || gotRouter[1] != wantRouter[1] || gotRouter[2] != wantRouter[2] || gotRouter[3] != wantRouter[3] {
 			t.Fatalf("router = %v", gotRouter)
@@ -968,16 +996,14 @@ func TestDoctorSections(t *testing.T) {
 		}
 		// version and compose run concurrently (so a Docker that answers
 		// neither costs one timeout rather than two; see dockerChecks), so
-		// their relative order is not guaranteed. network (the
-		// address-pools check; routes itself makes no Docker call at all
-		// with no fragments staged) always comes last, once both have
-		// resolved.
-		if len(dockerArgs) != 3 || dockerArgs[2] != "network" {
-			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then network", dockerArgs)
+		// their relative order is not guaranteed. Nothing else asks Docker
+		// directly: the router section goes through the router source.
+		if len(dockerArgs) != 2 {
+			t.Fatalf("dockerArgs = %v, want [version compose] (either order)", dockerArgs)
 		}
-		firstTwo := map[string]bool{dockerArgs[0]: true, dockerArgs[1]: true}
-		if !firstTwo["version"] || !firstTwo["compose"] {
-			t.Fatalf("dockerArgs = %v, want [version compose] (either order) then network", dockerArgs)
+		both := map[string]bool{dockerArgs[0]: true, dockerArgs[1]: true}
+		if !both["version"] || !both["compose"] {
+			t.Fatalf("dockerArgs = %v, want [version compose] (either order)", dockerArgs)
 		}
 	})
 
@@ -991,7 +1017,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantRouter := []string{"ok router", "fail router owner", "ok routes", "ok address pools", "ok router port"}
+		wantRouter := []string{"ok router", "fail router owner", "ok router mode", "ok routes", "ok router port"}
 		gotRouter := statuses(sections, "Router")
 		if len(gotRouter) != len(wantRouter) {
 			t.Fatalf("router = %v, want %v", gotRouter, wantRouter)
@@ -1024,8 +1050,8 @@ func TestDoctorSections(t *testing.T) {
 		}
 		want := []Check{
 			{ID: "router.container", Status: StatusSkip, Subject: "router", Detail: "needs Docker Compose"},
-			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
-			{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
+			{ID: "router.mode", Status: StatusOK, Subject: "router mode", Detail: "would start in host mode; whether it runs is unknown, as its status could not be read"},
+			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route files"},
 			{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}
 		got := section(sections, "Router")
@@ -1252,8 +1278,8 @@ func TestDoctorSections(t *testing.T) {
 		}
 		wantRouter := []Check{
 			{ID: "router.container", Status: StatusFail, Subject: "router", Detail: "exploded"},
-			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route fragments"},
-			{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "0 bridge networks"},
+			{ID: "router.mode", Status: StatusOK, Subject: "router mode", Detail: "would start in host mode; whether it runs is unknown, as its status could not be read"},
+			{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "no route files"},
 			{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: opts.RouterPort.Describe()},
 		}
 		got := section(sections, "Router")
@@ -1302,38 +1328,14 @@ func TestDoctorSections(t *testing.T) {
 		wantCancelled(t, err, "Operation cancelled by SIGINT.")
 	})
 
-	// Go-only, per #55: routeChecks now reads dynamic-configuration
-	// fragments from disk (router.ListFragments), not routed containers'
-	// own Traefik labels through `docker ps`/`docker inspect` — Traefik's
-	// Docker-provider discovery is gone, so there is no longer a bulk
-	// `docker inspect` call whose own timeout or output-overflow handling
-	// could apply (the two "half-reads an inspect..." cases below have no
-	// replacement for the same reason: reading a fragment file either
-	// succeeds or is skipped, never half-reads). The one Docker call left
-	// in routeChecks at all is orphanedFragmentsCheck's own `docker network
-	// ls` of the router's labelled worktree networks — a cancellation there
-	// is what the case below now pins.
-	t.Run("lets a cancellation while listing the router's worktree networks end the command", func(t *testing.T) {
-		state := layout.RouterLayout{DynamicDir: t.TempDir()}
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("x", "Host(`x`)", "x", 8080)); err != nil {
-			t.Fatal(err)
-		}
-		runner := newDoctorRunner(nil)
-		runner.state.docker["network"] = outcome{err: cancelled(syscall.SIGINT)}
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
-		_, err := doctorSections(context.Background(), opts)
-		wantCancelled(t, err, "Operation cancelled by SIGINT.")
-	})
-
 	t.Run("fails two fragments that claim the same rule", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "mail",
-			router.NewFragmentDocument("berth-aaa-mail", "Host(`mail.main.acme.localhost`)", "berth-aaa-mail", 8080)); err != nil {
+			router.NewFragmentDocument("berth-aaa-mail", "Host(`mail.main.acme.localhost`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "api",
-			router.NewFragmentDocument("berth-bbb-api", "Host(`mail.main.acme.localhost`)", "berth-bbb-api", 8080)); err != nil {
+			router.NewFragmentDocument("berth-bbb-api", "Host(`mail.main.acme.localhost`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1346,51 +1348,18 @@ func TestDoctorSections(t *testing.T) {
 		want := Check{ID: "router.route-conflict", Instance: "mail.main.acme.localhost", Status: StatusFail, Subject: "routes",
 			Detail: fmt.Sprintf("Host(`mail.main.acme.localhost`) is claimed by %s, %s; requests for it may reach any of them",
 				minString(nameA, nameB), maxString(nameA, nameB))}
-		if got := section(sections, "Router")[1]; got != want {
+		if got := section(sections, "Router")[2]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
-		}
-	})
-
-	t.Run("keeps a conflict line when listing the router's worktree networks fails, reporting that failure on its own line", func(t *testing.T) {
-		state := layout.RouterLayout{DynamicDir: t.TempDir()}
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "mail",
-			router.NewFragmentDocument("berth-aaa-mail", "Host(`mail.main.acme.localhost`)", "berth-aaa-mail", 8080)); err != nil {
-			t.Fatal(err)
-		}
-		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "api",
-			router.NewFragmentDocument("berth-bbb-api", "Host(`mail.main.acme.localhost`)", "berth-bbb-api", 8080)); err != nil {
-			t.Fatal(err)
-		}
-		runner := newDoctorRunner(nil)
-		runner.state.docker["network"] = outcome{result: run.Result{ExitCode: 1, Stderr: "Cannot connect to the Docker daemon"}}
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
-		sections, err := doctorSections(context.Background(), opts)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var conflict, failure bool
-		for _, check := range section(sections, "Router") {
-			if check.Subject != "routes" || check.Status != StatusFail {
-				continue
-			}
-			if strings.Contains(check.Detail, "is claimed by") {
-				conflict = true
-			} else {
-				failure = true
-			}
-		}
-		if !conflict || !failure {
-			t.Fatalf("want both the conflict and the network-listing failure as routes lines, got %+v", section(sections, "Router"))
 		}
 	})
 
 	t.Run("bounds a rule any fragment could have written before it reaches the report", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		rule := "Host(`" + repeatString("a", 500) + "`)"
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "one", router.NewFragmentDocument("one", rule, "one", 8080)); err != nil {
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "one", router.NewFragmentDocument("one", rule, 8080)); err != nil {
 			t.Fatal(err)
 		}
-		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "two", router.NewFragmentDocument("two", rule, "two", 8080)); err != nil {
+		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "two", router.NewFragmentDocument("two", rule, 8080)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1398,7 +1367,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		detail := section(sections, "Router")[1].Detail
+		detail := section(sections, "Router")[2].Detail
 		want := string([]rune(rule)[:199]) + "…"
 		if len(detail) < len(want) || detail[:len(want)] != want {
 			t.Fatalf("detail = %q, want prefix %q", detail, want)
@@ -1410,7 +1379,7 @@ func TestDoctorSections(t *testing.T) {
 		for i := 0; i < 60; i++ {
 			worktreeID := fmt.Sprintf("%08d-0000-4000-8000-000000000000", i)
 			name := fmt.Sprintf("claimant-%02d", i)
-			if err := router.WriteFragment(state, doctorRepoA, worktreeID, "api", router.NewFragmentDocument(name, "Host(`x`)", name, 8080)); err != nil {
+			if err := router.WriteFragment(state, doctorRepoA, worktreeID, "api", router.NewFragmentDocument(name, "Host(`x`)", 8080)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1419,7 +1388,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		detail := section(sections, "Router")[1].Detail
+		detail := section(sections, "Router")[2].Detail
 		prefix := "Host(`x`) is claimed by "
 		idx := indexOf(detail, "; requests")
 		if idx < 0 || len(detail) < len(prefix) {
@@ -1431,10 +1400,10 @@ func TestDoctorSections(t *testing.T) {
 		}
 	})
 
-	t.Run("counts route fragments when no rule is shared", func(t *testing.T) {
+	t.Run("counts route files when no rule is shared", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1442,22 +1411,22 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "1 route fragment; no two routers share a rule"}
-		if got := section(sections, "Router")[1]; got != want {
+		want := Check{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "1 route file; no two routers share a rule"}
+		if got := section(sections, "Router")[2]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 	})
 
 	// Found in review of #55: the singular case above must not read "1
-	// route fragment(s)"; this pins the plural alongside it.
-	t.Run("pluralizes route fragments in the clean-routes count", func(t *testing.T) {
+	// route file(s)"; this pins the plural alongside it.
+	t.Run("pluralizes route files in the clean-routes count", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web",
-			router.NewFragmentDocument("berth-aaa-web", "Host(`b`)", "berth-aaa-web", 8081)); err != nil {
+			router.NewFragmentDocument("berth-aaa-web", "Host(`b`)", 8081)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1465,31 +1434,34 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "2 route fragments; no two routers share a rule"}
-		if got := section(sections, "Router")[1]; got != want {
+		want := Check{ID: "router.routes", Status: StatusOK, Subject: "routes", Detail: "2 route files; no two routers share a rule"}
+		if got := section(sections, "Router")[2]; got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 	})
 
-	// Go-only, per #55: doctor's own report-only half of orphan
-	// reconciliation (internal/router's Ensure runs the repair half).
-	t.Run("warns about route fragments whose worktree's router network is gone, without removing anything", func(t *testing.T) {
+	// doctor's own report-only half of route repair (internal/router's
+	// Ensure runs the repair half).
+	t.Run("reports a route file whose worktree has no registration as unmatched, without removing anything", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
+		if err := router.WriteFragment(state, routeRepo, routeWorktree, "api",
+			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
-		runner := newDoctorRunner(nil)
-		runner.state.docker["network"] = okOutcome("") // the router labels no worktree network
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
+		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
+		// The repository is known to this control home; the worktree is not registered.
+		if err := os.MkdirAll(filepath.Join(opts.ControlHome, "repositories", routeRepo), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{ID: "router.orphaned-routes", Status: StatusWarn, Subject: "routes",
-			Detail: "1 route fragment for 1 worktree whose router network is gone; the next 'berth up' or 'berth router up' removes them"}
-		if got := section(sections, "Router")[2]; got != want {
-			t.Fatalf("got %+v, want %+v", got, want)
+		got := section(sections, "Router")[3]
+		if got.ID != "router.orphaned-routes" || got.Instance != "unmatched" || got.Status != StatusWarn ||
+			!strings.Contains(got.Detail, "1 route file matches no registration of this control home") ||
+			!strings.Contains(got.Detail, "probably stale") {
+			t.Fatalf("got %+v", got)
 		}
 		// Never removed: doctor reads, never writes.
 		fragments, err := router.ListFragments(state)
@@ -1498,98 +1470,6 @@ func TestDoctorSections(t *testing.T) {
 		}
 		if len(fragments) != 1 {
 			t.Fatalf("expected the fragment to survive doctor untouched, got %d", len(fragments))
-		}
-	})
-
-	// Pluralizes every count independently, including "network(s)" and its
-	// own verb — a first cut of this message only ever pluralized "fragment"
-	// and "worktree", leaving ">1 worktree" reading as "...whose router
-	// network is gone" (singular subject, and wrong: each worktree here has
-	// its own network).
-	t.Run("pluralizes route fragments and worktrees separately in the orphan warning", func(t *testing.T) {
-		state := layout.RouterLayout{DynamicDir: t.TempDir()}
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
-			t.Fatal(err)
-		}
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web",
-			router.NewFragmentDocument("berth-aaa-web", "Host(`a2`)", "berth-aaa-web", 8081)); err != nil {
-			t.Fatal(err)
-		}
-		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "api",
-			router.NewFragmentDocument("berth-bbb-api", "Host(`b`)", "berth-bbb-api", 8080)); err != nil {
-			t.Fatal(err)
-		}
-		runner := newDoctorRunner(nil)
-		runner.state.docker["network"] = okOutcome("") // neither worktree's network is labelled
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
-		sections, err := doctorSections(context.Background(), opts)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := Check{ID: "router.orphaned-routes", Status: StatusWarn, Subject: "routes",
-			Detail: "3 route fragments for 2 worktrees whose router networks are gone; the next 'berth up' or 'berth router up' removes them"}
-		if got := section(sections, "Router")[2]; got != want {
-			t.Fatalf("got %+v, want %+v", got, want)
-		}
-	})
-
-	// The regression the first cut had: liveness was read from containers'
-	// ownership labels in the brand's own namespace, so a project that
-	// overrides its label-namespace looked orphaned while it was up. The
-	// network's name and RoutedByLabel do not depend on that override.
-	t.Run("does not warn about a live worktree's fragments, whatever label-namespace its project uses", func(t *testing.T) {
-		state := layout.RouterLayout{DynamicDir: t.TempDir()}
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", "berth-aaa-api", 8080)); err != nil {
-			t.Fatal(err)
-		}
-		runner := newDoctorRunner(nil)
-		runner.state.docker["network"] = okOutcome(layout.WorktreeRouterNetwork(doctorRepoA, doctorWorktreeA) + "\n")
-		runner.state.docker["ps"] = okOutcome("") // no container in the brand's own namespace
-		opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner; o.RouterState = state })
-		sections, err := doctorSections(context.Background(), opts)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, check := range section(sections, "Router") {
-			if check.Status == StatusWarn && check.Subject == "routes" {
-				t.Fatalf("warned about a live worktree's fragment: %+v", check)
-			}
-		}
-	})
-
-	t.Run("warns about address pools once 20 bridge networks exist, not counting Docker's own bridge", func(t *testing.T) {
-		for _, tc := range []struct {
-			own  int
-			want Check
-		}{
-			{1, Check{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "1 bridge network"}},
-			{19, Check{ID: "router.address-pools", Status: StatusOK, Subject: "address pools", Detail: "19 bridge networks"}},
-			{20, Check{ID: "router.address-pools", Status: StatusWarn, Subject: "address pools", Detail: "20 bridge networks exist; with Docker's default address pools (about 31) a later 'berth up' may fail to " +
-				"create its network. Remove networks nothing uses with `docker network prune`, or give the " +
-				"Docker daemon smaller or more `default-address-pools`."}},
-		} {
-			names := []string{"bridge"}
-			for i := 0; i < tc.own; i++ {
-				names = append(names, fmt.Sprintf("net-%02d", i))
-			}
-			runner := newDoctorRunner(nil)
-			runner.state.docker["network"] = okOutcome(strings.Join(names, "\n") + "\n")
-			opts := testOpts(t, func(o *doctorOptions) { o.Runner = runner })
-			sections, err := doctorSections(context.Background(), opts)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got *Check
-			for _, check := range section(sections, "Router") {
-				if check.Subject == "address pools" {
-					got = &check
-				}
-			}
-			if got == nil || *got != tc.want {
-				t.Fatalf("%d bridge networks: got %+v, want %+v", tc.own, got, tc.want)
-			}
 		}
 	})
 
@@ -2504,7 +2384,7 @@ func mutateHolderRecord(t *testing.T, scope lock.Scope, edit func(rec map[string
 }
 
 // TestDoctorRouterPort is #79's "router port" line: the port doctor resolved
-// and where it came from, warned about when the running router publishes a
+// and where it came from, warned about when the running router serves a
 // different one, and failed on its own when that port cannot be read.
 func TestDoctorRouterPort(t *testing.T) {
 	last := func(t *testing.T, sections []Section) Check {
@@ -2531,7 +2411,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		}
 	})
 
-	t.Run("warns when the running router publishes a different port than the one resolved", func(t *testing.T) {
+	t.Run("warns when the running router serves a different port than the one resolved", func(t *testing.T) {
 		fake := newFakeRouterSource()
 		fake.published = 80
 		opts := testOpts(t, func(o *doctorOptions) {
@@ -2542,7 +2422,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{ID: "router.port", Status: StatusWarn, Subject: "router port", Detail: "port 8080 from BERTH_ROUTER_PORT (overriding /berth/settings.toml), but the running router publishes 80; the next 'berth up' or 'berth router up' moves it, and URLs already open keep the old port until then"}
+		want := Check{ID: "router.port", Status: StatusWarn, Subject: "router port", Detail: "port 8080 from BERTH_ROUTER_PORT (overriding /berth/settings.toml), but the running router serves 80; the next 'berth up' or 'berth router up' moves it, and URLs already open keep the old port until then"}
 		if got := last(t, sections); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2613,7 +2493,10 @@ var documentedDoctorIDs = []string{
 	"router.routes",
 	"router.route-conflict",
 	"router.orphaned-routes",
-	"router.address-pools",
+	"router.mode",
+	"router.ports",
+	"router.bind",
+	"router.route-probe",
 	"router.port",
 	"checkout.config",
 	"checkout.worktree",
@@ -2775,7 +2658,7 @@ func TestDoctorInstancesAreDurable(t *testing.T) {
 		)
 		write := func(t *testing.T, state layout.RouterLayout, repo, wt, service, rule string) {
 			t.Helper()
-			if err := router.WriteFragment(state, repo, wt, service, router.NewFragmentDocument(service+wt, rule, service+wt, 8080)); err != nil {
+			if err := router.WriteFragment(state, repo, wt, service, router.NewFragmentDocument(service+wt, rule, 8080)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -2852,14 +2735,14 @@ func TestDoctorEmitsOnlyDocumentedIDs(t *testing.T) {
 	checkReport(t, sections)
 }
 
-// TestDoctorIDsAreTheDocumentedSet reads doctor.go, doctor_ports.go and doctor_shared.go for the ids they hand to
+// TestDoctorIDsAreTheDocumentedSet reads doctor.go, doctor_ports.go, doctor_router.go and doctor_shared.go for the ids they hand to
 // Check literals and to the helpers that take one, and compares that set with
 // documentedDoctorIDs; then checks README.md has a table row for each id and
 // lists every hook stage as the instance of checkout.hooks.resolve.
 func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	fset := token.NewFileSet()
 	var doctorFiles []*ast.File
-	for _, name := range []string{"doctor.go", "doctor_ports.go", "doctor_shared.go"} {
+	for _, name := range []string{"doctor.go", "doctor_ports.go", "doctor_router.go", "doctor_shared.go"} {
 		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -2903,12 +2786,12 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	}
 	for id := range found {
 		if !documented[id] {
-			t.Errorf("doctor.go, doctor_ports.go or doctor_shared.go uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
+			t.Errorf("a doctor source uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
 		}
 	}
 	for id := range documented {
 		if !found[id] {
-			t.Errorf("documentedDoctorIDs lists %q, which doctor.go, doctor_ports.go and doctor_shared.go no longer use", id)
+			t.Errorf("documentedDoctorIDs lists %q, which no doctor source uses any more", id)
 		}
 	}
 

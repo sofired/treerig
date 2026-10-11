@@ -2,11 +2,14 @@
 
 package router_test
 
-// Real-daemon tests of the shared router: sharing across control homes
-// (#12, #13), lock contention and timeouts (#14), routing, and doctor's view
-// of it. Every fixture uses a unique project, network, port and state
-// directory and cleans up after itself, so it can run beside a developer's
-// real router and beside another Docker suite on the same daemon. Tests
+// Real-daemon tests of the shared router: the proxy in host and bridge mode,
+// the ports it needs checked before it starts, sharing across control homes
+// (#12, #13), ownership (#82), lock contention and timeouts (#14). Every
+// fixture uses a unique Compose project, label namespace, router port and
+// scratch berth root, and cleans up after itself, so it can run beside a
+// developer's real router and beside another Docker suite on the same
+// daemon. Ports for the checkout index and the host-mode ping come from a
+// range of their own inside the test range, never the default one. Tests
 // that need a routed worktree live with `up` in
 // internal/commands/up_routes_docker_integration_test.go.
 
@@ -21,6 +24,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +40,11 @@ import (
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/run/osrun"
 )
+
+// routerTestRange is where these tests' router allocates the index and ping
+// ports from: inside the test range, apart from the sub-range the `up` suites
+// use by default.
+var routerTestRange = layout.PortRange{Low: 30900, High: 30999}
 
 // freePortForTest asks the kernel for a free loopback port.
 func freePortForTest(t *testing.T) int {
@@ -63,6 +74,26 @@ func requireDocker(t *testing.T) {
 	}
 }
 
+// requireNativeLinuxEngine skips t unless the client is Linux and the daemon
+// reports a rootful Linux engine that is not Docker Desktop or OrbStack: the
+// engine on which mode detection picks host, and host networking is the
+// machine's own.
+func requireNativeLinuxEngine(t *testing.T) {
+	t.Helper()
+	requireDocker(t)
+	if runtime.GOOS != "linux" {
+		t.Skip("host mode needs a Linux client")
+	}
+	out, err := exec.Command("docker", "info", "--format", "{{.OperatingSystem}}|{{.Name}}|{{.SecurityOptions}}").Output()
+	if err != nil {
+		t.Skipf("docker info: %v", err)
+	}
+	info := strings.ToLower(string(out))
+	if strings.Contains(info, "docker desktop") || strings.Contains(info, "orbstack") || strings.Contains(info, "rootless") {
+		t.Skipf("not a native rootful Linux engine: %s", strings.TrimSpace(info))
+	}
+}
+
 // suffix is a short random hex string, for names unique to one test run.
 func suffix(t *testing.T) string {
 	t.Helper()
@@ -83,6 +114,11 @@ func dockerOutput(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// routerClient gives up on one request quickly: a route the proxy has not
+// loaded yet answers at once, and one that never will should be asked again,
+// not waited on.
+var routerClient = &http.Client{Timeout: 5 * time.Second}
+
 // fetchThroughRouter is a GET to 127.0.0.1:port with an explicit Host
 // header, the way a request actually reaches the router by hostname. Returns
 // the status and body, or 0 and the error's own message when the request
@@ -94,7 +130,7 @@ func fetchThroughRouter(t *testing.T, port int, host, path string) (int, string)
 		t.Fatal(err)
 	}
 	req.Host = host
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := routerClient.Do(req)
 	if err != nil {
 		return 0, err.Error()
 	}
@@ -106,8 +142,14 @@ func fetchThroughRouter(t *testing.T, port int, host, path string) (int, string)
 	return resp.StatusCode, string(body)
 }
 
-// eventually retries probe (Traefik learns about containers from events, and
-// needs a moment) until accept is satisfied or timeout elapses.
+// liveAnswer is one HTTP response, reduced to what the assertions compare.
+type liveAnswer struct {
+	Status int
+	Body   string
+}
+
+// eventually retries probe (Traefik's file provider picks a change up after
+// a throttle of about 2 s) until accept is satisfied or timeout elapses.
 func eventually[T any](t *testing.T, timeout time.Duration, probe func() T, accept func(T) bool) T {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -124,364 +166,702 @@ func eventually[T any](t *testing.T, timeout time.Duration, probe func() T, acce
 	}
 }
 
-// TestSharedRouterOnARealDaemon is the shared router against a real daemon:
-// it starts hardened, routes the machine-wide index by hostname, and its
-// socket proxy refuses everything a router does not need.
-func TestSharedRouterOnARealDaemon(t *testing.T) {
+// routeAnswers waits for the proxy on port to answer host with want.
+func routeAnswers(t *testing.T, port int, host string, want liveAnswer) {
+	t.Helper()
+	eventually(t, 30*time.Second,
+		func() liveAnswer {
+			status, body := fetchThroughRouter(t, port, host, "/")
+			return liveAnswer{status, body}
+		},
+		func(a liveAnswer) bool { return a.Status == want.Status && strings.Contains(a.Body, want.Body) })
+}
+
+// liveRouter is one real router: its own project, label namespace, scratch berth
+// root and Docker cleanup.
+type liveRouter struct {
+	t           *testing.T
+	project, ns string
+	home        string
+	controlHome string
+	state       layout.RouterLayout
+}
+
+// newLiveRouter is a scratch berth root and a project of its own, with a cleanup
+// that removes the project's containers and default network.
+func newLiveRouter(t *testing.T) *liveRouter {
+	t.Helper()
 	requireDocker(t)
 	id := suffix(t)
-	project := "berth-router-test-" + id
-	ns := "dev.berth-test-router-" + id
-	dir := registrytest.TempDir(t)
-	port := freePortForTest(t)
-	state := newState(dir)
-
-	t.Cleanup(func() {
-		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
-		exec.Command("docker", "network", "rm", project).Run()
-	})
-
-	svc, err := router.New(router.Options{
-		State: state, Port: port, Runner: osrun.New(), Logger: logger.Silent{},
-		ProjectName: project, Network: project, LabelNamespace: ns, Environ: os.Environ(),
-	})
-	if err != nil {
-		t.Fatal(err)
+	home := registrytest.TempDir(t)
+	w := &liveRouter{
+		t: t, project: testProjectPrefix + id, ns: "dev.berth-test-router-" + id,
+		home: home, controlHome: filepath.Join(home, "control-home"), state: layout.RouterStateFrom(home),
 	}
+	sweepOnce.Do(sweepAbandonedRouters)
+	t.Cleanup(func() {
+		// `down` first, so Compose stops things in order; whether or not it
+		// worked, the project is then removed by its compose label, which is how
+		// Compose itself finds its containers and networks.
+		_ = exec.Command("docker", "compose", "-p", w.project, "down", "--remove-orphans").Run()
+		removeProjectByLabel(w.project)
+	})
+	return w
+}
+
+// testProjectPrefix is the Compose project name prefix every router test uses.
+const testProjectPrefix = "berth-router-test-"
+
+// composeProjectLabel is the label Compose stamps on everything of a project.
+const composeProjectLabel = "com.docker.compose.project"
+
+// sweepOnce runs the start-of-run sweep of abandoned routers once per process.
+var sweepOnce sync.Once
+
+// removeProjectByLabel force-removes the containers and networks that carry
+// project's Compose label. It removes by label only, never by name.
+func removeProjectByLabel(project string) {
+	filter := "label=" + composeProjectLabel + "=" + project
+	if out, err := exec.Command("docker", "ps", "-aq", "--filter", filter).Output(); err == nil {
+		if ids := strings.Fields(string(out)); len(ids) > 0 {
+			_ = exec.Command("docker", append([]string{"rm", "--force"}, ids...)...).Run()
+		}
+	}
+	if out, err := exec.Command("docker", "network", "ls", "-q", "--filter", filter).Output(); err == nil {
+		if ids := strings.Fields(string(out)); len(ids) > 0 {
+			_ = exec.Command("docker", append([]string{"network", "rm"}, ids...)...).Run()
+		}
+	}
+}
+
+// sweepAbandonedRouters removes what a killed earlier run left behind:
+// containers whose Compose project starts with testProjectPrefix and whose
+// router-home label names a path that no longer exists. A running test's
+// router-home is its live scratch root, so it is never touched. Removal is by
+// labels only.
+func sweepAbandonedRouters() {
+	format := `{{.ID}}|{{.Label "` + composeProjectLabel + `"}}|{{.Label "` + router.RouterHomeLabel + `"}}`
+	out, err := exec.Command("docker", "ps", "-a", "--format", format).Output()
+	if err != nil {
+		return
+	}
+	projects := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Split(strings.TrimSpace(line), "|")
+		if len(fields) != 3 || !strings.HasPrefix(fields[1], testProjectPrefix) || fields[2] == "" {
+			continue
+		}
+		if _, err := os.Stat(fields[2]); os.IsNotExist(err) {
+			projects[fields[1]] = true
+		}
+	}
+	for project := range projects {
+		removeProjectByLabel(project)
+	}
+}
+
+// router builds a Router over this world; configure may change its options
+// before it is built.
+func (w *liveRouter) router(port int, mode string, configure func(*router.Options)) (*router.Router, *logger.Recording) {
+	w.t.Helper()
+	rec := &logger.Recording{}
+	options := router.Options{
+		State: w.state, Port: port, Runner: osrun.New(), Logger: rec,
+		ProjectName: w.project, LabelNamespace: w.ns, Environ: os.Environ(),
+		CommandName: "berth", Home: w.home, ControlHome: w.controlHome,
+		PortRange: routerTestRange, ModeOverride: mode, ClientOS: runtime.GOOS,
+	}
+	if configure != nil {
+		configure(&options)
+	}
+	svc, err := router.New(options)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return svc, rec
+}
+
+// containerID is the router stack's container of service, "" when none.
+func (w *liveRouter) containerID(service string) string {
+	w.t.Helper()
+	return dockerOutput(w.t, "compose", "-p", w.project, "ps", "-q", service)
+}
+
+// liveInspected is the part of `docker inspect` these tests read.
+type liveInspected struct {
+	Config struct {
+		User   string
+		Labels map[string]string
+		Cmd    []string
+	}
+	HostConfig struct {
+		NetworkMode    string
+		ReadonlyRootfs bool
+		CapDrop        []string
+		CapAdd         []string
+		SecurityOpt    []string
+		Privileged     bool
+	}
+	Mounts          []struct{ Source, Destination string }
+	NetworkSettings struct {
+		Ports map[string][]struct{ HostIp, HostPort string }
+	}
+}
+
+// inspect reads one container.
+func (w *liveRouter) inspect(id string) liveInspected {
+	w.t.Helper()
+	var docs []liveInspected
+	if err := json.Unmarshal([]byte(dockerOutput(w.t, "inspect", id)), &docs); err != nil || len(docs) != 1 {
+		w.t.Fatalf("inspect %s: %v", id, err)
+	}
+	return docs[0]
+}
+
+// liveListeners are the Local Address:Port columns of `ss -ltn`.
+func liveListeners(t *testing.T) []string {
+	t.Helper()
+	if _, err := exec.LookPath("ss"); err != nil {
+		t.Skip("ss is not installed")
+	}
+	out, err := exec.Command("ss", "-ltn").Output()
+	if err != nil {
+		t.Fatalf("ss -ltn: %v", err)
+	}
+	var local []string
+	for i, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if i == 0 || len(fields) < 4 {
+			continue
+		}
+		local = append(local, fields[3])
+	}
+	return local
+}
+
+// requireLoopbackOnly fails t unless port has a listener on 127.0.0.1 and
+// none on any wildcard or other address.
+func requireLoopbackOnly(t *testing.T, port int) {
+	t.Helper()
+	suffix := ":" + strconv.Itoa(port)
+	var found []string
+	for _, local := range liveListeners(t) {
+		if strings.HasSuffix(local, suffix) {
+			found = append(found, local)
+		}
+	}
+	if len(found) == 0 {
+		t.Fatalf("nothing listens on port %d", port)
+	}
+	for _, local := range found {
+		if local != "127.0.0.1"+suffix {
+			t.Errorf("port %d listens on %s, not on 127.0.0.1 alone (all: %v)", port, local, found)
+		}
+	}
+}
+
+// recordPrivilegedListeners logs `sudo -n ss -ltnp` for the given ports, the
+// process names an unprivileged ss cannot show; skipped quietly without sudo.
+func recordPrivilegedListeners(t *testing.T, ports ...int) {
+	t.Helper()
+	out, err := exec.Command("sudo", "-n", "ss", "-ltnp").Output()
+	if err != nil {
+		t.Logf("sudo ss -ltnp unavailable: %v", err)
+		return
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		for _, port := range ports {
+			if strings.Contains(line, ":"+strconv.Itoa(port)+" ") {
+				t.Logf("sudo ss -ltnp: %s", strings.Join(strings.Fields(line), " "))
+			}
+		}
+	}
+}
+
+// hostServer serves body on a listener of network at address, for a route to
+// target as a process on the host would, and returns its port. Skips t when
+// the address cannot be bound (no IPv6, say).
+func hostServer(t *testing.T, network, address, body string) int {
+	t.Helper()
+	listener, err := net.Listen(network, address)
+	if err != nil {
+		t.Skipf("cannot listen on %s %s: %v", network, address, err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, body) })}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
+// writeRoute writes a route file for host to the loopback port target.
+func (w *liveRouter) writeRoute(name, host string, target int) {
+	w.t.Helper()
+	repository, worktree := "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
+	doc := router.NewFragmentDocument(name, fmt.Sprintf("Host(`%s`)", host), target)
+	if err := router.WriteFragment(w.state, repository, worktree, name, doc); err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() { _ = router.RemoveWorktreeFragments(w.state, repository, worktree) })
+}
+
+// TestSharedRouterInHostModeOnARealDaemon is the proxy on a native Linux
+// engine: it starts hardened in host network mode, listens on loopback alone,
+// and reaches targets bound to either loopback family.
+func TestSharedRouterInHostModeOnARealDaemon(t *testing.T) {
+	requireNativeLinuxEngine(t)
+	w := newLiveRouter(t)
+	port := freePortForTest(t)
+	svc, _ := w.router(port, "", nil)
 	ctx := context.Background()
 
-	t.Run("starts hardened, verifies clean, and is left alone by a second ensure", func(t *testing.T) {
+	if err := svc.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	state, found, err := router.ReadState(w.state)
+	if err != nil || !found || state.IndexPort == 0 || state.PingPort == 0 {
+		t.Fatalf("router state = %+v, %v, %v", state, found, err)
+	}
+	if !routerTestRange.Contains(state.IndexPort) || !routerTestRange.Contains(state.PingPort) {
+		t.Fatalf("state ports %+v are outside %v", state, routerTestRange)
+	}
+
+	t.Run("starts healthy and is left alone by a second ensure", func(t *testing.T) {
+		before := w.containerID("router")
+		beforeIndex := w.containerID("index")
 		if err := svc.Ensure(ctx); err != nil {
 			t.Fatal(err)
 		}
-		problems, err := svc.Verify(ctx)
-		if err != nil || len(problems) != 0 {
-			t.Fatalf("problems = %v, err = %v", problems, err)
+		if after := w.containerID("router"); after != before {
+			t.Fatalf("router container changed: %q then %q", before, after)
 		}
-		before := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
-
-		if err := svc.Ensure(ctx); err != nil {
-			t.Fatal(err)
-		}
-
-		after := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
-		if before != after {
-			t.Fatalf("expected the same router container, got %q then %q", before, after)
+		if after := w.containerID("index"); after != beforeIndex {
+			t.Fatalf("index container changed: %q then %q", beforeIndex, after)
 		}
 		status, err := svc.Status(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !status.Running || len(status.Problems) != 0 || status.Port != port || status.Network != project {
+		if !status.Running || len(status.Problems) != 0 || status.Port != port || status.RunningPort != port || status.Mode != router.ModeHost {
 			t.Fatalf("status = %+v", status)
 		}
-		logs := dockerOutput(t, "logs", before)
-		if strings.Contains(logs, "level=error") {
+		if report := router.StatusReport(status); len(report.Output) != 1 || !strings.Contains(report.Output[0], fmt.Sprintf("running on 127.0.0.1:%d, host mode", port)) {
+			t.Fatalf("report = %+v", report)
+		}
+		if logs := dockerOutput(t, "logs", before); strings.Contains(logs, "level=error") {
 			t.Errorf("expected no errors in the router's logs, got:\n%s", logs)
 		}
+	})
 
-		// The index answers through the router before anything has been indexed.
-		body := eventually(t, 20*time.Second,
-			func() string { _, b := fetchThroughRouter(t, port, router.IndexHost, "/"); return b },
-			func(b string) bool { return strings.Contains(b, "No checkouts have been indexed yet") },
-		)
-		if !strings.Contains(body, "No checkouts have been indexed yet") {
-			t.Errorf("index body = %q", body)
+	t.Run("runs in the host network namespace, hardened, with no Docker socket", func(t *testing.T) {
+		doc := w.inspect(w.containerID("router"))
+		if doc.HostConfig.NetworkMode != "host" {
+			t.Errorf("NetworkMode = %q", doc.HostConfig.NetworkMode)
+		}
+		if doc.Config.Labels[router.RouterModeLabel] != "host" || doc.Config.Labels[router.RouterPortLabel] != strconv.Itoa(port) {
+			t.Errorf("labels = %v", doc.Config.Labels)
+		}
+		if !doc.HostConfig.ReadonlyRootfs || !slices.Contains(doc.HostConfig.CapDrop, "ALL") || !slices.Contains(doc.HostConfig.SecurityOpt, "no-new-privileges:true") || doc.HostConfig.Privileged {
+			t.Errorf("not hardened: %+v", doc.HostConfig)
+		}
+		// A high port needs no privilege: nobody, and no capability back.
+		if doc.Config.User != "65534:65534" || len(doc.HostConfig.CapAdd) != 0 {
+			t.Errorf("user %q, cap_add %v; want nobody and none", doc.Config.User, doc.HostConfig.CapAdd)
+		}
+		for _, mount := range doc.Mounts {
+			if strings.Contains(mount.Source, "docker.sock") {
+				t.Errorf("the router mounts %s", mount.Source)
+			}
+		}
+		if len(doc.Mounts) != 1 || doc.Mounts[0].Destination != router.DynamicConfigMount {
+			t.Errorf("mounts = %+v, want only the dynamic-configuration directory", doc.Mounts)
+		}
+		for _, argument := range doc.Config.Cmd {
+			if strings.Contains(argument, "providers.docker") {
+				t.Errorf("Docker provider flag %q", argument)
+			}
 		}
 	})
 
-	// #55: the docker-socket-proxy is gone outright, and so is Traefik's
-	// Docker-provider discovery — the router container has no access to the
-	// Docker socket at all any more, and there is no docker-api service or
-	// network left to check permissions against.
-	t.Run("has no access to the Docker socket at all: no docker-api service, no socket mount", func(t *testing.T) {
-		services := dockerOutput(t, "compose", "-p", project, "ps", "-a", "--format", "{{.Service}}")
-		if strings.Contains(services, "docker-api") {
-			t.Fatalf("expected no docker-api service, got %q", services)
-		}
-		if err := exec.Command("docker", "network", "inspect", project+"_docker-api").Run(); err == nil {
-			t.Fatal("expected no docker-api network to exist")
-		}
-		routerID := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
-		mounts := dockerOutput(t, "inspect", routerID, "--format", "{{range .Mounts}}{{.Source}} {{end}}")
-		if strings.Contains(mounts, "docker.sock") {
-			t.Fatalf("expected the router to have no Docker-socket mount, got %q", mounts)
-		}
-		cmd := dockerOutput(t, "inspect", routerID, "--format", "{{join .Config.Cmd \" \"}}")
-		if strings.Contains(cmd, "--providers.docker") {
-			t.Fatalf("expected no Docker-provider flag on the router's command line, got %q", cmd)
-		}
+	t.Run("listens on 127.0.0.1 alone: no wildcard listener on the router or ping port", func(t *testing.T) {
+		requireLoopbackOnly(t, port)
+		requireLoopbackOnly(t, state.PingPort)
+		requireLoopbackOnly(t, state.IndexPort)
+		recordPrivilegedListeners(t, port, state.PingPort, state.IndexPort)
 	})
 
-	// The rest of "routes a worktree by hostname..." (above), adapted to
-	// #55: Traefik's Docker-provider discovery is gone, so
-	// a container's own Traefik labels — everything a routed worktree
-	// service used to need — do nothing any more; only a
-	// dynamic-configuration fragment routes anything (fragment.go). The
-	// control proves the positive, routed by a real fragment rather than
-	// any label of its own; the intruder, carrying a complete-looking set
-	// of Traefik labels but no fragment, proves the negative. Both share the
-	// router's own network directly (no worktree, no Compose override, so
-	// no per-worktree network of its own here) so the only difference
-	// between them is whether a fragment exists.
-	t.Run("never routes a container with Traefik labels but no fragment, and gives an unmatched host the router's own 404", func(t *testing.T) {
-		intruderName := "intruder-" + id
-		t.Cleanup(func() { exec.Command("docker", "rm", "--force", intruderName).Run() })
-		dockerOutput(t, "run", "--detach", "--name", intruderName, "--network", project,
-			"--label", "traefik.enable=true",
-			"--label", "traefik.http.routers.intruder.rule=Host(`intruder.invalid.localhost`)",
-			"--label", "traefik.http.routers.intruder.entrypoints="+router.RouterEntrypoint,
-			"--label", "traefik.http.services.intruder.loadbalancer.server.port=8080",
-			"busybox:1.37.0", "sh", "-c", "echo intruder > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
+	t.Run("reaches a 127.0.0.1-only host process, a ::1-only one, and answers 502 for a dead target", func(t *testing.T) {
+		v4 := hostServer(t, "tcp4", "127.0.0.1:0", "from v4\n")
+		w.writeRoute("v4", "v4.invalid.localhost", v4)
+		routeAnswers(t, port, "v4.invalid.localhost", liveAnswer{http.StatusOK, "from v4"})
 
-		// A control routed by a real fragment, not by any label of its own —
-		// the only thing that routes anything now. Waited for with
-		// eventually: the file provider's own watch takes a moment to pick
-		// the fragment up, so once its route answers the router has
-		// actually read it, and the intruder's 404 below is a verdict, not
-		// a race with that watch.
-		controlName := "control-" + id
-		t.Cleanup(func() { exec.Command("docker", "rm", "--force", controlName).Run() })
-		dockerOutput(t, "run", "--detach", "--name", controlName, "--network", project,
-			"busybox:1.37.0", "sh", "-c", "echo control > /tmp/index.html && exec httpd -f -p 8080 -h /tmp")
-		repositoryID, worktreeID := "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
-		t.Cleanup(func() { router.RemoveWorktreeFragments(state, repositoryID, worktreeID) })
-		doc := router.NewFragmentDocument("control", "Host(`control.invalid.localhost`)", controlName, 8080)
-		if err := router.WriteFragment(state, repositoryID, worktreeID, "control", doc); err != nil {
-			t.Fatal(err)
-		}
-		controlBody := eventually(t, 20*time.Second,
-			func() string { _, b := fetchThroughRouter(t, port, "control.invalid.localhost", "/"); return b },
-			func(b string) bool { return strings.TrimSpace(b) == "control" },
-		)
-		if strings.TrimSpace(controlBody) != "control" {
-			t.Fatalf("control host never routed; answered %q", controlBody)
-		}
+		// berth-loopback maps to ::1 as well, so a listener bound only there is reached.
+		v6 := hostServer(t, "tcp6", "[::1]:0", "from v6\n")
+		w.writeRoute("v6", "v6.invalid.localhost", v6)
+		routeAnswers(t, port, "v6.invalid.localhost", liveAnswer{http.StatusOK, "from v6"})
 
-		nobodyStatus, nobodyBody := fetchThroughRouter(t, port, "nobody.invalid.localhost", "/")
-		if nobodyStatus != http.StatusNotFound {
-			t.Fatalf("unmatched host answered %d %q", nobodyStatus, nobodyBody)
+		w.writeRoute("dead", "dead.invalid.localhost", freePortForTest(t))
+		routeAnswers(t, port, "dead.invalid.localhost", liveAnswer{http.StatusBadGateway, ""})
+	})
+
+	t.Run("answers an unmatched host with its own 404, and serves ping on its own entrypoint, never on web", func(t *testing.T) {
+		status, body := fetchThroughRouter(t, port, "nobody.invalid.localhost", "/")
+		if status != http.StatusNotFound || !strings.HasPrefix(body, "404 page not found") {
+			t.Fatalf("unmatched host answered %d %q", status, body)
 		}
-		// The negative means something only if the intruder is alive and serving.
-		alive, err := exec.Command("docker", "exec", intruderName, "wget", "-qO-", "http://127.0.0.1:8080/").Output()
+		if status, body := fetchThroughRouter(t, port, "nobody.invalid.localhost", "/ping"); status != http.StatusNotFound {
+			t.Fatalf("/ping on the web entrypoint answered %d %q", status, body)
+		}
+		resp, err := routerClient.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", state.PingPort))
 		if err != nil {
-			t.Fatalf("intruder did not answer on its own: %v", err)
+			t.Fatal(err)
 		}
-		if strings.TrimSpace(string(alive)) != "intruder" {
-			t.Fatalf("intruder served %q", alive)
-		}
-		// The router's own 404, byte for byte the one an unknown host gets — never the intruder's page, whatever labels it carries.
-		intruderStatus, intruderBody := fetchThroughRouter(t, port, "intruder.invalid.localhost", "/")
-		if intruderStatus != nobodyStatus || intruderBody != nobodyBody {
-			t.Fatalf("intruder host answered %d %q, want the unmatched host's %d %q", intruderStatus, intruderBody, nobodyStatus, nobodyBody)
-		}
-		if strings.Contains(nobodyBody, "intruder") {
-			t.Fatalf("unmatched host's body leaked the intruder's own: %q", nobodyBody)
+		defer resp.Body.Close()
+		if text, _ := io.ReadAll(resp.Body); resp.StatusCode != http.StatusOK || strings.TrimSpace(string(text)) != "OK" {
+			t.Fatalf("ping entrypoint answered %d %q", resp.StatusCode, text)
 		}
 	})
 
-	// A plain container joins the shared network directly, standing in for a
-	// worktree's service: the network must stay while something is attached
-	// and go once nothing is. Runs last: it stops the router itself.
-	t.Run("keeps the shared network on down while something is attached, and lets it go once free", func(t *testing.T) {
-		attachedName := "berth-router-test-attached-" + id
-		// Registered by name before creation, so a failure partway through
-		// `docker run` (the container created but not started, say) still
-		// gets cleaned up — not only a successfully returned container id.
-		t.Cleanup(func() { exec.Command("docker", "rm", "--force", attachedName).Run() })
-		attached := dockerOutput(t, "run", "--detach", "--name", attachedName,
-			"--network", project, "busybox:1.37.0", "sleep", "300")
-
-		if err := svc.Down(ctx); err != nil {
+	t.Run("serves the checkout index through the proxy, and publishes it on its own loopback port", func(t *testing.T) {
+		routeAnswers(t, port, router.IndexHost, liveAnswer{http.StatusOK, "No checkouts have been indexed yet"})
+		doc := w.inspect(w.containerID("index"))
+		bindings := doc.NetworkSettings.Ports["8080/tcp"]
+		if len(bindings) != 1 || bindings[0].HostIp != "127.0.0.1" || bindings[0].HostPort != strconv.Itoa(state.IndexPort) {
+			t.Fatalf("index bindings = %+v, want 127.0.0.1:%d", bindings, state.IndexPort)
+		}
+		resp, err := routerClient.Get(fmt.Sprintf("http://127.0.0.1:%d/index.html", state.IndexPort))
+		if err != nil {
 			t.Fatal(err)
 		}
-		if err := exec.Command("docker", "network", "inspect", project).Run(); err != nil {
-			t.Fatal("expected the network to still exist while something is attached")
-		}
-
-		if err := exec.Command("docker", "rm", "--force", attached).Run(); err != nil {
-			t.Fatal(err)
-		}
-		if err := svc.Down(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if err := exec.Command("docker", "network", "inspect", project).Run(); err == nil {
-			t.Fatal("expected the network to be gone once nothing is attached")
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("the index's own port answered %d", resp.StatusCode)
 		}
 	})
+
+	t.Run("goes away on down", func(t *testing.T) {
+		if err := svc.Down(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if id := w.containerID("router"); id != "" {
+			t.Fatalf("router container %s survived down", id)
+		}
+		status, err := svc.Status(ctx)
+		if err != nil || status.Running {
+			t.Fatalf("status = %+v, %v", status, err)
+		}
+	})
+}
+
+// TestSharedRouterInBridgeModeOnARealDaemon forces bridge mode, as Docker
+// Desktop and OrbStack would be detected: the wiring is proven here, the
+// reach to a loopback target through host-gateway is not (it does not work
+// on a plain Linux engine; docs/design/routing.md says so).
+func TestSharedRouterInBridgeModeOnARealDaemon(t *testing.T) {
+	w := newLiveRouter(t)
+	port := freePortForTest(t)
+	svc, _ := w.router(port, "bridge", nil)
+	ctx := context.Background()
+	if err := svc.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := w.inspect(w.containerID("router"))
+	if doc.HostConfig.NetworkMode == "host" {
+		t.Errorf("NetworkMode = %q, want a bridge network", doc.HostConfig.NetworkMode)
+	}
+	if doc.Config.Labels[router.RouterModeLabel] != "bridge" || doc.Config.Labels[router.RouterPortLabel] != strconv.Itoa(port) {
+		t.Errorf("labels = %v", doc.Config.Labels)
+	}
+	// Published on 127.0.0.1 alone, and nothing else: the ping entrypoint is inside.
+	published := 0
+	for container, bindings := range doc.NetworkSettings.Ports {
+		for _, binding := range bindings {
+			published++
+			if container != "80/tcp" || binding.HostIp != "127.0.0.1" || binding.HostPort != strconv.Itoa(port) {
+				t.Errorf("published %s -> %s:%s", container, binding.HostIp, binding.HostPort)
+			}
+		}
+	}
+	if published != 1 {
+		t.Errorf("published %d ports, want exactly 127.0.0.1:%d", published, port)
+	}
+	if !slices.Contains(doc.HostConfig.CapDrop, "ALL") || !doc.HostConfig.ReadonlyRootfs {
+		t.Errorf("not hardened: %+v", doc.HostConfig)
+	}
+	status, err := svc.Status(ctx)
+	if err != nil || !status.Running || len(status.Problems) != 0 || status.Mode != router.ModeBridge {
+		t.Fatalf("status = %+v, %v", status, err)
+	}
+	// The unrouted host gets the proxy's own 404, and the index is routed.
+	if status, body := fetchThroughRouter(t, port, "nobody.invalid.localhost", "/"); status != http.StatusNotFound || !strings.HasPrefix(body, "404 page not found") {
+		t.Fatalf("unmatched host answered %d %q", status, body)
+	}
+	if state, _, err := router.ReadState(w.state); err != nil || state.IndexPort == 0 {
+		t.Fatalf("state = %+v, %v", state, err)
+	}
+}
+
+// TestRouterModeAndPortChangesRecreateTheProxy is decision 1: a different
+// mode or router port changes the proxy's configuration, so Compose
+// recreates it, and a moved port is said once.
+func TestRouterModeAndPortChangesRecreateTheProxy(t *testing.T) {
+	requireNativeLinuxEngine(t)
+	w := newLiveRouter(t)
+	port := freePortForTest(t)
+	ctx := context.Background()
+
+	host, _ := w.router(port, "", nil)
+	if err := host.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	hostID := w.containerID("router")
+
+	bridge, _ := w.router(port, "bridge", nil)
+	if err := bridge.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bridgeID := w.containerID("router")
+	if bridgeID == hostID || w.inspect(bridgeID).Config.Labels[router.RouterModeLabel] != "bridge" {
+		t.Fatalf("host -> bridge kept container %s (%v)", bridgeID, w.inspect(bridgeID).Config.Labels)
+	}
+
+	again, _ := w.router(port, "", nil)
+	if err := again.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	againID := w.containerID("router")
+	if againID == bridgeID || w.inspect(againID).Config.Labels[router.RouterModeLabel] != "host" {
+		t.Fatalf("bridge -> host kept container %s", againID)
+	}
+
+	moved := freePortForTest(t)
+	other, rec := w.router(moved, "", nil)
+	if err := other.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	movedID := w.containerID("router")
+	if movedID == againID || w.inspect(movedID).Config.Labels[router.RouterPortLabel] != strconv.Itoa(moved) {
+		t.Fatalf("changing the port kept container %s", movedID)
+	}
+	lines, _ := rec.Snapshot()
+	if !slices.ContainsFunc(lines, func(line string) bool {
+		return strings.Contains(line, fmt.Sprintf("moved from port %d to %d", port, moved))
+	}) {
+		t.Errorf("no port-change note in %v", lines)
+	}
+	requireLoopbackOnly(t, moved)
+}
+
+// TestEnsureChecksPortsBeforeStarting is decision 10's preflight: a port the
+// router needs that something else holds is refused before anything starts,
+// naming the holder.
+func TestEnsureChecksPortsBeforeStarting(t *testing.T) {
+	w := newLiveRouter(t)
+	ctx := context.Background()
+	noContainers := func(t *testing.T) {
+		t.Helper()
+		if ids := dockerOutput(t, "ps", "-aq", "--filter", "label=com.docker.compose.project="+w.project); ids != "" {
+			t.Fatalf("a refused start left containers behind: %s", ids)
+		}
+	}
+
+	t.Run("names another process holding the router port", func(t *testing.T) {
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		held := listener.Addr().(*net.TCPAddr).Port
+		svc, _ := w.router(held, "", nil)
+		err = svc.Ensure(ctx)
+		want := fmt.Sprintf("127.0.0.1:%d (the router) is held by another process", held)
+		if err == nil || !strings.Contains(err.Error(), "Cannot start the shared router") || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Ensure = %v, want a refusal containing %q", err, want)
+		}
+		noContainers(t)
+	})
+
+	t.Run("names the container publishing the router port", func(t *testing.T) {
+		held := freePortForTest(t)
+		name := "berth-router-test-holder-" + suffix(t)
+		t.Cleanup(func() { _ = exec.Command("docker", "rm", "--force", name).Run() })
+		dockerOutput(t, "run", "--detach", "--name", name, "--publish", fmt.Sprintf("127.0.0.1:%d:80", held),
+			"busybox:1.37.0", "sh", "-c", "exec httpd -f -p 80")
+		svc, _ := w.router(held, "", nil)
+		err := svc.Ensure(ctx)
+		if err == nil || !strings.Contains(err.Error(), "is held by container "+name) {
+			t.Fatalf("Ensure = %v, want the container %s named", err, name)
+		}
+		noContainers(t)
+	})
+}
+
+// TestFailedStartShowsTheContainersLastLogLines is decision 10's other half:
+// when a start comes up unhealthy the failure carries the containers' own
+// log lines. The preflight is blinded with a probe that calls every port
+// free, so a port that is really taken gets as far as the proxy's own bind.
+func TestFailedStartShowsTheContainersLastLogLines(t *testing.T) {
+	requireNativeLinuxEngine(t)
+	w := newLiveRouter(t)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	held := listener.Addr().(*net.TCPAddr).Port
+	svc, _ := w.router(held, "host", func(o *router.Options) {
+		o.Probe = registrytest.FreeProbe{}
+		o.Timeouts = router.Timeouts{Start: 90 * time.Second}
+	})
+	err = svc.Ensure(context.Background())
+	if err == nil {
+		t.Fatal("expected the start to fail with its port taken")
+	}
+	if !strings.Contains(err.Error(), "The shared router failed to start.") || !strings.Contains(err.Error(), "Last log lines:") {
+		t.Fatalf("Ensure = %v, want the failure and the last log lines", err)
+	}
+	if !strings.Contains(err.Error(), "address already in use") {
+		t.Errorf("the log lines do not show why: %v", err)
+	}
+}
+
+// TestRouterRefusesARunningRouterOfAnotherLayout stages a running router
+// container that speaks a lower protocol, as one routing through per-worktree
+// networks does: Ensure refuses it with "router down" advice and touches
+// nothing.
+func TestRouterRefusesARunningRouterOfAnotherLayout(t *testing.T) {
+	w := newLiveRouter(t)
+	compose := filepath.Join(registrytest.TempDir(t), "compose.yaml")
+	contents := fmt.Sprintf(`services:
+  router:
+    image: busybox:1.37.0
+    init: true
+    command: ["sleep", "600"]
+    labels:
+      %q: %q
+      %q: %q
+`, w.ns+".router-protocol", strconv.Itoa(router.Protocol-1), router.RouterHomeLabel, w.home)
+	if err := os.WriteFile(compose, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("docker", "compose", "-p", w.project, "-f", compose, "up", "--detach").CombinedOutput(); err != nil {
+		t.Fatalf("compose up: %v\n%s", err, out)
+	}
+	before := w.containerID("router")
+
+	svc, _ := w.router(freePortForTest(t), "", nil)
+	err := svc.Ensure(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "router down") {
+		t.Fatalf("Ensure = %v, want a refusal telling the user to run 'berth router down' first", err)
+	}
+	if after := w.containerID("router"); after != before {
+		t.Fatalf("the refusal touched the router: %q then %q", before, after)
+	}
+	if index := w.containerID("index"); index != "" {
+		t.Fatalf("the refusal started an index container %s", index)
+	}
 }
 
 // TestTwoControlHomesShareOneRouter is #12/#13/#80: the router's state lives
 // under the berth root (BERTH_HOME), outside every control home, so two
-// control homes under the same berth root — the common case, since
-// BERTH_CONTROL_HOME is an override, not the default — resolve to the same
-// state directory and share one router; the second `ensure` from what is,
-// in production, a different control home's process must not recreate
-// anything.
+// control homes under the same berth root resolve to the same state
+// directory and share one router; the second `ensure` from what is, in
+// production, a different control home's process must not recreate anything.
 func TestTwoControlHomesShareOneRouter(t *testing.T) {
-	requireDocker(t)
-	id := suffix(t)
-	project := "berth-router-test-two-" + id
-	ns := "dev.berth-test-router-two-" + id
-	// One state directory — what layout.RouterState resolves to for one
-	// berth root regardless of which control home under it is asking.
-	dir := registrytest.TempDir(t)
+	requireNativeLinuxEngine(t)
+	w := newLiveRouter(t)
 	port := freePortForTest(t)
-	state := newState(dir)
-
-	t.Cleanup(func() {
-		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
-		exec.Command("docker", "network", "rm", project).Run()
-	})
-
-	newHome := func(t *testing.T) *router.Router {
-		svc, err := router.New(router.Options{
-			State: state, Port: port, Runner: osrun.New(), Logger: logger.Silent{},
-			ProjectName: project, Network: project, LabelNamespace: ns, Environ: os.Environ(),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return svc
-	}
-
 	ctx := context.Background()
-	first := newHome(t)
+
+	first, _ := w.router(port, "", nil)
 	if err := first.Ensure(ctx); err != nil {
 		t.Fatal(err)
 	}
-	before := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+	before := w.containerID("router")
 
 	// A second control home's own process, its own *router.Router, same state.
-	second := newHome(t)
+	second, _ := w.router(port, "", func(o *router.Options) { o.ControlHome = filepath.Join(w.home, "other-control-home") })
 	if err := second.Ensure(ctx); err != nil {
 		t.Fatal(err)
 	}
-	after := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
-	if before != after {
+	if after := w.containerID("router"); before != after {
 		t.Fatalf("expected the second control home's ensure to find the same router, got %q then %q", before, after)
 	}
 }
 
-// TestTwoBerthRootsRouterUpRefuses is #82: unlike two control homes under
-// the same berth root (TestTwoControlHomesShareOneRouter, above), two
-// different berth roots each resolve their own, separate router state —
-// their own lock, their own compose.yaml, their own dynamic/index
-// directories — but the router container itself is still one per Docker
-// daemon (its Compose project name is fixed regardless of berth root). Before
-// this row a second berth root's `router up` had no way to tell the running
-// container was not its own, and force-recreated it out from under the
-// first with no warning; this proves the fix end to end, on a real daemon:
-// the second berth root's Ensure refuses, naming the first, and leaves the
-// first's own running container exactly as it was — then proves the
-// explicit way out ('router down' from either root, followed by the new
-// root's own 'router up') hands it over cleanly.
+// TestTwoBerthRootsRouterUpRefuses is #82: two different berth roots each
+// resolve their own, separate router state, but the router container itself
+// is still one per Docker daemon (its Compose project name is fixed
+// regardless of berth root). The second berth root's Ensure refuses, naming
+// the first, and leaves the first's own running container exactly as it was
+// — then 'router down' followed by the new root's own 'router up' hands it
+// over cleanly.
 func TestTwoBerthRootsRouterUpRefuses(t *testing.T) {
-	requireDocker(t)
-	id := suffix(t)
-	project := "berth-router-test-roots-" + id
-	ns := "dev.berth-test-router-roots-" + id
+	requireNativeLinuxEngine(t)
+	first := newLiveRouter(t)
 	port := freePortForTest(t)
-	// Two separate berth roots: their own state directories (never shared,
-	// unlike the two-control-homes case), their own Home labels.
-	home1 := registrytest.TempDir(t)
+	// A second berth root: its own state and home label, the same project.
 	home2 := registrytest.TempDir(t)
-	state1 := newState(filepath.Join(home1, "router"))
-	state2 := newState(filepath.Join(home2, "router"))
-
-	t.Cleanup(func() {
-		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
-		exec.Command("docker", "network", "rm", project).Run()
-	})
-
-	newRoot := func(t *testing.T, state layout.RouterLayout, home string) *router.Router {
-		svc, err := router.New(router.Options{
-			State: state, Port: port, Runner: osrun.New(), Logger: logger.Silent{},
-			ProjectName: project, Network: project, LabelNamespace: ns, Environ: os.Environ(),
-			Home: home,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return svc
-	}
+	second := &liveRouter{t: t, project: first.project, ns: first.ns, home: home2, controlHome: filepath.Join(home2, "control-home"), state: layout.RouterStateFrom(home2)}
 
 	ctx := context.Background()
-	first := newRoot(t, state1, home1)
-	if err := first.Ensure(ctx); err != nil {
+	one, _ := first.router(port, "", nil)
+	if err := one.Ensure(ctx); err != nil {
 		t.Fatal(err)
 	}
-	before := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+	before := first.containerID("router")
 
-	second := newRoot(t, state2, home2)
-	err := second.Ensure(ctx)
-	want := fmt.Sprintf("The shared router belongs to a different berth root (%s).", home1)
+	two, _ := second.router(port, "", nil)
+	err := two.Ensure(ctx)
+	want := fmt.Sprintf("The shared router belongs to a different berth root (%s).", first.home)
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("got %v, want a refusal containing %q", err, want)
 	}
-	after := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
+	after := first.containerID("router")
 	if before != after {
 		t.Fatalf("expected the second berth root's refusal to leave the first's router untouched, got %q then %q", before, after)
 	}
-	label := dockerOutput(t, "inspect", after, "--format", "{{index .Config.Labels \""+router.RouterHomeLabel+"\"}}")
-	if label != home1 {
-		t.Fatalf("router-home label = %q, want %q (the second root's refusal must not have touched it)", label, home1)
+	if label := first.inspect(after).Config.Labels[router.RouterHomeLabel]; label != first.home {
+		t.Fatalf("router-home label = %q, want %q", label, first.home)
 	}
 
-	// The explicit way out (#82): 'router down' stops it whoever owns it —
-	// never gated on ownership — then the new root's own 'router up' adopts
-	// a fresh container labelled with its own home.
-	if err := first.Down(ctx); err != nil {
+	// The explicit way out (#82): 'router down' stops it whoever owns it,
+	// then the new root's own 'router up' adopts a fresh container labelled
+	// with its own home.
+	if err := one.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := second.Ensure(ctx); err != nil {
+	if err := two.Ensure(ctx); err != nil {
 		t.Fatalf("expected the second berth root's up to adopt cleanly once the first's is stopped: %v", err)
 	}
-	adopted := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
-	adoptedLabel := dockerOutput(t, "inspect", adopted, "--format", "{{index .Config.Labels \""+router.RouterHomeLabel+"\"}}")
-	if adoptedLabel != home2 {
-		t.Fatalf("router-home label after takeover = %q, want %q", adoptedLabel, home2)
+	if label := first.inspect(first.containerID("router")).Config.Labels[router.RouterHomeLabel]; label != home2 {
+		t.Fatalf("router-home label after takeover = %q, want %q", label, home2)
 	}
 }
 
+// TestRouterUpRefusesARouterWithoutAnOwnerLabel stages a router container
+// this berth did not start: its project and service are the router's, but it
+// carries no owner label at all.
 func TestRouterUpRefusesARouterWithoutAnOwnerLabel(t *testing.T) {
-	requireDocker(t)
-	id := suffix(t)
-	project := "berth-router-test-unowned-" + id
-	home := registrytest.TempDir(t)
-	state := newState(filepath.Join(home, "router"))
-	t.Cleanup(func() {
-		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
-	})
-
-	// A router container this berth did not start: its project and service
-	// are the router's, but it carries no owner label at all, as a real
-	// daemon reports one — the key absent from .Config.Labels, not empty.
-	dir := registrytest.TempDir(t)
-	compose := filepath.Join(dir, "compose.yaml")
+	w := newLiveRouter(t)
+	compose := filepath.Join(registrytest.TempDir(t), "compose.yaml")
 	if err := os.WriteFile(compose, []byte("services:\n  router:\n    image: busybox:1.37.0\n    init: true\n    command: [\"sleep\", \"600\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("docker", "compose", "-p", project, "-f", compose, "up", "--detach").CombinedOutput(); err != nil {
+	if out, err := exec.Command("docker", "compose", "-p", w.project, "-f", compose, "up", "--detach").CombinedOutput(); err != nil {
 		t.Fatalf("compose up: %v\n%s", err, out)
 	}
-	before := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
-	if label := dockerOutput(t, "inspect", before, "--format", "{{index .Config.Labels \""+router.RouterHomeLabel+"\"}}"); label != "" {
-		t.Fatalf("fixture router carries an owner label %q; it must carry none", label)
+	before := w.containerID("router")
+	if _, present := w.inspect(before).Config.Labels[router.RouterHomeLabel]; present {
+		t.Fatal("fixture router carries an owner label; it must carry none")
 	}
 
-	svc, err := router.New(router.Options{
-		State: state, Port: freePortForTest(t), Runner: osrun.New(), Logger: logger.Silent{},
-		ProjectName: project, Network: project, Environ: os.Environ(), Home: home, CommandName: "berth",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = svc.Ensure(context.Background())
+	svc, _ := w.router(freePortForTest(t), "", nil)
+	err := svc.Ensure(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "The shared router is not owned by this berth root.") {
 		t.Fatalf("got %v, want a refusal of a router without an owner label", err)
 	}
-	if after := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router"); after != before {
+	if after := w.containerID("router"); after != before {
 		t.Fatalf("expected the refusal to leave the router untouched, got %q then %q", before, after)
 	}
 }
@@ -491,8 +871,8 @@ func TestRouterUpRefusesARouterWithoutAnOwnerLabel(t *testing.T) {
 // the first. Uses a fake docker so the contention itself — real goroutines
 // against a real flock — is what is under test, not the daemon.
 func TestRouterLockContention(t *testing.T) {
-	dir := registrytest.TempDir(t)
-	state := newState(dir)
+	home := registrytest.TempDir(t)
+	state := layout.RouterStateFrom(home)
 	scope := lock.Scope{Target: state.LockPath, Description: "shared router"}
 
 	var mu sync.Mutex
@@ -507,8 +887,12 @@ func TestRouterLockContention(t *testing.T) {
 	// lock, so a second caller can be started exactly then — never a guess
 	// at how long the first will take to get there.
 	holdRouter := func(label string, hold time.Duration, acquired chan<- struct{}) error {
-		fake := &sequencedFake{label: label, hold: hold, record: record, state: state, port: 80}
-		svc, err := router.New(router.Options{State: state, Port: 80, Runner: fake, Logger: logger.Silent{}})
+		fake := &sequencedFake{label: label, hold: hold, record: record}
+		svc, err := router.New(router.Options{
+			State: state, Port: 8081, Runner: fake, Logger: logger.Silent{}, Home: home,
+			ControlHome: filepath.Join(home, "control-home"), PortRange: routerTestRange,
+			Probe: registrytest.FreeProbe{}, ModeOverride: "host", DockerHost: "unix:///var/run/docker.sock", ClientOS: "linux",
+		})
 		if err != nil {
 			return err
 		}
@@ -566,166 +950,32 @@ func TestRouterLockContention(t *testing.T) {
 	}
 }
 
-// sequencedFake answers as a healthy, current-protocol router (so Ensure's
-// fast path is taken) and records when its `up` call starts and ends, after
-// sleeping hold — the seam TestRouterLockContention uses to prove ordering.
+// sequencedFake answers as a Linux engine with no router yet, and records
+// when its `compose up` call starts and ends, after sleeping hold — the seam
+// TestRouterLockContention uses to prove ordering.
 type sequencedFake struct {
 	label  string
 	hold   time.Duration
 	record func(string)
-	state  layout.RouterLayout
-	port   int
 }
 
 // Which always answers true.
 func (f *sequencedFake) Which(string) bool { return true }
 
-// Run answers as a healthy, current-protocol router, recording when its `up`
-// call starts and ends around a sleep of f.hold.
+// Run answers `docker info` as a native Linux engine, every `compose ps` with
+// no container, and times `compose up` around a sleep of f.hold.
 func (f *sequencedFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 	args := spec.Args
 	switch {
-	case len(args) > 0 && args[0] == "compose" && containsArg(args, "up"):
+	case len(args) > 0 && args[0] == "info":
+		return run.Result{Stdout: `{"OSType":"linux","OperatingSystem":"Ubuntu 24.04 LTS","Name":"host","SecurityOptions":["name=seccomp"]}`}, nil
+	case len(args) > 0 && args[0] == "compose" && slices.Contains(args, "up"):
 		f.record("start:" + f.label)
 		time.Sleep(f.hold)
 		f.record("end:" + f.label)
 		return run.Result{}, nil
-	case len(args) > 0 && args[0] == "compose" && containsArg(args, "ps"):
-		return run.Result{Stdout: "c-" + args[len(args)-1]}, nil
-	case len(args) > 0 && args[0] == "inspect":
-		service := strings.TrimPrefix(args[1], "c-")
-		var doc router.ContainerInspect
-		switch service {
-		case router.RouterService:
-			doc = routerDoc(f.state.DynamicDir, f.port)
-		default:
-			doc = indexDoc(f.state.IndexDir)
-		}
-		encoded, err := json.Marshal([]router.ContainerInspect{doc})
-		if err != nil {
-			return run.Result{}, err
-		}
-		return run.Result{Stdout: string(encoded)}, nil
 	default:
 		return run.Result{}, nil
-	}
-}
-
-// TestRouterReconnectsLabelledWorktreeNetworks is #55: a worktree's own
-// dedicated router network, labelled as this router's own after the router
-// already exists (exactly the order `up` uses: runtime.Up creates and
-// labels the network before ConnectNetwork ever runs), gets reconnected by
-// the router's own next Ensure — not only right after a recreate, since
-// Ensure runs the reconnection step unconditionally. ConnectNetwork and
-// DisconnectNetwork are exercised directly too, proving both tolerate being
-// called against an already-attached or already-detached pair.
-func TestRouterReconnectsLabelledWorktreeNetworks(t *testing.T) {
-	requireDocker(t)
-	id := suffix(t)
-	project := "berth-router-test-reconnect-" + id
-	ns := "dev.berth-test-router-reconnect-" + id
-	dir := registrytest.TempDir(t)
-	port := freePortForTest(t)
-	state := newState(dir)
-	workNet := "berth-router-test-worktree-" + id
-
-	t.Cleanup(func() {
-		// The router container must be gone (or at least disconnected)
-		// before workNet can be removed — Docker refuses to remove a
-		// network with an active endpoint on it, and a fatal assertion
-		// between the Ensure below that attaches the router to workNet and
-		// this test's own explicit DisconnectNetwork call would otherwise
-		// leave it attached when cleanup runs.
-		exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run()
-		exec.Command("docker", "network", "rm", workNet).Run()
-		exec.Command("docker", "network", "rm", project).Run()
-	})
-
-	svc, err := router.New(router.Options{
-		State: state, Port: port, Runner: osrun.New(), Logger: logger.Silent{},
-		ProjectName: project, Network: project, LabelNamespace: ns, Environ: os.Environ(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if err := svc.Ensure(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	// Simulate what internal/backend's overrideDocument declares for a
-	// routed worktree: an owned network labelled with RoutedByLabel naming
-	// this router's own shared network.
-	dockerOutput(t, "network", "create", "--label", router.RoutedByLabel+"="+project, workNet)
-
-	routerID := dockerOutput(t, "compose", "-p", project, "ps", "-q", "router")
-	before := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
-	if strings.Contains(before, workNet) {
-		t.Fatalf("expected the router not to be attached to %s yet, got %s", workNet, before)
-	}
-
-	// Ensure's own reconnection step — the same one `router up` runs, and
-	// the same one an `up` racing a concurrent recreate relies on to
-	// self-heal (see ConnectNetwork's own comment) — must pick this up on
-	// its own, with nothing else calling ConnectNetwork directly.
-	if err := svc.Ensure(ctx); err != nil {
-		t.Fatal(err)
-	}
-	after := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
-	if !strings.Contains(after, workNet) {
-		t.Fatalf("expected the router to be reconnected to %s, got %s", workNet, after)
-	}
-
-	// ConnectNetwork itself tolerates an already-attached pair.
-	if err := svc.ConnectNetwork(ctx, workNet); err != nil {
-		t.Fatalf("ConnectNetwork on an already-attached network: %v", err)
-	}
-
-	// DisconnectNetwork detaches it, and tolerates being called again once
-	// it already has been — the "nothing to disconnect" case `down` and
-	// `worktree remove` rely on being harmless.
-	if err := svc.DisconnectNetwork(ctx, workNet); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.DisconnectNetwork(ctx, workNet); err != nil {
-		t.Fatalf("DisconnectNetwork on an already-detached network: %v", err)
-	}
-	detached := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
-	if strings.Contains(detached, workNet) {
-		t.Fatalf("expected the router to be disconnected from %s, got %s", workNet, detached)
-	}
-
-	// Verify itself does not report the disconnected-but-still-labelled
-	// network as a problem (found in review, round 2 of #55, superseding
-	// this test's own earlier assertion that it did): an unattached
-	// labelled network is not a stack problem. It is exactly the state a
-	// concurrent `down` or `worktree remove` can leave this router in for a
-	// moment — the window this test's own DisconnectNetwork call above
-	// simulates — or a worktree between its own `up` creating the network
-	// and this router's next Ensure reconnecting it; treating either as
-	// drift would make status and doctor fail, and could make Ensure
-	// force-recreate a perfectly healthy router, over a race it cannot win
-	// by recreating. Ensure's own reconnectWorktreeNetworks, exercised
-	// again below, is the actual repair.
-	problems, err := svc.Verify(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, problem := range problems {
-		if strings.Contains(problem, "attached to networks") {
-			t.Fatalf("expected Verify not to flag an unattached labelled network, got %v", problems)
-		}
-	}
-
-	// A repeated Ensure reconnects it again regardless, proving the repair
-	// path still works even though Verify itself no longer treats the gap
-	// as drift worth a warning or a force-recreate.
-	if err := svc.Ensure(ctx); err != nil {
-		t.Fatal(err)
-	}
-	reattached := dockerOutput(t, "inspect", routerID, "--format", "{{json .NetworkSettings.Networks}}")
-	if !strings.Contains(reattached, workNet) {
-		t.Fatalf("expected a repeated Ensure to reconnect %s again, got %s", workNet, reattached)
 	}
 }
 
@@ -741,10 +991,10 @@ func TestRouterUpTimesOutOnAHungDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state := newState(registrytest.TempDir(t))
+	home := registrytest.TempDir(t)
 	svc, err := router.New(router.Options{
-		State: state, Port: freePortForTest(t), Runner: osrun.New(), Logger: logger.Silent{},
-		ProjectName: "berth-router-test-" + id, Network: "berth-router-test-" + id,
+		State: layout.RouterStateFrom(home), Port: freePortForTest(t), Runner: osrun.New(), Logger: logger.Silent{},
+		ProjectName: "berth-router-test-" + id, ControlHome: filepath.Join(home, "control-home"),
 		Environ:  []string{"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")},
 		Timeouts: router.Timeouts{Probe: 300 * time.Millisecond, Start: 300 * time.Millisecond},
 	})

@@ -12,9 +12,11 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 
-	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/checkoutindex"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
@@ -26,79 +28,49 @@ import (
 	"github.com/sofired/berth/internal/worktree"
 )
 
-// routerFromContext builds the shared router's client from cctx's own
-// fields — its RouterState, RouterPort, Runner, Logger, Environ, Invocation
-// and CommandName, the same values newRouterService resolves from an Env —
-// so a verb that already has a CommandContext (DownWithContext,
-// RemoveWithContext) needs no Env of its own to reach the router. Unlike
-// sharedRouter (Up's own real Router), this is used only for calls that
-// take no lock of their own — RemoveWorktreeFragments needs only State, and
-// ConnectNetwork/DisconnectNetwork resolve the router's current container
-// id fresh on every call; Ensure/Verify are never reached through this path.
-// cctx.SharedRouter, when a test has set one, is returned as it is.
-func routerFromContext(cctx *CommandContext) (*router.Router, error) {
-	if cctx.SharedRouter != nil {
-		return cctx.SharedRouter, nil
-	}
-	return router.New(router.Options{
-		State:       cctx.RouterState,
-		Port:        cctx.RouterPort,
-		Runner:      cctx.Runner,
-		Logger:      cctx.Logger,
-		Environ:     cctx.Environ,
-		Invocation:  cctx.Invocation,
-		CommandName: cctx.CommandName,
-	})
-}
-
-// unrouteWorktree removes ref's dynamic-configuration fragments and
-// disconnects the shared router from its own dedicated network
-// (backend.RouterNetworkName), before the worktree's own teardown gets a
-// chance to remove that network itself: Compose's plain `down` (and Reap's
-// own network removal) leaves a network alone only while something is still
-// attached to it, and the router staying attached is exactly what would
-// otherwise keep the network around forever, or have Compose refuse its
-// removal outright (internal/backend's own activeEndpoints tolerance is the
-// safety net for the cases this ordering does not fully close).
+// unrouteWorktree removes ref's route files before the worktree's own
+// teardown, so no hostname keeps routing to ports the worktree is about to
+// give up. Called unconditionally by both DownWithContext and
+// RemoveWithContext — even for a worktree that was never routed at all, or
+// one the running process has no berth.toml for at all (`worktree remove`
+// can target a different worktree than the one it runs from) — because
+// removing nothing is success.
 //
-// Called unconditionally by both DownWithContext and RemoveWithContext —
-// even for a worktree that was never routed at all, or one the running
-// process has no berth.toml for at all (`worktree remove` can target a
-// different worktree than the one it runs from) — because both primitives
-// it calls tolerate "nothing there" as success on their own.
-//
-// Fragment removal failing is a hard failure: the fragment is the one thing
-// that actually keeps a route live in Traefik (the file provider reads
+// Failing to remove a file is a hard failure: the route file is the one
+// thing that actually keeps a route live in Traefik (the file provider reads
 // nothing else), so "unrouted after down" cannot be promised if removing it
-// silently failed. The router's own network disconnect is softer: a
-// failure there leaves at most a stale Docker attachment behind — no
-// traffic is routed because of it, since the fragment is already gone — so
-// it is only logged, and this worktree's own teardown still proceeds.
-// Compose then keeps the network while the router is on it, and the
-// router's own next Ensure reattaches to it, since it is still labelled; a
-// retried `down` or `worktree remove` is what disconnects and removes it.
-func unrouteWorktree(ctx context.Context, cctx *CommandContext, routerSvc *router.Router, ref worktree.Ref) error {
+// silently failed.
+func unrouteWorktree(cctx *CommandContext, ref worktree.Ref) error {
 	if err := router.RemoveWorktreeFragments(cctx.RouterState, ref.RepositoryID, ref.WorktreeID); err != nil {
-		return clierr.Newf("Could not remove this worktree's route fragments: %s", err)
-	}
-	network := backend.RouterNetworkName(ref.RepositoryID, ref.WorktreeID)
-	if err := routerSvc.DisconnectNetwork(ctx, network); err != nil {
-		// A cancellation still ends the command; only a Docker failure is
-		// downgraded to a warning, for the reason given above. Named as is,
-		// plus the recovery, on its own line after Docker's own stderr
-		// (DisconnectNetwork's own error already names the router and the
-		// network, the same way up.go's own ConnectNetwork call does, but
-		// on its own gives no next step — found in review): appending it
-		// after a `;` used to land it on whatever line Docker's own,
-		// possibly multi-line, stderr happened to end on, rather than
-		// reading as its own sentence, and it named no specific action to
-		// retry — found in review, round 2 of #55.
-		if ctx.Err() != nil {
-			return err
-		}
-		cctx.Logger.Warn(fmt.Sprintf("%s\nA later '%s down' or '%s worktree remove' retries disconnecting this network.", err, cctx.CommandName, cctx.CommandName))
+		return clierr.Newf("Could not remove this worktree's route files: %s", err)
 	}
 	return nil
+}
+
+// controlHomeRegistrations is router.Registrations over a control home's
+// records, read without the registry lock: every registry writer replaces a
+// record atomically, so a lock-free read sees a record whole or not at all.
+type controlHomeRegistrations struct{ controlHome string }
+
+// Lookup reads repositoryID's record of worktreeID afresh. A repository
+// with no directory in this control home is UnknownRepository: the router's
+// state is per berth root while registries are per control home, so a route
+// file naming it may belong to another control home.
+func (c controlHomeRegistrations) Lookup(repositoryID, worktreeID string) (router.Registration, error) {
+	if _, err := os.Stat(layout.RepositoryLayout(c.controlHome, repositoryID).RepositoryDir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return router.Registration{Status: router.UnknownRepository}, nil
+		}
+		return router.Registration{}, err
+	}
+	record, err := registry.NewStore(c.controlHome, repositoryID).Find(worktreeID)
+	if err != nil {
+		return router.Registration{}, err
+	}
+	if record == nil {
+		return router.Registration{Status: router.Unregistered}, nil
+	}
+	return router.Registration{Status: router.Registered, Ports: record.Ports}, nil
 }
 
 // newRouterService builds the shared router directly from env, resolving
@@ -134,9 +106,23 @@ func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayo
 
 // routerServiceWith is the shared router built from a berth root, its
 // state and a port resolution already made — Context's own, for `up`, so
-// one command never resolves BERTH_HOME or reads settings.toml twice (#80,
-// #79).
+// one command never resolves BERTH_HOME or reads the router port twice
+// (#80, #79). The control home, the allocation range and the mode override
+// come from the same berth root.
 func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolved settings.PortResolution) (*router.Router, error) {
+	controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
+	if err != nil {
+		return nil, err
+	}
+	portRange, err := settings.ResolvePortRange(home)
+	if err != nil {
+		return nil, err
+	}
+	mode, err := settings.ResolveRouterMode(home)
+	if err != nil {
+		return nil, err
+	}
+	dockerHost, _ := env.Getenv("DOCKER_HOST")
 	return router.New(router.Options{
 		State:        state,
 		Port:         resolved.Port,
@@ -149,7 +135,14 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 		// Home is the berth root the caller already checked (checkedHome),
 		// stamped on the router's own containers so a later Ensure — from
 		// this root or another one — can tell them apart (#82).
-		Home: home,
+		Home:          home,
+		ControlHome:   controlHome,
+		Registrations: controlHomeRegistrations{controlHome: controlHome},
+		PortRange:     portRange,
+		Probe:         env.PortProbe,
+		ModeOverride:  mode,
+		DockerHost:    dockerHost,
+		ClientOS:      env.OS,
 	})
 }
 
@@ -163,7 +156,16 @@ func routerServiceForDown(env *Env) (*router.Router, error) {
 	if err != nil {
 		return nil, err
 	}
-	return routerServiceWith(env, home, layout.RouterStateFrom(home), settings.PortResolution{Port: layout.DefaultRouterPort})
+	return router.New(router.Options{
+		State:       layout.RouterStateFrom(home),
+		Port:        layout.DefaultRouterPort,
+		Runner:      env.Runner,
+		Logger:      env.Logger,
+		Environ:     env.Environ,
+		Invocation:  env.Invocation,
+		CommandName: env.CommandName,
+		Home:        home,
+	})
 }
 
 // routerHold holds the router's lock alone around action: acquire, run,
@@ -211,28 +213,13 @@ type sharedRouter struct {
 // Port returns the shared router's port.
 func (r sharedRouter) Port() int { return r.svc.Port }
 
-// Network returns the shared router's Docker network name.
-func (r sharedRouter) Network() string { return r.svc.Network }
-
-// ConnectNetwork attaches the shared router to network, delegating to the
-// real router.Router.
-func (r sharedRouter) ConnectNetwork(ctx context.Context, network string) error {
-	return r.svc.ConnectNetwork(ctx, network)
-}
-
-// DisconnectNetwork detaches the shared router from network, delegating to
-// the real router.Router.
-func (r sharedRouter) DisconnectNetwork(ctx context.Context, network string) error {
-	return r.svc.DisconnectNetwork(ctx, network)
-}
-
 // Ensure brings the shared router up, exactly as `router up` does.
 func (r sharedRouter) Ensure(ctx context.Context) error {
 	return ensureSharedRouter(ctx, r.env, r.svc, r.state)
 }
 
-// RouterUp is `router up`: start the shared router and verify its hardened
-// configuration.
+// RouterUp is `router up`: start the shared router and wait until it is
+// healthy.
 func RouterUp(ctx context.Context, env *Env) error {
 	home, userHome, err := checkedHome(env.Getenv)
 	if err != nil {
@@ -277,8 +264,19 @@ func RouterUp(ctx context.Context, env *Env) error {
 		Runner: env.Runner, Logger: env.Logger, Invocation: env.Invocation,
 	})
 	index.RefreshBestEffort(ctx, "router up")
-	env.Logger.Info(fmt.Sprintf("Router is up on 127.0.0.1:%d (network %s); index at %s.", svc.Port, svc.Network, svc.IndexURL))
+	env.Logger.Info(fmt.Sprintf("Router is up on 127.0.0.1:%d%s; index at %s.", svc.Port, routerModeNote(ctx, svc), svc.IndexURL))
 	return nil
+}
+
+// routerModeNote is " (host mode)" or " (bridge mode)" for the router that
+// just started, read off its container; "" when it cannot be read, which is
+// no reason to fail a start that succeeded.
+func routerModeNote(ctx context.Context, svc *router.Router) string {
+	running, err := svc.Running(ctx)
+	if err != nil || running.Mode == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (%s mode)", running.Mode)
 }
 
 // RouterStatus is `router status`: report whether the shared router is

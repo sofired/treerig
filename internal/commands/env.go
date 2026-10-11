@@ -9,6 +9,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/text"
@@ -38,6 +39,10 @@ type Env struct {
 	// ConfigPath is --config; empty means the nearest berth.toml above Cwd.
 	ConfigPath string
 	Runner     run.Runner
+	// PortProbe decides whether a port is free, for allocation and for the
+	// check before the router starts; nil asks the operating system
+	// (ports.LoopbackProbe). Tests set a fake so they bind nothing.
+	PortProbe ports.Probe
 	// Table identifies and inspects processes for lock recovery's survivor
 	// scan (UnlockGlobal, UnlockWithContext); nil defaults to
 	// procid.Platform(), the same default lock.Options.Table documents.

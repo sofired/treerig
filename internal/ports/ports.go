@@ -13,6 +13,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sofired/berth/internal/layout"
@@ -58,6 +59,37 @@ func (LoopbackProbe) Free(ctx context.Context, port int) bool {
 	}
 	_ = conn.Close()
 	return false
+}
+
+// DialProbe is the Probe for a port berth does not allocate but must find
+// free before it starts something on it (the router's own, which may be
+// below 1024): it only dials 127.0.0.1:port, because a bind to a privileged
+// port fails for an unprivileged user whether or not anything holds it. A
+// refused connection (ECONNREFUSED) proves the port free; a connection that
+// succeeds, times out or fails any other way (a filtered port, an
+// unreachable network) proves nothing and counts as busy.
+type DialProbe struct{}
+
+// Free is Probe's Free.
+func (DialProbe) Free(ctx context.Context, port int) bool {
+	dialer := net.Dialer{Timeout: dialTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return ctx.Err() == nil && errors.Is(err, syscall.ECONNREFUSED)
+	}
+	_ = conn.Close()
+	return false
+}
+
+// LookupHint is how to find the process holding port, for the operating
+// system goos names (runtime.GOOS, passed in from cmd/berth's Env): `ss` on
+// Linux, `lsof` elsewhere. On Docker Desktop and OrbStack these name the VM
+// backend rather than a container; `docker ps` is the way there.
+func LookupHint(goos string, port int) string {
+	if goos == "linux" {
+		return "find it with: ss -ltnp 'sport = :" + strconv.Itoa(port) + "'"
+	}
+	return "find it with: lsof -nP -iTCP:" + strconv.Itoa(port) + " -sTCP:LISTEN"
 }
 
 // MaxBusyProbes caps how many candidate ports one Pick asks the probe about.

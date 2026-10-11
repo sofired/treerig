@@ -19,14 +19,14 @@ import (
 // intPtr returns a pointer to a copy of n, for taking the address of a literal.
 func intPtr(n int) *int { return &n }
 
-// routedRuntime is newRuntime plus routes and a router network.
+// routedRuntime is newRuntime plus routes.
 func routedRuntime(t *testing.T, fake *dockerFake, routes []RouteSpec) (*Compose, string) {
 	t.Helper()
 	controlHome := t.TempDir()
 	rt := NewCompose(Options{
 		ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
 		ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
-		ControlHome: controlHome, LabelNamespace: ns, Routes: routes, RouterNetwork: "berth-router",
+		ControlHome: controlHome, LabelNamespace: ns, Routes: routes,
 		Runner: fake, Logger: logger.Silent{}, WaitTimeoutSeconds: intPtr(45),
 	})
 	return rt, controlHome
@@ -195,17 +195,8 @@ func TestComposeUp(t *testing.T) {
 		if labels := build["labels"].(map[string]any); !reflectEqual(labels, ownership) {
 			t.Fatalf("build.labels = %v, want %v", labels, ownership)
 		}
-		builderNetworks, ok := builder["networks"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected builder to be routed too (joining the router network), got %v", builder)
-		}
-		routerEntry, ok := builderNetworks[routerNetworkKey].(map[string]any)
-		if !ok {
-			t.Fatalf("expected builder to join the router network, got %v", builderNetworks)
-		}
-		wantAlias := []any{project + "-builder"}
-		if aliases := routerEntry["aliases"]; !reflectEqual(aliases, wantAlias) {
-			t.Fatalf("builder router aliases = %v, want %v", aliases, wantAlias)
+		if _, has := builder["networks"]; has {
+			t.Fatalf("expected the routed builder to declare no networks, got %v", builder["networks"])
 		}
 		api := services["api"].(map[string]any)
 		if _, ok := api["build"]; ok {
@@ -228,19 +219,16 @@ func TestComposeUp(t *testing.T) {
 		}
 	})
 
-	// Per #55: a routed service joins, under an alias, this worktree's own
-	// owned router network — see override_network_test.go for the dedicated
-	// pinning tests of that shape. This is the same corpus scenario
-	// TestOverrideCorpus's "routing" cases skip the byte comparison for,
-	// exercised here end to end through
-	// Up and the override file it writes.
-	t.Run("routes declared services onto the worktree's own router network, each under its own alias, leaving the rest alone", func(t *testing.T) {
+	// A routed service publishes its pinned loopback port and is otherwise
+	// left alone; override_routes_test.go pins the shape. This exercises it
+	// end to end through Up and the override file it writes.
+	t.Run("publishes declared services on loopback, with no network or alias, leaving the rest alone", func(t *testing.T) {
 		fake := newFake()
 		port := 9091
 		path := "/v2"
 		routes := []RouteSpec{
-			{Service: "api", Subdomain: ""},
-			{Service: "worker", Subdomain: "jobs", Path: &path, Port: &port},
+			{Service: "api", Subdomain: "", HostPort: 20001},
+			{Service: "worker", Subdomain: "jobs", Path: &path, Port: &port, HostPort: 20002},
 		}
 		rt, controlHome := routedRuntime(t, fake, routes)
 		ensureHome(t, controlHome)
@@ -256,16 +244,18 @@ func TestComposeUp(t *testing.T) {
 		if labels := api["labels"].(map[string]any); !reflectEqual(labels, wantAPILabels) {
 			t.Fatalf("api labels = %v, want %v", labels, wantAPILabels)
 		}
-		wantAPINetworks := map[string]any{"default": map[string]any{}, routerNetworkKey: map[string]any{"aliases": []any{project + "-api"}}}
-		if networks := api["networks"].(map[string]any); !reflectEqual(networks, wantAPINetworks) {
-			t.Fatalf("api networks = %v, want %v", networks, wantAPINetworks)
+		for _, name := range []string{"api", "worker"} {
+			entry := services[name].(map[string]any)
+			if _, has := entry["networks"]; has {
+				t.Fatalf("%s declares networks %v; want none", name, entry["networks"])
+			}
+			if ports, ok := entry["ports"].([]any); !ok || len(ports) != 1 {
+				t.Fatalf("%s ports = %v, want one loopback entry", name, entry["ports"])
+			}
 		}
-
-		worker := services["worker"].(map[string]any)
-		workerNetworks := worker["networks"].(map[string]any)
-		workerRouterEntry := workerNetworks[routerNetworkKey].(map[string]any)
-		if got, want := workerRouterEntry["aliases"], []any{project + "-worker"}; !reflectEqual(got, want) {
-			t.Fatalf("worker aliases = %v, want %v", got, want)
+		workerPort := services["worker"].(map[string]any)["ports"].([]any)[0].(map[string]any)
+		if workerPort["published"] != "20002" || workerPort["host_ip"] != "127.0.0.1" || workerPort["target"] != float64(9091) {
+			t.Fatalf("worker port = %v", workerPort)
 		}
 
 		quiet := services["quiet"].(map[string]any)
@@ -273,21 +263,14 @@ func TestComposeUp(t *testing.T) {
 		if quietLabels[ns+".managed"] != "true" {
 			t.Fatalf("expected quiet still stamped, got %v", quietLabels)
 		}
-		if _, routed := quiet["networks"]; routed {
-			t.Fatalf("expected quiet to declare no networks override (not routed), got %v", quiet["networks"])
+		if _, routed := quiet["ports"]; routed {
+			t.Fatalf("expected quiet to publish nothing (not routed), got %v", quiet["ports"])
 		}
 
-		networks := doc["networks"].(map[string]any)
-		routerNetwork := networks[routerNetworkKey].(map[string]any)
-		if _, external := routerNetwork["external"]; external {
-			t.Fatal("router network is external; want owned")
-		}
-		if got, want := routerNetwork["name"], RouterNetworkName(ref.RepositoryID, ref.WorktreeID); got != want {
-			t.Fatalf("networks[%s].name = %v, want %v", routerNetworkKey, got, want)
-		}
-		routerLabels := routerNetwork["labels"].(map[string]any)
-		if got, want := routerLabels[routedByLabel], "berth-router"; got != want {
-			t.Fatalf("networks[%s].labels[%s] = %v, want %v", routerNetworkKey, routedByLabel, got, want)
+		for key := range doc["networks"].(map[string]any) {
+			if strings.Contains(key, "router") {
+				t.Fatalf("unexpected router network %q in the override", key)
+			}
 		}
 	})
 
@@ -342,7 +325,7 @@ func TestComposeUp(t *testing.T) {
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
 			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
-			ControlHome: controlHome, LabelNamespace: ns, RouterNetwork: "berth-router",
+			ControlHome: controlHome, LabelNamespace: ns,
 			Runner: fake, Logger: logger.Silent{},
 		})
 		ensureHome(t, controlHome)
@@ -364,7 +347,7 @@ func TestComposeUp(t *testing.T) {
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
 			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
-			ControlHome: controlHome, LabelNamespace: ns, RouterNetwork: "berth-router",
+			ControlHome: controlHome, LabelNamespace: ns,
 			Runner: fake, Logger: logger.Silent{}, WaitTimeoutSeconds: intPtr(0),
 		})
 		ensureHome(t, controlHome)

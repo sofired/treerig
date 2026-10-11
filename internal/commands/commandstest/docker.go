@@ -35,12 +35,6 @@ type Docker struct {
 	// before runs once, ahead of the first docker call, outside the lock: the
 	// seam a test uses to let a rival act after the target was resolved.
 	before func()
-	// disconnectExitCode/disconnectStderr make every `network disconnect`
-	// call answer this way instead of succeeding — FailNetworkDisconnect's
-	// own state, for a test pinning unrouteWorktree's warn-and-continue
-	// path (internal/commands/router.go).
-	disconnectExitCode int
-	disconnectStderr   string
 	// removeNetworkExitCode/removeNetworkStderr make every `network rm`
 	// call answer this way instead of succeeding, without deleting the
 	// resource — FailNetworkRemove's own state, for a test pinning Reap's
@@ -111,14 +105,6 @@ func (d *Docker) SetServiceConfig(service, key string, value any) {
 		d.serviceConfig[service] = map[string]any{}
 	}
 	d.serviceConfig[service][key] = value
-}
-
-// FailNetworkDisconnect makes every subsequent `docker network disconnect`
-// call answer with exitCode and stderr instead of succeeding.
-func (d *Docker) FailNetworkDisconnect(exitCode int, stderr string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.disconnectExitCode, d.disconnectStderr = exitCode, stderr
 }
 
 // FailNetworkRemove makes every subsequent `docker network rm` call answer
@@ -312,6 +298,16 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 	args := spec.Args
 	ok := func(stdout string) (run.Result, error) { return run.Finish(spec, run.Result{Stdout: stdout}) }
 
+	// The engine facts mode detection reads: a native, rootful Linux Engine
+	// reached over its default socket.
+	if len(args) > 0 && args[0] == "info" {
+		return ok(`{"Name":"cc-worker","OperatingSystem":"Ubuntu 24.04.4 LTS","OSType":"linux",` +
+			`"SecurityOptions":["name=apparmor","name=seccomp,profile=builtin","name=cgroupns"]}`)
+	}
+	if len(args) > 1 && args[0] == "context" && args[1] == "inspect" {
+		return ok("unix:///var/run/docker.sock\n")
+	}
+
 	joined := strings.Join(args, " ")
 	for i := range d.errors {
 		if failure := &d.errors[i]; failure.times != 0 && strings.Contains(joined, failure.contains) {
@@ -368,10 +364,6 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			return ok("")
 		}
 		return ok("")
-	}
-
-	if len(args) > 1 && args[0] == "network" && args[1] == "disconnect" && d.disconnectExitCode != 0 {
-		return run.Finish(spec, run.Result{Stderr: d.disconnectStderr, ExitCode: d.disconnectExitCode})
 	}
 
 	kind := map[string]string{"ps": "container", "volume": "volume", "network": "network", "image": "image", "inspect": "container", "rm": "container"}[args[0]]

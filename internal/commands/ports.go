@@ -13,6 +13,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -89,17 +90,6 @@ type portState struct {
 // registration accounts for it.
 const anotherProcess = "another process"
 
-// processLookupHint is how to find the process holding port, for the OS goos
-// names (runtime.GOOS, passed in from cmd/berth's Env): `ss` on Linux, `lsof`
-// elsewhere. On Docker Desktop and OrbStack these name the VM backend rather
-// than a container; `docker ps` is the way there.
-func processLookupHint(goos string, port int) string {
-	if goos == "linux" {
-		return fmt.Sprintf("find it with: ss -ltnp 'sport = :%d'", port)
-	}
-	return fmt.Sprintf("find it with: lsof -nP -iTCP:%d -sTCP:LISTEN", port)
-}
-
 // describeHolders joins holders for a message, giving "another process" its
 // lookup hint.
 func describeHolders(goos string, port int, holders []string) string {
@@ -107,7 +97,7 @@ func describeHolders(goos string, port int, holders []string) string {
 	for i, holder := range holders {
 		described[i] = holder
 		if holder == anotherProcess {
-			described[i] = fmt.Sprintf("%s (%s)", holder, processLookupHint(goos, port))
+			described[i] = fmt.Sprintf("%s (%s)", holder, ports.LookupHint(goos, port))
 		}
 	}
 	return strings.Join(described, " and ")
@@ -318,8 +308,13 @@ func allocatePorts(ctx context.Context, cctx *CommandContext, lister publisherLi
 			}
 		}
 	}
+	reserved, err := routerReservedPorts(cctx)
+	if err != nil {
+		return nil, err
+	}
 	result, err := store.SyncPorts(ctx, ref.WorktreeID, ref.Slug, cctx.writer(), registry.PortPlan{
 		Services: services, Reallocate: options.ReallocatePorts, Range: cctx.portRange(), Probe: cctx.portProbe(),
+		Reserved: reserved,
 	})
 	if err != nil {
 		return nil, err
@@ -367,4 +362,16 @@ func releaseDroppedPorts(ctx context.Context, cctx *CommandContext, ref worktree
 		Services: routed, Release: true, Range: cctx.portRange(), Probe: cctx.portProbe(),
 	})
 	return err
+}
+
+// routerReservedPorts are the router's own ports (the index's and, in host
+// mode, the ping's) from its state file. They are in no registration, so
+// every allocator beside the registry, a worktree's and a shared service's
+// alike, passes them as Reserved and skips them like a taken port.
+func routerReservedPorts(cctx *CommandContext) ([]int, error) {
+	state, _, err := router.ReadState(cctx.RouterState)
+	if err != nil {
+		return nil, err
+	}
+	return state.Reserved(), nil
 }

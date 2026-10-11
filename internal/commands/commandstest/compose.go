@@ -310,8 +310,8 @@ func (d *Docker) handleEngine(spec run.Spec) (run.Result, bool) {
 		return done(spec, ""), true
 	case len(args) >= 4 && args[0] == "network" && args[1] == "disconnect":
 		container, network := args[len(args)-1], args[len(args)-2]
-		if _, present := d.resources["container"][container]; !present || d.disconnectExitCode != 0 {
-			// Not a container this model knows, or an injected failure: the legacy answer applies.
+		if _, present := d.resources["container"][container]; !present {
+			// Not a container this model knows: the legacy answer applies.
 			return run.Result{}, false
 		}
 		id, present := d.networkByRef(network)

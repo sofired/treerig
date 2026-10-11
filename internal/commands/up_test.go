@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,7 +14,9 @@ import (
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
 	"github.com/sofired/berth/internal/config"
+	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run"
 )
 
@@ -40,7 +43,7 @@ func TestUpWithContext(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
 
 		result, err := up(t, tc, router, index, commands.UpOptions{})
@@ -104,7 +107,7 @@ func TestUpWithContext(t *testing.T) {
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
 		tc.Loaded.Config.Hooks = config.Hooks{Prepare: ns("./hooks/prepare"), Seed: ns("./hooks/seed")}
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
 
 		first, err := up(t, tc, router, index, commands.UpOptions{})
@@ -124,56 +127,157 @@ func TestUpWithContext(t *testing.T) {
 		}
 	})
 
-	// Found in review, round 3 of #55: a worktree that drops its last
-	// [service.<name>] route used to leave the shared router connected to its
-	// now-unused dedicated network forever — nothing ever called
-	// DisconnectNetwork for it, since that only ran on the connect side.
-	t.Run("disconnects the shared router from its own network when a later up declares no routes at all", func(t *testing.T) {
+	t.Run("writes each route file to berth-loopback at the port recorded in the registration", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
-		router := commandstest.NewFakeRouter(80, "berth-router")
-		index := &commandstest.FakeIndex{}
+		fakeRouter := commandstest.NewFakeRouter(80)
 
-		if _, err := up(t, tc, router, index, commands.UpOptions{}); err != nil {
+		result, err := up(t, tc, fakeRouter, &commandstest.FakeIndex{}, commands.UpOptions{})
+		if err != nil {
+			t.Fatalf("Up: %v", err)
+		}
+		record, err := tc.Registry.Store(result.Registration.RepositoryID).Find(result.Registration.WorktreeID)
+		if err != nil || record == nil {
+			t.Fatalf("record: %v, %v", record, err)
+		}
+		if len(record.Ports) != 2 {
+			t.Fatalf("recorded ports = %v, want one per routed service", record.Ports)
+		}
+		for service, port := range record.Ports {
+			path := router.FragmentPath(tc.RouterState, record.RepositoryID, record.WorktreeID, service)
+			doc, err := router.ReadFragment(tc.RouterState, path)
+			if err != nil {
+				t.Fatalf("%s: %v", service, err)
+			}
+			if got := doc.TargetPort(); got != port {
+				t.Errorf("%s's route file targets port %d, the registration records %d", service, got, port)
+			}
+			for _, server := range doc.HTTP.Services {
+				if want := "http://berth-loopback:" + strconv.Itoa(port); server.LoadBalancer.Servers[0].URL != want {
+					t.Errorf("%s's target = %q, want %q", service, server.LoadBalancer.Servers[0].URL, want)
+				}
+			}
+		}
+	})
+
+	t.Run("removes the route files of services no longer declared, and keeps the others", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+		fakeRouter := commandstest.NewFakeRouter(80)
+
+		first, err := up(t, tc, fakeRouter, &commandstest.FakeIndex{}, commands.UpOptions{})
+		if err != nil {
 			t.Fatalf("first Up: %v", err)
 		}
-		connected := router.Connected()
-		if len(connected) != 1 {
-			t.Fatalf("expected exactly one ConnectNetwork call, got %v", connected)
+		kept, dropped := tc.Loaded.Config.Service[0].Name, tc.Loaded.Config.Service[1].Name
+		tc.Loaded.Config.Service = tc.Loaded.Config.Service[:1]
+		if _, err := up(t, tc, fakeRouter, &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+			t.Fatalf("second Up: %v", err)
 		}
 
-		// Found in review, round 4 of #55: a first cut disconnected the
-		// network before removing this worktree's stale fragments, leaving
-		// a window where a still-live fragment's rule pointed at a network
-		// the router had already left, rather than the fragment simply
-		// being gone. This checks the order directly, at the exact moment
-		// DisconnectNetwork is called: every fragment under the dynamic
-		// directory must already be gone, matching unrouteWorktree's own
-		// order for `down` and `worktree remove` (fragments first, network
-		// second).
-		var remainingAtDisconnect []os.DirEntry
-		router.BeforeDisconnectNetwork(func() {
-			entries, err := os.ReadDir(tc.RouterState.DynamicDir)
-			if err != nil && !os.IsNotExist(err) {
-				t.Fatal(err)
-			}
-			remainingAtDisconnect = entries
-		})
+		repo, wt := first.Registration.RepositoryID, first.Registration.WorktreeID
+		if _, err := os.Stat(router.FragmentPath(tc.RouterState, repo, wt, kept)); err != nil {
+			t.Errorf("the declared service's route file should remain: %v", err)
+		}
+		if _, err := os.Stat(router.FragmentPath(tc.RouterState, repo, wt, dropped)); !os.IsNotExist(err) {
+			t.Errorf("the dropped service's route file should be gone, stat err = %v", err)
+		}
+	})
 
+	t.Run("removes every route file when a later up declares no routes at all", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+		fakeRouter := commandstest.NewFakeRouter(80)
+
+		if _, err := up(t, tc, fakeRouter, &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+			t.Fatalf("first Up: %v", err)
+		}
 		tc.Loaded.Config.Service = nil
-		if _, err := up(t, tc, router, index, commands.UpOptions{}); err != nil {
+		if _, err := up(t, tc, fakeRouter, &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
 			t.Fatalf("second Up (no routes): %v", err)
 		}
-		if got := router.Connected(); len(got) != 1 {
-			t.Fatalf("expected no additional ConnectNetwork call once routes dropped to none, got %v", got)
+		entries, err := os.ReadDir(tc.RouterState.DynamicDir)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
 		}
-		disconnected := router.Disconnected()
-		if len(disconnected) != 1 || disconnected[0] != connected[0] {
-			t.Fatalf("expected DisconnectNetwork called once with %q, got %v", connected[0], disconnected)
+		if len(entries) != 0 {
+			t.Fatalf("expected no route files left, got %v", entries)
 		}
-		if len(remainingAtDisconnect) != 0 {
-			t.Fatalf("expected every stale fragment already removed before DisconnectNetwork ran, got %v", remainingAtDisconnect)
+		for _, call := range w.Docker.Calls() {
+			if strings.HasPrefix(call, "network connect ") || strings.HasPrefix(call, "network disconnect ") {
+				t.Fatalf("up must not connect or disconnect networks, saw %q", call)
+			}
+		}
+	})
+
+	t.Run("keeps a still-declared service's route file in place on a re-up instead of removing and rewriting it", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+		fakeRouter := commandstest.NewFakeRouter(80)
+
+		first, err := up(t, tc, fakeRouter, &commandstest.FakeIndex{}, commands.UpOptions{})
+		if err != nil {
+			t.Fatalf("first Up: %v", err)
+		}
+		path := router.FragmentPath(tc.RouterState, first.Registration.RepositoryID, first.Registration.WorktreeID, tc.Loaded.Config.Service[0].Name)
+		before, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Observed from inside the second up, once its compose up has run
+		// and before it returns: the file must exist at every point.
+		missing := false
+		fakeRouter.BeforeEnsure(func() {
+			if _, err := os.Stat(path); err != nil {
+				missing = true
+			}
+		})
+		if _, err := up(t, tc, fakeRouter, &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+			t.Fatalf("second Up: %v", err)
+		}
+		after, err := os.Stat(path)
+		if err != nil || missing {
+			t.Fatalf("route file missing during or after the re-up: %v (missing %v)", err, missing)
+		}
+		if after.Size() != before.Size() {
+			t.Errorf("route file changed size across a re-up with the same ports: %d -> %d", before.Size(), after.Size())
+		}
+	})
+
+	t.Run("allocates worktree ports clear of the router's index and ping ports", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+		// A four-port range holding the router's two ports leaves exactly the
+		// other two for the two routed services.
+		tc.PortRange = layout.PortRange{Low: 30000, High: 30003}
+		if err := os.MkdirAll(tc.RouterState.StateDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		state := `{"version":1,"indexPort":30000,"pingPort":30001}`
+		if err := os.WriteFile(tc.RouterState.StateFile, []byte(state), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		result, err := up(t, tc, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{})
+		if err != nil {
+			t.Fatalf("Up: %v", err)
+		}
+		record, err := tc.Registry.Store(result.Registration.RepositoryID).Find(result.Registration.WorktreeID)
+		if err != nil || record == nil {
+			t.Fatalf("record: %v, %v", record, err)
+		}
+		got := []int{}
+		for _, port := range record.Ports {
+			got = append(got, port)
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, []int{30002, 30003}) {
+			t.Fatalf("service ports = %v, want [30002 30003]: the router's 30000 and 30001 are reserved", got)
 		}
 	})
 
@@ -189,7 +293,7 @@ func TestUpWithContext(t *testing.T) {
 			}
 			return originalHandler(ctx, spec)
 		}
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
@@ -213,7 +317,7 @@ func TestUpWithContext(t *testing.T) {
 		ref := w.Register(w.Root, acme, "feature-login", "dev.predecessor", "api", "mail")
 		tc := w.Context("", acme, nil) // config's own namespace defaults to brand.LabelNamespace ("dev.berth")
 		givePorts(tc)
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
@@ -229,7 +333,7 @@ func TestUpWithContext(t *testing.T) {
 	t.Run("refuses when the registration was removed while waiting for the router", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		router.BeforeEnsure(func() {
 			identity, err := tc.Registry.Identities.Inspect(context.Background(), tc.Registry.Identities.Root, registry.InspectOptions{})
 			if err != nil || identity == nil {
@@ -248,7 +352,7 @@ func TestUpWithContext(t *testing.T) {
 	t.Run("refuses when the registration was relabelled while waiting for the router", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		relabelled := false
 		router.BeforeEnsure(func() {
 			if relabelled {
@@ -273,7 +377,7 @@ func TestUpWithContext(t *testing.T) {
 	t.Run("refuses when the checkout's identity markers changed while waiting for the router", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		router.BeforeEnsure(func() {
 			identity, err := tc.Registry.Identities.Inspect(context.Background(), tc.Registry.Identities.Root, registry.InspectOptions{})
 			if err != nil || identity == nil {
@@ -304,7 +408,7 @@ func TestUpWithContext(t *testing.T) {
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
 		tc.Loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb"}
-		router := commandstest.NewFakeRouter(80, "berth-router")
+		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})

@@ -21,50 +21,11 @@ import (
 // DefaultWaitTimeoutSeconds is how long `up --wait` waits for health before failing.
 const DefaultWaitTimeoutSeconds = 120
 
-// routedByLabel mirrors internal/router's own RoutedByLabel constant. Kept
-// as a local, decoupled mirror rather than an import of internal/router:
-// this package's overrideDocument is the wire protocol between a worktree's
-// own Compose project and the shared router, not a consumer of the router
-// package's own
-// types, and the two packages' tests already build their fixtures against
-// their own copies of the same literal — see internal/router/stack.go's own
-// RoutedByLabel comment for why its value is fixed regardless of a
-// project's configured label-namespace override. As of protocol 5 it labels
-// a worktree's own dedicated router network (see RouterNetworkName), not a
-// container: Traefik's Docker-provider discovery is gone, so no container
-// label reaches Traefik at all any more.
-const routedByLabel = brand.LabelNamespace + ".router"
-
-// routerNetworkKey is brand.RouterNetworkKey — see its own comment for what
-// it is and why it lives there, as a named storage identifier rather than a
-// literal repeated in this file. Kept as a local, package-level name (found
-// in review of #55, round 2) since every use below reads more plainly as
-// routerNetworkKey than as the fully qualified brand.RouterNetworkKey.
-const routerNetworkKey = brand.RouterNetworkKey
-
-// RouterNetworkName is the name of one worktree's own dedicated router
-// network: the network its routed services join, and the one the shared
-// router connects to explicitly (internal/router's ConnectNetwork). Pure and
-// derived from the two IDs alone — never from a loaded config — because
-// `worktree remove` (internal/commands/remove.go) can target a worktree
-// other than the one the process is running from, with no berth.toml of its
-// own in reach; it must still be able to name the exact network to
-// disconnect the router from and let Compose remove. The name itself is
-// layout.WorktreeRouterNetwork's, which internal/router also uses.
-func RouterNetworkName(repositoryID, worktreeID string) string {
-	return layout.WorktreeRouterNetwork(repositoryID, worktreeID)
-}
-
-// RouteName is the Traefik router/service name — and the Docker network
-// alias — one routed service carries: <project>-<service>, the same string
-// whether it is computed here (for the network alias overrideDocument gives
-// the service) or by whoever writes that route's dynamic-configuration
-// fragment (internal/commands's UpWithContext, via internal/router's
-// WriteFragment). Sharing one function is what keeps the alias and the
-// fragment's own router/service name from ever independently drifting apart
-// — and, since the router container is simultaneously attached to every
-// worktree's own network at once, what keeps every alias collision-free
-// across all of them: this name already is, being namespaced by project.
+// RouteName is the Traefik router/service name one routed service carries:
+// <project>-<service>, namespaced by the worktree's Compose project so it is
+// unique across every worktree the shared router serves. It names the router
+// and the service in the route file internal/commands's UpWithContext writes
+// (via internal/router's WriteFragment).
 func RouteName(ref worktree.Ref, route RouteSpec) string {
 	return layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID) + "-" + route.Service
 }
@@ -332,29 +293,6 @@ func usesDefaultNetwork(service *jsonKV) bool {
 	}
 }
 
-// serviceNetworks is the networks a service is on, as Compose normalized
-// them; no key (or an unrecognized shape) means the implicit default.
-func serviceNetworks(service *jsonKV) *jsonKV {
-	networks, present := service.get("networks")
-	if present {
-		if array, ok := networks.([]any); ok {
-			result := newJSONKV()
-			for _, item := range array {
-				result.set(networkNameString(item), newJSONKV())
-			}
-			return result
-		}
-		if obj, ok := networks.(*jsonKV); ok && networks != nil {
-			result := newJSONKV()
-			for _, name := range obj.keys {
-				result.set(name, newJSONKV())
-			}
-			return result
-		}
-	}
-	return newJSONKV().set("default", newJSONKV())
-}
-
 // networkNameString is value the way JavaScript's String() would stringify a
 // decoded JSON value used as a network name: "null" for null, "true"/"false"
 // for a boolean, and the value itself for anything already a string.
@@ -462,8 +400,7 @@ func parseLeadingInt(s string) (int, bool) {
 // network, and routes the declared services. Every ordered map here is
 // built with jsonKV.set, which behaves like a JavaScript property
 // assignment (overwrite in place, append if new) — see jsonKV's own
-// comment — including its edge cases around a router network that
-// collides with an already-declared name.
+// comment.
 func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks *jsonKV) (*jsonKV, error) {
 	labels := c.ownershipLabels(ref)
 	stamp := func() *jsonKV { return newJSONKV().set("labels", labels) }
@@ -513,69 +450,37 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 		outNetworks.set("default", stamp())
 	}
 
-	// A worktree with declared routes gets its own dedicated, owned router
-	// network (#55): every routed service joins it, under an
-	// explicit alias equal to its own Traefik router/service name
-	// (RouteName), rather than every worktree sharing one network under the
-	// shared router's own external name. c.options.RouterNetwork — the
-	// shared router's own network — is used only as this network's
-	// RoutedByLabel value now, naming which router owns it; nothing joins
-	// that network directly any more. See internal/router's ConnectNetwork
-	// for how the router itself attaches to it.
-	if len(c.options.Routes) > 0 {
-		if networks.has(routerNetworkKey) {
+	// A routed service publishes its pinned loopback port (#119) and nothing
+	// else: no network is added, and no alias, because the proxy reaches the
+	// service at 127.0.0.1:<port> (docs/design/routing.md). A route is
+	// refused for a service the Compose file does not define, one with no
+	// port to publish, and one that cannot publish a port of its own.
+	for _, route := range c.options.Routes {
+		service, ok := services.values[route.Service].(*jsonKV)
+		if !ok {
+			return nil, clierr.Newf("[service.%s] names a service that is not defined in %s.", route.Service, c.options.ComposeFile)
+		}
+		target, ok := resolvePort(route, service)
+		if !ok {
 			return nil, clierr.Newf(
-				"%s already declares a network named %s, which %s reserves for its own per-worktree router network. Rename it.",
-				c.options.ComposeFile, routerNetworkKey, brand.Name,
+				"Service %s declares no port: set port in its [service.%s] table, or expose one in %s.",
+				route.Service, route.Service, c.options.ComposeFile,
 			)
 		}
-		networkLabels := newJSONKV()
-		for _, key := range labels.keys {
-			value, _ := labels.get(key)
-			networkLabels.set(key, value)
+		if err := refuseUnpublishable(route.Service, c.options.ComposeFile, service); err != nil {
+			return nil, err
 		}
-		networkLabels.set(routedByLabel, c.options.RouterNetwork)
-
-		for _, route := range c.options.Routes {
-			service, ok := services.values[route.Service].(*jsonKV)
-			if !ok {
-				return nil, clierr.Newf("[service.%s] names a service that is not defined in %s.", route.Service, c.options.ComposeFile)
-			}
-			target, ok := resolvePort(route, service)
-			if !ok {
-				return nil, clierr.Newf(
-					"Service %s declares no port: set port in its [service.%s] table, or expose one in %s.",
-					route.Service, route.Service, c.options.ComposeFile,
-				)
-			}
-			if err := refuseUnpublishable(route.Service, c.options.ComposeFile, service); err != nil {
-				return nil, err
-			}
-			name := RouteName(ref, route)
+		if route.HostPort > 0 {
 			entry, _ := outServices.values[route.Service].(*jsonKV)
-			svcNetworks := serviceNetworks(service)
-			if svcNetworks.has(routerNetworkKey) {
-				return nil, clierr.Newf(
-					"Service %s in %s already declares a network named %s, which %s reserves for its own per-worktree router network. Rename it.",
-					route.Service, c.options.ComposeFile, routerNetworkKey, brand.Name,
-				)
-			}
-			svcNetworks.set(routerNetworkKey, newJSONKV().set("aliases", []string{name}))
-			entry.set("networks", svcNetworks)
-			if route.HostPort > 0 {
-				// Compose merges this with the service's own ports; the long
-				// syntax pins the address to loopback, which the short one
-				// can too but with a string that has to be built and parsed.
-				entry.set("ports", []any{newJSONKV().
-					set("target", target).
-					set("published", strconv.Itoa(route.HostPort)).
-					set("host_ip", loopbackHost).
-					set("protocol", "tcp")})
-			}
+			// Compose merges this with the service's own ports; the long
+			// syntax pins the address to loopback, which the short one
+			// can too but with a string that has to be built and parsed.
+			entry.set("ports", []any{newJSONKV().
+				set("target", target).
+				set("published", strconv.Itoa(route.HostPort)).
+				set("host_ip", loopbackHost).
+				set("protocol", "tcp")})
 		}
-		outNetworks.set(routerNetworkKey, newJSONKV().
-			set("name", RouterNetworkName(ref.RepositoryID, ref.WorktreeID)).
-			set("labels", networkLabels))
 	}
 
 	return newJSONKV().set("services", outServices).set("volumes", outVolumes).set("networks", outNetworks), nil
@@ -744,39 +649,4 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	args = append(args, services...)
 	_, err = c.compose(ctx, ref, args, overrideFiles, run.Spec{Output: run.Tee})
 	return err
-}
-
-// RouteBackends is the resolved backend container port for every declared
-// route, keyed by service name — read fresh from `docker compose config`,
-// the same way overrideDocument's own routes section resolves a route's
-// port (resolvePort/firstPort), so a route that names no explicit port and
-// relies on auto-discovery from the Compose file resolves to exactly the
-// same port a dynamic-configuration fragment (internal/router's
-// WriteFragment) needs to address. Called by `up` (internal/commands)
-// after runtime.Up has started the worktree's own services, to build each
-// route's fragment; kept as a second, deliberately simple `compose config`
-// read rather than threading the ports overrideDocument already computed
-// back out of Up, since prepare's own override write and this call serve
-// two different callers at two different times.
-func (c *Compose) RouteBackends(ctx context.Context, ref worktree.Ref) (map[string]int, error) {
-	services, _, _, err := c.readOrderedModel(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	ports := make(map[string]int, len(c.options.Routes))
-	for _, route := range c.options.Routes {
-		service, ok := services.values[route.Service].(*jsonKV)
-		if !ok {
-			return nil, clierr.Newf("[service.%s] names a service that is not defined in %s.", route.Service, c.options.ComposeFile)
-		}
-		port, ok := resolvePort(route, service)
-		if !ok {
-			return nil, clierr.Newf(
-				"Service %s declares no port: set port in its [service.%s] table, or expose one in %s.",
-				route.Service, route.Service, c.options.ComposeFile,
-			)
-		}
-		ports[route.Service] = port
-	}
-	return ports, nil
 }

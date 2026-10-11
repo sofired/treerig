@@ -696,3 +696,47 @@ func TestSyncPortsConcurrently(t *testing.T) {
 	}
 	requireRegistryFree(t, controlHome)
 }
+
+func TestTakenPorts(t *testing.T) {
+	t.Run("is every registration's ports plus the reserved ones", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		writePortsRecord(t, controlHome, repoA, wtA, "feature-login", map[string]int{"api": 30010, "web": 30011})
+		writePortsRecord(t, controlHome, repoB, wtB, "feature-other", map[string]int{"api": 30020})
+
+		taken, err := registry.TakenPorts(controlHome, []int{30500, 30501})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[int]bool{30010: true, 30011: true, 30020: true, 30500: true, 30501: true}
+		if !reflect.DeepEqual(taken, want) {
+			t.Fatalf("TakenPorts = %v, want %v", taken, want)
+		}
+	})
+
+	t.Run("is only the reserved ports for a control home with no registrations", func(t *testing.T) {
+		taken, err := registry.TakenPorts(claimedHome(t), []int{30500})
+		if err != nil || !reflect.DeepEqual(taken, map[int]bool{30500: true}) {
+			t.Fatalf("TakenPorts = %v, %v", taken, err)
+		}
+	})
+
+	t.Run("hands back a map its caller may add to", func(t *testing.T) {
+		taken, err := registry.TakenPorts(claimedHome(t), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		taken[30001] = true
+	})
+
+	t.Run("refuses while a record cannot be read, since it may hold a port", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		writePortsRecord(t, controlHome, repoA, wtA, "feature-login", map[string]int{"api": 30010})
+		record := registry.NewStore(controlHome, repoA).RecordPath(wtA)
+		if err := os.WriteFile(record, []byte("{not json"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := registry.TakenPorts(controlHome, nil); err == nil {
+			t.Fatal("expected a refusal")
+		}
+	})
+}

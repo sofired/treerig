@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -62,6 +63,13 @@ prepare = "./hooks/record"
 seed = "./hooks/record"
 `
 
+// walkRouterRange is where the test routers of this package allocate their
+// checkout-index and ping ports from. It is inside the test range but apart
+// from the router package's (30900-30999) and from the whole-range picks the
+// binary-driven tests make against a fake Docker: the picks are deterministic,
+// so suites running at the same moment would otherwise race for the same ports.
+var walkRouterRange = layout.PortRange{Low: 30850, High: 30899}
+
 // walk is one checkout and one test router on a real daemon.
 type walk struct {
 	base, checkout, controlHome, namespace, log string
@@ -104,15 +112,8 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	}
 	project := "berth-router-test-" + namePrefix + "-" + id
 	t.Cleanup(func() {
-		// The router project comes down first (found in review, round 2 of
-		// #55): its router container may still be attached to a
-		// per-worktree router network the label sweep below is about to
-		// try to remove — attached the way ConnectNetwork attaches it,
-		// which the router's own compose file never declares, so `down`
-		// alone would not otherwise touch it. Removing the container here
-		// disconnects it from every network it was attached to, including
-		// that one, so the sweep's own network removal does not fail with
-		// "has active endpoints" and leak the network.
+		// The router project comes down first, so nothing of it is left
+		// when the label sweep below runs.
 		if err := exec.Command("docker", "compose", "-p", project, "down", "--remove-orphans").Run(); err != nil {
 			// A failed down can leave the router attached. Its containers
 			// don't carry this test's managed label, so remove them by the
@@ -132,7 +133,7 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 				}
 			}
 		}
-		_ = exec.Command("docker", "network", "rm", project).Run()
+		_ = exec.Command("docker", "network", "rm", project+"_default").Run()
 	})
 
 	if err := os.MkdirAll(w.checkout, 0o755); err != nil {
@@ -171,7 +172,7 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	w.state = state
 	w.env = &commands.Env{
 		CommandName: "berth", Invocation: "berth up", Logger: logger.Silent{}, Getenv: getenv,
-		Environ: os.Environ(), Cwd: w.checkout, Runner: osrun.New(),
+		Environ: os.Environ(), Cwd: w.checkout, Runner: osrun.New(), OS: runtime.GOOS,
 	}
 	// Home is the berth root the getenv above resolves (HOME/.berth), so the
 	// router this walk starts is labelled as this walk's own (#82) — what
@@ -185,8 +186,10 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	registrytest.WriteScratchSettings(t, home, "")
 	w.svc, err = router.New(router.Options{
 		State: state, Port: w.port, Runner: w.env.Runner, Logger: logger.Silent{},
-		ProjectName: project, Network: project, LabelNamespace: w.namespace, Environ: os.Environ(),
-		CommandName: "berth", Home: home,
+		ProjectName: project, LabelNamespace: w.namespace, Environ: os.Environ(),
+		CommandName: "berth", Home: home, ControlHome: w.controlHome,
+		Registrations: commands.Registrations(w.controlHome), PortRange: walkRouterRange,
+		ClientOS: runtime.GOOS,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -225,9 +228,6 @@ func (w *walk) context(t *testing.T) *commands.CommandContext {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// down and worktree remove unroute through this, so they reach the
-	// test's own router and never the real one's default project.
-	cctx.SharedRouter = w.svc
 	return cctx
 }
 
@@ -313,6 +313,7 @@ func (w *walk) downAndRemove(t *testing.T, result *commands.UpResult, host strin
 		t.Fatalf("still running after down: %v", running)
 	}
 	w.eventually(t, host, func(status int, _ string) bool { return status == http.StatusNotFound })
+	w.requireNoRouteFiles(t, registration.WorktreeID)
 
 	cctx := w.context(t)
 	if _, err := commands.RemoveWithContext(ctx, cctx, w.env, commands.RemoveOptions{Yes: true}); err != nil {
@@ -323,12 +324,58 @@ func (w *walk) downAndRemove(t *testing.T, result *commands.UpResult, host strin
 			t.Fatalf("%v left behind: %v", kind, left)
 		}
 	}
+	w.requireNoRouteFiles(t, registration.WorktreeID)
 	paths := layout.WorktreeLayout(w.controlHome, registration.RepositoryID, registration.WorktreeID)
 	for _, path := range []string{paths.Home, paths.RecordPath, filepath.Join(w.checkout, ".git", "berth", "worktree-id")} {
 		if found, _ := files.PathExists(path); found {
 			t.Fatalf("%s survived worktree remove", path)
 		}
 	}
+}
+
+// routeFiles are the route files the walk's router holds for worktreeID.
+func (w *walk) routeFiles(t *testing.T, worktreeID string) []router.FragmentInfo {
+	t.Helper()
+	fragments, err := router.ListFragments(w.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mine []router.FragmentInfo
+	for _, fragment := range fragments {
+		if fragment.WorktreeID == worktreeID {
+			mine = append(mine, fragment)
+		}
+	}
+	return mine
+}
+
+// requireNoRouteFiles fails the test while any route file of worktreeID exists.
+func (w *walk) requireNoRouteFiles(t *testing.T, worktreeID string) {
+	t.Helper()
+	if left := w.routeFiles(t, worktreeID); len(left) != 0 {
+		t.Fatalf("route files left behind: %+v", left)
+	}
+}
+
+// requireNoRoutingNetwork fails the test when the worktree owns a network
+// besides Compose's default one: nothing routes through a network of its own.
+func (w *walk) requireNoRoutingNetwork(t *testing.T, worktreeID string) {
+	t.Helper()
+	for _, name := range dockerNames(t, "network", "ls", "--filter", "label="+brand.WorktreeLabel(w.namespace)+"="+worktreeID, "--format", "{{.Name}}") {
+		if !strings.HasSuffix(name, "_default") {
+			t.Fatalf("the worktree owns the network %s; nothing should route through a network of its own", name)
+		}
+	}
+}
+
+// dockerNames runs docker with args and returns its non-empty output lines.
+func dockerNames(t *testing.T, args ...string) []string {
+	t.Helper()
+	output, err := exec.Command("docker", args...).Output()
+	if err != nil {
+		t.Fatalf("docker %v: %v", args, err)
+	}
+	return strings.Fields(string(output))
 }
 
 func TestUpDownRemoveOnARealDaemon(t *testing.T) {
@@ -341,6 +388,23 @@ func TestUpDownRemoveOnARealDaemon(t *testing.T) {
 		t.Fatalf("hooks = %v, log = %v", result.Hooks, w.stages(t))
 	}
 	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
+	// The route file names the service's pinned loopback port, and no
+	// network of the worktree's carries a route.
+	routes := w.routeFiles(t, result.Registration.WorktreeID)
+	port := w.recordedPorts(t, result)["api"]
+	if len(routes) != 1 {
+		t.Fatalf("route files = %+v", routes)
+	}
+	doc, err := router.ReadFragment(w.state, routes[0].Path)
+	if err != nil || doc.TargetPort() != port {
+		t.Fatalf("route file targets port %d (%v), want %d: %+v", doc.TargetPort(), err, port, doc)
+	}
+	for _, service := range doc.HTTP.Services {
+		if got := service.LoadBalancer.Servers[0].URL; got != router.TargetURL(port) || !strings.HasPrefix(got, "http://"+router.LoopbackAlias+":") {
+			t.Fatalf("route file target = %q, want %q", got, router.TargetURL(port))
+		}
+	}
+	w.requireNoRoutingNetwork(t, result.Registration.WorktreeID)
 	// The index `up` refreshed lists the worktree, running, through the same router.
 	w.eventually(t, router.IndexHost, func(status int, body string) bool {
 		return status == http.StatusOK && strings.Contains(body, fmt.Sprintf(`href="http://%s:%d"`, host, w.port)) &&
@@ -408,4 +472,62 @@ func TestUpOverAnAlreadyRegisteredWorktreeOnARealDaemon(t *testing.T) {
 	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
 
 	w.downAndRemove(t, second, host)
+}
+
+// TestRouterEnsureRepairsStaleRouteFilesOnARealDaemon is decision 9 against a
+// real daemon: a route file whose registration records another port is
+// pointed at the recorded one by the router's next Ensure, and a file this
+// control home holds no record of is left in place and reported by doctor
+// (instance "unmatched").
+func TestRouterEnsureRepairsStaleRouteFilesOnARealDaemon(t *testing.T) {
+	w := newWalk(t)
+	const host = "feature-walk.walk.localhost"
+	result := w.up(t)
+	registration := result.Registration
+	port := w.recordedPorts(t, result)["api"]
+	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
+
+	// A file for a worktree of the same repository that this control home holds
+	// no record of: reported by doctor, never removed (it may be another control
+	// home's).
+	vanished := "55555555-5555-4555-8555-555555555555"
+	doc := router.NewFragmentDocument("vanished-api", "Host(`vanished.walk.localhost`)", 30998)
+	if err := router.WriteFragment(w.state, registration.RepositoryID, vanished, "api", doc); err != nil {
+		t.Fatal(err)
+	}
+	// A live worktree's file pointing at a port its record does not hold.
+	stale := router.NewFragmentDocument("wrong-port", fmt.Sprintf("Host(`%s`)", host), port+1)
+	if err := router.WriteFragment(w.state, registration.RepositoryID, registration.WorktreeID, "api", stale); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := commands.SharedRouter(w.env, w.svc, w.state).Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if left := w.routeFiles(t, vanished); len(left) != 1 {
+		t.Fatalf("the unmatched worktree's route file = %+v, want it left alone", left)
+	}
+	t.Cleanup(func() { _ = router.RemoveWorktreeFragments(w.state, registration.RepositoryID, vanished) })
+	sections, err := commands.DoctorSections(context.Background(), w.env, w.svc, w.state)
+	if err != nil {
+		t.Fatalf("DoctorSections: %v", err)
+	}
+	reported := false
+	for _, check := range routerChecks(sections) {
+		reported = reported || (check.ID == "router.orphaned-routes" && check.Instance == "unmatched")
+	}
+	if !reported {
+		t.Fatalf("doctor did not report the unmatched route file: %+v", routerChecks(sections))
+	}
+	routes := w.routeFiles(t, registration.WorktreeID)
+	if len(routes) != 1 {
+		t.Fatalf("route files = %+v", routes)
+	}
+	repaired, err := router.ReadFragment(w.state, routes[0].Path)
+	if err != nil || repaired.TargetPort() != port {
+		t.Fatalf("route file targets %d (%v), want the recorded %d", repaired.TargetPort(), err, port)
+	}
+	w.eventually(t, host, func(status int, body string) bool { return status == http.StatusOK && body == "hello from api\n" })
+
+	w.downAndRemove(t, result, host)
 }

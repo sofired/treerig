@@ -158,18 +158,23 @@ tests skip there.
   `internal/router/stack.go`'s `RouterHomeLabel` comment and `router.go`'s
   `checkOwnership`. `router up` takes its own lock alone, never alongside a
   worktree's own locks (`lifecycle.Requests.Router`).
-- Routing (#55) splits the same way. A worktree's own route fragments
+- Routing splits the same way. A worktree's own route files
   (`<repo>.<wt>.<service>.yaml` in the router's `dynamic/`) are written by
-  `up` and removed by `down` and `worktree remove`, and the router's
-  attachment to that worktree's own network is made and undone by the same
-  three, all under that worktree's operation lock alone: the names carry
-  the worktree's IDs, so no other worktree contends for them, and a slow
-  `compose up` never holds the machine-wide lock. What spans every worktree
-  — reattaching the router to each labelled worktree network, and removing
-  fragments whose network is gone — runs inside `Router.Ensure`, under the
-  router lock. A router recreated between `up`'s `Ensure` and its own
-  network connect loses that one attachment until the next `Ensure`
-  restores it.
+  `up` and removed by `down` and `worktree remove`, under that worktree's
+  operation lock alone: the names carry the worktree's IDs, so no other
+  worktree contends for them, and a slow `compose up` never holds the
+  machine-wide lock. There is no network to attach or detach: a route file
+  names a loopback port. What spans every worktree runs inside
+  `Router.Ensure`, under the router lock: allocating the checkout index's and
+  the ping entrypoint's ports into `<BERTH_HOME>/router/state.json` (below),
+  and repairing route files that disagree with a registration. That repair
+  reads registrations without the registry lock and reads a record again
+  immediately before it removes or rewrites a file, which narrows the window
+  against a port `up` has just committed without closing it. A removal in
+  that window is repaired by the writer's next `up`, and a rewrite is
+  eventually consistent with the writer, which writes the same port. Files
+  this control home holds no record of are never touched. The router lock and
+  the registry lock are never nested.
 - Opening a target creates it `0600` (parent `0700`) if missing, opens it
   `O_RDWR`, and keeps a strong reference to the `*os.File` for the whole
   hold — the GC finalizer would otherwise close it. A target that is not a
@@ -191,9 +196,9 @@ tests skip there.
    timeout: the worktree operation lock polls every 250 ms for up to 25
    minutes; the registry lock every 50 ms for up to 60 s; the development
    lock every 250 ms for up to 1 s; the shared lock every 250 ms for up to 15
-   minutes; the router lock every 250 ms for up to
-   20 minutes — enough to cover `router up`'s own worst case: a plain start,
-   one recreate if it drifted, and every probe around them. (A `Lock` used
+   minutes; the router lock every 250 ms for up to 20 minutes — enough to
+   cover `router up`'s own worst case: a start and every Docker probe around
+   it. (A `Lock` used
    with neither a timeout nor
    a retry interval set instead backs off from 50 ms to a 250 ms ceiling
    over about 4.6 s.) While it waits, a notice fires after 2 s and then every
@@ -406,12 +411,16 @@ router lock and the registry lock together.
 
 The router's own index and ping ports (#120) are allocated from the same
 range under the router lock, not the registry lock, and the two locks are
-never nested. Within one control home a worktree allocation and an
-index/ping allocation can therefore race for the same port. That race is
-accepted, like the two-control-home race below: `PortPlan.Reserved` keeps a
-worktree from taking a port the router state already names, and the losing
-side is caught by Docker's bind error and by the pre-start port check in
-`Ensure` and `up`.
+never nested. `Router.Ensure` reads the registrations without the registry
+lock (every registry writer goes through `files.AtomicJSON`, a temporary file
+then a rename) to keep its pick clear of their ports, and stores both ports
+in one file, `<BERTH_HOME>/router/state.json`, written once and kept. `up`
+passes that file's ports as `PortPlan.Reserved`, so `SyncPorts` skips them,
+and `Ensure` runs before the allocation in the same `up`. Within one control
+home a worktree allocation and a first-ever index/ping allocation can still
+race for the same port, because neither holds the other's lock. That race is
+accepted, like the two-control-home race below; the losing side is caught by
+Docker's bind error and by the pre-start port check in `Ensure`.
 
 The registry lock is per control home, as it is for hostnames: two control
 homes on one machine can pick the same port at the same moment. That race is

@@ -65,7 +65,7 @@ func runUpHelper() int {
 	cctx, err := commands.Context(env)
 	code := 0
 	if err == nil {
-		_, err = commands.UpWithContext(context.Background(), cctx, commandstest.NewFakeRouter(80, "berth-router"), &commandstest.FakeIndex{}, commands.UpOptions{})
+		_, err = commands.UpWithContext(context.Background(), cctx, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{})
 	}
 	if err != nil {
 		log.Error("FAILED: " + err.Error())

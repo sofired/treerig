@@ -25,22 +25,8 @@ import (
 type Router interface {
 	// Port is what a routed service's URL is printed with; 80 needs no suffix.
 	Port() int
-	// Network is the shared router's Docker network; routed services join it.
-	Network() string
 	// Ensure makes sure the shared router is up.
 	Ensure(ctx context.Context) error
-	// ConnectNetwork attaches the shared router to a worktree's own
-	// dedicated router network (backend.RouterNetworkName), so its routed
-	// services are reachable.
-	ConnectNetwork(ctx context.Context, network string) error
-	// DisconnectNetwork detaches the shared router from a worktree's own
-	// dedicated router network — called when this worktree no longer
-	// declares any [service.<name>] route, so the router is not left uselessly
-	// attached to a network nothing routes through any more (found in
-	// review, round 3 of #55). The network itself is still reaped by label
-	// when this worktree is eventually torn down, whether or not it
-	// currently declares any routes.
-	DisconnectNetwork(ctx context.Context, network string) error
 }
 
 // Index is what `up` needs from the checkout index; checkoutindex.Service
@@ -123,11 +109,11 @@ func routeSpecsFromConfig(services []config.Service, ports map[string]int) []bac
 }
 
 // upRuntime is the Compose runtime up starts services through: the same
-// construction as CommandContext.Runtime, plus the routes and router network
-// runtime.Up needs and no other verb does. Duplicating its handful of
-// fields here is cheaper than widening CommandContext.Runtime's own
-// signature (context.go) for one caller.
-func upRuntime(cctx *CommandContext, namespace string, routerSvc Router, ports map[string]int) *backend.Compose {
+// construction as CommandContext.Runtime, plus the routes runtime.Up needs
+// and no other verb does. Duplicating its handful of fields here is cheaper
+// than widening CommandContext.Runtime's own signature (context.go) for one
+// caller.
+func upRuntime(cctx *CommandContext, namespace string, ports map[string]int) *backend.Compose {
 	routes := routeSpecsFromConfig(cctx.Loaded.Config.Service, ports)
 	return backend.NewCompose(backend.Options{
 		ComposeFile:    cctx.ComposeFile(),
@@ -141,7 +127,6 @@ func upRuntime(cctx *CommandContext, namespace string, routerSvc Router, ports m
 		Logger:         cctx.Logger,
 		Environ:        cctx.Environ,
 		Routes:         routes,
-		RouterNetwork:  routerSvc.Network(),
 		SharedUse:      sharedUseMap(cctx.Loaded.Config),
 	})
 }
@@ -292,7 +277,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		// Ports exist before anything starts: allocated under the registry
 		// lock (inside this operation lock), refused if something else holds
 		// one, and published by the override the runtime writes (#119).
-		inspector := upRuntime(cctx, ownNamespace, routerSvc, nil)
+		inspector := upRuntime(cctx, ownNamespace, nil)
 		// Refused before allocating, so no port is ever recorded for a
 		// service that cannot publish one.
 		if err := inspector.CheckPublishable(ctx, ref); err != nil {
@@ -339,7 +324,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		if len(options.Services) > 0 {
 			what = strings.Join(options.Services, ", ")
 		}
-		runtime := upRuntime(cctx, ownNamespace, routerSvc, ports)
+		runtime := upRuntime(cctx, ownNamespace, ports)
 		start := func() error {
 			return withProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
 				return runtime.Up(ctx, ref, options.Services)
@@ -375,89 +360,29 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			}
 		}
 
-		// Routing (#55): fragments are rewritten in full on every `up`, but
-		// unconditionally — not only when this worktree currently declares
-		// a [service.<name>] route (found in review, round 2 of #55: a first cut
-		// gated the whole block on that, so a worktree whose last
-		// [service.<name>] route was dropped since the last `up` kept its stale
-		// fragment forever, since nothing ever ran to remove it). New
-		// fragments are written before old ones are removed, and only the
-		// ones no longer current are removed, rather than deleting every
-		// fragment up front and writing second: the first cut's own
-		// order briefly unrouted every one of this worktree's routes on
-		// every re-up, for however long it took to write them back —
-		// wrong even when nothing about the routes actually changed.
+		// Routing: route files are rewritten in full on every `up`, but
+		// unconditionally — not only when this worktree currently declares a
+		// [service.<name>] route: a worktree whose last route was dropped
+		// since the last `up` must lose its stale file. Each file targets the
+		// service's loopback port (berth-loopback:<port>), which was
+		// committed to the registration above, before any file names it
+		// (docs/design/routing.md, decision 9). New files are written before
+		// old ones are removed, and only the ones no longer current are
+		// removed, so a re-up with the same or overlapping routes is never
+		// briefly unrouted.
 		routes := routeSpecsFromConfig(cctx.Loaded.Config.Service, ports)
-		backends := map[string]int{}
-		network := backend.RouterNetworkName(ref.RepositoryID, ref.WorktreeID)
-		if len(routes) > 0 {
-			// RouteBackends and ConnectNetwork are still skipped with no
-			// routes at all — matching overrideDocument's own
-			// `len(Routes) > 0` guard, since with none there is no
-			// per-worktree router network to read a port from or connect
-			// to in the first place.
-			var err error
-			backends, err = runtime.RouteBackends(ctx, ref)
-			if err != nil {
-				return err
-			}
-			// Connected before any fragment is written, not after (found in
-			// review of #55): a fragment routes nowhere except through this
-			// worktree's own router network, and Traefik's file
-			// provider picks a fragment up the moment it lands — writing it
-			// first would open a window where the router has already been
-			// told a route exists but cannot yet reach it. The router may
-			// recreate the router container between routerSvc.Ensure
-			// returning (unlocked, above) and this call: see internal/router's
-			// ConnectNetwork for why that gap is self-healing rather than
-			// fixed by holding the router lock across this whole mutation.
-			// Returned as is: ConnectNetwork's own error already names the
-			// router and the network, and a cancellation must stay one.
-			if err := routerSvc.ConnectNetwork(ctx, network); err != nil {
-				return err
-			}
-		}
 		keep := make(map[string]bool, len(routes))
 		for _, route := range routes {
 			name := backend.RouteName(ref, route)
 			rule := backend.RouteRule(route, host)
-			doc := router.NewFragmentDocument(name, rule, name, backends[route.Service])
+			doc := router.NewFragmentDocument(name, rule, ports[route.Service])
 			if err := router.WriteFragment(cctx.RouterState, ref.RepositoryID, ref.WorktreeID, route.Service, doc); err != nil {
-				return clierr.Newf("Could not write %s's route fragment: %s", route.Service, err)
+				return clierr.Newf("Could not write %s's route file: %s", route.Service, err)
 			}
 			keep[route.Service] = true
 		}
 		if err := router.RemoveWorktreeFragmentsExcept(cctx.RouterState, ref.RepositoryID, ref.WorktreeID, keep); err != nil {
-			return clierr.Newf("Could not remove this worktree's earlier route fragments: %s", err)
-		}
-		if len(routes) == 0 {
-			// A worktree that just dropped its last [service.<name>] route
-			// still has its own dedicated router network sitting around —
-			// overrideDocument no longer declares it, but Compose does not
-			// proactively remove a network it no longer declares — and the
-			// router is very likely still attached to it from an earlier
-			// `up`. Disconnected here, only
-			// after every one of this worktree's stale fragments is
-			// already gone (found in review, round 4 of #55: a first cut
-			// disconnected before removing them, leaving a window where a
-			// stale fragment's rule was still live in Traefik but pointed
-			// at a network the router had already left, rather than simply
-			// being gone) — the same order unrouteWorktree already uses
-			// for `down` and `worktree remove` (fragments first, network
-			// second), now matched here too. Best effort, not hard-failed:
-			// the same softness rule unrouteWorktree already applies to
-			// this identical call — a failure leaves at most a stale
-			// attachment behind, and no traffic is routed through it
-			// either way, since every fragment that could have named it is
-			// already gone above. The network itself is still reaped by
-			// label whenever this worktree is eventually torn down,
-			// whether or not it currently declares any routes.
-			if err := routerSvc.DisconnectNetwork(ctx, network); err != nil {
-				if ctx.Err() != nil {
-					return err
-				}
-				cctx.Logger.Warn(fmt.Sprintf("%s\nA later '%s down' or '%s worktree remove' retries disconnecting this network.", err, cctx.CommandName, cctx.CommandName))
-			}
+			return clierr.Newf("Could not remove this worktree's earlier route files: %s", err)
 		}
 
 		ran, err := hooks.RunLifecycle(ctx, hooks.HookContext{

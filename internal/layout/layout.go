@@ -3,7 +3,7 @@
 //
 //	<home>/                              BERTH_HOME, the berth root (#80)
 //	  settings.toml                     SettingsPath, machine-wide defaults (#79)
-//	  router/                            RouterState, the shared router's own layout
+//	  router/                            RouterState, the shared router's own layout (stack file, route files, index page, state.json)
 //	  control-home/                      the control home, unless BERTH_CONTROL_HOME overrides it
 //	    locks/registry                    RegistryLockPath
 //	    locks/worktrees/<repo>/<wt>       worktree operation lock
@@ -285,6 +285,9 @@ type RouterLayout struct {
 	IndexDir  string
 	IndexFile string
 	LockPath  string
+	// StateFile holds the router's own facts that no registration can: the
+	// checkout index's loopback port and, in host mode, the ping port.
+	StateFile string
 }
 
 // RouterStateDir is the directory the shared router's state and lock live
@@ -332,6 +335,7 @@ func RouterStateFrom(home string) RouterLayout {
 		IndexDir:    indexDir,
 		IndexFile:   filepath.Join(indexDir, "index.html"),
 		LockPath:    filepath.Join(dir, "lock"),
+		StateFile:   filepath.Join(dir, "state.json"),
 	}
 }
 
@@ -410,17 +414,6 @@ func SharedLayout(controlHome, repositoryID string) Shared {
 // ports.
 func (s Shared) RecordPath(name string) string {
 	return filepath.Join(s.Dir, name+".json")
-}
-
-// WorktreeRouterNetwork is the name of one worktree's own dedicated router
-// network (#55): <compose project>-router. Derived from the two IDs alone,
-// never from a loaded config, so everything that must name it agrees: the
-// Compose override that creates it (internal/backend), `down` and `worktree
-// remove`, which may target a worktree whose berth.toml is not in reach, and
-// the shared router, which proves a route fragment still has a network to
-// reach by finding this name among its own labelled networks.
-func WorktreeRouterNetwork(repositoryID, worktreeID string) string {
-	return ComposeProjectName(repositoryID, worktreeID) + "-router"
 }
 
 // WorktreeHost is the routed hostname, <slug>.<domain>.

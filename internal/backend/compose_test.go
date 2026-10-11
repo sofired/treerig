@@ -432,10 +432,9 @@ func TestDownStatus(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
-	// #55: the shared router may still be attached to this
-	// worktree's own router network when `down` runs — its disconnect
-	// (internal/commands's unrouteWorktree) is best effort. Matches Reap's
-	// own tolerance of the identical refusal (TestInventoryReap).
+	// Something else may still be attached to one of the worktree's networks
+	// when `down` runs. Matches Reap's own tolerance of the identical
+	// refusal (TestInventoryReap).
 	t.Run("down tolerates Compose's refusal to remove a network because something is still attached to it", func(t *testing.T) {
 		fake := newFake()
 		fake.downExitCode, fake.downStderr = 1, "Error response from daemon: error while removing network: network default id abc123 has active endpoints"
@@ -625,17 +624,12 @@ func TestInventoryReap(t *testing.T) {
 			t.Fatalf("removals = %v", removals)
 		}
 	})
-	// #55: the shared router may still be attached to this worktree's own
-	// router network when Reap gets to it — its disconnect
-	// (internal/commands's unrouteWorktree) is best effort, and a
-	// concurrent Ensure can even reattach it in between. Mirrors Down's own
-	// tolerance of the identical refusal.
-	// Round 2 of #55's review: a first cut had Reap return nil here —
-	// "tolerated" reading as "as good as removed" — which let
-	// RemoveWithContext go on to delete the worktree's home, registration
-	// and identity marker over a network still sitting on the daemon, with
-	// nothing left registered for a later `worktree remove` to retry
-	// against. ErrNetworkKept is the fix: Reap still does not fail the
+	// Something else may still be attached to the worktree's network when
+	// Reap gets to it. Mirrors Down's own tolerance of the identical
+	// refusal. Reap must not return nil here — "tolerated" reading as "as
+	// good as removed" — or RemoveWithContext would go on to delete the
+	// worktree's home, registration and identity marker over a network still
+	// sitting on the daemon. ErrNetworkKept: Reap still does not fail the
 	// whole removal over this, but it no longer claims success either.
 	t.Run("reap reports ErrNetworkKept, not success, for a network Compose refuses to remove because something is still attached to it", func(t *testing.T) {
 		fake := populated()

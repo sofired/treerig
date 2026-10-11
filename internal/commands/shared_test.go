@@ -3,6 +3,7 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,7 +38,7 @@ func newSharedWorld(t *testing.T) *sharedWorld {
 		"image":   "axllent/mailpit:v1.31.3",
 		"volumes": []any{map[string]any{"type": "volume", "source": "mailbox", "target": "/data"}},
 	})
-	return &sharedWorld{World: w, router: commandstest.NewFakeRouter(80, "berth-router"), index: &commandstest.FakeIndex{}}
+	return &sharedWorld{World: w, router: commandstest.NewFakeRouter(80), index: &commandstest.FakeIndex{}}
 }
 
 // context is a CommandContext for the worktree at root ("" for the first),
@@ -201,6 +202,62 @@ func mailpitDefinition(image string) map[string]any {
 		"image":   image,
 		"volumes": []any{map[string]any{"type": "volume", "source": "mailbox", "target": "/data"}},
 	}
+}
+
+func TestSharedPortsAvoidTheRouterState(t *testing.T) {
+	t.Run("pins shared ports clear of the router's index and ping ports", func(t *testing.T) {
+		w := newSharedWorld(t)
+		tc := w.context("")
+		// A four-port range holding the router's two ports leaves exactly the
+		// other two for mailpit's two container ports, and no routed service
+		// competes for them.
+		tc.Loaded.Config.Service = nil
+		tc.PortRange = layout.PortRange{Low: 30000, High: 30003}
+		if err := os.MkdirAll(tc.RouterState.StateDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		state := `{"version":1,"indexPort":30000,"pingPort":30001}`
+		if err := os.WriteFile(tc.RouterState.StateFile, []byte(state), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		result := w.mustUp(t, tc)
+		record, err := tc.Registry.Store(result.Registration.RepositoryID).FindShared("mailpit")
+		if err != nil || record == nil {
+			t.Fatalf("record = %+v, %v", record, err)
+		}
+		got := []int{}
+		for _, port := range record.Ports {
+			got = append(got, port)
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, []int{30002, 30003}) {
+			t.Fatalf("shared ports = %v, want [30002 30003]: the router's 30000 and 30001 are reserved", got)
+		}
+	})
+
+	t.Run("finds no port when the router's two hold the whole range", func(t *testing.T) {
+		// Which free port a hash lands on varies with the repository, so the
+		// test that fails without the reservation is the one with no free
+		// port at all: the range is exactly the router's.
+		w := newSharedWorld(t)
+		tc := w.context("")
+		tc.Loaded.Config.Service = nil
+		tc.PortRange = layout.PortRange{Low: 30000, High: 30001}
+		if err := os.MkdirAll(tc.RouterState.StateDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		state := `{"version":1,"indexPort":30000,"pingPort":30001}`
+		if err := os.WriteFile(tc.RouterState.StateFile, []byte(state), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := w.up(t, tc)
+		wantErr(t, err, `No free port for mailpit:\d+ in 30000-30001`)
+		if w.mailpit(t, tc) != "" {
+			t.Error("the shared service started without ports")
+		}
+	})
 }
 
 func TestTwoWorktreesShareOneInstance(t *testing.T) {
