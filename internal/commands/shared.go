@@ -223,6 +223,10 @@ func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, wor
 		if instance.Live() {
 			loaded, readErr := cctx.sharedStack(repositoryID, namespace, nil).ReadDefinition(ctx)
 			if readErr != nil {
+				// A cancelled command stops; only a failed read falls back.
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, ctxErr
+				}
 				cctx.Logger.Warn(fmt.Sprintf("Could not read the shared file, so every definition is reported unknown: %s", text.OneLine(readErr.Error(), 300)))
 			} else {
 				definition, haveDefinition = loaded, true

@@ -3,6 +3,7 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -709,6 +710,21 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		}
 		if out := lines(tc); !strings.Contains(out, "Could not read the shared services' state, so they are left out") {
 			t.Errorf("no warning:\n%s", out)
+		}
+	})
+
+	t.Run("a cancelled status stops with the cancellation, whichever shared read it interrupts", func(t *testing.T) {
+		w := newSharedWorld(t)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		// The fake answers whatever the context says, so the shared file's
+		// read is made to fail as a cancelled one would.
+		w.Docker.FailCall("compose.shared.yaml config --format json", "context canceled", 1, -1)
+
+		if _, err := commands.StatusWithContext(cancelled, tc.CommandContext, commands.OutputOptions{JSON: true}); !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 	})
 
