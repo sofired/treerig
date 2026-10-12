@@ -149,9 +149,11 @@ func (s *Stack) compose(ctx context.Context, l layout.Shared, extra []string) er
 
 // Reap removes one resource the stack owns. It inspects the resource again
 // and verifies it first, so a label that changed since the inventory stops it,
-// and it never removes anything the shared labels do not prove. A container
-// is stopped gracefully before it is removed; its volumes are not touched. A
-// resource that is already gone is success.
+// except for a resource marked Anonymous: the caller must have proven that
+// volume through a verified container, and Reap checks Docker's anonymous
+// label instead. A container is stopped gracefully before it is removed;
+// its volumes are not touched. A resource that is already gone is success.
+// Other inspection, ownership, stop and removal failures are returned.
 func (s *Stack) Reap(ctx context.Context, resource Resource) error {
 	switch resource.Kind {
 	case "container":

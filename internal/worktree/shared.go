@@ -24,8 +24,9 @@ type SharedAddr struct {
 // BERTH_ itself (Variables adds it).
 const SharedAddrPrefix = "SHARED_ADDR_"
 
-// SharedAddrVariables is the extra environment a hook or a `berth run`
-// command receives for the repository's shared services:
+// SharedAddrVariables returns name/value pairs for the repository's shared
+// services, without the BERTH_ prefix. Variables adds that prefix to produce
+// the environment a hook or a `berth run` command receives:
 // BERTH_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port> for every declared
 // container port that has a pinned one. <NAME> maps as BERTH_SERVICE_URL_<NAME>
 // does (upper-cased, each hyphen an underscore), and the trailing number
@@ -41,9 +42,9 @@ func SharedAddrVariables(addrs []SharedAddr) [][2]string {
 	return pairs
 }
 
-// IsSharedAddrVariable reports whether an environment entry's name is one
-// SharedAddrVariables builds, so an inherited one from another worktree's
-// hook is dropped before this worktree's own are set.
+// IsSharedAddrVariable reports whether name starts with BERTH_SHARED_ADDR_,
+// so inherited shared addresses are dropped before this worktree's own are
+// set. It does not validate the service name or port suffix.
 func IsSharedAddrVariable(name string) bool {
 	return strings.HasPrefix(name, brand.EnvPrefix+"_"+SharedAddrPrefix)
 }

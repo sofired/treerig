@@ -125,8 +125,8 @@ func needs(entry map[string]any) []string {
 
 // referenced is the keys of the top-level volumes, networks, configs and
 // secrets the services of a closure use: a named volume mounted, a network
-// joined (the default one when a service names none), a config or secret
-// attached.
+// listed in the resolved service entry, a config or secret attached. It does
+// not infer a default network when the entry has no networks.
 func referenced(entries map[string]map[string]any) (volumes, networks, configs, secrets []string) {
 	add := func(into *[]string, name string) {
 		if name != "" && !slices.Contains(*into, name) {
@@ -181,11 +181,12 @@ func referenced(entries map[string]map[string]any) (volumes, networks, configs, 
 // top-level volumes, networks, configs and secrets those use. The entries
 // come from `compose config` before berth's override, so the published ports
 // are not in it, and are interpolated with the shared environment only and no
-// .env file, so nothing of a worktree is. Canonical means object keys in
-// sorted order (encoding/json's rule for a map), numbers as Compose printed
-// them, and no HTML escaping. A Compose upgrade can change what `compose
+// .env file; other inherited variables may still affect them. Canonical
+// means object keys in sorted order (encoding/json's rule for a map), numbers
+// as Compose printed them, and no HTML escaping. A Compose upgrade can change what `compose
 // config` prints for the same file, which shows as a differing definition
 // once; `berth shared up --recreate <name>` brings the label up to date.
+// An undefined service or a value that JSON cannot encode returns an error.
 func (d Definition) Hash(service string) (string, error) {
 	closure := d.Closure(service)
 	if closure == nil {
@@ -227,8 +228,10 @@ func (d Definition) Hash(service string) (string, error) {
 // environment is what the shared file is interpolated with and Compose runs
 // under: the inherited environment, and the variables that mean the same in
 // every worktree — the project's name, the repository, and the Compose
-// project. Never a per-worktree variable (BERTH_ROOT, BERTH_WORKTREE_ID and
-// the rest), so the hash is the same from any checkout of the same file.
+// project. Per-worktree BERTH_* variables such as BERTH_ROOT and
+// BERTH_WORKTREE_ID are removed. BERTH_HOME, BERTH_CONTROL_HOME and other
+// inherited variables allowed by docker.ComposeEnvironment can still affect
+// interpolation.
 func (s *Stack) environment() []string {
 	extra := []string{
 		"COMPOSE_PROJECT_NAME=" + s.Project(),
@@ -273,7 +276,10 @@ func (s *Stack) composeArgs(args []string, withFiles ...string) []string {
 // path resolve to whichever worktree starts the stack first, which `worktree
 // remove` can delete, and the resolved absolute paths would make every other
 // worktree's hash differ (decision 16, "Configuration"). Images, named
-// volumes and absolute paths outside any worktree are fine.
+// volumes and absolute paths outside the supplied WorktreeRoots are fine.
+// Non-empty ports entries on Declared services and their dependencies are
+// also refused; berth publishes their ports itself. Missing configuration,
+// Compose execution failures and invalid JSON are returned as errors.
 func (s *Stack) ReadDefinition(ctx context.Context) (Definition, error) {
 	file := s.o.ComposeFile
 	if file == "" {
@@ -327,8 +333,9 @@ func decodeDefinition(stdout, file string) (Definition, error) {
 // config or secret read from one — and one that publishes a port of its own.
 // The ports a shared service publishes are the ones berth.toml declares, on
 // 127.0.0.1 and pinned; a `ports:` entry in the file would publish another,
-// on every interface, outside berth's allocation. declared are the services
-// berth.toml names; the refusal covers them and what they need.
+// outside berth's allocation. declared are the services berth.toml names;
+// the port check covers them and what they need. The build and path checks
+// cover every service, config and secret in the definition.
 func (d Definition) refuseUnsuitable(file string, roots, declared []string) error {
 	for _, name := range d.Services() {
 		entry := d.services[name]
