@@ -206,7 +206,7 @@ case " $* " in
   *" compose "*" down "*) rm -f "$state/c1"; exit 0 ;;
   *" --filter "*)
     case "$1" in
-      ps) case " $* " in *"label=dev.berth.managed=true --format"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;;
+      ps) case " $* " in *"label=dev.berth.managed=true --format"*|*"label=dev.berth.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;;
       volume) [ -e "$state/v1" ] && echo v1 ;;
     esac
     exit 0 ;;

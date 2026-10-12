@@ -51,7 +51,38 @@ type Docker struct {
 	upStderr  string
 	upDuring  func()
 	upFailing bool
+
+	// The rest models containers' state, networks and shared services; see
+	// compose.go. All of it is zero for a test that does not use it.
+	status       map[string]string               // container id → Docker state, "running" when absent
+	health       map[string]string               // container id → health status
+	attached     map[string]map[string][]string  // container id → network id → aliases
+	mounts       map[string][]string             // container id → volume names
+	mountPaths   map[string]string               // volume name → where its containers mount it
+	bindings     map[string]map[string][]binding // container id → "1025/tcp" → bindings
+	networkNames map[string]string               // network id → name
+	// realistic makes `compose up` create what a real one would; Realistic.
+	realistic bool
+	// sharedServices is the shared Compose file's `compose config` services.
+	sharedServices map[string]map[string]any
+	// composeUp, when set, runs ahead of every `compose up`, outside the lock.
+	composeUp func(project string)
+	// errors injects a failure for a docker call whose joined args contain a key.
+	errors []injected
 }
+
+// injected is a failure FailCall stages for matching calls.
+type injected struct {
+	contains string
+	stderr   string
+	code     int
+	times    int
+	// skip is how many matching calls pass before the failure starts.
+	skip int
+}
+
+// binding is one published port of a container.
+type binding struct{ ip, port string }
 
 // FailUp makes every subsequent `docker compose up` run during, outside the
 // fake's lock, then exit 1 with stderr: Docker's bind error, say, after a
@@ -99,6 +130,10 @@ func NewDocker(services ...string) *Docker {
 		names:     map[string]string{},
 		tampers:   map[string]tamper{},
 		Services:  services,
+		status:    map[string]string{}, health: map[string]string{},
+		attached: map[string]map[string][]string{}, mounts: map[string][]string{}, mountPaths: map[string]string{},
+		bindings: map[string]map[string][]binding{}, networkNames: map[string]string{},
+		sharedServices: map[string]map[string]any{},
 	}
 }
 
@@ -247,8 +282,11 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 
 	if len(spec.Args) > 0 && spec.Args[0] == "compose" && slices.Contains(spec.Args, "up") {
 		d.mu.Lock()
-		failing, during := d.upFailing, d.upDuring
+		failing, during, hook := d.upFailing, d.upDuring, d.composeUp
 		d.mu.Unlock()
+		if hook != nil {
+			hook(after(spec.Args, "--project-name"))
+		}
 		if failing && during != nil {
 			during()
 		}
@@ -270,8 +308,28 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 		return ok("unix:///var/run/docker.sock\n")
 	}
 
+	joined := strings.Join(args, " ")
+	for i := range d.errors {
+		if failure := &d.errors[i]; failure.times != 0 && strings.Contains(joined, failure.contains) {
+			if failure.skip > 0 {
+				failure.skip--
+				continue
+			}
+			if failure.times > 0 {
+				failure.times--
+			}
+			return run.Finish(spec, run.Result{Stderr: failure.stderr, ExitCode: failure.code})
+		}
+	}
+	if result, handled := d.handleEngine(spec); handled {
+		return result, nil
+	}
+
 	if len(args) > 0 && args[0] == "compose" {
 		project := after(args, "--project-name")
+		if result, handled := d.handleCompose(spec, project); handled {
+			return result, nil
+		}
 		switch {
 		case slices.Contains(args, "config"):
 			services := map[string]any{}
@@ -322,6 +380,9 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 		var ids []string
 		for _, id := range sortedKeys(d.resources[kind]) {
 			labels := d.resources[kind][id]
+			if kind == "container" && args[0] == "ps" && !slices.Contains(args, "-a") && !slices.Contains(args, "-aq") && d.statusOf(id) != "running" {
+				continue
+			}
 			matches := true
 			for _, filter := range filters {
 				matches = matches && labels[filter[0]] == filter[1]
@@ -358,6 +419,12 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			return run.Finish(spec, run.Result{Stderr: d.removeNetworkStderr, ExitCode: d.removeNetworkExitCode})
 		}
 		id := args[len(args)-1]
+		if kind == "network" && d.endpoints(id) > 0 {
+			return run.Finish(spec, run.Result{Stderr: "Error response from daemon: error while removing network: network " + d.networkNames[id] + " has active endpoints", ExitCode: 1})
+		}
+		if kind == "container" {
+			d.forget(id)
+		}
 		delete(d.resources[kind], id)
 		return ok("")
 	}

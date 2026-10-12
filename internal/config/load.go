@@ -43,7 +43,7 @@ func Parse(contents []byte, file string) (Config, error) {
 		return Config{}, clierr.Newf("%s is not valid TOML: %s", file, err.Error())
 	}
 
-	value, issues := shape.Parse(rootSchema(), obj)
+	value, issues := shape.Parse(rootSchema(filepath.Dir(file)), obj)
 	if err := issuesError(file, issues); err != nil {
 		return Config{}, err
 	}

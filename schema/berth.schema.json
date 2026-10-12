@@ -106,6 +106,65 @@
       "maxProperties": 64,
       "default": {}
     },
+    "shared": {
+      "type": "object",
+      "description": "Services that run once per repository and are shared by all of its worktrees, such as an email catcher.",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path to the shared services' Compose file, relative to this file. It is its own Compose project, run once per repository, and may not build images or bind-mount paths inside a worktree. Required when any [shared.service.<name>] table is declared.",
+          "minLength": 1
+        },
+        "service": {
+          "type": "object",
+          "description": "Shared services, one [shared.service.<name>] table each, named by the service in the shared Compose file.",
+          "propertyNames": {
+            "type": "string",
+            "description": "The shared Compose service name: lower-case letters, digits and hyphens, at most 63 characters.",
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "maxLength": 63
+          },
+          "additionalProperties": {
+            "type": "object",
+            "description": "One shared service: a service of the shared Compose file that runs once per repository. The table's key is its Compose service name, and the name containers reach it by.",
+            "properties": {
+              "port": {
+                "type": "integer",
+                "description": "Container port of the service's web UI, published on a pinned loopback port: BERTH_SHARED_ADDR_<NAME>_<PORT> names the address. Omit if the service has no web UI.",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "ports": {
+                "type": "array",
+                "description": "Container ports published on pinned loopback ports, for processes on the host (an IDE-run app, `berth run`): BERTH_SHARED_ADDR_<NAME>_<PORT> names each address. Containers reach the service at <name>:<port> instead. At most 16 with port.",
+                "items": {
+                  "type": "integer",
+                  "description": "A container TCP port, 1 to 65535.",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "maxItems": 16,
+                "default": []
+              },
+              "used-by": {
+                "type": "array",
+                "description": "Services of the worktree's Compose file that use this shared service. A worktree whose Compose file has any of them starts the shared service, and the shared service joins the networks they are on, answering to its name as an alias.",
+                "items": {
+                  "type": "string",
+                  "description": "A service of the worktree's Compose file: lower-case letters, digits and hyphens, at most 63 characters.",
+                  "pattern": "^[a-z0-9][a-z0-9-]*$",
+                  "maxLength": 63
+                },
+                "default": []
+              }
+            },
+            "additionalProperties": false
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
     "hooks": {
       "type": "object",
       "description": "Commands berth runs at points in a worktree's life. Each is resolved relative to this file when it starts with \".\" or contains \"/\", and looked up on PATH otherwise. See docs/hooks.md.",

@@ -31,12 +31,34 @@ func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, host stri
 	if exclusive {
 		requests.Development = &development
 	}
-	quiescer, _ := c.Runner.(lifecycle.Quiescer)
-	life := c.Lifecycle
-	if life == nil {
-		life = lifecycle.NewLifecycle(lifecycle.New(), c.Logger)
+	return c.hold(ctx, requests, action)
+}
+
+// lifecycle is the process's lifecycle, or one that never listens when the
+// context has none (a test's).
+func (c *CommandContext) lifecycle() *lifecycle.Lifecycle {
+	if c.Lifecycle == nil {
+		return lifecycle.NewLifecycle(lifecycle.New(), c.Logger)
 	}
-	return life.Hold(ctx, lifecycle.Env{Logger: c.Logger, Runner: quiescer, Invocation: c.Invocation}, requests, action)
+	return c.Lifecycle
+}
+
+// lifecycleEnv is what lifecycle needs from this process to hold locks.
+func (c *CommandContext) lifecycleEnv() lifecycle.Env {
+	quiescer, _ := c.Runner.(lifecycle.Quiescer)
+	return lifecycle.Env{Logger: c.Logger, Runner: quiescer, Invocation: c.Invocation}
+}
+
+// hold runs action with requests' locks held, in the fixed order.
+func (c *CommandContext) hold(ctx context.Context, requests lifecycle.Requests, action func(context.Context) error) error {
+	return c.lifecycle().Hold(ctx, c.lifecycleEnv(), requests, action)
+}
+
+// nest runs action with requests' locks taken beside the ones ctx already
+// holds, which must be a worktree's operation lock: the shared lock for a
+// connect, taken second (docs/design/routing.md, decision 18).
+func (c *CommandContext) nest(ctx context.Context, requests lifecycle.Requests, action func(context.Context) error) error {
+	return c.lifecycle().Nest(ctx, c.lifecycleEnv(), requests, action)
 }
 
 // refuseOwnWorktreeLock refuses, before any wait, to take worktreeID's
@@ -119,6 +141,12 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 		// Unroutes before the worktree's own teardown, unconditionally —
 		// see unrouteWorktree's own comment for why.
 		if err := unrouteWorktree(cctx, ref); err != nil {
+			return err
+		}
+		// Shared services are disconnected first: `compose down` leaves a
+		// network that something is attached to (decision 22). This needs the
+		// operation lock held here and no other.
+		if err := disconnectShared(ctx, cctx, ref, cctx.Loaded.Config.LabelNamespace(), cctx.Loaded.Config.LabelNamespace()); err != nil {
 			return err
 		}
 		return withProgress(cctx.Logger, "Stopping "+host, func() error { return runtime.Down(ctx, ref) })

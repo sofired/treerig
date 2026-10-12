@@ -10,6 +10,10 @@ import (
 	"github.com/sofired/berth/internal/text"
 )
 
+// ReservedSlug is the slug no worktree is given: the hostnames of a
+// repository's shared services (<name>.shared.<domain>) live beneath it.
+const ReservedSlug = "shared"
+
 // maxSlugLength is a DNS label's limit; slugs stay under it with room for a suffix.
 const maxSlugLength = 63
 
@@ -63,7 +67,10 @@ func BranchSlug(branch, root string) string {
 //
 // preferred == "" means no preference, since a slug is never empty.
 func AllocateSlug(identity WorktreeIdentity, domain string, others []RegisteredWorktree, preferred string) (string, error) {
-	taken := map[string]bool{}
+	// The slug "shared" is reserved: <name>.shared.<domain> is where a
+	// repository's shared services are routed, so no worktree's own
+	// hostname may be shared.<domain> or sit beneath it.
+	taken := map[string]bool{ReservedSlug: true}
 	for _, record := range others {
 		if record.Domain == domain {
 			taken[record.Slug] = true

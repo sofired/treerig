@@ -14,6 +14,7 @@ import (
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lock"
+	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
@@ -45,6 +46,10 @@ type UnlockOptions struct {
 	// --router (#21). Mutually exclusive with Registry and with a
 	// non-empty Identifier or Domain.
 	Router bool
+	// Shared clears the shared-services lock of the repository the worktree
+	// (this checkout, or Identifier) belongs to instead of the worktree's own
+	// locks — --shared. Mutually exclusive with Registry and Router.
+	Shared bool
 	// AllowUnverifiable accepts a holder this machine cannot check (another
 	// machine or PID namespace, or no record) — --holder-unverifiable.
 	AllowUnverifiable bool
@@ -85,8 +90,21 @@ type unlockTarget struct {
 // loads a project config — UnlockGlobal needs none, the same way `doctor`
 // and the router verbs read Env directly.
 func Unlock(ctx context.Context, env *Env, options UnlockOptions) error {
+	if options.Shared && (options.Registry || options.Router) {
+		return clierr.New("Not clearing any lock: --shared cannot be combined with --registry or --router.")
+	}
 	if options.Registry || options.Router {
 		_, err := UnlockGlobal(ctx, env, options)
+		return err
+	}
+	if options.Shared {
+		// Recovery works from labels and records, so a missing or broken
+		// berth.toml must not stand in its way.
+		cctx, err := ContextWithoutConfig(env)
+		if err != nil {
+			return err
+		}
+		_, err = UnlockSharedWithContext(ctx, cctx, options)
 		return err
 	}
 	cctx, err := Context(env)
@@ -183,9 +201,46 @@ func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*Unlock
 		// resolves router.ResolveProjectName()'s default.
 		scope = routerLockScope(state, "")
 	}
-	label := "the " + scope.Description
+	return clearOneScope(ctx, env.Logger, env.Table, scope, kind, "the "+scope.Description, clearWording, options)
+}
 
-	table := env.Table
+// clearWords is how clearOneScope speaks of the lock it is clearing.
+type clearWords struct {
+	// nothing, checkingWithCommands, checking and releasedMeanwhile take the
+	// lock's label; unlocked takes the label and the scope's description.
+	nothing, checkingWithCommands, checking, releasedMeanwhile string
+	unlocked                                                   func(label, description string) string
+}
+
+// clearWording is the wording for the registry and router locks, whose label
+// is the lock's own name.
+var clearWording = clearWords{
+	nothing:              "Nothing to unlock: no lock is held for %s.",
+	checkingWithCommands: "Checking that the holder of %s's lock, and every command it started on this machine, is gone.",
+	checking:             "Checking that the holder of %s's lock is gone.",
+	releasedMeanwhile:    "Nothing to unlock: the lock on %s was released while it was being checked.",
+	unlocked: func(label, description string) string {
+		return fmt.Sprintf("Unlocked %s: cleared the %s lock.", label, description)
+	},
+}
+
+// sharedClearWording is the wording for a repository's shared-services lock,
+// whose label already says it is a lock ("the shared-services lock of <host>").
+var sharedClearWording = clearWords{
+	nothing:              "Nothing to unlock: no one holds %s.",
+	checkingWithCommands: "Checking that the holder of %s, and every command it started on this machine, is gone.",
+	checking:             "Checking that the holder of %s is gone.",
+	releasedMeanwhile:    "Nothing to unlock: %s was released while it was being checked.",
+	unlocked:             func(label, _ string) string { return fmt.Sprintf("Unlocked %s.", label) },
+}
+
+// clearOneScope is the guarded recovery of a single lock — the registry's,
+// the router's or a repository's shared lock — which has no worktree to name:
+// refuse while it is actively held, say so when there is nothing to clear,
+// and otherwise hand it to lock.Clear, judging the holder gone (or, with
+// options.AllowUnverifiable, accepting it on the person's word) before
+// marking it released. label names the lock in the messages.
+func clearOneScope(ctx context.Context, log logger.Logger, table procid.Table, scope lock.Scope, kind, label string, words clearWords, options UnlockOptions) (*UnlockResult, error) {
 	if table == nil {
 		table = procid.Platform()
 	}
@@ -202,16 +257,16 @@ func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*Unlock
 		return nil, err
 	}
 	if !stale {
-		env.Logger.Info(fmt.Sprintf("Nothing to unlock: no lock is held for %s.", label))
+		log.Info(fmt.Sprintf(words.nothing, label))
 		return &UnlockResult{Name: label}, nil
 	}
 	// The registry lock guards only brief writes and carries no process
 	// markers of its own (#21), so — unlike the router's own Compose
 	// project — it is never scanned for anything it started.
 	if scope.Markers.Project != "" || scope.Markers.WorktreeID != "" {
-		env.Logger.Info(fmt.Sprintf("Checking that the holder of %s's lock, and every command it started on this machine, is gone.", label))
+		log.Info(fmt.Sprintf(words.checkingWithCommands, label))
 	} else {
-		env.Logger.Info(fmt.Sprintf("Checking that the holder of %s's lock is gone.", label))
+		log.Info(fmt.Sprintf(words.checking, label))
 	}
 
 	cleared, clearErr := lock.Clear(ctx, []lock.Scope{scope}, lock.ClearOptions{
@@ -237,20 +292,51 @@ func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*Unlock
 		return result, wrapPartialClearFailure(result.Cleared, clearErr)
 	}
 	if len(result.Cleared) == 0 {
-		env.Logger.Info(fmt.Sprintf("Nothing to unlock: the lock on %s was released while it was being checked.", label))
+		log.Info(fmt.Sprintf(words.releasedMeanwhile, label))
 		return result, nil
 	}
 	if cleared.Proof != "" {
 		verified = append(verified, cleared.Proof)
 	}
 	for _, line := range verified {
-		env.Logger.Info(fmt.Sprintf("Verified: %s.", line))
+		log.Info(fmt.Sprintf("Verified: %s.", line))
 	}
 	for _, line := range unverified {
-		env.Logger.Warn(fmt.Sprintf("Not verified, on your word (--holder-unverifiable): %s.", line))
+		log.Warn(fmt.Sprintf("Not verified, on your word (--holder-unverifiable): %s.", line))
 	}
-	env.Logger.Info(fmt.Sprintf("Unlocked %s: cleared the %s lock.", label, scope.Description))
+	log.Info(words.unlocked(label, scope.Description))
 	return result, nil
+}
+
+// UnlockSharedWithContext is `worktree unlock --shared`: the same guarded
+// recovery as a worktree's own locks (lock.ProbeHeld, then lock.Clear, never
+// cleared on age alone), pointed at the shared lock of the repository the
+// target worktree belongs to (docs/design/routing.md, decision 18). The
+// shared project's name is its survivor-scan marker, so a `compose up` the
+// dead holder started is looked for before the lock is declared free.
+func UnlockSharedWithContext(ctx context.Context, cctx *CommandContext, options UnlockOptions) (*UnlockResult, error) {
+	target, err := resolveUnlockTarget(ctx, cctx, options)
+	if err != nil {
+		return nil, err
+	}
+	scope := cctx.sharedScope(target.repositoryID)
+	label := "the " + scope.Description + " lock of " + target.name
+	if target.host != "" {
+		label = "the " + scope.Description + " lock of " + target.host
+	}
+	exists, err := lstatExists(scope.Target)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		cctx.Logger.Info(fmt.Sprintf(sharedClearWording.nothing, label))
+		return &UnlockResult{Name: label}, nil
+	}
+	table := cctx.Table
+	if table == nil {
+		table = procid.Platform()
+	}
+	return clearOneScope(ctx, cctx.Logger, table, scope, "shared", label, sharedClearWording, options)
 }
 
 // UnlockWithContext resolves the target worktree, refuses while either of
@@ -443,8 +529,12 @@ func resolveUnlockTarget(ctx context.Context, cctx *CommandContext, options Unlo
 		return nil, err
 	}
 	if identity == nil {
+		flag := ""
+		if options.Shared {
+			flag = "--shared "
+		}
 		return nil, clierr.Newf(
-			"This checkout has never been brought up, so it holds no lock. Name another with '%s worktree unlock <slug|uuid>'.", cctx.CommandName)
+			"This checkout has never been brought up, so it holds no lock. Name another with '%s worktree unlock %s<slug|uuid>'.", cctx.CommandName, flag)
 	}
 	record, err := cctx.Registry.Store(identity.RepositoryID).Find(identity.WorktreeID)
 	if err != nil {

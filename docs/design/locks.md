@@ -129,7 +129,8 @@ tests skip there.
 **Scopes and files.**
 - Target files: the registry lock at `<home>/locks/registry`; a worktree's
   operation lock at `<home>/locks/worktrees/<repo>/<wt>`; its
-  development-session lock at `…/<wt>.dev`.
+  development-session lock at `…/<wt>.dev`; a repository's shared-services
+  lock at `<home>/locks/shared/<repo>` (#123, below).
 - The router lock's target is `layout.RouterState`'s `LockPath`,
   `<BERTH_HOME>/router/lock` (#80) — never any control home's own `locks/`,
   so every control home under the same berth root waits on the same lock
@@ -194,9 +195,10 @@ tests skip there.
 1. Polls `LOCK_EX|LOCK_NB` at a fixed interval bounded by the scope's
    timeout: the worktree operation lock polls every 250 ms for up to 25
    minutes; the registry lock every 50 ms for up to 60 s; the development
-   lock every 250 ms for up to 1 s; the router lock every 250 ms for up to
-   20 minutes — enough to cover `router up`'s own worst case: a start and
-   every Docker probe around it. (A `Lock` used
+   lock every 250 ms for up to 1 s; the shared lock every 250 ms for up to 15
+   minutes; the router lock every 250 ms for up to 20 minutes — enough to
+   cover `router up`'s own worst case: a start and every Docker probe around
+   it. (A `Lock` used
    with neither a timeout nor
    a retry interval set instead backs off from 50 ms to a 250 ms ceiling
    over about 4.6 s.) While it waits, a notice fires after 2 s and then every
@@ -359,7 +361,7 @@ One lifecycle for the whole process, started once in `main`.
   hangup often arrives twice within milliseconds.
 - `Hold(ctx, env, requests, action)`:
   1. Acquires the requested locks in order: operation, then development,
-     then registry.
+     then shared, then registry.
   2. Runs `action` with a context that is also cancelled if a held lock is
      later lost.
   3. On an interrupt or error, calls `runner.Quiesce`.
@@ -426,6 +428,66 @@ accepted (docs/design/routing.md, decision 3a); the second `up`'s bind error
 is its catch, and `up` re-probes and names the holder rather than parsing
 Docker's message.
 
+## Shared services (#123)
+
+One new scope, `lock.SharedScope(controlHome, repositoryID)`, target
+`<control home>/locks/shared/<repo>`: a single lock for all of a repository's
+shared services, with the shared Compose project's name
+(`berth-shared-<24 hex>`) as its survivor-scan marker. Its timeout is 15
+minutes, the longest thing done under it: a `compose up --wait` of five
+minutes, a pull and a recreate. `lifecycle.Requests` gains `Shared`, and the
+order everywhere is operation, development, shared, registry, with the router
+still alone. **Nothing takes the shared lock and then a worktree lock.** That
+one rule is what keeps the order acyclic, and it shapes every caller:
+
+- `berth up` starts or reuses the instance under the shared lock *alone*,
+  before `mutate`, so a worktree's 25-minute operation lock is never held
+  waiting on a slow shared start.
+- Connecting a worktree runs inside that worktree's operation lock and takes
+  the shared lock nested after it, for the connect only: `Lifecycle.Nest`
+  acquires the extra scopes beside the ones `Hold` took, hands all of them to
+  a Docker child in order (`lock.AddHeld`), and refuses a request for an
+  operation, development or router scope, and records the highest kind
+  already held on the action's context so a request that does not come after
+  it (an inversion) is refused as a bug in berth. The operation lock is what excludes this worktree's own
+  disconnect, so the shared container is never attached to a network that is
+  being removed.
+- Disconnecting (`down`, `worktree remove`) needs the operation lock only, so
+  a removal never waits behind a slow shared start.
+- The reconnect sweep, after a shared container is created or recreated, runs
+  only after the shared lock is released: one `Hold(Operation, Shared)` per
+  registered worktree, each with `Requests.Timeout = lock.ReconnectTimeout`
+  (5 s) and `Requests.Quiet` (no "waiting" notice). A worktree whose lock is
+  busy yields a `*lock.BusyError` (a transparent subtype of the `clierr.Error` it
+  wraps: same message, printed once, `Suppressed` kept; `errors.As` finds
+  either), which the sweep reads by type, not by text: it is skipped with a
+  warning and repaired by its own next `up`, by `berth
+  shared up` (which always sweeps) or found by `doctor`. A sweep run from
+  inside a worktree's own hook skips that worktree without waiting, since the
+  lock is its caller's.
+- Port allocation for a shared service is `registry.Store.SyncSharedPorts`,
+  which takes the registry lock for its own short read-scan-write inside the
+  shared lock, the order every other registry write already uses. The skip set
+  it reads, `takenPorts`, now includes every shared-service record as well as
+  every registration, and a worktree's allocation reads the same set, so
+  neither can take a port the other holds.
+
+The shared lock is per control home, like the registry's. Two control homes on
+one Docker daemon can both start the stack; the loser gets "container name …
+is already in use" (verified), which `stack.Up` returns as a
+`*shared.ConflictError` and the caller answers by inspecting the container by
+label again: running means it is theirs to use. A running instance found with
+no local record is reported and its ports are never re-allocated. Docker calls
+under the lock are bounded (30 s for an inspection, a minute for a removal);
+an inspect that fails, or a container state berth does not know, fails the
+command, because a container that cannot be proven absent must not be assumed
+absent: that would start a duplicate or recreate a running instance.
+
+There is no age-based cleanup. The flock frees on death, and the recovery is
+`berth worktree unlock --shared`, which runs the same `lock.ProbeHeld` and
+`lock.Clear` checks as a worktree's lock against this scope, scanning for
+processes carrying the shared project's name.
+
 ## Real-process tests
 
 `//go:build integration` tests in `internal/lock`, `internal/lifecycle`, and
@@ -441,4 +503,6 @@ lock; an unquiesced action; a lock file replaced mid-hold; a waiter whose
 file was unlinked out from under it; every `osrun` exit code; and the
 filesystem table. The lock, lifecycle, and runner packages also pass at
 `-count=20 -race` on Linux; macOS CI runs them once with `-race` and once
-without cgo.
+without cgo. `internal/commands` has one more: two worktrees of a repository
+run their first `up` in two processes at the same moment against a real
+daemon, and exactly one starts the shared service.

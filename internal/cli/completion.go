@@ -222,6 +222,37 @@ func serviceCompletionFunc(p *program) func(cmd *cobra.Command, args []string, t
 	}
 }
 
+// sharedCompletionFunc is `shared up`'s and `shared down`'s own
+// ValidArgsFunction: the shared service names this worktree's berth.toml
+// declares (Config.Shared), in file order and each described by the services
+// that use it, minus whichever the command line already named. A berth.toml
+// that cannot be loaded completes nothing, which is also what `shared down`
+// has to offer when it runs without one.
+func sharedCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		loaded, err := completionConfig(p, cmd)
+		if err != nil {
+			return noCompletions()
+		}
+		given := make(map[string]bool, len(args))
+		for _, a := range args {
+			given[a] = true
+		}
+		var comps []cobra.Completion
+		for _, svc := range loaded.Config.SharedServices() {
+			if given[svc.Name] {
+				continue
+			}
+			description := "shared service"
+			if len(svc.UsedBy) > 0 {
+				description = "used by " + strings.Join(svc.UsedBy, ", ")
+			}
+			comps = append(comps, cobra.CompletionWithDesc(svc.Name, description))
+		}
+		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
+	}
+}
+
 // completionConfig loads the berth.toml cmd's own --config, or the nearest
 // one above the working directory, names: a config-file question, nothing a
 // CommandContext's registry or control home has any part in. Any failure is

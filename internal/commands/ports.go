@@ -308,15 +308,13 @@ func allocatePorts(ctx context.Context, cctx *CommandContext, lister publisherLi
 			}
 		}
 	}
-	// The router's own ports (the index's and, in host mode, the ping's) are
-	// not in any registration; they are skipped like a taken one.
-	routerState, _, err := router.ReadState(cctx.RouterState)
+	reserved, err := routerReservedPorts(cctx)
 	if err != nil {
 		return nil, err
 	}
 	result, err := store.SyncPorts(ctx, ref.WorktreeID, ref.Slug, cctx.writer(), registry.PortPlan{
 		Services: services, Reallocate: options.ReallocatePorts, Range: cctx.portRange(), Probe: cctx.portProbe(),
-		Reserved: routerState.Reserved(),
+		Reserved: reserved,
 	})
 	if err != nil {
 		return nil, err
@@ -364,4 +362,16 @@ func releaseDroppedPorts(ctx context.Context, cctx *CommandContext, ref worktree
 		Services: routed, Release: true, Range: cctx.portRange(), Probe: cctx.portProbe(),
 	})
 	return err
+}
+
+// routerReservedPorts are the router's own ports (the index's and, in host
+// mode, the ping's) from its state file. They are in no registration, so
+// every allocator beside the registry, a worktree's and a shared service's
+// alike, passes them as Reserved and skips them like a taken port.
+func routerReservedPorts(cctx *CommandContext) ([]int, error) {
+	state, _, err := router.ReadState(cctx.RouterState)
+	if err != nil {
+		return nil, err
+	}
+	return state.Reserved(), nil
 }

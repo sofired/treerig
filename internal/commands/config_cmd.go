@@ -49,10 +49,14 @@ func ConfigValidate(ctx context.Context, env *Env) error {
 	// A validator's report is what was asked for, so it goes to stdout the
 	// way every other reporting tool's does.
 	env.Logger.Output(text.Printable(fmt.Sprintf("%s is valid.", loaded.File)))
-	env.Logger.Output(text.Printable(fmt.Sprintf(
+	summary := fmt.Sprintf(
 		"project %s · domain %s · %d service(s) · %d hook(s)",
 		loaded.Config.Project.Name, loaded.Config.Project.Domain, services, live,
-	)))
+	)
+	if shared := len(loaded.Config.SharedServices()); shared > 0 {
+		summary += fmt.Sprintf(" · %d shared service(s)", shared)
+	}
+	env.Logger.Output(text.Printable(summary))
 	if len(inert) > 0 {
 		env.Logger.Output("accepted but not invoked yet: " + strings.Join(inert, ", "))
 	}

@@ -80,6 +80,7 @@ func RunWithContext(ctx context.Context, cctx *CommandContext, opts RunOptions) 
 		},
 		Ref: ref, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ,
 		Routes: worktree.WithPorts(worktree.Routes(cfg.Service, ref.Slug, registration.Domain, cctx.RouterPort), registration.Ports),
+		Shared: sharedAddrs(cctx, ref.RepositoryID),
 	}
 	action := func(ctx context.Context) error {
 		return hooks.RunCommand(ctx, opts.Name, command, opts.Args, hctx)

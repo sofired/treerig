@@ -41,7 +41,9 @@ cannot. A worktree keeps its environment across renames, rebases, and moves.
 becomes `feature-login` — and is routed as `feature-login.<your-domain>`. Slugs
 are unique per domain, because the hostname is what must not collide: two
 projects with different domains can both have a `feature-login`. A collision
-within one domain gets a short hash suffix rather than a surprise. Slugs are
+within one domain gets a short hash suffix rather than a surprise. The slug
+`shared` is reserved for the repository's shared services, so a branch named
+`shared` gets a suffixed slug. Slugs are
 sticky: once allocated, a worktree keeps its slug — suffix included — across
 domain changes whenever it is free, so two clones can never swap hostnames
 underneath you. Reclaiming a bare name would be an explicit rename — a verb
@@ -134,6 +136,21 @@ with `network_mode: host`, `network_mode: service:…` or more than one replica
 is refused, because it has no port berth can publish; `doctor` warns on a
 routed service whose Compose file also publishes a fixed host port of its
 own.
+
+**Shared services.** Some services are wasteful once per worktree: an email
+catcher, an object-store emulator, a broker's web UI. A *shared service* runs
+once per repository, in a Compose project of its own, and is connected to
+each worktree whose services use it. "Repository" is one repository UUID, so
+two clones of the same upstream have two instances. `berth.toml` names the
+service, the ports it publishes for the host and the worktree services that
+use it (see [Shared services](#shared-services) below); the first `up` of any
+worktree that uses it starts it, and every later one finds it running and
+leaves it alone. It joins each using worktree's *own* network under its name,
+so `mailpit:1025` reaches the same Mailpit from every worktree, and a service
+of one worktree still cannot resolve a service of another. Its resources carry
+the repository's ownership labels and a `shared` label, and never a worktree's:
+`worktree remove` and `down` cannot list one, and only `berth shared down`
+removes it. It is the one thing that outlives the worktrees that use it.
 
 **Router.** One Traefik proxy container per machine, started on first `up`,
 shared by every worktree of every repository. It serves a single loopback
@@ -305,6 +322,9 @@ berth status               # per-service state
 berth urls                 # print its routed URLs
 berth run plan             # run one of the project's own [commands], on the terminal
 berth down                 # stop it; data is kept
+berth shared up            # start the shared services, or replace one, and reconnect every worktree
+berth shared status        # their state, addresses and whether this worktree is connected
+berth shared down          # stop them; their named volumes are kept
 berth worktree list        # every worktree of this repository, with state
 berth worktree remove      # tear it down, verified by ownership
 berth worktree unlock      # clear a dead holder's lock, once it is checked gone
@@ -451,6 +471,8 @@ would orphan state.
 | `project.label-namespace` | Optional. Only to adopt resources created by a predecessor tool. |
 | `compose.file` | Compose file, relative to `berth.toml`. Paths inside it (build contexts, bind mounts, `env_file`) and its `.env` resolve against the Compose file's directory, as with `docker compose -f`; `${BERTH_ROOT}` is still `berth.toml`'s directory. |
 | `[service.<name>]` | One table per service, named by its Compose service (lower-case letters, digits, hyphens; at most 64 tables, each name at most 63 characters, as for `[commands]`). Optional `subdomain` (empty = host root), optional `path` (route only that prefix, so services can share a host), optional `port` (defaults to the first port the service exposes), optional `index` presence. |
+| `[shared]` | Optional. `file`: the shared services' Compose file, relative to `berth.toml`; required when any `[shared.service.<name>]` table exists. |
+| `[shared.service.<name>]` | One table per shared service, named by its service in the shared file (same naming rules as `[service.<name>]`). Optional `port` (the web UI's container port), optional `ports` (more container ports), both pinned on `127.0.0.1` for the host; at most 16 in all. `used-by`: the worktree's own Compose services that use it. See [Shared services](#shared-services). |
 | `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. `up` runs `prepare` and `seed`, `doctor` runs `verify`; `backup` and `restore` are accepted but nothing runs them yet. |
 | `[commands]` | Optional. Named commands for `berth run <name>`, resolved like hooks. Each name (lower-case letters, digits, hyphens) maps to a command line, or to a table: `command`, `lock` (default `true`: hold the worktree's lock while it runs) and `kill-after` (default `10s`, at most `1h`: a duration such as `30s` or `5m`, how long its process group has to exit once stopped, before it is killed). See [docs/hooks.md](docs/hooks.md#commands). |
 
@@ -577,6 +599,159 @@ TOML 1.0, with no multi-line inline tables or other 1.1 additions; keep yours
 to it if other tools should read it. berth itself accepts more, but Taplo and
 Python's `tomllib` do not.
 
+## Shared services
+
+A shared service is one instance per repository, defined in a Compose file of
+its own and started by whichever worktree needs it first:
+
+```toml
+[shared]
+file = "docker/compose.shared.yaml"   # relative to berth.toml; its own Compose project
+
+[shared.service.mailpit]              # a service in that file; also the name containers reach it by
+port    = 8025                        # optional: the web UI's container port
+ports   = [1025]                      # optional: more container ports, for processes on the host
+used-by = ["api", "worker"]           # the worktree's own Compose services that use it
+```
+
+```yaml
+# docker/compose.shared.yaml
+services:
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    volumes: ["mailbox:/data"]
+volumes:
+  mailbox: {}
+```
+
+**What the file may say.** A shared name is a table key, like a service's:
+lower-case letters, digits and hyphens, at most 63. `used-by` entries are
+unique and may not name a shared service. `port` and `ports` are TCP ports,
+1 to 65535, unique within the service, at most 16 in all. `[shared]` needs
+`file` as soon as one shared service is declared, and the file may not be the
+worktree's own Compose file. A `[[shared.service]]` array is refused the way
+`[[service]]` is. `up` also checks the worktree's Compose file: every
+`used-by` service must exist in it, a shared name must not (the name would
+mean two things on the worktree's network), and a `used-by` service may not
+have `network_mode: host`, `none`, `service:…` or `container:…`, because it
+has no network a shared container could join.
+
+A shared definition must not depend on the checkout that started it. `build:`
+is refused, and so is a bind mount (or a config or secret `file:`) whose
+source is inside any worktree of the repository: the project directory and
+every relative path resolve to whichever worktree starts the service first,
+which `worktree remove` can delete. Images, named volumes and absolute paths
+outside every worktree are fine. Whatever the service `depends_on` in the
+shared file starts with it, and is labelled and handled the same way. The
+file is read with only variables that mean the same in every worktree:
+your environment, `BERTH_PROJECT`, `BERTH_REPOSITORY_ID` and the Compose
+project name — never `BERTH_ROOT`, `BERTH_WORKTREE_ID` and the rest of a
+worktree's own, and not the `BERTH_*` a hook passes down.
+
+**Starting it.** A worktree whose Compose file has a `used-by` service
+*needs* the shared service. `up` starts it before it touches the worktree, and
+a failure to start it fails the `up`. Two worktrees' first `up`s serialise on
+a per-repository shared lock (up to 15 minutes): the second finds the
+instance running and reuses it. A running instance is never touched by
+`compose up`, so Compose cannot recreate it behind your back. A stopped one is
+replaced by the caller's definition, keeping its volumes, anonymous ones
+included: a stop followed by `up` keeps the data (Compose recreates the
+container in place with `--force-recreate --no-deps`). A `shared down` removes
+the container, and an anonymous volume (a `/data` mount with no name) belongs
+to that container: the next start gets a fresh one. Use a named volume in the
+shared file for data that must survive a down. Give a
+service that should come back after a reboot `restart: unless-stopped` in the
+shared file; berth does not add one, and `doctor` reports a stopped container.
+
+**Connecting it.** After the worktree's own `compose up`, and before its
+hooks (which may send mail), `up` connects the shared container, under the
+shared name as an alias, to each of the worktree's own networks that a running
+`used-by` container is on, proven by the worktree's ownership labels. It does
+not connect it to anything else. `down` disconnects first and then stops the
+worktree; `worktree remove` disconnects before it reaps anything. Compose
+leaves a network that something is still attached to, so this order is what
+lets a worktree's network be removed while the shared service keeps running.
+The worktrees never see one another's services: `web` calling `api` resolves
+inside its own worktree's network only.
+
+**Replacing it.** Each shared container carries a hash of its definition (the
+service and everything it `depends_on`, before berth's own override) and the
+worktree that started it. A worktree whose file hashes differently gets a
+warning from `up`, naming who started the running one, and nothing is
+restarted: a branch that bumps an image tag must not break an unrelated
+branch's `up`. `berth shared up` refuses a differing definition;
+`berth shared up --recreate mailpit` replaces that named service (at least one
+name is required; the refusal lists the running ones), whether or not its
+definition differs (so it is also how to restart one), keeps its
+volumes, and reconnects every worktree that uses it. Attachments belong to a
+container, so a new container has none: whoever creates one reconnects the
+other worktrees after releasing the shared lock, one worktree at a time, and a
+worktree that is busy is skipped with a warning and repaired by its own next
+`up` or by `berth shared up`. `shared up` ends with `N worktree(s) were skipped
+and are not connected yet; run 'berth shared up' again when they are idle.` and
+still exits 0; a worktree it could not read at all is an error. `berth shared up` always does this sweep, also
+when nothing needed replacing, so it is the repair for a worktree left
+unconnected, and it repairs before it reports a differing definition (which
+still exits non-zero); `doctor` finds one.
+
+The hash is computed from pinned inputs: reading the shared file always means
+`--profile '*'` and an empty `--env-file`, so a `.env` beside it is ignored and
+every profile counts, and it covers
+the top-level volumes, networks, configs and secrets the service closure
+references. It is `compose config`'s output, so a Compose upgrade can change it
+and show `differs` once for a service that did not change; run `berth shared up
+--recreate <name>` to restamp it.
+
+**Reaching it.** From a container, `mailpit:1025` on the worktree's network.
+From the host, each declared port is published on a pinned `127.0.0.1` port
+from the same allocator as a routed service's (see *Ports* above), kept across
+`shared down` and released only by `shared down --volumes`; hooks and `berth
+run` get it as `BERTH_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port>`, with
+`<NAME>` mapped as in `BERTH_SERVICE_URL_<NAME>` and `<PORT>` the container
+port (`BERTH_SHARED_ADDR_MAILPIT_1025`). Nothing is injected into Compose:
+that would tie a worktree's Compose environment to shared state and recreate
+its containers when the state changed. A host process uses the pinned port; a
+container never does, because on a host firewalled by default a container
+cannot reach the host's loopback.
+
+```bash
+berth shared up [name...]                    # start (or reuse) them, then reconnect every worktree
+berth shared up --recreate mailpit           # replace a running one with this worktree's definition; keeps its data (a name is required)
+berth shared up --reallocate-port mailpit:1025   # give a container port a new pinned port; refused while it runs
+berth shared down [name...]                  # stop and remove the containers; named volumes and pinned ports are kept
+berth shared down --volumes [name...]        # also delete the data and release the ports; asks first
+berth shared status [--json]                 # state, addresses, definition, connection, who started it
+berth worktree unlock --shared               # clear a dead holder's shared lock, once it is checked gone
+```
+
+`shared down` finds everything by its labels, from any checkout of the
+repository and without a `berth.toml` (give `--label-namespace` when a project
+sets its own), re-verifies each resource before it removes it, and never goes
+through any worktree's Compose file. It does not ask whether worktrees are
+using the service: it is the explicit stop, and says how many were left
+without one. It is the only way a shared service's data is deleted; `--volumes`
+asks for a typed confirmation (the phrase it prints, as `worktree remove` does)
+that lists the volumes by name, and `--yes` skips it. Without names it removes
+every volume of the shared stack, mounted or not. With names it removes only
+the volumes a selected container mounts, so a stopped sibling's data is kept;
+anonymous volumes (Compose's `/data` without a name) go too, but only those of
+containers `shared down` has proven are the stack's, and the prompt marks them
+`(anonymous)`. A plain `shared down` (without `--volumes`) leaves named volumes
+alone, but warns when a container it removes has anonymous ones: it names them
+and says their data will not be reattached on the next start. If the plan grows while you decide, the command refuses and
+says to run it again. A name that is not a declared, running or recorded
+shared service is refused, listing the ones that are. A repository that was
+never brought up has nothing to stop: `shared down` says so and exits 0, and
+`shared status` lists the declared services as `absent`.
+Removing a repository's last registered worktree prints one line pointing at
+`shared down` when the shared services are still running.
+
+A shared service may not publish ports in the shared file: `ports:` there, and
+any non-loopback publish, is refused with the instruction to declare the port
+in `[shared.service.<name>]`, where berth publishes it on `127.0.0.1`. A shared service that runs natively on the host and
+is used by containers is not supported: on Linux with a default-deny firewall
+a container cannot reach the host.
+
 ## Trust model
 
 Bringing up a worktree runs the branch's code. `up` builds whatever its
@@ -586,7 +761,7 @@ that checkout asks for. Do not bring up a branch you would not run. `berth
 run` asks the same of a branch's `[commands]`, and gives them your terminal
 too.
 
-Four things follow from that, and this tool does not change them:
+Five things follow from that, and this tool does not change them:
 
 - **Hooks and builds see your environment.** Nothing is allow-listed; a hook
   is a program you pointed the config at, and it runs with everything you
@@ -626,6 +801,15 @@ Four things follow from that, and this tool does not change them:
   service stays on its own project's networks; the proxy reaches it through
   its published loopback port, not through a network. Containers you do not
   declare stay on their project's own networks too.
+- **A shared service is on every using worktree's network.** Its container is
+  connected to each such worktree's own network, so every container on one of
+  those networks can reach it, and it can reach all of them. That is the point
+  of sharing it, mail from every worktree landing in one inbox, and it is not
+  an isolation boundary between the worktrees: they still do not resolve each
+  other's services by name, but on OrbStack a container that knows another
+  Compose network's container IP can reach it whether or not a service is shared.
+  Its declared ports are also published on `127.0.0.1`, open to every local
+  user like a routed service's.
 - **The index page is machine-wide and unauthenticated.** It lists every
   checkout's branch, path, hostnames and service links. It is served through
   the proxy like any route, and from a loopback port of its own that any
@@ -639,16 +823,17 @@ not create — not a claim about what your branch's code can do once it runs.
 ## Output and exit codes
 
 The commands that produce data — `index`, `status`, `urls`, `router status`,
-`config show`, `config validate`, `worktree list`, `doctor` — write that data to stdout
+`shared status`, `config show`, `config validate`, `worktree list`, `doctor` — write that data to stdout
 and nothing else, so `berth index > page.txt` and
 `berth worktree list --json | jq` get what they asked for. Progress, waiting
-notices, confirmation prompts, warnings and failures go to stderr. Five of
-these (`index`, `status`, `urls`, `worktree list` and `doctor`) take `--json`:
+notices, confirmation prompts, warnings and failures go to stderr. Six of
+these (`index`, `status`, `urls`, `shared status`, `worktree list` and `doctor`) take `--json`:
 see [Machine-readable output](#machine-readable-output).
 
 `up`, `down`, `router down` and `worktree remove` are the exception: they pass
 your hooks' and Compose's own stdout through as those programs wrote it, and
-`up` adds its URL table there. `run` is the same, more strictly: the command
+`up` adds its URL table there. `shared up` passes Compose's stdout through the
+same way; `shared down` writes only notices and warnings, to stderr. `run` is the same, more strictly: the command
 it runs writes straight to berth's stdout and stderr, and berth adds nothing
 while it runs, so `berth run plan > out` holds only what `plan` wrote.
 
@@ -668,7 +853,9 @@ stdout line follows it saying which port was resolved and from where —
 is absent when Docker could not be asked.
 
 `doctor` writes its report to stdout: one section per area (`Prerequisites`,
-`Registry`, `Locks`, `Router`, `This checkout`), one line per check, each marked `ok`,
+`Registry`, `Locks`, `Router`, `This checkout`, and `Shared services` when
+`berth.toml` declares some or Docker still holds some of the repository's),
+one line per check, each marked `ok`,
 `warn`, `fail` or `skip`. How it went is one line on stderr, and so is the
 output of the `verify` hook it runs, so the report is alone on stdout. It exits
 0 when no check failed — warnings and skips do not count — with the `verify`
@@ -715,7 +902,7 @@ that is registered but not implemented exits 2.
 
 ### Machine-readable output
 
-`worktree list`, `doctor`, `status`, `urls` and `index` take `--json`. With
+`worktree list`, `doctor`, `status`, `shared status`, `urls` and `index` take `--json`. With
 it, stdout carries exactly one JSON document, indented and ASCII-only (every
 non-ASCII character is escaped `\uXXXX`), and the exit code is the text
 form's. Notices, warnings, the `doctor` summary and errors stay on stderr in
@@ -787,6 +974,7 @@ start.
 | `locks.scan` | `locks` | | the locks could not be read |
 | `locks.registry` | `locks` | | the registry lock is held or was left unreleased, or could not be checked |
 | `locks.router` | `locks` | | the router lock is held or was left unreleased, or could not be checked |
+| `locks.shared` | `locks` | repository ID | a repository's shared-services lock is held or was left unreleased, or could not be checked |
 | `locks.worktree.operation` | `locks` | worktree ID | a worktree's operation lock |
 | `locks.worktree.development` | `locks` | worktree ID | a worktree's development-session lock |
 | `router.container` | `router` | the problem's code, when the router is degraded or unreachable (see below) | the router's own status: `ok` when up and healthy or not running, `skip` when Docker or Compose is unavailable, `fail` when it could not be resolved, or one `fail` per problem, as `router status` prints them |
@@ -809,6 +997,17 @@ start.
 | `checkout.hooks.resolve` | `checkout` | the stage: `prepare`, `seed`, `verify`, `backup` or `restore` (the set may gain values) | whether that configured hook's file would start |
 | `checkout.commands.resolve` | `checkout` | the command's name from `[commands]` | whether that command's file would start |
 | `checkout.hooks.verify` | `checkout` | | the `verify` hook's own run |
+| `shared.scan` | `shared` | | the Shared services section could not be built |
+| `shared.services` | `shared` | | the shared services could not be listed, the repository has never been brought up, or Docker is not answering (`skip`, `fail`), or there is nothing to report |
+| `shared.definition` | `shared` | | the shared Compose file cannot be used (`fail`): it does not parse, builds an image, publishes `ports:`, or bind-mounts a path inside a worktree |
+| `shared.service` | `shared` | the shared service's name | its state: `ok` running, `warn` stopped, unhealthy or running with a different definition than this worktree's, `skip` absent |
+| `shared.port` | `shared` | `<name>:<container port>` | whether the pinned loopback port is published by the running container, or free while it is down (`warn` otherwise) |
+| `shared.record` | `shared` | the shared service's name | a running service whose pinned ports this control home has no record of |
+| `shared.unreadable-record` | `shared` | `<repository>/<file>` | a shared-service record that could not be read |
+| `shared.connection` | `shared` | the shared service's name | a running service of this worktree that uses it, on a network the shared container is not attached to: up but not connected (`warn`) |
+| `shared.attachment` | `shared` | `<service>:<network>` | the shared container attached to a network that carries no worktree's labels, or belongs to a stopped or removed worktree; reported, never touched |
+| `shared.orphan` | `shared` | the Compose service | a shared container no declared service accounts for (information), or one that claims to be the stack's but cannot be proven so (`warn`; never touched), or a listing that failed (`fail`) |
+| `shared.unused` | `shared` | | shared services running with no registered worktree of the repository (information) |
 
 These codes appear only as the `instance` of `router.container`; they are not
 check ids like `router.port`. A code is `<service>.<what>`, where the service is
@@ -883,6 +1082,57 @@ exits 0, as the text form does.
   ]
 }
 ```
+
+When `berth.toml` declares shared services, `status --json` also has a
+`shared` array, one entry per declared service, in file order (the key is
+absent otherwise). `state` uses the words of `services`: `running`, `starting` (also a restarting
+container or a pending health check), `stopped`, `absent` or `unknown`, with
+`detail` `unhealthy` for a running one failing its check. One inconsistent
+container is an `unknown` entry with a `detail`, not a failure of the whole
+command; a record that cannot be read leaves `addrs` out with a warning and
+makes the definition `unknown`. If Docker cannot be asked about the shared
+services at all, `status` warns on stderr, leaves the `shared` array out (and
+the `shared services` block in the text form) and still reports the worktree's
+own services, exiting 0.
+`addrs` lists the declared container ports that have a pinned loopback port,
+`{"port": <container port>, "addr": "127.0.0.1:<host port>"}`, running or not.
+`definition` is `current` when the running instance was started from the
+definition this worktree's shared file hashes to, `differs` when from another,
+and `unknown` when nothing is running or the file cannot be read.
+`connected` is true when the shared container is attached to every network of
+this worktree's own that one of its running `used-by` services is on, and at
+least one; it is false for a worktree with no running consumer, which the text
+form calls `not used here` (`not connected` is reserved for a running consumer
+whose network the container is missing). `definedBy` is the hostname of the worktree that started the
+running instance, or `a removed worktree`, and is absent when nothing runs.
+
+```json
+{
+  "registered": true,
+  "host": "feature-login.acme.localhost",
+  "services": [
+    { "service": "api", "state": "running", "port": 20417 }
+  ],
+  "shared": [
+    {
+      "name": "mailpit",
+      "state": "running",
+      "addrs": [
+        { "port": 8025, "addr": "127.0.0.1:20450" },
+        { "port": 1025, "addr": "127.0.0.1:20451" }
+      ],
+      "definition": "current",
+      "connected": true,
+      "definedBy": "feature-login.acme.localhost"
+    }
+  ]
+}
+```
+
+**`shared status --json`** prints the same entries as an object,
+`{"shared": [ … ]}`, and `{"shared": []}` when nothing is declared. Unlike
+`status` it works from a worktree that is not yet registered, as long as the
+repository has been brought up once.
 
 **`urls --json`** prints one array, in config order, `[]` when nothing is
 routed (the warning stays on stderr). `label` and `purpose` are absent for a
@@ -1058,7 +1308,10 @@ mounted with `hidepid`, say) — is refused too, unless you pass
 `--holder-unverifiable` once you have made sure yourself; that never
 overrides a running holder or a command left running. `--registry` and
 `--router` point the same check at the machine-wide registry or router lock
-instead of a worktree's, and take no worktree identifier. The unlock command
+instead of a worktree's, and take no worktree identifier; `--shared` points it
+at the shared-services lock of the repository the worktree belongs to, and
+looks for a `compose up` the dead holder left running by the shared Compose
+project's name. The unlock command
 that a lock notice or `doctor` prints names the worktree by its UUID: it
 never changes, no other worktree shares it, and it works even for a
 worktree whose first `up` died before it registered.
@@ -1185,6 +1438,11 @@ Shipped:
 - **`run`** — the project's own named `[commands]`, run on the terminal
   against a registered worktree: they can prompt, answer Ctrl-C, and hold
   the worktree's lock until everything they started has exited.
+- **Shared services** (#123) — `[shared]`: a service such as an email catcher
+  that runs once per repository, connected to each worktree that uses it by
+  its name, with its definition checked for drift, its ports pinned on
+  `127.0.0.1`, and `shared up`, `shared down` and `shared status` to run it
+  yourself.
 - **`doctor`** — one read-only report: Git, Docker and Compose against the
   versions this tool needs; the berth root and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);

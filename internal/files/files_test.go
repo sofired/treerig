@@ -326,4 +326,22 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		requireNoError(t, os.MkdirAll(l.QuarantinePath, 0o700))
 		requireErrorContains(t, files.SecureWorktreeDirectories(l, t.TempDir()), "was interrupted; retry the removal")
 	})
+
+	t.Run("creates a repository's shared directories owner-only and refuses a symlinked lock", func(t *testing.T) {
+		controlHome := filepath.Join(t.TempDir(), "control")
+		l := layout.SharedLayout(controlHome, "a08b4892-5111-49f1-a47a-5ab988c7f676")
+
+		requireNoError(t, files.SecureSharedDirectories(l, t.TempDir()))
+		for _, dir := range []string{l.Dir, l.LockDir} {
+			if mode := fileMode(t, dir); mode != 0o700 {
+				t.Fatalf("expected %s to be 0700, got %o", dir, mode)
+			}
+		}
+		requireNoError(t, files.SecureSharedDirectories(l, t.TempDir())) // and again, idempotently
+
+		requireNoError(t, os.Symlink(t.TempDir(), l.LockPath))
+		if err := files.SecureSharedDirectories(l, t.TempDir()); err == nil {
+			t.Fatal("a symlinked shared lock was accepted")
+		}
+	})
 }

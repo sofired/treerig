@@ -1,0 +1,4 @@
+up	start shared services, and reconnect every worktree that uses them (--recreate <name> replaces a running one)
+down	stop shared services; their data is kept unless you pass --volumes
+status	show the shared services: state, addresses, definition and connection
+:4

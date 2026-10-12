@@ -16,6 +16,9 @@ type StatusReport struct {
 	Registered bool            `json:"registered"`
 	Host       *string         `json:"host,omitempty"`
 	Services   []StatusService `json:"services"`
+	// Shared is the declared shared services; present only when berth.toml
+	// declares some.
+	Shared []SharedStatusEntry `json:"shared,omitempty"`
 }
 
 // StatusService is one declared service's state. State is one of the
@@ -65,8 +68,20 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 		return nil, err
 	}
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
+	sharedEntries, err := sharedStatuses(ctx, cctx, ref.RepositoryID, ref.WorktreeID)
+	if err != nil {
+		// A cancelled command stops here like any other; only a failed
+		// lookup falls back.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		// The worktree's own services are the answer; a shared lookup that
+		// failed must not take them with it.
+		cctx.Logger.Warn(fmt.Sprintf("Could not read the shared services' state, so they are left out: %s", text.OneLine(err.Error(), 300)))
+		sharedEntries = nil
+	}
 	if options.JSON {
-		report := StatusReport{Registered: true, Host: &host, Services: make([]StatusService, 0, len(statuses))}
+		report := StatusReport{Registered: true, Host: &host, Services: make([]StatusService, 0, len(statuses)), Shared: sharedEntries}
 		for _, entry := range statuses {
 			report.Services = append(report.Services, StatusService{Service: entry.Service, State: string(entry.State), Detail: entry.Detail, Port: registration.Ports[entry.Service]})
 		}
@@ -90,6 +105,12 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 		}
 		// The service names come from the branch's own compose file.
 		cctx.Logger.Output(text.Printable(fmt.Sprintf("  %s  %s%s", text.PadEnd(entry.Service, width), entry.State, detail)))
+	}
+	if len(sharedEntries) > 0 {
+		cctx.Logger.Output("  shared services")
+		for _, line := range renderShared(sharedEntries, "    ") {
+			cctx.Logger.Output(line)
+		}
 	}
 	return statuses, nil
 }

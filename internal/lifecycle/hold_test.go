@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -326,6 +327,22 @@ func TestAttach(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps the wrapper's text when the primary error wraps a clierr.Error", func(t *testing.T) {
+		wrapped := fmt.Errorf("while holding the lock: %w", clierr.WithCode("hook failed", 3))
+		secondary := errors.New("release failed")
+		got := attach(wrapped, []error{secondary})
+		if got.Error() != "while holding the lock: hook failed" {
+			t.Fatalf("message = %q, the wrapper's text was lost", got.Error())
+		}
+		if code := clierr.Code(got); code != 3 {
+			t.Fatalf("exit code = %d, want 3", code)
+		}
+		var ce *clierr.Error
+		if !errors.As(got, &ce) || len(ce.Suppressed) != 1 || ce.Suppressed[0] != secondary {
+			t.Fatalf("Suppressed not kept: %+v", ce)
+		}
+	})
+
 	t.Run("never overwrites a cause the primary error already carried", func(t *testing.T) {
 		original := errors.New("original cause")
 		primary := &clierr.Error{Message: "primary", ExitCode: 1, Cause: original}
@@ -336,6 +353,172 @@ func TestAttach(t *testing.T) {
 		}
 		if len(got.Suppressed) != 1 || got.Suppressed[0] != second {
 			t.Fatalf("Suppressed = %v", got.Suppressed)
+		}
+	})
+}
+
+func TestSharedLock(t *testing.T) {
+	scope := func(t *testing.T, name string) lock.Scope {
+		t.Helper()
+		return lock.Scope{Target: filepath.Join(t.TempDir(), name), Description: name}
+	}
+	probe := func(t *testing.T, s lock.Scope) (free bool) {
+		t.Helper()
+		lk := lock.New(s, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Timeout: 20 * time.Millisecond})
+		if _, err := lk.Acquire(context.Background(), "probe"); err != nil {
+			return false
+		}
+		_ = lk.Release()
+		return true
+	}
+
+	t.Run("orders the shared lock after development and before the registry", func(t *testing.T) {
+		op, dev, shared, reg := scope(t, "op"), scope(t, "dev"), scope(t, "shared"), scope(t, "registry")
+		got := Requests{Registry: &reg, Shared: &shared, Development: &dev, Operation: &op}.ordered()
+		want := []*lock.Scope{&op, &dev, &shared, &reg}
+		if len(got) != len(want) {
+			t.Fatalf("got %d scopes, want %d", len(got), len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("scope %d = %s, want %s", i, got[i].Description, want[i].Description)
+			}
+		}
+	})
+
+	t.Run("gives the shared lock the shared timeout", func(t *testing.T) {
+		shared := scope(t, "shared")
+		requests := Requests{Shared: &shared}
+		if got := optionsFor(&shared, requests, Env{}).Timeout; got != lock.SharedTimeout {
+			t.Errorf("timeout = %v, want %v", got, lock.SharedTimeout)
+		}
+		requests.Timeout = lock.ReconnectTimeout
+		if got := optionsFor(&shared, requests, Env{}).Timeout; got != lock.ReconnectTimeout {
+			t.Errorf("overridden timeout = %v, want %v", got, lock.ReconnectTimeout)
+		}
+	})
+
+	t.Run("nests the shared lock inside a held operation lock and hands both to a child", func(t *testing.T) {
+		op, shared := scope(t, "op"), scope(t, "shared")
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		env := Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"}
+		var inherited, innerHeld int
+		err := l.Hold(context.Background(), env, Requests{Operation: &op}, func(ctx context.Context) error {
+			if !probe(t, shared) {
+				t.Error("the shared lock was held before Nest")
+			}
+			err := l.Nest(ctx, env, Requests{Shared: &shared}, func(inner context.Context) error {
+				inherited = len(lock.Inherited(inner))
+				if probe(t, shared) {
+					t.Error("the shared lock was free inside Nest")
+				}
+				innerHeld = len(lock.Inherited(ctx))
+				return nil
+			})
+			if probe(t, op) {
+				t.Error("the operation lock was released by Nest")
+			}
+			if !probe(t, shared) {
+				t.Error("the shared lock was still held after Nest")
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inherited != 2 || innerHeld != 1 {
+			t.Errorf("inner action inherited %d locks and the outer ctx %d, want 2 and 1", inherited, innerHeld)
+		}
+		if !probe(t, op) || !probe(t, shared) {
+			t.Error("a lock was still held after Hold")
+		}
+	})
+
+	t.Run("Nest refuses a request that would invert the order", func(t *testing.T) {
+		op := scope(t, "op")
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		ran := false
+		err := l.Nest(context.Background(), Env{Logger: logger.Silent{}}, Requests{Operation: &op}, func(context.Context) error {
+			ran = true
+			return nil
+		})
+		if err == nil || ran {
+			t.Fatalf("Nest(Operation) = %v, ran = %v", err, ran)
+		}
+	})
+
+	t.Run("a short timeout turns a held lock into a BusyError without waiting out the scope's own", func(t *testing.T) {
+		op := scope(t, "op")
+		holder := lock.New(op, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
+		if _, err := holder.Acquire(context.Background(), "holder"); err != nil {
+			t.Fatal(err)
+		}
+		defer holder.Release()
+
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		started := time.Now()
+		ran := false
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth shared up"},
+			Requests{Operation: &op, Timeout: 100 * time.Millisecond, Quiet: true},
+			func(context.Context) error { ran = true; return nil })
+		var busy *lock.BusyError
+		if !errors.As(err, &busy) {
+			t.Fatalf("err = %v (%T), want a *lock.BusyError", err, err)
+		}
+		if ran {
+			t.Error("the action ran without the lock")
+		}
+		if elapsed := time.Since(started); elapsed > 5*time.Second {
+			t.Errorf("waited %v", elapsed)
+		}
+	})
+}
+
+func TestNestRefusesAnInversion(t *testing.T) {
+	scope := func(name string) lock.Scope {
+		return lock.Scope{Target: filepath.Join(t.TempDir(), name), Description: name}
+	}
+	l := NewLifecycle(newFakeOS(), logger.Silent{})
+	env := Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"}
+
+	t.Run("a registry lock held outside refuses a shared lock inside it", func(t *testing.T) {
+		registry, shared := scope("registry"), scope("shared")
+		ran := false
+		err := l.Hold(context.Background(), env, Requests{Registry: &registry}, func(ctx context.Context) error {
+			return l.Nest(ctx, env, Requests{Shared: &shared}, func(context.Context) error { ran = true; return nil })
+		})
+		if err == nil || ran || !strings.Contains(err.Error(), "invert the lock order") {
+			t.Fatalf("err = %v, ran = %v", err, ran)
+		}
+	})
+
+	t.Run("a shared lock held outside refuses another shared lock inside it", func(t *testing.T) {
+		first, second := scope("shared"), scope("shared2")
+		err := l.Hold(context.Background(), env, Requests{Shared: &first}, func(ctx context.Context) error {
+			return l.Nest(ctx, env, Requests{Shared: &second}, func(context.Context) error { return nil })
+		})
+		if err == nil {
+			t.Fatal("a second shared lock was taken inside the first")
+		}
+	})
+
+	t.Run("an operation lock outside allows a shared lock inside, and the registry inside that", func(t *testing.T) {
+		op, shared, registry := scope("op"), scope("shared"), scope("registry")
+		depth := 0
+		err := l.Hold(context.Background(), env, Requests{Operation: &op}, func(ctx context.Context) error {
+			return l.Nest(ctx, env, Requests{Shared: &shared}, func(inner context.Context) error {
+				return l.Nest(inner, env, Requests{Registry: &registry}, func(context.Context) error { depth = 3; return nil })
+			})
+		})
+		if err != nil || depth != 3 {
+			t.Fatalf("err = %v, depth = %d", err, depth)
+		}
+	})
+
+	t.Run("a context with no Hold behind it is not an inversion", func(t *testing.T) {
+		shared := scope("shared")
+		if err := l.Nest(context.Background(), env, Requests{Shared: &shared}, func(context.Context) error { return nil }); err != nil {
+			t.Fatal(err)
 		}
 	})
 }

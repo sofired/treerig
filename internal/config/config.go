@@ -18,7 +18,10 @@ type Config struct {
 	Project Project   `json:"project"`
 	Compose Compose   `json:"compose"`
 	Service []Service `json:"service"`
-	Hooks   Hooks     `json:"hooks"`
+	// Shared is the [shared] table: services that run once per repository.
+	// Nil when the file has none, and then left out of `config show`.
+	Shared *Shared `json:"shared,omitempty"`
+	Hooks  Hooks   `json:"hooks"`
 	// Commands are the project's named commands (#94), in file order; empty
 	// when the file has no [commands], and then left out of `config show`.
 	Commands Commands `json:"commands,omitempty"`
@@ -50,6 +53,47 @@ type Service struct {
 	Port *int `json:"port,omitempty"`
 	// Index is presence on the shared checkout index; nil keeps the service internal.
 	Index *ServiceIndex `json:"index,omitempty"`
+}
+
+// Shared is the [shared] table (docs/design/routing.md, decisions 15-22).
+type Shared struct {
+	// File is the shared Compose file, relative to the config file; empty
+	// only when no service is declared.
+	File string `json:"file,omitempty"`
+	// Service are the [shared.service.<name>] tables in the file's order.
+	Service []SharedService `json:"service"`
+}
+
+// SharedService is one [shared.service.<name>] table.
+type SharedService struct {
+	// Name is the service's name in the shared Compose file, and the
+	// network alias containers reach it by: the table's key.
+	Name string `json:"name"`
+	// Port is the container port of the service's web UI; nil when it has none.
+	Port *int `json:"port,omitempty"`
+	// Ports are the raw container ports published for processes on the host.
+	Ports []int `json:"ports"`
+	// UsedBy are the worktree's Compose services that use this service.
+	UsedBy []string `json:"used-by"`
+}
+
+// ContainerPorts is every container port the service declares, Port first
+// and then Ports in the order written: each gets a pinned host port.
+func (s SharedService) ContainerPorts() []int {
+	var all []int
+	if s.Port != nil {
+		all = append(all, *s.Port)
+	}
+	return append(all, s.Ports...)
+}
+
+// SharedServices are the declared shared services, in file order; none when
+// the file has no [shared].
+func (c Config) SharedServices() []SharedService {
+	if c.Shared == nil {
+		return nil
+	}
+	return c.Shared.Service
 }
 
 // ServiceIndex is [service.<name>.index].

@@ -172,9 +172,9 @@ type ClearOptions struct {
 	Clock func() time.Time
 	// SuggestUnverifiableFlag says whether a refusal born of doubt should
 	// suggest --holder-unverifiable: true for every scope `worktree unlock`
-	// can be pointed at, which by now is all three kinds (a worktree's own
-	// locks, and, with --registry or --router, the registry and router
-	// locks — #21).
+	// can be pointed at, which by now is all four kinds (a worktree's own
+	// locks, and, with --registry, --router or --shared, the registry, router
+	// and a repository's shared-services lock — #21, #123).
 	SuggestUnverifiableFlag bool
 }
 

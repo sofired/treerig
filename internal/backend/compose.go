@@ -111,6 +111,11 @@ type Options struct {
 	Environ []string
 	// Routes are the services to route, from [service.<name>] in config.
 	Routes []RouteSpec
+	// SharedUse maps a service of the consumer's Compose file to the shared
+	// services it uses (config's used-by, inverted); the override stamps each
+	// such container with its shared-use labels (docs/design/routing.md,
+	// decision 22) and changes nothing else about it.
+	SharedUse map[string][]string
 	// WaitTimeoutSeconds is how long `up --wait` waits for health before
 	// failing; nil uses DefaultWaitTimeoutSeconds. A pointer so an explicit
 	// 0 (unlike a plain zero-value int) is not mistaken for "unset".
@@ -213,6 +218,12 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 // activeEndpoints matches Compose's refusal to remove a network something is
 // still attached to.
 var activeEndpoints = regexp.MustCompile(`(?i)has active endpoints`)
+
+// IsActiveEndpoints reports whether err is Compose's refusal to remove a
+// network something is still attached to, as the failed command reported it.
+func IsActiveEndpoints(err error) bool {
+	return err != nil && activeEndpoints.MatchString(err.Error())
+}
 
 // Down stops the project; data is kept. Deliberately carries no Timeout
 // (#14): see this file's own timeouts comment for why. Tolerates Compose's
