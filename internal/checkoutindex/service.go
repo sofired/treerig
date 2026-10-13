@@ -445,8 +445,11 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 // router.Ensure holds around bringing the router up (internal/commands'
 // routerLockScope), taken here the same way — lock.New, Acquire, Release —
 // rather than through internal/lifecycle's full signal-deferring Hold:
-// Refresh always runs after a mutation's own lock has already been released
-// (or, from `router up`, after the router's own hold has), so it needs the
+// Refresh runs after a mutation's own locks have been released (or, from
+// `router up`, after the router's own hold has) — with one sanctioned
+// exception: a `dev` session refreshes while it still holds its worktree's
+// development lock (docs/design/locks.md), which is safe because no router
+// lock is ever held while waiting for a worktree-level lock. So it needs the
 // mutual exclusion a plain Lock gives it, not another layer of the same
 // signal handling built for a whole command invocation. It waits only
 // Options.LockTimeout (defaultLockTimeout, 60 s) for that lock, not

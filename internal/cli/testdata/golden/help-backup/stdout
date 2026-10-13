@@ -1,0 +1,18 @@
+Run the backup hook berth.toml declares under [hooks], in this worktree, which
+must be registered and have a running service, with the worktree's BERTH_*
+environment and the bundle directory as its first argument. The directory is
+created, or must be empty if it exists; without one the bundle goes to a
+timestamped directory under the worktree's home, which worktree remove deletes
+along with it. The path is reported on stderr when the hook succeeds. The hook's
+exit code becomes berth backup's, and the worktree's lock is held while it runs.
+docs/hooks.md has the details.
+
+Usage:
+  berth backup [dir] [flags]
+
+Flags:
+  -h, --help   help for backup
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

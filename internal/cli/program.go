@@ -427,16 +427,24 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	})
 	root.AddCommand(config)
 
-	// TODO(#5): once `dev` starts things, it needs the same
-	// config.CheckStart call `up` and `config validate` make before it
-	// touches anything, refusing a control character in a [service.<name>.index]
-	// label or purpose the same way.
 	root.AddCommand(&cobra.Command{
 		Use:   "dev",
-		Short: "start this worktree's environment and follow its logs (not yet implemented)",
-		Args:  maxArgs(0),
+		Short: "start this worktree's services, then follow their logs until Ctrl-C",
+		Long: fmt.Sprintf("Do everything `%s up` does (register the worktree, start the shared router and any shared services, "+
+			"start the services, run its hooks), then follow the logs of the worktree's services until you press Ctrl-C. "+
+			"The services keep running afterwards; `%s down` stops them, and the session may stay open, idle, until you press Ctrl-C. "+
+			"While a session is attached, `%s worktree remove` and a second `%s dev` refuse, but `up`, `down` and `run` work as usual. "+
+			"Ctrl-C, SIGTERM and SIGHUP end the session, stop the log follower and release the lock, with exit status 130, 143 and 129. "+
+			"If `up` fails, so does `dev`, the same way, and no logs are followed. "+
+			"If the log follower ends on its own, because Docker went away or every container is gone, `dev` says so and exits non-zero.",
+			commandName, commandName, commandName, commandName),
+		Args: maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return clierr.WithCode(fmt.Sprintf("'%s dev' is not implemented yet; see the Roadmap in README.md.", commandName), 2)
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Dev(cmd.Context(), env)
 		},
 	})
 
@@ -523,6 +531,53 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	run.SetFlagErrorFunc(runFlagError)
 	run.ValidArgsFunction = commandCompletionFunc(p)
 	root.AddCommand(run)
+
+	backup := &cobra.Command{
+		Use:   "backup [dir]",
+		Short: "run the backup hook, writing a bundle into a directory",
+		Long: fmt.Sprintf("Run the backup hook %s declares under [hooks], in this worktree, which must be registered and have a running service, "+
+			"with the worktree's BERTH_* environment and the bundle directory as its first argument. "+
+			"The directory is created, or must be empty if it exists; without one the bundle goes to a timestamped "+
+			"directory under the worktree's home, which worktree remove deletes along with it. "+
+			"The path is reported on stderr when the hook succeeds. "+
+			"The hook's exit code becomes berth backup's, and the worktree's lock is held while it runs. "+
+			"docs/hooks.md has the details.", brand.ConfigFile),
+		Args: maxArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Backup(cmd.Context(), env, commands.BackupOptions{Dir: arg0(args)})
+		},
+	}
+	backup.ValidArgsFunction = directoryCompletionFunc
+	root.AddCommand(backup)
+
+	restore := &cobra.Command{
+		Use:   "restore <dir>",
+		Short: "run the restore hook on a bundle directory",
+		Long: fmt.Sprintf("Run the restore hook %s declares under [hooks], in this worktree, which must be registered and have a running service, "+
+			"with the worktree's BERTH_* environment and a bundle directory as its first argument. "+
+			"The directory must already exist and is never created; a bundle that a backup did not finish is refused. "+
+			"The hook's exit code becomes berth restore's, and the worktree's lock is held while it runs. "+
+			"docs/hooks.md has the details.", brand.ConfigFile),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return clierr.Newf("Restore needs a bundle directory: %s restore <dir>.", commandName)
+			}
+			return maxArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Restore(cmd.Context(), env, commands.RestoreOptions{Dir: arg0(args)})
+		},
+	}
+	restore.ValidArgsFunction = directoryCompletionFunc
+	root.AddCommand(restore)
 
 	var indexJSON bool
 	indexCmd := &cobra.Command{
@@ -734,6 +789,33 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	remove.ValidArgsFunction = identifierCompletionFunc(p, false)
 	_ = remove.RegisterFlagCompletionFunc("domain", domainCompletionFunc(p))
 	worktree.AddCommand(remove)
+
+	rename := &cobra.Command{
+		Use:   "rename <new-slug>",
+		Short: "change this worktree's slug, and with it its hostname",
+		Long: "Rename the worktree you run it from: change the slug it is registered under, so it routes as <new-slug>.<domain>. " +
+			"A slug is a lowercase hostname label: letters, digits and inner hyphens, at most 63 characters. " +
+			"The registration and index entry move to the new slug and any leftover route files are removed; `up` writes them at the new hostname. " +
+			"The data directory, volumes and pinned ports are keyed by the worktree's ID and stay as they are. " +
+			fmt.Sprintf("It refuses a slug another worktree holds in the same domain, the reserved slug \"shared\", and a worktree that still has containers, running or stopped: run `%s down` first.", commandName),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return clierr.Newf("%q needs the new slug as its one argument.", cmd.CommandPath())
+			}
+			return maxArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Rename(cmd.Context(), env, commands.RenameOptions{Slug: args[0]})
+		},
+	}
+	rename.ValidArgsFunction = func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		return noCompletions()
+	}
+	worktree.AddCommand(rename)
 
 	unlock := &cobra.Command{
 		Use:   "unlock [identifier]",

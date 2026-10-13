@@ -516,6 +516,38 @@ accident. The macOS smoke test (Testing) still sends mail from a consumer
 container to the shared service, loads the routed UI, and recreates the shared
 container.
 
+## Renaming a worktree (#11)
+
+A worktree's slug names its hostname, `<slug>.<domain>`, and nothing else
+that Docker or the disk holds: the Compose project name, the home, the locks
+and the pinned ports derive from the repository and worktree IDs. So a rename
+is a change of hostname and not of resources, and berth renames and deletes no
+volume. What carries the hostname is the registry record, the `Host` matchers
+of the worktree's route files, the index card's slug, host and service URLs,
+and the generated index page. The environment Compose gave its containers
+also carries it (`BERTH_SLUG`, `BERTH_HOST`), which is why the verb refuses
+while the worktree has any container, found by ownership labels, and asks for
+`down`, which also removes the route files. A Compose file that builds the
+slug into a volume name is beyond what berth can see; the README says what
+that leaves behind.
+
+The route files of Compose services can therefore only be crash leftovers
+when a rename runs, dead routes to a stopped worktree. The rename removes
+them (`router.RemoveWorktreeFragments`, as `down` does) and `up` writes them
+afresh at the new hostname. It does not rewrite the old hostname to the new
+one in place: a rename interrupted after that step and retried with another
+slug would leave the file at the first one, which no record owns.
+
+`moveRoutes` in `internal/commands/rename.go` is the one place a rename deals
+with every route file of a record, and the seam for any other kind of file
+that carries the hostname. When host routes (#6) land they belong there,
+written from the record (the new slug, domain and the route's own
+definition), never by replacing the old hostname in the file, and before the
+record changes. Until then no route file can disagree with its record after a
+rename, so `ClassifyFragment` needs no host-mismatch problem and `doctor` has
+nothing to report; #6's own repair, which rewrites its files from the record
+on the next `up` or `router up`, is where a half-renamed host route is caught.
+
 ## What the implementation removes and keeps
 
 Removed:

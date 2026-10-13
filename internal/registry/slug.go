@@ -22,7 +22,31 @@ var (
 	nonSlugRunes = regexp.MustCompile(`[^a-z0-9]+`)
 	edgeHyphens  = regexp.MustCompile(`^-+|-+$`)
 	slugPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	// slugLabelPattern is the stricter shape a slug a person types must
+	// have: a DNS label, so it cannot end in a hyphen either. The allocator
+	// never produces a trailing hyphen, which is why slugPattern, the shape
+	// a stored record is read back against, does not insist on it.
+	slugLabelPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 )
+
+// ValidateSlug refuses a slug a person chose that cannot be one: empty, longer
+// than a DNS label, not made of lowercase letters, digits and inner hyphens,
+// or the reserved slug. Whether the slug is free in a domain is a separate
+// question, answered under the registry lock by Store.Rename.
+func ValidateSlug(slug string) error {
+	switch {
+	case slug == "":
+		return clierr.New("A slug cannot be empty.")
+	case len(slug) > maxSlugLength:
+		return clierr.Newf("The slug %q is longer than %d characters, the limit for a hostname label.", slug, maxSlugLength)
+	case slug == ReservedSlug:
+		return clierr.Newf("The slug %q is reserved: a repository's shared services are routed beneath it.", slug)
+	case !slugLabelPattern.MatchString(slug):
+		return clierr.Newf("The slug %q is not a valid hostname label: use lowercase letters, digits and hyphens, "+
+			"starting and ending with a letter or digit. A slug is the part before the domain, so it has no dots or capitals.", slug)
+	}
+	return nil
+}
 
 // BranchSlug is a DNS-safe label derived from the branch, or the directory
 // name when HEAD is detached. Truncation happens before trimming so the
@@ -60,8 +84,8 @@ func BranchSlug(branch, root string) string {
 // healed automatically even when the bare name is free again. "The bare name
 // is free" is exactly the transient state a domain rename passes through,
 // and healing at that moment is how two clones end up swapping hostnames
-// under their users. Reclaiming a bare name would be an explicit rename — a
-// verb this tool does not have yet — not a side effect of allocation.
+// under their users. Reclaiming a bare name is an explicit rename
+// (`worktree rename`, Store.Rename), not a side effect of allocation.
 //
 // The suffix derives from the worktree's own identity, so whichever suffix a
 // worktree is given, it is the same one every time.

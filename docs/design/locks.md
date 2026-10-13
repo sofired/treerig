@@ -131,6 +131,16 @@ tests skip there.
   operation lock at `<home>/locks/worktrees/<repo>/<wt>`; its
   development-session lock at `…/<wt>.dev`; a repository's shared-services
   lock at `<home>/locks/shared/<repo>` (#123, below).
+- Which verbs take which: `up`, `down`, `run`, `backup` and `restore` take the
+  operation lock only, so they work during a development session;
+  `worktree remove` takes the development lock as well, and is refused while
+  one is attached.
+- The survivor scan (`procid.Marked`) counts a process as a worktree's own when
+  its environment holds `BERTH_WORKTREE_ID=<wt>` or `COMPOSE_PROJECT_NAME=<p>`.
+  Hooks and commands now set `COMPOSE_PROJECT_NAME` (docs/hooks.md), and
+  already carried `BERTH_WORKTREE_ID`, so the set of processes counted is
+  unchanged: a hook's children were the worktree's processes before and are
+  now marked twice.
 - The router lock's target is `layout.RouterState`'s `LockPath`,
   `<BERTH_HOME>/router/lock` (#80) — never any control home's own `locks/`,
   so every control home under the same berth root waits on the same lock
@@ -157,7 +167,10 @@ tests skip there.
   machine-wide lock target would close that; it is not this design. See
   `internal/router/stack.go`'s `RouterHomeLabel` comment and `router.go`'s
   `checkOwnership`. `router up` takes its own lock alone, never alongside a
-  worktree's own locks (`lifecycle.Requests.Router`).
+  worktree's own locks (`lifecycle.Requests.Router`). The one edge from a
+  worktree-level lock to this one is a `dev` session's best-effort index
+  refresh (see the development session, below); the router lock is never held
+  while waiting for a worktree-level lock.
 - Routing splits the same way. A worktree's own route files
   (`<repo>.<wt>.<service>.yaml` in the router's `dynamic/`) are written by
   `up` and removed by `down` and `worktree remove`, under that worktree's
@@ -373,6 +386,9 @@ One lifecycle for the whole process, started once in `main`.
      `syscall.Kill(getpid, sig)`, so the process dies by it as a shell
      expects; if it somehow survives that, it falls back to
      `os.Exit(128+n)`.
+- `HoldThen(ctx, env, requests, action, then)` is `Hold` for a command that
+  needs the operation lock only for `action` and keeps the later locks for
+  `then` (see the development session, below).
 - The action's own error is reported first; a release or quiesce failure
   rides along as its `Cause` (if it had none) and always in `Suppressed`, so
   a lock that could not be released is never silent.
@@ -394,6 +410,85 @@ One lifecycle for the whole process, started once in `main`.
   (`internal/run`'s `WithRepeated`/`Repeated`) to abandon early instead of
   running out its own budget, and the error it returns on that path is
   exactly the kind `Finish` reports rather than silently re-raising.
+
+## The development session (`dev`, #5)
+
+`dev` is `up` followed by `docker compose logs --follow` on the worktree's
+project, and it holds the worktree's development-session lock from before
+`up`'s first change until the log follower is gone. The lock's only job is to
+make a verb that needs the worktree to stay put refuse while someone is
+working in it. Which verbs take it:
+
+| Verb | Operation lock | Development lock |
+|---|---|---|
+| `dev` | during `up`'s work only | whole session |
+| `worktree remove` | yes | yes (refuses during a session) |
+| `up`, `down`, `run` (`lock = true`) | yes | no |
+| `backup`, `restore` (#10) | yes | no |
+
+`worktree remove` waits the lock's 1 s, then refuses, naming the session's
+holder and telling you to end it with Ctrl-C in the terminal running
+`berth dev`; a second `dev` does the same. (A second `dev` first runs `up`'s
+router and shared-service steps and may wait on the operation lock before the
+1 s refusal; it changes nothing of the worktree.) `up`, `down`, `run`,
+`backup` and `restore` work during a session; a `backup` or `restore` of a
+worktree being developed is the operator's call, as it is for `run`.
+
+The order stays operation, then development: `lifecycle.HoldThen` acquires the
+operation and development locks together, in that order, runs `up`'s mutation
+under both, then **releases the operation lock** and runs its second phase, the
+log follower, holding the development lock alone. The operation lock is held
+only for `up`'s work, so a `down` from another terminal is not kept waiting for
+the whole session. If the mutation fails or the context ends first, the second
+phase never runs, the context's cause is returned, and everything is released
+as `Hold` releases it. This depends on `Lock.Release` stopping a lock's
+watchdog without cancelling the context `Acquire` derived: the development
+lock's context is a child of the operation lock's. After the second phase,
+quiescence is proven as for `Hold` and the development lock is released; a
+failure to prove it abandons the development lock, never the operation lock,
+which is already back and marked released.
+
+The follower is run `Interactive` (`internal/run/osrun`), so it is in its own
+process group, nothing is captured, and the runner drains the group before
+`Run` returns, whether berth was signalled or not; that is the "stop the
+group, then release the lock" the session needs. A SIGINT, SIGTERM or SIGHUP
+that reaches berth cancels the context, the runner forwards it to the group
+(SIGHUP as SIGTERM), a notice names the signal, and berth dies by the signal
+once the lock is released, as in `run`. A Ctrl-C at a terminal goes to the
+follower's foreground group instead, so berth sees the follower end by SIGINT
+(or exit 130, which is Compose handling the interrupt itself) and ends the
+session itself with exit 130 and the same notice (`clierr.Ended`, printed as
+information, not as an error). Any other end of the follower is the session
+dying on its own, Docker lost, say: a message on stderr, the follower's exit
+code, or 1 for exit 0.
+
+Whether Compose's follower ends when the project's containers go away varies.
+On Compose 5.5.0 it has kept waiting for new containers when a `restart:
+always` service had restarted under it (it depends on where in the restart
+cycle the containers were removed), and otherwise exits 0 once they are gone,
+ending the session with a message; Compose 2.38.2 always exits. A session may
+therefore idle after a `berth down`, and a later `berth up` may show the new
+containers' logs. An idle session keeps refusing `worktree remove` until
+Ctrl-C. The real-daemon test, which includes a `restart: always` service,
+accepts either outcome and checks that the lock, the follower and the refusal
+agree. A poll of `compose ps` every 5 s while following prints one notice when
+no container is left, saying that `worktree remove` refuses until the session
+ends; it is read-only, bounded by the probe timeout, and joined before the
+session returns. The session-end notice then omits "its services are still
+running", since the last look found none.
+A `kill -9` of berth frees the lock with the process (the follower is not
+given the lock) but leaves the follower running on its own.
+
+**One sanctioned exception to "the router lock is taken alone".** After
+`up`'s work, `dev` prints the URLs and then refreshes the checkout index (best
+effort, up to a 60 s wait) while still holding the development lock, because a
+session that left the index page stale until it ended would hide the worktree
+it just started. This adds the single edge development, then router, and the
+rule becomes: the router lock is never held while waiting for a worktree-level
+lock. The router's `Ensure` and the index refresh read registrations and Docker
+without any worktree lock, so the order stays acyclic, and the refresh gives up
+rather than waiting out a router start. A test pins that the refresh runs with
+the development lock held and the operation lock not.
 
 ## Loopback port allocation (#119)
 
@@ -428,6 +523,34 @@ accepted (docs/design/routing.md, decision 3a); the second `up`'s bind error
 is its catch, and `up` re-probes and names the holder rather than parsing
 Docker's message.
 
+## Renaming a worktree (#11)
+
+`worktree rename` takes the worktree's operation lock and its
+development-session lock (`mutate` with `exclusive`), so it cannot overlap
+an `up`, a `down` or an attached `dev`; it refuses from the worktree's own
+hooks like the other verbs. The registry lock is taken once, inside, by
+`registry.Store.Rename`: operation, development, registry, the same order as
+every other registry write. Under that one hold it reads the record, scans
+every registry on the machine, checks the slug is free in the record's
+domain, runs the migration callback and replaces the record, so two renames
+(or a rename and a first registration) cannot mint the same hostname. The
+callback (`moveRoutes`, `moveIndexCard`) removes the worktree's route files and
+rewrites the index card, with plain file operations; it
+takes no lock and does no Docker call, so the registry hold stays short. The
+inventory that refuses a rename while containers exist runs before, under the
+operation lock alone.
+
+Crash order: derived state first, the record last. The record is the commit
+point. Route files are removed and the card is rewritten from the card's own
+host to the record's new one, so each step is idempotent and does not depend
+on which slug the failed attempt was given. A crash before the record leaves
+the old slug registered, with at worst the route files gone and the card
+already at the first attempt's host; a retry, with that slug or another,
+redoes both, and `up` rewrites both anyway. A crash after it leaves nothing to
+finish. The record is not marked pending first, as `worktree remove` marks it:
+a rename destroys no data, and a pending mark would make the next `up` seed
+again.
+
 ## Shared services (#123)
 
 One new scope, `lock.SharedScope(controlHome, repositoryID)`, target
@@ -437,7 +560,7 @@ shared services, with the shared Compose project's name
 minutes, the longest thing done under it: a `compose up --wait` of five
 minutes, a pull and a recreate. `lifecycle.Requests` gains `Shared`, and the
 order everywhere is operation, development, shared, registry, with the router
-still alone. **Nothing takes the shared lock and then a worktree lock.** That
+still alone (bar that `dev` refresh). **Nothing takes the shared lock and then a worktree lock.** That
 one rule is what keeps the order acyclic, and it shapes every caller:
 
 - `berth up` starts or reuses the instance under the shared lock *alone*,

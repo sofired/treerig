@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"time"
 
 	"github.com/sofired/berth/internal/shared"
 	"github.com/sofired/berth/internal/worktree"
@@ -51,4 +52,13 @@ func SelectionNeedsRouterForTest(ctx context.Context, cctx *CommandContext, name
 		return false
 	}
 	return selectionNeedsRouter(ctx, cctx, selected)
+}
+
+// SetContainerPollForTest shortens how often a dev session checks that its
+// worktree still has a container, for the life of a test. It is not safe for
+// tests that run in parallel with each other.
+func SetContainerPollForTest(interval time.Duration) (restore func()) {
+	previous := containerPoll
+	containerPoll = interval
+	return func() { containerPoll = previous }
 }

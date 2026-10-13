@@ -17,11 +17,13 @@ everything below applies to them except where that section says otherwise.
 | `prepare` | Services are up and healthy. Nothing has been seeded. | environment only |
 | `seed` | **Only after `prepare` exited zero.** | environment only |
 | `verify` | When `berth doctor` checks a registered worktree. Exit zero means healthy. | environment only |
-| `backup` | Accepted and validated now; nothing invokes it yet. A future `berth backup` command will. | environment + bundle directory as `$1` |
-| `restore` | Accepted and validated now; nothing invokes it yet. A future `berth restore` command will. | environment + bundle directory as `$1` |
+| `backup` | When you run [`berth backup`](#backup-and-restore). | environment + bundle directory as `$1` |
+| `restore` | When you run [`berth restore`](#backup-and-restore). | environment + bundle directory as `$1` |
 
 The lifecycle order is `prepare → seed → verify`. `up` asks for `prepare` and
 `seed` only; `doctor` runs `verify` on its own, and never `prepare` or `seed`.
+`backup` and `restore` are not part of that order: each runs alone, when its
+command is run.
 The sequencer stops at the first non-zero exit and reports which stage failed.
 A stage that is not configured is skipped, not failed.
 
@@ -40,6 +42,10 @@ An interrupted `worktree remove` also returns the registration to pending,
 since its volumes may already be gone, so the next `up` seeds again rather
 than starting on empty stores. Write `prepare` to be idempotent; write `seed`
 assuming an empty, migrated store.
+
+`dev` runs them exactly as `up` does, since it is `up` followed by a log
+follower; the hooks finish before any log is followed, and a failing one fails
+`dev` with its exit code.
 
 ## Resolution
 
@@ -64,16 +70,19 @@ hook scripts keep working however the tool is invoked.
 
 | Variable | Value |
 | -------- | ----- |
-| `BERTH_STAGE` | `prepare`, `seed` or `verify` today; `backup` and `restore` once something invokes them. Hooks only: a [command](#commands) never has it |
+| `BERTH_STAGE` | `prepare`, `seed`, `verify`, `backup` or `restore`. Hooks only: a [command](#commands) never has it |
 | `BERTH_COMMAND` | The name of the [command](#commands) being run. Commands only: a hook never has it |
 | `BERTH_PROJECT` | `project.name` from the config |
 | `BERTH_REPOSITORY_ID` | UUID of the repository |
 | `BERTH_WORKTREE_ID` | UUID of this worktree |
-| `BERTH_SLUG` | The worktree's machine-unique slug |
+| `BERTH_SLUG` | The worktree's machine-unique slug. It changes only when [`worktree rename`](../README.md#renaming-a-worktree) renames the worktree, which needs it stopped; the next `up` runs hooks with the new one |
 | `BERTH_HOST` | `<slug>.<domain>` |
 | `BERTH_WORKTREE_HOME` | The worktree's private directory under the control home |
 | `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
 | `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
+| `COMPOSE_PROJECT_NAME` | The worktree's Compose project, `berth-<hash>`, so `docker compose exec` and `logs` in a hook reach this worktree's containers and not the project Compose would name after the directory. Replaces an inherited value |
+| `BERTH_COMPOSE_PROJECT` | The same name under berth's own prefix |
+| `COMPOSE_FILE` | Absolute path of the Compose file `[compose] file` names, which Compose otherwise looks for as `compose.yaml` beside `berth.toml`. Replaces an inherited value. The extra files berth adds when it starts services (published ports, labels) are not part of it. Compose splits this variable on `:`, so a path that contains one does not work; keep the checkout where its path has none |
 | `BERTH_URL` | This worktree's own URL: the `[service.<name>]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
 | `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
 | `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
@@ -109,15 +118,33 @@ is a non-browser client, so the same resolver caveats apply as anywhere else
 outside a browser — see [README.md's "Hostname resolution"
 notes](../README.md#platform-notes).
 
+The three Compose variables reach every hook (`prepare`, `seed`, `verify`,
+`backup`, `restore`) and every [command](#commands). `BERTH_COMPOSE_PROJECT`
+reaches Compose too, like the other `BERTH_*` names. A hook that runs
+`docker compose exec` or `logs` finds this worktree's containers. One that runs
+`docker compose up` (or `run`) starts containers in the worktree's project
+**without berth's ownership labels**: `berth up --remove-orphans` may remove
+them, and `worktree remove` will not reap them, since it finds containers by
+label and never by name. Let `berth up` start services, and use `exec` and
+`run --rm` for anything transient.
+
+The project name is also what berth's lock recovery looks for. A process whose
+environment names `COMPOSE_PROJECT_NAME=berth-<hash>` is counted as one of the
+worktree's own when `worktree unlock` and stale-lock recovery scan for
+survivors of a dead holder. Hook children already carried
+`BERTH_WORKTREE_ID`, which marks them the same way, so this changes nothing
+about which processes are counted: they are the worktree's processes.
+
 `BERTH_HOME` and `BERTH_CONTROL_HOME` — the berth-root and control-home
 overrides, if the user set either — are *not* in this list on purpose. Both
 pass through from the parent unchanged, so a hook that invokes the tool
 itself resolves the same berth root and control home the user did.
 
 A hook may run the tool against another worktree, but not against its own:
-`up` holds that worktree's lock while its hooks run, so `up`, `down`,
-`worktree remove` or a locked `run` on the same worktree would wait on its
-own caller. They refuse at once instead, when `BERTH_WORKTREE_ID` names the
+`up`, `backup` and `restore` hold that worktree's lock while their hooks
+run, so `up`, `down`, `dev`, `backup`, `restore`, `worktree remove`,
+`worktree rename` or a locked `run` on the same worktree would wait on its own
+caller. They refuse at once instead, when `BERTH_WORKTREE_ID` names the
 worktree they were asked to change. A locked [command](#commands) holds the
 lock too, so the same holds inside one, and inside a `lock = false` command,
 which cannot be told apart from it.
@@ -221,6 +248,165 @@ that instead of "timed out" and names the group.
 An interrupt of berth itself is a different thing and unchanged: see
 [Cancellation](#cancellation).
 
+## Backup and restore
+
+`berth backup [dir]` runs the `backup` hook and `berth restore <dir>` runs the
+`restore` hook, each with the **bundle directory** as its only added
+argument: an absolute path, appended to whatever arguments the configured
+command line already carries (`backup = "./scripts/backup.sh --fast"` runs
+`./scripts/backup.sh --fast /path/to/bundle`). The hook gets the same
+environment and working directory as `prepare`, with `BERTH_STAGE` set to
+`backup` or `restore`. What goes in the bundle, and in what format, is the
+hook's business; `restore` is meant to read what `backup` wrote, and nothing
+checks that it does. A hook validates its own input: `restore` passes the
+directory on even when it is empty (it warns), and a hook should check that
+the files it needs are there before it changes anything.
+
+A hook must not require an empty bundle directory: it is not empty when the
+hook starts, because it holds the `.incomplete` marker (below). A tool that
+wants a directory of its own, such as `pg_dump -Fd`, is given a subdirectory:
+`pg_dump -Fd -f "$1/db"`.
+
+### A PostgreSQL round trip
+
+The hooks run in the project root with the worktree's own Compose project in
+their environment ([`COMPOSE_PROJECT_NAME`](#environment)), so
+`docker compose exec` reaches this worktree's database and no other. Keep the
+data on a named volume, as below: Compose labels it, so `worktree remove`
+reaps it. The anonymous volume a Postgres image declares for itself is not
+reaped, and would outlive the worktree.
+
+```yaml
+services:
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: app }
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+```
+
+```toml
+[hooks]
+backup  = "./scripts/backup.sh"
+restore = "./scripts/restore.sh"
+```
+
+```sh
+#!/usr/bin/env bash
+# scripts/backup.sh: dump to a temporary name, then move it into place, so a
+# dump that dies half way is never left under the name restore looks for.
+set -euo pipefail
+bundle=$1
+docker compose exec -T db pg_dump -U app --clean --if-exists app > "$bundle/app.sql.tmp"
+mv "$bundle/app.sql.tmp" "$bundle/app.sql"
+```
+
+```sh
+#!/usr/bin/env bash
+# scripts/restore.sh: stop at the first error, and apply all or nothing.
+set -euo pipefail
+bundle=$1
+[ -f "$bundle/app.sql" ] || { echo "restore: $bundle/app.sql is missing" >&2; exit 1; }
+docker compose exec -T db psql -U app -d app -v ON_ERROR_STOP=1 --single-transaction < "$bundle/app.sql"
+```
+
+`-T` is needed because the hook has no terminal. `--clean --if-exists` makes
+the dump replace the tables that are there: a restore **overwrites** the
+worktree's live data.
+
+### The bundle directory
+
+- **`berth backup`** creates the directory (parents too, mode 0700, since a
+  bundle holds the worktree's data), or uses one that exists and is empty. An
+  existing directory keeps its own mode; berth warns when other users can
+  read it. A directory that holds anything is refused before the hook runs,
+  so one backup is never mixed into another and an old bundle is never
+  overwritten. A path that is a file is refused too.
+- **`berth backup` with no directory** writes to
+  `<worktree home>/backups/<timestamp>`, where the worktree home is
+  `$BERTH_WORKTREE_HOME` and the timestamp is UTC, such as
+  `20261012T153045Z`.
+- **`berth restore`** requires the directory to exist already; it never creates
+  one.
+- A relative directory is taken from the directory you ran `berth` in, not the
+  project root the hook runs in, so the hook always receives the path you
+  meant.
+- **The `.incomplete` marker.** Before the hook runs, `backup` writes an empty
+  `.incomplete` file into the bundle, and removes it when the hook exits zero.
+  A bundle that still holds it was not finished, and `restore` refuses it.
+  Hooks must leave the file alone. A backup whose hook fails before writing
+  anything leaves no trace: the marker is removed, and the directory too if
+  berth created it. One that wrote something keeps the marker, and berth
+  says so; delete the directory, or give the next backup another one.
+
+**Why the default is inside the worktree's home.** The home is the one private
+(0700) place berth already keeps a worktree's state, so a bundle holding its
+data is protected the same way, with no location for the user to pick, and the
+timestamped names sort in time order. The cost is that `berth worktree remove`
+deletes the home, bundles included, and nothing prunes old bundles. berth
+makes the loss visible rather than avoiding it: the removal plan names them
+(`its home directory under the control home, including 2 backup bundle(s) in
+backups/`), and a backup into the default location says that `worktree
+remove` will delete it. A bundle meant to outlive the worktree, or to be
+copied elsewhere, is given a directory of its own.
+
+**Scripting `backup`.** The hook's output is the command's own standard output
+and error. berth's closing `Backed up <host> to <dir>.` line, and the notices
+and warnings above, go to standard error; berth prints nothing on standard
+output. A script that needs the bundle's path passes an explicit directory
+rather than parsing the default.
+
+### What each command checks, and holds
+
+Before running the hook, and in this order, both commands refuse (exit 1, a
+`[berth] ERROR:` line) when:
+
+0. `restore` is given no directory (`Restore needs a bundle directory: berth
+   restore <dir>.`), checked before `berth.toml` is read;
+1. the hook is not configured (`No backup hook is configured: add backup under
+   [hooks] in berth.toml.`);
+2. the worktree is not registered (run `berth up` first);
+3. the worktree has no running service. A backup reads the services' data and
+   a restore loads into them, so both need the worktree up; one running
+   service is enough, and what the hook needs from the others is its own
+   business;
+4. the bundle directory is not usable as above, or, for `restore`, was left
+   `.incomplete`.
+
+Checks 3 and 4 run under the lock, in that order, so nothing is created for a
+command that is refused. The domain and ports the hook sees are those in the
+registration once the lock is won.
+
+While the hook runs, the worktree's operation lock is held, as it is for the
+hooks of `up`: `up`, `down`, `worktree remove`, a locked `run` and another
+`backup` or `restore` wait for it and name `berth backup` or `berth restore`.
+The development lock is not taken, so both work during a `dev` session. The
+hook is not interactive and its output is streamed as for any other hook.
+Inside a hook of the same worktree, both commands refuse at once rather than
+wait on the lock their caller holds.
+
+A hook that hangs, a `pg_dump` waiting on a stuck connection say, holds the
+lock until it ends or you interrupt it, unless `[hooks.timeout]` gives
+`backup` or `restore` a [limit](#timeouts). Past it, berth stops the hook and
+its process group on the host, which does not reach a dump running inside a
+container through `docker compose exec`: that keeps going there.
+
+### Exit status and signals
+
+The command exits with the hook's own status, as every hook does (see
+[Output and exit codes](#output-and-exit-codes)): `The backup hook failed
+(exit 3).` exits 3, `126` and `127` mean the hook could not be started, and a
+hook ended by a signal exits 128 plus its number. A `SIGINT`, `SIGTERM` or
+`SIGHUP` berth receives is delivered to the hook's whole process group as
+`SIGTERM`, as in [Cancellation](#cancellation), and berth dies by that signal
+once the hook's group is gone and the lock is released. An interrupted backup
+keeps its `.incomplete` marker like any other that wrote something. A hook
+that outlives its [`[hooks.timeout]`](#timeouts) limit is stopped and the
+command exits 124, not the hook's own code; a timed-out backup is treated like
+any other failed one, so a bundle it had begun keeps its marker.
+
 ## Commands
 
 `berth run <name> [-- args...]` runs one of the project's named commands: the
@@ -291,7 +477,7 @@ script, with a clearer message than berth could give.
 ### Locking
 
 By default a command holds the worktree's operation lock while it runs, the
-lock `up`, `down` and `worktree remove` take. Those wait for it (up to 25
+lock `up`, `down`, `worktree remove` and `worktree rename` take. Those wait for it (up to 25
 minutes) and, after a couple of seconds, say what they are waiting on:
 `berth run apply`, without the arguments after `--`, which may carry a secret.
 A second `run` waits too, and one inside the same worktree's own hooks or
@@ -308,7 +494,7 @@ outliving `berth run`.
 `SIGINT`, `SIGTERM` and `SIGHUP`, forwards them to the command, and waits for
 its group. It is *trusted, not enforced*, and meant for read-only commands
 such as a `plan`, the way `doctor` runs `verify` unlocked. Do not use it for
-anything that writes: `up`, `down` and `worktree remove` do not wait for
+anything that writes: `up`, `down`, `worktree remove` and `worktree rename` do not wait for
 such a command, and `worktree remove` can delete the data under a running
 `apply`.
 
@@ -318,7 +504,7 @@ such a command, and `worktree remove` can delete the data under a running
 - There is no lock to wait on, so `berth run` of another `lock = false`
   command works from inside it. But the command carries
   `BERTH_WORKTREE_ID` all the same, so it cannot drive its own worktree's
-  locked verbs (`up`, `down`, `worktree remove`, a locked `run`) either: those
+  locked verbs (`up`, `down`, `worktree remove`, `worktree rename`, a locked `run`) either: those
   refuse at once, as they do inside a hook, because the refusal cannot know
   whether the caller holds the lock.
 
