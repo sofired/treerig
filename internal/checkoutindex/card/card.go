@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/sofired/berth/internal/brand"
@@ -385,4 +387,58 @@ func readLabelNamespace(file string) *string {
 		return nil
 	}
 	return raw.LabelNamespace
+}
+
+// Rehost points a worktree's card at a new slug and host, for `worktree
+// rename`: it sets Slug and Host and moves every service URL that sits under
+// the card's old host (or a subdomain of it) to the new one, keeping scheme,
+// port, path and the rest. Without it the index would drop each service,
+// since it shows only URLs under the registered host. It reports whether it
+// rewrote the card. A worktree that never published one, or whose card is
+// unreadable as a card, has nothing to move: its next `up` writes a fresh
+// one. Idempotent, so a rename interrupted after it ran can be run again.
+func Rehost(controlHome, repositoryID, worktreeID, slug, host string) (bool, error) {
+	current, err := ReadIndexCard(controlHome, repositoryID, worktreeID)
+	if err != nil || current == nil {
+		return false, err
+	}
+	previous := current.Host
+	moved := *current
+	moved.Slug = slug
+	moved.Host = host
+	moved.Services = make([]IndexService, len(current.Services))
+	for i, service := range current.Services {
+		service.URL = rehostURL(service.URL, previous, host)
+		moved.Services[i] = service
+	}
+	if moved.Slug == current.Slug && moved.Host == current.Host && slices.Equal(moved.Services, current.Services) {
+		return false, nil
+	}
+	if err := WriteIndexCard(controlHome, repositoryID, worktreeID, moved); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// rehostURL is raw with its hostname moved from oldHost (or a subdomain of
+// it) to newHost, and raw itself when it names another host or does not parse.
+func rehostURL(raw, oldHost, newHost string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	name := parsed.Hostname()
+	switch {
+	case name == oldHost:
+		name = newHost
+	case strings.HasSuffix(name, "."+oldHost):
+		name = strings.TrimSuffix(name, oldHost) + newHost
+	default:
+		return raw
+	}
+	if port := parsed.Port(); port != "" {
+		name += ":" + port
+	}
+	parsed.Host = name
+	return parsed.String()
 }

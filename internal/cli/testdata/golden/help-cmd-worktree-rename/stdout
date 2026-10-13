@@ -1,0 +1,18 @@
+Rename the worktree you run it from: change the slug it is registered under, so
+it routes as <new-slug>.<domain>. A slug is a lowercase hostname label: letters,
+digits and inner hyphens, at most 63 characters. The registration and index
+entry move to the new slug and any leftover route files are removed; `up` writes
+them at the new hostname. The data directory, volumes and pinned ports are keyed
+by the worktree's ID and stay as they are. It refuses a slug another worktree
+holds in the same domain, the reserved slug "shared", and a worktree that still
+has containers, running or stopped: run `berth down` first.
+
+Usage:
+  berth worktree rename <new-slug> [flags]
+
+Flags:
+  -h, --help   help for rename
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

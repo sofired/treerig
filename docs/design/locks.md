@@ -523,6 +523,34 @@ accepted (docs/design/routing.md, decision 3a); the second `up`'s bind error
 is its catch, and `up` re-probes and names the holder rather than parsing
 Docker's message.
 
+## Renaming a worktree (#11)
+
+`worktree rename` takes the worktree's operation lock and its
+development-session lock (`mutate` with `exclusive`), so it cannot overlap
+an `up`, a `down` or an attached `dev`; it refuses from the worktree's own
+hooks like the other verbs. The registry lock is taken once, inside, by
+`registry.Store.Rename`: operation, development, registry, the same order as
+every other registry write. Under that one hold it reads the record, scans
+every registry on the machine, checks the slug is free in the record's
+domain, runs the migration callback and replaces the record, so two renames
+(or a rename and a first registration) cannot mint the same hostname. The
+callback (`moveRoutes`, `moveIndexCard`) removes the worktree's route files and
+rewrites the index card, with plain file operations; it
+takes no lock and does no Docker call, so the registry hold stays short. The
+inventory that refuses a rename while containers exist runs before, under the
+operation lock alone.
+
+Crash order: derived state first, the record last. The record is the commit
+point. Route files are removed and the card is rewritten from the card's own
+host to the record's new one, so each step is idempotent and does not depend
+on which slug the failed attempt was given. A crash before the record leaves
+the old slug registered, with at worst the route files gone and the card
+already at the first attempt's host; a retry, with that slug or another,
+redoes both, and `up` rewrites both anyway. A crash after it leaves nothing to
+finish. The record is not marked pending first, as `worktree remove` marks it:
+a rename destroys no data, and a pending mark would make the next `up` seed
+again.
+
 ## Shared services (#123)
 
 One new scope, `lock.SharedScope(controlHome, repositoryID)`, target

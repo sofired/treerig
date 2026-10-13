@@ -513,3 +513,73 @@ func TestCardBoundsSharedByReadAndWrite(t *testing.T) {
 		})
 	}
 }
+
+func TestRehost(t *testing.T) {
+	write := func(t *testing.T, controlHome string) {
+		t.Helper()
+		file := card.IndexCardPath(controlHome, "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222")
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(validCard), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const repo, wt = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+
+	t.Run("points slug, host and every service URL under the old host at the new one, keeping port and path", func(t *testing.T) {
+		controlHome := t.TempDir()
+		write(t, controlHome)
+
+		current, err := card.ReadIndexCard(controlHome, repo, wt)
+		if err != nil || current == nil {
+			t.Fatal(current, err)
+		}
+		rewrite := *current
+		rewrite.Services = []card.IndexService{
+			{Name: "web", URL: "http://feature-login.acme.localhost:8080/app?x=1"},
+			{Name: "api", URL: "http://api.feature-login.acme.localhost/v1", Label: "API"},
+			{Name: "elsewhere", URL: "http://other.localhost/"},
+		}
+		if err := card.WriteIndexCard(controlHome, repo, wt, rewrite); err != nil {
+			t.Fatal(err)
+		}
+
+		changed, err := card.Rehost(controlHome, repo, wt, "login", "login.acme.localhost")
+		if err != nil || !changed {
+			t.Fatalf("changed = %v, %v", changed, err)
+		}
+
+		got, _ := card.ReadIndexCard(controlHome, repo, wt)
+		if got.Slug != "login" || got.Host != "login.acme.localhost" || got.Domain != "acme.localhost" || got.Branch != "feature/login" {
+			t.Fatalf("card = %+v", got)
+		}
+		want := []string{"http://login.acme.localhost:8080/app?x=1", "http://api.login.acme.localhost/v1", "http://other.localhost/"}
+		for i, service := range got.Services {
+			if service.URL != want[i] {
+				t.Errorf("service %s url = %q, want %q", service.Name, service.URL, want[i])
+			}
+		}
+		if again, err := card.Rehost(controlHome, repo, wt, "login", "login.acme.localhost"); err != nil || again {
+			t.Fatalf("second pass changed = %v, %v", again, err)
+		}
+	})
+
+	t.Run("does nothing for a worktree with no card", func(t *testing.T) {
+		if changed, err := card.Rehost(t.TempDir(), repo, wt, "login", "login.acme.localhost"); err != nil || changed {
+			t.Fatalf("changed = %v, %v", changed, err)
+		}
+	})
+
+	t.Run("does nothing for a card it cannot read as a card", func(t *testing.T) {
+		controlHome := t.TempDir()
+		write(t, controlHome)
+		file := card.IndexCardPath(controlHome, repo, wt)
+		if err := os.WriteFile(file, []byte(`{"version": 2}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if changed, err := card.Rehost(controlHome, repo, wt, "login", "login.acme.localhost"); err != nil || changed {
+			t.Fatalf("changed = %v, %v", changed, err)
+		}
+	})
+}

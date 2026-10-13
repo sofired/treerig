@@ -1,4 +1,5 @@
 list	list registered worktrees
 remove	remove a worktree's environment: containers, volumes, networks, images, home, and registration
+rename	change this worktree's slug, and with it its hostname
 unlock	clear a dead holder's lock on a worktree, its repository's shared services, the registry, or the router, once the holder, and anything it left running, is checked gone
 :4
