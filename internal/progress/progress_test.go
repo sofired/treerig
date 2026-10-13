@@ -85,21 +85,18 @@ const failsafe = 30 * time.Second
 // asserted while the 1s floor stays pinned (0s is rejected).
 var heartbeatLine = regexp.MustCompile(`^Preparing services \([1-9]\d*s elapsed\)\.$`)
 
-// lateLogger makes a heartbeat that outlives WithProgress observable without
-// any timing guess. From its third Info call on, Info signals that it has
-// started, sleeps, and only then records whether the test had already seen
-// WithProgress return. A WithProgress that does not wait for its heartbeat
-// goroutine returns while that Info call is still asleep, so the record
-// lands after the flag is set.
+// lateLogger holds a heartbeat inside the logger until the test releases it,
+// so a WithProgress that returns without waiting for its heartbeat goroutine
+// is caught without any timing guess. From its third Info call on, Info
+// signals that it has started and blocks until release is closed.
 type lateLogger struct {
-	calls    atomic.Int32
-	returned atomic.Bool
-	late     atomic.Int32
-	started  chan struct{}
+	calls   atomic.Int32
+	started chan struct{}
+	release chan struct{}
 }
 
-// Info counts the call; from the third on it signals started, sleeps, then
-// counts the message as late if WithProgress has already returned.
+// Info counts the call; from the third on it signals started and blocks
+// until the test closes release.
 func (l *lateLogger) Info(string) {
 	if l.calls.Add(1) < 3 {
 		return
@@ -109,10 +106,7 @@ func (l *lateLogger) Info(string) {
 	default:
 		close(l.started)
 	}
-	time.Sleep(50 * time.Millisecond)
-	if l.returned.Load() {
-		l.late.Add(1)
-	}
+	<-l.release
 }
 
 // Warn discards the message.
@@ -233,26 +227,46 @@ func TestWithProgress(t *testing.T) {
 	t.Run("waits for an in-flight heartbeat before returning", func(t *testing.T) {
 		defer progress.SetHeartbeatForTest(200 * time.Microsecond)()
 
-		log := &lateLogger{started: make(chan struct{})}
-		if err := progress.WithProgress(log, "Preparing services", func() error {
-			// Return while a heartbeat's Info call is asleep inside the
-			// logger: WithProgress must wait for it to finish.
-			select {
-			case <-log.started:
-				return nil
-			case <-time.After(failsafe):
-				return errors.New("timed out waiting for a heartbeat")
-			}
-		}); err != nil {
-			t.Fatalf("WithProgress: %v", err)
-		}
-		log.returned.Store(true)
+		log := &lateLogger{started: make(chan struct{}), release: make(chan struct{})}
+		actionDone := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			done <- progress.WithProgress(log, "Preparing services", func() error {
+				// Return while a heartbeat's Info call is blocked inside the
+				// logger: WithProgress must wait for it to finish.
+				defer close(actionDone)
+				select {
+				case <-log.started:
+					return nil
+				case <-time.After(failsafe):
+					return errors.New("timed out waiting for a heartbeat")
+				}
+			})
+		}()
 
-		// Any in-flight Info that outlived WithProgress finishes within its
-		// 50ms sleep; allow twice that before counting.
-		time.Sleep(100 * time.Millisecond)
-		if late := log.late.Load(); late != 0 {
-			t.Fatalf("%d heartbeat(s) completed after WithProgress returned", late)
+		select {
+		case <-actionDone:
+		case <-time.After(failsafe):
+			close(log.release)
+			t.Fatal("timed out waiting for the action to return")
+		}
+		// The heartbeat is still blocked in Info, so WithProgress must still
+		// be waiting for it. This wait can only miss a broken join, never
+		// fail a correct one.
+		select {
+		case err := <-done:
+			close(log.release)
+			t.Fatalf("WithProgress returned (%v) while a heartbeat was still in Info", err)
+		case <-time.After(20 * time.Millisecond):
+		}
+		close(log.release)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("WithProgress: %v", err)
+			}
+		case <-time.After(failsafe):
+			t.Fatal("WithProgress did not return once the heartbeat finished")
 		}
 	})
 }
