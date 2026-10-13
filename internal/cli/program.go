@@ -735,6 +735,33 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	_ = remove.RegisterFlagCompletionFunc("domain", domainCompletionFunc(p))
 	worktree.AddCommand(remove)
 
+	rename := &cobra.Command{
+		Use:   "rename <new-slug>",
+		Short: "change this worktree's slug, and with it its hostname",
+		Long: "Rename the worktree you run it from: change the slug it is registered under, so it routes as <new-slug>.<domain>. " +
+			"A slug is a lowercase hostname label: letters, digits and inner hyphens, at most 63 characters. " +
+			"The registration and index entry move to the new slug and any leftover route files are removed; `up` writes them at the new hostname. " +
+			"The data directory, volumes and pinned ports are keyed by the worktree's ID and stay as they are. " +
+			fmt.Sprintf("It refuses a slug another worktree holds in the same domain, the reserved slug \"shared\", and a worktree that still has containers, running or stopped: run `%s down` first.", commandName),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return clierr.Newf("%q needs the new slug as its one argument.", cmd.CommandPath())
+			}
+			return maxArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Rename(cmd.Context(), env, commands.RenameOptions{Slug: args[0]})
+		},
+	}
+	rename.ValidArgsFunction = func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		return noCompletions()
+	}
+	worktree.AddCommand(rename)
+
 	unlock := &cobra.Command{
 		Use:   "unlock [identifier]",
 		Short: "clear a dead holder's lock on a worktree, its repository's shared services, the registry, or the router, once the holder, and anything it left running, is checked gone",

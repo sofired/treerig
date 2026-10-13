@@ -17,6 +17,10 @@ package cli_test
 // bare-worktree show `worktree unlock --registry`/`--router` (#21). help-run,
 // help-cmd-run and the err-run-* and run-* cases pin `run` (#94).
 //
+// help-worktree-rename, help-cmd-worktree-rename, complete-worktree-rename-slug
+// and the err-*-rename cases pin `worktree rename` (#11); the other worktree
+// goldens list it.
+//
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
 // depend on a command's own body. Two specific exceptions are documented at
@@ -77,6 +81,7 @@ var goldenCases = []goldenCase{
 	{"help-worktree-short", []string{"worktree", "-h"}},
 	{"help-worktree-list", []string{"worktree", "list", "--help"}},
 	{"help-worktree-remove", []string{"worktree", "remove", "--help"}},
+	{"help-worktree-rename", []string{"worktree", "rename", "--help"}},
 	{"help-worktree-unlock", []string{"worktree", "unlock", "--help"}},
 
 	// --- the "help [command]" form, walking the full path given ---
@@ -88,6 +93,7 @@ var goldenCases = []goldenCase{
 	{"help-cmd-worktree", []string{"help", "worktree"}},
 	{"help-cmd-worktree-remove", []string{"help", "worktree", "remove"}},
 	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
+	{"help-cmd-worktree-rename", []string{"help", "worktree", "rename"}},
 	{"help-cmd-dev", []string{"help", "dev"}},
 	{"help-cmd-run", []string{"help", "run"}},
 	// "a" is not a real command, so this falls all the way back to the
@@ -122,6 +128,7 @@ var goldenCases = []goldenCase{
 	{"complete-shared-down-flags", []string{"__complete", "shared", "down", "--"}},
 	{"complete-shared-up-no-config", []string{"__complete", "shared", "up", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
 	{"complete-worktree", []string{"__complete", "worktree", ""}},
+	{"complete-worktree-rename-slug", []string{"__complete", "worktree", "rename", ""}},
 	{"complete-worktree-remove-flags", []string{"__complete", "worktree", "remove", "--"}},
 	{"complete-no-descriptions", []string{"__completeNoDesc", "router", ""}},
 	{"complete-no-file-arguments", []string{"__complete", "worktree", "remove", ""}},
@@ -172,6 +179,8 @@ var goldenCases = []goldenCase{
 	{"err-run-args-before-dash-and-after", []string{"run", "plan", "extra", "more", "--", "-auto-approve"}},
 
 	// --- too many arguments ---
+	{"err-missing-argument-rename", []string{"worktree", "rename"}},
+	{"err-excess-arguments-rename", []string{"worktree", "rename", "a", "b"}},
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
 	{"err-excess-arguments-remove-two", []string{"worktree", "remove", "a", "b", "c"}},
 	{"err-excess-arguments-status", []string{"status", "extra"}},

@@ -69,7 +69,7 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_PROJECT` | `project.name` from the config |
 | `BERTH_REPOSITORY_ID` | UUID of the repository |
 | `BERTH_WORKTREE_ID` | UUID of this worktree |
-| `BERTH_SLUG` | The worktree's machine-unique slug |
+| `BERTH_SLUG` | The worktree's machine-unique slug. It changes only when [`worktree rename`](../README.md#renaming-a-worktree) renames the worktree, which needs it stopped; the next `up` runs hooks with the new one |
 | `BERTH_HOST` | `<slug>.<domain>` |
 | `BERTH_WORKTREE_HOME` | The worktree's private directory under the control home |
 | `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
@@ -114,7 +114,7 @@ itself resolves the same berth root and control home the user did.
 
 A hook may run the tool against another worktree, but not against its own:
 `up` holds that worktree's lock while its hooks run, so `up`, `down`,
-`worktree remove` or a locked `run` on the same worktree would wait on its
+`worktree remove`, `worktree rename` or a locked `run` on the same worktree would wait on its
 own caller. They refuse at once instead, when `BERTH_WORKTREE_ID` names the
 worktree they were asked to change. A locked [command](#commands) holds the
 lock too, so the same holds inside one, and inside a `lock = false` command,
@@ -203,7 +203,7 @@ script, with a clearer message than berth could give.
 ### Locking
 
 By default a command holds the worktree's operation lock while it runs, the
-lock `up`, `down` and `worktree remove` take. Those wait for it (up to 25
+lock `up`, `down`, `worktree remove` and `worktree rename` take. Those wait for it (up to 25
 minutes) and, after a couple of seconds, say what they are waiting on:
 `berth run apply`, without the arguments after `--`, which may carry a secret.
 A second `run` waits too, and one inside the same worktree's own hooks or
@@ -220,7 +220,7 @@ outliving `berth run`.
 `SIGINT`, `SIGTERM` and `SIGHUP`, forwards them to the command, and waits for
 its group. It is *trusted, not enforced*, and meant for read-only commands
 such as a `plan`, the way `doctor` runs `verify` unlocked. Do not use it for
-anything that writes: `up`, `down` and `worktree remove` do not wait for
+anything that writes: `up`, `down`, `worktree remove` and `worktree rename` do not wait for
 such a command, and `worktree remove` can delete the data under a running
 `apply`.
 
@@ -230,7 +230,7 @@ such a command, and `worktree remove` can delete the data under a running
 - There is no lock to wait on, so `berth run` of another `lock = false`
   command works from inside it. But the command carries
   `BERTH_WORKTREE_ID` all the same, so it cannot drive its own worktree's
-  locked verbs (`up`, `down`, `worktree remove`, a locked `run`) either: those
+  locked verbs (`up`, `down`, `worktree remove`, `worktree rename`, a locked `run`) either: those
   refuse at once, as they do inside a hook, because the refusal cannot know
   whether the caller holds the lock.
 
