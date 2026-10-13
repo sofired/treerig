@@ -5,9 +5,12 @@ package commands
 // it needs no project config file: it is built straight from Env, never
 // through Context.
 //
-// Only `router up` takes the router's lock, and takes it alone (never
-// alongside a worktree's own locks): see routerLockScope (index.go) and
-// lifecycle.Requests.Router. `router status` and `router down` take no lock
+// Only `router up` takes the router's lock to hold across work, and takes it
+// alone (never alongside a worktree's own locks): see routerLockScope
+// (index.go) and lifecycle.Requests.Router. The checkout index's best-effort
+// refresh also takes it, briefly, and a `dev` session does so while holding
+// its worktree's development lock — the one sanctioned edge from a
+// worktree-level lock to this one (docs/design/locks.md). `router status` and `router down` take no lock
 // at all: only Ensure ever needs one.
 
 import (

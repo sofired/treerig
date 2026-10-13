@@ -27,6 +27,10 @@ type Error struct {
 	ExitCode   int
 	Cause      error
 	Suppressed []error
+	// Notice marks an end that is not a failure: a session the user ended.
+	// The top level reports the message as information, not as an error,
+	// and the process still exits with ExitCode.
+	Notice bool
 }
 
 // Error is the message to show the user.
@@ -46,6 +50,13 @@ func Newf(format string, args ...any) *Error { return New(fmt.Sprintf(format, ar
 
 // WithCode is an expected failure with its own exit code.
 func WithCode(message string, code int) *Error { return &Error{Message: message, ExitCode: code} }
+
+// Ended is a normal end that still carries an exit status, such as a
+// development session the user stopped with Ctrl-C: its message is reported
+// as information rather than as an error.
+func Ended(message string, code int) *Error {
+	return &Error{Message: message, ExitCode: code, Notice: true}
+}
 
 // Wrap is an expected failure caused by another error.
 func Wrap(message string, cause error) *Error {
