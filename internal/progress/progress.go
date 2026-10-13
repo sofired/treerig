@@ -65,10 +65,15 @@ func WithProgress(log logger.Logger, phase string, action func() error) error {
 	return action()
 }
 
-// elapsed is the time since started, rounded down to whole seconds (never
-// below 1s) and formatted as "Ns" under a minute or "Mm SSs" at or above it.
+// elapsed is the time since started, formatted by formatElapsed.
 func elapsed(started time.Time) string {
-	total := max(1, int(time.Since(started)/time.Second))
+	return formatElapsed(time.Since(started))
+}
+
+// formatElapsed renders d rounded down to whole seconds (never below 1s) as
+// "Ns" under a minute or "Mm SSs" at or above it.
+func formatElapsed(d time.Duration) string {
+	total := max(1, int(d/time.Second))
 	if total < 60 {
 		return fmt.Sprintf("%ds", total)
 	}

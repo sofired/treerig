@@ -306,11 +306,20 @@ func TestInteractivePTYGrandchildIgnoringSIGTERMIsKilledAfterTheTimer(t *testing
 func TestInteractivePTYAbandonedDrainReportsAndExits1(t *testing.T) {
 	dir := t.TempDir()
 	grandchild := filepath.Join(dir, "grandchild")
-	if err := os.WriteFile(grandchild, []byte("#!/bin/sh\ntrap '' TERM\necho $$ > \"$1\"\nsleep 60\n"), 0o755); err != nil {
+	// Records the first SIGTERM it receives and carries on regardless. Under
+	// berth that SIGTERM can only be drainGroup's own opening signal (nothing
+	// has signalled the helper yet), so the marker is proof the leader has
+	// been reaped, the helper has left runForegroundChild, and drainGroup is
+	// polling a group that will not clear. The
+	// loop waits on a background sleep rather than running one in the
+	// foreground, because sh defers a trap until its foreground command ends.
+	script := "#!/bin/sh\ntrap 'echo term > \"$2\"' TERM\necho $$ > \"$1\"\nwhile :; do sleep 1 & wait $!; done\n"
+	if err := os.WriteFile(grandchild, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	pidFile := filepath.Join(dir, "grandchild.pid")
 	leaderPidFile := filepath.Join(dir, "leader.pid")
+	drainingFile := filepath.Join(dir, "draining")
 	// An hour, not the default 10 s or even the grandchild test's own
 	// 300 ms: KillAfter's own escalation must not be what ends this test,
 	// the second signal must be, and this proves it — an assertion this
@@ -318,33 +327,32 @@ func TestInteractivePTYAbandonedDrainReportsAndExits1(t *testing.T) {
 	const killAfter = time.Hour
 
 	ptmx, helperPid, resultPath := startPTYHelper(t, "sh",
-		[]string{"-c", `echo $$ > "$2"; echo ready; "$0" "$1" & while [ ! -s "$1" ]; do :; done; exit 0`, grandchild, pidFile, leaderPidFile},
+		[]string{"-c", `echo $$ > "$3"; echo ready; "$0" "$1" "$2" & while [ ! -s "$1" ]; do :; done; exit 0`, grandchild, pidFile, drainingFile, leaderPidFile},
 		killAfter)
 	ptytest.ReadUntil(t, ptmx, "ready")
 
+	// The grandchild, in the leader's own group, outlives an abandoned
+	// drain by design — this test's whole point — so it needs its own
+	// cleanup; startPTYHelper's already kills the helper's own group,
+	// which the leader (Setpgid) never joined. Registered before the pid is
+	// parsed, so a failed parse still kills whatever the leader started: the
+	// leader's pid is its group id, and zero means no pid was read.
+	var leaderPid int
+	t.Cleanup(func() {
+		if leaderPid > 0 {
+			_ = syscall.Kill(-leaderPid, syscall.SIGKILL)
+		}
+	})
 	leaderPid, err := strconv.Atoi(ptytest.WaitFile(t, leaderPidFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := strconv.Atoi(ptytest.WaitFile(t, pidFile)); err != nil {
-		t.Fatal(err)
-	}
-	// The grandchild, in the leader's own group, outlives an abandoned
-	// drain by design — this test's whole point — so it needs its own
-	// cleanup; startPTYHelper's already kills the helper's own group,
-	// which the leader (Setpgid) never joined.
-	t.Cleanup(func() { _ = syscall.Kill(-leaderPid, syscall.SIGKILL) })
 
-	// The leader is reaped only once the grandchild's pid file exists (its
-	// own busy-wait loop, above), which is also proof drainGroup has
-	// started polling a group that will not clear on its own.
-	deadline := time.Now().Add(5 * time.Second)
-	for !errors.Is(unix.Kill(leaderPid, 0), unix.ESRCH) {
-		if time.Now().After(deadline) {
-			t.Fatal("leader was never reaped")
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
+	// Wait for drainGroup's own SIGTERM to reach the grandchild before
+	// signalling the helper. The leader being gone is not enough: the helper
+	// may still be in runForegroundChild, where a second signal means
+	// "SIGKILL the group" and ends the run without any abandoned drain.
+	ptytest.WaitFile(t, drainingFile)
 
 	if err := syscall.Kill(helperPid, syscall.SIGINT); err != nil {
 		t.Fatal(err)
