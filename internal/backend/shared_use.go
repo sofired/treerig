@@ -24,8 +24,10 @@ type SharedUseSpec struct {
 // shared services it is configured to use (docs/design/routing.md, decisions
 // 15 and 22): a shared name that is also a service of the file, which would
 // make the alias resolve to two things; a used-by service the file does not
-// define; and a used-by service in the host's or another container's network
-// namespace, which cannot join a network. It reads the consumer's file only.
+// define; and an active used-by service with network_mode host, none,
+// service: or container:, which cannot join a network. Inactive profiles are
+// checked for name collisions and missing services only. It reads the
+// consumer's file only and returns errors from reading its Compose model.
 func (c *Compose) CheckSharedUse(ctx context.Context, ref worktree.Ref, shared []SharedUseSpec) error {
 	if len(shared) == 0 {
 		return nil
@@ -207,7 +209,8 @@ func (c *Compose) ProveNetwork(ctx context.Context, ref worktree.Ref, idOrName s
 // OwnedNetworks lists the worktree's networks, found by its ownership labels
 // and by its Compose project, each proven. A network that fails proof is
 // returned with Owned false and its reason, for a caller to report and not
-// touch: this never fails the caller over one.
+// touch. Listing and inspection errors still fail the call; networks that
+// disappear before inspection are omitted.
 func (c *Compose) OwnedNetworks(ctx context.Context, ref worktree.Ref) ([]NetworkProof, error) {
 	namespace := c.options.LabelNamespace
 	kind := resourceTypes[slices.IndexFunc(resourceTypes, func(k resourceType) bool { return k.kind == "network" })]
