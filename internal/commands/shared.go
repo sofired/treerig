@@ -157,10 +157,22 @@ func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Ro
 		}
 	}
 
+	// A service that was routed and no longer declares a port is unrouted by
+	// the start, which the index must show too; read before the start clears
+	// the record.
+	wasRouted := false
+	if index != nil {
+		declared := make([]string, 0, len(cfg.SharedServices()))
+		for _, service := range cfg.SharedServices() {
+			declared = append(declared, service.Name)
+		}
+		wasRouted = hasRoutedRecord(cctx, ref.RepositoryID, declared)
+	}
+
 	outcome, ensureErr := ensureShared(ctx, cctx, ref.RepositoryID, namespace, sharedPlan{
 		Services: services, Recreate: options.Recreate, Strict: true, Reallocate: moves, DefinedBy: ref.WorktreeID,
 	})
-	if ensureErr == nil && index != nil && needsRouter {
+	if ensureErr == nil && index != nil && (needsRouter || wasRouted) {
 		// The shared lock is released, and the index takes the router's alone.
 		index.RefreshBestEffort(ctx, "shared up")
 	}

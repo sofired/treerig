@@ -250,6 +250,24 @@ func TestSharedUpEnsuresTheRouterForARoutedUI(t *testing.T) {
 		}
 	})
 
+	t.Run("a dropped port unroutes the service and refreshes the index", func(t *testing.T) {
+		w := newSharedWorld(t)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		tc.Loaded.Config.Shared.Service[0].Port = nil
+		tc.Loaded.Config.Shared.Service[0].Ports = []int{1025}
+		reasons := len(w.index.Reasons())
+		if err := w.sharedUpRouted(tc, commands.SharedUpOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if w.sharedRoute(t, tc, "mailpit") != "" {
+			t.Error("the route file survived the port being dropped")
+		}
+		if got := w.index.Reasons(); len(got) != reasons+1 || got[len(got)-1] != "shared up" {
+			t.Errorf("index reasons = %v: the index still shows the removed URL", got)
+		}
+	})
+
 	t.Run("a service with no web UI starts no router", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
