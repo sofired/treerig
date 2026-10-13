@@ -8,9 +8,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/checkoutindex/card"
+	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
 	"github.com/sofired/berth/internal/config"
@@ -109,6 +111,15 @@ func TestUpWithContext(t *testing.T) {
 		tc.Loaded.Config.Hooks = config.Hooks{Prepare: ns("./hooks/prepare"), Seed: ns("./hooks/seed")}
 		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
+		// The environment each hook ran with, by stage.
+		hookEnv := map[string][]string{}
+		fallback := w.Runner.Handler
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if strings.HasSuffix(spec.Label, " hook") {
+				hookEnv[spec.Label] = spec.Env
+			}
+			return fallback(ctx, spec)
+		}
 
 		first, err := up(t, tc, router, index, commands.UpOptions{})
 		if err != nil {
@@ -116,6 +127,16 @@ func TestUpWithContext(t *testing.T) {
 		}
 		if want := []config.HookStage{config.Prepare, config.Seed}; !slices.Equal(first.Hooks, want) {
 			t.Fatalf("first Up hooks = %v, want %v", first.Hooks, want)
+		}
+		for _, label := range []string{"prepare hook", "seed hook"} {
+			registration, err := tc.Registry.Current(context.Background())
+			if err != nil || registration == nil {
+				t.Fatalf("registration: %v, %v", registration, err)
+			}
+			want := layout.ComposeProjectName(registration.RepositoryID, registration.WorktreeID)
+			if !slices.Contains(hookEnv[label], "COMPOSE_PROJECT_NAME="+want) {
+				t.Errorf("%s ran without COMPOSE_PROJECT_NAME=%s: %v", label, want, hookEnv[label])
+			}
 		}
 
 		second, err := up(t, tc, router, index, commands.UpOptions{})
@@ -309,6 +330,57 @@ func TestUpWithContext(t *testing.T) {
 		}
 		if len(index.Reasons()) != 0 {
 			t.Fatalf("expected no index refresh after a failed up, got %v", index.Reasons())
+		}
+	})
+
+	t.Run("fails a hung hook as a timeout, not a failure, and releases the worktree's lock", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+		limit := "10m"
+		tc.Loaded.Config.Hooks = config.Hooks{Prepare: ns("./hooks/prepare"), Timeout: &config.HookTimeouts{Prepare: &limit}}
+		originalHandler := w.Runner.Handler
+		hung := true
+		var limits []time.Duration
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if strings.HasSuffix(spec.Command, "/hooks/prepare") {
+				limits = append(limits, spec.Timeout)
+				if hung {
+					// What the real runner reports once the limit passes and
+					// the hook's process group is stopped.
+					return run.Result{ExitCode: 1, TimedOut: true}, nil
+				}
+				return run.Result{}, nil
+			}
+			return originalHandler(ctx, spec)
+		}
+		router := commandstest.NewFakeRouter(80)
+		index := &commandstest.FakeIndex{}
+
+		_, err := up(t, tc, router, index, commands.UpOptions{})
+		wantErr(t, err, "^The prepare hook timed out after 10m and was terminated\\.$")
+		if code := clierr.Code(err); code != 124 {
+			t.Fatalf("exit code = %d, want 124, apart from a hook's own failure", code)
+		}
+		if !slices.Equal(limits, []time.Duration{10 * time.Minute}) {
+			t.Fatalf("the hook ran with limits %v, want [10m]", limits)
+		}
+		registered, findErr := tc.Registry.Current(context.Background())
+		if findErr != nil || registered == nil {
+			t.Fatalf("expected the registration to still exist, got %v, %v", registered, findErr)
+		}
+		state, stateErr := tc.Registry.Store(registered.RepositoryID).Initialization(registered.WorktreeID, registered.Slug)
+		if stateErr != nil || state != registry.Pending {
+			t.Fatalf("expected initialization to remain pending after a timeout, got %v, %v", state, stateErr)
+		}
+
+		// The operation lock was released on the way out: the next up takes
+		// it at once instead of waiting out its 25 minutes.
+		hung = false
+		retry, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if _, err := commands.UpWithContext(retry, tc.CommandContext, router, index, commands.UpOptions{}); err != nil {
+			t.Fatalf("the retry after a timeout: %v", err)
 		}
 	})
 

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"time"
 
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/shared"
@@ -25,6 +26,7 @@ func SharedDoctorForTest(ctx context.Context, cctx *CommandContext) ([]Check, er
 		CommandName: cctx.CommandName, ControlHome: cctx.ControlHome, UserHome: cctx.UserHome,
 		Runner: cctx.Runner, Logger: cctx.Logger, Environ: cctx.Environ, PortProbe: cctx.PortProbe,
 		Checkout: checkoutIsLoaded(cctx.Loaded), DockerAnswered: true,
+		RouterState: cctx.RouterState, RouterPort: cctx.RouterPortResolution,
 	}
 	return sharedSection(ctx, opts)
 }
@@ -47,4 +49,23 @@ func DescribeAnonymousForTest(volume shared.Resource) string { return describeAn
 // control home's records through, for the black-box tests.
 func ControlHomeRegistrations(controlHome string) router.Registrations {
 	return controlHomeRegistrations{controlHome: controlHome}
+}
+
+// SelectionNeedsRouterForTest exposes selectionNeedsRouter for the services
+// of cctx's config that names selects.
+func SelectionNeedsRouterForTest(ctx context.Context, cctx *CommandContext, names ...string) bool {
+	selected, err := selectShared(cctx.Loaded.Config, names)
+	if err != nil {
+		return false
+	}
+	return selectionNeedsRouter(ctx, cctx, selected)
+}
+
+// SetContainerPollForTest shortens how often a dev session checks that its
+// worktree still has a container, for the life of a test. It is not safe for
+// tests that run in parallel with each other.
+func SetContainerPollForTest(interval time.Duration) (restore func()) {
+	previous := containerPoll
+	containerPoll = interval
+	return func() { containerPoll = previous }
 }

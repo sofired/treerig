@@ -49,10 +49,16 @@ type HookContext struct {
 	// Routes is this worktree's declared service routes, for
 	// worktree.ServiceURLVariables (#28); nil gives a hook neither variable.
 	Routes []worktree.ServiceRoute
+	// ComposeFile is the absolute path of the project's Compose file; empty
+	// leaves COMPOSE_FILE alone. See environment.
+	ComposeFile string
 	// Shared is the repository's pinned shared-service addresses, for
 	// worktree.SharedAddrVariables (docs/design/routing.md, decision 20); nil
 	// gives a hook none.
 	Shared []worktree.SharedAddr
+	// SharedURLs are the routed web UIs of the repository's shared services,
+	// for worktree.SharedURLVariables; nil gives a hook none.
+	SharedURLs []worktree.SharedURL
 }
 
 // RunOptions configures one hook run.
@@ -61,7 +67,9 @@ type RunOptions struct {
 	// bundle directory, for BundleStages.
 	Argument *string
 	Output   OutputMode
-	// Timeout stops the hook after this long; zero means no limit.
+	// Timeout stops the hook after this long, replacing the hook's own
+	// [hooks.timeout] entry; zero leaves that entry in charge, and no entry
+	// means no limit.
 	Timeout time.Duration
 }
 
@@ -97,17 +105,33 @@ var (
 // kind's variable, see kind.
 func environment(hctx HookContext, k kind, name string) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{k.own, name})
+	// The worktree's own Compose project (BERTH_COMPOSE_PROJECT, derived once
+	// in worktree.Environment), under Compose's own variable too, so a hook's
+	// `docker compose exec` reaches this worktree's containers and not the
+	// project Compose would name after the directory. COMPOSE_FILE is the
+	// configured file, which Compose otherwise looks for as compose.yaml
+	// beside berth.toml.
+	var composeVars []string
+	for _, pair := range pairs {
+		if pair[0] == worktree.ComposeProjectKey {
+			composeVars = append(composeVars, "COMPOSE_PROJECT_NAME="+pair[1])
+		}
+	}
+	if hctx.ComposeFile != "" {
+		composeVars = append(composeVars, "COMPOSE_FILE="+hctx.ComposeFile)
+	}
 	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
 	pairs = append(pairs, worktree.SharedAddrVariables(hctx.Shared)...)
+	pairs = append(pairs, worktree.SharedURLVariables(hctx.SharedURLs)...)
 	inherited := make([]string, 0, len(hctx.Environ))
 	for _, entry := range hctx.Environ {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || key == k.foreign {
+		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
 			continue
 		}
 		inherited = append(inherited, entry)
 	}
-	return mergeEnviron(inherited, worktree.Variables(pairs)...)
+	return mergeEnviron(inherited, append(worktree.Variables(pairs), composeVars...)...)
 }
 
 // mergeEnviron overlays extra onto environ, later names replacing earlier
@@ -202,7 +226,7 @@ func finish(k kind, name, resolved string, timeout time.Duration, result run.Res
 	case result.TimedOut:
 		// 124 is what timeout(1) reports; the child's own exit, if any, was not its verdict.
 		return clierr.WithCode(
-			fmt.Sprintf("The %s %s timed out after %d ms and was terminated.", name, k.noun, timeout.Milliseconds()),
+			fmt.Sprintf("The %s %s timed out after %s and was terminated.", name, k.noun, formatTimeout(timeout)),
 			124,
 		)
 	case result.OutputOverflow:
@@ -215,12 +239,40 @@ func finish(k kind, name, resolved string, timeout time.Duration, result run.Res
 	return nil
 }
 
+// formatTimeout writes a time limit in the config's own spelling, normalised
+// to whole hours, minutes, seconds and milliseconds: 10m, 1h30s, 1m30s and
+// 1s500ms, never Go's 10m0s or 1h0m30s.
+func formatTimeout(d time.Duration) string {
+	var b strings.Builder
+	for _, unit := range []struct {
+		size time.Duration
+		name string
+	}{{time.Hour, "h"}, {time.Minute, "m"}, {time.Second, "s"}, {time.Millisecond, "ms"}} {
+		if n := d / unit.size; n > 0 {
+			fmt.Fprintf(&b, "%d%s", n, unit.name)
+			d -= n * unit.size
+		}
+	}
+	if b.Len() == 0 {
+		return "0s"
+	}
+	return b.String()
+}
+
 // RunHook runs one hook. The command is resolved relative to the project
 // root, runs with the project root as its working directory, sees the hook
 // environment on top of the parent's, and has its output streamed. Any
 // non-zero exit is a failure attributed to the stage — and so, distinctly,
 // is a hook that never ran at all or was ended by a signal. Reports whether
 // the stage was configured at all.
+//
+// A hook runs for at most its [hooks.timeout] entry, if it has one
+// (opts.Timeout replaces it). When the limit passes, the hook's whole
+// process group is stopped by the runner: SIGTERM, then SIGKILL after the
+// runner's grace, and Run does not return while anything is left in the
+// group. The hook then fails as "timed out", exit 124 (what timeout(1)
+// reports), distinct from a non-zero exit of its own. The caller's lock is
+// released on the ordinary return path, as for any failed hook.
 func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts RunOptions) (bool, error) {
 	command := commandFor(hctx.Hooks, stage)
 	if command == nil {
@@ -238,6 +290,11 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 		output = run.TeeToStderr
 	}
 
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = hctx.Hooks.TimeoutFor(stage)
+	}
+
 	ran := false
 	err = progress.WithProgress(hctx.Logger, fmt.Sprintf("Running %s hook", stage), func() error {
 		result, runErr := hctx.Runner.Run(ctx, run.Spec{
@@ -247,10 +304,10 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 			Env:          environment(hctx, hookKind, string(stage)),
 			Output:       output,
 			Label:        string(stage) + " hook",
-			Timeout:      opts.Timeout,
+			Timeout:      timeout,
 			AllowFailure: true,
 		})
-		if err := finish(hookKind, string(stage), resolved, opts.Timeout, result, runErr); err != nil {
+		if err := finish(hookKind, string(stage), resolved, timeout, result, runErr); err != nil {
 			return err
 		}
 		ran = true

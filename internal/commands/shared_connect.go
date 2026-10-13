@@ -46,6 +46,9 @@ type sharedOutcome struct {
 	// Differs are the running services Strict left alone because their
 	// definition differs, one line each, naming who started them.
 	Differs []string
+	// Needed are declared services that were not asked for but came up as
+	// dependencies of one that was, and have a route of their own to write.
+	Needed []string
 }
 
 // ensureShared starts or reuses plan's shared services under the repository's
@@ -61,7 +64,34 @@ func ensureShared(ctx context.Context, cctx *CommandContext, repositoryID, names
 	err := cctx.holdShared(ctx, repositoryID, func(ctx context.Context) error {
 		var err error
 		outcome, err = ensureSharedLocked(ctx, cctx, repositoryID, namespace, plan)
-		return err
+		if err != nil {
+			// A start that failed partway can leave a service up: it is
+			// routed anyway, so an interrupted `up` does not leave it running
+			// and unrouted. Best effort; the failure reported is the start's.
+			var created []config.SharedService
+			for _, service := range plan.Services {
+				if slices.Contains(outcome.Created, service.Name) {
+					created = append(created, service)
+				}
+			}
+			if len(created) > 0 && ctx.Err() == nil {
+				if routeErr := routeShared(ctx, cctx, repositoryID, created); routeErr != nil {
+					cctx.Logger.Warn(fmt.Sprintf("Could not route the shared services that came up: %s", routeErr))
+				}
+			}
+			return err
+		}
+		// Under the same lock, once everything asked for is up (decision 19):
+		// a route file always names a port a container has just been
+		// started on or found publishing. A running instance is routed too,
+		// which is how a deleted or stale file is repaired.
+		routed := slices.Clone(plan.Services)
+		for _, service := range cctx.Loaded.Config.SharedServices() {
+			if slices.Contains(outcome.Needed, service.Name) {
+				routed = append(routed, service)
+			}
+		}
+		return routeShared(ctx, cctx, repositoryID, routed)
 	})
 	return outcome, err
 }
@@ -173,6 +203,7 @@ func ensureSharedLocked(ctx context.Context, cctx *CommandContext, repositoryID,
 	if err != nil {
 		return outcome, err
 	}
+	outcome.Needed = needed
 	published := map[string]map[int]int{}
 	for _, service := range toPin {
 		result, err := pinSharedPorts(ctx, cctx, repositoryID, service, true, plan.Reallocate[service.Name])

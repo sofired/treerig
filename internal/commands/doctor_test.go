@@ -3,6 +3,7 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
+	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
@@ -49,6 +51,14 @@ func withDoctorDocker(w *commandstest.World, engineVersion, composeVersion strin
 	w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
 		if spec.Command == "git" && len(spec.Args) == 1 && spec.Args[0] == "--version" {
 			return run.Result{Stdout: "git version 2.45.0"}, nil
+		}
+		if spec.Command == "verify-hook-hang" {
+			// Hangs unless it was given a limit, as the real runner would:
+			// then it reports the timeout the limit brought about.
+			if spec.Timeout <= 0 {
+				return run.Result{}, errors.New("verify-hook-hang ran with no time limit")
+			}
+			return run.Result{ExitCode: 1, TimedOut: true}, nil
 		}
 		if spec.Command == "verify-hook-fail" {
 			return run.Result{Stderr: "verify: something is wrong\n", ExitCode: 7}, nil
@@ -293,11 +303,22 @@ func TestDoctorInACheckout(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
 		writeCheckoutConfig(t, w.Root, acme, "echo verify")
-		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		env := doctorEnv(t, w, w.Root)
+		var verifyEnv []string
+		fallback := w.Runner.Handler
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if spec.Label == "verify hook" {
+				verifyEnv = spec.Env
+			}
+			return fallback(ctx, spec)
+		}
 
 		_, report, _ := runDoctor(t, env)
 		wantLine(t, report, "ok", "verify hook", "echo verify exited 0")
+		if want := "COMPOSE_PROJECT_NAME=" + layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID); !slices.Contains(verifyEnv, want) {
+			t.Errorf("verify hook ran without %s: %v", want, verifyEnv)
+		}
 	})
 
 	t.Run("fails a verify hook that exits non-zero, and keeps its code", func(t *testing.T) {
@@ -322,6 +343,33 @@ func TestDoctorInACheckout(t *testing.T) {
 		wantLine(t, report, "fail", "verify hook", "The verify hook failed (exit 7).")
 		if code != 7 {
 			t.Fatalf("code = %d, want the hook's own 7", code)
+		}
+	})
+
+	t.Run("fails a hung verify hook as a timeout after its configured limit, with exit 124", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		withDoctorDocker(w, "24.0.0", "2.24.0")
+		writeCheckoutConfig(t, w.Root, acme, "verify-hook-hang")
+		configFile := filepath.Join(w.Root, brand.ConfigFile)
+		contents, err := os.ReadFile(configFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configFile, append(contents, []byte("[hooks.timeout]\nverify = \"90s\"\n")...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		env := doctorEnv(t, w, w.Root)
+		bin := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(bin, "verify-hook-hang"), []byte("#!/bin/sh\nsleep 1000\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		env.Environ = append([]string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH")}, os.Environ()...)
+
+		code, report, _ := runDoctor(t, env)
+		wantLine(t, report, "fail", "verify hook", "The verify hook timed out after 1m30s and was terminated.")
+		if code != 124 {
+			t.Fatalf("code = %d, want 124, the timeout's own", code)
 		}
 	})
 

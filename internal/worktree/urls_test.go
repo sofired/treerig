@@ -1,6 +1,7 @@
 package worktree_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/sofired/berth/internal/config"
@@ -201,6 +202,40 @@ func TestSharedAddrVariables(t *testing.T) {
 		}
 		if !worktree.IsSharedAddrVariable("BERTH_SHARED_ADDR_X_1") || worktree.IsSharedAddrVariable("BERTH_SERVICE_URL_X") {
 			t.Fatal("IsSharedAddrVariable is wrong")
+		}
+	})
+}
+
+func TestSharedURLVariables(t *testing.T) {
+	t.Run("the URL is the shared host, with the router's port folded in unless it is 80", func(t *testing.T) {
+		if got := worktree.NewSharedURL("mailpit", "acme.localhost", 80); got.URL != "http://mailpit.shared.acme.localhost" || got.Name != "mailpit" {
+			t.Errorf("got %+v", got)
+		}
+		if got := worktree.NewSharedURL("mailpit", "acme.localhost", 8080); got.URL != "http://mailpit.shared.acme.localhost:8080" {
+			t.Errorf("got %+v", got)
+		}
+	})
+
+	t.Run("one variable per routed UI, named as BERTH_SERVICE_URL_<NAME> is", func(t *testing.T) {
+		got := worktree.Variables(worktree.SharedURLVariables([]worktree.SharedURL{
+			worktree.NewSharedURL("mailpit", "acme.localhost", 80),
+			worktree.NewSharedURL("object-store", "acme.localhost", 80),
+		}))
+		want := []string{
+			"BERTH_SHARED_URL_MAILPIT=http://mailpit.shared.acme.localhost",
+			"BERTH_SHARED_URL_OBJECT_STORE=http://object-store.shared.acme.localhost",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("none for no UI, and an inherited variable is recognised as ours", func(t *testing.T) {
+		if got := worktree.SharedURLVariables(nil); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+		if !worktree.IsSharedURLVariable("BERTH_SHARED_URL_MAILPIT") || worktree.IsSharedURLVariable("BERTH_SHARED_ADDR_MAILPIT_8025") {
+			t.Fatal("IsSharedURLVariable is wrong")
 		}
 	})
 }

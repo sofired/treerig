@@ -311,3 +311,40 @@ func TestDoctorCheckoutSectionListsHostRoutes(t *testing.T) {
 		t.Fatalf("a route with no file should warn: %+v", files)
 	}
 }
+
+func TestRouteChecksSeesAHostRouteAndASharedServiceClaimingOneRule(t *testing.T) {
+	controlHome := registrytest.TempDir(t)
+	state := layout.RouterStateFrom(registrytest.TempDir(t))
+	if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
+		Version: 1, RepositoryID: hostRepo, WorktreeID: hostWt, Slug: "feature-a", Domain: "acme.localhost", Initialization: "complete",
+		HostRoutes: []registrytest.HostRouteJSON{{Name: "web", Port: 5173}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A shared service's UI is routed at mailpit.shared.acme.localhost; a host
+	// route written for that very host (a hand-edited record, or a domain
+	// whose slug allocator did not reserve "shared") claims the same rule.
+	rule := router.SharedRouteRule("mailpit", "acme.localhost")
+	if err := router.WriteSharedFragment(state, hostRepo, "mailpit", "acme.localhost", 30777); err != nil {
+		t.Fatal(err)
+	}
+	if err := router.WriteHostFragment(state, hostRepo, hostWt, "web", router.HostFragmentDocument(hostRepo, hostWt, "web", rule, 5173)); err != nil {
+		t.Fatal(err)
+	}
+	checks, err := routeChecks(state, controlHome, "berth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conflict *Check
+	for i := range checks {
+		if checks[i].ID == "router.route-conflict" {
+			conflict = &checks[i]
+		}
+	}
+	if conflict == nil || conflict.Status != StatusFail ||
+		!strings.Contains(conflict.Detail, rule+" is claimed by") ||
+		!strings.Contains(conflict.Detail, "feature-a.acme.localhost (host route web)") ||
+		!strings.Contains(conflict.Detail, "mailpit (shared service of ") {
+		t.Fatalf("checks = %+v", checks)
+	}
+}

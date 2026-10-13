@@ -522,3 +522,242 @@ func TestNestRefusesAnInversion(t *testing.T) {
 		}
 	})
 }
+
+// held reports whether another open file description holds scope's flock.
+func held(t *testing.T, scope lock.Scope) bool {
+	t.Helper()
+	probe := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Timeout: time.Millisecond, Retry: time.Millisecond})
+	if _, err := probe.Acquire(context.Background(), "probe"); err != nil {
+		return true
+	}
+	_ = probe.Release()
+	return false
+}
+
+func TestHoldThen(t *testing.T) {
+	env := func(q Quiescer) Env { return Env{Logger: logger.Silent{}, Runner: q, Invocation: "berth dev"} }
+
+	t.Run("gives the operation lock back before the second phase, which keeps the development lock until it ends", func(t *testing.T) {
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		var inAction, inThen [2]bool
+		err := l.HoldThen(context.Background(), env(&fakeQuiescer{}), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error {
+				inAction = [2]bool{held(t, op), held(t, dev)}
+				return nil
+			},
+			func(ctx context.Context) error {
+				inThen = [2]bool{held(t, op), held(t, dev)}
+				if got := len(lock.Inherited(ctx)); got != 1 {
+					t.Errorf("then inherits %d locks, want only the development lock", got)
+				}
+				return nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inAction != [2]bool{true, true} {
+			t.Fatalf("held during action (operation, development) = %v, want both", inAction)
+		}
+		if inThen != [2]bool{false, true} {
+			t.Fatalf("held during then (operation, development) = %v, want the development lock alone", inThen)
+		}
+		if held(t, op) || held(t, dev) {
+			t.Fatal("a lock is still held after HoldThen")
+		}
+	})
+
+	t.Run("does not run the second phase when the first fails, and releases everything", func(t *testing.T) {
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		q := &fakeQuiescer{}
+		actionErr := errors.New("compose up failed")
+		ran := false
+		err := l.HoldThen(context.Background(), env(q), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error { return actionErr },
+			func(ctx context.Context) error { ran = true; return nil })
+		if !errors.Is(err, actionErr) {
+			t.Fatalf("got %v, want the action's error", err)
+		}
+		if ran {
+			t.Fatal("the second phase ran after the first failed")
+		}
+		if q.calls != 1 {
+			t.Fatalf("Quiesce called %d times, want once for a failed action", q.calls)
+		}
+		if held(t, op) || held(t, dev) {
+			t.Fatal("a lock is still held")
+		}
+	})
+
+	t.Run("reports the second phase's error, proves quiescence, and releases the development lock", func(t *testing.T) {
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		q := &fakeQuiescer{}
+		thenErr := clierr.WithCode("the follower ended", 7)
+		err := l.HoldThen(context.Background(), env(q), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error { return nil },
+			func(ctx context.Context) error { return thenErr })
+		if !errors.Is(err, thenErr) || clierr.Code(err) != 7 {
+			t.Fatalf("got %v (code %d), want the second phase's error", err, clierr.Code(err))
+		}
+		if q.calls != 1 {
+			t.Fatalf("Quiesce called %d times, want once", q.calls)
+		}
+		if held(t, dev) {
+			t.Fatal("the development lock is still held")
+		}
+	})
+
+	t.Run("abandons the development lock, not the operation lock already given back, when quiescence cannot be proven", func(t *testing.T) {
+		op, dev, _ := testScopes(t)
+		fos := newFakeOS()
+		l := NewLifecycle(fos, logger.Silent{})
+		q := &fakeQuiescer{err: errors.New("a child is still running")}
+		_ = l.HoldThen(context.Background(), env(q), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error { return nil },
+			func(ctx context.Context) error { return errors.New("follower died") })
+		// The operation lock was released cleanly, its record saying so.
+		record, err := os.ReadFile(op.Target + ".holder")
+		if err != nil || !strings.Contains(string(record), `"releasedAt"`) {
+			t.Fatalf("operation holder record = %s, %v, want it released", record, err)
+		}
+		// The development lock's record is left unreleased for the next acquirer to judge.
+		record, err = os.ReadFile(dev.Target + ".holder")
+		if err != nil || strings.Contains(string(record), `"releasedAt"`) {
+			t.Fatalf("development holder record = %s, %v, want it abandoned", record, err)
+		}
+	})
+
+	t.Run("returns the context's cause, runs nothing more and releases everything when the context ends during the first phase", func(t *testing.T) {
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		q := &fakeQuiescer{}
+		ctx, cancel := context.WithCancelCause(context.Background())
+		interrupted := &clierr.Cancelled{Signal: syscall.SIGINT}
+		ran := false
+		err := l.HoldThen(ctx, env(q), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error { cancel(interrupted); return nil },
+			func(ctx context.Context) error { ran = true; return nil })
+		if !errors.Is(err, interrupted) {
+			t.Fatalf("got %v, want the context's cause, never nil", err)
+		}
+		if ran {
+			t.Fatal("the second phase ran on a cancelled context")
+		}
+		if q.calls != 1 {
+			t.Fatalf("Quiesce called %d times, want once", q.calls)
+		}
+		if held(t, op) || held(t, dev) {
+			t.Fatal("a lock is still held")
+		}
+	})
+
+	t.Run("hands the second phase a live context that still carries the development lock, across the hand-off", func(t *testing.T) {
+		restore := SetWatchdogForTest(5 * time.Millisecond)
+		defer restore()
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		err := l.HoldThen(context.Background(), env(&fakeQuiescer{}), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error { return nil },
+			func(ctx context.Context) error {
+				if ctx.Err() != nil {
+					t.Errorf("the second phase starts with a dead context: %v", ctx.Err())
+				}
+				if got := len(lock.Inherited(ctx)); got != 1 {
+					t.Errorf("then inherits %d locks, want the development lock", got)
+				}
+				// Several watchdog ticks of the released operation lock and the
+				// live development lock: neither may cancel the phase.
+				select {
+				case <-ctx.Done():
+					t.Errorf("the context ended during a healthy second phase: %v", context.Cause(ctx))
+				case <-time.After(100 * time.Millisecond):
+				}
+				return nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("cancels the second phase and reports the loss when the development lock is lost during it", func(t *testing.T) {
+		restore := SetWatchdogForTest(20 * time.Millisecond)
+		defer restore()
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		err := l.HoldThen(context.Background(), env(&fakeQuiescer{}), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error { return nil },
+			func(ctx context.Context) error {
+				replacement, err := os.CreateTemp(filepath.Dir(dev.Target), "replacement-*")
+				if err != nil {
+					return err
+				}
+				temp := replacement.Name()
+				if err := replacement.Close(); err != nil {
+					return err
+				}
+				if err := os.Rename(temp, dev.Target); err != nil {
+					return err
+				}
+				select {
+				case <-ctx.Done():
+				case <-time.After(10 * time.Second):
+					t.Error("the lost development lock never cancelled the second phase")
+				}
+				return nil
+			})
+		if err == nil {
+			t.Fatal("a lost development lock went unreported")
+		}
+	})
+
+	t.Run("reports an operation lock lost during the first phase, which also skips the second", func(t *testing.T) {
+		restore := SetWatchdogForTest(20 * time.Millisecond)
+		defer restore()
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		ran := false
+		err := l.HoldThen(context.Background(), env(&fakeQuiescer{}), Requests{Operation: &op, Development: &dev},
+			func(ctx context.Context) error {
+				replacement, err := os.CreateTemp(filepath.Dir(op.Target), "replacement-*")
+				if err != nil {
+					return err
+				}
+				temp := replacement.Name()
+				if err := replacement.Close(); err != nil {
+					return err
+				}
+				if err := os.Rename(temp, op.Target); err != nil {
+					return err
+				}
+				select {
+				case <-ctx.Done():
+				case <-time.After(10 * time.Second):
+					t.Error("the lost operation lock never cancelled the first phase")
+				}
+				return nil
+			},
+			func(ctx context.Context) error { ran = true; return nil })
+		if err == nil || ran {
+			t.Fatalf("err = %v, second phase ran = %v, want the loss reported and no second phase", err, ran)
+		}
+	})
+
+	t.Run("refuses a request that cannot be handed off, as a bug in berth", func(t *testing.T) {
+		op, dev, _ := testScopes(t)
+		l := NewLifecycle(newFakeOS(), logger.Silent{})
+		for name, requests := range map[string]Requests{
+			"no operation lock":      {Development: &dev},
+			"only an operation lock": {Operation: &op},
+		} {
+			ran := false
+			err := l.HoldThen(context.Background(), env(&fakeQuiescer{}), requests,
+				func(ctx context.Context) error { ran = true; return nil },
+				func(ctx context.Context) error { ran = true; return nil })
+			if err == nil || !strings.Contains(err.Error(), "this is a bug in berth") || ran {
+				t.Fatalf("%s: err = %v, ran = %v, want a refusal that ran nothing", name, err, ran)
+			}
+		}
+	})
+}

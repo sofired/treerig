@@ -35,6 +35,11 @@ import (
 // upFakeDocker answers every docker call `up` makes. A file named hang-router
 // or hang-up in state makes the router's or the worktree's `compose up`
 // write its grandchild's pid to hung.pid and wait, so only a group kill stops it.
+// `compose logs` prints a line, then follows: it records its own pid in
+// follower.pid and a grandchild that ignores SIGINT in hung.pid, and runs
+// until signalled; while a file named logs-exit exists it instead exits at
+// once with the code the file holds. A file named up-fails makes the worktree's
+// `compose up` fail with exit 3.
 const upFakeDocker = `#!/bin/sh
 state=%q
 echo "$*" >> "$state/calls"
@@ -45,7 +50,16 @@ case " $* " in
     for last; do :; done
     case "$last" in router) echo router-1 ;; index) echo index-1 ;; esac; exit 0 ;;
   *" compose "*" config "*) echo '{"name":"x","services":{"api":{"image":"busybox"},"mail":{"image":"busybox"}}}'; exit 0 ;;
-  *" compose "*" up "*) [ -e "$state/hang-up" ] && hang; exit 0 ;;
+  *" compose "*" up "*)
+    [ -e "$state/up-fails" ] && { echo "boom: cannot start" >&2; exit 3; }
+    [ -e "$state/hang-up" ] && hang; exit 0 ;;
+  *" compose "*" logs "*)
+    echo "api-1  | following"
+    [ -e "$state/logs-exit" ] && exit "$(cat "$state/logs-exit")"
+    sleep 60 &
+    echo $! > "$state/hung.pid"
+    echo $$ > "$state/follower.pid"
+    exec sleep 60 ;;
 esac
 if [ "$1" = info ]; then
   echo '{"OSType":"linux","OperatingSystem":"Ubuntu 24.04 LTS","Name":"fake","SecurityOptions":["name=seccomp"]}'; exit 0

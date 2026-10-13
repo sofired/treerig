@@ -985,7 +985,7 @@ func TestSharedServiceNamesAndHostRoutes(t *testing.T) {
 			}); err != nil {
 			t.Fatal(err)
 		}
-		err := commands.SharedUpWithContext(context.Background(), tc.CommandContext, commands.SharedUpOptions{})
+		err := commands.SharedUpWithContext(context.Background(), tc.CommandContext, w.router, w.index, commands.SharedUpOptions{})
 		requireRefusal(t, err, `Shared service mailpit has the name of a host route`)
 	})
 

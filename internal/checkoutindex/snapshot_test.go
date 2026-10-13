@@ -96,7 +96,7 @@ func testLine(record registry.RegisteredWorktree, service string, stateAndStatus
 	if len(stateAndStatus) > 1 {
 		status = stateAndStatus[1]
 	}
-	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service}, "\t")
+	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service, ""}, "\t")
 }
 
 // mustParseInventory is ParseContainerInventory over lines joined with
@@ -133,7 +133,7 @@ func TestParseContainerInventory(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects a line that does not have exactly five fields", func(t *testing.T) {
+	t.Run("rejects a line that does not have exactly six fields", func(t *testing.T) {
 		if _, err := ParseContainerInventory("running\tUp\tonly-three"); err == nil {
 			t.Fatal("expected an error")
 		} else if !strings.Contains(err.Error(), "unrecognized container inventory line") {
@@ -141,7 +141,7 @@ func TestParseContainerInventory(t *testing.T) {
 		}
 		// A tab inside a status would shift every field right, and the row
 		// would read Stopped rather than being refused.
-		if _, err := ParseContainerInventory("running\tUp 2 seconds\t(healthy)\tr\tw\tapi"); err == nil {
+		if _, err := ParseContainerInventory("running\tUp 2 seconds\t(healthy)\tr\tw\tapi\t"); err == nil {
 			t.Fatal("expected an error")
 		} else if !strings.Contains(err.Error(), "unrecognized container inventory line") {
 			t.Errorf("error = %q", err.Error())

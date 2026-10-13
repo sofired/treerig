@@ -90,7 +90,7 @@ type routeTarget struct {
 }
 
 // routeTargets are the routes the proxy is expected to serve: the index and
-// every route file, services' and host routes', sorted by claim. A rule berth did not write is not
+// every route file, services', host routes' and shared services' included, sorted by claim. A rule berth did not write is not
 // probed.
 func routeTargets(state layout.RouterLayout) ([]routeTarget, error) {
 	fragments, err := router.ListFragments(state)
@@ -104,8 +104,16 @@ func routeTargets(state layout.RouterLayout) ([]routeTarget, error) {
 		return nil, err
 	}
 	fragments = append(fragments, hostFragments...)
+	sharedFragments, err := router.ListSharedFragments(state)
+	if err != nil {
+		return nil, err
+	}
 	paths := []string{router.IndexFragmentPath(state)}
 	for _, fragment := range fragments {
+		paths = append(paths, fragment.Path)
+	}
+	// A shared service's web UI is probed like any other route.
+	for _, fragment := range sharedFragments {
 		paths = append(paths, fragment.Path)
 	}
 	seen := map[string]bool{}

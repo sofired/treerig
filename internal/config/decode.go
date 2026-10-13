@@ -138,7 +138,32 @@ func decodeHooks(o *shape.Obj) Hooks {
 			*field.dst = &s
 		}
 	}
+	if v, ok := o.Get("timeout"); ok {
+		h.Timeout = decodeHookTimeouts(v.(*shape.Obj))
+	}
 	return h
+}
+
+// decodeHookTimeouts type-asserts the "timeout" table out of a validated
+// Obj, field by field so a hook with no entry stays nil.
+func decodeHookTimeouts(o *shape.Obj) *HookTimeouts {
+	var t HookTimeouts
+	for _, field := range []struct {
+		key string
+		dst **string
+	}{
+		{"prepare", &t.Prepare},
+		{"seed", &t.Seed},
+		{"verify", &t.Verify},
+		{"backup", &t.Backup},
+		{"restore", &t.Restore},
+	} {
+		if v, ok := o.Get(field.key); ok {
+			s := v.(string)
+			*field.dst = &s
+		}
+	}
+	return &t
 }
 
 // decodeKeyed reads a table of named entries in the order the file wrote

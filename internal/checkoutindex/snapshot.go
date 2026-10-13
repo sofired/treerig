@@ -41,6 +41,27 @@ type IndexServiceLink struct {
 	Available bool
 }
 
+// IndexSharedService is one routed web UI of a repository's shared services,
+// listed in a group of its own beneath the checkouts (docs/design/routing.md,
+// decision 20). It is read from the shared-service records, so it is listed
+// whether or not its container runs.
+type IndexSharedService struct {
+	RepositoryID string
+	// Name is the shared service's name.
+	Name string
+	// Project is the name of a project of the repository, from one of its
+	// checkouts' cards; the domain when none has named it.
+	Project string
+	Domain  string
+	// Host is <name>.shared.<domain>.
+	Host string
+	// URL is the address the proxy answers on, router port included.
+	URL string
+	// Available means a container of the service is running and not
+	// reporting itself unhealthy or still starting.
+	Available bool
+}
+
 // IndexEntry is one row of the checkout index.
 type IndexEntry struct {
 	RepositoryID string
@@ -97,7 +118,10 @@ type IdentityFailureInput struct {
 
 // IndexSnapshot is what one render of the page is built from.
 type IndexSnapshot struct {
-	Entries     []IndexEntry
+	Entries []IndexEntry
+	// Shared are the repositories' routed shared-service UIs, sorted by
+	// domain, project and name.
+	Shared      []IndexSharedService
 	GeneratedAt string
 	// IdentityError is set when Git could not say which worktrees of the
 	// current repository exist.
@@ -118,8 +142,12 @@ type IndexSnapshot struct {
 // ContainerRecord is one managed container, as `docker ps` reports it.
 type ContainerRecord struct {
 	RepositoryID string
-	WorktreeID   string
-	Service      string
+	// WorktreeID is empty for a container of a repository's shared services,
+	// which belong to no worktree (Shared is then true).
+	WorktreeID string
+	Service    string
+	// Shared marks a container of a repository's shared services.
+	Shared bool
 	// Available means running, and not reporting itself unhealthy or still
 	// starting.
 	Available bool
@@ -130,7 +158,9 @@ type ContainerRecord struct {
 var unhealthyPattern = regexp.MustCompile(`(?i)\((?:unhealthy|health: starting)\)`)
 
 // ParseContainerInventory parses the tab-separated `docker ps` format the
-// index service asks for. It never returns a nil slice on success — even
+// index service asks for: state, status, repository, worktree, service, and
+// the shared label ("true" for a container of a repository's shared
+// services, which carries no worktree label). It never returns a nil slice on success — even
 // for empty output, which means Docker answered and named no containers —
 // since SnapshotInput.Containers uses nil specifically to mean Docker could
 // not be asked at all, and service.go's caller may pass this return value
@@ -142,17 +172,21 @@ func ParseContainerInventory(output string) ([]ContainerRecord, error) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) != 5 {
+		if len(fields) != 6 {
 			return nil, clierr.New("Docker returned an unrecognized container inventory line.")
 		}
-		state, status, repositoryID, worktreeID, service := fields[0], fields[1], fields[2], fields[3], fields[4]
-		if state == "" || repositoryID == "" || worktreeID == "" || service == "" {
+		state, status, repositoryID, worktreeID, service, sharedLabel := fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]
+		isShared := sharedLabel == "true"
+		// The shared field is exactly "true" or empty: anything else is a
+		// tab inside an earlier field that shifted the rest.
+		if state == "" || repositoryID == "" || service == "" || (sharedLabel != "" && !isShared) || (worktreeID == "") != isShared {
 			return nil, clierr.New("Docker returned an unrecognized container inventory line.")
 		}
 		records = append(records, ContainerRecord{
 			RepositoryID: repositoryID,
 			WorktreeID:   worktreeID,
 			Service:      service,
+			Shared:       isShared,
 			Available:    state == "running" && !unhealthyPattern.MatchString(status),
 		})
 	}
@@ -162,6 +196,9 @@ func ParseContainerInventory(output string) ([]ContainerRecord, error) {
 // SnapshotInput is everything BuildSnapshot needs.
 type SnapshotInput struct {
 	Registrations []registry.RegisteredWorktree
+	// SharedRecords are the shared-service records of the control home;
+	// those that route a web UI are listed.
+	SharedRecords []registry.SharedRecord
 	// Cards is keyed by EntryKey.
 	Cards map[string]card.IndexCard
 	// Identities are the live worktrees of the repository the command runs in.
@@ -319,12 +356,63 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 
 	return IndexSnapshot{
 		Entries:          entries,
+		Shared:           sharedServices(input, entries, dockerReachable),
 		GeneratedAt:      input.GeneratedAt,
 		IdentityError:    identityError,
 		DockerReachable:  dockerReachable,
 		DockerError:      input.DockerError,
 		CardReadFailures: len(input.CardReadFailures),
 	}
+}
+
+// sharedServices lists the routed web UIs among the shared-service records,
+// each with the project name one of its repository's checkouts gave, and
+// whether a container of it answers. A record that routes nothing is not
+// listed. Sorted on domain, project, then name, with the same fixed locale
+// as the checkouts.
+func sharedServices(input SnapshotInput, entries []IndexEntry, dockerReachable bool) []IndexSharedService {
+	var listed []IndexSharedService
+	for _, record := range input.SharedRecords {
+		host := record.Host()
+		if host == "" {
+			continue
+		}
+		project := record.Domain
+		for _, entry := range entries {
+			if entry.RepositoryID == record.RepositoryID {
+				project = entry.Project
+				break
+			}
+		}
+		suffix := ""
+		if input.RouterPort != 80 {
+			suffix = ":" + strconv.Itoa(input.RouterPort)
+		}
+		available := false
+		if dockerReachable {
+			for _, container := range input.Containers {
+				available = available || (container.Shared && container.RepositoryID == record.RepositoryID &&
+					container.Service == record.Name && container.Available)
+			}
+		}
+		listed = append(listed, IndexSharedService{
+			RepositoryID: record.RepositoryID, Name: record.Name, Project: project, Domain: record.Domain,
+			Host: host, URL: "http://" + host + suffix, Available: available,
+		})
+	}
+	slices.SortStableFunc(listed, func(left, right IndexSharedService) int {
+		if c := text.Collate(left.Domain, right.Domain); c != 0 {
+			return c
+		}
+		if c := text.Collate(left.Project, right.Project); c != 0 {
+			return c
+		}
+		if c := text.Collate(left.Name, right.Name); c != 0 {
+			return c
+		}
+		return text.Collate(left.RepositoryID, right.RepositoryID)
+	})
+	return listed
 }
 
 // entryStatus mirrors buildSnapshot's status derivation exactly.

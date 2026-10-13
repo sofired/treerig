@@ -25,13 +25,21 @@ const (
 // smallRange is three ports, so a test can exhaust and wrap it.
 var smallRange = layout.PortRange{Low: 30100, High: 30102}
 
-// writePortsRecord writes a fixture record carrying ports.
-func writePortsRecord(t *testing.T, controlHome, repositoryID, worktreeID, slug string, ports map[string]int) {
-	t.Helper()
-	if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
+// tryWritePortsRecord writes a fixture record carrying ports and returns the
+// error, for a worker goroutine, which must not call t.Fatalf.
+func tryWritePortsRecord(controlHome, repositoryID, worktreeID, slug string, ports map[string]int) error {
+	_, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
 		Version: 1, RepositoryID: repositoryID, WorktreeID: worktreeID,
 		Slug: slug, Domain: acmeDomain, Initialization: "complete", Ports: ports,
-	}); err != nil {
+	})
+	return err
+}
+
+// writePortsRecord writes a fixture record carrying ports, failing the test
+// on error; only for the test's own goroutine.
+func writePortsRecord(t *testing.T, controlHome, repositoryID, worktreeID, slug string, ports map[string]int) {
+	t.Helper()
+	if err := tryWritePortsRecord(controlHome, repositoryID, worktreeID, slug, ports); err != nil {
 		t.Fatalf("WriteRecord: %v", err)
 	}
 }

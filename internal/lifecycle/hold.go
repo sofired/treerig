@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/sofired/berth/internal/clierr"
@@ -35,7 +36,11 @@ type Env struct {
 // everywhere: operation, then development, then shared, then registry; a nil
 // field is simply not requested. Router is taken alone — a router request
 // never appears alongside a worktree's own locks, since the router is
-// machine-wide rather than scoped to any one repository or control home.
+// machine-wide rather than scoped to any one repository or control home. (The
+// one sanctioned exception is not a Requests at all: a `dev` session's
+// best-effort index refresh takes the router lock while the development lock
+// is held, docs/design/locks.md. The router lock is never held while waiting
+// for a worktree-level lock.)
 //
 // Shared is a repository's shared-services lock (docs/design/routing.md,
 // decision 18). Nothing takes it and then a worktree's lock: a command that
@@ -124,7 +129,29 @@ func optionsFor(scope *lock.Scope, requests Requests, env Env) lock.Options {
 // its Cause (if it had none) and always in Suppressed, so a lock that could
 // not be released is never silent.
 func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action func(context.Context) error) error {
-	return l.hold(ctx, env, requests, action)
+	return l.hold(ctx, env, requests, action, nil)
+}
+
+// HoldThen is Hold for a command that needs a worktree's operation lock only
+// for its first phase and keeps its other locks for a second, longer one: the
+// `dev` session (#5) does `up`'s work under the operation lock and the
+// development-session lock, then follows logs holding the development lock
+// alone. requests must name Operation and at least one later lock, all taken
+// in the usual order before action runs.
+//
+// When action succeeds and ctx is still live, the operation lock is released
+// (a verb that only needs the operation lock, `down` or `up`, can run again
+// from that moment) and then is called with the remaining locks held, in a
+// context that no longer lists the operation lock as inherited. If action
+// fails or ctx ends, then never runs, the error is action's or ctx's cause,
+// and everything is released exactly as Hold does.
+// Quiescence is proven, and every lock released in reverse order, once then
+// returns, as for Hold; then's own error is reported like action's.
+func (l *Lifecycle) HoldThen(ctx context.Context, env Env, requests Requests, action, then func(context.Context) error) error {
+	if requests.Operation == nil || len(requests.ordered()) < 2 {
+		return clierr.New("lifecycle: HoldThen needs the operation lock and a later one to keep; this is a bug in berth, please report it.")
+	}
+	return l.hold(ctx, env, requests, action, then)
 }
 
 // Nest is Hold for the locks that come after the ones a surrounding Hold
@@ -147,7 +174,7 @@ func (l *Lifecycle) Nest(ctx context.Context, env Env, requests Requests, action
 			return clierr.New("lifecycle: Nest was asked for a lock that does not come after the ones already held, which would invert the lock order; this is a bug in berth, please report it.")
 		}
 	}
-	return l.hold(ctx, env, requests, action)
+	return l.hold(ctx, env, requests, action, nil)
 }
 
 // The order locks are taken in, as ranks: a lock may be taken inside a Hold
@@ -185,7 +212,9 @@ func (r Requests) highestRank() int {
 // hold is Hold and Nest: acquire requests' scopes in order, appending them to
 // whatever ctx already carries for inheritance, run action, prove its
 // children quiesced, and release in reverse order.
-func (l *Lifecycle) hold(ctx context.Context, env Env, requests Requests, action func(context.Context) error) error {
+//
+// then, when set, is HoldThen's second phase: see there.
+func (l *Lifecycle) hold(ctx context.Context, env Env, requests Requests, action, then func(context.Context) error) error {
 	scopes := requests.ordered()
 	held := make([]*lock.Lock, 0, len(scopes))
 
@@ -214,6 +243,30 @@ func (l *Lifecycle) hold(ctx context.Context, env Env, requests Requests, action
 
 	actionErr := action(actionCtx)
 
+	// HoldThen's hand-off: the operation lock, always first, goes back now
+	// that its phase is over, and the rest carry on into then. It is kept in
+	// handedOff for the lost-lock check below, since a release that finds it
+	// lost must still be reported. then's context is actionCtx itself, which
+	// stays live across the release: Lock.Release stops the lock's watchdog
+	// without cancelling the context Acquire derived, and the development
+	// lock's context is a child of the operation lock's. A context that ended
+	// during action (a signal, a lost lock) skips then, and its cause is the
+	// result, so a caller never sees nil for a phase that did not run.
+	var handedOff []*lock.Lock
+	var releaseErrs []error
+	if then != nil && actionErr == nil {
+		if actionCtx.Err() != nil {
+			actionErr = context.Cause(actionCtx)
+		} else {
+			handedOff, held = held[:1], held[1:]
+			if err := handedOff[0].Release(); err != nil {
+				releaseErrs = append(releaseErrs, err)
+			}
+			actionCtx = lock.WithHeld(actionCtx, held...)
+			actionErr = then(actionCtx)
+		}
+	}
+
 	needsQuiesce := actionErr != nil || actionCtx.Err() != nil
 	var quiesceErr error
 	if needsQuiesce && env.Runner != nil {
@@ -232,7 +285,6 @@ func (l *Lifecycle) hold(ctx context.Context, env Env, requests Requests, action
 		return clierr.WithCode(message, 1)
 	}
 
-	var releaseErrs []error
 	for i := len(held) - 1; i >= 0; i-- {
 		if err := held[i].Release(); err != nil {
 			releaseErrs = append(releaseErrs, err)
@@ -246,7 +298,7 @@ func (l *Lifecycle) hold(ctx context.Context, env Env, requests Requests, action
 	// does not itself watch ctx.Done()) would make this whole Hold call
 	// report success. This checks explicitly, rather than leaving actionErr
 	// alone to speak for it.
-	for _, lk := range held {
+	for _, lk := range slices.Concat(handedOff, held) {
 		if lk.Lost() {
 			releaseErrs = append(releaseErrs, lk.Err())
 		}

@@ -1,10 +1,12 @@
 config	inspect the project configuration
-dev	start this worktree's environment and follow its logs (not yet implemented)
+dev	start this worktree's services, then follow their logs until Ctrl-C
 up	register this worktree, start its services, and run its hooks
 down	stop this worktree's services; data is kept
 status	show service status for this worktree
 urls	print this worktree's routed URLs
 run	run one of the project's named commands from berth.toml [commands]
+backup	run the backup hook, writing a bundle into a directory
+restore	run the restore hook on a bundle directory
 index	refresh the machine-wide checkout index and print it
 doctor	check prerequisites, the registry, the router, and this checkout's verify hook
 router	manage the shared local router

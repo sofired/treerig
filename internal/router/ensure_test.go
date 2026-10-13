@@ -766,4 +766,56 @@ func TestEnsureRepairsRouteFiles(t *testing.T) {
 			t.Error("the file went despite the unreadable record")
 		}
 	})
+
+	// The shared services' route files are repaired in the same Ensure,
+	// against their records.
+	sharedWorld := func(t *testing.T, regs router.SharedRegistrations, port int) (*testWorld, string) {
+		t.Helper()
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.SharedRegistrations = regs })
+		if err := router.WriteSharedFragment(w.State, regRepoA, "mailpit", "acme.localhost", port); err != nil {
+			t.Fatal(err)
+		}
+		return w, router.SharedFragmentPath(w.State, regRepoA, "mailpit")
+	}
+	key := regRepoA + "/mailpit"
+
+	t.Run("points a shared route file at the port its record holds", func(t *testing.T) {
+		w, path := sharedWorld(t, mapSharedRegistrations{key: routedAt(30020)}, 30010)
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		doc, err := router.ReadFragment(w.State, path)
+		if err != nil || doc.TargetPort() != 30020 {
+			t.Fatalf("target = %d (%v), want 30020", doc.TargetPort(), err)
+		}
+		lines, _ := w.Logger.Snapshot()
+		if !containsSubstring(lines, "Repaired a route file: shared service mailpit: points at port 30010, but its record says 30020") {
+			t.Errorf("no report: %v", lines)
+		}
+	})
+
+	t.Run("removes a shared route file whose record routes no port", func(t *testing.T) {
+		w, path := sharedWorld(t, mapSharedRegistrations{key: {Status: router.Registered, Domain: "acme.localhost"}}, 30010)
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(path); err == nil {
+			t.Fatal("the unrouted shared route file survived")
+		}
+	})
+
+	t.Run("leaves a shared route file with no record here: it may be another control home's", func(t *testing.T) {
+		for name, regs := range map[string]mapSharedRegistrations{
+			"known repository":   {},
+			"unknown repository": {key: {Status: router.UnknownRepository}},
+		} {
+			w, path := sharedWorld(t, regs, 30010)
+			if err := w.Router.Ensure(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("%s: an unmatched shared route file was removed: %v", name, err)
+			}
+		}
+	})
 }

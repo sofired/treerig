@@ -5,9 +5,12 @@ package commands
 // it needs no project config file: it is built straight from Env, never
 // through Context.
 //
-// Only `router up` takes the router's lock, and takes it alone (never
-// alongside a worktree's own locks): see routerLockScope (index.go) and
-// lifecycle.Requests.Router. `router status` and `router down` take no lock
+// Only `router up` takes the router's lock to hold across work, and takes it
+// alone (never alongside a worktree's own locks): see routerLockScope
+// (index.go) and lifecycle.Requests.Router. The checkout index's best-effort
+// refresh also takes it, briefly, and a `dev` session does so while holding
+// its worktree's development lock — the one sanctioned edge from a
+// worktree-level lock to this one (docs/design/locks.md). `router status` and `router down` take no lock
 // at all: only Ensure ever needs one.
 
 import (
@@ -73,6 +76,27 @@ func (c controlHomeRegistrations) Lookup(repositoryID, worktreeID string) (route
 	return router.Registration{Status: router.Registered, Ports: record.Ports, HostRoutes: hostRouteTargets(*record)}, nil
 }
 
+// LookupShared reads repositoryID's record of the shared service name afresh,
+// without the registry lock, for the same reason Lookup does. A repository
+// with no directory in this control home is UnknownRepository; one with no
+// record of the service is Unregistered.
+func (c controlHomeRegistrations) LookupShared(repositoryID, name string) (router.SharedRegistration, error) {
+	if _, err := os.Stat(layout.RepositoryLayout(c.controlHome, repositoryID).RepositoryDir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return router.SharedRegistration{Status: router.UnknownRepository}, nil
+		}
+		return router.SharedRegistration{}, err
+	}
+	record, err := registry.NewStore(c.controlHome, repositoryID).FindShared(name)
+	if err != nil {
+		return router.SharedRegistration{}, err
+	}
+	if record == nil {
+		return router.SharedRegistration{Status: router.Unregistered}, nil
+	}
+	return router.SharedRegistration{Status: router.Registered, Domain: record.Domain, HostPort: record.RoutedHostPort()}, nil
+}
+
 // newRouterService builds the shared router directly from env, resolving
 // and checking BERTH_HOME itself — for a caller (RouterStatus, RouterDown)
 // that needs nothing else derived from it. RouterUp and Doctor, which also
@@ -135,14 +159,15 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 		// Home is the berth root the caller already checked (checkedHome),
 		// stamped on the router's own containers so a later Ensure — from
 		// this root or another one — can tell them apart (#82).
-		Home:          home,
-		ControlHome:   controlHome,
-		Registrations: controlHomeRegistrations{controlHome: controlHome},
-		PortRange:     portRange,
-		Probe:         env.PortProbe,
-		ModeOverride:  mode,
-		DockerHost:    dockerHost,
-		ClientOS:      env.OS,
+		Home:                home,
+		ControlHome:         controlHome,
+		Registrations:       controlHomeRegistrations{controlHome: controlHome},
+		SharedRegistrations: controlHomeRegistrations{controlHome: controlHome},
+		PortRange:           portRange,
+		Probe:               env.PortProbe,
+		ModeOverride:        mode,
+		DockerHost:          dockerHost,
+		ClientOS:            env.OS,
 	})
 }
 

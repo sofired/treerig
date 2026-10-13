@@ -88,3 +88,32 @@ func TestReportPrintsWhatAWrappedErrorSuppressed(t *testing.T) {
 		t.Fatalf("the suppressed error behind a wrapper was dropped:\n%s", got)
 	}
 }
+
+// TestReportPrintsAnEndedSessionAsANotice pins that a normal end carrying an
+// exit status (a `dev` session the user stopped) is information, not an
+// error, and that one which hid a further failure is still an error.
+func TestReportPrintsAnEndedSessionAsANotice(t *testing.T) {
+	noEnv := func(string) (string, bool) { return "", false }
+
+	var stdout, stderr bytes.Buffer
+	report(logger.NewConsole("berth", &stdout, &stderr), noEnv, clierr.Ended("The development session ended.", 130))
+	if got := stderr.String(); strings.Contains(got, "ERROR") || !strings.Contains(got, "The development session ended.") {
+		t.Fatalf("stderr = %q, want the message as a notice, not an ERROR", got)
+	}
+
+	stderr.Reset()
+	ended := clierr.Ended("The development session ended.", 130)
+	ended.Suppressed = []error{errors.New("could not release the lock")}
+	report(logger.NewConsole("berth", &stdout, &stderr), noEnv, ended)
+	if got := stderr.String(); !strings.Contains(got, "ERROR") || !strings.Contains(got, "could not release the lock") {
+		t.Fatalf("stderr = %q, want an error that also names the release failure", got)
+	}
+
+	stderr.Reset()
+	caused := clierr.Ended("The development session ended.", 130)
+	caused.Cause = errors.New("the lock was lost")
+	report(logger.NewConsole("berth", &stdout, &stderr), noEnv, caused)
+	if got := stderr.String(); !strings.Contains(got, "ERROR") || !strings.Contains(got, "caused by: the lock was lost") {
+		t.Fatalf("stderr = %q, want an error that names its cause", got)
+	}
+}

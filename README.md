@@ -14,13 +14,13 @@ health checks — arrives as a small config file and a handful of executables
 in whatever language you already use.
 
 > **Status: pre-release.** The worktree lifecycle works end to end against
-> Docker Compose: `up`, `down`, `status`, `urls`, `run`, `worktree list`,
-> `worktree remove`, `worktree unlock`, and `doctor` — identity, locks, the
-> registry, the hook sequencer, a runtime that stamps every resource with
-> ownership labels and refuses to touch anything it cannot prove it owns, a
-> shared hardened router that makes every worktree reachable at its own
-> hostname, and a machine-wide index page listing every checkout. See
-> [Roadmap](#roadmap).
+> Docker Compose: `up`, `dev`, `down`, `status`, `urls`, `run`, `backup`,
+> `restore`, `worktree list`, `worktree remove`, `worktree rename`,
+> `worktree unlock`, and `doctor` — identity, locks, the registry, the hook
+> sequencer, a runtime that stamps every resource with ownership labels and
+> refuses to touch anything it cannot prove it owns, a shared hardened router
+> that makes every worktree reachable at its own hostname, and a machine-wide
+> index page listing every checkout. See [Roadmap](#roadmap).
 
 ## How it works
 
@@ -35,7 +35,8 @@ berth.toml ──reads──▶  berth  ──spawns──▶  your hooks (any l
 
 **Identity.** Two UUIDs are written into the Git directory: one for the
 repository, one for the worktree. Paths and branch names can change; the UUIDs
-cannot. A worktree keeps its environment across renames, rebases, and moves.
+cannot. A worktree keeps its environment across branch renames, rebases, and
+moves.
 
 **Slugs.** Each worktree gets a slug derived from its branch — `feature/login`
 becomes `feature-login` — and is routed as `feature-login.<your-domain>`. Slugs
@@ -43,11 +44,12 @@ are unique per domain, because the hostname is what must not collide: two
 projects with different domains can both have a `feature-login`. A collision
 within one domain gets a short hash suffix rather than a surprise. The slug
 `shared` is reserved for the repository's shared services, so a branch named
-`shared` gets a suffixed slug. Slugs are
+`shared` gets the same suffixed slug a collision would (`shared-` and a short hash
+of its identity). Slugs are
 sticky: once allocated, a worktree keeps its slug — suffix included — across
 domain changes whenever it is free, so two clones can never swap hostnames
-underneath you. Reclaiming a bare name would be an explicit rename — a verb
-the tool does not have yet — never a side effect.
+underneath you. Reclaiming a bare name is an explicit
+[`worktree rename`](#renaming-a-worktree), never a side effect.
 
 **Locks.** Every command that changes a worktree, the registry, or the shared
 router takes an advisory lock: `flock(2)` on the lock's own file, held by an
@@ -101,12 +103,46 @@ index page and route files are written there; nothing secret.
 **Hooks.** `prepare`, `seed`, `verify`, `backup`, and `restore` are
 executables you point at from the config file. `up` invokes `prepare` and
 `seed`: `seed` never runs before `prepare`, and not at all if a configured
-`prepare` exited non-zero. `doctor` invokes `verify`. `backup` and `restore`
-are accepted and validated so a repository can commit them once, and future
-commands of the same names will run them; a `backup` or `restore` whose file
-would not start fails `doctor`'s hook-resolution check exactly the way a
-broken `prepare`, `seed` or `verify` does, even though nothing invokes them
-yet. The tool never learns what they do.
+`prepare` exited non-zero. `doctor` invokes `verify`. `berth backup [dir]` and
+`berth restore <dir>` invoke `backup` and `restore` with a bundle directory as
+their first argument: [docs/hooks.md](docs/hooks.md#backup-and-restore) has its
+contract. `doctor` also checks that all five hook files can start. The tool
+never learns what any of them do. A hook runs without a time limit unless
+`[hooks.timeout]` gives it one: past its limit berth stops the hook and its
+whole process group on the host, and reports it as timed out (exit 124), not
+failed. (Work it handed to a container, such as a `docker compose exec`, keeps
+running there: see [docs/hooks.md](docs/hooks.md#timeouts).)
+
+**Backup and restore.** A bundle is a directory the `backup` hook fills and
+the `restore` hook reads; berth creates it (or takes an empty one), marks it
+`.incomplete` until the hook exits zero, and refuses to restore one still so
+marked. Hooks run with the worktree's own Compose project in their
+environment (`COMPOSE_PROJECT_NAME`), so a PostgreSQL round trip is two short
+scripts:
+
+```sh
+# scripts/backup.sh: dump to a temporary name, then move it into place
+set -euo pipefail
+bundle=$1
+docker compose exec -T db pg_dump -U app --clean --if-exists app > "$bundle/app.sql.tmp"
+mv "$bundle/app.sql.tmp" "$bundle/app.sql"
+```
+
+```sh
+# scripts/restore.sh: stop at the first error; all or nothing
+set -euo pipefail
+bundle=$1
+[ -f "$bundle/app.sql" ] || { echo "restore: $bundle/app.sql is missing" >&2; exit 1; }
+docker compose exec -T db psql -U app -d app -v ON_ERROR_STOP=1 --single-transaction < "$bundle/app.sql"
+```
+
+Keep the database on a named volume in your Compose file, so `worktree remove`
+reaps it; the anonymous volume a Postgres image declares is not reaped.
+`berth backup ~/backups/before-upgrade` then `berth restore
+~/backups/before-upgrade`. With no directory, `backup` writes under the
+worktree's home, which `worktree remove` deletes (its confirmation counts the
+bundles); give it a directory to keep one. A restore overwrites the
+worktree's live data.
 
 **Ports.** Each routed service also gets a port of its own on
 `127.0.0.1`, allocated when `up` first needs it, recorded in the worktree's
@@ -256,6 +292,7 @@ written:
   slug, described with its domain and its last-known path; `worktree
   unlock` also offers a worktree it can still recover a stale lock for even
   though it was never registered (or is no longer), named by its UUID.
+- `worktree rename` completes nothing: the new slug is yours to choose.
 - `--domain` on `worktree remove` and `worktree unlock` completes a
   registered domain, and narrows the slugs offered to that domain once one
   is given — hiding any recoverable, unregistered worktree `worktree
@@ -263,6 +300,7 @@ written:
 - `up` completes the service names declared in this worktree's `berth.toml`,
   skipping any already named on the command line. Each is described by its
   `[service.<name>.index]` label, else its subdomain or path, else "host root".
+- `backup` and `restore` complete directories, for their bundle directory.
 - `run` completes the command names under `[commands]`, in the order the file
   lists them, each described by its command line. Only the name is completed,
   never what follows it.
@@ -307,6 +345,12 @@ subdomain = "mail"                 # mail.<slug>.acme.localhost
 prepare = "./scripts/migrate.sh"   # services healthy, nothing seeded
 seed    = "./scripts/seed.py"      # only after prepare exits zero
 verify  = "./scripts/check.sh"     # run by doctor; exit 0 means healthy
+backup  = "./scripts/backup.sh"    # berth backup: writes a bundle into the directory it is given
+restore = "./scripts/restore.sh"   # berth restore: loads one back
+
+[hooks.timeout]                    # optional: no entry, no limit
+prepare = "30m"                    # a hung migration fails `up` after half an hour
+verify  = "2m"                     # and a hung check fails `doctor` after two minutes
 
 [commands]
 plan = "./scripts/keycloak.sh plan"   # on demand, with `berth run plan`
@@ -318,17 +362,21 @@ Then:
 berth config validate     # parse and check the file
 berth config schema       # print its JSON Schema, for editors
 berth up                   # register this worktree, start its services, run prepare (+ seed the first time)
+berth dev                  # the same, then follow its logs until Ctrl-C
 berth status               # per-service state
 berth urls                 # print its routed URLs
 berth route add web --port 5173 --subdomain app   # route a dev server on the host at app.<slug>.<domain>
 berth route ls             # this worktree's host routes
 berth run plan             # run one of the project's own [commands], on the terminal
+berth backup [dir]         # run the backup hook, writing a bundle into dir (default: under the worktree's home)
+berth restore <dir>        # run the restore hook on a bundle directory
 berth down                 # stop it; data is kept
 berth shared up            # start the shared services, or replace one, and reconnect every worktree
 berth shared status        # their state, addresses and whether this worktree is connected
 berth shared down          # stop them; their named volumes are kept
 berth worktree list        # every worktree of this repository, with state
 berth worktree remove      # tear it down, verified by ownership
+berth worktree rename NEW  # change its slug, and with it its hostname
 berth worktree unlock      # clear a dead holder's lock, once it is checked gone
 berth doctor               # check prerequisites, registry, router; run verify
 ```
@@ -344,6 +392,37 @@ labels; a generated override file does it, so forgetting one — and silently
 exempting a resource from cleanup — is not possible. The Compose file sees
 the same `BERTH_*` variables hooks do, so `${BERTH_WORKTREE_HOME}` works in a
 bind mount exactly as it does in a seed script.
+
+`dev` is `up` followed by `docker compose logs --follow` on the worktree's
+project: the last 100 lines of each container, then new ones. It is `up` all
+the way through (the same checks, router, shared services, hooks and URL
+table), and if `up` fails, `dev` fails the same way, with the same exit code,
+and follows nothing. What it adds is a session: while it is attached,
+`worktree remove` and a second `dev` refuse, naming the session, and telling
+you to press Ctrl-C in the terminal running it. `up`, `down`, `run` and the
+other verbs still work meanwhile.
+
+The session lasts until you end it. What `berth down` from another terminal
+does to it is up to Compose's follower, which varies: it may end once the
+containers are gone, and then so does the session, with a message; or it may
+keep waiting for new containers (Compose 5.5.0 has done so after a
+`restart: always` service restarted), and then `dev` says once that no
+container is left and idles, and a later `berth up` may show the new
+containers' logs. An idle session still refuses `worktree remove` until
+Ctrl-C. The services keep running when it ends; `berth down` stops them.
+
+Ctrl-C, SIGTERM and SIGHUP stop the log follower's whole process group and
+release the lock, print `The development session of <host> ended (<signal>).
+Its services are still running; "berth down" stops them.` as a notice rather
+than an error (`<signal>` names the one that ended it, SIGINT for Ctrl-C; the
+second sentence is left out when no container is left), and exit with the
+status a shell reports for that signal: 130 for Ctrl-C, 143 for SIGTERM, 129
+for SIGHUP (see
+[Output and exit codes](#output-and-exit-codes)). A follower that ends on its
+own, because Docker went away or every container is gone, ends the session
+with a message on stderr and its own exit code (1 when it exited 0). A
+`kill -9` of berth itself frees the lock with the process but leaves the log
+follower running on its own; end it with `kill`.
 
 `status` reports each declared service as `running`, `starting` (Compose says
 `restarting`, or `running` with its health check still pending), `stopped`
@@ -383,9 +462,12 @@ berth router down         # stop it; worktree services keep running, unrouted
 checkout on the machine across every project: branch, hostname, path, whether
 its services are running, and a link for each service that opted in with
 `[service.<name>.index]`. It is a static page served from the router stack,
-regenerated by `up`, `down`, and `worktree remove` — or by `berth index`,
-which also prints it as text. An open tab fetches the page every 15 seconds
-and swaps the table in when the rows have actually changed, advancing the
+regenerated by `up`, `dev`, `down`, `worktree rename` and `worktree remove`,
+and by `shared up` and `shared down` when a routed shared UI changed — or by
+`berth index`, which also prints it as text. Beneath the checkouts it lists the
+routed web UIs of the repositories' [shared services](#shared-services) in a
+group of their own. An open tab fetches the page every 15 seconds and swaps the
+table in when the rows have actually changed, advancing the
 timestamp quietly otherwise, so it follows along without losing your place. It
 holds an update back while you are reading inside a table with the keyboard,
 says so in the header when it has stopped being able to read the page, and
@@ -440,6 +522,38 @@ invoked.
 A full annotated example is in [`berth.example.toml`](berth.example.toml).
 The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
 
+### Renaming a worktree
+
+`berth worktree rename <new-slug>` renames the worktree you run it from: it
+changes the slug it is registered under, so it routes as `<new-slug>.<domain>`
+from then on. The slug must be a lowercase hostname label (letters, digits and
+inner hyphens, at most 63 characters), must not be `shared`, and must not be
+held by another worktree in the same domain, whichever repository it belongs
+to. It is also how to reclaim a bare name that an earlier collision suffixed.
+
+Everything keyed by the worktree's IDs stays exactly as it is: the Compose
+project name, and with it every container, network and volume name, the home
+directory, the locks and the pinned loopback ports. berth renames and deletes
+no volume. What carries the slug moves to the new one: the registration and
+the worktree's index entry, and the checkout index is refreshed. Route files
+are removed, not moved: a worktree with no containers has none that are live,
+and `up` writes them at the new hostname. A Compose file that builds
+`${BERTH_SLUG}` or `${BERTH_HOST}` into a volume name would name a new volume
+on the next `up`; berth cannot see inside the file, so the old volume is left
+in place, and `docker volume ls --filter label=<namespace>.worktree-uuid=<id>`
+(the namespace defaults to `dev.berth`) lists every volume the worktree owns.
+`worktree remove` removes the old one along with the rest.
+
+A worktree with containers, running or stopped, is refused: they were created
+with the old `BERTH_SLUG` and `BERTH_HOST`. Run `berth down` first, which keeps
+the data, then rename, then `berth up` at the new hostname. The rename takes
+the worktree's operation and development-session locks, so it cannot overlap
+an `up`, a `down` or a `dev` session, and it cannot run from the worktree's
+own hooks. If it is interrupted, the old slug stays registered until the
+record is replaced, last; run the command again, with the same slug or a
+different one. Hooks are not told of a rename; the next `up` runs them with
+the new `BERTH_SLUG` and `BERTH_HOST`.
+
 ## Calling it something else
 
 Name the binary or symlink whatever you like. Help text, the log prefix, and
@@ -475,7 +589,8 @@ would orphan state.
 | `[service.<name>]` | One table per service, named by its Compose service (lower-case letters, digits, hyphens; at most 64 tables, each name at most 63 characters, as for `[commands]`). Optional `subdomain` (empty = host root), optional `path` (route only that prefix, so services can share a host), optional `port` (defaults to the first port the service exposes), optional `index` presence. |
 | `[shared]` | Optional. `file`: the shared services' Compose file, relative to `berth.toml`; required when any `[shared.service.<name>]` table exists. |
 | `[shared.service.<name>]` | One table per shared service, named by its service in the shared file (same naming rules as `[service.<name>]`). Optional `port` (the web UI's container port), optional `ports` (more container ports), both pinned on `127.0.0.1` for the host; at most 16 in all. `used-by`: the worktree's own Compose services that use it. See [Shared services](#shared-services). |
-| `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. `up` runs `prepare` and `seed`, `doctor` runs `verify`; `backup` and `restore` are accepted but nothing runs them yet. |
+| `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. `up` runs `prepare` and `seed`, `doctor` runs `verify`, `berth backup` and `berth restore` run `backup` and `restore`. |
+| `[hooks.timeout]` | Optional. A time limit per hook, keyed by the hook's name (`prepare`, `seed`, `verify`, `backup`, `restore`): a duration such as `30s`, `10m` or `1h30m`, greater than zero and at most `24h`. A hook with no entry has no limit. When the limit passes berth stops the hook and its whole process group on the host (not work it handed to a container, such as a `docker compose exec`), fails the command with `The <hook> hook timed out after <limit> and was terminated.` and exits 124. See [docs/hooks.md](docs/hooks.md#timeouts). |
 | `[commands]` | Optional. Named commands for `berth run <name>`, resolved like hooks. Each name (lower-case letters, digits, hyphens) maps to a command line, or to a table: `command`, `lock` (default `true`: hold the worktree's lock while it runs) and `kill-after` (default `10s`, at most `1h`: a duration such as `30s` or `5m`, how long its process group has to exit once stopped, before it is killed). See [docs/hooks.md](docs/hooks.md#commands). |
 
 Unknown keys are rejected, so a typo cannot silently disable a feature.
@@ -611,7 +726,7 @@ its own and started by whichever worktree needs it first:
 file = "docker/compose.shared.yaml"   # relative to berth.toml; its own Compose project
 
 [shared.service.mailpit]              # a service in that file; also the name containers reach it by
-port    = 8025                        # optional: the web UI's container port
+port    = 8025                        # optional: the web UI's container port, routed at mailpit.shared.<domain>
 ports   = [1025]                      # optional: more container ports, for processes on the host
 used-by = ["api", "worker"]           # the worktree's own Compose services that use it
 ```
@@ -716,13 +831,35 @@ its containers when the state changed. A host process uses the pinned port; a
 container never does, because on a host firewalled by default a container
 cannot reach the host's loopback.
 
+**Its web UI.** A `port` is also routed, through the same proxy as your
+services, at `<name>.shared.<domain>` (`mailpit.shared.acme.localhost`), under
+the domain the service was first pinned with. `shared` is therefore reserved:
+a branch that slugs to `shared` gets a suffixed slug. The route file is written when the service is up
+and removed by `shared down`; `berth shared up` starts the router first when
+it has a web UI to route, its own or a dependency's. `BERTH_SHARED_URL_<NAME>` gives hooks and `berth run`
+the URL (router port included), `status` and `shared status` print it (and
+`--json` carries it as `url`), and the checkout index lists it in a group of
+its own beneath the checkouts. Two repositories on one domain cannot both
+route a shared service of the same name: the second is refused when it would
+become routed, naming the first; rename one of the services, or run `shared
+down --volumes` where the first lives, which deletes its record. A container
+stopped any other way than `shared down` (a reboot, `docker stop`) keeps its
+route file and the hostname answers 502 until `shared up` or `up` starts it
+again; `doctor` reports that case, and `shared down` clears the file. `doctor`
+also probes the route like any other and warns when a running service's route
+file is missing; `router up` and `up` repair a route file that points at a
+stale port from the record. Dropping `port` from `berth.toml` stops routing a
+running service at the next `up` or `shared up` without restarting it; a port
+newly declared as the web UI that the container was not started with needs
+`shared up --recreate <name>`.
+
 ```bash
 berth shared up [name...]                    # start (or reuse) them, then reconnect every worktree
 berth shared up --recreate mailpit           # replace a running one with this worktree's definition; keeps its data (a name is required)
 berth shared up --reallocate-port mailpit:1025   # give a container port a new pinned port; refused while it runs
 berth shared down [name...]                  # stop and remove the containers; named volumes and pinned ports are kept
 berth shared down --volumes [name...]        # also delete the data and release the ports; asks first
-berth shared status [--json]                 # state, addresses, definition, connection, who started it
+berth shared status [--json]                 # state, web UI URL, addresses, definition, connection, who started it
 berth worktree unlock --shared               # clear a dead holder's shared lock, once it is checked gone
 ```
 
@@ -900,12 +1037,20 @@ notices, confirmation prompts, warnings and failures go to stderr. Seven of
 these (`index`, `status`, `urls`, `shared status`, `route ls`, `worktree list` and `doctor`) take `--json`:
 see [Machine-readable output](#machine-readable-output).
 
-`up`, `down`, `router down` and `worktree remove` are the exception: they pass
-your hooks' and Compose's own stdout through as those programs wrote it, and
-`up` adds its URL table there. `shared up` passes Compose's stdout through the
-same way; `shared down` writes only notices and warnings, to stderr. `run` is the same, more strictly: the command
-it runs writes straight to berth's stdout and stderr, and berth adds nothing
-while it runs, so `berth run plan > out` holds only what `plan` wrote.
+`worktree rename` writes only its notice, to stderr, and nothing to stdout.
+
+`up`, `dev`, `down`, `backup`, `restore`, `router down` and `worktree remove`
+are the exception: they pass your hooks' and Compose's own stdout through as
+those programs wrote it, and `up` adds its URL table there. `dev` is `up` and
+then the followed logs, which keep their streams: a container's stdout on
+berth's stdout, its stderr on berth's stderr, and one notice on stderr when
+following starts. `backup` and `restore` write their own closing line, and any
+warning, to stderr, so a script that needs a bundle's path passes it a
+directory. `shared up` passes Compose's stdout through the same way; `shared
+down` writes only notices and warnings, to stderr. `run` is the same, more
+strictly: the command it runs writes straight to berth's stdout and stderr, and
+berth adds nothing while it runs, so `berth run plan > out` holds only what
+`plan` wrote.
 
 `router status` has a fourth vocabulary, about the shared router rather than
 any checkout: `running on <address>, <mode> mode`, `not running (would use
@@ -931,9 +1076,11 @@ output of the `verify` hook it runs, so the report is alone on stdout. It exits
 0 when no check failed — warnings and skips do not count — with the `verify`
 hook's own exit code when that hook ran and failed, and 1 for any other
 failure. The exit code names one failure; the report names them all. A
-`verify` hook that exits 124 makes `doctor` exit 124 too — the code
-`timeout(1)` uses for a command it had to kill — so a script that wraps
-`doctor` in `timeout` cannot tell the two apart by exit code alone. `doctor`
+`verify` hook that exits 124 by itself makes `doctor` exit 124. So does one
+that outlives its `[hooks.timeout]` limit and is stopped for it (`The verify
+hook timed out after 2m and was terminated.`); the report's `verify hook` line
+tells the two apart, the exit code does not. If `timeout(1)` kills `doctor`
+itself, which also exits 124, there is no report at all. `doctor`
 also reports one line per configured hook — `prepare`, `seed`, `verify`,
 `backup` and `restore` alike, whether or not this worktree is registered —
 for whether the file it names would even start: as `<stage> hook file`,
@@ -966,9 +1113,12 @@ changed while it looked.
 Every failure the tool itself reports, a bad command line included, ends in a
 non-zero exit code and a `[berth] ERROR:` line on stderr saying why. Set
 `BERTH_DEBUG=1` to see the stack trace behind a failure. A failing hook's own
-exit code becomes berth's, and so does a `run` command's — see
-[docs/hooks.md](docs/hooks.md) — and a verb
-that is registered but not implemented exits 2.
+exit code becomes berth's, and so does a `run` command's, a `backup` or `restore`
+hook's — see [docs/hooks.md](docs/hooks.md) — except that a hook which outlives
+its `[hooks.timeout]` limit is stopped and berth exits 124, not the hook's own
+code ([docs/hooks.md](docs/hooks.md#timeouts)). A `dev` session that you end
+ends with the status of the signal that ended it: 130 for Ctrl-C, 143 for
+SIGTERM, 129 for SIGHUP.
 
 ### Machine-readable output
 
@@ -1054,8 +1204,8 @@ start.
 | `router.bind` | `router` | | only while the router runs: that its port answers on `127.0.0.1` alone, by asking this machine's other addresses for it (`fail` naming any that answer) |
 | `router.routes` | `router` | | the route files, none claiming a shared rule |
 | `router.route-conflict` | `router` | `<host>` or `<host><path>` | a route two files claim |
-| `router.orphaned-routes` | `router` | none, `unmatched` or `other-home` | route files that disagree with their registration: no port recorded for the service (or no host route of that name), or a different port than the one recorded (or, for a host route, a different port or hostname) (the next `up` or `router up` repairs them); with instance `unmatched` (a warning), files whose repository this control home knows but whose worktree it holds no record of, and with instance `other-home` (ok), files of a repository it does not know; both are counted and never removed, since they may belong to another control home (delete them from the router's `dynamic/` directory if their worktrees are gone) |
-| `router.route-probe` | `router` | `<host>` or `<host><path>` | only while the router runs, one per route including the index and each host route: an HTTP request through the router. A 404 is judged by sending the same request straight to the route file's target on `127.0.0.1`: the target giving the same 404 is the service's own (`ok`); a 404 it does not give means the route is not loaded (`fail`), retried for several seconds because Traefik's file provider takes a moment to load a change. A 502, 503 or 504, or a target that does not answer, is `warn` (the target is down or unreachable); a router that does not answer is `fail`; these are retried at most twice |
+| `router.orphaned-routes` | `router` | none, `unmatched` or `other-home` | route files that disagree with their registration, or a shared service's route file with its record: no port recorded for the service (or no host route of that name), or a different port than the one recorded (or, for a host route, a different port or hostname) (the next `up` or `router up` repairs them); with instance `unmatched` (a warning), files whose repository this control home knows but whose worktree it holds no record of, and with instance `other-home` (ok), files of a repository it does not know; both are counted and never removed, since they may belong to another control home (delete them from the router's `dynamic/` directory if their worktrees are gone). A shared service's route file is judged against its shared-service record in the same way, and named as such in these lines |
+| `router.route-probe` | `router` | `<host>` or `<host><path>` | only while the router runs, one per route including the index, each host route and the shared services' web UIs: an HTTP request through the router. A 404 is judged by sending the same request straight to the route file's target on `127.0.0.1`: the target giving the same 404 is the service's own (`ok`); a 404 it does not give means the route is not loaded (`fail`), retried for several seconds because Traefik's file provider takes a moment to load a change. A 502, 503 or 504, or a target that does not answer, is `warn` (the target is down or unreachable); a router that does not answer is `fail`; these are retried at most twice |
 | `router.port` | `router` | | the resolved router port and where it came from |
 | `checkout.config` | `checkout` | | this checkout's `berth.toml` |
 | `checkout.worktree` | `checkout` | | whether this worktree is registered |
@@ -1074,6 +1224,7 @@ start.
 | `shared.definition` | `shared` | | the shared Compose file cannot be used (`fail`): it does not parse, builds an image, publishes `ports:`, or bind-mounts a path inside a worktree |
 | `shared.service` | `shared` | the shared service's name | its state: `ok` running, `warn` stopped, unhealthy or running with a different definition than this worktree's, `skip` absent |
 | `shared.port` | `shared` | `<name>:<container port>` | whether the pinned loopback port is published by the running container, or free while it is down (`warn` otherwise) |
+| `shared.route` | `shared` | the shared service's name | a running service whose web UI is routed: `ok` when its route file exists, `warn` when it does not (`shared up` writes it); also `warn` for a route file whose service is not running (the hostname answers 502) |
 | `shared.record` | `shared` | the shared service's name | a running service whose pinned ports this control home has no record of |
 | `shared.unreadable-record` | `shared` | `<repository>/<file>` | a shared-service record that could not be read |
 | `shared.connection` | `shared` | the shared service's name | a running service of this worktree that uses it, on a network the shared container is not attached to: up but not connected (`warn`) |
@@ -1180,7 +1331,9 @@ and `unknown` when nothing is running or the file cannot be read.
 this worktree's own that one of its running `used-by` services is on, and at
 least one; it is false for a worktree with no running consumer, which the text
 form calls `not used here` (`not connected` is reserved for a running consumer
-whose network the container is missing). `definedBy` is the hostname of the worktree that started the
+whose network the container is missing). `url` is the routed web UI
+(`http://<name>.shared.<domain>`, router port included) and is absent for a
+service with no routed `port`. `definedBy` is the hostname of the worktree that started the
 running instance, or `a removed worktree`, and is absent when nothing runs.
 
 ```json
@@ -1194,6 +1347,7 @@ running instance, or `a removed worktree`, and is absent when nothing runs.
     {
       "name": "mailpit",
       "state": "running",
+      "url": "http://mailpit.shared.acme.localhost",
       "addrs": [
         { "port": 8025, "addr": "127.0.0.1:20450" },
         { "port": 1025, "addr": "127.0.0.1:20451" }
@@ -1246,6 +1400,9 @@ is none.
 - `available` on a service is set only when it was checked, which needs Docker
   to have answered and the checkout to exist. Absent means unknown; there is no
   `false` for "could not check".
+- `shared` lists the routed web UIs of the repositories' shared services
+  (`repositoryId`, `service`, `project`, `domain`, `host`, `url`, and `available`
+  under the same rule as a service's); it is absent when there are none.
 - When Docker did not answer, `dockerReachable` is false and `dockerError` says
   why.
 - `identityError` (Git could not say which worktrees exist) appears only when
@@ -1279,6 +1436,17 @@ is none.
           "available": true
         }
       ]
+    }
+  ],
+  "shared": [
+    {
+      "repositoryId": "…",
+      "service": "mailpit",
+      "project": "acme",
+      "domain": "acme.localhost",
+      "host": "mailpit.shared.acme.localhost",
+      "url": "http://mailpit.shared.acme.localhost",
+      "available": true
     }
   ]
 }
@@ -1524,11 +1692,20 @@ Shipped:
 - **`run`** — the project's own named `[commands]`, run on the terminal
   against a registered worktree: they can prompt, answer Ctrl-C, and hold
   the worktree's lock until everything they started has exited.
+- **`dev`** — `up`, then the worktree's logs followed until Ctrl-C, holding
+  the development-session lock for the whole session so `worktree remove`
+  refuses while one is attached.
+- **`backup` / `restore`** (#10) — run the hooks of the same name against a
+  registered, running worktree with a bundle directory as their first
+  argument, under the worktree's lock, exiting with the hook's own status.
+- **`worktree rename`** (#11) — change the current worktree's slug and
+  hostname; refused while it has containers, and its data, volumes and pinned
+  ports stay, keyed by its ID.
 - **Shared services** (#123) — `[shared]`: a service such as an email catcher
   that runs once per repository, connected to each worktree that uses it by
   its name, with its definition checked for drift, its ports pinned on
-  `127.0.0.1`, and `shared up`, `shared down` and `shared status` to run it
-  yourself.
+  `127.0.0.1`, a routed web UI at `<name>.shared.<domain>`, and `shared up`,
+  `shared down` and `shared status` to run it yourself.
 - **`doctor`** — one read-only report: Git, Docker and Compose against the
   versions this tool needs; the berth root and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);
@@ -1539,27 +1716,15 @@ Shipped:
   its `verify` hook, and any registration of its repository whose checkout
   Git no longer lists.
 
-Not built yet, in rough order. `dev` is registered and refuses by name
-rather than pretending; the rest are not commands at all. The config file
-already accepts the `backup` and `restore` hooks, so a repository can commit
-them once.
+Not built yet, in rough order; none of these is a command at all.
 
-1. **`dev`** (#5) — start the worktree and follow its services' logs,
-   holding the development-session lock so `worktree remove` refuses while a
-   session is attached.
-2. **Binary distribution** (#8) — per-platform release builds, so installing
+1. **Binary distribution** (#8) — per-platform release builds, so installing
    no longer means building from source.
-3. **`init`** (#9) — write a starter `berth.toml`. Until then, copy
+2. **`init`** (#9) — write a starter `berth.toml`. Until then, copy
    `berth.example.toml` to the repository root.
-4. **`backup` / `restore`** (#10) — invoke the hooks of the same name with a
-   bundle directory.
-5. **`rename`** (#11) — change a worktree's slug, or the product's own
-   storage names, by migrating the state that carries them.
-6. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
-   the command that runs it forever.
-7. **Migrating stored state between releases** (#29), once there are
+3. **Migrating stored state between releases** (#29), once there are
    releases to migrate between.
-8. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+4. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
    stronger guarantee the relocated-copy mechanism above is a step toward,
    tied to binary distribution (#8).
 

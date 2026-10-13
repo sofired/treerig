@@ -286,7 +286,10 @@ func TestSyncSharedPorts(t *testing.T) {
 				defer group.Done()
 				if i%2 == 0 {
 					id := newTestUUID()
-					writePortsRecord(t, controlHome, repoA, id, "wt-"+strconv.Itoa(i), nil)
+					if err := tryWritePortsRecord(controlHome, repoA, id, "wt-"+strconv.Itoa(i), nil); err != nil {
+						errs[i] = err
+						return
+					}
 					result, err := registry.NewStore(controlHome, repoA).SyncPorts(context.Background(), id, "wt-"+strconv.Itoa(i), testWriter, registry.PortPlan{
 						Services: []string{"api"}, Range: small, Probe: registrytest.FreeProbe{},
 					})
@@ -453,4 +456,202 @@ func TestSharedRecordKeyOrder(t *testing.T) {
 	if got := strings.Join(jsonKeys(t, data), ","); got != "version,name,domain,ports" {
 		t.Fatalf("keys = %s\n%s", got, data)
 	}
+}
+
+func TestSharedRoutedPort(t *testing.T) {
+	routed := func(port int) func(*registry.SharedPortPlan) {
+		return func(plan *registry.SharedPortPlan) { plan.Routed = &port }
+	}
+
+	t.Run("records the web UI's container port with the pins, and the record names its host", func(t *testing.T) {
+		store := registry.NewStore(claimedHome(t), repoA)
+		result := syncShared(t, store, "mailpit", []int{8025, 1025}, routed(8025))
+		record, err := store.FindShared("mailpit")
+		if err != nil || record == nil || record.Routed != 8025 {
+			t.Fatalf("record = %+v, %v", record, err)
+		}
+		if record.RoutedHostPort() != result.Ports[8025] || record.Host() != "mailpit.shared.acme.localhost" {
+			t.Errorf("RoutedHostPort = %d, Host = %q", record.RoutedHostPort(), record.Host())
+		}
+	})
+
+	t.Run("a service with no web UI has no host", func(t *testing.T) {
+		store := registry.NewStore(claimedHome(t), repoA)
+		syncShared(t, store, "smtp", []int{1025}, routed(0))
+		record, _ := store.FindShared("smtp")
+		if record.Routed != 0 || record.Host() != "" || record.RoutedHostPort() != 0 {
+			t.Errorf("record = %+v", record)
+		}
+	})
+
+	t.Run("a nil Routed leaves it as it is, and 0 clears it", func(t *testing.T) {
+		store := registry.NewStore(claimedHome(t), repoA)
+		syncShared(t, store, "mailpit", []int{8025}, routed(8025))
+		syncShared(t, store, "mailpit", []int{8025}, nil)
+		if record, _ := store.FindShared("mailpit"); record.Routed != 8025 {
+			t.Fatalf("routed = %d after a plan that said nothing", record.Routed)
+		}
+		syncShared(t, store, "mailpit", []int{8025}, routed(0))
+		if record, _ := store.FindShared("mailpit"); record.Routed != 0 {
+			t.Fatalf("routed = %d after clearing", record.Routed)
+		}
+	})
+
+	t.Run("changing only the routed port rewrites the record and moves no host port", func(t *testing.T) {
+		store := registry.NewStore(claimedHome(t), repoA)
+		first := syncShared(t, store, "mailpit", []int{8025, 1025}, routed(0))
+		second := syncShared(t, store, "mailpit", nil, routed(8025))
+		if len(second.Allocated) != 0 || !reflect.DeepEqual(second.Ports, first.Ports) {
+			t.Fatalf("second = %+v, first = %+v", second, first)
+		}
+		if record, _ := store.FindShared("mailpit"); record.Routed != 8025 {
+			t.Errorf("record = %+v", record)
+		}
+	})
+
+	t.Run("pruning the routed port's pin clears it", func(t *testing.T) {
+		store := registry.NewStore(claimedHome(t), repoA)
+		syncShared(t, store, "mailpit", []int{8025, 1025}, routed(8025))
+		syncShared(t, store, "mailpit", []int{1025}, func(plan *registry.SharedPortPlan) { plan.Prune = true })
+		if record, _ := store.FindShared("mailpit"); record.Routed != 0 {
+			t.Errorf("record = %+v", record)
+		}
+	})
+
+	t.Run("refuses a routed port the service does not pin", func(t *testing.T) {
+		store := registry.NewStore(claimedHome(t), repoA)
+		port := 9999
+		_, err := store.SyncSharedPorts(context.Background(), testWriter, registry.SharedPortPlan{
+			Name: "mailpit", Domain: "acme.localhost", Ports: []int{1025}, Routed: &port, Range: registrytest.PortRange, Probe: registrytest.FreeProbe{}})
+		if err == nil || !strings.Contains(err.Error(), "container port 9999 is not one it declares") {
+			t.Fatalf("err = %v", err)
+		}
+		if record, _ := store.FindShared("mailpit"); record != nil {
+			t.Errorf("a record was written: %+v", record)
+		}
+	})
+
+	t.Run("a record whose routed port is not pinned is a shape error", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		writeSharedFile(t, controlHome, repoA, "mailpit", `{"version":1,"name":"mailpit","domain":"acme.localhost","ports":{"1025":30000},"routed":8025}`)
+		if _, err := registry.NewStore(controlHome, repoA).FindShared("mailpit"); err == nil {
+			t.Fatal("a routed port that is not pinned was accepted")
+		}
+	})
+}
+
+func TestSharedRoutedConflict(t *testing.T) {
+	routed := func(port int) func(*registry.SharedPortPlan) {
+		return func(plan *registry.SharedPortPlan) { plan.Routed = &port }
+	}
+	conflict := func(t *testing.T, store *registry.Store, mutate func(*registry.SharedPortPlan)) error {
+		t.Helper()
+		plan := registry.SharedPortPlan{Name: "mailpit", Domain: "acme.localhost", Ports: []int{8025}, Range: registrytest.PortRange, Probe: registrytest.FreeProbe{}}
+		mutate(&plan)
+		_, err := store.SyncSharedPorts(context.Background(), testWriter, plan)
+		return err
+	}
+
+	t.Run("the second repository on a domain is refused, naming the first by its repository", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		syncShared(t, registry.NewStore(controlHome, repoA), "mailpit", []int{8025}, routed(8025))
+		err := conflict(t, registry.NewStore(controlHome, repoB), routed(8025))
+		if err == nil {
+			t.Fatal("two repositories routed mailpit.shared.acme.localhost")
+		}
+		if !strings.Contains(err.Error(), "Rename one of the two services.") || strings.Contains(err.Error(), "different domains") {
+			t.Errorf("advice = %q", err)
+		}
+		for _, want := range []string{"mailpit.shared.acme.localhost", "repository " + repoA} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q lacks %q", err, want)
+			}
+		}
+		if record, _ := registry.NewStore(controlHome, repoB).FindShared("mailpit"); record != nil {
+			t.Errorf("the refused service was recorded: %+v", record)
+		}
+	})
+
+	t.Run("names the first by the hostname of its registered worktree when it has one", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		writeMinimalRecord(t, controlHome, repoA, wtA, "feature-a", "acme.localhost", "complete")
+		syncShared(t, registry.NewStore(controlHome, repoA), "mailpit", []int{8025}, routed(8025))
+		err := conflict(t, registry.NewStore(controlHome, repoB), routed(8025))
+		if err == nil || !strings.Contains(err.Error(), "the repository of the worktree feature-a.acme.localhost") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("compares domains as hostnames do", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		syncShared(t, registry.NewStore(controlHome, repoA), "mailpit", []int{8025}, routed(8025))
+		err := conflict(t, registry.NewStore(controlHome, repoB), func(plan *registry.SharedPortPlan) {
+			plan.Domain = "ACME.localhost"
+			routed(8025)(plan)
+		})
+		if err == nil {
+			t.Fatal("a differently cased domain was not a conflict")
+		}
+	})
+
+	t.Run("a different domain, a different name, or a service that routes nothing is no conflict", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		syncShared(t, registry.NewStore(controlHome, repoA), "mailpit", []int{8025, 1025}, routed(8025))
+		syncShared(t, registry.NewStore(controlHome, repoA), "smtp", []int{1025}, routed(0))
+		if err := conflict(t, registry.NewStore(controlHome, repoB), func(plan *registry.SharedPortPlan) {
+			plan.Domain = "widgets.localhost"
+			routed(8025)(plan)
+		}); err != nil {
+			t.Errorf("another domain: %v", err)
+		}
+		if err := conflict(t, registry.NewStore(controlHome, repoB), func(plan *registry.SharedPortPlan) {
+			plan.Name = "minio"
+			routed(8025)(plan)
+		}); err != nil {
+			t.Errorf("another name: %v", err)
+		}
+		if err := conflict(t, registry.NewStore(controlHome, repoB), func(plan *registry.SharedPortPlan) {
+			plan.Name = "smtp"
+			routed(8025)(plan)
+		}); err != nil {
+			t.Errorf("the first routes nothing: %v", err)
+		}
+		if err := conflict(t, registry.NewStore(controlHome, repoB), routed(0)); err != nil {
+			t.Errorf("the second routes nothing: %v", err)
+		}
+	})
+
+	t.Run("a repository already routing its own service is not in conflict with itself", func(t *testing.T) {
+		store := registry.NewStore(claimedHome(t), repoA)
+		syncShared(t, store, "mailpit", []int{8025}, routed(8025))
+		if err := conflict(t, store, routed(8025)); err != nil {
+			t.Errorf("err = %v", err)
+		}
+	})
+
+	t.Run("a record that cannot be read may be the first, so it refuses", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		writeSharedFile(t, controlHome, repoA, "mailpit", "{")
+		err := conflict(t, registry.NewStore(controlHome, repoB), routed(8025))
+		if err == nil || !strings.Contains(err.Error(), "unreadable") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	// The allocator refuses an unreadable record too, but only when it has a
+	// port to allocate. Here the second repository already holds its pin, so
+	// only the conflict check can refuse, and it is the one being pinned.
+	t.Run("the conflict check itself refuses on an unreadable record, with nothing to allocate", func(t *testing.T) {
+		controlHome := claimedHome(t)
+		storeB := registry.NewStore(controlHome, repoB)
+		syncShared(t, storeB, "mailpit", []int{8025}, nil)
+		writeSharedFile(t, controlHome, repoA, "mailpit", "{")
+		err := conflict(t, storeB, routed(8025))
+		if err == nil || !strings.Contains(err.Error(), "unreadable") || !strings.Contains(err.Error(), "a routed shared service") {
+			t.Fatalf("err = %v", err)
+		}
+		if record, _ := storeB.FindShared("mailpit"); record == nil || record.Routed != 0 {
+			t.Errorf("record = %+v", record)
+		}
+	})
 }
