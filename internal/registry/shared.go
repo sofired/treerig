@@ -161,9 +161,10 @@ func SharedDirectory(controlHome, repositoryID string) string {
 	return layout.SharedLayout(controlHome, repositoryID).Dir
 }
 
-// readSharedRecord reads one record, converting every way it can be wrong
-// into a *clierr.Error. A missing file is left alone (a *fs.PathError
-// wrapping fs.ErrNotExist) so callers decide.
+// readSharedRecord reads one record, reporting invalid names, non-regular
+// files and invalid contents as a *clierr.Error. Filesystem errors propagate
+// unchanged, including a *fs.PathError wrapping fs.ErrNotExist for a missing
+// file.
 func (s *Store) readSharedRecord(file string) (*SharedRecord, error) {
 	name := strings.TrimSuffix(filepath.Base(file), ".json")
 	if !slugPattern.MatchString(name) {
@@ -197,7 +198,9 @@ func (s *Store) readSharedRecord(file string) (*SharedRecord, error) {
 }
 
 // SharedRecords reads every readable shared-service record of this
-// repository, sorted by name, plus the files that were not readable.
+// repository, sorted by name, plus the files that were not readable or valid.
+// Missing directories and vanished files are ignored. Other directory-read
+// errors are returned; individual record errors become RegistryProblems.
 func (s *Store) SharedRecords() ([]SharedRecord, []RegistryProblem, error) {
 	dir := SharedDirectory(s.ControlHome, s.RepositoryID)
 	entries, err := os.ReadDir(dir)

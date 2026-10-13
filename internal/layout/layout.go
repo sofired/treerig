@@ -370,9 +370,9 @@ func ComposeProjectName(repositoryID, worktreeID string) string {
 // SharedProjectName is the Compose project of a repository's shared
 // services (docs/design/routing.md, decision 15): berth-shared-<first 24 hex
 // of sha256("shared:" + repositoryID)>. Derived from the repository ID alone,
-// so it is stable, cannot collide with another repository's or with any
-// worktree's ComposeProjectName, and `shared down` can name it from any
-// checkout without a berth.toml. A storage name.
+// so it is stable and uses a separate prefix from a worktree's
+// ComposeProjectName. `shared down` can name it from any checkout without a
+// berth.toml. A storage name.
 func SharedProjectName(repositoryID string) string {
 	sum := sha256.Sum256([]byte("shared:" + repositoryID))
 	return brand.SharedProjectPrefix + hex.EncodeToString(sum[:])[:24]

@@ -91,12 +91,13 @@ var (
 
 // environment is the BERTH_* vocabulary Compose receives, plus k's own
 // variable set to name (BERTH_STAGE for a hook, BERTH_COMMAND for a
-// command) and hctx.Routes' URL variables (#28), laid over the inherited
-// environment — never a replacement of it, so a hook that calls other tools
-// still sees a normal PATH and HOME. Inherited URL variables are dropped
-// first: a hook of another worktree that runs this one passes its own down,
-// and they must not stand in for routes this worktree doesn't have. So is
-// the other kind's variable, see kind.
+// command), hctx.Routes' URL variables (#28) and hctx.Shared's pinned address
+// variables, laid over the inherited environment — never a replacement of
+// it, so a hook that calls other tools still sees a normal PATH and HOME.
+// Inherited URL and shared address variables are dropped first: a hook of
+// another worktree passes its own down, and they must not stand in for
+// routes or shared addresses this worktree doesn't have. So is the other
+// kind's variable, see kind.
 func environment(hctx HookContext, k kind, name string) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{k.own, name})
 	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)

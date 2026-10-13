@@ -67,6 +67,7 @@ func BranchSlug(branch, root string) string {
 // worktree is given, it is the same one every time.
 //
 // preferred == "" means no preference, since a slug is never empty.
+// The slug "shared" is reserved and is never returned, even when preferred.
 func AllocateSlug(identity WorktreeIdentity, domain string, others []RegisteredWorktree, preferred string) (string, error) {
 	// The slug "shared" is reserved: <name>.shared.<domain> is where a
 	// repository's shared services are routed, so no worktree's own

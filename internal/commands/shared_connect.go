@@ -53,10 +53,10 @@ type sharedOutcome struct {
 
 // ensureShared starts or reuses plan's shared services under the repository's
 // shared lock alone, holding no worktree lock (decision 18). A running
-// instance is never touched by `compose up`: it is reused, with a warning when
-// its definition differs, unless Recreate asks for it to be replaced. A
-// stopped or absent one is started from the caller's definition. If the
-// state of a container cannot be determined this fails rather than assume.
+// instance is reused unless Recreate asks for it to be replaced. A differing
+// definition is recorded in Differs when Strict is set, otherwise reused
+// with a warning. A stopped or absent one is started from the caller's
+// definition. If the state of a container cannot be determined, this fails.
 // The outcome is returned with the error too: services that came up before the
 // start failed still need their consumers connected.
 func ensureShared(ctx context.Context, cctx *CommandContext, repositoryID, namespace string, plan sharedPlan) (sharedOutcome, error) {
@@ -570,7 +570,8 @@ func reportSweep(cctx *CommandContext, result sweepResult) {
 // left alone. A shared container that is gone, or not attached, is done.
 // stackNamespace labels the shared stack and worktreeNamespace labels ref's
 // networks: the same unless the removing command and the worktree were
-// labelled under different namespaces, as in connectLocked.
+// labelled under different namespaces, as in connectLocked. Listing,
+// inspection and detach errors are returned so callers stop teardown.
 func disconnectShared(ctx context.Context, cctx *CommandContext, ref worktree.Ref, stackNamespace, worktreeNamespace string) error {
 	// The shared containers first: a repository without any is the common
 	// case, and one listing by label is all it costs.
