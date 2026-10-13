@@ -126,6 +126,7 @@ mv "$bundle/app.sql.tmp" "$bundle/app.sql"
 # scripts/restore.sh: stop at the first error; all or nothing
 set -euo pipefail
 bundle=$1
+[ -f "$bundle/app.sql" ] || { echo "restore: $bundle/app.sql is missing" >&2; exit 1; }
 docker compose exec -T db psql -U app -d app -v ON_ERROR_STOP=1 --single-transaction < "$bundle/app.sql"
 ```
 
