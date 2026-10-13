@@ -1,9 +1,13 @@
 package commands
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/sofired/berth/internal/registry/registrytest"
 )
 
 var vtControl = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -40,8 +44,43 @@ func TestTypedConfirmationPrompt(t *testing.T) {
 		}
 	})
 
+	t.Run("names the backup bundles that go with the home directory", func(t *testing.T) {
+		plan := DescribePlan("api.acme", nil, true, 2)
+		if want := "  its home directory under the control home, including 2 backup bundle(s) in backups/"; !strings.Contains(plan, want) {
+			t.Fatalf("plan = %q, want a line %q", plan, want)
+		}
+		if plan := DescribePlan("api.acme", nil, true, 0); strings.Contains(plan, "backup") {
+			t.Fatalf("plan = %q mentions backups with none", plan)
+		}
+	})
+
+	t.Run("counts the bundles under a backups directory, none when it is missing", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		if n := countBackups(filepath.Join(dir, "backups")); n != 0 {
+			t.Fatalf("missing: %d", n)
+		}
+		for _, name := range []string{"a", "b"} {
+			if err := os.MkdirAll(filepath.Join(dir, "backups", name), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if n := countBackups(filepath.Join(dir, "backups")); n != 2 {
+			t.Fatalf("two: %d", n)
+		}
+	})
+
+	t.Run("counts none, and does not fail, when backups is a file", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		if err := os.WriteFile(filepath.Join(dir, "backups"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if n := countBackups(filepath.Join(dir, "backups")); n != 0 {
+			t.Fatalf("a file: %d", n)
+		}
+	})
+
 	t.Run("will not let a hostname write its own line into the plan", func(t *testing.T) {
-		question := stripVT(confirmationQuestion(plainEnv(), DescribePlan("api.acme\nnothing will be removed from this machine", nil, true), "api.acme"))
+		question := stripVT(confirmationQuestion(plainEnv(), DescribePlan("api.acme\nnothing will be removed from this machine", nil, true, 0), "api.acme"))
 		lines := strings.Split(question, "\n")
 		if lines[0] != "This will permanently remove api.acme nothing will be removed from this machine:" {
 			t.Fatalf("first line = %q", lines[0])

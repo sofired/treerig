@@ -48,6 +48,14 @@ type UpOptions struct {
 	// (--reallocate-port), refused while this worktree's own container
 	// holds the current one.
 	ReallocatePorts []string
+
+	// follow, set only by Dev, turns this `up` into the first half of a
+	// development session: the mutation runs holding the development-session
+	// lock beside the operation lock, and once the operation lock is released
+	// follow runs holding the development lock alone. It reports how the
+	// session ended and so always returns an error (an interrupted session
+	// included); UpWithContext returns it as its own.
+	follow func(ctx context.Context, ref worktree.Ref, host string) error
 }
 
 // UpResult is what `up` did.
@@ -65,20 +73,28 @@ func Up(ctx context.Context, env *Env, options UpOptions) error {
 	if err != nil {
 		return err
 	}
-	// From the context's own resolution of the berth root and port, not a
-	// second one (found in review of #79): the URL table `up` prints and the
-	// router it starts must never read settings.toml separately.
-	state := cctx.RouterState
-	svc, err := routerServiceWith(env, cctx.Home, state, cctx.RouterPortResolution)
-	if err != nil {
-		return err
-	}
 	// Named routerSvc, not router (found in review, round 2 of #55): a
 	// local `router` would shadow the internal/router package this file
 	// also imports.
-	routerSvc := sharedRouter{env: env, svc: svc, state: state}
+	routerSvc, err := realRouter(env, cctx)
+	if err != nil {
+		return err
+	}
 	_, err = UpWithContext(ctx, cctx, routerSvc, bestEffortIndex{cctx}, options)
 	return err
+}
+
+// realRouter is the shared router `up` and `dev` start, built from env and
+// from cctx's own resolution of the berth root and port, not a second one
+// (found in review of #79): the URL table `up` prints and the router it
+// starts must never read settings.toml separately.
+func realRouter(env *Env, cctx *CommandContext) (Router, error) {
+	state := cctx.RouterState
+	svc, err := routerServiceWith(env, cctx.Home, state, cctx.RouterPortResolution)
+	if err != nil {
+		return nil, err
+	}
+	return sharedRouter{env: env, svc: svc, state: state}, nil
 }
 
 // bestEffortIndex is the Index `up` refreshes afterwards: the same
@@ -232,7 +248,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	// only exists once the mutation has allocated it (#119).
 	hookRoutes := serviceRoutes
 	var ranHooks []config.HookStage
-	err = cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
+	mutation := func(ctx context.Context) error {
 		// The router may have taken minutes to start, and the lock was free
 		// meanwhile: a removal can have finished. Nothing is created unless
 		// the registration and the identity are still the ones Ensure saw.
@@ -396,7 +412,8 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 				ProjectRoot: cctx.Loaded.Root,
 			},
 			Ref: ref, Hooks: cctx.Loaded.Config.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ,
-			Routes: hookRoutes, Shared: sharedAddrs(cctx, ref.RepositoryID),
+			ComposeFile: cctx.ComposeFile(),
+			Routes:      hookRoutes, Shared: sharedAddrs(cctx, ref.RepositoryID),
 		}, hooks.LifecycleOptions{Stages: upStages(firstTime)})
 		if err != nil {
 			return err
@@ -404,15 +421,35 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		ranHooks = ran
 
 		return store.CompleteInitialization(ctx, ref.WorktreeID, ref.Slug, cctx.writer())
-	})
-	if err != nil {
-		return nil, err
+	}
+	// What follows a successful mutation, once the operation lock is back:
+	// the checkout index is refreshed, and the worktree is announced.
+	refresh := func(ctx context.Context) { index.RefreshBestEffort(ctx, "up") }
+	announce := func() {
+		cctx.Logger.Info(host + " is up.")
+		printURLs(cctx, urls)
 	}
 
-	index.RefreshBestEffort(ctx, "up")
-	cctx.Logger.Info(host + " is up.")
-	printURLs(cctx, urls)
-	return &UpResult{Registration: *registration, Hooks: ranHooks, URLs: urls}, nil
+	if options.follow == nil {
+		if err := cctx.mutate(ctx, ref, host, false, mutation); err != nil {
+			return nil, err
+		}
+		refresh(ctx)
+		announce()
+		return &UpResult{Registration: *registration, Hooks: ranHooks, URLs: urls}, nil
+	}
+	// `dev`: the same mutation, but under the development-session lock too,
+	// which outlives it. The operation lock goes back as soon as the
+	// mutation is done, and announcing the worktree, refreshing the index
+	// and following its logs happen with only the development lock held.
+	// The announcement comes first: the refresh may wait on the router lock
+	// for up to a minute, and the user should not wait to see the URLs.
+	err = cctx.mutateSession(ctx, ref, host, mutation, func(ctx context.Context) error {
+		announce()
+		refresh(ctx)
+		return options.follow(ctx, ref, host)
+	})
+	return nil, err
 }
 
 // refuseRelabelling refuses to change a worktree's label namespace once it

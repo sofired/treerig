@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/sofired/berth/internal/brand"
@@ -22,6 +23,15 @@ type Scope struct {
 	// override of its own. Left "" only by tests that never reach CheckFS's
 	// refusal.
 	HomeEnvVar string
+	// EndHint, when set, is what a waiter is told to do about a live holder
+	// instead of the generic "wait for it, or stop it": for a lock whose
+	// holder is a long session that never finishes by itself, how to end
+	// that session. It applies only to a holder whose recorded command runs
+	// the verb EndHintWord (its second word, `berth dev`); any other holder
+	// of the same lock, a `worktree remove` that is merely running, or a
+	// verb behind a global flag, gets the generic advice. Left "" for every other scope.
+	EndHint     string
+	EndHintWord string
 }
 
 // Timeouts the design assigns to each of the three scopes.
@@ -94,6 +104,7 @@ func SharedScope(controlHome, repositoryID string) Scope {
 func WorktreeScopes(controlHome, repositoryID, worktreeID, name string, markers procid.Markers) (operation, development Scope) {
 	l := layout.WorktreeLayout(controlHome, repositoryID, worktreeID)
 	operation = Scope{Target: l.LockPath, Description: "worktree " + name, Markers: markers, HomeEnvVar: brand.ControlHomeEnv}
-	development = Scope{Target: l.DevelopmentLockPath, Description: name + " development session", Markers: markers, HomeEnvVar: brand.ControlHomeEnv}
+	development = Scope{Target: l.DevelopmentLockPath, Description: name + " development session", Markers: markers, HomeEnvVar: brand.ControlHomeEnv,
+		EndHint: fmt.Sprintf("End it with Ctrl-C in the terminal running `%s dev`", brand.Name), EndHintWord: "dev"}
 	return operation, development
 }

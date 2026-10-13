@@ -31,35 +31,19 @@ func ConfigValidate(ctx context.Context, env *Env) error {
 	}
 
 	services := len(loaded.Config.Service)
-	configured := loaded.Config.Hooks.Configured()
-	// Counted separately, because a report about what a file does must not
-	// count the hooks nothing invokes yet among the ones that run.
-	invoked := make(map[config.HookStage]bool, len(config.InvokedStages))
-	for _, stage := range config.InvokedStages {
-		invoked[stage] = true
-	}
-	var inert []string
-	for _, stage := range configured {
-		if !invoked[stage] {
-			inert = append(inert, string(stage))
-		}
-	}
-	live := len(configured) - len(inert)
+	hookCount := len(loaded.Config.Hooks.Configured())
 
 	// A validator's report is what was asked for, so it goes to stdout the
 	// way every other reporting tool's does.
 	env.Logger.Output(text.Printable(fmt.Sprintf("%s is valid.", loaded.File)))
 	summary := fmt.Sprintf(
 		"project %s · domain %s · %d service(s) · %d hook(s)",
-		loaded.Config.Project.Name, loaded.Config.Project.Domain, services, live,
+		loaded.Config.Project.Name, loaded.Config.Project.Domain, services, hookCount,
 	)
 	if shared := len(loaded.Config.SharedServices()); shared > 0 {
 		summary += fmt.Sprintf(" · %d shared service(s)", shared)
 	}
 	env.Logger.Output(text.Printable(summary))
-	if len(inert) > 0 {
-		env.Logger.Output("accepted but not invoked yet: " + strings.Join(inert, ", "))
-	}
 	controlHome, err := resolveControlHome(env.Getenv)
 	if err != nil {
 		return err

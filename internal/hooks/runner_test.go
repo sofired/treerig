@@ -12,6 +12,7 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/config"
 	"github.com/sofired/berth/internal/hooks"
+	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/run/fakerun"
@@ -100,6 +101,34 @@ func TestRunHook(t *testing.T) {
 		for k, v := range want {
 			if !containsEnv(call.Env, k, v) {
 				t.Fatalf("expected %s=%s in env %v", k, v, call.Env)
+			}
+		}
+	})
+
+	t.Run("gives every stage the worktree's Compose project and the configured Compose file", func(t *testing.T) {
+		project := layout.ComposeProjectName(testRef.RepositoryID, testRef.WorktreeID)
+		for _, stage := range []config.HookStage{config.Prepare, config.Seed, config.Verify, config.Backup, config.Restore} {
+			runner := recordingRunner(nil)
+			hctx := newContext(runner, config.Hooks{
+				Prepare: str("./h"), Seed: str("./h"), Verify: str("./h"), Backup: str("./h"), Restore: str("./h"),
+			})
+			hctx.ComposeFile = "/work/acme/docker/stack.yaml"
+			hctx.Environ = []string{"COMPOSE_PROJECT_NAME=stale", "COMPOSE_FILE=/stale.yaml"}
+			if _, err := hooks.RunHook(context.Background(), stage, hctx, hooks.RunOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			env := runner.Calls()[0].Env
+			for k, v := range map[string]string{
+				"COMPOSE_PROJECT_NAME": project, "BERTH_COMPOSE_PROJECT": project, "COMPOSE_FILE": "/work/acme/docker/stack.yaml",
+			} {
+				if !containsEnv(env, k, v) {
+					t.Errorf("%s: want %s=%s in %v", stage, k, v, env)
+				}
+			}
+			for _, entry := range env {
+				if strings.Contains(entry, "stale") {
+					t.Errorf("%s: inherited %q survived", stage, entry)
+				}
 			}
 		}
 	})

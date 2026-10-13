@@ -15,7 +15,8 @@ package cli_test
 // help-worktree, help-worktree-short, help-worktree-unlock,
 // help-cmd-worktree, help-cmd-worktree-remove, help-cmd-worktree-list and
 // bare-worktree show `worktree unlock --registry`/`--router` (#21). help-run,
-// help-cmd-run and the err-run-* and run-* cases pin `run` (#94).
+// help-cmd-run and the err-run-* and run-* cases pin `run` (#94); help-dev and
+// help-cmd-dev pin `dev` (#5).
 //
 // help-worktree-rename, help-cmd-worktree-rename, complete-worktree-rename-slug
 // and the err-*-rename cases pin `worktree rename` (#11); the other worktree
@@ -66,6 +67,8 @@ var goldenCases = []goldenCase{
 	{"help-status", []string{"status", "--help"}},
 	{"help-urls", []string{"urls", "--help"}},
 	{"help-run", []string{"run", "--help"}},
+	{"help-backup", []string{"backup", "--help"}},
+	{"help-restore", []string{"restore", "--help"}},
 	{"help-index", []string{"index", "--help"}},
 	{"help-doctor", []string{"doctor", "--help"}},
 	{"help-router", []string{"router", "--help"}},
@@ -96,6 +99,7 @@ var goldenCases = []goldenCase{
 	{"help-cmd-worktree-rename", []string{"help", "worktree", "rename"}},
 	{"help-cmd-dev", []string{"help", "dev"}},
 	{"help-cmd-run", []string{"help", "run"}},
+	{"help-cmd-backup", []string{"help", "backup"}},
 	// "a" is not a real command, so this falls all the way back to the
 	// program's own error help; "b" is never reached.
 	{"help-cmd-a-b", []string{"help", "a", "b"}},
@@ -114,9 +118,6 @@ var goldenCases = []goldenCase{
 	{"bare-shared", []string{"shared"}},
 	{"bare-worktree", []string{"worktree"}},
 
-	// --- dev: implemented as a fixed "not implemented yet" failure ---
-	{"dev-not-implemented", []string{"dev"}},
-
 	// --- shell completion: the scripts themselves are cobra's, so only the
 	// group, one shell's help and the requests a script sends are pinned ---
 	{"bare-completion", []string{"completion"}},
@@ -134,6 +135,9 @@ var goldenCases = []goldenCase{
 	{"complete-no-file-arguments", []string{"__complete", "worktree", "remove", ""}},
 	{"complete-no-file-flag-value", []string{"__complete", "worktree", "remove", "--domain", ""}},
 	{"complete-config-file", []string{"__complete", "status", "--config", ""}},
+	{"complete-backup-directories", []string{"__complete", "backup", ""}},
+	{"complete-backup-after-directory", []string{"__complete", "backup", "out", ""}},
+	{"complete-restore-directories", []string{"__complete", "restore", ""}},
 	{"complete-run-config-missing", []string{"__complete", "run", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
 
 	// --- unknown command, with and without a suggestion ---
@@ -172,6 +176,9 @@ var goldenCases = []goldenCase{
 
 	// --- run: anything but the name before "--" is refused, however it is
 	// spelled; the arguments after "--" are the command's own ---
+	{"err-restore-no-directory", []string{"restore"}},
+	{"err-excess-arguments-backup", []string{"backup", "one", "two"}},
+	{"err-excess-arguments-restore", []string{"restore", "one", "two"}},
 	{"err-run-args-before-dash", []string{"run", "plan", "extra"}},
 	{"err-run-flag-shorthand", []string{"run", "plan", "-auto-approve"}},
 	{"err-run-flag-long", []string{"run", "plan", "--var=x"}},
@@ -184,6 +191,7 @@ var goldenCases = []goldenCase{
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
 	{"err-excess-arguments-remove-two", []string{"worktree", "remove", "a", "b", "c"}},
 	{"err-excess-arguments-status", []string{"status", "extra"}},
+	{"err-excess-arguments-dev", []string{"dev", "extra"}},
 	{"err-excess-arguments-config-schema", []string{"config", "schema", "extra"}},
 	{"err-excess-arguments-router-down", []string{"router", "down", "now", "please"}},
 
@@ -215,6 +223,8 @@ var goldenCases = []goldenCase{
 	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"urls-missing-file", []string{"urls", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"backup-missing-file", []string{"backup", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"restore-missing-file", []string{"restore", "somewhere", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"run-missing-file", []string{"run", "plan", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"run-missing-file-after-dash", []string{"run", "--config", "/nonexistent-berth-config-x7z.toml", "plan", "--", "--config", "elsewhere"}},
 }
