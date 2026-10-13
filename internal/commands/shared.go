@@ -88,12 +88,14 @@ func runningHint(ctx context.Context, cctx *CommandContext, repositoryID string)
 }
 
 // SharedUpWithContext starts the shared services named, or all of them, and
-// then always reconnects every worktree that uses them: the repair path
+// then attempts to reconnect worktrees that use them: the repair path
 // (decision 21), whether the instance was just created or has been running
 // all along, and also when a running instance's definition differs from this
 // worktree's and is therefore left alone. That is refused, without
 // --recreate, after the reconnecting, with a non-zero exit; nothing running
-// is ever restarted otherwise.
+// is ever restarted otherwise. A failed start triggers the sweep only when
+// it reports services that came up. Busy worktrees are skipped; start, sweep
+// and reconnection failures are returned as errors.
 func SharedUpWithContext(ctx context.Context, cctx *CommandContext, options SharedUpOptions) error {
 	cfg := cctx.Loaded.Config
 	services, err := selectShared(cfg, options.Names)
@@ -201,7 +203,9 @@ type SharedStatusAddr struct {
 // the records. One bad thing does not fail the report: a container in a state
 // berth does not know is an entry with state unknown, an unreadable record
 // leaves its addresses out with a warning, and a shared file that cannot be
-// read makes every definition unknown with a warning.
+// read makes every definition unknown with a warning. Docker listing or
+// inspection errors and connection-check errors still fail the report;
+// cancellation during a definition read is returned rather than ignored.
 func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, worktreeID string) ([]SharedStatusEntry, error) {
 	cfg := cctx.Loaded.Config
 	services := cfg.SharedServices()
@@ -277,8 +281,8 @@ func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, wor
 
 // connectedTo reports whether instance is attached to every network of ref's
 // own that a running consumer of the service is on, and there is at least
-// one; used is whether there is any such network. It is also what `doctor`
-// asks to find an unconnected consumer.
+// one; used is whether there is any such network. Consumer listing and
+// network inspection errors are returned.
 func connectedTo(ctx context.Context, runtime *backend.Compose, ref worktree.Ref, name string, instance shared.Instance) (connected, used bool, err error) {
 	consumers, err := runtime.SharedConsumers(ctx, ref, name)
 	if err != nil {
@@ -448,10 +452,11 @@ func sharedDownNamespace(cctx *CommandContext, flag string) (string, error) {
 // kept — except with --volumes, which also deletes the data and releases the
 // ports, after the containers and volumes are gone, and asks first. The
 // confirmation lists what will go; if the plan has grown when the lock is
-// taken, nothing is removed. Everything is found and re-verified by the
-// shared labels, never through any worktree's Compose file, and it never asks
-// whether worktrees are using the services: this is the explicit stop. env
-// serves the confirmation prompt.
+// taken, nothing is removed. Shared labels prove ownership, except for
+// anonymous volumes, which are identified through verified containers and
+// Docker's anonymous-volume label. No worktree's Compose file is read, and
+// it never asks whether worktrees are using the services: this is the
+// explicit stop. env serves the confirmation prompt.
 func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, options SharedDownOptions) error {
 	namespace, err := sharedDownNamespace(cctx, options.LabelNamespace)
 	if err != nil {
@@ -678,10 +683,12 @@ func countSharedResources(resources []shared.Resource) string {
 }
 
 // planSharedDown lists what options asks to remove, verified by the shared
-// labels. A name that is no running service, record or declared service is
-// refused up front. With names, only the containers of those services go,
-// and those that were started only to serve them once no declared service's
-// container is left; the stack's networks go when every container does.
+// labels or, for anonymous volumes, by their mounts on verified containers
+// and Docker's anonymous-volume label. A name with no container, record or
+// declaration is refused up front. With names, only those services'
+// containers go, and those that were started only to serve them once no
+// declared service's container is left; the stack's networks go when every
+// container does.
 // With --volumes, named services lose the volumes their containers mount
 // (named and anonymous) that no container that stays mounts, and unnamed
 // removes every volume of the stack and the anonymous ones its containers
