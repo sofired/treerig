@@ -61,7 +61,9 @@ type RunOptions struct {
 	// bundle directory, for BundleStages.
 	Argument *string
 	Output   OutputMode
-	// Timeout stops the hook after this long; zero means no limit.
+	// Timeout stops the hook after this long, replacing the hook's own
+	// [hooks.timeout] entry; zero leaves that entry in charge, and no entry
+	// means no limit.
 	Timeout time.Duration
 }
 
@@ -201,7 +203,7 @@ func finish(k kind, name, resolved string, timeout time.Duration, result run.Res
 	case result.TimedOut:
 		// 124 is what timeout(1) reports; the child's own exit, if any, was not its verdict.
 		return clierr.WithCode(
-			fmt.Sprintf("The %s %s timed out after %d ms and was terminated.", name, k.noun, timeout.Milliseconds()),
+			fmt.Sprintf("The %s %s timed out after %s and was terminated.", name, k.noun, formatTimeout(timeout)),
 			124,
 		)
 	case result.OutputOverflow:
@@ -214,12 +216,40 @@ func finish(k kind, name, resolved string, timeout time.Duration, result run.Res
 	return nil
 }
 
+// formatTimeout writes a time limit in the config's own spelling, normalised
+// to whole hours, minutes, seconds and milliseconds: 10m, 1h30s, 1m30s and
+// 1s500ms, never Go's 10m0s or 1h0m30s.
+func formatTimeout(d time.Duration) string {
+	var b strings.Builder
+	for _, unit := range []struct {
+		size time.Duration
+		name string
+	}{{time.Hour, "h"}, {time.Minute, "m"}, {time.Second, "s"}, {time.Millisecond, "ms"}} {
+		if n := d / unit.size; n > 0 {
+			fmt.Fprintf(&b, "%d%s", n, unit.name)
+			d -= n * unit.size
+		}
+	}
+	if b.Len() == 0 {
+		return "0s"
+	}
+	return b.String()
+}
+
 // RunHook runs one hook. The command is resolved relative to the project
 // root, runs with the project root as its working directory, sees the hook
 // environment on top of the parent's, and has its output streamed. Any
 // non-zero exit is a failure attributed to the stage — and so, distinctly,
 // is a hook that never ran at all or was ended by a signal. Reports whether
 // the stage was configured at all.
+//
+// A hook runs for at most its [hooks.timeout] entry, if it has one
+// (opts.Timeout replaces it). When the limit passes, the hook's whole
+// process group is stopped by the runner: SIGTERM, then SIGKILL after the
+// runner's grace, and Run does not return while anything is left in the
+// group. The hook then fails as "timed out", exit 124 (what timeout(1)
+// reports), distinct from a non-zero exit of its own. The caller's lock is
+// released on the ordinary return path, as for any failed hook.
 func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts RunOptions) (bool, error) {
 	command := commandFor(hctx.Hooks, stage)
 	if command == nil {
@@ -237,6 +267,11 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 		output = run.TeeToStderr
 	}
 
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = hctx.Hooks.TimeoutFor(stage)
+	}
+
 	ran := false
 	err = progress.WithProgress(hctx.Logger, fmt.Sprintf("Running %s hook", stage), func() error {
 		result, runErr := hctx.Runner.Run(ctx, run.Spec{
@@ -246,10 +281,10 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 			Env:          environment(hctx, hookKind, string(stage)),
 			Output:       output,
 			Label:        string(stage) + " hook",
-			Timeout:      opts.Timeout,
+			Timeout:      timeout,
 			AllowFailure: true,
 		})
-		if err := finish(hookKind, string(stage), resolved, opts.Timeout, result, runErr); err != nil {
+		if err := finish(hookKind, string(stage), resolved, timeout, result, runErr); err != nil {
 			return err
 		}
 		ran = true
