@@ -170,7 +170,7 @@ func TestCodeOnlyChecks(t *testing.T) {
 // with a JSON Schema library that shares no code with berth, and checks that
 // it and Parse reach the same verdict on each document. The cases where the
 // schema is looser are the code-only checks TestCodeOnlyChecks lists, and
-// kill-after's range; it is never stricter.
+// kill-after's and a hook timeout's range; it is never stricter.
 func TestSchemaAgreesWithValidation(t *testing.T) {
 	committed, err := os.ReadFile(schemaFile)
 	if err != nil {
@@ -292,10 +292,16 @@ func TestSchemaAgreesWithValidation(t *testing.T) {
 		{"a bad label namespace", "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\nlabel-namespace = \"nope\"\n[compose]\nfile = \"c.yaml\"\n", invalid},
 		{"a kill-after that is not a duration", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"soon\"\n", invalid},
 		{"an empty hook", minimalTOML + "[hooks]\nprepare = \"\"\n", invalid},
+		{"hook timeouts", minimalTOML + "[hooks]\nprepare = \"x\"\n[hooks.timeout]\nprepare = \"10m\"\nverify = \"90s\"\nrestore = \"1h30m\"\n", valid},
+		{"a hook timeout that is not a duration", minimalTOML + "[hooks.timeout]\nprepare = \"soon\"\n", invalid},
+		{"a hook timeout that is a number", minimalTOML + "[hooks.timeout]\nprepare = 600\n", invalid},
+		{"a timeout for a hook that does not exist", minimalTOML + "[hooks.timeout]\nmigrate = \"1m\"\n", invalid},
 		{"services as an array of tables", minimalTOML + "[[service]]\nname = \"api\"\n", invalid},
 		{"services as a string", strings.Replace(minimalTOML, "[compose]", "service = \"x\"\n[compose]", 1), invalid},
 		{"two services on the same route", minimalTOML + "[service.a]\n[service.b]\n", schemaLoose},
 		{"a kill-after of zero", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"0s\"\n", schemaLoose},
+		{"a hook timeout of zero", minimalTOML + "[hooks.timeout]\nprepare = \"0s\"\n", schemaLoose},
+		{"a hook timeout over a day", minimalTOML + "[hooks.timeout]\nprepare = \"25h\"\n", schemaLoose},
 		{"a kill-after over an hour", minimalTOML + "[commands.a]\ncommand = \"x\"\nkill-after = \"2h\"\n", schemaLoose},
 		{"a domain label over 63 characters", "[project]\nname = \"acme\"\ndomain = \"" + strings.Repeat("a", 64) + ".localhost\"\n[compose]\nfile = \"c.yaml\"\n", schemaLoose},
 		{"a purpose of 300 emoji: 300 code points, 600 UTF-16 units", minimalTOML + "[service.a]\n[service.a.index]\nlabel = \"A\"\npurpose = \"" + strings.Repeat("\U0001F600", 300) + "\"\n", schemaLoose},

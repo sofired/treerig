@@ -547,3 +547,103 @@ func TestInheritLocks(t *testing.T) {
 		}
 	})
 }
+
+// killGroupOf registers a cleanup that SIGKILLs the whole process group of
+// the grandchild whose pid the file at path holds, so a test that fails
+// (before or after the pid is written) never leaves its loop running. The
+// file is read when the cleanup runs, as it may not exist before then.
+func killGroupOf(t *testing.T, path string) {
+	t.Helper()
+	t.Cleanup(func() {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if err != nil {
+			return
+		}
+		if pgid, err := syscall.Getpgid(pid); err == nil && pgid != syscall.Getpgrp() {
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+	})
+}
+
+// TestRunnerTimeoutStopsTheWholeGroup pins that a timeout leaves nothing
+// running: a descendant that ignores SIGTERM and outlives its parent is
+// SIGKILLed after the grace, before Run returns.
+func TestRunnerTimeoutStopsTheWholeGroup(t *testing.T) {
+	dir := scratch(t)
+	pidPath := filepath.Join(dir, "grandchild.pid")
+	killGroupOf(t, pidPath)
+	script := filepath.Join(dir, "hang.sh")
+	// The parent dies on SIGTERM; the grandchild, which ignores it, does not,
+	// and holds none of the parent's pipes, so waiting on them cannot reveal it.
+	body := "#!/bin/sh\n" +
+		"sh -c 'trap \"\" TERM; echo $$ > \"$1\"; while :; do sleep 1; done' sh \"" + pidPath + "\" >/dev/null 2>&1 </dev/null &\n" +
+		"while [ ! -s \"" + pidPath + "\" ]; do sleep 0.01; done\n" +
+		"while :; do sleep 1; done\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := New().Run(context.Background(), run.Spec{
+		Command: script, Timeout: 2 * time.Second, KillAfter: 300 * time.Millisecond, AllowFailure: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.TimedOut {
+		t.Fatalf("got %+v, want a timeout", result)
+	}
+	raw, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatalf("pid file %q: %v", raw, err)
+	}
+	// kill(pid, 0) reports a zombie as alive, so this assumes the grandchild,
+	// orphaned when its parent died, is reaped by an init that reaps (a
+	// container without one would fail here with a defunct process).
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("the grandchild %d outlived the timed-out run (kill 0: %v)", pid, err)
+	}
+}
+
+// TestRunnerTimeoutDrainsWithSIGKILLOnceTheGraceIsSpent pins that after a
+// timeout whose kill timer already fired, the drain starts from SIGKILL
+// (killed=true) instead of granting the group a second SIGTERM and a fresh
+// grace. It asserts the argument the drain budget is asked for, not a
+// duration: the second grace only costs time when a group member survives
+// SIGKILL for a while, which a test cannot arrange, and a wall-clock bound
+// generous enough for -race under load would prove nothing.
+func TestRunnerTimeoutDrainsWithSIGKILLOnceTheGraceIsSpent(t *testing.T) {
+	dir := scratch(t)
+	script := filepath.Join(dir, "ignore-term.sh")
+	body := "#!/bin/sh\ntrap '' TERM\nwhile :; do sleep 1; done\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := New()
+	var asked []bool
+	runner.drainBudget = func(killAfter time.Duration, killed bool) time.Duration {
+		asked = append(asked, killed)
+		return drainBudget(killAfter, killed)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := runner.Run(ctx, run.Spec{
+		Command: script, Timeout: 300 * time.Millisecond, KillAfter: 500 * time.Millisecond, AllowFailure: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.TimedOut {
+		t.Fatalf("got %+v, want a timeout", result)
+	}
+	if len(asked) != 1 || !asked[0] {
+		t.Fatalf("drain budget asked with killed = %v, want [true]: the leader ignored SIGTERM, so the kill timer had fired", asked)
+	}
+}
