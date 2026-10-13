@@ -43,6 +43,10 @@ since its volumes may already be gone, so the next `up` seeds again rather
 than starting on empty stores. Write `prepare` to be idempotent; write `seed`
 assuming an empty, migrated store.
 
+`dev` runs them exactly as `up` does, since it is `up` followed by a log
+follower; the hooks finish before any log is followed, and a failing one fails
+`dev` with its exit code.
+
 ## Resolution
 
 A command that starts with `.` or contains `/` is resolved relative to the
@@ -136,8 +140,8 @@ itself resolves the same berth root and control home the user did.
 
 A hook may run the tool against another worktree, but not against its own:
 `up`, `backup` and `restore` hold that worktree's lock while their hooks
-run, so `up`, `down`, `backup`, `restore`, `worktree remove` or a locked `run`
-on the same worktree would wait on its own caller. They refuse at once
+run, so `up`, `down`, `dev`, `backup`, `restore`, `worktree remove` or a locked
+`run` on the same worktree would wait on its own caller. They refuse at once
 instead, when `BERTH_WORKTREE_ID` names the worktree they were asked to
 change. A locked [command](#commands) holds the
 lock too, so the same holds inside one, and inside a `lock = false` command,

@@ -15,7 +15,8 @@ package cli_test
 // help-worktree, help-worktree-short, help-worktree-unlock,
 // help-cmd-worktree, help-cmd-worktree-remove, help-cmd-worktree-list and
 // bare-worktree show `worktree unlock --registry`/`--router` (#21). help-run,
-// help-cmd-run and the err-run-* and run-* cases pin `run` (#94).
+// help-cmd-run and the err-run-* and run-* cases pin `run` (#94); help-dev and
+// help-cmd-dev pin `dev` (#5).
 //
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/BERTH_DEBUG-hint path — so none of them
@@ -111,9 +112,6 @@ var goldenCases = []goldenCase{
 	{"bare-shared", []string{"shared"}},
 	{"bare-worktree", []string{"worktree"}},
 
-	// --- dev: implemented as a fixed "not implemented yet" failure ---
-	{"dev-not-implemented", []string{"dev"}},
-
 	// --- shell completion: the scripts themselves are cobra's, so only the
 	// group, one shell's help and the requests a script sends are pinned ---
 	{"bare-completion", []string{"completion"}},
@@ -184,6 +182,7 @@ var goldenCases = []goldenCase{
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
 	{"err-excess-arguments-remove-two", []string{"worktree", "remove", "a", "b", "c"}},
 	{"err-excess-arguments-status", []string{"status", "extra"}},
+	{"err-excess-arguments-dev", []string{"dev", "extra"}},
 	{"err-excess-arguments-config-schema", []string{"config", "schema", "extra"}},
 	{"err-excess-arguments-router-down", []string{"router", "down", "now", "please"}},
 

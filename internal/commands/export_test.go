@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"time"
 
 	"github.com/sofired/berth/internal/shared"
 	"github.com/sofired/berth/internal/worktree"
@@ -41,3 +42,12 @@ func SharedResourceForTest(kind, id string) shared.Resource {
 
 // DescribeAnonymousForTest exposes describeAnonymous to the black-box tests.
 func DescribeAnonymousForTest(volume shared.Resource) string { return describeAnonymous(volume) }
+
+// SetContainerPollForTest shortens how often a dev session checks that its
+// worktree still has a container, for the life of a test. It is not safe for
+// tests that run in parallel with each other.
+func SetContainerPollForTest(interval time.Duration) (restore func()) {
+	previous := containerPoll
+	containerPoll = interval
+	return func() { containerPoll = previous }
+}

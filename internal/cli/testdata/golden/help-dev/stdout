@@ -1,4 +1,14 @@
-start this worktree's environment and follow its logs (not yet implemented)
+Do everything `berth up` does (register the worktree, start the shared router
+and any shared services, start the services, run its hooks), then follow the
+logs of the worktree's services until you press Ctrl-C. The services keep
+running afterwards; `berth down` stops them, and the session may stay open,
+idle, until you press Ctrl-C. While a session is attached, `berth worktree
+remove` and a second `berth dev` refuse, but `up`, `down` and `run` work as
+usual. Ctrl-C, SIGTERM and SIGHUP end the session, stop the log follower and
+release the lock, with exit status 130, 143 and 129. If `up` fails, so does
+`dev`, the same way, and no logs are followed. If the log follower ends on its
+own, because Docker went away or every container is gone, `dev` says so and
+exits non-zero.
 
 Usage:
   berth dev [flags]

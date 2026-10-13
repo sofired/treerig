@@ -258,22 +258,6 @@ backup  = "./backup.sh"
 		}
 	})
 
-	t.Run("refuses a verb it does not have by name, on stderr", func(t *testing.T) {
-		cwd := writeStreamsProject(t, streamsConfig)
-
-		result := runBerth(t, binary, cwd, []string{"dev"}, berthOptions{})
-
-		if result.Code != 2 {
-			t.Errorf("exit code = %d, want 2", result.Code)
-		}
-		if result.Stdout != "" {
-			t.Errorf("stdout = %q, want empty", result.Stdout)
-		}
-		if !strings.Contains(result.Stderr, "'berth dev' is not implemented yet") {
-			t.Errorf("stderr = %q, want it to name the verb", result.Stderr)
-		}
-	})
-
 	t.Run("prints the doctor's report on stdout and how it went on stderr", func(t *testing.T) {
 		cwd := writeStreamsProject(t, streamsConfig)
 		empty := emptyPATHDir(t) // neither git nor docker can be found

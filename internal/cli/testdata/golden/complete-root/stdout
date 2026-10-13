@@ -1,5 +1,5 @@
 config	inspect the project configuration
-dev	start this worktree's environment and follow its logs (not yet implemented)
+dev	start this worktree's services, then follow their logs until Ctrl-C
 up	register this worktree, start its services, and run its hooks
 down	stop this worktree's services; data is kept
 status	show service status for this worktree
