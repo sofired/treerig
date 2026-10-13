@@ -371,10 +371,12 @@ containers' logs. An idle session still refuses `worktree remove` until
 Ctrl-C. The services keep running when it ends; `berth down` stops them.
 
 Ctrl-C, SIGTERM and SIGHUP stop the log follower's whole process group and
-release the lock, print `The development session of <host> ended (SIGINT).
+release the lock, print `The development session of <host> ended (<signal>).
 Its services are still running; "berth down" stops them.` as a notice rather
-than an error, and exit with the status a shell reports for that signal: 130
-for Ctrl-C, 143 for SIGTERM, 129 for SIGHUP (see
+than an error (`<signal>` names the one that ended it, SIGINT for Ctrl-C; the
+second sentence is left out when no container is left), and exit with the
+status a shell reports for that signal: 130 for Ctrl-C, 143 for SIGTERM, 129
+for SIGHUP (see
 [Output and exit codes](#output-and-exit-codes)). A follower that ends on its
 own, because Docker went away or every container is gone, ends the session
 with a message on stderr and its own exit code (1 when it exited 0). A
