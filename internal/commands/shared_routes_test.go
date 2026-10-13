@@ -231,6 +231,25 @@ func TestSharedUpEnsuresTheRouterForARoutedUI(t *testing.T) {
 		}
 	})
 
+	t.Run("a selection whose only routed service is a dependency ensures the router and refreshes the index", func(t *testing.T) {
+		w := newSharedWorld(t)
+		w.Docker.SetSharedService("web", map[string]any{"image": "busybox", "depends_on": map[string]any{"mailpit": map[string]any{}}})
+		tc := w.context("")
+		w.mustUp(t, tc)
+		tc.Loaded.Config.Shared.Service = append(tc.Loaded.Config.Shared.Service, config.SharedService{Name: "web", UsedBy: []string{"api"}})
+		ensures := w.router.Ensures()
+		reasons := len(w.index.Reasons())
+		if err := w.sharedUpRouted(tc, commands.SharedUpOptions{Names: []string{"web"}}); err != nil {
+			t.Fatal(err)
+		}
+		if w.router.Ensures() != ensures+1 {
+			t.Errorf("ensures = %d, want %d: web brings a routed mailpit up", w.router.Ensures(), ensures+1)
+		}
+		if got := w.index.Reasons(); len(got) != reasons+1 || got[len(got)-1] != "shared up" {
+			t.Errorf("index reasons = %v", got)
+		}
+	})
+
 	t.Run("a service with no web UI starts no router", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
@@ -798,7 +817,7 @@ func TestADoctorFailsTheRouteCheckWhenTheFileCannotBeLookedFor(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 		check := only(t, sharedChecks(t, tc, "shared.route"))
-		if check.Status != commands.StatusFail || !strings.Contains(check.Detail, "permission denied") {
+		if check.Status != commands.StatusFail || !strings.Contains(check.Detail, "permission denied") || check.Instance != "mailpit" {
 			t.Errorf("running=%v: route = %+v, want a failure naming the error, not an absent file", running, check)
 		}
 		_ = os.Chmod(dir, 0o755)

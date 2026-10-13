@@ -147,7 +147,11 @@ func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Ro
 			cctx.CommandName, runningHint(ctx, cctx, ref.RepositoryID))
 	}
 
-	if routerSvc != nil && anyRouted(services) {
+	// Decided once from the selection and what it depends on: a routed
+	// dependency that the start brings up needs the router, and the index,
+	// as much as a routed selection does.
+	needsRouter := (routerSvc != nil || index != nil) && selectionNeedsRouter(ctx, cctx, services)
+	if routerSvc != nil && needsRouter {
 		if err := routerSvc.Ensure(ctx); err != nil {
 			return err
 		}
@@ -156,7 +160,7 @@ func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Ro
 	outcome, ensureErr := ensureShared(ctx, cctx, ref.RepositoryID, namespace, sharedPlan{
 		Services: services, Recreate: options.Recreate, Strict: true, Reallocate: moves, DefinedBy: ref.WorktreeID,
 	})
-	if ensureErr == nil && index != nil && anyRouted(services) {
+	if ensureErr == nil && index != nil && needsRouter {
 		// The shared lock is released, and the index takes the router's alone.
 		index.RefreshBestEffort(ctx, "shared up")
 	}

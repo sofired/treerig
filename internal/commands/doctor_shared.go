@@ -309,7 +309,9 @@ func (d *sharedDoctor) routeCheck(service config.SharedService, instance shared.
 			}
 			// Absent is the only good answer; anything else (permission, I/O)
 			// means the file could not be looked for.
-			return []Check{failureCheck("shared.route", "shared service "+service.Name+" route", err)}
+			failed := failureCheck("shared.route", "shared service "+service.Name+" route", err)
+			failed.Instance = service.Name
+			return []Check{failed}
 		}
 		return []Check{{Status: StatusWarn, ID: "shared.route", Instance: service.Name, Subject: "shared service " + service.Name + " route",
 			Detail: fmt.Sprintf("the route file is present but the service is not running, so %s answers 502. '%s shared up' starts it; '%s shared down' removes the route",
@@ -330,7 +332,9 @@ func (d *sharedDoctor) routeCheck(service config.SharedService, instance shared.
 				Detail: fmt.Sprintf("%s has no route file, so the proxy does not serve it. '%s shared up' writes it",
 					url, d.opts.CommandName)}}
 		}
-		return []Check{failureCheck("shared.route", subject, err)}
+		failed := failureCheck("shared.route", subject, err)
+		failed.Instance = service.Name
+		return []Check{failed}
 	}
 	return []Check{{Status: StatusOK, ID: "shared.route", Instance: service.Name, Subject: subject,
 		Detail: fmt.Sprintf("%s routes to %s", url, loopbackAddr(record.RoutedHostPort()))}}
