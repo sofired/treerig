@@ -234,8 +234,110 @@ backup  = "./backup.sh"
 		if !strings.Contains(result.Stderr, "berth.example.toml") {
 			t.Errorf("stderr = %q, want it to point at berth.example.toml", result.Stderr)
 		}
-		if strings.Contains(result.Stderr, "berth init") {
-			t.Errorf("stderr = %q, must not suggest a command this build has no init for", result.Stderr)
+		if !strings.Contains(result.Stderr, "Run 'berth init' at the root of the repository") {
+			t.Errorf("stderr = %q, want it to suggest berth init", result.Stderr)
+		}
+	})
+
+	t.Run("init writes a starter that config validate accepts, and reports on stderr only", func(t *testing.T) {
+		repo := registrytest.TempDir(t)
+		gitInitCommit(t, repo)
+		sub := filepath.Join(repo, "services", "api")
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "docker-compose.yml"), []byte("services:\n  api:\n    image: busybox:1.37.0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		result := runBerth(t, binary, sub, []string{"init"}, berthOptions{})
+
+		if result.Code != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr=%q", result.Code, result.Stderr)
+		}
+		if result.Stdout != "" {
+			t.Errorf("stdout = %q, want empty", result.Stdout)
+		}
+		if !strings.Contains(result.Stderr, "Wrote "+filepath.Join(repo, "berth.toml")+".") {
+			t.Errorf("stderr = %q, want it to name the file written at the repository root", result.Stderr)
+		}
+		if strings.Contains(result.Stderr, "WARNING") {
+			t.Errorf("stderr = %q, want no warning: the Compose file was found", result.Stderr)
+		}
+		written, err := os.ReadFile(filepath.Join(repo, "berth.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(written), "\nfile = \"docker-compose.yml\"\n") {
+			t.Errorf("berth.toml does not name the Compose file found:\n%s", written)
+		}
+
+		validated := runBerth(t, binary, sub, []string{"config", "validate"}, berthOptions{})
+
+		if validated.Code != 0 || validated.Stderr != "" {
+			t.Fatalf("config validate: exit %d, stderr=%q; want 0 and empty", validated.Code, validated.Stderr)
+		}
+		if !strings.Contains(validated.Stdout, "berth.toml is valid.") {
+			t.Errorf("stdout = %q, want it to say berth.toml is valid", validated.Stdout)
+		}
+	})
+
+	t.Run("init refuses to overwrite a berth.toml, writing nothing to stdout", func(t *testing.T) {
+		repo := registrytest.TempDir(t)
+		gitInitCommit(t, repo)
+		existing := filepath.Join(repo, "berth.toml")
+		if err := os.WriteFile(existing, []byte("# mine\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		result := runBerth(t, binary, repo, []string{"init"}, berthOptions{})
+
+		if result.Code != 1 {
+			t.Errorf("exit code = %d, want 1", result.Code)
+		}
+		if result.Stdout != "" {
+			t.Errorf("stdout = %q, want empty", result.Stdout)
+		}
+		if !strings.Contains(result.Stderr, "[berth] ERROR: "+existing+" already exists; not overwriting it.") {
+			t.Errorf("stderr = %q, want the refusal", result.Stderr)
+		}
+		if got, _ := os.ReadFile(existing); string(got) != "# mine\n" {
+			t.Errorf("berth.toml = %q, want it untouched", got)
+		}
+	})
+
+	t.Run("init tells you to install Git, exiting 127, when there is none on PATH", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+
+		result := runBerth(t, binary, dir, []string{"init"}, berthOptions{path: emptyPATHDir(t)})
+
+		if result.Code != 127 {
+			t.Errorf("exit code = %d, want 127", result.Code)
+		}
+		if result.Stdout != "" {
+			t.Errorf("stdout = %q, want empty", result.Stdout)
+		}
+		if !strings.Contains(result.Stderr, "[berth] ERROR: Git was not found on PATH. Install Git, then run 'berth init' again.") {
+			t.Errorf("stderr = %q, want the install hint", result.Stderr)
+		}
+	})
+
+	t.Run("init refuses outside a git repository, writing nothing to stdout", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+
+		result := runBerth(t, binary, dir, []string{"init"}, berthOptions{})
+
+		if result.Code != 1 {
+			t.Errorf("exit code = %d, want 1", result.Code)
+		}
+		if result.Stdout != "" {
+			t.Errorf("stdout = %q, want empty", result.Stdout)
+		}
+		if !strings.Contains(result.Stderr, "[berth] ERROR: "+dir+" is not inside a Git checkout (fatal: not a git repository") {
+			t.Errorf("stderr = %q, want the refusal", result.Stderr)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "berth.toml")); err == nil {
+			t.Error("wrote a berth.toml outside a repository")
 		}
 	})
 

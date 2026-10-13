@@ -9,6 +9,9 @@ package cli_test
 // review every diff yourself: -update writes whatever cli.Main happened to
 // produce, not what it should have.
 //
+// help-init, help-cmd-init, complete-init*, err-excess-arguments-init,
+// err-unknown-command-near-init and init-config-flag pin `init` (#9).
+//
 // help-shared*, bare-shared, complete-shared* and the err-*-shared* cases pin
 // `shared up|down|status` (#123); help-worktree-unlock also shows `--shared`.
 //
@@ -51,6 +54,7 @@ var goldenCases = []goldenCase{
 	{"help-root-long", []string{"--help"}},
 	{"help-root-short", []string{"-h"}},
 	{"help-root-command", []string{"help"}},
+	{"help-init", []string{"init", "--help"}},
 	{"help-config", []string{"config", "--help"}},
 	{"help-config-short", []string{"config", "-h"}},
 	{"help-config-validate", []string{"config", "validate", "--help"}},
@@ -80,6 +84,7 @@ var goldenCases = []goldenCase{
 	{"help-worktree-unlock", []string{"worktree", "unlock", "--help"}},
 
 	// --- the "help [command]" form, walking the full path given ---
+	{"help-cmd-init", []string{"help", "init"}},
 	{"help-cmd-config", []string{"help", "config"}},
 	{"help-cmd-config-schema", []string{"help", "config", "schema"}},
 	{"help-cmd-router", []string{"help", "router"}},
@@ -117,6 +122,8 @@ var goldenCases = []goldenCase{
 	{"help-completion-zsh", []string{"completion", "zsh", "--help"}},
 	{"err-unknown-command-in-completion-group", []string{"completion", "tcsh"}},
 	{"complete-root", []string{"__complete", ""}},
+	{"complete-init", []string{"__complete", "init", ""}},
+	{"complete-init-flags", []string{"__complete", "init", "--"}},
 	{"complete-config", []string{"__complete", "config", ""}},
 	{"complete-shared", []string{"__complete", "shared", ""}},
 	{"complete-shared-down-flags", []string{"__complete", "shared", "down", "--"}},
@@ -137,6 +144,7 @@ var goldenCases = []goldenCase{
 	// No suggestion: cobra never suggests the help command itself.
 	{"err-unknown-command-near-help", []string{"helo"}},
 	{"err-unknown-command-near-down", []string{"dow"}},
+	{"err-unknown-command-near-init", []string{"inti"}},
 	{"err-unknown-command-in-group", []string{"worktree", "bogus"}},
 	{"err-unknown-command-in-shared", []string{"shared", "dwon"}},
 	{"err-unknown-option-shared-up", []string{"shared", "up", "--recrate"}},
@@ -175,6 +183,7 @@ var goldenCases = []goldenCase{
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
 	{"err-excess-arguments-remove-two", []string{"worktree", "remove", "a", "b", "c"}},
 	{"err-excess-arguments-status", []string{"status", "extra"}},
+	{"err-excess-arguments-init", []string{"init", "extra"}},
 	{"err-excess-arguments-config-schema", []string{"config", "schema", "extra"}},
 	{"err-excess-arguments-router-down", []string{"router", "down", "now", "please"}},
 
@@ -202,6 +211,11 @@ var goldenCases = []goldenCase{
 	// unlike, say, these same commands run with no --config at all, whose
 	// "no berth.toml" message would embed wherever this repository happens
 	// to be checked out. ---
+	// init refuses --config before it looks at Git or the filesystem, so this
+	// case writes nothing, wherever the tests run. The cases that reach the
+	// write (a fresh repository, an existing berth.toml, no repository) need a
+	// directory of their own and live in TestInit and the streams contract.
+	{"init-config-flag", []string{"init", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"config-validate-missing-file", []string{"config", "validate", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-berth-config-x7z.toml"}},

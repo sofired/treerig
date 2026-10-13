@@ -404,6 +404,7 @@ func TestConfigDiscovery(t *testing.T) {
 			t.Errorf("LoadNearest error is not a CliError-equivalent: %v", err)
 		}
 		requireErrorContains(t, err, "No berth.toml found")
+		requireErrorContains(t, err, "Run 'berth init' at the root of the repository you want to manage to write one")
 	})
 
 	// Points at the file's permanent home on GitHub rather than a source

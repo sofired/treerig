@@ -95,6 +95,10 @@ regenerate it with `go run ./cmd/berth config schema > schema/berth.schema.json`
 `TestSchemaFileIsCurrent` fails until you do. Every field needs a
 `Describe(...)`, which editors show on hover. Examples in `berth.example.toml`
 and the README stay TOML 1.0 (no multi-line inline tables); a test checks them.
+`berth init` writes the starter in `internal/config/starter.go`: a short
+template, not a copy of the example, with its commented-out service and hooks
+checked against the schema by `TestStarter`. Rename or remove a key there when
+you rename or remove it in the schema.
 
 **Go style,** beyond gofmt, go vet, and staticcheck:
 - No naked returns — a function with named results still returns them

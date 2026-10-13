@@ -283,8 +283,11 @@ prints a script for the name it was invoked as.
 ## Quick start
 
 The tool is tested with Docker Compose 2.21 and newer (`berth doctor` checks,
-as does `docker compose version`). Commit a `berth.toml` at the root of your
-repository:
+as does `docker compose version`). From the root of your repository,
+`berth init` writes a starter `berth.toml` there (the file is commented, names
+your Compose file, and opens with the schema directive described under
+[Editor support](#editor-support)); it refuses to replace one that exists.
+Or write the file yourself and commit it at the root:
 
 ```toml
 [project]
@@ -577,7 +580,8 @@ filesystem root are always refused, whether reached through `BERTH_HOME` or
 it. Every key has a description. Any editor that accepts a JSON Schema for
 TOML can use it; [Even Better TOML](https://taplo.tamasfe.dev) (Taplo)
 completes keys, shows their descriptions on hover and flags unknown ones. Point
-it at the schema with a directive on the file's first line:
+it at the schema with a directive on the file's first line (`berth init`
+writes it for you):
 
 ```toml
 #:schema https://raw.githubusercontent.com/sofired/berth/main/schema/berth.schema.json
@@ -887,6 +891,13 @@ the same as `router status`'s second line, a `warn` when the running router
 serves a different port than the one resolved; when port or settings
 resolution fails instead, the section holds that one router failure line
 alone.
+
+`init` writes nothing to stdout: that it wrote the file, and a warning when no
+Compose file was found, are notices on stderr. It exits 1, writing nothing,
+outside a Git checkout or when `berth.toml` is already at the root, and 127
+when Git is not on `PATH`, as for any command that cannot start. A kill in the
+middle of the write can leave a truncated `berth.toml`; `init` then refuses, and
+you delete the file and run it again.
 
 `worktree unlock` writes nothing to stdout: what it verified and what it
 cleared are notices on stderr. A refusal is an error that exits 1 and clears
@@ -1443,6 +1454,9 @@ Shipped:
   its name, with its definition checked for drift, its ports pinned on
   `127.0.0.1`, and `shared up`, `shared down` and `shared status` to run it
   yourself.
+- **`init`** (#9) — writes a commented starter `berth.toml` at the Git
+  checkout's root, with the schema directive and the Compose file it finds
+  there, and never replaces an existing one.
 - **`doctor`** — one read-only report: Git, Docker and Compose against the
   versions this tool needs; the berth root and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);
@@ -1465,17 +1479,15 @@ them once.
    for processes running outside Docker.
 3. **Binary distribution** (#8) — per-platform release builds, so installing
    no longer means building from source.
-4. **`init`** (#9) — write a starter `berth.toml`. Until then, copy
-   `berth.example.toml` to the repository root.
-5. **`backup` / `restore`** (#10) — invoke the hooks of the same name with a
+4. **`backup` / `restore`** (#10) — invoke the hooks of the same name with a
    bundle directory.
-6. **`rename`** (#11) — change a worktree's slug, or the product's own
+5. **`rename`** (#11) — change a worktree's slug, or the product's own
    storage names, by migrating the state that carries them.
-7. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
+6. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
    the command that runs it forever.
-8. **Migrating stored state between releases** (#29), once there are
+7. **Migrating stored state between releases** (#29), once there are
     releases to migrate between.
-9. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+8. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
     stronger guarantee the relocated-copy mechanism above is a step toward,
     tied to binary distribution (#8).
 
