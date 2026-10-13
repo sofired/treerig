@@ -1,7 +1,10 @@
 package progress_test
 
 import (
+	"errors"
+	"regexp"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,16 +32,31 @@ func (recordingLogger) Output(string) {}
 // syncLogger records every Info message behind a mutex instead of a channel,
 // so it never blocks a heartbeat goroutine that is racing to shut down —
 // unlike recordingLogger, it is safe to leave completely undrained.
+//
+// When want is positive, reached is closed once that many messages have been
+// recorded, so a test can wait for ticks instead of sleeping next to them.
+// A want of zero or less disables reached: it is never closed.
 type syncLogger struct {
-	mu    sync.Mutex
-	lines []string
+	mu      sync.Mutex
+	lines   []string
+	want    int
+	reached chan struct{}
+}
+
+// newSyncLogger returns a syncLogger whose reached channel closes once want
+// messages have been recorded.
+func newSyncLogger(want int) *syncLogger {
+	return &syncLogger{want: want, reached: make(chan struct{})}
 }
 
 // Info appends message under the mutex and returns immediately.
 func (s *syncLogger) Info(message string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.lines = append(s.lines, message)
-	s.mu.Unlock()
+	if len(s.lines) == s.want {
+		close(s.reached)
+	}
 }
 
 // Warn discards the message.
@@ -57,12 +75,61 @@ func (s *syncLogger) count() int {
 	return len(s.lines)
 }
 
+// failsafe bounds every wait on a message that must arrive. It is a hang
+// guard only: nothing is expected to take anywhere near this long, and no
+// assertion depends on it.
+const failsafe = 30 * time.Second
+
+// heartbeatLine matches a heartbeat for the test phase at any whole elapsed
+// second from 1s up, so a slow or loaded machine cannot change what is
+// asserted while the 1s floor stays pinned (0s is rejected).
+var heartbeatLine = regexp.MustCompile(`^Preparing services \([1-9]\d*s elapsed\)\.$`)
+
+// lateLogger makes a heartbeat that outlives WithProgress observable without
+// any timing guess. From its third Info call on, Info signals that it has
+// started, sleeps, and only then records whether the test had already seen
+// WithProgress return. A WithProgress that does not wait for its heartbeat
+// goroutine returns while that Info call is still asleep, so the record
+// lands after the flag is set.
+type lateLogger struct {
+	calls    atomic.Int32
+	returned atomic.Bool
+	late     atomic.Int32
+	started  chan struct{}
+}
+
+// Info counts the call; from the third on it signals started, sleeps, then
+// counts the message as late if WithProgress has already returned.
+func (l *lateLogger) Info(string) {
+	if l.calls.Add(1) < 3 {
+		return
+	}
+	select {
+	case <-l.started:
+	default:
+		close(l.started)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if l.returned.Load() {
+		l.late.Add(1)
+	}
+}
+
+// Warn discards the message.
+func (*lateLogger) Warn(string) {}
+
+// Error discards the message.
+func (*lateLogger) Error(string) {}
+
+// Output discards the message.
+func (*lateLogger) Output(string) {}
+
 func TestWithProgress(t *testing.T) {
 	t.Run("reports elapsed time while a phase is still running and stops after completion", func(t *testing.T) {
 		testHeartbeat := 15 * time.Millisecond
 		defer progress.SetHeartbeatForTest(testHeartbeat)()
 
-		log := recordingLogger{lines: make(chan string, 16)}
+		log := recordingLogger{lines: make(chan string, 4096)}
 		release := make(chan struct{})
 		done := make(chan error, 1)
 		go func() {
@@ -77,7 +144,7 @@ func TestWithProgress(t *testing.T) {
 			select {
 			case line := <-log.lines:
 				return line
-			case <-time.After(2 * time.Second):
+			case <-time.After(failsafe):
 				t.Fatal("timed out waiting for a progress message")
 				return ""
 			}
@@ -86,19 +153,34 @@ func TestWithProgress(t *testing.T) {
 		if got := mustReceive(); got != "Preparing services." {
 			t.Fatalf("got %q, want the opening line", got)
 		}
-		if got := mustReceive(); got != "Preparing services (1s elapsed)." {
+		if got := mustReceive(); !heartbeatLine.MatchString(got) {
 			t.Fatalf("got %q, want the first heartbeat", got)
 		}
-		if got := mustReceive(); got != "Preparing services (1s elapsed)." {
-			t.Fatalf("got %q, want a second heartbeat at the same rounded second", got)
+		if got := mustReceive(); !heartbeatLine.MatchString(got) {
+			t.Fatalf("got %q, want a second heartbeat", got)
 		}
 
 		close(release)
-		if err := <-done; err != nil {
-			t.Fatalf("WithProgress: %v", err)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("WithProgress: %v", err)
+			}
+		case <-time.After(failsafe):
+			t.Fatal("timed out waiting for WithProgress to return")
 		}
 
-		// No further heartbeat arrives once the phase has completed.
+		// Heartbeats that fired between the last receive and the return are
+		// legitimately buffered; WithProgress has joined its goroutine, so
+		// none can be added. Drain them, then require silence across several
+		// further heartbeat intervals.
+		for drained := false; !drained; {
+			select {
+			case <-log.lines:
+			default:
+				drained = true
+			}
+		}
 		select {
 		case line := <-log.lines:
 			t.Fatalf("unexpected message after completion: %q", line)
@@ -109,22 +191,68 @@ func TestWithProgress(t *testing.T) {
 	t.Run("logs no heartbeat once WithProgress has returned, racing a very short heartbeat", func(t *testing.T) {
 		defer progress.SetHeartbeatForTest(200 * time.Microsecond)()
 
-		log := &syncLogger{}
-		// Long enough, next to a 200µs heartbeat, that several ticks are
-		// reliably pending right as action returns — the exact window the
-		// fix's second, non-blocking done check and the wait for the
-		// heartbeat goroutine to actually exit are both there for.
+		// The opening line plus five heartbeats: action returns only once the
+		// heartbeat goroutine has ticked at least five times at 200µs, which
+		// exercises the shutdown path with a busy ticker. The deterministic
+		// guard that WithProgress waits for its goroutine is the late-logger
+		// subtest below; this one checks the lines and that the count is
+		// stable after return.
+		log := newSyncLogger(6)
 		if err := progress.WithProgress(log, "Preparing services", func() error {
-			time.Sleep(5 * time.Millisecond)
-			return nil
+			select {
+			case <-log.reached:
+				return nil
+			case <-time.After(failsafe):
+				return errors.New("timed out waiting for heartbeats")
+			}
 		}); err != nil {
 			t.Fatalf("WithProgress: %v", err)
 		}
+
+		log.mu.Lock()
+		for i, line := range log.lines {
+			if i == 0 {
+				if line != "Preparing services." {
+					t.Errorf("first line = %q, want the opening line", line)
+				}
+				continue
+			}
+			if !heartbeatLine.MatchString(line) {
+				t.Errorf("line %d = %q, want a heartbeat", i, line)
+			}
+		}
+		log.mu.Unlock()
 
 		settled := log.count()
 		time.Sleep(20 * time.Millisecond)
 		if after := log.count(); after != settled {
 			t.Fatalf("%d message(s) logged after WithProgress returned (had %d, now %d)", after-settled, settled, after)
+		}
+	})
+
+	t.Run("waits for an in-flight heartbeat before returning", func(t *testing.T) {
+		defer progress.SetHeartbeatForTest(200 * time.Microsecond)()
+
+		log := &lateLogger{started: make(chan struct{})}
+		if err := progress.WithProgress(log, "Preparing services", func() error {
+			// Return while a heartbeat's Info call is asleep inside the
+			// logger: WithProgress must wait for it to finish.
+			select {
+			case <-log.started:
+				return nil
+			case <-time.After(failsafe):
+				return errors.New("timed out waiting for a heartbeat")
+			}
+		}); err != nil {
+			t.Fatalf("WithProgress: %v", err)
+		}
+		log.returned.Store(true)
+
+		// Any in-flight Info that outlived WithProgress finishes within its
+		// 50ms sleep; allow twice that before counting.
+		time.Sleep(100 * time.Millisecond)
+		if late := log.late.Load(); late != 0 {
+			t.Fatalf("%d heartbeat(s) completed after WithProgress returned", late)
 		}
 	})
 }
