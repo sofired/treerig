@@ -439,7 +439,8 @@ every other registry write. Under that one hold it reads the record, scans
 every registry on the machine, checks the slug is free in the record's
 domain, runs the migration callback and replaces the record, so two renames
 (or a rename and a first registration) cannot mint the same hostname. The
-callback rewrites route files and the index card with plain file writes; it
+callback (`moveRoutes`, `moveIndexCard`) removes the worktree's route files and
+rewrites the index card, with plain file operations; it
 takes no lock and does no Docker call, so the registry hold stays short. The
 inventory that refuses a rename while containers exist runs before, under the
 operation lock alone.

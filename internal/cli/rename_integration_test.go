@@ -59,7 +59,7 @@ func routeFiles(t *testing.T, f upFixture) map[string]string {
 func TestWorktreeRenameThroughTheBinary(t *testing.T) {
 	binary := buildBinary(t)
 
-	t.Run("moves routes and the index to the new slug, and up and down work there with nothing left under the old", func(t *testing.T) {
+	t.Run("renames the registration and index, and up and down work at the new slug with nothing left under the old", func(t *testing.T) {
 		f := newUpFixture(t)
 		if _, stderr, code := renameRun(t, f, binary, "up"); code != 0 {
 			t.Fatalf("up: exit %d\n%s", code, stderr)
