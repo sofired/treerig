@@ -45,7 +45,10 @@ func Status(ctx context.Context, env *Env, options OutputOptions) error {
 // StatusWithContext prints every declared service's state, or says the
 // worktree is not registered. Nil statuses mean the latter. With
 // options.JSON it prints a StatusReport instead, and the not-registered
-// notice still goes to stderr.
+// notice still goes to stderr. Declared shared services are included in the
+// output, but the returned slice contains only the worktree's services.
+// A shared lookup failure omits that section; cancellation still returns
+// an error.
 func StatusWithContext(ctx context.Context, cctx *CommandContext, options OutputOptions) ([]worktree.ServiceStatus, error) {
 	registration, err := cctx.Registry.Current(ctx)
 	if err != nil {
