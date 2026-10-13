@@ -714,7 +714,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Short: "route processes running on the host through this worktree's hostname",
 		Long: "A host route sends a hostname of this worktree to a process running on the host (a dev server, an API run from the IDE), " +
 			"through the same router as its services. The process must listen on 127.0.0.1. `" + commandName + " up` and `" + commandName +
-			" down` leave host routes alone; `" + commandName + " worktree remove` removes them. They need a registered worktree: run `" + commandName + " up` first.",
+			" down` leave host routes alone; `" + commandName + " worktree remove` removes them. The route commands need a registered worktree: run `" + commandName + " up` first.",
 		Args: usageArgs(unknownSubcommand),
 		RunE: bareGroup(p),
 	}

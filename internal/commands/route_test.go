@@ -567,7 +567,7 @@ func TestRouteLs(t *testing.T) {
 		if err := json.Unmarshal([]byte(printedText(rw.tc)), &entries); err != nil {
 			t.Fatal(err)
 		}
-		want := []commands.RouteReportEntry{{Name: "web", URL: "http://app.feature-login.acme.localhost", Port: 5173}}
+		want := []commands.RouteReportEntry{{Name: "web", URL: "http://app.feature-login.acme.localhost", Port: 5173, Subdomain: "app"}}
 		if !reflect.DeepEqual(entries, want) {
 			t.Fatalf("entries = %+v", entries)
 		}

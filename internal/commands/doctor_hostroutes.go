@@ -19,6 +19,7 @@ import (
 	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/berth/internal/text"
 )
 
 // hostRouteChecks are the lines about registration's host routes, in the
@@ -42,8 +43,8 @@ func hostRouteChecks(ctx context.Context, opts doctorOptions, registration *regi
 			path := router.HostFragmentPath(opts.RouterState, registration.RepositoryID, registration.WorktreeID, route.Name)
 			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 				checks = append(checks, Check{Status: StatusWarn, ID: "checkout.host-route-files", Instance: route.Name, Subject: subject, Detail: fmt.Sprintf(
-					"its route file is missing from %s, so the router does not route it. Remove the route with '%s route rm %s' and add it again.",
-					opts.RouterState.DynamicDir, opts.CommandName, route.Name)})
+					"its route file is missing from %s, so the router does not route it. Run '%s route add %s' again with the same fields to write it ('%s route ls' shows them).",
+					opts.RouterState.DynamicDir, opts.CommandName, hostRouteAddArguments(route), opts.CommandName)})
 			}
 		}
 		address := "127.0.0.1:" + strconv.Itoa(route.Port)
@@ -63,4 +64,18 @@ func hostRouteChecks(ctx context.Context, opts doctorOptions, registration *regi
 		checks = append(checks, check)
 	}
 	return checks
+}
+
+// hostRouteAddArguments is the arguments of the `route add` that would record
+// route again, as the heal for a missing route file takes them: its name and
+// every field it has.
+func hostRouteAddArguments(route registry.HostRoute) string {
+	arguments := fmt.Sprintf("%s --port %d", route.Name, route.Port)
+	if route.Subdomain != "" {
+		arguments += " --subdomain " + route.Subdomain
+	}
+	if route.Path != nil {
+		arguments += " --path " + text.ShellQuote(*route.Path)
+	}
+	return arguments
 }

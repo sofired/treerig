@@ -913,7 +913,7 @@ hostname a service with that name and those fields would get. It refuses a
 name that is a service in `berth.toml`, a shared service's, or another host
 route's, a route that answers where a service or another host route already
 does, the router's own port, and a port berth pinned for a service (a host
-route names a port a process on the host listens on). Adding and removing take
+route names a port a process on the host listens on), except that adding a route identical to a recorded one is accepted and rewrites its route file. Adding and removing take
 the worktree's operation lock and need a registered worktree (`berth up`
 first).
 
@@ -1216,7 +1216,7 @@ start.
 | `router.routes` | `router` | | the route files, none claiming a shared rule |
 | `router.route-conflict` | `router` | `<host>` or `<host><path>` | a route two files claim |
 | `router.orphaned-routes` | `router` | none, `unmatched` or `other-home` | route files that disagree with their registration, or a shared service's route file with its record: no port recorded for the service (or no host route of that name), or a different port than the one recorded (or, for a host route, a different port or hostname) (the next `up` or `router up` repairs them); with instance `unmatched` (a warning), files whose repository this control home knows but whose worktree it holds no record of, and with instance `other-home` (ok), files of a repository it does not know; both are counted and never removed, since they may belong to another control home (delete them from the router's `dynamic/` directory if their worktrees are gone). A shared service's route file is judged against its shared-service record in the same way, and named as such in these lines |
-| `router.route-probe` | `router` | `<host>` or `<host><path>` | only while the router runs, one per route including the index, each host route and the shared services' web UIs: an HTTP request through the router. A 404 is judged by sending the same request straight to the route file's target on `127.0.0.1`: the target giving the same 404 is the service's own (`ok`); a 404 it does not give means the route is not loaded (`fail`), retried for several seconds because Traefik's file provider takes a moment to load a change. A 502, 503 or 504, or a target that does not answer, is `warn` (the target is down or unreachable); a router that does not answer is `fail`; these are retried at most twice |
+| `router.route-probe` | `router` | `<host>` or `<host><path>` | only while the router runs, one per route including the index, each host route and the shared services' web UIs: an HTTP request through the router. A 404 is judged by sending the same request straight to the route file's target on `127.0.0.1`: the target giving the same 404 is the service's own (`ok`); a 404 it does not give means the route is not loaded (`fail`), retried for several seconds because Traefik's file provider takes a moment to load a change. A 502, 503 or 504, or a target that does not answer, is `warn` (the target is down or unreachable); a router that does not answer is `fail`; these are retried at most twice; a host route whose process is stopped is `ok` ("nothing is listening"), as in `checkout.host-routes` |
 | `router.port` | `router` | | the resolved router port and where it came from |
 | `checkout.config` | `checkout` | | this checkout's `berth.toml` |
 | `checkout.worktree` | `checkout` | | whether this worktree is registered |
@@ -1297,7 +1297,8 @@ For a per-item kind, filter by id and read `instance`:
 the real output is indented, one key per line.)
 
 **`route ls --json`** prints one array of `{"name", "url", "port"}`, by route
-name, `[]` when there are no host routes (a notice stays on stderr). `port` is
+name, with the route's `subdomain` and `path` when it has them (the fields `route add`
+takes again to write a missing route file), `[]` when there are no host routes (a notice stays on stderr). `port` is
 the port the process on the host listens on. An unregistered worktree is an
 error: exit 1 and no document.
 

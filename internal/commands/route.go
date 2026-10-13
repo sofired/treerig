@@ -120,14 +120,7 @@ func RouteAddWithContext(ctx context.Context, cctx *CommandContext, modes RouteM
 		}
 		if err := router.WriteHostFragment(cctx.RouterState, ref.RepositoryID, ref.WorktreeID, route.Name, hostRouteDocument(locked, route)); err != nil {
 			if !healed {
-				// Taken back, so the record never names a route that has no
-				// file. The caller's context may be the reason the write
-				// failed, so the undo gets one of its own.
-				undo, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-				defer cancel()
-				if _, undoErr := store.UpdateHostRoutes(undo, ref.WorktreeID, ref.Slug, cctx.writer(), withoutHostRoute(route.Name)); undoErr != nil {
-					cctx.Logger.Warn(fmt.Sprintf("Could not take the route back out of the registration: %s", undoErr))
-				}
+				takeBackHostRoute(ctx, cctx, store, ref, route.Name)
 			}
 			return clierr.Newf("Could not write the route file of %q: %s", route.Name, err)
 		}
@@ -152,6 +145,19 @@ func RouteAddWithContext(ctx context.Context, cctx *CommandContext, modes RouteM
 		cctx.Logger.Info(fmt.Sprintf("Nothing is listening on 127.0.0.1:%d yet; requests get a 502 until a process is.", route.Port))
 	}
 	return nil
+}
+
+// takeBackHostRoute drops the route called name from the registration after
+// its route file could not be written, so the record never names a route that
+// has no file. The caller's context may be the reason the write failed (a
+// cancelled command), so the undo gets one of its own, bounded to 5 seconds. A
+// failure to undo is a warning: the original error is the one returned.
+func takeBackHostRoute(ctx context.Context, cctx *CommandContext, store *registry.Store, ref worktree.Ref, name string) {
+	undo, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := store.UpdateHostRoutes(undo, ref.WorktreeID, ref.Slug, cctx.writer(), withoutHostRoute(name)); err != nil {
+		cctx.Logger.Warn(fmt.Sprintf("Could not take the route back out of the registration: %s", err))
+	}
 }
 
 // withoutHostRoute is the change that drops the route called name.
@@ -234,7 +240,7 @@ func RouteRmWithContext(ctx context.Context, cctx *CommandContext, name string) 
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
 	store := cctx.Registry.Store(ref.RepositoryID)
 
-	var removed registry.HostRoute
+	var removedURL string
 	err = cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
 		current, err := store.Find(ref.WorktreeID)
 		if err != nil {
@@ -247,7 +253,8 @@ func RouteRmWithContext(ctx context.Context, cctx *CommandContext, name string) 
 		if !held {
 			return clierr.Newf("There is no host route called %q. '%s route ls' lists them.", name, cctx.CommandName)
 		}
-		removed = route
+		// From the record read under the lock, not the one before it.
+		removedURL = hostRouteURL(cctx, *current, route)
 		if err := router.RemoveHostFragment(cctx.RouterState, ref.RepositoryID, ref.WorktreeID, name); err != nil {
 			return clierr.Newf("Could not remove the route file of %q: %s", name, err)
 		}
@@ -260,7 +267,7 @@ func RouteRmWithContext(ctx context.Context, cctx *CommandContext, name string) 
 		return err
 	}
 	refreshIndexBestEffort(ctx, cctx, "route rm")
-	cctx.Logger.Info(fmt.Sprintf("Removed host route %s (%s).", name, hostRouteURL(cctx, registration.RegisteredWorktree, removed)))
+	cctx.Logger.Info(fmt.Sprintf("Removed host route %s (%s).", name, removedURL))
 	return nil
 }
 
@@ -269,6 +276,10 @@ type RouteReportEntry struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
 	Port int    `json:"port"`
+	// Subdomain and Path are the route's routing fields, absent when it has
+	// none: the fields `route add` takes again to heal a missing route file.
+	Subdomain string `json:"subdomain,omitempty"`
+	Path      string `json:"path,omitempty"`
 }
 
 // RouteLs is `route ls`.
@@ -291,7 +302,10 @@ func RouteLsWithContext(ctx context.Context, cctx *CommandContext, options Outpu
 	routes := routesOf(cctx.Loaded.Config, registration.Slug, registration.Domain, cctx.RouterPort, nil, registration.HostRoutes)
 	entries := make([]RouteReportEntry, len(routes.Host))
 	for i, route := range routes.Host {
-		entries[i] = RouteReportEntry{Name: route.Service, URL: route.URL, Port: route.Port}
+		entries[i] = RouteReportEntry{Name: route.Service, URL: route.URL, Port: route.Port, Subdomain: route.Subdomain}
+		if route.Path != nil {
+			entries[i].Path = *route.Path
+		}
 	}
 	if len(entries) == 0 {
 		cctx.Logger.Info(fmt.Sprintf("No host routes. '%s route add <name> --port <port>' routes a process on the host.", cctx.CommandName))
