@@ -193,6 +193,38 @@
           "type": "string",
           "description": "Command `berth restore` runs, with an existing bundle directory as its first argument. It loads what backup wrote.",
           "minLength": 1
+        },
+        "timeout": {
+          "type": "object",
+          "description": "Time limits for the hooks, keyed by hook name. A hook that runs past its limit is stopped, its whole process group with it, and reported as timed out (exit 124). A hook with no entry has no limit. See docs/hooks.md.",
+          "properties": {
+            "prepare": {
+              "type": "string",
+              "description": "How long the prepare hook may run before berth stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.",
+              "pattern": "^([0-9]+(ms|s|m|h))+$"
+            },
+            "seed": {
+              "type": "string",
+              "description": "How long the seed hook may run before berth stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.",
+              "pattern": "^([0-9]+(ms|s|m|h))+$"
+            },
+            "verify": {
+              "type": "string",
+              "description": "How long the verify hook may run before berth stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.",
+              "pattern": "^([0-9]+(ms|s|m|h))+$"
+            },
+            "backup": {
+              "type": "string",
+              "description": "How long the backup hook may run before berth stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.",
+              "pattern": "^([0-9]+(ms|s|m|h))+$"
+            },
+            "restore": {
+              "type": "string",
+              "description": "How long the restore hook may run before berth stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.",
+              "pattern": "^([0-9]+(ms|s|m|h))+$"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false,

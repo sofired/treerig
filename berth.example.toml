@@ -103,6 +103,16 @@ verify = "./scripts/check.sh"
 backup  = "./scripts/backup.sh"
 restore = "./scripts/restore.sh"
 
+# Optional time limits, one per hook, keyed by its name. A hook with no entry
+# has no limit. Past its limit a hook is stopped, with its whole process group
+# on the host (not work it handed to a container), and the command that ran it
+# (`up`, `doctor`, `backup` or `restore`) fails it as timed out (exit 124). A
+# duration such as "30s", "10m" or "1h30m", at most 24h. Size one for the
+# slowest healthy run.
+[hooks.timeout]
+prepare = "30m"
+verify  = "2m"
+
 # ---------------------------------------------------------------------------
 # Commands. Named tasks for `berth run <name> [-- args...]`: on-demand work
 # that is not part of coming up, such as `terraform plan` and `apply` against

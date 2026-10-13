@@ -537,6 +537,29 @@ func TestBackup(t *testing.T) {
 		}
 	})
 
+	t.Run("applies the backup hook's configured time limit, and exits 124 with the marker kept when it passes", func(t *testing.T) {
+		bw := newBundleWorld(t, "api")
+		limit := "45s"
+		bw.tc.Loaded.Config.Hooks.Timeout = &config.HookTimeouts{Backup: &limit, Restore: ns("2m")}
+		bw.during = func(_ context.Context, spec run.Spec) (run.Result, error) {
+			if err := os.WriteFile(filepath.Join(spec.Args[len(spec.Args)-1], "half.sql"), nil, 0o600); err != nil {
+				t.Error(err)
+			}
+			return run.Result{TimedOut: true}, nil
+		}
+		dir := filepath.Join(bw.tc.Cwd, "b")
+		err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: dir})
+		if want := "The backup hook timed out after 45s and was terminated."; err == nil || err.Error() != want || clierr.Code(err) != 124 {
+			t.Fatalf("err = %v (code %d), want %q and 124", err, clierr.Code(err), want)
+		}
+		if got := bw.started()[0].Timeout; got != 45*time.Second {
+			t.Errorf("Timeout = %v, want 45s", got)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, ".incomplete")); statErr != nil {
+			t.Errorf("a timed-out backup lost its marker: %v", statErr)
+		}
+	})
+
 	t.Run("passes a start failure's 127 through", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		bw.during = func(_ context.Context, spec run.Spec) (run.Result, error) {
@@ -737,6 +760,19 @@ func TestRestore(t *testing.T) {
 		}
 		if len(bw.started()) != 1 {
 			t.Fatal("the hook did not run")
+		}
+	})
+
+	t.Run("applies the restore hook's configured time limit", func(t *testing.T) {
+		bw := newBundleWorld(t, "api")
+		bw.tc.Loaded.Config.Hooks.Timeout = &config.HookTimeouts{Restore: ns("2m")}
+		bw.during = func(context.Context, run.Spec) (run.Result, error) { return run.Result{TimedOut: true}, nil }
+		err := commands.RestoreWithContext(ctx, bw.tc.CommandContext, commands.RestoreOptions{Dir: bw.tc.Cwd})
+		if want := "The restore hook timed out after 2m and was terminated."; err == nil || err.Error() != want || clierr.Code(err) != 124 {
+			t.Fatalf("err = %v (code %d), want %q and 124", err, clierr.Code(err), want)
+		}
+		if got := bw.started()[0].Timeout; got != 2*time.Minute {
+			t.Errorf("Timeout = %v, want 2m", got)
 		}
 	})
 

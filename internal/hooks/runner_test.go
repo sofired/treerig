@@ -308,7 +308,7 @@ func TestRunHookWhenTheHookNeverRuns(t *testing.T) {
 
 	t.Run("reports a timeout as a timeout, whatever the hook managed to exit with", func(t *testing.T) {
 		_, err := hooks.RunHook(ctx, config.Seed, newContext(brokenRunner("TIMEOUT"), config.Hooks{Seed: str("make seed")}), hooks.RunOptions{Timeout: 50 * time.Millisecond})
-		requireMessage(t, err, 124, "The seed hook timed out after 50 ms and was terminated.")
+		requireMessage(t, err, 124, "The seed hook timed out after 50ms and was terminated.")
 	})
 }
 

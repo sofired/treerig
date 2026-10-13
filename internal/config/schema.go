@@ -186,6 +186,28 @@ func sharedSchema() *shape.ObjectSchema {
 		Describe("Services that run once per repository and are shared by all of its worktrees, such as an email catcher.")
 }
 
+// hookTimeoutSchema is one entry of [hooks.timeout]: a hook's time limit.
+func hookTimeoutSchema(stage string) *shape.StringSchema {
+	return shape.String().
+		SchemaPattern(durationPattern).
+		Refine(func(value string) bool { _, ok := parseHookTimeout(value); return ok },
+			"must be a duration greater than zero and at most 24h, such as 30s, 10m or 1h30m").
+		Optional().
+		Describe("How long the " + stage + " hook may run before berth stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.")
+}
+
+// hookTimeoutsSchema is the [hooks.timeout] table: one optional limit per
+// hook, keyed by the hook's name. It lists every hook kind, backup and
+// restore included, and hooks.RunHook applies it to whichever hook it runs.
+func hookTimeoutsSchema() *shape.ObjectSchema {
+	fields := make([]shape.Field, 0, len(hookStages))
+	for _, stage := range hookStages {
+		fields = append(fields, shape.F(string(stage), hookTimeoutSchema(string(stage))))
+	}
+	return shape.Object(fields...).Strict().Optional().
+		Describe("Time limits for the hooks, keyed by hook name. A hook that runs past its limit is stopped, its whole process group with it, and reported as timed out (exit 124). A hook with no entry has no limit. See docs/hooks.md.")
+}
+
 // hooksSchema is the [hooks] table.
 func hooksSchema() *shape.ObjectSchema {
 	return shape.Object(
@@ -199,29 +221,47 @@ func hooksSchema() *shape.ObjectSchema {
 			Describe("Command `berth backup` runs, with the bundle directory as its first argument. It writes the worktree's data into that directory.")),
 		shape.F("restore", shape.String().Min(1).Optional().
 			Describe("Command `berth restore` runs, with an existing bundle directory as its first argument. It loads what backup wrote.")),
+		shape.F("timeout", hookTimeoutsSchema()),
 	).Strict().Default(shape.NewObj()).
 		Describe("Commands berth runs at points in a worktree's life. Each is resolved relative to this file when it starts with \".\" or contains \"/\", and looked up on PATH otherwise. See docs/hooks.md.")
 }
 
-// killAfterPattern is the spelling of a [commands] kill-after: one or more
-// whole numbers each with a unit (ms, s, m or h), as "30s", "5m" or "1m30s".
-// No sign and no fraction, so what time.ParseDuration then reads is exactly
-// what was written.
-var killAfterPattern = regexp.MustCompile(`^([0-9]+(ms|s|m|h))+$`)
+// durationPattern is the spelling of a duration in the config (a [commands]
+// kill-after, a [hooks.timeout] entry): one or more whole numbers each with a
+// unit (ms, s, m or h), as "30s", "5m" or "1m30s". No sign and no fraction,
+// so what time.ParseDuration then reads is exactly what was written.
+var durationPattern = regexp.MustCompile(`^([0-9]+(ms|s|m|h))+$`)
 
 // maxKillAfter caps a [commands] kill-after: an hour is far beyond any
 // graceful stop, and the cap keeps the runner's wait for a stopped command
 // (its kill-after plus a margin) from overflowing a time.Duration.
 const maxKillAfter = time.Hour
 
-// parseKillAfter reads a kill-after spelling, reporting false unless it is
-// well formed, greater than zero and at most maxKillAfter.
-func parseKillAfter(value string) (time.Duration, bool) {
-	if !killAfterPattern.MatchString(value) {
+// maxHookTimeout caps a [hooks.timeout] entry. It is a sanity bound, not
+// derived from anything: a day is longer than any hook should run, and the
+// cap keeps the runner's timer well inside a time.Duration.
+const maxHookTimeout = 24 * time.Hour
+
+// parseDuration reads a duration spelling, reporting false unless it is well
+// formed, greater than zero and at most limit.
+func parseDuration(value string, limit time.Duration) (time.Duration, bool) {
+	if !durationPattern.MatchString(value) {
 		return 0, false
 	}
 	d, err := time.ParseDuration(value)
-	return d, err == nil && d > 0 && d <= maxKillAfter
+	return d, err == nil && d > 0 && d <= limit
+}
+
+// parseKillAfter reads a kill-after spelling, reporting false unless it is
+// well formed, greater than zero and at most maxKillAfter.
+func parseKillAfter(value string) (time.Duration, bool) {
+	return parseDuration(value, maxKillAfter)
+}
+
+// parseHookTimeout reads a [hooks.timeout] spelling, reporting false unless
+// it is well formed, greater than zero and at most maxHookTimeout.
+func parseHookTimeout(value string) (time.Duration, bool) {
+	return parseDuration(value, maxHookTimeout)
 }
 
 // commandsSchema is the [commands] table: any number of entries, each a
@@ -235,7 +275,7 @@ func commandsSchema() *shape.RecordSchema {
 		shape.F("lock", shape.Bool().Default(true).
 			Describe("Hold the worktree's operation lock while the command runs, so `up`, `down` and a second `run` wait. false skips only the lock; it is trusted, not enforced.")),
 		shape.F("kill-after", shape.String().
-			SchemaPattern(killAfterPattern).
+			SchemaPattern(durationPattern).
 			Refine(func(value string) bool { _, ok := parseKillAfter(value); return ok },
 				"must be a duration greater than zero and at most 1h, such as 30s, 5m or 1m30s").
 			Default(DefaultCommandKillAfter).
