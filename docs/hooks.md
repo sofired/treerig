@@ -300,7 +300,10 @@ again.
 
 If a command leaves processes behind that outlast the wait, berth says so
 by name and group: `The apply command left processes running (process group
-4242) after 15s; stop them with kill -KILL -4242.`
+4242) after 15s; stop them with kill -KILL -4242.` If a second interrupt cuts that wait short, the message
+reads instead: `The apply command left processes running (process group 4242),
+and waiting for them was abandoned after a second interrupt; stop them with
+kill -KILL -4242.`
 
 ## `doctor`'s own check
 
