@@ -127,14 +127,99 @@ which cannot be told apart from it.
 Standard output and standard error are streamed to the terminal — both to
 standard error for `verify`, since `doctor`'s standard output is its report.
 Exit zero is success. Any other exit code fails the stage and is preserved as the tool's
-own exit code, so CI sees the same number your script produced.
+own exit code, so CI sees the same number your script produced — except for a
+hook berth stopped for outliving its [`[hooks.timeout]`](#timeouts) limit,
+which exits 124 whatever the hook itself was exiting with.
 
 A hook that cannot be started fails the stage without running, with the
 shell's codes: 127 when the file — or the interpreter on its `#!` line — does
 not exist, 126 when it is not executable or has no `#!` line (berth never
 falls back to running a script through `/bin/sh`, on any platform). A
 hook ended by a signal exits 128 plus the signal number (137 for `SIGKILL`),
-as a shell reports it.
+as a shell reports it. A hook stopped for running past its
+[timeout](#timeouts) exits 124.
+
+## Timeouts
+
+A hook runs without a time limit unless the config gives it one. The limit
+is `[hooks.timeout]`, a table beside the hooks, keyed by the hook's name:
+
+```toml
+[hooks]
+prepare = "./scripts/migrate.sh"
+verify  = "./scripts/check.sh"
+
+[hooks.timeout]
+prepare = "30m"
+verify  = "2m"
+```
+
+Each value is a duration such as `500ms`, `30s`, `10m` or `1h30m`, greater
+than zero and at most `24h`. Every hook kind has a key, `backup` and `restore`
+included, and `berth config show` prints the table as written (leaving the key
+out when the file has none). A limit for a hook the file does not configure is
+accepted and does nothing.
+
+**Why no default.** berth cannot know how long a project's migration or seed
+takes, and a default that fires on a slow but healthy `prepare` kills it
+halfway, which can leave a half-migrated database that is worse than the hang
+it was meant to prevent. So a hook with no entry keeps today's behaviour and
+runs until it exits or the operator interrupts berth. Set a limit where a hang
+is more likely or costs more than a slow run: `verify`, which `doctor` runs
+and which should answer quickly, is the obvious one, and `prepare` and `seed`
+hold the worktree's operation lock the whole time. A limit on `prepare` or
+`seed` longer than 25 minutes outlasts how long another command waits for
+that lock, so a waiting `down` or `up` gives up before the hook does.
+
+**What happens at the limit.** The hook is stopped through the same
+process-group machinery an interrupt uses: its whole group is sent `SIGTERM`,
+then `SIGKILL` ten seconds later, and berth does not go on until nothing is
+left in the group — a child that ignored the `SIGTERM`, or outlived the hook
+that started it, included. Then:
+
+- The hook fails as *timed out*, not as failed: one `[berth] ERROR:` line,
+  `The prepare hook timed out after 30m and was terminated.`, and exit code
+  **124**, what `timeout(1)` reports, whatever the hook itself was exiting
+  with when it was stopped. A hook that fails by itself says
+  `The prepare hook failed (exit N).` and keeps its own code.
+- In `up`, the sequencer stops there as it does for any failure: `seed` does
+  not run after a `prepare` that timed out, the worktree stays pending, and
+  the next `up` runs them again. The worktree's operation lock is released on
+  the way out, as after any other failed hook, so the next command does not
+  wait on it.
+- In `doctor`, the `verify hook` line is `fail` with the same sentence, and
+  `doctor` exits 124.
+
+Stopping takes up to about ten seconds after the limit, the grace before
+`SIGKILL` (longer only if something in the group will not die, see below).
+
+**What it does not stop.** The limit covers the hook's process group *on the
+host*. Work the hook handed to something outside that group keeps running: a
+process started with `setsid`, a container a `docker run` started, and the
+command inside a container that `docker compose exec` or `docker exec` ran —
+berth stops the `docker` client, not the process the daemon started in the
+container. A long migration run that way should carry its own limit inside the
+container, with `[hooks.timeout]` as the slightly longer outer bound:
+
+```toml
+[hooks]
+prepare = "docker compose exec -T api timeout 25m ./bin/migrate"
+
+[hooks.timeout]
+prepare = "27m"
+```
+
+`timeout` inside a container signals only the command it starts, so give it
+the real binary, not a shell script that forks, or `exec` the work from the
+script.
+
+A hook that runs work in a container should also check for, and clear, a run
+left over from a timed-out earlier attempt before it starts another. If
+something in the hook's group will not die even from `SIGKILL`, the error says
+that instead of "timed out" and names the group.
+
+An interrupt of berth itself is a different thing and unchanged: see
+[Cancellation](#cancellation).
 
 ## Commands
 

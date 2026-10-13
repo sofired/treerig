@@ -294,7 +294,8 @@ const drainGrace = 5 * time.Second
 
 // drainGroup returns once pid's whole process group is gone — SIGTERMing
 // whatever it still holds at once, SIGKILLing it after killAfter, and
-// giving up after drainBudget(killAfter, killed) (quiesceBudget for the
+// giving up after budget, which callers take from drainBudget(killAfter,
+// killed) (quiesceBudget for the
 // default killAfter, the same bound Quiesce uses, and always quiesceBudget
 // once a second signal has already SIGKILLed the group) with an error
 // naming the command and pgid — since an interactive child's descendants
@@ -303,7 +304,7 @@ const drainGrace = 5 * time.Second
 // run.Repeated so this package never calls signal.Notify itself, abandons
 // that wait early instead of running out the full budget, with its own,
 // differently worded error.
-func drainGroup(ctx context.Context, pid int, label string, killAfter time.Duration, killed bool) error {
+func drainGroup(ctx context.Context, pid int, label string, killAfter time.Duration, killed bool, budget time.Duration) error {
 	first := syscall.SIGTERM
 	if killed {
 		first = syscall.SIGKILL
@@ -324,7 +325,6 @@ func drainGroup(ctx context.Context, pid int, label string, killAfter time.Durat
 	if killed {
 		repeated = nil
 	}
-	budget := drainBudget(killAfter, killed)
 	deadline := time.Now().Add(budget)
 	for {
 		if gone(target{pid: pid}) {
