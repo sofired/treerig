@@ -760,14 +760,49 @@ func fragmentIdentity(byKey map[string]registry.RegisteredWorktree, fragment rou
 // is now the only thing that can claim a rule at all. dynamicDir is the
 // boundary readFragmentRules checks every fragment path against.
 func routeConflicts(dynamicDir string, fragments []router.FragmentInfo, byKey map[string]registry.RegisteredWorktree) map[string][]string {
+	claims := make([]routeClaim, len(fragments))
+	for i, fragment := range fragments {
+		claims[i] = routeClaim{identity: fragmentIdentity(byKey, fragment), path: fragment.Path}
+	}
+	return conflictsOf(dynamicDir, claims)
+}
+
+// routeClaim is one route file's claim on its rules: the file, and how a
+// report names whoever wrote it.
+type routeClaim struct {
+	identity string
+	path     string
+}
+
+// sharedClaims are the shared services' route files as claims, each named by
+// its service and, when a worktree of its repository is registered, that
+// worktree's hostname; otherwise by the repository's ID.
+func sharedClaims(fragments []router.SharedFragmentInfo, byKey map[string]registry.RegisteredWorktree) []routeClaim {
+	claims := make([]routeClaim, len(fragments))
+	for i, fragment := range fragments {
+		owner := "repository " + fragment.RepositoryID
+		for _, record := range byKey {
+			if record.RepositoryID == fragment.RepositoryID {
+				owner = "the repository of the worktree " + layout.WorktreeHost(record.Slug, record.Domain)
+				break
+			}
+		}
+		claims[i] = routeClaim{identity: fragment.Name + " (shared service of " + owner + ")", path: fragment.Path}
+	}
+	return claims
+}
+
+// conflictsOf is every rule more than one claim's router claims, with the
+// claiming identities, sorted.
+func conflictsOf(dynamicDir string, all []routeClaim) map[string][]string {
 	type claim struct {
 		claimants map[[2]string]bool
 		names     map[string]bool
 	}
 	byRule := map[string]*claim{}
-	for _, fragment := range fragments {
-		identity := fragmentIdentity(byKey, fragment)
-		for _, r := range readFragmentRules(dynamicDir, fragment.Path) {
+	for _, fragment := range all {
+		identity := fragment.identity
+		for _, r := range readFragmentRules(dynamicDir, fragment.path) {
 			entry, ok := byRule[r.rule]
 			if !ok {
 				entry = &claim{claimants: map[[2]string]bool{}, names: map[string]bool{}}
@@ -804,8 +839,12 @@ func routeChecks(state layout.RouterLayout, controlHome, commandName string) ([]
 	if err != nil {
 		return nil, err
 	}
+	sharedFragments, err := router.ListSharedFragments(state)
+	if err != nil {
+		return nil, err
+	}
 	var checks []Check
-	if len(fragments) == 0 {
+	if len(fragments)+len(sharedFragments) == 0 {
 		checks = append(checks, Check{Status: StatusOK, ID: "router.routes", Subject: "routes", Detail: "no route files"})
 	} else {
 		scan, err := registry.ScanRegistrations(controlHome)
@@ -816,14 +855,19 @@ func routeChecks(state layout.RouterLayout, controlHome, commandName string) ([]
 		for _, record := range scan.Records {
 			byKey[record.RepositoryID+"/"+record.WorktreeID] = record
 		}
-		conflicts := routeConflicts(state.DynamicDir, fragments, byKey)
+		claims := make([]routeClaim, 0, len(fragments)+len(sharedFragments))
+		for _, fragment := range fragments {
+			claims = append(claims, routeClaim{identity: fragmentIdentity(byKey, fragment), path: fragment.Path})
+		}
+		claims = append(claims, sharedClaims(sharedFragments, byKey)...)
+		conflicts := conflictsOf(state.DynamicDir, claims)
 		if len(conflicts) == 0 {
 			plural := "s"
-			if len(fragments) == 1 {
+			if len(claims) == 1 {
 				plural = ""
 			}
 			checks = append(checks, Check{Status: StatusOK, ID: "router.routes", Subject: "routes", Detail: fmt.Sprintf(
-				"%d route file%s; no two routers share a rule", len(fragments), plural)})
+				"%d route file%s; no two routers share a rule", len(claims), plural)})
 		} else {
 			rules := make([]string, 0, len(conflicts))
 			for rule := range conflicts {
@@ -855,13 +899,19 @@ func routeChecks(state layout.RouterLayout, controlHome, commandName string) ([]
 // unmatchedDetail describes route files no registration of this control home
 // matches, with the pronouns agreeing with their count, and how to delete
 // them: nothing removes them automatically.
-func unmatchedDetail(names []string, why, dynamicDir string) string {
-	if len(names) == 1 {
-		return fmt.Sprintf("1 route file matches no registration of this control home (%s); %s; nothing removes it. If its worktree is gone, delete it from %s",
-			text.OneLine(names[0], 300), why, dynamicDir)
+func unmatchedDetail(names []string, why, dynamicDir string, shared bool) string {
+	// A shared service's route file is judged against its record, not a
+	// registration, so a list that holds one says both.
+	noun, owners, ownersGone := "registration", "worktree", "worktrees"
+	if shared {
+		noun, owners, ownersGone = "registration or shared-service record", "worktree or shared service", "worktrees or shared services"
 	}
-	return fmt.Sprintf("%d route files match no registration of this control home (%s); %s; nothing removes them. If their worktrees are gone, delete them from %s",
-		len(names), text.OneLine(strings.Join(names, ", "), 300), why, dynamicDir)
+	if len(names) == 1 {
+		return fmt.Sprintf("1 route file matches no %s of this control home (%s); %s; nothing removes it. If its %s is gone, delete it from %s",
+			noun, text.OneLine(names[0], 300), why, owners, dynamicDir)
+	}
+	return fmt.Sprintf("%d route files match no %s of this control home (%s); %s; nothing removes them. If their %s are gone, delete them from %s",
+		len(names), noun, text.OneLine(strings.Join(names, ", "), 300), why, ownersGone, dynamicDir)
 }
 
 // orphanedRoutesChecks warns — never fails, and never removes anything,
@@ -877,6 +927,12 @@ func orphanedRoutesChecks(state layout.RouterLayout, controlHome, commandName st
 	if err != nil {
 		return nil, err
 	}
+	// Shared services' route files are judged against the shared records the
+	// same way (decision 9), and fall into the same three buckets.
+	sharedProblems, err := router.FindSharedRouteProblems(state, controlHomeRegistrations{controlHome: controlHome})
+	if err != nil {
+		return nil, err
+	}
 	var repairable, stale, foreign []string
 	for _, problem := range problems {
 		switch {
@@ -888,13 +944,33 @@ func orphanedRoutesChecks(state layout.RouterLayout, controlHome, commandName st
 			stale = append(stale, filepath.Base(problem.Fragment.Path))
 		}
 	}
+	var staleShared, foreignShared, repairableShared bool
+	for _, problem := range sharedProblems {
+		switch {
+		case problem.Repairable():
+			repairable = append(repairable, problem.Describe())
+			repairableShared = true
+		case problem.Kind == router.RouteUnknownRepository:
+			foreign = append(foreign, filepath.Base(problem.Fragment.Path))
+			foreignShared = true
+		default:
+			stale = append(stale, filepath.Base(problem.Fragment.Path))
+			staleShared = true
+		}
+	}
 	var checks []Check
 	if len(repairable) > 0 {
-		detail := fmt.Sprintf("%d route files disagree with the registrations (%s); the next '%s up' or '%s router up' repairs them",
-			len(repairable), text.OneLine(strings.Join(repairable, "; "), 300), commandName, commandName)
+		// A shared service's file is judged against its record, so a list
+		// that holds one says so.
+		plural, single := "the registrations", "its registration"
+		if repairableShared {
+			plural, single = "their registrations or shared-service records", "its registration or shared-service record"
+		}
+		detail := fmt.Sprintf("%d route files disagree with %s (%s); the next '%s up' or '%s router up' repairs them",
+			len(repairable), plural, text.OneLine(strings.Join(repairable, "; "), 300), commandName, commandName)
 		if len(repairable) == 1 {
-			detail = fmt.Sprintf("1 route file disagrees with its registration (%s); the next '%s up' or '%s router up' repairs it",
-				text.OneLine(repairable[0], 300), commandName, commandName)
+			detail = fmt.Sprintf("1 route file disagrees with %s (%s); the next '%s up' or '%s router up' repairs it",
+				single, text.OneLine(repairable[0], 300), commandName, commandName)
 		}
 		checks = append(checks, Check{Status: StatusWarn, ID: "router.orphaned-routes", Subject: "routes", Detail: detail})
 	}
@@ -903,12 +979,16 @@ func orphanedRoutesChecks(state layout.RouterLayout, controlHome, commandName st
 	// this home knows the repository of is likely stale (a warning); one of a
 	// repository it does not know is likely another control home's (a notice).
 	if len(stale) > 0 {
+		staleWhy := "the repository is known here but no registration holds the worktree, so this file is probably stale"
+		if staleShared {
+			staleWhy = "the repository is known here but no registration or shared-service record holds it, so this file is probably stale"
+		}
 		checks = append(checks, Check{Status: StatusWarn, ID: "router.orphaned-routes", Instance: "unmatched", Subject: "routes",
-			Detail: unmatchedDetail(stale, "the repository is known here but no registration holds the worktree, so this file is probably stale", state.DynamicDir)})
+			Detail: unmatchedDetail(stale, staleWhy, state.DynamicDir, staleShared)})
 	}
 	if len(foreign) > 0 {
 		checks = append(checks, Check{Status: StatusOK, ID: "router.orphaned-routes", Instance: "other-home", Subject: "routes",
-			Detail: unmatchedDetail(foreign, "this control home does not know the repository, so this file probably belongs to another control home", state.DynamicDir)})
+			Detail: unmatchedDetail(foreign, "this control home does not know the repository, so this file probably belongs to another control home", state.DynamicDir, foreignShared)})
 	}
 	return checks, nil
 }
@@ -1317,10 +1397,13 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 				ControlHome: opts.ControlHome, ConfigFile: loaded.File, ProjectRoot: loaded.Root,
 			},
 			Ref: ref, Hooks: loaded.Config.Hooks, Logger: opts.Logger, Runner: opts.Runner, Environ: opts.Environ,
+			ComposeFile: composeFilePath(loaded),
 			// BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28), BERTH_SERVICE_PORT_<NAME> (#119)
 			Routes: verifyRoutes,
 			// BERTH_SHARED_ADDR_<NAME>_<PORT>
 			Shared: sharedAddrsFor(opts.ControlHome, registration.RepositoryID, loaded.Config),
+			// BERTH_SHARED_URL_<NAME>, only with a resolved router port, as above
+			SharedURLs: sharedVerifyURLs(opts, registration.RepositoryID, loaded.Config),
 		}, hooks.RunOptions{Output: hooks.Stderr})
 		if hookErr != nil {
 			var cancelled *clierr.Cancelled
@@ -1730,4 +1813,14 @@ func Doctor(ctx context.Context, env *Env, options OutputOptions) (int, error) {
 		env.Logger.Info(summary.message)
 	}
 	return code, nil
+}
+
+// sharedVerifyURLs are the shared services' routed URLs the verify hook gets:
+// none when the router's port could not be resolved, for the reason the
+// service routes above are left out.
+func sharedVerifyURLs(opts doctorOptions, repositoryID string, cfg config.Config) []worktree.SharedURL {
+	if opts.RouterErr != nil {
+		return nil
+	}
+	return sharedURLsFor(opts.ControlHome, repositoryID, cfg, opts.RouterPort.Port, opts.Logger)
 }

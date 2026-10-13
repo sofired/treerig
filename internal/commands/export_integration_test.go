@@ -24,6 +24,12 @@ func Registrations(controlHome string) router.Registrations {
 	return controlHomeRegistrations{controlHome: controlHome}
 }
 
+// SharedRegistrations is the router.SharedRegistrations a real router reads
+// the repair of shared route files through, over controlHome.
+func SharedRegistrations(controlHome string) router.SharedRegistrations {
+	return controlHomeRegistrations{controlHome: controlHome}
+}
+
 // BestEffortIndex is the Index Up builds.
 func BestEffortIndex(cctx *CommandContext) Index { return bestEffortIndex{cctx} }
 

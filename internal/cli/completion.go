@@ -297,3 +297,12 @@ func commandCompletionFunc(p *program) func(cmd *cobra.Command, args []string, t
 // commandDescriptionMax clamps a command's completion description, which a
 // shell prints beside the name on one line.
 const commandDescriptionMax = 60
+
+// directoryCompletionFunc completes the bundle directory of `backup` and
+// `restore`: directories only, for the first argument, and nothing after it.
+func directoryCompletionFunc(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return noCompletions()
+	}
+	return nil, cobra.ShellCompDirectiveFilterDirs
+}

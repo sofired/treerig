@@ -1,0 +1,16 @@
+Run the restore hook berth.toml declares under [hooks], in this worktree, which
+must be registered and have a running service, with the worktree's BERTH_*
+environment and a bundle directory as its first argument. The directory must
+already exist and is never created; a bundle that a backup did not finish is
+refused. The hook's exit code becomes berth restore's, and the worktree's lock
+is held while it runs. docs/hooks.md has the details.
+
+Usage:
+  berth restore <dir> [flags]
+
+Flags:
+  -h, --help   help for restore
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

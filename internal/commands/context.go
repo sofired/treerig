@@ -29,10 +29,14 @@ type CommandContext struct {
 	CommandName string
 	// Invocation is the command line as invoked, arguments space-joined;
 	// names this process to whoever waits on a lock it holds.
-	Invocation  string
-	Logger      logger.Logger
-	Runner      run.Runner
-	Loaded      *config.Loaded
+	Invocation string
+	Logger     logger.Logger
+	Runner     run.Runner
+	Loaded     *config.Loaded
+	// Cwd is the physical working directory the command was run from; it
+	// anchors a relative bundle directory (backup, restore), since a hook
+	// runs in the project root instead.
+	Cwd         string
 	ControlHome string
 	// UserHome is the checked berth root's own companion value from
 	// checkedHome (home.go): the caller's resolved home directory, handed
@@ -214,6 +218,7 @@ func buildContext(env *Env, loaded *config.Loaded, fallbackRoot string) (*Comman
 		Logger:               env.Logger,
 		Runner:               env.Runner,
 		Loaded:               loaded,
+		Cwd:                  env.Cwd,
 		ControlHome:          controlHome,
 		UserHome:             userHome,
 		Home:                 home,

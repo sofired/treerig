@@ -111,6 +111,15 @@ func TestUpWithContext(t *testing.T) {
 		tc.Loaded.Config.Hooks = config.Hooks{Prepare: ns("./hooks/prepare"), Seed: ns("./hooks/seed")}
 		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
+		// The environment each hook ran with, by stage.
+		hookEnv := map[string][]string{}
+		fallback := w.Runner.Handler
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if strings.HasSuffix(spec.Label, " hook") {
+				hookEnv[spec.Label] = spec.Env
+			}
+			return fallback(ctx, spec)
+		}
 
 		first, err := up(t, tc, router, index, commands.UpOptions{})
 		if err != nil {
@@ -118,6 +127,16 @@ func TestUpWithContext(t *testing.T) {
 		}
 		if want := []config.HookStage{config.Prepare, config.Seed}; !slices.Equal(first.Hooks, want) {
 			t.Fatalf("first Up hooks = %v, want %v", first.Hooks, want)
+		}
+		for _, label := range []string{"prepare hook", "seed hook"} {
+			registration, err := tc.Registry.Current(context.Background())
+			if err != nil || registration == nil {
+				t.Fatalf("registration: %v, %v", registration, err)
+			}
+			want := layout.ComposeProjectName(registration.RepositoryID, registration.WorktreeID)
+			if !slices.Contains(hookEnv[label], "COMPOSE_PROJECT_NAME="+want) {
+				t.Errorf("%s ran without COMPOSE_PROJECT_NAME=%s: %v", label, want, hookEnv[label])
+			}
 		}
 
 		second, err := up(t, tc, router, index, commands.UpOptions{})

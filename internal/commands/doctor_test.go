@@ -15,6 +15,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/commands"
 	"github.com/sofired/berth/internal/commands/commandstest"
+	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/procid"
@@ -302,11 +303,22 @@ func TestDoctorInACheckout(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
 		writeCheckoutConfig(t, w.Root, acme, "echo verify")
-		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		env := doctorEnv(t, w, w.Root)
+		var verifyEnv []string
+		fallback := w.Runner.Handler
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if spec.Label == "verify hook" {
+				verifyEnv = spec.Env
+			}
+			return fallback(ctx, spec)
+		}
 
 		_, report, _ := runDoctor(t, env)
 		wantLine(t, report, "ok", "verify hook", "echo verify exited 0")
+		if want := "COMPOSE_PROJECT_NAME=" + layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID); !slices.Contains(verifyEnv, want) {
+			t.Errorf("verify hook ran without %s: %v", want, verifyEnv)
+		}
 	})
 
 	t.Run("fails a verify hook that exits non-zero, and keeps its code", func(t *testing.T) {

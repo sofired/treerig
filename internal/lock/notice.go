@@ -104,6 +104,9 @@ func (l *Lock) advice(rec *Record, now time.Time, final bool, holding []procid.P
 	if rec != nil {
 		action = fmt.Sprintf("Wait for it to finish, or stop it (`kill %d`)", rec.PID)
 	}
+	if l.scope.EndHint != "" && rec != nil && isVerb(rec.Command, l.scope.EndHintWord) {
+		action = l.scope.EndHint
+	}
 	if final {
 		action += ", then retry"
 	}
@@ -156,4 +159,13 @@ func (e *BusyError) As(target any) bool {
 		return true
 	}
 	return false
+}
+
+// isVerb reports whether command, a recorded invocation ("berth dev"), runs
+// the verb word: its second field, after the program name. An argument that
+// merely equals the verb (a worktree named dev) does not count, nor does a
+// verb placed after a global flag, which gets the generic advice.
+func isVerb(command, word string) bool {
+	fields := strings.Fields(command)
+	return len(fields) >= 2 && fields[1] == word
 }

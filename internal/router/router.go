@@ -177,6 +177,9 @@ type Options struct {
 	// Registrations looks up one worktree's record for route repair; nil
 	// skips the repair.
 	Registrations Registrations
+	// SharedRegistrations looks up one shared service's record for the
+	// repair of its route file; nil skips that repair.
+	SharedRegistrations SharedRegistrations
 	// PortRange is where the index and ping ports are allocated from; the
 	// zero value means layout.DefaultPortRange.
 	PortRange layout.PortRange
@@ -215,6 +218,7 @@ type Router struct {
 	home           string
 	controlHome    string
 	registrations  Registrations
+	sharedRegs     SharedRegistrations
 	portRange      layout.PortRange
 	probe          ports.Probe
 	modeOverride   string
@@ -261,6 +265,7 @@ func New(options Options) (*Router, error) {
 		home:           options.Home,
 		controlHome:    options.ControlHome,
 		registrations:  options.Registrations,
+		sharedRegs:     options.SharedRegistrations,
 		portRange:      portRange,
 		probe:          options.Probe,
 		modeOverride:   options.ModeOverride,
@@ -829,14 +834,22 @@ func (r *Router) Ensure(ctx context.Context) error {
 // repairRoutes is RepairRoutes over this router's own state, reporting what
 // it repaired; a Router built without Registrations repairs nothing.
 func (r *Router) repairRoutes(ctx context.Context) error {
-	if r.registrations == nil {
-		return nil
+	var failure error
+	if r.registrations != nil {
+		repaired, err := RepairRoutes(ctx, r.state, r.registrations)
+		for _, problem := range repaired {
+			r.logger.Info(fmt.Sprintf("Repaired a route file: %s", problem.Describe()))
+		}
+		failure = err
 	}
-	repaired, err := RepairRoutes(ctx, r.state, r.registrations)
-	for _, problem := range repaired {
-		r.logger.Info(fmt.Sprintf("Repaired a route file: %s", problem.Describe()))
+	if r.sharedRegs != nil && ctx.Err() == nil {
+		repaired, err := RepairSharedRoutes(ctx, r.state, r.sharedRegs)
+		for _, problem := range repaired {
+			r.logger.Info(fmt.Sprintf("Repaired a route file: %s", problem.Describe()))
+		}
+		failure = errors.Join(failure, err)
 	}
-	return err
+	return failure
 }
 
 // start runs `compose up --detach --wait --remove-orphans`. A failed start

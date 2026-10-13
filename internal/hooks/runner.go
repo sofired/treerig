@@ -49,10 +49,16 @@ type HookContext struct {
 	// Routes is this worktree's declared service routes, for
 	// worktree.ServiceURLVariables (#28); nil gives a hook neither variable.
 	Routes []worktree.ServiceRoute
+	// ComposeFile is the absolute path of the project's Compose file; empty
+	// leaves COMPOSE_FILE alone. See environment.
+	ComposeFile string
 	// Shared is the repository's pinned shared-service addresses, for
 	// worktree.SharedAddrVariables (docs/design/routing.md, decision 20); nil
 	// gives a hook none.
 	Shared []worktree.SharedAddr
+	// SharedURLs are the routed web UIs of the repository's shared services,
+	// for worktree.SharedURLVariables; nil gives a hook none.
+	SharedURLs []worktree.SharedURL
 }
 
 // RunOptions configures one hook run.
@@ -99,17 +105,33 @@ var (
 // kind's variable, see kind.
 func environment(hctx HookContext, k kind, name string) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{k.own, name})
+	// The worktree's own Compose project (BERTH_COMPOSE_PROJECT, derived once
+	// in worktree.Environment), under Compose's own variable too, so a hook's
+	// `docker compose exec` reaches this worktree's containers and not the
+	// project Compose would name after the directory. COMPOSE_FILE is the
+	// configured file, which Compose otherwise looks for as compose.yaml
+	// beside berth.toml.
+	var composeVars []string
+	for _, pair := range pairs {
+		if pair[0] == worktree.ComposeProjectKey {
+			composeVars = append(composeVars, "COMPOSE_PROJECT_NAME="+pair[1])
+		}
+	}
+	if hctx.ComposeFile != "" {
+		composeVars = append(composeVars, "COMPOSE_FILE="+hctx.ComposeFile)
+	}
 	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
 	pairs = append(pairs, worktree.SharedAddrVariables(hctx.Shared)...)
+	pairs = append(pairs, worktree.SharedURLVariables(hctx.SharedURLs)...)
 	inherited := make([]string, 0, len(hctx.Environ))
 	for _, entry := range hctx.Environ {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || key == k.foreign {
+		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
 			continue
 		}
 		inherited = append(inherited, entry)
 	}
-	return mergeEnviron(inherited, worktree.Variables(pairs)...)
+	return mergeEnviron(inherited, append(worktree.Variables(pairs), composeVars...)...)
 }
 
 // mergeEnviron overlays extra onto environ, later names replacing earlier

@@ -188,7 +188,7 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 		State: state, Port: w.port, Runner: w.env.Runner, Logger: logger.Silent{},
 		ProjectName: project, LabelNamespace: w.namespace, Environ: os.Environ(),
 		CommandName: "berth", Home: home, ControlHome: w.controlHome,
-		Registrations: commands.Registrations(w.controlHome), PortRange: walkRouterRange,
+		Registrations: commands.Registrations(w.controlHome), SharedRegistrations: commands.SharedRegistrations(w.controlHome), PortRange: walkRouterRange,
 		ClientOS: runtime.GOOS,
 	})
 	if err != nil {

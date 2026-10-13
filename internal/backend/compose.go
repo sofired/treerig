@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -250,6 +251,47 @@ func (c *Compose) Down(ctx context.Context, ref worktree.Ref) error {
 		return nil
 	}
 	return run.Failure(run.Spec{Command: "docker", Args: c.composeArgs(ref, args, nil), Timeout: spec.Timeout}, result)
+}
+
+// LogTail is how many lines of each container's history Logs shows before it
+// follows: enough to see how the services just came up, not a long-running
+// project's whole past.
+const LogTail = 100
+
+// Logs follows the logs of every container of the worktree's project:
+// `docker compose logs --follow --tail 100`, through the project name alone,
+// as Down does. The follower is run Interactive: output goes straight to
+// this process's own streams, nothing is captured (a follow has no end to
+// bound a capture by), and the follower gets its own process group, which
+// the runner drains whenever Logs returns, so nothing it started outlives the
+// call.
+//
+// Whether Compose's follower ends when the project's containers go away
+// varies: on Compose 5.5.0 it has been seen to keep waiting for new
+// containers when a `restart: always` service had restarted under it (it
+// depends on where in the restart cycle the containers were removed), and
+// otherwise to exit 0 once they are gone; Compose 2.38.2 always exits. So the
+// caller cannot count on it ending, or on it staying. The Result is
+// returned whatever the follower's exit, for the caller to judge: Logs knows
+// nothing of what ending means. A follower this process cancelled by a signal
+// comes back as that cancellation's error, with no Result.
+func (c *Compose) Logs(ctx context.Context, ref worktree.Ref) (run.Result, error) {
+	args := []string{"logs", "--follow", "--tail", strconv.Itoa(LogTail)}
+	return c.compose(ctx, ref, args, nil, run.Spec{AllowFailure: true, Output: run.Interactive, Label: "log follower"})
+}
+
+// HasContainers reports whether the worktree's project has any container at
+// all, running or not: `docker compose ps --all --quiet`, bounded like the
+// other probes.
+func (c *Compose) HasContainers(ctx context.Context, ref worktree.Ref) (bool, error) {
+	result, err := c.compose(ctx, ref, []string{"ps", "--all", "--quiet"}, nil, run.Spec{AllowFailure: true, Timeout: c.timeouts.Probe})
+	if err != nil {
+		return false, err
+	}
+	if result.ExitCode != 0 {
+		return false, clierr.Newf("Compose could not list containers:\n%s", firstNonEmpty(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout)))
+	}
+	return strings.TrimSpace(result.Stdout) != "", nil
 }
 
 // Status lists every declared service, absent when it has no container at all.
