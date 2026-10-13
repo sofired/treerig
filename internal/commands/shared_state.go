@@ -195,8 +195,8 @@ func sharedAddrsFor(controlHome, repositoryID string, cfg config.Config) []workt
 }
 
 // definedByHost names the worktree that started a shared container, from the
-// UUID on its label: its hostname, or "a removed worktree" when it is no
-// longer registered.
+// UUID on its label: its hostname, or "a removed worktree" when the UUID is
+// empty or its registration is missing or unreadable.
 func definedByHost(cctx *CommandContext, repositoryID, worktreeID string) string {
 	const removed = "a removed worktree"
 	if worktreeID == "" {
