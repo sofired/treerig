@@ -53,6 +53,9 @@ type HookContext struct {
 	// worktree.SharedAddrVariables (docs/design/routing.md, decision 20); nil
 	// gives a hook none.
 	Shared []worktree.SharedAddr
+	// SharedURLs are the routed web UIs of the repository's shared services,
+	// for worktree.SharedURLVariables; nil gives a hook none.
+	SharedURLs []worktree.SharedURL
 }
 
 // RunOptions configures one hook run.
@@ -98,10 +101,11 @@ func environment(hctx HookContext, k kind, name string) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{k.own, name})
 	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
 	pairs = append(pairs, worktree.SharedAddrVariables(hctx.Shared)...)
+	pairs = append(pairs, worktree.SharedURLVariables(hctx.SharedURLs)...)
 	inherited := make([]string, 0, len(hctx.Environ))
 	for _, entry := range hctx.Environ {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || key == k.foreign {
+		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
 			continue
 		}
 		inherited = append(inherited, entry)

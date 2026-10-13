@@ -232,7 +232,7 @@ func TestSharedServicesOnARealDaemon(t *testing.T) {
 		if again := w.sharedIDs(t, "ps", "-aq"); len(again) != 1 || again[0] != shared {
 			t.Fatalf("up recreated it: %v", again)
 		}
-		err := commands.SharedUpWithContext(ctx, cctx, commands.SharedUpOptions{})
+		err := commands.SharedUpWithContext(ctx, cctx, nil, nil, commands.SharedUpOptions{})
 		if err == nil || !strings.Contains(err.Error(), "different definition") {
 			t.Fatalf("shared up: %v", err)
 		}
@@ -241,7 +241,7 @@ func TestSharedServicesOnARealDaemon(t *testing.T) {
 	t.Run("shared up --recreate replaces it, keeps its data, and reconnects both worktrees", func(t *testing.T) {
 		volumes := w.sharedIDs(t, "volume", "ls", "-q")
 		cctx := w.contextFor(t, &w.secondEnv)
-		if err := commands.SharedUpWithContext(ctx, cctx, commands.SharedUpOptions{Names: []string{"mailpit"}, Recreate: true}); err != nil {
+		if err := commands.SharedUpWithContext(ctx, cctx, nil, nil, commands.SharedUpOptions{Names: []string{"mailpit"}, Recreate: true}); err != nil {
 			t.Fatalf("shared up --recreate: %v", err)
 		}
 		again := w.sharedIDs(t, "ps", "-aq")

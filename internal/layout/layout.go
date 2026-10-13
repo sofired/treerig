@@ -418,3 +418,17 @@ func (s Shared) RecordPath(name string) string {
 
 // WorktreeHost is the routed hostname, <slug>.<domain>.
 func WorktreeHost(slug, domain string) string { return slug + "." + domain }
+
+// SharedHostLabel is the one DNS label under a project's domain that holds
+// its repository's shared services (<name>.shared.<domain>). The slug
+// allocator reserves it (registry.ReservedSlug), so no worktree's own
+// hostname can be shared.<domain> or sit beneath it. A storage name: it is
+// part of every shared route file's rule.
+const SharedHostLabel = "shared"
+
+// SharedHost is the routed hostname of a shared service's web UI,
+// <name>.shared.<domain> (docs/design/routing.md, decision 19), with the
+// domain recorded when the service's first port was allocated.
+func SharedHost(name, domain string) string {
+	return name + "." + SharedHostLabel + "." + domain
+}

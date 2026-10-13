@@ -74,10 +74,10 @@ port      = 4000        # container port to route to; defaults to the first port
 file = "docker/compose.shared.yaml"   # relative to this file
 
 [shared.service.mailpit]               # a service in that file; also the alias
-port    = 8025                         # optional: the web UI's container port
+port    = 8025                         # optional: the web UI's container port, routed at mailpit.shared.<domain>
 ports   = [1025]                       # optional: more container ports, for processes on the host
 # Each of those is published on a pinned 127.0.0.1 port: a hook gets it as
-# BERTH_SHARED_ADDR_MAILPIT_1025.
+# BERTH_SHARED_ADDR_MAILPIT_1025, and the web UI's URL as BERTH_SHARED_URL_MAILPIT.
 used-by = ["api"]                      # this worktree's Compose services that use it
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ package router
 //	<repository-uuid>.<worktree-uuid>.<service>.yaml   a worktree's routed service
 //	index.yaml                                         the checkout index
 //	host.<...>.yaml                                    reserved: host routes (#6)
-//	shared.<...>.yaml                                  reserved: shared services (#123)
+//	shared.<repository-uuid>.<name>.yaml               a shared service's routed web UI (shared_routes.go)
 //
 // ListFragments and RemoveWorktreeFragments match the first form only: the
 // reserved prefixes are not UUIDs, so a service sweep never matches them.

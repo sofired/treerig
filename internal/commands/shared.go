@@ -40,7 +40,21 @@ func SharedUp(ctx context.Context, env *Env, options SharedUpOptions) error {
 	if err != nil {
 		return err
 	}
-	return SharedUpWithContext(ctx, cctx, options)
+	// The router is built only when a selected service has a web UI to route:
+	// building it reads settings.toml's range and mode, which a service with
+	// nothing to route must not fail on. From the context's own resolution of
+	// the berth root and port, as Up's is, so the router `shared up` ensures
+	// and the URL it reports never read settings.toml separately. A selection
+	// that is wrong is reported by SharedUpWithContext.
+	var routerSvc Router
+	if selected, err := selectShared(cctx.Loaded.Config, options.Names); err == nil && anyRouted(selected) {
+		svc, err := routerServiceWith(env, cctx.Home, cctx.RouterState, cctx.RouterPortResolution)
+		if err != nil {
+			return err
+		}
+		routerSvc = sharedRouter{env: env, svc: svc, state: cctx.RouterState}
+	}
+	return SharedUpWithContext(ctx, cctx, routerSvc, bestEffortIndex{cctx}, options)
 }
 
 // selectShared are the declared shared services options names, or all of
@@ -94,7 +108,13 @@ func runningHint(ctx context.Context, cctx *CommandContext, repositoryID string)
 // worktree's and is therefore left alone. That is refused, without
 // --recreate, after the reconnecting, with a non-zero exit; nothing running
 // is ever restarted otherwise.
-func SharedUpWithContext(ctx context.Context, cctx *CommandContext, options SharedUpOptions) error {
+//
+// A routed web UI is only reachable through the proxy, so when any selected
+// service declares one routerSvc is ensured first, as `up` does, and the
+// route file is written under the shared lock once the service is up; the
+// checkout index is refreshed afterwards, with the lock released. A nil
+// routerSvc or index skips its part, for a caller with no router.
+func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, index Index, options SharedUpOptions) error {
 	cfg := cctx.Loaded.Config
 	services, err := selectShared(cfg, options.Names)
 	if err != nil {
@@ -124,9 +144,19 @@ func SharedUpWithContext(ctx context.Context, cctx *CommandContext, options Shar
 			cctx.CommandName, runningHint(ctx, cctx, ref.RepositoryID))
 	}
 
+	if routerSvc != nil && anyRouted(services) {
+		if err := routerSvc.Ensure(ctx); err != nil {
+			return err
+		}
+	}
+
 	outcome, ensureErr := ensureShared(ctx, cctx, ref.RepositoryID, namespace, sharedPlan{
 		Services: services, Recreate: options.Recreate, Strict: true, Reallocate: moves, DefinedBy: ref.WorktreeID,
 	})
+	if ensureErr == nil && index != nil && anyRouted(services) {
+		// The shared lock is released, and the index takes the router's alone.
+		index.RefreshBestEffort(ctx, "shared up")
+	}
 	for _, name := range outcome.Reused {
 		if !slices.ContainsFunc(outcome.Differs, func(line string) bool { return strings.HasPrefix(line, name+" ") }) {
 			cctx.Logger.Info(fmt.Sprintf("Shared service %s is already running with this definition.", name))
@@ -171,6 +201,10 @@ type SharedStatusEntry struct {
 	// Detail is "unhealthy" for a running service failing its health check,
 	// and Docker's reason for an unknown state.
 	Detail string `json:"detail,omitempty"`
+	// URL is where the proxy serves the service's web UI,
+	// http://<name>.shared.<domain>, from its record; absent when the
+	// service has no routed port.
+	URL string `json:"url,omitempty"`
 	// Addrs are the pinned loopback addresses of the declared ports.
 	Addrs []SharedStatusAddr `json:"addrs"`
 	// Definition is "current" when the running instance was started from the
@@ -246,6 +280,9 @@ func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, wor
 			cctx.Logger.Warn(fmt.Sprintf("Could not read the record of %s's pinned ports, so its addresses are left out: %s", service.Name, text.OneLine(recordErr.Error(), 300)))
 		}
 		if record != nil {
+			if record.Host() != "" {
+				entry.URL = worktree.NewSharedURL(record.Name, record.Domain, cctx.RouterPort).URL
+			}
 			for _, container := range service.ContainerPorts() {
 				if host := record.HostPort(container); host != 0 {
 					entry.Addrs = append(entry.Addrs, SharedStatusAddr{Port: container, Addr: loopbackAddr(host)})
@@ -334,6 +371,15 @@ func renderShared(statuses []SharedStatusEntry, indent string) []string {
 			line += "  (" + strings.Join(notes, ", ") + ")"
 		}
 		lines = append(lines, text.Printable(line))
+		if entry.URL != "" {
+			note := ""
+			if entry.State == string(shared.Absent) || entry.State == string(shared.Stopped) {
+				// Its route file is gone or answers 502; the address is only
+				// where it will be once it runs.
+				note = " (not running)"
+			}
+			lines = append(lines, text.Printable(fmt.Sprintf("%s  url %s%s", indent, entry.URL, note)))
+		}
 		for _, addr := range entry.Addrs {
 			lines = append(lines, fmt.Sprintf("%s  container port %d -> %s", indent, addr.Port, addr.Addr))
 		}
@@ -479,6 +525,38 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 		return err
 	}
 	if confirmed.empty() {
+		// Nothing of the stack is left to remove, but a route file can be:
+		// the container was stopped or removed some other way, and the
+		// hostname would answer 502. Unrouted under the lock, and only if the
+		// plan is still empty there: a `shared up` that started and routed a
+		// service since the plan was made must keep its route.
+		names := routeNamesFor(cctx, repositoryID, options.Names)
+		removed := false
+		err := cctx.holdShared(ctx, repositoryID, func(ctx context.Context) error {
+			if !hadRoute(cctx, repositoryID, names) {
+				return nil
+			}
+			again, err := planSharedDown(ctx, stack, cctx, repositoryID, options)
+			if err != nil {
+				return err
+			}
+			if !again.empty() {
+				return clierr.Newf("A shared service started while '%s shared down' was deciding. Nothing was removed; run it again.", cctx.CommandName)
+			}
+			idle, err := idleServices(ctx, stack, names)
+			if err != nil {
+				return err
+			}
+			removed = hadRoute(cctx, repositoryID, idle)
+			return unrouteShared(cctx, repositoryID, idle)
+		})
+		if err != nil {
+			return err
+		}
+		if removed {
+			refreshIndexBestEffort(ctx, cctx, "shared down")
+			cctx.Logger.Info("Removed the route files of shared services that were not running.")
+		}
 		cctx.Logger.Info(empty)
 		return nil
 	}
@@ -492,7 +570,8 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 		}
 	}
 
-	return cctx.holdShared(ctx, repositoryID, func(ctx context.Context) error {
+	unrouted := false
+	err = cctx.holdShared(ctx, repositoryID, func(ctx context.Context) error {
 		// The lock was free while the prompt was up: planned again, and
 		// every resource verified again, under it.
 		plan, err := planSharedDown(ctx, stack, cctx, repositoryID, options)
@@ -507,6 +586,22 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 			}
 		}
 		services := plan.services()
+		// Unrouted before anything is stopped, as a worktree's routes are
+		// before its teardown: no hostname keeps routing to a port nothing is
+		// about to listen on. The route files of the services whose records
+		// are released go with them.
+		// A declared service named (or all of them, unnamed) is unrouted too
+		// when its container is already gone: stopped or removed another way,
+		// its file would still send the hostname to nothing.
+		idle, err := idleServices(ctx, stack, routeNamesFor(cctx, repositoryID, options.Names))
+		if err != nil {
+			return err
+		}
+		gone := slices.Concat(services, plan.released, idle)
+		unrouted = hadRoute(cctx, repositoryID, gone) || hasRoutedRecord(cctx, repositoryID, gone)
+		if err := unrouteShared(cctx, repositoryID, gone); err != nil {
+			return err
+		}
 		consumers, err := stack.Consumers(ctx, services)
 		if err != nil {
 			return err
@@ -548,6 +643,12 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 		}
 		return nil
 	})
+	// After the shared lock is released: the index takes the router's lock,
+	// which is never nested in another (decision 18).
+	if err == nil && unrouted {
+		refreshIndexBestEffort(ctx, cctx, "shared down")
+	}
+	return err
 }
 
 // checkServiceName refuses a name that cannot be a shared service's, before

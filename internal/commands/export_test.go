@@ -24,6 +24,7 @@ func SharedDoctorForTest(ctx context.Context, cctx *CommandContext) ([]Check, er
 		CommandName: cctx.CommandName, ControlHome: cctx.ControlHome, UserHome: cctx.UserHome,
 		Runner: cctx.Runner, Logger: cctx.Logger, Environ: cctx.Environ, PortProbe: cctx.PortProbe,
 		Checkout: checkoutIsLoaded(cctx.Loaded), DockerAnswered: true,
+		RouterState: cctx.RouterState, RouterPort: cctx.RouterPortResolution,
 	}
 	return sharedSection(ctx, opts)
 }

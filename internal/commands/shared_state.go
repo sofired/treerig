@@ -218,7 +218,9 @@ func pinSharedPorts(ctx context.Context, cctx *CommandContext, repositoryID stri
 	if err != nil {
 		return registry.SharedPortResult{}, err
 	}
+	routed := sharedRoutedPort(service)
 	return cctx.Registry.Store(repositoryID).SyncSharedPorts(ctx, cctx.writer(), registry.SharedPortPlan{
+		Routed:     &routed,
 		Name:       service.Name,
 		Domain:     cctx.Loaded.Config.Project.Domain,
 		Ports:      service.ContainerPorts(),

@@ -37,10 +37,30 @@ type SharedRecord struct {
 	// Name is the service's name: the file's own name without .json.
 	Name string
 	// Domain is the project domain at the time the first port was
-	// allocated. The routed UI of a later change builds its hostname from it.
+	// allocated. The web UI's hostname, <name>.shared.<domain>, is built
+	// from it (layout.SharedHost), and it is what two repositories' routed
+	// services of the same name conflict on.
 	Domain string
 	// Ports maps each container port to its pinned host port on 127.0.0.1.
 	Ports map[int]int
+	// Routed is the container port of the web UI the proxy routes to, one of
+	// Ports' keys; 0 when the service has none. It lives in the record, not
+	// only in berth.toml, so route repair, `doctor` and the checkout index
+	// can judge a route file from the record alone, as they judge a
+	// worktree's from its registration.
+	Routed int
+}
+
+// RoutedHostPort is the host port the web UI is published on, or 0 when the
+// service has no routed port.
+func (r SharedRecord) RoutedHostPort() int { return r.Ports[r.Routed] }
+
+// Host is the routed hostname of the service's web UI, or "" when it has none.
+func (r SharedRecord) Host() string {
+	if r.RoutedHostPort() == 0 {
+		return ""
+	}
+	return layout.SharedHost(r.Name, r.Domain)
 }
 
 // HostPort is the host port pinned to container port, or 0 when none is.
@@ -53,6 +73,7 @@ type sharedRecordJSON struct {
 	Name    string         `json:"name"`
 	Domain  string         `json:"domain"`
 	Ports   map[string]int `json:"ports"`
+	Routed  int            `json:"routed,omitempty"`
 }
 
 // recordForShared is the one shared-record builder. It is total over
@@ -65,7 +86,7 @@ func recordForShared(record SharedRecord) sharedRecordJSON {
 	for container, host := range record.Ports {
 		written[strconv.Itoa(container)] = host
 	}
-	return sharedRecordJSON{Version: 1, Name: record.Name, Domain: record.Domain, Ports: written}
+	return sharedRecordJSON{Version: 1, Name: record.Name, Domain: record.Domain, Ports: written, Routed: record.Routed}
 }
 
 // rawSharedRecord is the on-disk shape, decoded strictly: an unknown key is a
@@ -75,11 +96,13 @@ type rawSharedRecord struct {
 	Name    *string        `json:"name"`
 	Domain  *string        `json:"domain"`
 	Ports   map[string]int `json:"ports"`
+	Routed  *int           `json:"routed"`
 }
 
 // parseSharedRecordJSON validates data as a shared-service record: version 1,
 // a service name, a non-empty domain, and ports mapping container ports to
-// host ports, each 1 to 65535, with no host port used twice. It returns the
+// host ports, each 1 to 65535, with no host port used twice, and an optional
+// routed port that is one of the container ports. It returns the
 // record without its repository ID.
 func parseSharedRecordJSON(data []byte) (SharedRecord, error) {
 	if !json.Valid(data) {
@@ -104,6 +127,12 @@ func parseSharedRecordJSON(data []byte) (SharedRecord, error) {
 		}
 		used[value] = true
 		record.Ports[container] = value
+	}
+	if raw.Routed != nil {
+		if _, held := record.Ports[*raw.Routed]; !held {
+			return SharedRecord{}, errUnrecognizedShape
+		}
+		record.Routed = *raw.Routed
 	}
 	return record, nil
 }
@@ -269,6 +298,12 @@ type SharedPortPlan struct {
 	Probe ports.Probe
 	// Reserved are ports the caller says are taken though no record holds them.
 	Reserved []int
+	// Routed sets the record's routed port: nil leaves it as it is, a
+	// pointer to 0 says the service has no web UI, and any other value is
+	// the container port of the UI, which must be pinned once the call has
+	// run. Making a service routed is refused when another repository
+	// already routes a shared service of the same name on the same domain.
+	Routed *int
 }
 
 // SharedPortResult is what SyncSharedPorts did.
@@ -314,9 +349,11 @@ func (s *Store) SyncSharedPorts(ctx context.Context, writer Writer, plan SharedP
 		}
 		current := map[int]int{}
 		domain := plan.Domain
+		currentRouted := 0
 		if stored != nil {
 			current = stored.Ports
 			domain = stored.Domain
+			currentRouted = stored.Routed
 		}
 		next := maps.Clone(current)
 		result = SharedPortResult{Allocated: map[int]int{}, Moved: map[int]int{}, Released: map[int]int{}}
@@ -334,6 +371,21 @@ func (s *Store) SyncSharedPorts(ctx context.Context, writer Writer, plan SharedP
 				if !wanted[container] {
 					result.Released[container] = host
 					delete(next, container)
+				}
+			}
+		}
+		nextRouted := currentRouted
+		if _, kept := next[nextRouted]; !kept {
+			nextRouted = 0
+		}
+		if plan.Routed != nil {
+			nextRouted = *plan.Routed
+			if nextRouted != 0 && !wanted[nextRouted] && current[nextRouted] == 0 {
+				return clierr.Newf("Shared service %s: container port %d is not one it declares, so it cannot be its routed port.", plan.Name, nextRouted)
+			}
+			if nextRouted != 0 && currentRouted == 0 {
+				if err := s.refuseRoutedConflict(plan.Name, domain); err != nil {
+					return err
 				}
 			}
 		}
@@ -364,17 +416,56 @@ func (s *Store) SyncSharedPorts(ctx context.Context, writer Writer, plan SharedP
 		}
 
 		result.Ports = next
-		if len(result.Allocated) == 0 && len(result.Released) == 0 {
+		if len(result.Allocated) == 0 && len(result.Released) == 0 && nextRouted == currentRouted {
 			return nil
 		}
 		return files.AtomicJSON(file, recordForShared(SharedRecord{
-			RepositoryID: s.RepositoryID, Name: plan.Name, Domain: domain, Ports: next,
+			RepositoryID: s.RepositoryID, Name: plan.Name, Domain: domain, Ports: next, Routed: nextRouted,
 		}))
 	})
 	if err != nil {
 		return SharedPortResult{}, err
 	}
 	return result, nil
+}
+
+// refuseRoutedConflict refuses to route the shared service called name on
+// domain when another repository of this control home already routes one of
+// the same name there: both would claim <name>.shared.<domain>, and the
+// second to be allocated is the one refused, naming the first
+// (docs/design/routing.md, decision 19). A record that cannot be read refuses
+// too, since it may be the first. Domains compare case-insensitively, as
+// hostnames do.
+func (s *Store) refuseRoutedConflict(name, domain string) error {
+	records, problems, err := ScanSharedRecords(s.ControlHome)
+	if err != nil {
+		return err
+	}
+	if len(problems) > 0 {
+		return refuseUnreadable("a routed shared service",
+			"a record that cannot be read may already route "+layout.SharedHost(name, domain)+".", problems)
+	}
+	for _, other := range records {
+		if other.RepositoryID == s.RepositoryID || other.Name != name || other.Routed == 0 || !strings.EqualFold(other.Domain, domain) {
+			continue
+		}
+		return clierr.Newf(
+			"Cannot route shared service %s at %s: %s already routes a shared service of that name there. "+
+				"Rename one of the two services. (If the other is no longer wanted, 'shared down --volumes' run there deletes its record and so releases the name.)",
+			name, layout.SharedHost(name, domain), s.describeRepository(other.RepositoryID))
+	}
+	return nil
+}
+
+// describeRepository names a repository for a message: "the repository of
+// <host>" after its first registered worktree, or its ID when this control
+// home holds none.
+func (s *Store) describeRepository(repositoryID string) string {
+	registered, err := NewStore(s.ControlHome, repositoryID).List()
+	if err != nil || len(registered) == 0 {
+		return "repository " + repositoryID
+	}
+	return "the repository of the worktree " + layout.WorktreeHost(registered[0].Slug, registered[0].Domain)
 }
 
 // RemoveSharedRecord releases a shared service's pinned ports by deleting its

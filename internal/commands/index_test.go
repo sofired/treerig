@@ -263,3 +263,43 @@ func TestRefreshIndexJSON(t *testing.T) {
 		t.Fatalf("stdout does not start a JSON object (the text form?): %q", printed[0])
 	}
 }
+
+// TestIndexReportListsSharedServices pins `index --json`'s additive "shared"
+// array: absent when there are no routed shared UIs, and otherwise one entry
+// each, with "available" present only when Docker was asked.
+func TestIndexReportListsSharedServices(t *testing.T) {
+	snapshot := checkoutindex.IndexSnapshot{DockerReachable: true}
+	none, err := text.SafeJSON(indexReport(snapshot, "u"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(none, `"shared"`) {
+		t.Fatalf("shared must be absent when there are none:\n%s", none)
+	}
+
+	snapshot.Shared = []checkoutindex.IndexSharedService{{
+		RepositoryID: routeRepo, Name: "mailpit", Project: "acme", Domain: "acme.localhost",
+		Host: "mailpit.shared.acme.localhost", URL: "http://mailpit.shared.acme.localhost", Available: true,
+	}}
+	out, err := text.SafeJSON(indexReport(snapshot, "u"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report IndexReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Shared) != 1 || report.Shared[0].Service != "mailpit" || report.Shared[0].URL != "http://mailpit.shared.acme.localhost" ||
+		report.Shared[0].Available == nil || !*report.Shared[0].Available {
+		t.Fatalf("shared = %+v", report.Shared)
+	}
+
+	snapshot.DockerReachable = false
+	unchecked, err := text.SafeJSON(indexReport(snapshot, "u"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(unchecked, "available") {
+		t.Fatalf("available must be absent when Docker was not reachable:\n%s", unchecked)
+	}
+}

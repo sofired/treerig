@@ -130,7 +130,7 @@
             "properties": {
               "port": {
                 "type": "integer",
-                "description": "Container port of the service's web UI, published on a pinned loopback port: BERTH_SHARED_ADDR_<NAME>_<PORT> names the address. Omit if the service has no web UI.",
+                "description": "Container port of the service's web UI, published on a pinned loopback port and routed at <name>.shared.<domain> (BERTH_SHARED_URL_<NAME> is its URL; BERTH_SHARED_ADDR_<NAME>_<PORT> names the pinned address). Omit if the service has no web UI.",
                 "minimum": 1,
                 "maximum": 65535
               },

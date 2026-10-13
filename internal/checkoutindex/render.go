@@ -248,6 +248,50 @@ func renderRow(entry IndexEntry, unchecked bool) string {
 		escapeHTML(string(entry.Status)), statusLabels[entry.Status], guidance, services)
 }
 
+// renderSharedSection is the page's group of shared-service web UIs, beneath
+// the checkouts: one row per routed service, with the project it belongs to
+// and a link to its address. unchecked means Docker could not be asked, so a
+// link is shown live rather than greyed out, as for a checkout's services. It
+// is empty when there are none, so a page without shared services is
+// unchanged.
+func renderSharedSection(services []IndexSharedService, unchecked bool) string {
+	if len(services) == 0 {
+		return ""
+	}
+	rows := make([]string, len(services))
+	for i, service := range services {
+		contents := fmt.Sprintf(`<span class="service-label">%s</span><span class="service-purpose">%s</span>`,
+			escapeHTML(service.Name), escapeHTML(service.Host))
+		link := ""
+		if unchecked || service.Available {
+			note := ""
+			if unchecked {
+				note = `<span class="sr-only"> (state unknown)</span>`
+			}
+			link = fmt.Sprintf(`<a class="service-link" href="%s" target="%s" title="%s">%s%s</a>`,
+				escapeHTML(service.URL), escapeHTML(service.Host), escapeHTML(service.URL), contents, note)
+		} else {
+			link = fmt.Sprintf(`<span class="service-link service-disabled" title="%s">%s<span class="sr-only"> (unavailable)</span></span>`,
+				escapeHTML(service.URL), contents)
+		}
+		rows[i] = fmt.Sprintf(`<tr>
+      <th scope="row"><strong>%s</strong></th>
+      <td>%s</td>
+      <td class="services"><ul role="list"><li>%s</li></ul></td>
+    </tr>`, escapeHTML(service.Name), escapeHTML(service.Project), link)
+	}
+	return fmt.Sprintf(`
+    <section>
+      <h2 id="shared-services">Shared services</h2>
+      <div class="table-wrap" role="region" aria-labelledby="shared-services">
+        <table>
+          <thead><tr><th scope="col">Service</th><th scope="col">Project</th><th scope="col">Web UI</th></tr></thead>
+          <tbody>%s</tbody>
+        </table>
+      </div>
+    </section>`, strings.Join(rows, "\n"))
+}
+
 // pageTitle is `Checkouts (3)` — the count is what tells one pinned tab from
 // another. The live-update script assigns this straight to document.title,
 // so it must stay text that reads the same escaped or not.
@@ -462,6 +506,9 @@ func RenderIndexHTML(snapshot IndexSnapshot) string {
 	if len(snapshot.Entries) > 0 {
 		body = fmt.Sprintf(`%s<p class="legend">%s</p>%s`, noticesHTML.String(), legend, tables)
 	}
+	if len(snapshot.Shared) > 0 {
+		body += renderSharedSection(snapshot.Shared, !snapshot.DockerReachable)
+	}
 
 	// What the rows say, so a tab can tell a regeneration that changed
 	// something from one that only moved the clock — on its very first
@@ -554,7 +601,11 @@ func FormatIndexText(snapshot IndexSnapshot, url string) string {
 
 	head := fmt.Sprintf("Checkout index  %s\nUpdated         %s\n", text.Printable(url), text.Printable(snapshot.GeneratedAt))
 	if len(snapshot.Entries) == 0 {
-		return head + "\n" + wrapText(emptyState(), textWidth)
+		empty := head + "\n" + wrapText(emptyState(), textWidth)
+		if len(snapshot.Shared) > 0 {
+			return empty + formatSharedText(snapshot) + "\nShared services: ! not answering, ? not checked."
+		}
+		return empty
 	}
 	var notices strings.Builder
 	if !snapshot.DockerReachable {
@@ -567,7 +618,30 @@ func FormatIndexText(snapshot IndexSnapshot, url string) string {
 		fmt.Fprintf(&notices, "%s\n\n", wrapText(text.Printable(cardReadFailureNotice(snapshot.CardReadFailures)), textWidth))
 	}
 	legendText := wrapText(legend, textWidth) + "\nServices: ! not answering, ? not checked, - checkout gone.\n\n"
-	return head + "\n" + notices.String() + legendText + groups
+	return head + "\n" + notices.String() + legendText + groups + formatSharedText(snapshot)
+}
+
+// formatSharedText is the plain-text twin of renderSharedSection: a heading
+// and, per service, its name and project and the address on a line of its
+// own, which is never wrapped so it can be copied. Empty when there are none.
+func formatSharedText(snapshot IndexSnapshot) string {
+	if len(snapshot.Shared) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(snapshot.Shared)+1)
+	lines = append(lines, "Shared services")
+	for _, service := range snapshot.Shared {
+		marker := markerAvailable
+		switch {
+		case !snapshot.DockerReachable:
+			marker = markerUnchecked
+		case !service.Available:
+			marker = markerUnavailable
+		}
+		lines = append(lines, fmt.Sprintf("  %s%s  (%s)", marker, text.Printable(service.Name), text.Printable(service.Project)),
+			"        "+text.Printable(service.URL))
+	}
+	return "\n\n" + strings.Join(lines, "\n")
 }
 
 // formatIndexRow is one entry's block of the plain-text twin: its status and

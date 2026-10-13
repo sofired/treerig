@@ -287,6 +287,9 @@ func (s *Service) inventory(ctx context.Context, namespace string) (records []Co
 		fmt.Sprintf(`{{.Label "%s.repository-uuid"}}`, namespace),
 		fmt.Sprintf(`{{.Label "%s.worktree-uuid"}}`, namespace),
 		`{{.Label "com.docker.compose.service"}}`,
+		// Present only on a container of a repository's shared services,
+		// which carries no worktree label.
+		fmt.Sprintf(`{{.Label "%s.shared"}}`, namespace),
 	}, "\t")
 	result, err := docker.Run(ctx, s.opts.Runner, []string{
 		"ps", "--all", "--filter", "label=" + namespace + ".managed=true", "--format", format,
@@ -411,8 +414,20 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 		return IndexSnapshot{}, err
 	}
 
+	sharedRecords, sharedProblems, err := registry.ScanSharedRecords(s.opts.ControlHome)
+	if err != nil {
+		// The shared group is an addition to the page; a control home whose
+		// shared records cannot be listed still gets its checkouts.
+		sharedRecords = nil
+		s.opts.Logger.Warn(fmt.Sprintf("The index leaves out shared services because their records could not be listed: %s", err))
+	}
+	for _, problem := range sharedProblems {
+		s.opts.Logger.Warn(fmt.Sprintf("The index leaves out a shared service whose record could not be read: %s: %s", problem.File, problem.Reason))
+	}
+
 	return BuildSnapshot(SnapshotInput{
 		Registrations:       registrations,
+		SharedRecords:       sharedRecords,
 		Cards:               cards,
 		Identities:          identities,
 		CurrentRepositoryID: currentRepositoryID,

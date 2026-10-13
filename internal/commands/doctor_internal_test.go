@@ -2513,6 +2513,7 @@ var documentedDoctorIDs = []string{
 	"shared.definition",
 	"shared.service",
 	"shared.port",
+	"shared.route",
 	"shared.record",
 	"shared.unreadable-record",
 	"shared.connection",

@@ -184,7 +184,7 @@ func filterArgs(calls []run.Spec) []string {
 // dockerLine is one `docker ps --format` row for record's own repository and
 // worktree IDs.
 func dockerLine(record registry.RegisteredWorktree, service, state, status string) string {
-	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service}, "\t")
+	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service, ""}, "\t")
 }
 
 // TestServiceRefresh covers Service.Refresh, plus #1's own lock timeout
@@ -398,7 +398,7 @@ func TestServiceRefresh(t *testing.T) {
 	})
 
 	t.Run("shows the page rather than failing when Docker answers with a line it cannot read", func(t *testing.T) {
-		docker := &dockerFake{stdout: "running\tUp 2 seconds\t(healthy)\tr\tw\tapi"}
+		docker := &dockerFake{stdout: "running\tUp 2 seconds\t(healthy)\tr\tw\tapi\t"}
 		h := newServiceHarness(t, docker, nil, nil)
 
 		snapshot, err := h.service.Refresh(context.Background())

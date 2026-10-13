@@ -29,5 +29,5 @@ image ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repos
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.shared=true
 volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }} v1
 volume rm v1
-ps --all --filter label=dev.berth.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.berth.repository-uuid"}}	{{.Label "dev.berth.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}
+ps --all --filter label=dev.berth.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.berth.repository-uuid"}}	{{.Label "dev.berth.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.berth.shared"}}
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.shared=true
