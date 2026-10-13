@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry"
 )
@@ -54,7 +55,10 @@ func WriteRecord(controlHome string, rec RecordJSON) (string, error) {
 		return "", err
 	}
 	data = append(data, '\n')
-	return file, os.WriteFile(file, data, 0o600)
+	// Written atomically, to a temporary name that does not end in .json: a
+	// registry scan running at the same time (a test with workers) must never
+	// read a half-written record, as it never can of a production write.
+	return file, files.AtomicWrite(file, data, 0o600)
 }
 
 // Register creates worktree's identity markers (via IdentityService.Ensure,

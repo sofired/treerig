@@ -36,8 +36,8 @@ var startLifecycle = func(log logger.Logger) *lifecycle.Lifecycle {
 // It never lets a verb replace this process's image: commands.Env.Executable
 // and .Exec are left nil, so `worktree remove`'s own relocate-and-reexec
 // (#7) always skips relocation here. This is deliberate, not an oversight —
-// Main is what every in-process test calls (golden_test.go and
-// wiring_test.go among them), and any of those may be the process running
+// Main is what every in-process test calls (golden_test.go among
+// them), and any of those may be the process running
 // `worktree remove` in-process. A go test binary handed a real Exec would
 // replace itself with a copy of itself and re-run with argv `worktree
 // remove --yes` — no -test.run filter — which restarts the whole suite in
@@ -133,6 +133,11 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 // the error's cause chain is printed via Logger.Raw either way (see
 // errorChain).
 func report(console *logger.Console, getenv layout.Getenv, err error) {
+	var ended *clierr.Error
+	if errors.As(err, &ended) && ended.Notice && ended.Cause == nil && len(ended.Suppressed) == 0 {
+		console.Info(err.Error())
+		return
+	}
 	console.Error(err.Error())
 	cause := errors.Unwrap(err)
 	if cause != nil {

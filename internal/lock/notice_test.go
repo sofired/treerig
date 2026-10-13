@@ -48,6 +48,44 @@ func TestLockNoticeWording(t *testing.T) {
 		}
 	})
 
+	t.Run("tells a live holder of a session lock how to end the session, but only when the holder runs the dev verb", func(t *testing.T) {
+		for _, tc := range []struct {
+			holder    string
+			wantEnd   bool
+			wantKill  bool
+			wantRetry string
+		}{
+			{"berth dev", true, false, "End it with Ctrl-C in the terminal running `berth dev`, then retry."},
+			{"berth worktree remove", false, true, "Wait for it to finish, or stop it"},
+			{"berth worktree remove dev", false, true, "Wait for it to finish, or stop it"},
+			{"berth --config dev up", false, true, "Wait for it to finish, or stop it"},
+			{"berth devtool", false, true, "Wait for it to finish, or stop it"},
+			{"berth run -- dev", false, true, "Wait for it to finish, or stop it"},
+		} {
+			scope := Scope{Target: filepath.Join(t.TempDir(), "worktree.dev"), Description: "busy development session",
+				EndHint: "End it with Ctrl-C in the terminal running `berth dev`", EndHintWord: "dev"}
+			holderOpts := testOptions(t)
+			holderOpts.Holder = tc.holder
+			holder := New(scope, holderOpts)
+			if _, err := holder.Acquire(context.Background(), tc.holder); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = holder.Release() })
+			opts := testOptions(t)
+			opts.Timeout = 100 * time.Millisecond
+			opts.Retry = 25 * time.Millisecond
+			delay := time.Second
+			opts.NoticeDelay = &delay
+			_, err := New(scope, opts).Acquire(context.Background(), "waiter")
+			if err == nil {
+				t.Fatalf("%s: expected the wait to give up", tc.holder)
+			}
+			if !strings.Contains(err.Error(), tc.wantRetry) || strings.Contains(err.Error(), "kill ") != tc.wantKill {
+				t.Fatalf("holder %q: err = %q, want %q (kill advice: %v)", tc.holder, err, tc.wantRetry, tc.wantKill)
+			}
+		}
+	})
+
 	t.Run("tells a stopped holder how to resume it", func(t *testing.T) {
 		table := newFakeTable(procid.Identity{MachineID: "m", BootID: "b", PIDNS: "pid:[1]"})
 		table.states[os.Getpid()] = procid.Status{State: procid.Stopped}

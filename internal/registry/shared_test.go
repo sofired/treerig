@@ -286,7 +286,10 @@ func TestSyncSharedPorts(t *testing.T) {
 				defer group.Done()
 				if i%2 == 0 {
 					id := newTestUUID()
-					writePortsRecord(t, controlHome, repoA, id, "wt-"+strconv.Itoa(i), nil)
+					if err := tryWritePortsRecord(controlHome, repoA, id, "wt-"+strconv.Itoa(i), nil); err != nil {
+						errs[i] = err
+						return
+					}
 					result, err := registry.NewStore(controlHome, repoA).SyncPorts(context.Background(), id, "wt-"+strconv.Itoa(i), testWriter, registry.PortPlan{
 						Services: []string{"api"}, Range: small, Probe: registrytest.FreeProbe{},
 					})

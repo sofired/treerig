@@ -34,6 +34,23 @@ func (c *CommandContext) mutate(ctx context.Context, ref worktree.Ref, host stri
 	return c.hold(ctx, requests, action)
 }
 
+// mutateSession is mutate for the first half of a development session
+// (`dev`, #5): the operation lock and the development-session lock are taken
+// together, in that order, and action runs under both. Once it has succeeded
+// the operation lock is released, so `down`, `up` and the like can run during
+// the session, and session runs holding the development lock alone, until it
+// returns; only then is the development lock released. A `worktree remove`,
+// which takes the development lock, refuses for exactly that long.
+func (c *CommandContext) mutateSession(ctx context.Context, ref worktree.Ref, host string, action, session func(context.Context) error) error {
+	if err := c.refuseOwnWorktreeLock(ref.WorktreeID, host); err != nil {
+		return err
+	}
+	markers := procid.Markers{Project: layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID), WorktreeID: ref.WorktreeID}
+	operation, development := lock.WorktreeScopes(c.ControlHome, ref.RepositoryID, ref.WorktreeID, ref.Slug, markers)
+	requests := lifecycle.Requests{Operation: &operation, Development: &development}
+	return c.lifecycle().HoldThen(ctx, c.lifecycleEnv(), requests, action, session)
+}
+
 // lifecycle is the process's lifecycle, or one that never listens when the
 // context has none (a test's).
 func (c *CommandContext) lifecycle() *lifecycle.Lifecycle {
