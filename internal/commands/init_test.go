@@ -112,6 +112,26 @@ func TestInit(t *testing.T) {
 		}
 	})
 
+	t.Run("drops the variables that point git at another repository, and only those", func(t *testing.T) {
+		root := registrytest.TempDir(t)
+		env, _, runner := initEnv(t, root, root)
+		env.Environ = []string{
+			"PATH=/usr/bin", "GIT_DIR=/other/.git", "GIT_WORK_TREE=/other", "GIT_COMMON_DIR=/other/.git",
+			"GIT_INDEX_FILE=/other/.git/index", "GIT_OBJECT_DIRECTORY=/other/.git/objects",
+			"GIT_IMPLICIT_WORK_TREE=0", "GIT_PREFIX=sub/",
+			"GIT_CEILING_DIRECTORIES=/home", "GIT_CONFIG_COUNT=1", "GIT_DIRECTORY_X=keep", "HOME=/h",
+		}
+
+		if err := Init(ctx, env); err != nil {
+			t.Fatal(err)
+		}
+
+		want := "PATH=/usr/bin GIT_CEILING_DIRECTORIES=/home GIT_CONFIG_COUNT=1 GIT_DIRECTORY_X=keep HOME=/h LC_ALL=C"
+		if got := strings.Join(runner.Calls()[0].Env, " "); got != want {
+			t.Errorf("git environment = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("names the Compose file it finds, in Compose's own order, and does not warn", func(t *testing.T) {
 		for _, tc := range []struct {
 			present []string

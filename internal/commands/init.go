@@ -67,6 +67,38 @@ func Init(ctx context.Context, env *Env) error {
 	return nil
 }
 
+// gitLocationVariables are the environment variables that tell Git which
+// repository, work tree or index to act on instead of finding one from the
+// working directory: GIT_DIR, GIT_WORK_TREE and GIT_COMMON_DIR name the
+// repository and its work tree, GIT_INDEX_FILE and GIT_OBJECT_DIRECTORY
+// redirect its index and objects, and GIT_IMPLICIT_WORK_TREE and GIT_PREFIX
+// are what Git itself sets when it has already chosen one. A Git hook, or a
+// tool run from one, inherits them, and then `rev-parse --show-toplevel`
+// would answer for that repository, not the checkout init was run in. The list
+// is the repository-location part of `git rev-parse --local-env-vars`. Left
+// out on purpose: GIT_CEILING_DIRECTORIES and GIT_DISCOVERY_ACROSS_FILESYSTEM,
+// which only limit how far up Git looks (they can make it find nothing, never
+// another repository, and are the user's own policy); GIT_NAMESPACE, which
+// affects refs; and the GIT_CONFIG* variables, which carry settings such as
+// safe.directory that the user set for this very reason.
+var gitLocationVariables = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY", "GIT_IMPLICIT_WORK_TREE", "GIT_PREFIX",
+}
+
+// withoutGitLocation is a copy of environ (NAME=value entries) without the
+// gitLocationVariables; every other entry is kept, in order.
+func withoutGitLocation(environ []string) []string {
+	kept := make([]string, 0, len(environ)+1)
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if !slices.Contains(gitLocationVariables, name) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
 // gitToplevel is the root of the Git checkout that contains env.Cwd, as Git
 // prints it. That is already a physical path, so it is only cleaned, not
 // resolved again as registry.CanonicalPath does for identity. A directory
@@ -83,7 +115,7 @@ func gitToplevel(ctx context.Context, env *Env) (string, error) {
 		AllowFailure: true,
 		// Git's wording is localised; the "not a git repository" match below
 		// is on the C locale's. The rest of the environment is kept.
-		Env: append(slices.Clone(env.Environ), "LC_ALL=C"),
+		Env: append(withoutGitLocation(env.Environ), "LC_ALL=C"),
 	})
 	var startErr *run.StartError
 	switch {

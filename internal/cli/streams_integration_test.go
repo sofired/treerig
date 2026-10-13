@@ -306,6 +306,26 @@ backup  = "./backup.sh"
 		}
 	})
 
+	t.Run("init writes at this checkout's root even when GIT_DIR and GIT_WORK_TREE name another repository", func(t *testing.T) {
+		here, other := registrytest.TempDir(t), registrytest.TempDir(t)
+		gitInitCommit(t, here)
+		gitInitCommit(t, other)
+
+		result := runBerth(t, binary, here, []string{"init"}, berthOptions{
+			env: map[string]string{"GIT_DIR": filepath.Join(other, ".git"), "GIT_WORK_TREE": other},
+		})
+
+		if result.Code != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr=%q", result.Code, result.Stderr)
+		}
+		if _, err := os.Stat(filepath.Join(here, "berth.toml")); err != nil {
+			t.Errorf("no berth.toml at this checkout's root: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(other, "berth.toml")); err == nil {
+			t.Error("wrote berth.toml into the repository GIT_DIR named")
+		}
+	})
+
 	t.Run("init tells you to install Git, exiting 127, when there is none on PATH", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
 
