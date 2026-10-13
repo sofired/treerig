@@ -56,6 +56,10 @@ type target struct {
 type Runner struct {
 	mu      sync.Mutex
 	targets map[target]struct{}
+	// drainBudget, when set, replaces drainBudget as how long a drain of a
+	// child's process group waits in all: for tests that need the drain to
+	// give up without waiting out quiesceBudget.
+	drainBudget func(killAfter time.Duration, killed bool) time.Duration
 }
 
 // New is a Runner ready to spawn real subprocesses.
@@ -222,24 +226,42 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 				signalChild(started.pid, syscall.SIGKILL)
 			}
 		}
-		if killTimer != nil {
-			killTimer.Stop()
+		// A timer that had already fired has SIGKILLed the group, so the
+		// drain below must not start a second grace period on top of it.
+		if killTimer != nil && !killTimer.Stop() {
+			killed = true
 		}
 	}
 
 	// An interactive child's descendants must never outlive this call,
 	// whether or not berth itself was ever signalled: SIGTERM (then SIGKILL
 	// after killAfter) whatever the group still holds, and do not return
-	// until it is gone or this wait is itself abandoned. A non-interactive
-	// child's leftovers are deliberate — Docker left running, say — and stay
-	// Quiesce's job alone.
+	// until it is gone or this wait is itself abandoned. So must those of a
+	// child stopped for its timeout: "timed out and was terminated" is not
+	// true while a grandchild that ignored the SIGTERM runs on. A
+	// non-interactive child that ended on its own leaves what it left
+	// deliberately — Docker left running, say — and that stays Quiesce's
+	// job alone.
+	//
+	// When the drain fails (something in the group survives even SIGKILL for
+	// the whole budget, or a second interrupt abandons the wait) Run returns
+	// that error and no Result, so it replaces TimedOut: a caller never sees
+	// "timed out" for a run whose group is still alive. The wait after a
+	// timeout is at most about killAfter, or killAfter plus the drain
+	// budget's grace when the group ignores SIGKILL's reaping: the main
+	// loop's kill timer has fired by then, so the drain starts with SIGKILL
+	// rather than a second SIGTERM and a fresh grace.
 	var drainErr error
-	if interactive {
+	if interactive || errors.Is(context.Cause(runCtx), errTimedOut) {
 		label := spec.Label
 		if label == "" {
 			label = filepath.Base(spec.Command) + " command"
 		}
-		drainErr = drainGroup(ctx, started.pid, label, killAfter, killed)
+		budget := drainBudget(killAfter, killed)
+		if r.drainBudget != nil {
+			budget = r.drainBudget(killAfter, killed)
+		}
+		drainErr = drainGroup(ctx, started.pid, label, killAfter, killed, budget)
 	}
 	// Reaped, and its whole group with it: nothing left for Quiesce to wait
 	// on. Kept only while something it started lingers in the group — and

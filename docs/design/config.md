@@ -41,6 +41,32 @@ Writing the array form gets the error `services are tables keyed by name:
 write [service.<name>], not [[service]]`; `arrayOfTablesHint` builds that
 sentence for any table.
 
+## Hook options are a sibling table
+
+A hook is a command line under `[hooks]`, keyed by its stage, and
+`[hooks.timeout]` holds its time limit beside it, keyed the same way:
+
+```toml
+[hooks]
+prepare = "./scripts/migrate.sh"
+
+[hooks.timeout]
+prepare = "30m"
+```
+
+`[commands]` takes the other shape, a string or a table with the command and
+its options, because a command is a named thing with several options of its
+own. A hook is a fixed slot with one option so far. The sibling table keeps
+`prepare` a string everywhere it is read (`config show`, the resolution
+checks, the runner), so a hook that has no option reads exactly as it did, and
+a second option would add a second sibling table, not change a type. Its keys
+are every hook kind, and an unset key means no limit. There is deliberately no
+default for any hook: berth cannot know how long a project's migration takes,
+a default that kills a healthy slow one midway is worse than the hang, and a
+default added later would break projects that rely on none, while one never
+added breaks nobody (docs/hooks.md, "Timeouts"). The runner applies the limit
+in `hooks.RunHook`, so every hook kind gets it from that one place.
+
 ## The JSON Schema
 
 `berth config schema` prints a draft-07 JSON Schema of the file, and
