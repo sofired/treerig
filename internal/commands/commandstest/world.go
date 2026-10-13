@@ -300,17 +300,21 @@ func (w *World) Register(root, domain, slug, namespace string, services ...strin
 }
 
 // SetPorts records ports in ref's registration, as a finished `up` leaves
-// them. The rest of the record is kept.
+// them. The rest of the record, host routes included, is kept.
 func (w *World) SetPorts(ref worktree.Ref, ports map[string]int) {
 	w.t.Helper()
 	record, err := registry.NewStore(w.ControlHome, ref.RepositoryID).Find(ref.WorktreeID)
 	if err != nil || record == nil {
 		w.t.Fatalf("SetPorts: no registration for %s: %v", ref.Slug, err)
 	}
+	routes := make([]registrytest.HostRouteJSON, len(record.HostRoutes))
+	for i, route := range record.HostRoutes {
+		routes[i] = registrytest.HostRouteJSON(route)
+	}
 	if _, err := registrytest.WriteRecord(w.ControlHome, registrytest.RecordJSON{
 		Version: 1, RepositoryID: record.RepositoryID, WorktreeID: record.WorktreeID,
 		Slug: record.Slug, Domain: record.Domain, LabelNamespace: record.LabelNamespace,
-		Initialization: "complete", Ports: ports,
+		Initialization: "complete", Ports: ports, HostRoutes: routes,
 	}); err != nil {
 		w.t.Fatalf("SetPorts: %v", err)
 	}

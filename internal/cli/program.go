@@ -88,6 +88,29 @@ func maxArgs(n int) cobra.PositionalArgs {
 	}
 }
 
+// exactArgs accepts exactly n positional arguments, and otherwise refuses in
+// maxArgs' shape. what names the one argument for the message, when n is 1.
+func exactArgs(n int, what string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == n {
+			return nil
+		}
+		takes := fmt.Sprintf("exactly %d arguments", n)
+		if n == 1 {
+			takes = "exactly 1 argument, " + what
+		}
+		quoted := make([]string, len(args))
+		for i, a := range args {
+			quoted[i] = strconv.Quote(a)
+		}
+		got := fmt.Sprintf("got %d", len(args))
+		if len(args) > 0 {
+			got += ": " + strings.Join(quoted, " ")
+		}
+		return clierr.Newf("%q takes %s, %s", cmd.CommandPath(), takes, got)
+	}
+}
+
 // flagError is the whole tree's flag-parse error handler: pflag's own
 // message as a clierr.Error, plus a "Did you mean this?" list for an unknown
 // long flag, in the same shape unknownSubcommand gives an unknown command
@@ -613,6 +636,79 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		},
 	})
 	root.AddCommand(router)
+
+	routeGroup := &cobra.Command{
+		Use:   "route",
+		Short: "route processes running on the host through this worktree's hostname",
+		Long: "A host route sends a hostname of this worktree to a process running on the host (a dev server, an API run from the IDE), " +
+			"through the same router as its services. The process must listen on 127.0.0.1. `" + commandName + " up` and `" + commandName +
+			" down` leave host routes alone; `" + commandName + " worktree remove` removes them. They need a registered worktree: run `" + commandName + " up` first.",
+		Args: usageArgs(unknownSubcommand),
+		RunE: bareGroup(p),
+	}
+	var routePort int
+	var routeSubdomain, routePath string
+	routeAdd := &cobra.Command{
+		Use:   "add <name> --port <port>",
+		Short: "route this worktree's hostname, or a subdomain or path of it, to a process on the host",
+		Long: "Route a hostname of this worktree to the process listening on 127.0.0.1:<port>. " +
+			"Like a [service.<name>] table, the route takes a --subdomain and a --path, and gets the hostname a service with that name and those fields would get. " +
+			"The name must not be a service's or another host route's, and the route must not duplicate one; adding a route identical to a recorded one writes its route file again. " +
+			"Needs a registered worktree: run `" + commandName + " up` first.",
+		Args: exactArgs(1, "the route's name"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("port") {
+				return clierr.New("--port is required: the port the process on the host listens on.")
+			}
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			options := commands.RouteAddOptions{Name: args[0], Port: routePort, Subdomain: routeSubdomain}
+			if cmd.Flags().Changed("path") {
+				options.Path = &routePath
+			}
+			return commands.RouteAdd(cmd.Context(), env, options)
+		},
+	}
+	routeAdd.Flags().IntVar(&routePort, "port", 0, "the port the process on the host listens on, at 127.0.0.1 (required)")
+	routeAdd.Flags().StringVar(&routeSubdomain, "subdomain", "", "route <subdomain>.<this worktree's host> instead of the host itself")
+	routeAdd.Flags().StringVar(&routePath, "path", "", "route only this URL path prefix, which must start with /")
+	routeGroup.AddCommand(routeAdd)
+	routeRm := &cobra.Command{
+		Use:   "rm <name>",
+		Short: "remove a host route",
+		Long: "Remove a host route of this worktree: its route file, then its entry in the registration. " +
+			"Needs a registered worktree: run `" + commandName + " up` first. `" + commandName + " route ls` lists the names.",
+		Args: exactArgs(1, "the route's name"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.RouteRm(cmd.Context(), env, args[0])
+		},
+	}
+	routeRm.ValidArgsFunction = routeNameCompletionFunc(p)
+	routeGroup.AddCommand(routeRm)
+	var routeLsJSON bool
+	routeLs := &cobra.Command{
+		Use:   "ls",
+		Short: "list this worktree's host routes",
+		Long: "List this worktree's host routes, one per line: the name, the URL it answers on, and the 127.0.0.1 port it targets. " +
+			"Needs a registered worktree: run `" + commandName + " up` first. With --json, an array of {name, url, port}.",
+		Args: maxArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.RouteLs(cmd.Context(), env, commands.OutputOptions{JSON: routeLsJSON})
+		},
+	}
+	routeLs.Flags().BoolVar(&routeLsJSON, "json", false, "machine-readable output")
+	routeGroup.AddCommand(routeLs)
+	root.AddCommand(routeGroup)
 
 	sharedGroup := &cobra.Command{
 		Use:   "shared",

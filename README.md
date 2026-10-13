@@ -320,6 +320,8 @@ berth config schema       # print its JSON Schema, for editors
 berth up                   # register this worktree, start its services, run prepare (+ seed the first time)
 berth status               # per-service state
 berth urls                 # print its routed URLs
+berth route add web --port 5173 --subdomain app   # route a dev server on the host at app.<slug>.<domain>
+berth route ls             # this worktree's host routes
 berth run plan             # run one of the project's own [commands], on the terminal
 berth down                 # stop it; data is kept
 berth shared up            # start the shared services, or replace one, and reconnect every worktree
@@ -752,6 +754,74 @@ in `[shared.service.<name>]`, where berth publishes it on `127.0.0.1`. A shared 
 is used by containers is not supported: on Linux with a default-deny firewall
 a container cannot reach the host.
 
+## Host routes
+
+A process running on the host (a dev server, an API you start from the IDE) can
+be routed at the worktree's hostname through the same router as its services:
+
+```bash
+berth route add web --port 5173 --subdomain app   # http://app.<slug>.<domain> -> 127.0.0.1:5173
+berth route add api --port 8080 --path /api       # http://<slug>.<domain>/api -> 127.0.0.1:8080
+berth route ls [--json]                           # name, URL and port of each
+berth route rm web
+```
+
+`route add` takes the routing fields of a `[service.<name>]` table: with no
+`--subdomain` or `--path` it claims the worktree host itself, and it gets the
+hostname a service with that name and those fields would get. It refuses a
+name that is a service in `berth.toml`, a shared service's, or another host
+route's, a route that answers where a service or another host route already
+does, the router's own port, and a port berth pinned for a service (a host
+route names a port a process on the host listens on). Adding and removing take
+the worktree's operation lock and need a registered worktree (`berth up`
+first).
+
+A host route is recorded in the worktree's registration (`hostRoutes`), and its
+route file, `host.<repository>.<worktree>.<name>.yaml` under the router's
+`dynamic/` directory, is derived from the record. `berth up` and `berth router
+up` repair a route file that disagrees with its record, the same way they do a
+service's; `berth doctor` only reports it. A recorded route whose file is
+missing is reported by `doctor` and not recreated by the repair: run `berth
+route add` again with the same name, port, subdomain and path (`berth route ls`
+shows the URL) and it writes the file and changes nothing else. `up` and `down`
+leave host routes alone, so a route survives `down` (the process on the host is
+not berth's to stop) and the hostname answers `502 Bad Gateway` until something
+listens on the port. `worktree remove` removes them before the registration.
+`berth urls` (`urls --json` marks them `"hostRoute": true`), the checkout index,
+and `BERTH_SERVICE_URL_<NAME>` and `BERTH_SERVICE_PORT_<NAME>` in hooks and
+`berth run` include them; the index lists them from the registration and does
+not know whether the process is up. `doctor` lists each one with whether its
+port answers (a stopped dev server is `ok`, with the 502 note; only a port that
+answers on `::1` alone is a warning), and probes each through the router.
+
+**Bind `127.0.0.1`.** The proxy reaches a host process on `127.0.0.1`. A server
+that listens only on `::1` (some tools resolve `localhost` to IPv6 first; Vite's
+default host can be `::1` on a Mac) answers through the router on a native Linux
+Engine, but not on Docker Desktop or OrbStack, where the host is reached over
+IPv4 alone; `route add` and `doctor` warn when a port answers only on `::1`.
+Bind the server to `127.0.0.1` explicitly (Vite: `server.host: '127.0.0.1'`, or
+`--host 127.0.0.1`). A server bound to `0.0.0.0` also works, but is reachable
+from the network and may trigger the macOS firewall prompt; prefer `127.0.0.1`.
+Forcing `[router] mode = "bridge"` on a Linux engine does not work for host
+routes: the bridge container cannot reach a `127.0.0.1` listener there.
+
+**Allowed hosts.** The router passes the worktree hostname through as the
+request's `Host` header, and many dev servers refuse hosts they do not know.
+Allow it in the dev server's own settings. Vite answers a blocked host with a
+403 "Blocked request" page: set `server.allowedHosts` (for example
+`['.acme.test']`, or the hostname in the URL `berth route ls` prints; Vite
+already allows `localhost` and every `*.localhost` host, so a `project.domain`
+under `.localhost` needs nothing). webpack-dev-server answers "Invalid Host
+header" (`allowedHosts`), and Django a 400 (`ALLOWED_HOSTS`). Next.js's
+`allowedDevOrigins` is a different thing: it lets another origin load the dev
+server's resources, and matters when pages are opened from a berth hostname
+while the server is addressed as `localhost`.
+
+A host route needs the router to be running, as a service route does:
+`berth up` or `berth router up` starts it. Host processes that must be reached
+by containers are out of scope: on Linux with a default-deny firewall a
+container cannot reach the host.
+
 ## Trust model
 
 Bringing up a worktree runs the branch's code. `up` builds whatever its
@@ -823,11 +893,11 @@ not create — not a claim about what your branch's code can do once it runs.
 ## Output and exit codes
 
 The commands that produce data — `index`, `status`, `urls`, `router status`,
-`shared status`, `config show`, `config validate`, `worktree list`, `doctor` — write that data to stdout
+`shared status`, `route ls`, `config show`, `config validate`, `worktree list`, `doctor` — write that data to stdout
 and nothing else, so `berth index > page.txt` and
 `berth worktree list --json | jq` get what they asked for. Progress, waiting
-notices, confirmation prompts, warnings and failures go to stderr. Six of
-these (`index`, `status`, `urls`, `shared status`, `worktree list` and `doctor`) take `--json`:
+notices, confirmation prompts, warnings and failures go to stderr. Seven of
+these (`index`, `status`, `urls`, `shared status`, `route ls`, `worktree list` and `doctor`) take `--json`:
 see [Machine-readable output](#machine-readable-output).
 
 `up`, `down`, `router down` and `worktree remove` are the exception: they pass
@@ -902,7 +972,7 @@ that is registered but not implemented exits 2.
 
 ### Machine-readable output
 
-`worktree list`, `doctor`, `status`, `shared status`, `urls` and `index` take `--json`. With
+`worktree list`, `doctor`, `status`, `shared status`, `route ls`, `urls` and `index` take `--json`. With
 it, stdout carries exactly one JSON document, indented and ASCII-only (every
 non-ASCII character is escaped `\uXXXX`), and the exit code is the text
 form's. Notices, warnings, the `doctor` summary and errors stay on stderr in
@@ -984,8 +1054,8 @@ start.
 | `router.bind` | `router` | | only while the router runs: that its port answers on `127.0.0.1` alone, by asking this machine's other addresses for it (`fail` naming any that answer) |
 | `router.routes` | `router` | | the route files, none claiming a shared rule |
 | `router.route-conflict` | `router` | `<host>` or `<host><path>` | a route two files claim |
-| `router.orphaned-routes` | `router` | none, `unmatched` or `other-home` | route files that disagree with their registration: no port recorded for the service, or a different port than the one recorded (the next `up` or `router up` repairs them); with instance `unmatched` (a warning), files whose repository this control home knows but whose worktree it holds no record of, and with instance `other-home` (ok), files of a repository it does not know; both are counted and never removed, since they may belong to another control home (delete them from the router's `dynamic/` directory if their worktrees are gone) |
-| `router.route-probe` | `router` | `<host>` or `<host><path>` | only while the router runs, one per route including the index: an HTTP request through the router. A 404 is judged by sending the same request straight to the route file's target on `127.0.0.1`: the target giving the same 404 is the service's own (`ok`); a 404 it does not give means the route is not loaded (`fail`), retried for several seconds because Traefik's file provider takes a moment to load a change. A 502, 503 or 504, or a target that does not answer, is `warn` (the target is down or unreachable); a router that does not answer is `fail`; these are retried at most twice |
+| `router.orphaned-routes` | `router` | none, `unmatched` or `other-home` | route files that disagree with their registration: no port recorded for the service (or no host route of that name), or a different port than the one recorded (or, for a host route, a different port or hostname) (the next `up` or `router up` repairs them); with instance `unmatched` (a warning), files whose repository this control home knows but whose worktree it holds no record of, and with instance `other-home` (ok), files of a repository it does not know; both are counted and never removed, since they may belong to another control home (delete them from the router's `dynamic/` directory if their worktrees are gone) |
+| `router.route-probe` | `router` | `<host>` or `<host><path>` | only while the router runs, one per route including the index and each host route: an HTTP request through the router. A 404 is judged by sending the same request straight to the route file's target on `127.0.0.1`: the target giving the same 404 is the service's own (`ok`); a 404 it does not give means the route is not loaded (`fail`), retried for several seconds because Traefik's file provider takes a moment to load a change. A 502, 503 or 504, or a target that does not answer, is `warn` (the target is down or unreachable); a router that does not answer is `fail`; these are retried at most twice |
 | `router.port` | `router` | | the resolved router port and where it came from |
 | `checkout.config` | `checkout` | | this checkout's `berth.toml` |
 | `checkout.worktree` | `checkout` | | whether this worktree is registered |
@@ -994,6 +1064,8 @@ start.
 | `checkout.ports` | `checkout` | the routed service's name | whether its allocated loopback port is free or held by this worktree's own container (`fail` when anything else holds it, `skip` before one is allocated) |
 | `checkout.published-port` | `checkout` | the routed service's name | a routed service whose own Compose file also publishes a fixed host port |
 | `checkout.published-port-scan` | `checkout` | | reading the Compose file's published ports failed |
+| `checkout.host-routes` | `checkout` | the host route's name | whether the process behind a [host route](#host-routes) answers on `127.0.0.1` (`ok`, also when nothing listens, with the 502 note; `warn` when only `::1` answers and the router may not reach it: bind `127.0.0.1`) |
+| `checkout.host-route-files` | `checkout` | the host route's name | `warn` when a recorded host route has no route file; `berth route add` with the same fields (see `berth route ls`) writes it again |
 | `checkout.hooks.resolve` | `checkout` | the stage: `prepare`, `seed`, `verify`, `backup` or `restore` (the set may gain values) | whether that configured hook's file would start |
 | `checkout.commands.resolve` | `checkout` | the command's name from `[commands]` | whether that command's file would start |
 | `checkout.hooks.verify` | `checkout` | | the `verify` hook's own run |
@@ -1061,6 +1133,11 @@ For a per-item kind, filter by id and read `instance`:
 
 (Shown compacted, and with `…` standing in for text you would see in full;
 the real output is indented, one key per line.)
+
+**`route ls --json`** prints one array of `{"name", "url", "port"}`, by route
+name, `[]` when there are no host routes (a notice stays on stderr). `port` is
+the port the process on the host listens on. An unregistered worktree is an
+error: exit 1 and no document.
 
 **`status --json`** prints the worktree's `host` and one entry per declared
 service. `state` is `running`, `starting`, `stopped`, `absent` or `unknown`.
@@ -1134,8 +1211,9 @@ running instance, or `a removed worktree`, and is absent when nothing runs.
 `status` it works from a worktree that is not yet registered, as long as the
 repository has been brought up once.
 
-**`urls --json`** prints one array, in config order, `[]` when nothing is
-routed (the warning stays on stderr). `label` and `purpose` are absent for a
+**`urls --json`** prints one array, in config order, then the worktree's host
+routes (a host route has `"hostRoute": true`, a `port`, the one its process
+listens on, and no `label` or `purpose`; the key is absent for a service), `[]` when nothing is routed (the warning stays on stderr). `label` and `purpose` are absent for a
 service without `[service.<name>.index]`, and both present, possibly `""`, for one
 with it. `port` is a number (for example `20417`): the service's pinned port
 on `127.0.0.1`, absent until `up` has allocated one; `url` is still the
@@ -1245,6 +1323,11 @@ looks stale after an `up`, `down` or `worktree remove` on such a host, run
 as; see "Calling it something else") to force Traefik to reread every
 route file from a clean start, rather than waiting on the next filesystem
 event that touches it.
+
+**Host routes on Docker Desktop and OrbStack.** The proxy runs on a bridge
+network there and reaches your host process through the engine's host
+gateway, which is IPv4 only: bind the process to `127.0.0.1`, not `::1`. See
+[Host routes](#host-routes).
 
 **Rootless Docker** is refused (#121): its "host" network is RootlessKit's
 namespace, not the machine's, so the proxy could not reach your services over
@@ -1420,6 +1503,9 @@ Shipped:
   crash-safe order, run from a content-addressed copy of the binary
   installed outside any checkout; checkouts Git no longer lists are reported
   missing.
+- **Host routes** — `route add|rm|ls` send a hostname of the worktree to a
+  process on the host through the same router, recorded in the registration;
+  `up` and `down` keep them and `worktree remove` removes them.
 - **Shared router** — one Traefik proxy across every worktree of every
   repository, routed entirely through its file provider (no Docker-socket
   access at all) to services on pinned loopback ports, in host network mode on
@@ -1461,23 +1547,21 @@ them once.
 1. **`dev`** (#5) — start the worktree and follow its services' logs,
    holding the development-session lock so `worktree remove` refuses while a
    session is attached.
-2. **Native routes** (#6) — `berth route` writing file-provider route files
-   for processes running outside Docker.
-3. **Binary distribution** (#8) — per-platform release builds, so installing
+2. **Binary distribution** (#8) — per-platform release builds, so installing
    no longer means building from source.
-4. **`init`** (#9) — write a starter `berth.toml`. Until then, copy
+3. **`init`** (#9) — write a starter `berth.toml`. Until then, copy
    `berth.example.toml` to the repository root.
-5. **`backup` / `restore`** (#10) — invoke the hooks of the same name with a
+4. **`backup` / `restore`** (#10) — invoke the hooks of the same name with a
    bundle directory.
-6. **`rename`** (#11) — change a worktree's slug, or the product's own
+5. **`rename`** (#11) — change a worktree's slug, or the product's own
    storage names, by migrating the state that carries them.
-7. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
+6. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
    the command that runs it forever.
-8. **Migrating stored state between releases** (#29), once there are
-    releases to migrate between.
-9. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
-    stronger guarantee the relocated-copy mechanism above is a step toward,
-    tied to binary distribution (#8).
+7. **Migrating stored state between releases** (#29), once there are
+   releases to migrate between.
+8. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+   stronger guarantee the relocated-copy mechanism above is a step toward,
+   tied to binary distribution (#8).
 
 ## License
 

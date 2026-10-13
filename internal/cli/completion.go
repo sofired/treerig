@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -248,6 +249,31 @@ func sharedCompletionFunc(p *program) func(cmd *cobra.Command, args []string, to
 				description = "used by " + strings.Join(svc.UsedBy, ", ")
 			}
 			comps = append(comps, cobra.CompletionWithDesc(svc.Name, description))
+		}
+		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
+	}
+}
+
+// routeNameCompletionFunc is `route rm`'s own ValidArgsFunction: the host
+// route names this registered worktree holds, in name order, each described by
+// the port it targets. Offered while no name is given. A checkout that is not
+// registered, or whose berth.toml cannot be loaded, completes nothing.
+func routeNameCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return noCompletions()
+		}
+		env, err := p.env(cmd)
+		if err != nil {
+			return noCompletions()
+		}
+		routes, err := commands.ListHostRouteNames(cmd.Context(), env)
+		if err != nil {
+			return noCompletions()
+		}
+		var comps []cobra.Completion
+		for _, route := range routes {
+			comps = append(comps, cobra.CompletionWithDesc(route.Name, fmt.Sprintf("host route to 127.0.0.1:%d", route.Port)))
 		}
 		return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
 	}

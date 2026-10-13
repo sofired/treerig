@@ -41,6 +41,15 @@ func (c *CommandContext) portProbe() ports.Probe {
 	return c.PortProbe
 }
 
+// listeners is the probe that says which loopback addresses a host route's
+// port answers on: the context's own, or one that dials.
+func (c *CommandContext) listeners() ports.ListenerProbe {
+	if c.Listeners == nil {
+		return ports.DialListener{}
+	}
+	return c.Listeners
+}
+
 // routedServiceNames are the services berth.toml routes, in file order.
 func routedServiceNames(services []config.Service) []string {
 	names := make([]string, len(services))

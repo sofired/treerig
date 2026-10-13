@@ -12,6 +12,17 @@ package router
 // control home, so it may belong to another control home (the same
 // repository used under two of them), and nothing here can tell.
 //
+// Host routes (#6) are judged the same way against the record's hostRoutes:
+// the record is their source of truth, so a file whose record has no such
+// route is removed, and a file that is not the one the record would produce
+// (another port, or another rule after the worktree's hostname changed) is
+// rewritten. A recorded route whose file is missing is reported by doctor and
+// not recreated here (re-running `route add` with the same fields heals it):
+// repair only ever acts on a file that exists, so it never brings back a file
+// a removal has taken. A rewrite that raced a `worktree remove` can still put
+// one file back, a window service files share; doctor then reports it as
+// belonging to no registration.
+//
 // Repair reads registrations without the registry lock, which is safe
 // because every registry writer replaces a record atomically, and reads a
 // record again immediately before it removes or rewrites a file. That
@@ -29,6 +40,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
@@ -55,6 +67,18 @@ type Registration struct {
 	Status RegistrationStatus
 	// Ports are the loopback ports the record holds, by service.
 	Ports map[string]int
+	// HostRoutes are the host routes the record holds, by name, as the route
+	// file must express them.
+	HostRoutes map[string]HostTarget
+}
+
+// HostTarget is what a host route's file must say, as the record derives it.
+type HostTarget struct {
+	// Rule is the Traefik rule: the worktree's hostname with the route's
+	// subdomain and path.
+	Rule string
+	// Port is the loopback port the host process listens on.
+	Port int
 }
 
 // Registrations looks up a worktree's record without the registry lock.
@@ -81,6 +105,12 @@ const (
 	RouteNoPort RouteProblemKind = "no-port"
 	// RouteStalePort is a file pointing at a port other than the one recorded.
 	RouteStalePort RouteProblemKind = "stale-port"
+	// RouteNoHostRoute is a host route's file whose registration records no
+	// such route.
+	RouteNoHostRoute RouteProblemKind = "no-host-route"
+	// RouteStaleHostRoute is a host route's file that is not the one its
+	// registration produces: another port, or another rule.
+	RouteStaleHostRoute RouteProblemKind = "stale-host-route"
 )
 
 // RouteProblem is one route file that disagrees with its registration.
@@ -89,13 +119,23 @@ type RouteProblem struct {
 	Kind     RouteProblemKind
 	// Routed is the port the file points at.
 	Routed int
-	// Recorded is the port the registration holds, for RouteStalePort.
+	// Recorded is the port the registration holds, for RouteStalePort and
+	// RouteStaleHostRoute.
 	Recorded int
+	// RoutedRule and RecordedRule are the rule the file claims and the one
+	// the registration produces, for RouteStaleHostRoute.
+	RoutedRule, RecordedRule string
 }
 
 // Repairable reports whether Ensure repairs the problem. A file matching no
 // record in this control home is only reported.
-func (p RouteProblem) Repairable() bool { return p.Kind == RouteNoPort || p.Kind == RouteStalePort }
+func (p RouteProblem) Repairable() bool {
+	switch p.Kind {
+	case RouteNoPort, RouteStalePort, RouteNoHostRoute, RouteStaleHostRoute:
+		return true
+	}
+	return false
+}
 
 // Describe is the problem in words, naming the file's service.
 func (p RouteProblem) Describe() string {
@@ -106,6 +146,11 @@ func (p RouteProblem) Describe() string {
 		return fmt.Sprintf("%s: this control home does not know its repository", p.Fragment.Service)
 	case RouteNoPort:
 		return fmt.Sprintf("%s: its registration records no port for the service", p.Fragment.Service)
+	case RouteNoHostRoute:
+		return fmt.Sprintf("%s (host route): its registration records no such host route", p.Fragment.Service)
+	case RouteStaleHostRoute:
+		return fmt.Sprintf("%s (host route): routes %s to port %d, but its registration records %s to port %d",
+			p.Fragment.Service, p.RoutedRule, p.Routed, p.RecordedRule, p.Recorded)
 	default:
 		return fmt.Sprintf("%s: points at port %d, but its registration records %d", p.Fragment.Service, p.Routed, p.Recorded)
 	}
@@ -144,6 +189,9 @@ func ClassifyFragment(state layout.RouterLayout, regs Registrations, fragment Fr
 	case Unregistered:
 		return &RouteProblem{Fragment: fragment, Kind: RouteUnregistered}, nil
 	}
+	if fragment.HostRoute {
+		return classifyHostFragment(state, registration, fragment)
+	}
 	recorded, held := registration.Ports[fragment.Service]
 	if !held {
 		return &RouteProblem{Fragment: fragment, Kind: RouteNoPort}, nil
@@ -159,13 +207,50 @@ func ClassifyFragment(state layout.RouterLayout, regs Registrations, fragment Fr
 	return &RouteProblem{Fragment: fragment, Kind: RouteStalePort, Routed: routed, Recorded: recorded}, nil
 }
 
-// FindRouteProblems classifies every route file under state, in
-// ListFragments' order. It changes nothing: doctor's report.
+// classifyHostFragment is ClassifyFragment for a host route's file whose
+// worktree is registered: nil when the file is the one the record produces.
+// A file that cannot be read is not judged, as a service's is not.
+func classifyHostFragment(state layout.RouterLayout, registration Registration, fragment FragmentInfo) (*RouteProblem, error) {
+	target, held := registration.HostRoutes[fragment.Service]
+	if !held {
+		return &RouteProblem{Fragment: fragment, Kind: RouteNoHostRoute}, nil
+	}
+	doc, err := ReadFragment(state, fragment.Path)
+	if err != nil {
+		return nil, nil
+	}
+	want := HostFragmentDocument(fragment.RepositoryID, fragment.WorktreeID, fragment.Service, target.Rule, target.Port)
+	if reflect.DeepEqual(doc, want) {
+		return nil, nil
+	}
+	return &RouteProblem{
+		Fragment: fragment, Kind: RouteStaleHostRoute,
+		Routed: doc.TargetPort(), Recorded: target.Port, RoutedRule: firstRule(doc), RecordedRule: target.Rule,
+	}, nil
+}
+
+// firstRule is the rule of doc's router, "" when it has none; a file berth
+// wrote has exactly one.
+func firstRule(doc FragmentDocument) string {
+	for _, entry := range doc.HTTP.Routers {
+		return entry.Rule
+	}
+	return ""
+}
+
+// FindRouteProblems classifies every route file under state, services' first
+// (in ListFragments' order) and then host routes' (ListHostFragments'). It
+// changes nothing: doctor's report.
 func FindRouteProblems(state layout.RouterLayout, regs Registrations) ([]RouteProblem, error) {
 	fragments, err := ListFragments(state)
 	if err != nil {
 		return nil, err
 	}
+	hostFragments, err := ListHostFragments(state)
+	if err != nil {
+		return nil, err
+	}
+	fragments = append(fragments, hostFragments...)
 	var problems []RouteProblem
 	for _, fragment := range fragments {
 		problem, err := ClassifyFragment(state, regs, fragment)
@@ -180,8 +265,9 @@ func FindRouteProblems(state layout.RouterLayout, regs Registrations) ([]RoutePr
 }
 
 // RepairRoutes removes a route file whose registration holds no port for its
-// service, and points a file at the port its registration records when they
-// differ. It returns what it repaired and checks ctx before each file. A file
+// service (or no host route of that name), and points a file at the port its
+// registration records when they differ (a host route's file is rewritten
+// whole, port and rule). It returns what it repaired and checks ctx before each file. A file
 // is acted on only when a fresh read, taken immediately before the removal or
 // rewrite, still finds the same problem. Files that match no record of this
 // control home are left alone (RouteProblem.Repairable).
@@ -218,6 +304,15 @@ func repairRoute(state layout.RouterLayout, problem RouteProblem) error {
 	path := problem.Fragment.Path
 	if err := files.AssertSafeFilePathNamed(state.DynamicDir, path, dynamicNoun); err != nil {
 		return err
+	}
+	if problem.Kind == RouteStaleHostRoute {
+		fragment := problem.Fragment
+		doc := HostFragmentDocument(fragment.RepositoryID, fragment.WorktreeID, fragment.Service, problem.RecordedRule, problem.Recorded)
+		encoded, err := marshalFragment(doc)
+		if err != nil {
+			return err
+		}
+		return files.AtomicWrite(path, encoded, 0o644)
 	}
 	if problem.Kind != RouteStalePort {
 		return files.RemoveWithin(state.DynamicDir, path)

@@ -1,0 +1,4 @@
+add	route this worktree's hostname, or a subdomain or path of it, to a process on the host
+rm	remove a host route
+ls	list this worktree's host routes
+:4

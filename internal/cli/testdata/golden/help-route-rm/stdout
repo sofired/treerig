@@ -1,0 +1,13 @@
+Remove a host route of this worktree: its route file, then its entry in the
+registration. Needs a registered worktree: run `berth up` first. `berth route
+ls` lists the names.
+
+Usage:
+  berth route rm <name> [flags]
+
+Flags:
+  -h, --help   help for rm
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

@@ -70,7 +70,7 @@ func (c controlHomeRegistrations) Lookup(repositoryID, worktreeID string) (route
 	if record == nil {
 		return router.Registration{Status: router.Unregistered}, nil
 	}
-	return router.Registration{Status: router.Registered, Ports: record.Ports}, nil
+	return router.Registration{Status: router.Registered, Ports: record.Ports, HostRoutes: hostRouteTargets(*record)}, nil
 }
 
 // newRouterService builds the shared router directly from env, resolving

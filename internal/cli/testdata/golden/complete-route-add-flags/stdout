@@ -1,0 +1,7 @@
+--config	path to berth.toml (default: nearest above cwd)
+--version	output the version number
+--help	help for add
+--path	route only this URL path prefix, which must start with /
+--port	the port the process on the host listens on, at 127.0.0.1 (required)
+--subdomain	route <subdomain>.<this worktree's host> instead of the host itself
+:4

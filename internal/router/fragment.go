@@ -12,12 +12,13 @@ package router
 //
 //	<repository-uuid>.<worktree-uuid>.<service>.yaml   a worktree's routed service
 //	index.yaml                                         the checkout index
-//	host.<...>.yaml                                    reserved: host routes (#6)
+//	host.<repository-uuid>.<worktree-uuid>.<name>.yaml a worktree's host route (#6, hostroutes.go)
 //	shared.<...>.yaml                                  reserved: shared services (#123)
 //
 // ListFragments and RemoveWorktreeFragments match the first form only: the
-// reserved prefixes are not UUIDs, so a service sweep never matches them.
-// RemoveWorktreeFragments is generic by worktree ID alone.
+// other prefixes are not UUIDs, so a service sweep never matches them. Host
+// routes have sweeps of their own (hostroutes.go), so `down` and `up`, which
+// sweep services, leave them alone.
 
 import (
 	"bytes"
@@ -226,11 +227,10 @@ func WriteFragment(state layout.RouterLayout, repositoryID, worktreeID, service 
 	return files.AtomicWrite(path, encoded, 0o644)
 }
 
-// RemoveWorktreeFragments removes every dynamic-configuration fragment one
-// worktree owns, whatever wrote them — `up`'s own per-service fragments
-// today, and a future `berth route`'s (#6) native-process fragments once
-// that exists, since both are named and found by worktree ID alone, never
-// by writer. Tolerates there being nothing to remove: a directory that does
+// RemoveWorktreeFragments removes every routed service's dynamic-configuration
+// fragment one worktree owns, found by worktree ID alone, never by writer.
+// Host routes (#6) are not among them: see RemoveWorktreeHostFragments.
+// Tolerates there being nothing to remove: a directory that does
 // not exist yet, or no fragment matching this worktree, is success.
 func RemoveWorktreeFragments(state layout.RouterLayout, repositoryID, worktreeID string) error {
 	return RemoveWorktreeFragmentsExcept(state, repositoryID, worktreeID, nil)
@@ -285,8 +285,13 @@ func RemoveWorktreeFragmentsExcept(state layout.RouterLayout, repositoryID, work
 type FragmentInfo struct {
 	RepositoryID string
 	WorktreeID   string
-	Service      string
-	Path         string
+	// Service is the routed service's name, or the host route's name when
+	// HostRoute is set.
+	Service string
+	Path    string
+	// HostRoute marks a fragment of a host route (#6), listed by
+	// ListHostFragments rather than ListFragments.
+	HostRoute bool
 }
 
 // ListFragments is every dynamic-configuration fragment under

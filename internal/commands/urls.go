@@ -21,6 +21,9 @@ type ServiceURL struct {
 	// when none has been. URL is unchanged by it: still the hostname URL
 	// through the router.
 	Port int
+	// HostRoute marks a route to a process on the host (#6) rather than a
+	// service; its Port is the one that process listens on.
+	HostRoute bool
 }
 
 // URLReportEntry is one element of `urls --json`'s array. Label and
@@ -33,6 +36,9 @@ type URLReportEntry struct {
 	Label   *string `json:"label,omitempty"`
 	Purpose *string `json:"purpose,omitempty"`
 	Port    int     `json:"port,omitempty"`
+	// HostRoute is true for a route to a process on the host (#6); absent for
+	// a service. Its port is the one that process listens on.
+	HostRoute bool `json:"hostRoute,omitempty"`
 }
 
 // urlsReport maps the URLs onto their JSON array, never nil.
@@ -91,9 +97,7 @@ func UrlsWithContext(ctx context.Context, cctx *CommandContext, options OutputOp
 	if registration == nil {
 		return nil, clierr.Newf("This worktree is not registered. Run '%s up' first.", cctx.CommandName)
 	}
-	routes := worktree.WithPorts(
-		worktree.Routes(cctx.Loaded.Config.Service, registration.Slug, registration.Domain, cctx.RouterPort), registration.Ports)
-	list := urlsFromRoutes(cctx.Loaded.Config.Service, routes)
+	list := routesOf(cctx.Loaded.Config, registration.Slug, registration.Domain, cctx.RouterPort, registration.Ports, registration.HostRoutes).URLs()
 	if len(list) == 0 {
 		cctx.Logger.Warn(fmt.Sprintf("No [service.<name>] tables in %s; nothing is routed.", brand.ConfigFile))
 	}

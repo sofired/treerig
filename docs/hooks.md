@@ -74,9 +74,9 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_WORKTREE_HOME` | The worktree's private directory under the control home |
 | `BERTH_CONFIG` | Absolute path of the loaded `berth.toml` |
 | `BERTH_ROOT` | Directory containing `berth.toml`; also the working directory |
-| `BERTH_URL` | This worktree's own URL: the `[service.<name>]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
-| `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
-| `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
+| `BERTH_URL` | This worktree's own URL: the `[service.<name>]` (or [host route](../README.md#host-routes)) routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if nothing claims that route. |
+| `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]` and per [host route](../README.md#host-routes): its own routed URL. `<NAME>` is the service's or route's name, upper-cased, with each `-` turned into `_` (a host route cannot share a service's name, so the names never collide) |
+| `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router; and one per host route: the port its process listens on. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
 | `BERTH_SHARED_ADDR_<NAME>_<PORT>` | One per container port of a [shared service](../README.md#shared-services) that has a pinned loopback port: `127.0.0.1:<host port>`, for a process on the host. `<NAME>` is the shared service's name mapped as for `BERTH_SERVICE_URL_<NAME>`, and `<PORT>` its container port as declared (`BERTH_SHARED_ADDR_MAILPIT_1025`). Read from the repository's records, so it is set whether or not the service is running. Unset for a port with no pinned port yet |
 
 `BERTH_SHARED_ADDR_<NAME>_<PORT>` is for the host: a container reaches the
@@ -87,7 +87,7 @@ hand its own down: like the URL variables, an inherited one is dropped and
 this worktree's set instead. The shared service is connected to the
 worktree's network before `prepare` runs, so a hook may use it at once.
 
-`BERTH_SERVICE_PORT_<NAME>` is the `port` of `urls --json`: unlike the URLs
+`BERTH_SERVICE_PORT_<NAME>` is the `port` of `urls --json`. Unlike the URLs
 it does not go through the router, and it is allocated before any hook runs.
 `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` are the same URLs `berth urls`
 prints, router port included exactly as it folds that in there. When
@@ -100,6 +100,9 @@ them from a hook instead:
 ```sh
 curl -fsS "${BERTH_URL:?no service is routed at the host root}/health"
 ```
+
+Host routes are read from the registration when the hook starts, so a route
+added after `up` began is not in that run's variables.
 
 Under `set -u`, an unset `BERTH_URL` aborts the script; guard it with
 `${BERTH_URL:-}` or `${BERTH_URL:?…}` as above. A hook curling one of these

@@ -34,6 +34,11 @@ type RegisteredWorktree struct {
 	// and for a worktree that routes nothing. Read-only to callers: the
 	// only writers are Store.SyncPorts and Store.ReleasePorts.
 	Ports map[string]int
+	// HostRoutes are the routes to processes running on the host (#6), by
+	// name. Absent for a worktree that has none. Read-only to callers: the
+	// only writer is Store.UpdateHostRoutes. The route files are derived
+	// from them (docs/design/routing.md, decisions 9 and 11).
+	HostRoutes []HostRoute
 }
 
 // WorktreeRegistration is a registered worktree together with where it
@@ -105,6 +110,8 @@ type rawRecord struct {
 	Initialization *string  `json:"initialization"`
 	// Ports is decoded as numbers so a fractional or non-numeric port is a shape error.
 	Ports map[string]int `json:"ports"`
+	// HostRoutes are decoded strictly too: an unknown key in one is a shape error.
+	HostRoutes []rawHostRoute `json:"hostRoutes"`
 }
 
 // parsedRecord is a validated record: the registration it holds, the one
@@ -119,8 +126,9 @@ type parsedRecord struct {
 // repositoryId and worktreeId are UUIDs, slug matches the slug pattern,
 // domain is non-empty, labelNamespace (if present) matches the label
 // namespace pattern, initialization is "pending" or "complete", ports (if
-// present) maps service names to ports between 1 and 65535, and no other key
-// is present.
+// present) maps service names to ports between 1 and 65535, hostRoutes (if
+// present) lists routes with distinct names (parseHostRoutes), and no other
+// key is present.
 func parseRecordJSON(data []byte) (parsedRecord, error) {
 	if !json.Valid(data) {
 		return parsedRecord{}, errInvalidJSON
@@ -139,7 +147,8 @@ func parseRecordJSON(data []byte) (parsedRecord, error) {
 		raw.Initialization != nil && (*raw.Initialization == string(Pending) || *raw.Initialization == string(Complete)) &&
 		(raw.LabelNamespace == nil || brand.LabelNamespacePattern.MatchString(*raw.LabelNamespace)) &&
 		validPorts(raw.Ports)
-	if !ok {
+	hostRoutes, hostRoutesOK := parseHostRoutes(raw.HostRoutes)
+	if !ok || !hostRoutesOK {
 		return parsedRecord{}, errUnrecognizedShape
 	}
 	return parsedRecord{
@@ -150,6 +159,7 @@ func parseRecordJSON(data []byte) (parsedRecord, error) {
 			Domain:         *raw.Domain,
 			LabelNamespace: raw.LabelNamespace,
 			Ports:          nonEmptyPorts(raw.Ports),
+			HostRoutes:     hostRoutes,
 		},
 		Initialization: WorktreeInitialization(*raw.Initialization),
 	}, nil

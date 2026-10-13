@@ -342,6 +342,32 @@ func TestRouteTargets(t *testing.T) {
 			}
 		}
 	})
+	t.Run("lists a host route's file too, with the port it targets", func(t *testing.T) {
+		const repo, wt = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222221"
+		state := layout.RouterStateFrom(registrytest.TempDir(t))
+		if err := router.WriteIndexFragment(state, 30500); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web", router.NewFragmentDocument("berth-aaa-web", "Host(`web.main.acme.localhost`)", 30501)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteHostFragment(state, repo, wt, "dev", router.HostFragmentDocument(repo, wt, "dev", "Host(`app.main.acme.localhost`)", 5173)); err != nil {
+			t.Fatal(err)
+		}
+		got, err := routeTargets(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, target := range got {
+			if target.claim == "app.main.acme.localhost" && target.targetPort == 5173 && target.path == "/" {
+				found = true
+			}
+		}
+		if !found || len(got) != 3 {
+			t.Fatalf("got %+v", got)
+		}
+	})
 	t.Run("lists nothing for a directory that does not exist", func(t *testing.T) {
 		got, err := routeTargets(layout.RouterLayout{DynamicDir: registrytest.TempDir(t) + "/missing"})
 		if err != nil || len(got) != 0 {

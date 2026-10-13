@@ -201,6 +201,9 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	if err := refuseRelabelling(ctx, cctx, identity); err != nil {
 		return nil, err
 	}
+	if err := refuseHostRouteClashesOf(cctx, identity); err != nil {
+		return nil, err
+	}
 	registration, err := cctx.Registry.Ensure(ctx, "")
 	if err != nil {
 		return nil, err
@@ -263,6 +266,12 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			)
 		}
 
+		// Again, against the record as it stands under the lock: a `route add`
+		// may have finished since the check before the router started.
+		if err := refuseHostRouteClashes(cctx.CommandName, cctx.Loaded.Config, found.HostRoutes); err != nil {
+			return err
+		}
+
 		initialization, err := store.Initialization(ref.WorktreeID, ref.Slug)
 		if err != nil {
 			return err
@@ -291,8 +300,12 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		if err := checkPortsFree(ctx, cctx, inspector, ref, routed, ports); err != nil {
 			return err
 		}
-		hookRoutes = worktree.WithPorts(serviceRoutes, ports)
-		urls = urlsFromRoutes(cctx.Loaded.Config.Service, hookRoutes)
+		// Host routes (#6) are listed beside the services' routes, from the
+		// record as it stands under the lock; `up` itself never writes or
+		// removes one.
+		allRoutes := routesOf(cctx.Loaded.Config, ref.Slug, registration.Domain, routerSvc.Port(), ports, found.HostRoutes)
+		hookRoutes = allRoutes.All()
+		urls = allRoutes.URLs()
 
 		// Every declared service is recorded, not only the ones with a
 		// [service.<name>.index] block (#16): Label (and Purpose alongside it) is
@@ -301,8 +314,11 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		// service must still turn a Running row into Partial, since it is a
 		// real declared service that is not answering, not one the page
 		// simply never knew about. See card.IndexService's own comment.
-		services := make([]card.IndexService, len(urls))
-		for i, entry := range urls {
+		// The card lists the services only: a host process is no container for
+		// the index to count (the index shows host routes from the record).
+		cardURLs := allRoutes.ServiceURLs()
+		services := make([]card.IndexService, len(cardURLs))
+		for i, entry := range cardURLs {
 			var label, purpose string
 			if entry.Label != nil {
 				label = *entry.Label
@@ -413,6 +429,23 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	cctx.Logger.Info(host + " is up.")
 	printURLs(cctx, urls)
 	return &UpResult{Registration: *registration, Hooks: ranHooks, URLs: urls}, nil
+}
+
+// refuseHostRouteClashesOf is refuseHostRouteClashes for an `up` that has not
+// registered yet, so that a clash is refused before anything is registered or
+// started. It reads the record without a lock, so UpWithContext checks again
+// under the operation lock, against the record as it stands there. identity is
+// this checkout's, as UpWithContext read it; nil for one with no identity yet,
+// which has no host routes.
+func refuseHostRouteClashesOf(cctx *CommandContext, identity *registry.WorktreeIdentity) error {
+	if identity == nil {
+		return nil
+	}
+	current, err := cctx.Registry.Store(identity.RepositoryID).Find(identity.WorktreeID)
+	if err != nil || current == nil {
+		return err
+	}
+	return refuseHostRouteClashes(cctx.CommandName, cctx.Loaded.Config, current.HostRoutes)
 }
 
 // refuseRelabelling refuses to change a worktree's label namespace once it

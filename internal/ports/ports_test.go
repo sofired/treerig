@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strconv"
 	"testing"
 
 	"github.com/sofired/berth/internal/layout"
@@ -171,6 +172,78 @@ func TestLookupHint(t *testing.T) {
 			if got := ports.LookupHint(goos, 8080); got != want {
 				t.Errorf("LookupHint(%q) = %q, want %q", goos, got, want)
 			}
+		}
+	})
+}
+
+// stubListener answers from a fixed table of "host:port" addresses.
+type stubListener map[string]bool
+
+// Answers is ListenerProbe's Answers.
+func (s stubListener) Answers(_ context.Context, host string, port int) bool {
+	return s[net.JoinHostPort(host, strconv.Itoa(port))]
+}
+
+func TestListening(t *testing.T) {
+	cases := []struct {
+		name   string
+		answer stubListener
+		want   ports.ListenerState
+		v6Only bool
+		silent bool
+	}{
+		{"both addresses", stubListener{"127.0.0.1:80": true, "[::1]:80": true}, ports.ListenerState{IPv4: true, IPv6: true}, false, false},
+		{"IPv4 only", stubListener{"127.0.0.1:80": true}, ports.ListenerState{IPv4: true}, false, false},
+		{"IPv6 only", stubListener{"[::1]:80": true}, ports.ListenerState{IPv6: true}, true, false},
+		{"nothing", stubListener{}, ports.ListenerState{}, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ports.Listening(context.Background(), c.answer, 80)
+			if got != c.want || got.IPv6Only() != c.v6Only || got.Silent() != c.silent {
+				t.Fatalf("Listening = %+v (IPv6Only %v, Silent %v)", got, got.IPv6Only(), got.Silent())
+			}
+		})
+	}
+}
+
+func TestDialListener(t *testing.T) {
+	t.Run("answers on a port something listens on, and not once it stops", func(t *testing.T) {
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Skipf("cannot listen on loopback: %v", err)
+		}
+		port := listener.Addr().(*net.TCPAddr).Port
+		go func() {
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					return
+				}
+				_ = conn.Close()
+			}
+		}()
+		if !(ports.DialListener{}).Answers(context.Background(), "127.0.0.1", port) {
+			t.Fatal("a listening port did not answer")
+		}
+		if err := listener.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if (ports.DialListener{}).Answers(context.Background(), "127.0.0.1", port) {
+			t.Fatal("a closed port answered")
+		}
+	})
+
+	t.Run("a cancelled context never answers", func(t *testing.T) {
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Skipf("cannot listen on loopback: %v", err)
+		}
+		defer func() { _ = listener.Close() }()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if (ports.DialListener{}).Answers(ctx, "127.0.0.1", listener.Addr().(*net.TCPAddr).Port) {
+			t.Fatal("answered under a cancelled context")
 		}
 	})
 }

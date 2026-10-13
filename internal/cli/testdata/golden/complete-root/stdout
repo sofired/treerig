@@ -8,6 +8,7 @@ run	run one of the project's named commands from berth.toml [commands]
 index	refresh the machine-wide checkout index and print it
 doctor	check prerequisites, the registry, the router, and this checkout's verify hook
 router	manage the shared local router
+route	route processes running on the host through this worktree's hostname
 shared	manage the repository's shared services
 worktree	manage registered worktrees
 completion	print a shell completion script

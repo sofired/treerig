@@ -43,6 +43,10 @@ type Env struct {
 	// check before the router starts; nil asks the operating system
 	// (ports.LoopbackProbe). Tests set a fake so they bind nothing.
 	PortProbe ports.Probe
+	// Listeners says which loopback addresses a host route's port answers
+	// on; nil dials (ports.DialListener). Tests set a fake so they bind
+	// nothing.
+	Listeners ports.ListenerProbe
 	// Table identifies and inspects processes for lock recovery's survivor
 	// scan (UnlockGlobal, UnlockWithContext); nil defaults to
 	// procid.Platform(), the same default lock.Options.Table documents.

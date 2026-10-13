@@ -1,0 +1,14 @@
+List this worktree's host routes, one per line: the name, the URL it answers on,
+and the 127.0.0.1 port it targets. Needs a registered worktree: run `berth up`
+first. With --json, an array of {name, url, port}.
+
+Usage:
+  berth route ls [flags]
+
+Flags:
+  -h, --help   help for ls
+      --json   machine-readable output
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

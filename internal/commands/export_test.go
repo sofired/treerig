@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 
+	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/shared"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -41,3 +42,9 @@ func SharedResourceForTest(kind, id string) shared.Resource {
 
 // DescribeAnonymousForTest exposes describeAnonymous to the black-box tests.
 func DescribeAnonymousForTest(volume shared.Resource) string { return describeAnonymous(volume) }
+
+// ControlHomeRegistrations is the router.Registrations route repair reads a
+// control home's records through, for the black-box tests.
+func ControlHomeRegistrations(controlHome string) router.Registrations {
+	return controlHomeRegistrations{controlHome: controlHome}
+}

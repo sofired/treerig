@@ -42,6 +42,21 @@ func fillByKind(value reflect.Value, path string) error {
 			return unknown()
 		}
 		value.Set(reflect.ValueOf(map[string]int{"api": 30000}))
+	case reflect.Slice:
+		if value.Type() != reflect.TypeOf([]HostRoute{}) {
+			return unknown()
+		}
+		route := reflect.New(value.Type().Elem()).Elem()
+		if err := fillByKind(route, path+"[0]"); err != nil {
+			return err
+		}
+		// Filled by kind, then made valid: a record only keeps a route whose
+		// name, port, subdomain and path parse.
+		fixed := route.Interface().(HostRoute)
+		fixed.Name, fixed.Subdomain, fixed.Port = "web", "app", 5173
+		fixed.Path = new(string)
+		*fixed.Path = "/x"
+		value.Set(reflect.ValueOf([]HostRoute{fixed}))
 	case reflect.Struct:
 		for i := range value.NumField() {
 			if err := fillByKind(value.Field(i), path+"."+value.Type().Field(i).Name); err != nil {
@@ -97,7 +112,8 @@ func TestRecordCarriesEveryField(t *testing.T) {
 }
 
 // TestFillByKindRefusesWhatItCannotFill proves the guard answers a pointer to
-// a non-string, or a slice, with its guiding message and no panic.
+// a non-string, or a slice of anything but host routes, with its guiding
+// message and no panic.
 func TestFillByKindRefusesWhatItCannotFill(t *testing.T) {
 	type future struct {
 		Routes *int

@@ -24,6 +24,16 @@ type RecordJSON struct {
 	Initialization string  `json:"initialization"`
 	// Ports is the optional service → loopback port map (#119).
 	Ports map[string]int `json:"ports,omitempty"`
+	// HostRoutes are the optional routes to host processes (#6).
+	HostRoutes []HostRouteJSON `json:"hostRoutes,omitempty"`
+}
+
+// HostRouteJSON is the on-disk shape of one host route, for fixtures.
+type HostRouteJSON struct {
+	Name      string  `json:"name"`
+	Port      int     `json:"port"`
+	Subdomain string  `json:"subdomain,omitempty"`
+	Path      *string `json:"path,omitempty"`
 }
 
 // PortRange is the loopback port range tests allocate from. It is not the

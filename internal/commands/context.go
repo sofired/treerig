@@ -62,6 +62,9 @@ type CommandContext struct {
 	// asks the operating system (ports.LoopbackProbe). Tests set a fake
 	// so they bind nothing.
 	PortProbe ports.Probe
+	// Listeners says which loopback addresses a host route's port answers
+	// on; nil dials (ports.DialListener).
+	Listeners ports.ListenerProbe
 	// OS is runtime.GOOS, passed in from the entry point (Env.OS): it only
 	// picks which tool a message suggests for finding a process.
 	OS string
@@ -221,6 +224,7 @@ func buildContext(env *Env, loaded *config.Loaded, fallbackRoot string) (*Comman
 		RouterPortResolution: resolvedPort,
 		PortRange:            portRange,
 		PortProbe:            env.PortProbe,
+		Listeners:            env.Listeners,
 		OS:                   env.OS,
 		RouterState:          routerState,
 		Registry:             reg,
