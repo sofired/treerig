@@ -107,7 +107,11 @@ are accepted and validated so a repository can commit them once, and future
 commands of the same names will run them; a `backup` or `restore` whose file
 would not start fails `doctor`'s hook-resolution check exactly the way a
 broken `prepare`, `seed` or `verify` does, even though nothing invokes them
-yet. The tool never learns what they do.
+yet. The tool never learns what they do. A hook runs without a time limit
+unless `[hooks.timeout]` gives it one: past its limit berth stops the hook and
+its whole process group on the host, and reports it as timed out (exit 124),
+not failed. (Work it handed to a container, such as a `docker compose exec`,
+keeps running there: see [docs/hooks.md](docs/hooks.md#timeouts).)
 
 **Ports.** Each routed service also gets a port of its own on
 `127.0.0.1`, allocated when `up` first needs it, recorded in the worktree's
@@ -310,6 +314,10 @@ prepare = "./scripts/migrate.sh"   # services healthy, nothing seeded
 seed    = "./scripts/seed.py"      # only after prepare exits zero
 verify  = "./scripts/check.sh"     # run by doctor; exit 0 means healthy
 
+[hooks.timeout]                    # optional: no entry, no limit
+prepare = "30m"                    # a hung migration fails `up` after half an hour
+verify  = "2m"                     # and a hung check fails `doctor` after two minutes
+
 [commands]
 plan = "./scripts/keycloak.sh plan"   # on demand, with `berth run plan`
 ```
@@ -509,6 +517,7 @@ would orphan state.
 | `[shared]` | Optional. `file`: the shared services' Compose file, relative to `berth.toml`; required when any `[shared.service.<name>]` table exists. |
 | `[shared.service.<name>]` | One table per shared service, named by its service in the shared file (same naming rules as `[service.<name>]`). Optional `port` (the web UI's container port), optional `ports` (more container ports), both pinned on `127.0.0.1` for the host; at most 16 in all. `used-by`: the worktree's own Compose services that use it. See [Shared services](#shared-services). |
 | `[hooks]` | `prepare`, `seed`, `verify`, `backup`, `restore` — resolved as in [docs/hooks.md](docs/hooks.md): relative to the config file when the command starts with `.` or contains `/`, otherwise from `PATH`. `up` runs `prepare` and `seed`, `doctor` runs `verify`; `backup` and `restore` are accepted but nothing runs them yet. |
+| `[hooks.timeout]` | Optional. A time limit per hook, keyed by the hook's name (`prepare`, `seed`, `verify`, `backup`, `restore`): a duration such as `30s`, `10m` or `1h30m`, greater than zero and at most `24h`. A hook with no entry has no limit. When the limit passes berth stops the hook and its whole process group on the host (not work it handed to a container, such as a `docker compose exec`), fails the command with `The <hook> hook timed out after <limit> and was terminated.` and exits 124. See [docs/hooks.md](docs/hooks.md#timeouts). |
 | `[commands]` | Optional. Named commands for `berth run <name>`, resolved like hooks. Each name (lower-case letters, digits, hyphens) maps to a command line, or to a table: `command`, `lock` (default `true`: hold the worktree's lock while it runs) and `kill-after` (default `10s`, at most `1h`: a duration such as `30s` or `5m`, how long its process group has to exit once stopped, before it is killed). See [docs/hooks.md](docs/hooks.md#commands). |
 
 Unknown keys are rejected, so a typo cannot silently disable a feature.
@@ -898,9 +907,11 @@ output of the `verify` hook it runs, so the report is alone on stdout. It exits
 0 when no check failed — warnings and skips do not count — with the `verify`
 hook's own exit code when that hook ran and failed, and 1 for any other
 failure. The exit code names one failure; the report names them all. A
-`verify` hook that exits 124 makes `doctor` exit 124 too — the code
-`timeout(1)` uses for a command it had to kill — so a script that wraps
-`doctor` in `timeout` cannot tell the two apart by exit code alone. `doctor`
+`verify` hook that exits 124 by itself makes `doctor` exit 124. So does one
+that outlives its `[hooks.timeout]` limit and is stopped for it (`The verify
+hook timed out after 2m and was terminated.`); the report's `verify hook` line
+tells the two apart, the exit code does not. If `timeout(1)` kills `doctor`
+itself, which also exits 124, there is no report at all. `doctor`
 also reports one line per configured hook — `prepare`, `seed`, `verify`,
 `backup` and `restore` alike, whether or not this worktree is registered —
 for whether the file it names would even start: as `<stage> hook file`,
@@ -934,7 +945,9 @@ Every failure the tool itself reports, a bad command line included, ends in a
 non-zero exit code and a `[berth] ERROR:` line on stderr saying why. Set
 `BERTH_DEBUG=1` to see the stack trace behind a failure. A failing hook's own
 exit code becomes berth's, and so does a `run` command's — see
-[docs/hooks.md](docs/hooks.md) — and a verb
+[docs/hooks.md](docs/hooks.md) — except that a hook which outlives its
+`[hooks.timeout]` limit is stopped and berth exits 124, not the hook's own
+code ([docs/hooks.md](docs/hooks.md#timeouts)). A verb
 that is registered but not implemented exits 2.
 
 ### Machine-readable output
@@ -1506,11 +1519,9 @@ them once.
    `berth.example.toml` to the repository root.
 5. **`backup` / `restore`** (#10) — invoke the hooks of the same name with a
    bundle directory.
-6. **Hook timeouts** (#26) — so a hung `prepare` or `verify` cannot hang
-   the command that runs it forever.
-7. **Migrating stored state between releases** (#29), once there are
+6. **Migrating stored state between releases** (#29), once there are
     releases to migrate between.
-8. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+7. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
     stronger guarantee the relocated-copy mechanism above is a step toward,
     tied to binary distribution (#8).
 

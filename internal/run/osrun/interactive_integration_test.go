@@ -437,7 +437,7 @@ func TestDrainGroupAbandonedBySecondSignal(t *testing.T) {
 	ctx := run.WithRepeated(context.Background(), repeated)
 
 	start := time.Now()
-	err := drainGroup(ctx, pid, "stubborn command", time.Minute, false)
+	err := drainGroup(ctx, pid, "stubborn command", time.Minute, false, drainBudget(time.Minute, false))
 	elapsed := time.Since(start)
 
 	if err == nil {
