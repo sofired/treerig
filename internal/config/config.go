@@ -249,7 +249,3 @@ func (h Hooks) Configured() []HookStage {
 	}
 	return stages
 }
-
-// InvokedStages are the hooks some command runs today; backup and restore are
-// accepted but nothing invokes them yet.
-var InvokedStages = []HookStage{Prepare, Seed, Verify}

@@ -114,6 +114,8 @@ func TestRun(t *testing.T) {
 		want := map[string]string{
 			"BERTH_COMMAND": "apply", "BERTH_WORKTREE_ID": rw.ref.WorktreeID, "BERTH_SLUG": "feature-login",
 			"BERTH_HOST": layout.WorktreeHost("feature-login", acme),
+			// A command's `docker compose exec` reaches this worktree's containers.
+			"COMPOSE_PROJECT_NAME": layout.ComposeProjectName(rw.ref.RepositoryID, rw.ref.WorktreeID),
 		}
 		for k, v := range want {
 			if !containsEnv(spec.Env, k, v) {

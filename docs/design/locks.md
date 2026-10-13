@@ -131,6 +131,16 @@ tests skip there.
   operation lock at `<home>/locks/worktrees/<repo>/<wt>`; its
   development-session lock at `…/<wt>.dev`; a repository's shared-services
   lock at `<home>/locks/shared/<repo>` (#123, below).
+- Which verbs take which: `up`, `down`, `run`, `backup` and `restore` take the
+  operation lock only, so they work during a development session;
+  `worktree remove` takes the development lock as well, and is refused while
+  one is attached.
+- The survivor scan (`procid.Marked`) counts a process as a worktree's own when
+  its environment holds `BERTH_WORKTREE_ID=<wt>` or `COMPOSE_PROJECT_NAME=<p>`.
+  Hooks and commands now set `COMPOSE_PROJECT_NAME` (docs/hooks.md), and
+  already carried `BERTH_WORKTREE_ID`, so the set of processes counted is
+  unchanged: a hook's children were the worktree's processes before and are
+  now marked twice.
 - The router lock's target is `layout.RouterState`'s `LockPath`,
   `<BERTH_HOME>/router/lock` (#80) — never any control home's own `locks/`,
   so every control home under the same berth root waits on the same lock

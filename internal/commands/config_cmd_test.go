@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/logger"
@@ -66,36 +65,17 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	_, printed := rec.Snapshot()
-	if len(printed) != 4 {
-		t.Fatalf("Output lines = %d, want 4: %#v", len(printed), printed)
+	if len(printed) != 3 {
+		t.Fatalf("Output lines = %d, want 3: %#v", len(printed), printed)
 	}
 	if got, want := printed[0], file+" is valid."; got != want {
 		t.Errorf("line 0 = %q, want %q", got, want)
 	}
-	if want := "project acme · domain acme.localhost · 0 service(s) · 1 hook(s)"; printed[1] != want {
+	if want := "project acme · domain acme.localhost · 0 service(s) · 2 hook(s)"; printed[1] != want {
 		t.Errorf("line 1 = %q, want %q", printed[1], want)
 	}
-	// prepare is invoked; backup is accepted but not invoked yet.
-	if want := "accepted but not invoked yet: backup"; printed[2] != want {
+	if want := "control home: " + filepath.Join(home, ".berth", "control-home"); printed[2] != want {
 		t.Errorf("line 2 = %q, want %q", printed[2], want)
-	}
-	if want := "control home: " + filepath.Join(home, ".berth", "control-home"); printed[3] != want {
-		t.Errorf("line 3 = %q, want %q", printed[3], want)
-	}
-}
-
-func TestConfigValidateNoInertHooksLine(t *testing.T) {
-	file := writeConfig(t, minimalTOML+"\nverify = \"./verify.sh\"\n")
-	env, rec := testEnv(t, file, t.TempDir())
-
-	if err := ConfigValidate(context.Background(), env); err != nil {
-		t.Fatalf("ConfigValidate: %v", err)
-	}
-	_, printed := rec.Snapshot()
-	for _, line := range printed {
-		if strings.HasPrefix(line, "accepted but not invoked yet") && !strings.Contains(line, "backup") {
-			t.Errorf("expected backup still listed as inert: %q", line)
-		}
 	}
 }
 

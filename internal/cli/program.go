@@ -524,6 +524,53 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	run.ValidArgsFunction = commandCompletionFunc(p)
 	root.AddCommand(run)
 
+	backup := &cobra.Command{
+		Use:   "backup [dir]",
+		Short: "run the backup hook, writing a bundle into a directory",
+		Long: fmt.Sprintf("Run the backup hook %s declares under [hooks], in this worktree, which must be registered and have a running service, "+
+			"with the worktree's BERTH_* environment and the bundle directory as its first argument. "+
+			"The directory is created, or must be empty if it exists; without one the bundle goes to a timestamped "+
+			"directory under the worktree's home, which worktree remove deletes along with it. "+
+			"The path is reported on stderr when the hook succeeds. "+
+			"The hook's exit code becomes berth backup's, and the worktree's lock is held while it runs. "+
+			"docs/hooks.md has the details.", brand.ConfigFile),
+		Args: maxArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Backup(cmd.Context(), env, commands.BackupOptions{Dir: arg0(args)})
+		},
+	}
+	backup.ValidArgsFunction = directoryCompletionFunc
+	root.AddCommand(backup)
+
+	restore := &cobra.Command{
+		Use:   "restore <dir>",
+		Short: "run the restore hook on a bundle directory",
+		Long: fmt.Sprintf("Run the restore hook %s declares under [hooks], in this worktree, which must be registered and have a running service, "+
+			"with the worktree's BERTH_* environment and a bundle directory as its first argument. "+
+			"The directory must already exist and is never created; a bundle that a backup did not finish is refused. "+
+			"The hook's exit code becomes berth restore's, and the worktree's lock is held while it runs. "+
+			"docs/hooks.md has the details.", brand.ConfigFile),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return clierr.Newf("Restore needs a bundle directory: %s restore <dir>.", commandName)
+			}
+			return maxArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Restore(cmd.Context(), env, commands.RestoreOptions{Dir: arg0(args)})
+		},
+	}
+	restore.ValidArgsFunction = directoryCompletionFunc
+	root.AddCommand(restore)
+
 	var indexJSON bool
 	indexCmd := &cobra.Command{
 		Use:   "index",

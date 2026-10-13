@@ -10,6 +10,7 @@
 //	    locks/worktrees/<repo>/<wt>.dev   development-session lock
 //	    repositories/<repo>/worktrees/    registry records, one JSON per worktree
 //	    repositories/<repo>/instances/<wt>/   the worktree's home
+//	    repositories/<repo>/instances/<wt>/backups/<timestamp>/   `backup`'s default bundles
 //	    bin/<sha256>                      BinDir: `worktree remove`'s own content-addressed copies (#7)
 //
 // The shared router's own stack file, protocol record, dynamic and index
@@ -63,7 +64,10 @@ type Worktree struct {
 	RecordPath string
 	Home       string
 	// QuarantinePath is renamed-to during removal, so a crash mid-delete leaves a recognizable artifact.
-	QuarantinePath      string
+	QuarantinePath string
+	// BackupsDir is where `backup` puts a bundle when it is given no directory,
+	// <Home>/backups: a storage name, so it is pinned by layout_test.go.
+	BackupsDir          string
 	LockPath            string
 	DevelopmentLockPath string
 }
@@ -251,6 +255,11 @@ func RepositoryLayout(controlHome, repositoryID string) Repository {
 	}
 }
 
+// BackupsDirName is the directory under a worktree's home that holds the
+// bundles `backup` makes without an explicit directory. It is a name on disk
+// that `worktree remove` and the user both rely on finding; see layout_test.go.
+const BackupsDirName = "backups"
+
 // WorktreeLayout derives one worktree's paths.
 func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 	repository := RepositoryLayout(controlHome, repositoryID)
@@ -259,6 +268,7 @@ func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 		Repository:          repository,
 		RecordPath:          filepath.Join(repository.RegistryDir, worktreeID+".json"),
 		Home:                home,
+		BackupsDir:          filepath.Join(home, BackupsDirName),
 		QuarantinePath:      filepath.Join(repository.InstancesDir, ".deleting-"+worktreeID),
 		LockPath:            filepath.Join(repository.WorktreeLocksDir, worktreeID),
 		DevelopmentLockPath: filepath.Join(repository.WorktreeLocksDir, worktreeID+".dev"),

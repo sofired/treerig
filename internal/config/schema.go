@@ -195,13 +195,10 @@ func hooksSchema() *shape.ObjectSchema {
 			Describe("Command that seeds data. Runs only the first time the worktree comes up, and only after prepare exits zero.")),
 		shape.F("verify", shape.String().Min(1).Optional().
 			Describe("Command `berth doctor` runs for a registered worktree; exit zero means healthy. Its output goes to stderr.")),
-		// The two below are accepted and validated now, and nothing invokes
-		// them yet: they are the contract a future `backup` and `restore`
-		// will call, declared early so a repository can commit them once.
 		shape.F("backup", shape.String().Min(1).Optional().
-			Describe("Command a future `berth backup` will run. Accepted and validated now; nothing invokes it yet.")),
+			Describe("Command `berth backup` runs, with the bundle directory as its first argument. It writes the worktree's data into that directory.")),
 		shape.F("restore", shape.String().Min(1).Optional().
-			Describe("Command a future `berth restore` will run. Accepted and validated now; nothing invokes it yet.")),
+			Describe("Command `berth restore` runs, with an existing bundle directory as its first argument. It loads what backup wrote.")),
 	).Strict().Default(shape.NewObj()).
 		Describe("Commands berth runs at points in a worktree's life. Each is resolved relative to this file when it starts with \".\" or contains \"/\", and looked up on PATH otherwise. See docs/hooks.md.")
 }

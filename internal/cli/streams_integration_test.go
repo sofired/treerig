@@ -164,7 +164,7 @@ func TestStreamsContract(t *testing.T) {
 		}
 	})
 
-	t.Run("counts only the hooks that run, and names the ones that do not", func(t *testing.T) {
+	t.Run("counts every configured hook", func(t *testing.T) {
 		cwd := writeStreamsProject(t, streamsConfig+`
 [hooks]
 prepare = "./prepare.sh"
@@ -175,11 +175,8 @@ backup  = "./backup.sh"
 
 		result := runBerth(t, binary, cwd, []string{"config", "validate"}, berthOptions{})
 
-		if !strings.Contains(result.Stdout, "1 service(s) · 3 hook(s)") {
-			t.Errorf("stdout = %q, want the 3-hook(s) count (backup is accepted, not invoked)", result.Stdout)
-		}
-		if !strings.Contains(result.Stdout, "accepted but not invoked yet: backup") {
-			t.Errorf("stdout = %q, want it to name backup as not yet invoked", result.Stdout)
+		if !strings.Contains(result.Stdout, "1 service(s) · 4 hook(s)") {
+			t.Errorf("stdout = %q, want the 4-hook(s) count", result.Stdout)
 		}
 	})
 
