@@ -1317,6 +1317,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 				ControlHome: opts.ControlHome, ConfigFile: loaded.File, ProjectRoot: loaded.Root,
 			},
 			Ref: ref, Hooks: loaded.Config.Hooks, Logger: opts.Logger, Runner: opts.Runner, Environ: opts.Environ,
+			ComposeFile: composeFilePath(loaded),
 			// BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28), BERTH_SERVICE_PORT_<NAME> (#119)
 			Routes: verifyRoutes,
 			// BERTH_SHARED_ADDR_<NAME>_<PORT>

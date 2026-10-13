@@ -97,16 +97,18 @@ seed = "./scripts/seed.py"
 # Its output goes to stderr, since doctor's stdout is its report.
 verify = "./scripts/check.sh"
 
-# Accepted and validated now; nothing invokes them yet. A future `berth backup`
-# and `berth restore` will, each with a bundle directory as its first argument.
+# Run by `berth backup [dir]` and `berth restore <dir>`, each with the bundle
+# directory as its first argument: backup writes the worktree's data into it,
+# restore loads it back. Both need the worktree's services running.
 backup  = "./scripts/backup.sh"
 restore = "./scripts/restore.sh"
 
 # Optional time limits, one per hook, keyed by its name. A hook with no entry
 # has no limit. Past its limit a hook is stopped, with its whole process group
-# on the host (not work it handed to a container), and `up` or `doctor` fails
-# it as timed out (exit 124). A duration such as "30s", "10m" or "1h30m", at
-# most 24h. Size one for the slowest healthy run.
+# on the host (not work it handed to a container), and the command that ran it
+# (`up`, `doctor`, `backup` or `restore`) fails it as timed out (exit 124). A
+# duration such as "30s", "10m" or "1h30m", at most 24h. Size one for the
+# slowest healthy run.
 [hooks.timeout]
 prepare = "30m"
 verify  = "2m"

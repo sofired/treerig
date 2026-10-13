@@ -117,7 +117,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	if err != nil {
 		return nil, err
 	}
-	if err := confirm(env, DescribePlan(host, planned, hasHome), host, options.Yes); err != nil {
+	if err := confirm(env, DescribePlan(host, planned, hasHome, countBackups(paths.BackupsDir)), host, options.Yes); err != nil {
 		return nil, err
 	}
 
@@ -490,13 +490,30 @@ func countResources(resources []worktree.OwnedResource) string {
 	return strings.Join(parts, ", ")
 }
 
+// countBackups is how many bundles `backup` has left under dir, the
+// worktree's default backups directory. A directory that is missing or cannot
+// be read counts as none: the plan is a courtesy, and must never stand
+// between the user and a removal.
+func countBackups(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	return len(entries)
+}
+
 // DescribePlan is what the confirmation screen lists. The host is filtered
 // here, where it is borrowed: a hostname that carried a line break would
 // otherwise write its own line into this list.
-func DescribePlan(host string, planned []worktree.OwnedResource, hasHome bool) string {
+func DescribePlan(host string, planned []worktree.OwnedResource, hasHome bool, backups int) string {
 	home := "  (no home directory)"
 	if hasHome {
 		home = "  its home directory under the control home"
+		if backups > 0 {
+			// `backup` without a directory writes here, and the bundles go
+			// with the home: say so at the point of loss.
+			home += fmt.Sprintf(", including %d backup bundle(s) in %s/", backups, layout.BackupsDirName)
+		}
 	}
 	return strings.Join([]string{
 		fmt.Sprintf("This will permanently remove %s:", text.Printable(host)),

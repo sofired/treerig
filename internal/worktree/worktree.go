@@ -56,13 +56,20 @@ type EnvironmentSource struct {
 	ProjectRoot string
 }
 
+// ComposeProjectKey is the Environment key (BERTH_COMPOSE_PROJECT) that
+// carries the worktree's Compose project name; the hook runner reads it back
+// to set Compose's own COMPOSE_PROJECT_NAME from the same value.
+const ComposeProjectKey = "COMPOSE_PROJECT"
+
 // Environment is what a worktree looks like from outside the tool. Hooks
 // receive it plus a stage; the Compose file receives exactly this, so
 // ${BERTH_WORKTREE_HOME} means the same thing in a bind mount as in a seed
 // script. One builder, so hooks and the Compose file never disagree.
 //
 // The keys are in a fixed order: PROJECT, REPOSITORY_ID, WORKTREE_ID, SLUG,
-// HOST, WORKTREE_HOME, CONFIG, ROOT.
+// HOST, WORKTREE_HOME, CONFIG, ROOT, COMPOSE_PROJECT. COMPOSE_PROJECT is the
+// worktree's Compose project name, derived here once; the hook runner also
+// hands it to Compose's own variable of that name.
 func Environment(source EnvironmentSource, ref Ref) [][2]string {
 	return [][2]string{
 		{"PROJECT", source.ProjectName},
@@ -76,6 +83,7 @@ func Environment(source EnvironmentSource, ref Ref) [][2]string {
 		{"WORKTREE_HOME", layout.WorktreeLayout(source.ControlHome, ref.RepositoryID, ref.WorktreeID).Home},
 		{"CONFIG", source.ConfigFile},
 		{"ROOT", source.ProjectRoot},
+		{ComposeProjectKey, layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID)},
 	}
 }
 

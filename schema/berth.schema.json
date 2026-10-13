@@ -186,12 +186,12 @@
         },
         "backup": {
           "type": "string",
-          "description": "Command a future `berth backup` will run. Accepted and validated now; nothing invokes it yet.",
+          "description": "Command `berth backup` runs, with the bundle directory as its first argument. It writes the worktree's data into that directory.",
           "minLength": 1
         },
         "restore": {
           "type": "string",
-          "description": "Command a future `berth restore` will run. Accepted and validated now; nothing invokes it yet.",
+          "description": "Command `berth restore` runs, with an existing bundle directory as its first argument. It loads what backup wrote.",
           "minLength": 1
         },
         "timeout": {

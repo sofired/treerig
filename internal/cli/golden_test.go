@@ -63,6 +63,8 @@ var goldenCases = []goldenCase{
 	{"help-status", []string{"status", "--help"}},
 	{"help-urls", []string{"urls", "--help"}},
 	{"help-run", []string{"run", "--help"}},
+	{"help-backup", []string{"backup", "--help"}},
+	{"help-restore", []string{"restore", "--help"}},
 	{"help-index", []string{"index", "--help"}},
 	{"help-doctor", []string{"doctor", "--help"}},
 	{"help-router", []string{"router", "--help"}},
@@ -91,6 +93,7 @@ var goldenCases = []goldenCase{
 	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
 	{"help-cmd-dev", []string{"help", "dev"}},
 	{"help-cmd-run", []string{"help", "run"}},
+	{"help-cmd-backup", []string{"help", "backup"}},
 	// "a" is not a real command, so this falls all the way back to the
 	// program's own error help; "b" is never reached.
 	{"help-cmd-a-b", []string{"help", "a", "b"}},
@@ -125,6 +128,9 @@ var goldenCases = []goldenCase{
 	{"complete-no-file-arguments", []string{"__complete", "worktree", "remove", ""}},
 	{"complete-no-file-flag-value", []string{"__complete", "worktree", "remove", "--domain", ""}},
 	{"complete-config-file", []string{"__complete", "status", "--config", ""}},
+	{"complete-backup-directories", []string{"__complete", "backup", ""}},
+	{"complete-backup-after-directory", []string{"__complete", "backup", "out", ""}},
+	{"complete-restore-directories", []string{"__complete", "restore", ""}},
 	{"complete-run-config-missing", []string{"__complete", "run", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
 
 	// --- unknown command, with and without a suggestion ---
@@ -163,6 +169,9 @@ var goldenCases = []goldenCase{
 
 	// --- run: anything but the name before "--" is refused, however it is
 	// spelled; the arguments after "--" are the command's own ---
+	{"err-restore-no-directory", []string{"restore"}},
+	{"err-excess-arguments-backup", []string{"backup", "one", "two"}},
+	{"err-excess-arguments-restore", []string{"restore", "one", "two"}},
 	{"err-run-args-before-dash", []string{"run", "plan", "extra"}},
 	{"err-run-flag-shorthand", []string{"run", "plan", "-auto-approve"}},
 	{"err-run-flag-long", []string{"run", "plan", "--var=x"}},
@@ -205,6 +214,8 @@ var goldenCases = []goldenCase{
 	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"urls-missing-file", []string{"urls", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"backup-missing-file", []string{"backup", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"restore-missing-file", []string{"restore", "somewhere", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"run-missing-file", []string{"run", "plan", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"run-missing-file-after-dash", []string{"run", "--config", "/nonexistent-berth-config-x7z.toml", "plan", "--", "--config", "elsewhere"}},
 }

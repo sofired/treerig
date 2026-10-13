@@ -13,6 +13,8 @@ Available Commands:
   status      show service status for this worktree
   urls        print this worktree's routed URLs
   run         run one of the project's named commands from berth.toml [commands]
+  backup      run the backup hook, writing a bundle into a directory
+  restore     run the restore hook on a bundle directory
   index       refresh the machine-wide checkout index and print it
   doctor      check prerequisites, the registry, the router, and this checkout's
               verify hook

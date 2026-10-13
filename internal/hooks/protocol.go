@@ -25,6 +25,11 @@ func BundleStages() []config.HookStage {
 	return []config.HookStage{config.Backup, config.Restore}
 }
 
+// Configured reports whether hooks configures stage.
+func Configured(hooks config.Hooks, stage config.HookStage) bool {
+	return commandFor(hooks, stage) != nil
+}
+
 // commandFor is the configured command for stage, or nil if none is.
 func commandFor(hooks config.Hooks, stage config.HookStage) *string {
 	switch stage {

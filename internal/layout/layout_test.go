@@ -116,6 +116,18 @@ func collectPathFields(v reflect.Value, out map[string]string) {
 }
 
 func TestWorktreeLayout(t *testing.T) {
+	// A bundle made without a directory is found here by the user and counted
+	// by `worktree remove`'s plan: renaming it strands both.
+	t.Run("keeps default backup bundles in the worktree's home under backups", func(t *testing.T) {
+		l := layout.WorktreeLayout("/control", repository, worktree)
+		if layout.BackupsDirName != "backups" {
+			t.Fatalf("BackupsDirName = %q, want backups", layout.BackupsDirName)
+		}
+		if want := filepath.Join("/control", "repositories", repository, "instances", worktree, "backups"); l.BackupsDir != want {
+			t.Fatalf("BackupsDir = %q, want %q", l.BackupsDir, want)
+		}
+	})
+
 	t.Run("keeps every path inside the control home", func(t *testing.T) {
 		l := layout.WorktreeLayout("/control", repository, worktree)
 		paths := map[string]string{}
