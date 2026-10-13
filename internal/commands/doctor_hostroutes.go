@@ -43,7 +43,7 @@ func hostRouteChecks(ctx context.Context, opts doctorOptions, registration *regi
 			path := router.HostFragmentPath(opts.RouterState, registration.RepositoryID, registration.WorktreeID, route.Name)
 			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 				checks = append(checks, Check{Status: StatusWarn, ID: "checkout.host-route-files", Instance: route.Name, Subject: subject, Detail: fmt.Sprintf(
-					"its route file is missing from %s, so the router does not route it. Run '%s route add %s' again with the same fields to write it ('%s route ls' shows them).",
+					"its route file is missing from %s, so the router does not route it. Run '%s route add %s' again with the same fields to write it ('%s route ls --json' lists them).",
 					opts.RouterState.DynamicDir, opts.CommandName, hostRouteAddArguments(route), opts.CommandName)})
 			}
 		}

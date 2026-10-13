@@ -768,7 +768,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Use:   "ls",
 		Short: "list this worktree's host routes",
 		Long: "List this worktree's host routes, one per line: the name, the URL it answers on, and the 127.0.0.1 port it targets. " +
-			"Needs a registered worktree: run `" + commandName + " up` first. With --json, an array of {name, url, port}.",
+			"Needs a registered worktree: run `" + commandName + " up` first. With --json, an array of {name, url, port}, plus subdomain and path when the route has them.",
 		Args: maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)

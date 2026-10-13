@@ -134,7 +134,7 @@ func TestHostRouteChecks(t *testing.T) {
 			t.Fatalf("checks = %+v", checks)
 		}
 		file := checks[0]
-		want := "its route file is missing from " + state.DynamicDir + ", so the router does not route it. Run 'berth route add web0 --port 5173 --subdomain app0' again with the same fields to write it ('berth route ls' shows them)."
+		want := "its route file is missing from " + state.DynamicDir + ", so the router does not route it. Run 'berth route add web0 --port 5173 --subdomain app0' again with the same fields to write it ('berth route ls --json' lists them)."
 		if file.Status != StatusWarn || file.ID != "checkout.host-route-files" || file.Instance != "web0" || file.Detail != want {
 			t.Fatalf("file check = %+v", file)
 		}
