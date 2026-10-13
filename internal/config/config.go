@@ -109,6 +109,52 @@ type Hooks struct {
 	Verify  *string `json:"verify,omitempty"`
 	Backup  *string `json:"backup,omitempty"`
 	Restore *string `json:"restore,omitempty"`
+	// Timeout is the [hooks.timeout] table: nil when the file has none, and
+	// then left out of `config show`.
+	Timeout *HookTimeouts `json:"timeout,omitempty"`
+}
+
+// HookTimeouts is the [hooks.timeout] table: each hook's time limit as
+// written, a duration such as "10m". A nil field means the hook has no
+// limit. It names every hook kind, configured or not.
+type HookTimeouts struct {
+	Prepare *string `json:"prepare,omitempty"`
+	Seed    *string `json:"seed,omitempty"`
+	Verify  *string `json:"verify,omitempty"`
+	Backup  *string `json:"backup,omitempty"`
+	Restore *string `json:"restore,omitempty"`
+}
+
+// TimeoutFor is how long stage's hook may run before it is stopped; zero
+// means no limit, which is what a hook with no [hooks.timeout] entry gets.
+// The schema only admits a duration greater than zero, so a Hooks built by
+// hand with anything unparseable is read as no limit rather than as a
+// limit of zero.
+func (h Hooks) TimeoutFor(stage HookStage) time.Duration {
+	if h.Timeout == nil {
+		return 0
+	}
+	var written *string
+	switch stage {
+	case Prepare:
+		written = h.Timeout.Prepare
+	case Seed:
+		written = h.Timeout.Seed
+	case Verify:
+		written = h.Timeout.Verify
+	case Backup:
+		written = h.Timeout.Backup
+	case Restore:
+		written = h.Timeout.Restore
+	}
+	if written == nil {
+		return 0
+	}
+	d, ok := parseHookTimeout(*written)
+	if !ok {
+		return 0
+	}
+	return d
 }
 
 // DefaultCommandKillAfter is how long a stopped [commands] entry gets to
@@ -235,6 +281,9 @@ const (
 	Backup  HookStage = "backup"
 	Restore HookStage = "restore"
 )
+
+// hookStages is every hook kind, in schema order.
+var hookStages = []HookStage{Prepare, Seed, Verify, Backup, Restore}
 
 // Configured lists the configured hooks in schema order.
 func (h Hooks) Configured() []HookStage {
