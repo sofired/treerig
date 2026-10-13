@@ -124,3 +124,39 @@ best-effort and does not catch every 1.1 addition (times without seconds,
 say). A README or docs fence written as ```` ```toml invalid ```` is exempt
 from the must-parse check, for a block that shows a mistake or elides part of
 a file, but not from the syntax scan.
+
+## The starter file
+
+`berth init` writes a starter `berth.toml` at the Git toplevel of the
+checkout it runs in. The text is a template in `internal/config/starter.go`,
+filled with a project name taken from the directory (`config.StarterName`) and
+the Compose file found at the root, `compose.yaml` if none.
+
+- **A template, not a copy of the example.** It is a few lines of live
+  configuration and two commented-out blocks (a routed service, hooks). Each
+  of its comment lines is a line of `berth.example.toml`, verbatim (or a line
+  of the example's TOML commented out), apart from a short list of
+  starter-only lines in `starter_test.go`; `TestStarter` fails on any other, so
+  what it says cannot drift from the example. The `#:schema` directive on its
+  first line, the same one the example opens with and built from the same
+  `config.SchemaID`, gives editors each field's rules as hover text, and a
+  comment points at the annotated example for the rest. The test also parses
+  it as written, parses it again with the commented-out blocks uncommented,
+  and scans it for TOML 1.1 syntax, so it cannot drift into keys the schema no
+  longer has.
+- **Never replaces.** `files.WriteNew` creates the file with `O_EXCL`, so a
+  file or symlink that is already there, or one a racing `init` creates
+  meanwhile, makes it fail with `fs.ErrExist` and nothing else changes. The
+  file is written in place, not renamed into position, so there is a short
+  window in which a reader can see it incomplete, and a failed write removes
+  it. A kill or power loss inside the window leaves a truncated `berth.toml`,
+  which `init` then refuses to replace as it would any other: delete it and
+  run `init` again. Writing a temp file instead would trade that for a stray
+  `berth.toml.tmp.*` a kill leaves in the repository root, where `git add -A`
+  would commit it. In a submodule it writes into the submodule, its own
+  checkout.
+- **No YAML.** The Compose file is only named, never read: berth has no YAML
+  parser, and `config validate` after `init` should not depend on one. The
+  starter's service is a placeholder to rename.
+- **`--config` is refused.** `init` reads no configuration; accepting a path
+  it then ignored would hide a mistake.

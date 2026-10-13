@@ -1,5 +1,10 @@
 package files
 
+import (
+	"io/fs"
+	"os"
+)
+
 // SetBeforeOpenControlHomeForTest installs hook to run just before
 // establishControlHome opens the control home directory itself, for a test
 // that needs to swap something in during that exact window. Returns a func
@@ -23,4 +28,10 @@ func SetAfterMarkerReadForTest(hook func(controlHome string)) (restore func()) {
 	previous := afterMarkerReadForTest
 	afterMarkerReadForTest = hook
 	return func() { afterMarkerReadForTest = previous }
+}
+
+// CreateNewForTest is createNew, WriteNew with the filling of the file
+// injected, so a test can make the write fail after the file exists.
+func CreateNewForTest(destination string, mode fs.FileMode, fill func(*os.File) error) error {
+	return createNew(destination, mode, fill)
 }

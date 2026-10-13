@@ -5,6 +5,7 @@ Usage:
   berth [command]
 
 Available Commands:
+  init        write a starter berth.toml at the repository root
   config      inspect the project configuration
   dev         start this worktree's services, then follow their logs until
               Ctrl-C
