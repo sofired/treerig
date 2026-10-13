@@ -539,7 +539,7 @@ func reportSweep(cctx *CommandContext, result sweepResult) {
 // left alone. A shared container that is gone, or not attached, is done.
 // stackNamespace labels the shared stack and worktreeNamespace labels ref's
 // networks: the same unless the removing command and the worktree were
-// labeled under different namespaces, as in connectLocked. Listing,
+// labelled under different namespaces, as in connectLocked. Listing,
 // inspection and detach errors are returned so callers stop teardown.
 func disconnectShared(ctx context.Context, cctx *CommandContext, ref worktree.Ref, stackNamespace, worktreeNamespace string) error {
 	// The shared containers first: a repository without any is the common

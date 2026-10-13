@@ -685,9 +685,10 @@ func countSharedResources(resources []shared.Resource) string {
 // planSharedDown lists what options asks to remove, verified by the shared
 // labels or, for anonymous volumes, by their mounts on verified containers
 // and Docker's anonymous-volume label. A name with no container, record or
-// declaration is refused up front. With names, only those services' containers go,
-// and those that were started only to serve them once no declared service's
-// container is left; the stack's networks go when every container does.
+// declaration is refused up front. With names, only those services'
+// containers go, and those that were started only to serve them once no
+// declared service's container is left; the stack's networks go when every
+// container does.
 // With --volumes, named services lose the volumes their containers mount
 // (named and anonymous) that no container that stays mounts, and unnamed
 // removes every volume of the stack and the anonymous ones its containers

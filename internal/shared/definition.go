@@ -125,8 +125,8 @@ func needs(entry map[string]any) []string {
 
 // referenced is the keys of the top-level volumes, networks, configs and
 // secrets the services of a closure use: a named volume mounted, a network
-// listed in the resolved service entry, a config or secret attached. It does
-// not infer a default network when the entry has no networks.
+// listed in the resolved service entry (Compose lists `default` there for a
+// service that names none), a config or secret attached.
 func referenced(entries map[string]map[string]any) (volumes, networks, configs, secrets []string) {
 	add := func(into *[]string, name string) {
 		if name != "" && !slices.Contains(*into, name) {
@@ -182,10 +182,11 @@ func referenced(entries map[string]map[string]any) (volumes, networks, configs, 
 // come from `compose config` before berth's override, so the published ports
 // are not in it, and are interpolated with the shared environment only and no
 // .env file; other inherited variables may still affect them. Canonical
-// means object keys in sorted order (encoding/json's rule for a map), numbers
-// as Compose printed them, and no HTML escaping. A Compose upgrade can change what `compose
-// config` prints for the same file, which shows as a differing definition
-// once; `berth shared up --recreate <name>` brings the label up to date.
+// means object keys in sorted order (encoding/json's rule for a map),
+// numbers as Compose printed them, and no HTML escaping. A Compose upgrade
+// can change what `compose config` prints for the same file, which shows as
+// a differing definition once; `berth shared up --recreate <name>` brings
+// the label up to date.
 // An undefined service or a value that JSON cannot encode returns an error.
 func (d Definition) Hash(service string) (string, error) {
 	closure := d.Closure(service)
