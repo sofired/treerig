@@ -14,6 +14,9 @@
 // Their parents stay 0700, so other local users still cannot reach them on
 // disk; only a process handed the directory by a bind mount can. Nothing
 // secret is ever written there.
+//
+// WriteNew is the primitive for creating a file at a path of the user's
+// choosing, outside the control home, without ever replacing what is there.
 package files
 
 import (

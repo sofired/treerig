@@ -380,6 +380,23 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	root.SetHelpCommand(newHelpCommand(p))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { writeHelp(cmd, cmd.OutOrStdout()) })
 
+	root.AddCommand(&cobra.Command{
+		Use:   "init",
+		Short: fmt.Sprintf("write a starter %s at the repository root", brand.ConfigFile),
+		Long: fmt.Sprintf("Write a starter %s at the root of the Git repository you run it in, naming the Compose file found there "+
+			"(compose.yaml if none), with a commented-out service and hooks to fill in. It refuses to replace an existing %s. "+
+			"Run `%s config validate` afterwards. It reads no %s, so --config is refused.",
+			brand.ConfigFile, brand.ConfigFile, commandName, brand.ConfigFile),
+		Args: maxArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.Init(cmd.Context(), env)
+		},
+	})
+
 	config := &cobra.Command{
 		Use:   "config",
 		Short: "inspect the project configuration",

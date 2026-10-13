@@ -94,7 +94,8 @@ func Load(file string) (*Loaded, error) {
 const exampleFileURL = "https://github.com/sofired/berth/blob/main/" + brand.ExampleFile
 
 // LoadNearest loads the nearest berth.toml above startDir, or fails with a
-// hint that names something that exists.
+// hint that names something that exists. The hint names the tool by brand.Name,
+// not by the name it was invoked as: this package is not handed one.
 func LoadNearest(startDir string) (*Loaded, error) {
 	file, found, err := FindConfigFile(startDir)
 	if err != nil {
@@ -103,9 +104,8 @@ func LoadNearest(startDir string) (*Loaded, error) {
 	if !found {
 		return nil, clierr.Newf(
 			"No %s found in %s or any parent directory. "+
-				"Create it at the root of the repository you want to manage, or point at an existing one with --config <path>. "+
-				"The Quick start in %s's README has a minimal template, and the annotated version, "+
-				"%s, is at %s.",
+				"Run '%s init' at the root of the repository you want to manage to write one, or point at an existing one with --config <path>. "+
+				"For reference, the annotated version, %s, is at %s.",
 			brand.ConfigFile, startDir, brand.Name, brand.ExampleFile, exampleFileURL,
 		)
 	}
