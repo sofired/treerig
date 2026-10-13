@@ -172,7 +172,9 @@ func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Ro
 	outcome, ensureErr := ensureShared(ctx, cctx, ref.RepositoryID, namespace, sharedPlan{
 		Services: services, Recreate: options.Recreate, Strict: true, Reallocate: moves, DefinedBy: ref.WorktreeID,
 	})
-	if ensureErr == nil && index != nil && (needsRouter || wasRouted) {
+	// A start that failed after it created and routed a service still
+	// changed what the index shows; its error is returned below either way.
+	if (ensureErr == nil || len(outcome.Created) > 0) && index != nil && (needsRouter || wasRouted) {
 		// The shared lock is released, and the index takes the router's alone.
 		index.RefreshBestEffort(ctx, "shared up")
 	}

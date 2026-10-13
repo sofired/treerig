@@ -694,6 +694,40 @@ func TestAStartThatFailedAfterCreatingTheContainerStillRoutesIt(t *testing.T) {
 	}
 }
 
+func TestASharedUpThatFailedAfterRoutingAServiceStillRefreshesTheIndex(t *testing.T) {
+	w := newSharedWorld(t)
+	tc := w.context("")
+	w.mustUp(t, tc)
+	if err := w.sharedDown(tc, commands.SharedDownOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	created := false
+	w.Docker.BeforeComposeUp(func(p string) {
+		if !strings.HasPrefix(p, brand.SharedProjectPrefix) || created {
+			return
+		}
+		created = true
+		labels := commandstest.Ownership(worktree.Ref{RepositoryID: w.repository(t, tc)}, brand.LabelNamespace)
+		delete(labels, brand.WorktreeLabel(brand.LabelNamespace))
+		labels[brand.SharedLabel(brand.LabelNamespace)] = "true"
+		labels["com.docker.compose.project"] = p
+		labels["com.docker.compose.service"] = "mailpit"
+		id := w.Docker.Add("container", labels)
+		w.Docker.SetName(id, p+"-mailpit-1")
+	})
+	w.Docker.FailCall("--no-recreate", "interrupted", 1, 1)
+	reasons := len(w.index.Reasons())
+	if err := w.sharedUpRouted(tc, commands.SharedUpOptions{}); err == nil {
+		t.Fatal("shared up succeeded")
+	}
+	if w.sharedRoute(t, tc, "mailpit") == "" {
+		t.Fatal("the service left running has no route")
+	}
+	if got := w.index.Reasons(); len(got) != reasons+1 || got[len(got)-1] != "shared up" {
+		t.Errorf("index reasons = %v: the index omits the route the failed start wrote", got)
+	}
+}
+
 func TestADoctorReportsARouteFileOfAServiceThatIsNotRunning(t *testing.T) {
 	w := newSharedWorld(t)
 	tc := w.context("")
