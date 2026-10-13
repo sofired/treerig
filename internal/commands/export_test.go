@@ -25,6 +25,7 @@ func SharedDoctorForTest(ctx context.Context, cctx *CommandContext) ([]Check, er
 		CommandName: cctx.CommandName, ControlHome: cctx.ControlHome, UserHome: cctx.UserHome,
 		Runner: cctx.Runner, Logger: cctx.Logger, Environ: cctx.Environ, PortProbe: cctx.PortProbe,
 		Checkout: checkoutIsLoaded(cctx.Loaded), DockerAnswered: true,
+		RouterState: cctx.RouterState, RouterPort: cctx.RouterPortResolution,
 	}
 	return sharedSection(ctx, opts)
 }
@@ -42,6 +43,16 @@ func SharedResourceForTest(kind, id string) shared.Resource {
 
 // DescribeAnonymousForTest exposes describeAnonymous to the black-box tests.
 func DescribeAnonymousForTest(volume shared.Resource) string { return describeAnonymous(volume) }
+
+// SelectionNeedsRouterForTest exposes selectionNeedsRouter for the services
+// of cctx's config that names selects.
+func SelectionNeedsRouterForTest(ctx context.Context, cctx *CommandContext, names ...string) bool {
+	selected, err := selectShared(cctx.Loaded.Config, names)
+	if err != nil {
+		return false
+	}
+	return selectionNeedsRouter(ctx, cctx, selected)
+}
 
 // SetContainerPollForTest shortens how often a dev session checks that its
 // worktree still has a container, for the life of a test. It is not safe for

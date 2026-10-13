@@ -87,23 +87,25 @@ hook scripts keep working however the tool is invoked.
 | `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
 | `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
 | `BERTH_SHARED_ADDR_<NAME>_<PORT>` | One per container port of a [shared service](../README.md#shared-services) that has a pinned loopback port: `127.0.0.1:<host port>`, for a process on the host. `<NAME>` is the shared service's name mapped as for `BERTH_SERVICE_URL_<NAME>`, and `<PORT>` its container port as declared (`BERTH_SHARED_ADDR_MAILPIT_1025`). Read from the repository's records, so it is set whether or not the service is running. Unset for a port with no pinned port yet |
+| `BERTH_SHARED_URL_<NAME>` | One per shared service with a routed `port`: the URL of its web UI, `http://<name>.shared.<domain>` with the router's port folded in as for `BERTH_SERVICE_URL_<NAME>`. `<NAME>` maps as there. Read from the repository's records, so it is set whether or not the service is running. Unset for a service with no routed port, or one that has not been started yet |
 
-`BERTH_SHARED_ADDR_<NAME>_<PORT>` is for the host: a container reaches the
-shared service by its name on its network (`mailpit:1025`) and never uses
-the pinned port, and it is not passed to Compose either, so `compose.yaml`
-cannot reference it. A hook that runs `berth` against another worktree does not
-hand its own down: like the URL variables, an inherited one is dropped and
-this worktree's set instead. The shared service is connected to the
-worktree's network before `prepare` runs, so a hook may use it at once.
+`BERTH_SHARED_ADDR_<NAME>_<PORT>` and `BERTH_SHARED_URL_<NAME>` are for the
+host: a container reaches the shared service by its name on its network
+(`mailpit:1025`) and never uses the pinned port or the URL, and neither is
+passed to Compose, so `compose.yaml` cannot reference them. A hook that runs
+`berth` against another worktree does not hand its own down: like the URL
+variables, an inherited one of either is dropped and this worktree's set
+instead. The shared service is connected to the worktree's network before
+`prepare` runs, so a hook may use it at once.
 
 `BERTH_SERVICE_PORT_<NAME>` is the `port` of `urls --json`: unlike the URLs
 it does not go through the router, and it is allocated before any hook runs.
 `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` are the same URLs `berth urls`
 prints, router port included exactly as it folds that in there. When
 `doctor` runs `verify` but can't resolve the router's port, it sets none of
-these three, and its Router section says why. (`BERTH_SHARED_ADDR_…` does
-not depend on the router and is still set.) None of them
-reaches Compose, so `compose.yaml` cannot reference `${BERTH_URL}` — read
+these three, nor `BERTH_SHARED_URL_<NAME>`, and its Router section says why.
+(`BERTH_SHARED_ADDR_…` does not depend on the router and is still set.)
+None of these variables reaches Compose, so `compose.yaml` cannot reference `${BERTH_URL}` — read
 them from a hook instead:
 
 ```sh
@@ -450,8 +452,9 @@ that says so. The command's own flags go after `--`.
 
 - The environment above, with `BERTH_COMMAND` set to its name and no
   `BERTH_STAGE`, whatever the caller had in its own environment. `BERTH_URL`,
-  `BERTH_SERVICE_URL_<NAME>`, `BERTH_SERVICE_PORT_<NAME>` and
-  `BERTH_SHARED_ADDR_<NAME>_<PORT>` are set as for a hook.
+  `BERTH_SERVICE_URL_<NAME>`, `BERTH_SERVICE_PORT_<NAME>`,
+  `BERTH_SHARED_ADDR_<NAME>_<PORT>` and `BERTH_SHARED_URL_<NAME>` are set as
+  for a hook.
 - The terminal. A command runs interactively, in a process group of its own,
   and holds the terminal's foreground when berth's stdin is a terminal and
   berth holds it: `terraform apply` can ask for its approval, and Ctrl-C and

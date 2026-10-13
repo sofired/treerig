@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -18,6 +20,7 @@ import (
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/shared"
 	"github.com/sofired/berth/internal/text"
@@ -128,6 +131,7 @@ func sharedChecks(ctx context.Context, opts doctorOptions, loaded *config.Loaded
 		instance := instances[service.Name]
 		checks = append(checks, d.serviceCheck(service, instance, definition, definitionErr == nil))
 		checks = append(checks, d.portChecks(ctx, service, instance)...)
+		checks = append(checks, d.routeCheck(service, instance)...)
 	}
 
 	registration, regErr := d.registration(ctx)
@@ -282,6 +286,58 @@ func (d *sharedDoctor) portChecks(ctx context.Context, service config.SharedServ
 		}
 	}
 	return checks
+}
+
+// routeCheck is a routed service's `shared.route` line. A running instance
+// whose record routes a web UI should have its route file: ok when it does, a
+// warning when it does not. A service that is not running should have none
+// (`shared down` removes it): a file left by a container stopped or removed
+// any other way is a warning, since the hostname answers 502, and no file
+// gets no line (an error looking for it is a failed check, not an absent file). A file that exists but disagrees with the record is the Router
+// section's `router.orphaned-routes` to report, so it is not repeated here.
+func (d *sharedDoctor) routeCheck(service config.SharedService, instance shared.Instance) []Check {
+	record, ok := d.records[service.Name]
+	if !ok {
+		return nil
+	}
+	if !instance.Live() {
+		// A container stopped or removed any other way than `shared down`
+		// leaves its file, and the hostname answers 502.
+		if _, err := os.Lstat(router.SharedFragmentPath(d.opts.RouterState, d.repositoryID, service.Name)); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			// Absent is the only good answer; anything else (permission, I/O)
+			// means the file could not be looked for.
+			failed := failureCheck("shared.route", "shared service "+service.Name+" route", err)
+			failed.Instance = service.Name
+			return []Check{failed}
+		}
+		return []Check{{Status: StatusWarn, ID: "shared.route", Instance: service.Name, Subject: "shared service " + service.Name + " route",
+			Detail: fmt.Sprintf("the route file is present but the service is not running, so %s answers 502. '%s shared up' starts it; '%s shared down' removes the route",
+				record.Host(), d.opts.CommandName, d.opts.CommandName)}}
+	}
+	if record.Host() == "" {
+		return nil
+	}
+	subject := "shared service " + service.Name + " route"
+	url := "http://" + record.Host()
+	if d.opts.RouterErr == nil && d.opts.RouterPort.Port != 0 {
+		url = worktree.NewSharedURL(record.Name, record.Domain, d.opts.RouterPort.Port).URL
+	}
+	path := router.SharedFragmentPath(d.opts.RouterState, d.repositoryID, service.Name)
+	if _, err := os.Lstat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []Check{{Status: StatusWarn, ID: "shared.route", Instance: service.Name, Subject: subject,
+				Detail: fmt.Sprintf("%s has no route file, so the proxy does not serve it. '%s shared up' writes it",
+					url, d.opts.CommandName)}}
+		}
+		failed := failureCheck("shared.route", subject, err)
+		failed.Instance = service.Name
+		return []Check{failed}
+	}
+	return []Check{{Status: StatusOK, ID: "shared.route", Instance: service.Name, Subject: subject,
+		Detail: fmt.Sprintf("%s routes to %s", url, loopbackAddr(record.RoutedHostPort()))}}
 }
 
 // connectionChecks are the `shared.connection` lines: for each running shared

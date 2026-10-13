@@ -160,7 +160,7 @@ func sharedPortSchema() *shape.NumberSchema {
 func sharedServiceSchema() *shape.ObjectSchema {
 	return shape.Object(
 		shape.F("port", sharedPortSchema().Optional().
-			Describe("Container port of the service's web UI, published on a pinned loopback port: BERTH_SHARED_ADDR_<NAME>_<PORT> names the address. Omit if the service has no web UI.")),
+			Describe("Container port of the service's web UI, published on a pinned loopback port and routed at <name>.shared.<domain> (BERTH_SHARED_URL_<NAME> is its URL; BERTH_SHARED_ADDR_<NAME>_<PORT> names the pinned address). Omit if the service has no web UI.")),
 		shape.F("ports", shape.Array(sharedPortSchema().Describe("A container TCP port, 1 to 65535.")).
 			Max(maxSharedPorts, fmt.Sprintf("at most %d ports per shared service, port and ports together", maxSharedPorts)).
 			Default([]any{}).

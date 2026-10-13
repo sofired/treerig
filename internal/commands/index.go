@@ -133,6 +133,22 @@ type IndexReport struct {
 	IdentityError    *IndexIdentityError `json:"identityError,omitempty"`
 	CardReadFailures int                 `json:"cardReadFailures"`
 	Entries          []IndexReportEntry  `json:"entries"`
+	// Shared are the routed web UIs of the repositories' shared services;
+	// absent when there are none.
+	Shared []IndexReportShared `json:"shared,omitempty"`
+}
+
+// IndexReportShared is one shared service's routed web UI.
+type IndexReportShared struct {
+	RepositoryID string `json:"repositoryId"`
+	Service      string `json:"service"`
+	Project      string `json:"project"`
+	Domain       string `json:"domain"`
+	Host         string `json:"host"`
+	URL          string `json:"url"`
+	// Available is set only when it was checked: Docker answered. Absent
+	// means unknown, never false.
+	Available *bool `json:"available,omitempty"`
 }
 
 // IndexIdentityError is why Git could not say which worktrees exist.
@@ -195,6 +211,17 @@ func indexReport(snapshot checkoutindex.IndexSnapshot, url string) IndexReport {
 			Domain: entry.Domain, Slug: entry.Slug, Host: entry.Host, Branch: entry.Branch,
 			Root: entry.Root, Status: string(entry.Status), Services: services,
 		})
+	}
+	for _, service := range snapshot.Shared {
+		reported := IndexReportShared{
+			RepositoryID: service.RepositoryID, Service: service.Name, Project: service.Project,
+			Domain: service.Domain, Host: service.Host, URL: service.URL,
+		}
+		if snapshot.DockerReachable {
+			available := service.Available
+			reported.Available = &available
+		}
+		report.Shared = append(report.Shared, reported)
 	}
 	return report
 }

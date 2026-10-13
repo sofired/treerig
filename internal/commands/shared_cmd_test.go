@@ -26,7 +26,7 @@ import (
 
 // sharedUp runs `shared up` in tc.
 func (w *sharedWorld) sharedUp(tc *commandstest.TestContext, options commands.SharedUpOptions) error {
-	return commands.SharedUpWithContext(context.Background(), tc.CommandContext, options)
+	return commands.SharedUpWithContext(context.Background(), tc.CommandContext, nil, nil, options)
 }
 
 // sharedDown runs `shared down` in tc with a non-interactive Env.
@@ -782,6 +782,7 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		want := []string{
 			"  shared services",
 			"    mailpit  running  (definition current, connected, started by feature-login.acme.localhost)",
+			"      url http://mailpit.shared.acme.localhost",
 			"      container port 8025 -> 127.0.0.1:" + itoa(record.Ports[8025]),
 			"      container port 1025 -> 127.0.0.1:" + itoa(record.Ports[1025]),
 		}

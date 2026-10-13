@@ -588,6 +588,15 @@ one rule is what keeps the order acyclic, and it shapes every caller:
   shared up` (which always sweeps) or found by `doctor`. A sweep run from
   inside a worktree's own hook skips that worktree without waiting, since the
   lock is its caller's.
+- A shared service's route file (`shared.<repo>.<name>.yaml`, routing.md
+  decision 19) is written and removed under the shared lock alone, so it
+  excludes a concurrent start or `shared down` of the same repository. Route
+  repair (`Router.Ensure`, doctor) takes no shared lock and, like a worktree's
+  route repair, reads the record again immediately before it rewrites or
+  removes a file. Repair never creates a file: a record whose file is not
+  written yet stays unrouted until `up` or `shared up` writes it. The index
+  refresh and `Router.Ensure` take the router lock, so they run only after the
+  shared lock is released.
 - Port allocation for a shared service is `registry.Store.SyncSharedPorts`,
   which takes the registry lock for its own short read-scan-write inside the
   shared lock, the order every other registry write already uses. The skip set

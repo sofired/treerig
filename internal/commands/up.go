@@ -414,6 +414,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			Ref: ref, Hooks: cctx.Loaded.Config.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ,
 			ComposeFile: cctx.ComposeFile(),
 			Routes:      hookRoutes, Shared: sharedAddrs(cctx, ref.RepositoryID),
+			SharedURLs: sharedURLs(cctx, ref.RepositoryID, routerSvc.Port()),
 		}, hooks.LifecycleOptions{Stages: upStages(firstTime)})
 		if err != nil {
 			return err

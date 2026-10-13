@@ -7,12 +7,13 @@ import (
 	"regexp"
 
 	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/text"
 )
 
 // ReservedSlug is the slug no worktree is given: the hostnames of a
 // repository's shared services (<name>.shared.<domain>) live beneath it.
-const ReservedSlug = "shared"
+const ReservedSlug = layout.SharedHostLabel
 
 // maxSlugLength is a DNS label's limit; slugs stay under it with room for a suffix.
 const maxSlugLength = 63

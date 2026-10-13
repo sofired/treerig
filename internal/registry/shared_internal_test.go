@@ -28,6 +28,10 @@ func fillSharedByKind(value reflect.Value, path string) error {
 		}
 	case reflect.String:
 		value.SetString("x")
+	case reflect.Int:
+		// The only int is the routed port, which must be one of the pinned
+		// container ports below.
+		value.SetInt(8025)
 	case reflect.Map:
 		if value.Type() != reflect.TypeOf(map[int]int{}) {
 			return fmt.Errorf("SharedRecord%s has map type %s, which this guard does not know how to fill; teach fillSharedByKind, recordForShared and parseSharedRecordJSON about it", path, value.Type())
