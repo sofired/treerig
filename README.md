@@ -723,7 +723,7 @@ services, at `<name>.shared.<domain>` (`mailpit.shared.acme.localhost`), under
 the domain the service was first pinned with. `shared` is therefore reserved:
 a branch that slugs to `shared` gets a suffixed slug. The route file is written when the service is up
 and removed by `shared down`; `berth shared up` starts the router first when
-it has a web UI to route. `BERTH_SHARED_URL_<NAME>` gives hooks and `berth run`
+it has a web UI to route, its own or a dependency's. `BERTH_SHARED_URL_<NAME>` gives hooks and `berth run`
 the URL (router port included), `status` and `shared status` print it (and
 `--json` carries it as `url`), and the checkout index lists it in a group of
 its own beneath the checkouts. Two repositories on one domain cannot both

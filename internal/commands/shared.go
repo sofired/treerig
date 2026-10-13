@@ -40,14 +40,15 @@ func SharedUp(ctx context.Context, env *Env, options SharedUpOptions) error {
 	if err != nil {
 		return err
 	}
-	// The router is built only when a selected service has a web UI to route:
+	// The router is built only when the start can route a web UI: a selected
+	// service has one, or one it depends on does (selectionNeedsRouter).
 	// building it reads settings.toml's range and mode, which a service with
 	// nothing to route must not fail on. From the context's own resolution of
 	// the berth root and port, as Up's is, so the router `shared up` ensures
 	// and the URL it reports never read settings.toml separately. A selection
 	// that is wrong is reported by SharedUpWithContext.
 	var routerSvc Router
-	if selected, err := selectShared(cctx.Loaded.Config, options.Names); err == nil && anyRouted(selected) {
+	if selected, err := selectShared(cctx.Loaded.Config, options.Names); err == nil && selectionNeedsRouter(ctx, cctx, selected) {
 		svc, err := routerServiceWith(env, cctx.Home, cctx.RouterState, cctx.RouterPortResolution)
 		if err != nil {
 			return err

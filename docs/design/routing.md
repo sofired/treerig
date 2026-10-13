@@ -488,7 +488,7 @@ Where the decisions above leave a choice, this is what the implementation does.
 - `up` and `shared up` write the route file for every service they were asked
   about once it is up, and for a declared service that came up only as a
   dependency. `shared up` ensures the router first, but only when a selected
-  service declares a `port`, and refreshes the index after it releases the
+  service, or one it depends on, declares a `port`, and refreshes the index after it releases the
   shared lock (the router lock is never nested). `startSharedForUp` needs no
   router handle: `up` has already ensured the router, and the dynamic
   directory is `CommandContext.RouterState`.

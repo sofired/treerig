@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/clierr"
@@ -248,4 +249,51 @@ func idleServices(ctx context.Context, stack *shared.Stack, names []string) ([]s
 		}
 	}
 	return idle, nil
+}
+
+// selectionNeedsRouter reports whether starting selected can route a web UI:
+// one of them declares a `port`, or a declared service one of them depends on
+// does, since a start brings its dependencies up and routes them too. The
+// dependencies come from the shared file, with the same closure the start
+// uses. When another declared service routes and the file or the repository
+// cannot be read to rule it out, the answer is yes: the start that follows
+// reports the real problem, and a router that was not needed is harmless.
+func selectionNeedsRouter(ctx context.Context, cctx *CommandContext, selected []config.SharedService) bool {
+	if anyRouted(selected) {
+		return true
+	}
+	declared := cctx.Loaded.Config.SharedServices()
+	var others []config.SharedService
+	for _, service := range declared {
+		if service.Port != nil && !slices.ContainsFunc(selected, func(s config.SharedService) bool { return s.Name == service.Name }) {
+			others = append(others, service)
+		}
+	}
+	if len(others) == 0 {
+		return false
+	}
+	repositoryID, present, err := cctx.Registry.Identities.RepositoryID(ctx, cctx.Registry.Identities.Root)
+	if err != nil {
+		return true
+	}
+	if !present {
+		return false // nothing can start for a repository that was never brought up
+	}
+	roots, err := sharedWorktreeRoots(ctx, cctx, repositoryID)
+	if err != nil {
+		return true
+	}
+	definition, err := cctx.sharedStack(repositoryID, cctx.Loaded.Config.LabelNamespace(), roots).ReadDefinition(ctx)
+	if err != nil {
+		return true
+	}
+	for _, service := range selected {
+		closure := definition.Closure(service.Name)
+		for _, other := range others {
+			if slices.Contains(closure, other.Name) {
+				return true
+			}
+		}
+	}
+	return false
 }

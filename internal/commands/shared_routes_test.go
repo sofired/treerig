@@ -730,3 +730,77 @@ func TestSharedDownDoesNotStripARouteThatAppearedWhileItDecided(t *testing.T) {
 		t.Error("the route of a service that started meanwhile was stripped")
 	}
 }
+
+func TestTheRouterIsNeededForADependencyThatRoutes(t *testing.T) {
+	// build is a registered worktree (shared up needs one) whose shared file
+	// has web, which depends on mailpit when asked.
+	build := func(t *testing.T, webDependsOnMailpit bool) *commandstest.TestContext {
+		t.Helper()
+		w := newSharedWorld(t)
+		entry := map[string]any{"image": "busybox"}
+		if webDependsOnMailpit {
+			entry["depends_on"] = map[string]any{"mailpit": map[string]any{}}
+		}
+		w.Docker.SetSharedService("web", entry)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		tc.Loaded.Config.Shared.Service = append(tc.Loaded.Config.Shared.Service, config.SharedService{Name: "web", UsedBy: []string{"api"}})
+		return tc
+	}
+	ctx := context.Background()
+
+	t.Run("a repository that was never brought up has nothing to start", func(t *testing.T) {
+		w := newSharedWorld(t)
+		w.Docker.SetSharedService("web", map[string]any{"image": "busybox", "depends_on": map[string]any{"mailpit": map[string]any{}}})
+		tc := w.context("")
+		tc.Loaded.Config.Shared.Service = append(tc.Loaded.Config.Shared.Service, config.SharedService{Name: "web", UsedBy: []string{"api"}})
+		if commands.SelectionNeedsRouterForTest(ctx, tc.CommandContext, "web") {
+			t.Error("the router was needed with nothing able to start")
+		}
+	})
+
+	t.Run("a selection whose only routed service is a dependency needs it", func(t *testing.T) {
+		tc := build(t, true)
+		if !commands.SelectionNeedsRouterForTest(ctx, tc.CommandContext, "web") {
+			t.Error("shared up web brings mailpit up and routes it, but the router would not be ensured")
+		}
+	})
+
+	t.Run("a selection that routes itself needs it", func(t *testing.T) {
+		tc := build(t, false)
+		if !commands.SelectionNeedsRouterForTest(ctx, tc.CommandContext, "mailpit") {
+			t.Error("a routed service was not enough")
+		}
+	})
+
+	t.Run("a selection with nothing routed, itself or below it, does not", func(t *testing.T) {
+		tc := build(t, false)
+		if commands.SelectionNeedsRouterForTest(ctx, tc.CommandContext, "web") {
+			t.Error("the router was needed for a service that routes nothing and depends on nothing that does")
+		}
+	})
+}
+
+func TestADoctorFailsTheRouteCheckWhenTheFileCannotBeLookedFor(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any directory")
+	}
+	for _, running := range []bool{true, false} {
+		w := newSharedWorld(t)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		if !running {
+			w.Docker.SetStatus(w.mailpit(t, tc), "exited")
+		}
+		dir := w.RouterState.DynamicDir
+		if err := os.Chmod(dir, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		check := only(t, sharedChecks(t, tc, "shared.route"))
+		if check.Status != commands.StatusFail || !strings.Contains(check.Detail, "permission denied") {
+			t.Errorf("running=%v: route = %+v, want a failure naming the error, not an absent file", running, check)
+		}
+		_ = os.Chmod(dir, 0o755)
+	}
+}

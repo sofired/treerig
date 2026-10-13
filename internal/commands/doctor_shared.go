@@ -293,7 +293,7 @@ func (d *sharedDoctor) portChecks(ctx context.Context, service config.SharedServ
 // warning when it does not. A service that is not running should have none
 // (`shared down` removes it): a file left by a container stopped or removed
 // any other way is a warning, since the hostname answers 502, and no file
-// gets no line. A file that exists but disagrees with the record is the Router
+// gets no line (an error looking for it is a failed check, not an absent file). A file that exists but disagrees with the record is the Router
 // section's `router.orphaned-routes` to report, so it is not repeated here.
 func (d *sharedDoctor) routeCheck(service config.SharedService, instance shared.Instance) []Check {
 	record, ok := d.records[service.Name]
@@ -304,7 +304,12 @@ func (d *sharedDoctor) routeCheck(service config.SharedService, instance shared.
 		// A container stopped or removed any other way than `shared down`
 		// leaves its file, and the hostname answers 502.
 		if _, err := os.Lstat(router.SharedFragmentPath(d.opts.RouterState, d.repositoryID, service.Name)); err != nil {
-			return nil
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			// Absent is the only good answer; anything else (permission, I/O)
+			// means the file could not be looked for.
+			return []Check{failureCheck("shared.route", "shared service "+service.Name+" route", err)}
 		}
 		return []Check{{Status: StatusWarn, ID: "shared.route", Instance: service.Name, Subject: "shared service " + service.Name + " route",
 			Detail: fmt.Sprintf("the route file is present but the service is not running, so %s answers 502. '%s shared up' starts it; '%s shared down' removes the route",

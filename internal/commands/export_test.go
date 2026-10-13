@@ -42,3 +42,13 @@ func SharedResourceForTest(kind, id string) shared.Resource {
 
 // DescribeAnonymousForTest exposes describeAnonymous to the black-box tests.
 func DescribeAnonymousForTest(volume shared.Resource) string { return describeAnonymous(volume) }
+
+// SelectionNeedsRouterForTest exposes selectionNeedsRouter for the services
+// of cctx's config that names selects.
+func SelectionNeedsRouterForTest(ctx context.Context, cctx *CommandContext, names ...string) bool {
+	selected, err := selectShared(cctx.Loaded.Config, names)
+	if err != nil {
+		return false
+	}
+	return selectionNeedsRouter(ctx, cctx, selected)
+}
