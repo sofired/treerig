@@ -80,10 +80,11 @@ func (s *syncLogger) count() int {
 // assertion depends on it.
 const failsafe = 30 * time.Second
 
-// heartbeatLine matches a heartbeat for the test phase at any whole elapsed
-// second from 1s up, so a slow or loaded machine cannot change what is
-// asserted while the 1s floor stays pinned (0s is rejected).
-var heartbeatLine = regexp.MustCompile(`^Preparing services \([1-9]\d*s elapsed\)\.$`)
+// heartbeatLine matches a heartbeat for the test phase at any elapsed time
+// formatElapsed can print, "Ns" from 1s up or "Mm SSs" from a minute on, so a
+// slow or loaded machine cannot change what is asserted while the 1s floor
+// stays pinned (0s is rejected).
+var heartbeatLine = regexp.MustCompile(`^Preparing services \(([1-9]\d*s|[1-9]\d*m [0-5]\ds) elapsed\)\.$`)
 
 // lateLogger holds a heartbeat inside the logger until the test releases it,
 // so a WithProgress that returns without waiting for its heartbeat goroutine
