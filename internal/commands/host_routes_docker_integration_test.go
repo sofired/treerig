@@ -167,7 +167,8 @@ func TestHostRouteAnswersAtTheWorktreeHostnameOnARealDaemon(t *testing.T) {
 		t.Fatalf("doctor with nothing listening = %+v", lines)
 	}
 
-	if probe, found := routeProbeFor(t, w, webHost); !found || probe.Status != commands.StatusWarn {
+	if probe, found := routeProbeFor(t, w, webHost); !found || probe.Status != commands.StatusOK ||
+		probe.Detail != fmt.Sprintf("%s: nothing is listening on 127.0.0.1:%d; requests for it get a 502 until a process is", webHost, server.port) {
 		t.Fatalf("route probe with nothing listening = %+v (found %v)", probe, found)
 	}
 
