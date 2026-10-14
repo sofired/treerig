@@ -186,10 +186,11 @@ func TestWorktreeRemoveInterrupted(t *testing.T) {
 
 	t.Run("counts the home directory when the signal lands after it went", func(t *testing.T) {
 		// The signal lands on the last reap, which still succeeds; the home
-		// goes, and the registration's own removal then meets the cancelled context.
+		// goes, and releasing the worktree's ports then meets the cancelled
+		// context, so the removal stops with the registration still there.
 		out := interruption{match: " volume rm ", nth: 1, proceed: true}.remove(t)
 		if out.err == nil {
-			t.Skip("the removal finished despite the cancelled context; nothing was left to say")
+			t.Fatal("the removal finished despite the cancelled context; releasing its ports should have stopped it")
 		}
 		wantNotice(t, out.lines, "Interrupted (SIGINT) while removing "+host+". Removed so far (at least): 1 volume, home directory. "+
 			"It is still registered, now pending: "+both)
