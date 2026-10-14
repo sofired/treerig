@@ -23,7 +23,7 @@ integration suites.
 gofmt -l cmd internal # must print nothing
 go vet ./... && go vet -tags integration ./...
 go test -race ./...
-go test -race -p 1 -timeout 20m -tags integration ./...
+go test -race -p 1 -timeout 20m -count=1 -tags integration ./...
 CGO_ENABLED=0 go test ./...
 ```
 
@@ -34,6 +34,8 @@ default: `internal/commands` takes about 5 to 7 minutes under `-race` on CI and
 about 12 on a slower machine, and keeps growing, so the default is too tight. A
 timeout panic skips `t.Cleanup`, which can leave Docker resources behind: only
 some suites, such as the router's, sweep what an earlier run abandoned.
+`-count=1` stops Go from replaying a cached pass, which would never reach the
+Docker daemon.
 
 `CONTRIBUTING.md` has the full list (staticcheck, the `CGO_ENABLED=0`
 integration run, the streams contract against a built binary). Run these
