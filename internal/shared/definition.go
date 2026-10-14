@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sofired/berth/internal/brand"
@@ -18,6 +20,7 @@ import (
 	"github.com/sofired/berth/internal/docker"
 	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/text"
 )
 
 // DefinitionVersion prefixes the definition hash label, "v1:<sha256>", so a
@@ -256,13 +259,19 @@ func (s *Stack) environment() []string {
 // composeArgs is the `docker compose` command line for args, with the shared
 // file and any override as -f files.
 func (s *Stack) composeArgs(args []string, withFiles ...string) []string {
+	return s.composeArgsIn(filepath.Dir(s.o.ComposeFile), args, withFiles...)
+}
+
+// composeArgsIn is composeArgs with an explicit Compose project directory,
+// against which Compose resolves every relative path in the file.
+func (s *Stack) composeArgsIn(projectDirectory string, args []string, withFiles ...string) []string {
 	full := []string{"compose", "--project-name", s.Project()}
 	if len(withFiles) > 0 {
 		// An explicit empty env file, so a .env beside the shared file is
 		// never read: what runs and what is hashed depend on the file and the
 		// shared environment alone. Every profile is on, so the hash covers a
 		// helper behind a profile and `up <svc>` can start one.
-		full = append(full, "--env-file", os.DevNull, "--profile", "*", "--project-directory", filepath.Dir(s.o.ComposeFile))
+		full = append(full, "--env-file", os.DevNull, "--profile", "*", "--project-directory", projectDirectory)
 		for _, file := range withFiles {
 			full = append(full, "-f", file)
 		}
@@ -278,6 +287,9 @@ func (s *Stack) composeArgs(args []string, withFiles ...string) []string {
 // remove` can delete, and the resolved absolute paths would make every other
 // worktree's hash differ (decision 16, "Configuration"). Images, named
 // volumes and absolute paths outside the supplied WorktreeRoots are fine.
+// A definition whose resolved values change with the directory it is read
+// from (a relative bind source that climbs out of the checkout, ${PWD}) is
+// refused as well, so every checkout computes the same hash or none starts it.
 // Non-empty ports entries on Declared services and their dependencies are
 // also refused; berth publishes their ports itself. Missing configuration,
 // Compose execution failures and invalid JSON are returned as errors.
@@ -301,7 +313,259 @@ func (s *Stack) ReadDefinition(ctx context.Context) (Definition, error) {
 	if err := definition.refuseUnsuitable(file, s.o.WorktreeRoots, s.o.Declared); err != nil {
 		return Definition{}, err
 	}
+	if err := s.refuseCheckoutDependent(ctx, file, result.Stdout); err != nil {
+		return Definition{}, err
+	}
 	return definition, nil
+}
+
+// refuseCheckoutDependent refuses a shared file whose resolved definition
+// depends on where it is read from (decision 16): a relative path resolves
+// against each checkout's own path, and ${PWD} is the directory the command
+// ran in, so two checkouts of one repository would hash the same service
+// differently and report a definition that differs when nothing does.
+// Compose prints absolute paths, so a relative source cannot be told from an
+// absolute one in the output. The file is read a second time from a scratch
+// project directory, and with PWD set to it, and any value that differs is
+// the file depending on its surroundings.
+//
+// Only a real difference is an error, or a cancelled ctx. Every other failure
+// (no scratch directory, no symbolic link, Compose failing the second read,
+// output that does not decode) skips the check with a warning, so a read-only
+// command such as doctor never fails on it. The scratch directory holds a
+// symbolic link to each entry of the real project directory, so a relative
+// env_file beside the file still resolves; one that climbs out of the
+// directory does not, and Compose fails the second read. A file whose
+// directory is outside every worktree reads the same for every checkout and
+// is not checked. A variable that differs between users or machines without
+// naming a path (${USER}) cannot be detected and is documented instead.
+// first is the output of the read from the real project directory.
+func (s *Stack) refuseCheckoutDependent(ctx context.Context, file, first string) error {
+	realDirectory := filepath.Dir(s.o.ComposeFile)
+	root, inside := insideAny(s.o.WorktreeRoots, realDirectory)
+	if !inside {
+		return nil
+	}
+	// The file as the checkout names it, to keep the messages short.
+	shown := file
+	if relative, err := filepath.Rel(root, s.o.ComposeFile); err == nil && !strings.HasPrefix(relative, "..") {
+		shown = relative
+	}
+	skip := func(reason string) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		s.o.Logger.Warn(fmt.Sprintf(
+			"Could not check whether %s reads the same from every checkout (%s); a relative path or ${PWD} there may give each checkout its own definition. "+
+				"Use absolute paths there, or keep the files it reads under its own directory, to silence this.",
+			text.Printable(shown), text.OneLine(reason, 160)))
+		return nil
+	}
+	entries, err := os.ReadDir(realDirectory)
+	if err != nil {
+		return skip(err.Error())
+	}
+	if err := os.MkdirAll(s.o.ControlHome, 0o700); err != nil {
+		return skip(err.Error())
+	}
+	base, err := os.MkdirTemp(s.o.ControlHome, probePrefix)
+	if err != nil {
+		return skip(err.Error())
+	}
+	defer func() { _ = os.RemoveAll(base) }()
+	// Four levels down, so that a few `../` still land inside base, in a
+	// place no real checkout has.
+	probe := filepath.Join(base, "a", "b", "c", "d")
+	if err := os.MkdirAll(probe, 0o700); err != nil {
+		return skip(err.Error())
+	}
+	for _, entry := range entries {
+		if err := os.Symlink(filepath.Join(realDirectory, entry.Name()), filepath.Join(probe, entry.Name())); err != nil {
+			return skip(err.Error())
+		}
+	}
+	env := docker.Merge(s.environment(), "PWD="+probe)
+	result, err := docker.Run(ctx, s.o.Runner, s.composeArgsIn(probe, []string{"config", "--format", "json"}, file),
+		run.Spec{Env: env, AllowFailure: true, Timeout: probeTimeout})
+	if err != nil {
+		return skip(err.Error())
+	}
+	if result.ExitCode != 0 {
+		return skip(firstNonEmpty(firstLine(result.Stderr), firstLine(result.Stdout), "Compose exited "+strconv.Itoa(result.ExitCode)))
+	}
+	difference, differs, err := firstDifference(first, result.Stdout)
+	if err != nil {
+		return skip(err.Error())
+	}
+	if !differs {
+		return nil
+	}
+	return clierr.Newf(
+		"%s reads differently in each checkout: %s resolves to %s here, from %s. "+
+			"Use an absolute path outside every worktree, a named volume, or a value that is the same in every checkout.",
+		text.Printable(shown), text.Printable(difference.path), difference.describeHere(), difference.cause(realDirectory, probe, envValue(s.environment(), "PWD")))
+}
+
+// probePrefix names the scratch directories of refuseCheckoutDependent.
+const probePrefix = "shared-probe-"
+
+// envValue is the value of name in an environment list, or "".
+func envValue(environment []string, name string) string {
+	for _, entry := range slices.Backward(environment) {
+		if value, found := strings.CutPrefix(entry, name+"="); found {
+			return value
+		}
+	}
+	return ""
+}
+
+// firstLine is the first non-empty line of output, trimmed.
+func firstLine(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// difference is a value at which two reads of the shared file differ: its
+// path in Compose's JSON, such as services.db.volumes[0].source, and what the
+// read from the real project directory (here) and the scratch one (other)
+// held. A nil value is a key the read lacked.
+type difference struct {
+	path  string
+	here  any
+	other any
+}
+
+// describeLimit is the most characters of a value the refusal quotes, so a
+// long one (a key, a list) cannot push the remedy past a reader's cut.
+const describeLimit = 80
+
+// describeHere is the value here as the refusal quotes it.
+func (d difference) describeHere() string {
+	switch value := d.here.(type) {
+	case nil:
+		return "nothing"
+	case string:
+		if value == "" {
+			return "an empty value"
+		}
+		return fmt.Sprintf("%q", text.OneLine(value, describeLimit))
+	default:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Sprintf("%q", text.OneLine(fmt.Sprint(value), describeLimit))
+		}
+		return text.OneLine(string(encoded), describeLimit)
+	}
+}
+
+// cause names what made the value differ, only when substituting the second
+// read's directories for the first's reproduces it: the PWD the command ran in
+// for the scratch directory is ${PWD}; the project directory, or a directory
+// above it by the same number of levels (a path that climbs out of it), is a
+// relative path. A value both explain (a command run from the project
+// directory), neither explains, or one without a PWD to try gets the neutral
+// wording.
+func (d difference) cause(realDirectory, probe, pwd string) string {
+	const neutral = "a path or variable that depends on the checkout"
+	here, _ := d.here.(string)
+	other, _ := d.other.(string)
+	substitutes := func(from, to string) bool {
+		return from != "" && from != string(filepath.Separator) && strings.Contains(here, from) && strings.ReplaceAll(here, from, to) == other
+	}
+	viaPWD := substitutes(pwd, probe)
+	viaPath := false
+	for from, to := realDirectory, probe; from != filepath.Dir(from) && to != filepath.Dir(to); from, to = filepath.Dir(from), filepath.Dir(to) {
+		if substitutes(from, to) {
+			viaPath = true
+			break
+		}
+	}
+	switch {
+	case viaPWD && !viaPath:
+		return "${PWD}"
+	case viaPath && !viaPWD:
+		return "a relative path"
+	default:
+		return neutral
+	}
+}
+
+// firstDifference reports the first value, in sorted key order, at which two
+// `compose config --format json` outputs differ. An output that cannot be
+// decoded reports an error.
+func firstDifference(here, other string) (difference, bool, error) {
+	decode := func(output string) (any, error) {
+		decoder := json.NewDecoder(strings.NewReader(output))
+		decoder.UseNumber()
+		var document any
+		if err := decoder.Decode(&document); err != nil {
+			return nil, err
+		}
+		return document, nil
+	}
+	left, err := decode(here)
+	if err != nil {
+		return difference{}, false, fmt.Errorf("decoding the first read: %w", err)
+	}
+	right, err := decode(other)
+	if err != nil {
+		return difference{}, false, fmt.Errorf("decoding the second read: %w", err)
+	}
+	found, differs := diffValues("", left, right)
+	return found, differs, nil
+}
+
+// diffValues walks two decoded JSON values together and reports the first
+// difference.
+func diffValues(path string, a, b any) (difference, bool) {
+	switch left := a.(type) {
+	case map[string]any:
+		right, ok := b.(map[string]any)
+		if !ok {
+			return difference{path, a, b}, true
+		}
+		keys := make([]string, 0, len(left))
+		for key := range left {
+			keys = append(keys, key)
+		}
+		for key := range right {
+			if _, ok := left[key]; !ok {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		keys = slices.Compact(keys)
+		for _, key := range keys {
+			child := key
+			if path != "" {
+				child = path + "." + key
+			}
+			if found, differs := diffValues(child, left[key], right[key]); differs {
+				return found, true
+			}
+		}
+		return difference{}, false
+	case []any:
+		right, ok := b.([]any)
+		if !ok || len(left) != len(right) {
+			return difference{path, a, b}, true
+		}
+		for i := range left {
+			if found, differs := diffValues(fmt.Sprintf("%s[%d]", path, i), left[i], right[i]); differs {
+				return found, true
+			}
+		}
+		return difference{}, false
+	default:
+		if !reflect.DeepEqual(a, b) {
+			return difference{path, a, b}, true
+		}
+		return difference{}, false
+	}
 }
 
 // decodeDefinition decodes `compose config --format json` output.

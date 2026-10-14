@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -425,6 +426,34 @@ func positional(args []string) []string {
 	return services
 }
 
+// Placeholders a shared service entry may hold (SetSharedService), which
+// `compose config` resolves as Compose would from the --project-directory it
+// is given and the PWD of its environment, so a test can read one file from two
+// checkouts: ProjectDirectory is the project directory, ProjectParent its
+// grandparent (what `../../` names: the directory holding a checkout whose
+// shared file is one directory deep), WorkingDirectory the PWD variable.
+const (
+	ProjectDirectory   = "@PROJECT_DIRECTORY@"
+	ProjectGrandparent = "@PROJECT_GRANDPARENT@"
+	WorkingDirectory   = "@PWD@"
+)
+
+// resolveSharedPlaceholders replaces the placeholders in the JSON of a shared
+// `compose config` answer with the values the call's arguments and
+// environment give.
+func resolveSharedPlaceholders(printed string, spec run.Spec) string {
+	directory := after(spec.Args, "--project-directory")
+	pwd := ""
+	for _, entry := range spec.Env {
+		if value, found := strings.CutPrefix(entry, "PWD="); found {
+			pwd = value
+		}
+	}
+	return strings.NewReplacer(
+		ProjectGrandparent, filepath.Dir(filepath.Dir(directory)), ProjectDirectory, directory, WorkingDirectory, pwd,
+	).Replace(printed)
+}
+
 // sharedProject reports whether project is a repository's shared project.
 func sharedProject(project string) bool { return strings.HasPrefix(project, brand.SharedProjectPrefix) }
 
@@ -444,10 +473,11 @@ func (d *Docker) handleCompose(spec run.Spec, project string) (run.Result, bool)
 				volumes[mount] = map[string]any{"name": project + "_" + mount}
 			}
 		}
-		return done(spec, mustJSON(map[string]any{
+		printed := mustJSON(map[string]any{
 			"name": project, "services": services, "volumes": volumes,
 			"networks": map[string]any{"default": map[string]any{"name": project + "_default"}},
-		})), true
+		})
+		return done(spec, resolveSharedPlaceholders(printed, spec)), true
 	case sharedProject(project) && slices.Contains(args, "up"):
 		if d.upFailing {
 			return run.Result{}, false

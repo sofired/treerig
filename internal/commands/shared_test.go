@@ -851,3 +851,42 @@ func TestHooksAndCommandsGetThePinnedSharedAddresses(t *testing.T) {
 		}
 	})
 }
+
+// TestOneCommandWarnsOnceWhenTheSharedFileCannotBeChecked pins that `up` and
+// `shared up`, each of which reads the shared file, print the warning for a
+// check they could not make once per command, not once per read.
+func TestOneCommandWarnsOnceWhenTheSharedFileCannotBeChecked(t *testing.T) {
+	skipped := func(t *testing.T, tc *commandstest.TestContext) int {
+		t.Helper()
+		lines, _ := tc.Logger.Snapshot()
+		var warnings int
+		for _, line := range lines {
+			if strings.Contains(line, "Could not check whether") {
+				warnings++
+			}
+		}
+		return warnings
+	}
+	t.Run("up", func(t *testing.T) {
+		w := newSharedWorld(t)
+		w.Docker.FailCall("shared-probe-", "env file ../../outside.env not found", 1, -1)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		if n := skipped(t, tc); n != 1 {
+			t.Fatalf("%d skip warnings, want 1", n)
+		}
+	})
+	t.Run("shared up", func(t *testing.T) {
+		w := newSharedWorld(t)
+		w.Docker.FailCall("shared-probe-", "env file ../../outside.env not found", 1, -1)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		before := skipped(t, tc)
+		if err := w.sharedUp(tc, commands.SharedUpOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if n := skipped(t, tc) - before; n != 1 {
+			t.Fatalf("%d skip warnings, want 1", n)
+		}
+	})
+}

@@ -908,6 +908,39 @@ your environment, `BERTH_PROJECT`, `BERTH_REPOSITORY_ID` and the Compose
 project name — never `BERTH_ROOT`, `BERTH_WORKTREE_ID` and the rest of a
 worktree's own, and not the `BERTH_*` a hook passes down.
 
+**Reading the same from every checkout.** Two checkouts of a repository must
+compute the same hash for the file, or `up` would warn that the definition
+differs when nothing changed. A relative path resolves against each checkout's
+own directory, so `../shared-data` names a different directory in each, and
+`${PWD}` is the directory the command ran in; `PWD` and the rest of your shell's
+environment are inherited. berth reads the file a second time from a scratch
+directory and refuses it, naming the first value that changed, such as
+`services.db.volumes[0].source resolves to "/work/shared-data" here, from a
+relative path` (or, when it cannot tell, `a path or variable that depends on the
+checkout`); `berth up` fails when a shared service it uses is refused, and so do
+`berth shared up` and `doctor`. Use
+an absolute path outside every worktree, or a named volume. This checks the
+whole file, not only the services you use, and costs one extra `compose config`
+inside the shared lock. The worktree roots it checks against are the config's
+directory and the registered worktrees; a file kept outside every worktree is not
+checked, and neither is a read made with no roots (`berth shared status`).
+
+The check is best effort. If it cannot read the file the second time, which
+happens when an `env_file`, `include` or `extends` climbs out of the file's
+directory (`../../outside.env`), berth accepts the file and warns `Could not
+check whether … reads the same from every checkout`, on every command that reads
+it. Absolute paths there, or keeping the files it reads under the shared file's own
+directory, silence the warning. A scratch directory
+(`shared-probe-*`) is made under the control home for each read and removed
+after it; a killed `berth` can leave one, which is harmless.
+
+Variables safe in the shared file are the ones with the same value for every
+checkout: `BERTH_PROJECT`, `BERTH_REPOSITORY_ID`, the Compose project name and
+any variable you set identically everywhere. Do not use one that differs between
+users, shells or machines (`${USER}`, `${HOME}`, a machine-specific setting):
+berth reads the file in one environment and cannot see that, so the hash would
+differ across them and `berth up` would warn.
+
 **Starting it.** A worktree whose Compose file has a `used-by` service
 *needs* the shared service. `up` starts it before it touches the worktree, and
 a failure to start it fails the `up`. Two worktrees' first `up`s serialise on
