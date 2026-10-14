@@ -83,7 +83,14 @@ func newBundleFixture(t *testing.T, binary string, hooked bool) upFixture {
 			t.Fatal(err)
 		}
 	}
-	if output, err := f.command(binary, "up").CombinedOutput(); err != nil {
+	output, err := f.command(binary, "up").CombinedOutput()
+	if err != nil && f.seededPortTaken(string(output)) {
+		// Something took a seeded port in the moment between freePorts
+		// closing it and `up` probing it; pick a fresh pair, once.
+		f.seededPorts = seedRouterPorts(t, f.routerState)
+		output, err = f.command(binary, "up").CombinedOutput()
+	}
+	if err != nil {
 		t.Fatalf("up: %v\n%s", err, output)
 	}
 	f.requireSeededRouterPorts(t)

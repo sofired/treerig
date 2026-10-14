@@ -265,6 +265,23 @@ func (f upFixture) requireSeededRouterPorts(t *testing.T) {
 	}
 }
 
+// seededPortTaken reports whether output is the router's refusal to start
+// because one of f's seeded ports is in use. The router keeps a stored port
+// rather than picking another, so a seeded port something else took between
+// freePorts and `up` fails `up`; only that failure, naming that port, is
+// worth retrying with fresh ports.
+func (f upFixture) seededPortTaken(output string) bool {
+	if !strings.Contains(output, "a port it needs is in use") {
+		return false
+	}
+	for _, port := range []int{f.seededPorts.IndexPort, f.seededPorts.PingPort} {
+		if strings.Contains(output, fmt.Sprintf("127.0.0.1:%d ", port)) {
+			return true
+		}
+	}
+	return false
+}
+
 // command builds binary to run in f's checkout with f's environment, ready
 // for the caller to add args and run it.
 func (f upFixture) command(binary string, args ...string) *exec.Cmd {
