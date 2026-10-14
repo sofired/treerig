@@ -394,6 +394,15 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 				ids = append(ids, id)
 			}
 		}
+		// A listing that asks for one label beside each ID, as the pre-start
+		// check for resources of a newer format does: "{{.ID}}<tab>{{.Label "x"}}".
+		if template := after(args, "--format"); strings.HasPrefix(template, "{{.ID}}\t{{.Label ") {
+			if match := labelName.FindStringSubmatch(template); match != nil {
+				for i, id := range ids {
+					ids[i] = id + "\t" + d.resources[kind][id][match[1]]
+				}
+			}
+		}
 		return ok(strings.Join(ids, "\n"))
 	case slices.Contains(args, "--format"):
 		id := args[len(args)-1]

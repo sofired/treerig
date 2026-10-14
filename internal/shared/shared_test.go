@@ -628,6 +628,29 @@ func TestOwnershipAndRemoval(t *testing.T) {
 		}
 	})
 
+	t.Run("refuses to start over a container or network of a newer format, before writing the override or running Compose", func(t *testing.T) {
+		for _, kind := range []string{"container", "network"} {
+			f := newFixture(t)
+			definition := f.start("mailpit")
+			id := f.docker.Find(kind, map[string]string{brand.SharedLabel(ns): "true"})[0]
+			f.docker.Labels(kind, id)[brand.FormatLabel(ns)] = "2"
+			before := len(f.docker.Calls())
+			err := f.stack.Up(ctx, shared.UpRequest{
+				Definition: definition, Services: []string{"mailpit"}, DefinedBy: worktreeA,
+				Published: map[string]map[int]int{"mailpit": {1025: 30001, 8025: 30002}},
+			})
+			want := "Refusing to touch the " + kind + " " + id + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			if err == nil || err.Error() != want {
+				t.Fatalf("%s: err = %v\nwant %s", kind, err, want)
+			}
+			for _, call := range f.docker.Calls()[before:] {
+				if strings.Contains(call, "compose") {
+					t.Errorf("%s: Compose ran after the refusal: %s", kind, call)
+				}
+			}
+		}
+	})
+
 	t.Run("proves a volume by the ownership labels alone, whatever its format label says", func(t *testing.T) {
 		for _, value := range []string{"", "2", "junk"} {
 			f := newFixture(t)

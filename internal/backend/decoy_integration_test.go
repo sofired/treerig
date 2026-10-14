@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/docker"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run/osrun"
@@ -140,6 +142,18 @@ func TestDecoysOnARealDaemon(t *testing.T) {
 		}
 		if out, _ := exec.Command("docker", "inspect", id).CombinedOutput(); strings.Contains(string(out), "No such object") {
 			t.Fatalf("%s was removed", id)
+		}
+	})
+	t.Run("the pre-start listing finds a container of a newer format on a real daemon, and only that", func(t *testing.T) {
+		labels := ownership()
+		labels[brand.FormatLabel(decoyNamespace)] = "2"
+		newer := container(t, labels)
+		current := container(t, ownership())
+		found, err := docker.FindNewerFormats(ctx, osrun.New(), []string{
+			brand.ManagedLabel(decoyNamespace) + "=true", brand.WorktreeLabel(decoyNamespace) + "=" + ref.WorktreeID,
+		}, brand.FormatLabel(decoyNamespace), 1, time.Minute)
+		if err != nil || len(found) != 1 || found[0].Kind != "container" || found[0].Found != "2" || !strings.HasPrefix(newer, found[0].ID) {
+			t.Fatalf("found = %+v, err = %v (newer %s, current %s)", found, err, newer, current)
 		}
 	})
 	t.Run("proves a volume by the ownership labels alone, with no format label", func(t *testing.T) {

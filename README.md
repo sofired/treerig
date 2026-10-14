@@ -504,7 +504,10 @@ before bringing up a branch you did not write.
 `up` starts the Compose project under a name derived from the worktree's
 UUIDs, with every container, volume, network, and image it builds labelled
 `dev.berth.managed`, `dev.berth.repository-uuid`, and
-`dev.berth.worktree-uuid`. Your Compose file is never asked to add those
+`dev.berth.worktree-uuid`, and, on everything but the volumes, the
+`dev.berth.format` label that says which format of labels those are (a named
+volume carries none: Compose would offer to recreate a volume whose label
+changed, losing its data). Your Compose file is never asked to add those
 labels; a generated override file does it, so forgetting one — and silently
 exempting a resource from cleanup — is not possible. The Compose file sees
 the same `BERTH_*` variables hooks do, so `${BERTH_WORKTREE_HOME}` works in a
@@ -1815,7 +1818,8 @@ needs a real process, a signal, or a Docker daemon is behind
 Shipped:
 
 - **Compose runtime** — `up`/`down` that stamp every resource with
-  `<namespace>.managed`, `.repository-uuid`, `.worktree-uuid` and `.format`; inventory and
+  `<namespace>.managed`, `.repository-uuid` and `.worktree-uuid` (and `.format`
+  on containers, networks and images, not on named volumes); inventory and
   teardown that verify the full ownership tuple on every resource before
   touching it.
 - **`up` / `down` / `status` / `urls`** — under the worktree lock, with

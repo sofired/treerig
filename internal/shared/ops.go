@@ -9,11 +9,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/docker"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // ConflictError is `compose up` losing a race to create the stack's
@@ -92,6 +94,16 @@ func (s *Stack) Up(ctx context.Context, request UpRequest) error {
 	encoded, err := encodeOverride(document)
 	if err != nil {
 		return fmt.Errorf("encoding the shared override: %w", err)
+	}
+	// Before the override is written or Compose runs: Compose recreates a
+	// container or network whose labels differ from this build's override,
+	// including one a newer berth stamped (docs/design/state.md).
+	newer, err := docker.FindNewerFormats(ctx, s.o.Runner, s.ownership(), brand.FormatLabel(s.o.LabelNamespace), stateformat.DockerLabel, probeTimeout)
+	if err != nil {
+		return err
+	}
+	if len(newer) > 0 {
+		return stateformat.Newer("touch", stateformat.DescribeResource(newer[0].Kind, newer[0].ID, ""), newer[0].Found, stateformat.DockerLabel)
 	}
 	l := layout.SharedLayout(s.o.ControlHome, s.o.RepositoryID)
 	if err := files.AssertSafeFilePath(l.ControlHome, l.OverridePath); err != nil {

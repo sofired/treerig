@@ -11,6 +11,7 @@ package backend
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -186,8 +187,12 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 			t.Fatalf("%s format label = %q, want 1", what, got)
 		}
 	}
-	if got := dockerFormat(t, `{{ len .Labels }} {{ index .Labels "`+composeNamespace+`.format" }}`, "volume", "inspect", project+"_data"); strings.Contains(got, " 1") {
-		t.Fatalf("the volume carries a format label: %q", got)
+	var volumeLabels map[string]string
+	if err := json.Unmarshal([]byte(dockerFormat(t, "{{ json .Labels }}", "volume", "inspect", project+"_data")), &volumeLabels); err != nil {
+		t.Fatalf("volume labels: %v", err)
+	}
+	if _, stamped := volumeLabels[composeNamespace+".format"]; stamped || volumeLabels[composeNamespace+".worktree-uuid"] != subject.WorktreeID {
+		t.Fatalf("volume labels = %v, want the ownership labels and no %s.format", volumeLabels, composeNamespace)
 	}
 
 	// The consumer's Compose file saw the BERTH_* environment.

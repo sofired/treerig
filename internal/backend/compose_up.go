@@ -12,6 +12,7 @@ import (
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/docker"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/run"
@@ -652,6 +653,9 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	if err != nil {
 		return err
 	}
+	if err := c.refuseNewerFormats(ctx, ref); err != nil {
+		return err
+	}
 	timeout := DefaultWaitTimeoutSeconds
 	if c.options.WaitTimeoutSeconds != nil {
 		timeout = *c.options.WaitTimeoutSeconds
@@ -660,4 +664,25 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	args = append(args, services...)
 	_, err = c.compose(ctx, ref, args, overrideFiles, run.Spec{Output: run.Tee})
 	return err
+}
+
+// refuseNewerFormats refuses to start a worktree that owns a container or
+// network a newer berth stamped. Up calls it once the override is ready and
+// before `compose up`: the override this build writes carries its own format
+// label, which Compose sees as a changed configuration and answers by
+// recreating what it finds, so the refusal cannot wait for the ownership proof
+// at teardown. It is the cheap listing docker.FindNewerFormats makes (two
+// calls, no inspect), not a full Inventory; a resource with a missing label is
+// left to that proof.
+func (c *Compose) refuseNewerFormats(ctx context.Context, ref worktree.Ref) error {
+	namespace := c.options.LabelNamespace
+	newer, err := docker.FindNewerFormats(ctx, c.options.Runner, []string{
+		brand.ManagedLabel(namespace) + "=true",
+		brand.RepositoryLabel(namespace) + "=" + ref.RepositoryID,
+		brand.WorktreeLabel(namespace) + "=" + ref.WorktreeID,
+	}, brand.FormatLabel(namespace), stateformat.DockerLabel, c.timeouts.Probe)
+	if err != nil || len(newer) == 0 {
+		return err
+	}
+	return stateformat.Newer("touch", stateformat.DescribeResource(newer[0].Kind, newer[0].ID, ""), newer[0].Found, stateformat.DockerLabel)
 }

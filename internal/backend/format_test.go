@@ -207,3 +207,72 @@ func TestComposeNeverPrompts(t *testing.T) {
 		}
 	}
 }
+
+// listingRunner answers the pre-start listing of containers and networks with
+// each ID and its format label, and defers everything else to the fake.
+type listingRunner struct {
+	*dockerFake
+	// formats maps a kind ("ps" or "network") to the value of its resource's label.
+	formats map[string]string
+}
+
+// Run answers a `ps` or `network ls` carrying an ID-and-label template.
+func (l listingRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	index := slices.Index(spec.Args, "--format")
+	if index >= 0 && strings.HasPrefix(spec.Args[index+1], "{{.ID}}\t{{.Label") {
+		l.dockerFake.mu.Lock()
+		l.dockerFake.calls = append(l.dockerFake.calls, spec)
+		l.dockerFake.mu.Unlock()
+		kind := spec.Args[0]
+		return run.Finish(spec, run.Result{Stdout: "res-" + kind + "\t" + l.formats[kind] + "\n"})
+	}
+	return l.dockerFake.Run(ctx, spec)
+}
+
+// TestUpRefusesNewerResources covers the check made before `compose up`:
+// Compose recreates a container or network whose labels differ from the
+// override, so a resource a newer berth stamped has to be refused first, with
+// two listings and no inspect (docs/design/state.md).
+func TestUpRefusesNewerResources(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []struct{ arg, noun string }{{"ps", "container"}, {"network", "network"}} {
+		t.Run("refuses a "+kind.noun+" of a newer format before `compose up` runs", func(t *testing.T) {
+			fake := newFake()
+			rt, controlHome := routedRuntime(t, fake, nil)
+			rt.options.Runner = listingRunner{dockerFake: fake, formats: map[string]string{kind.arg: "2"}}
+			ensureHome(t, controlHome)
+			err := rt.Up(ctx, ref, []string{"api"})
+			want := "Refusing to touch the " + kind.noun + " res-" + kind.arg + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			if err == nil || err.Error() != want {
+				t.Fatalf("err = %v\nwant %s", err, want)
+			}
+			if len(fake.composeCalls("up")) != 0 {
+				t.Fatalf("Compose ran: %v", fake.calls)
+			}
+		})
+	}
+
+	t.Run("starts when the format labels are current, missing or unrecognised, using two listings and no inspect", func(t *testing.T) {
+		for _, value := range []string{"1", "", "junk"} {
+			fake := newFake()
+			rt, controlHome := routedRuntime(t, fake, nil)
+			rt.options.Runner = listingRunner{dockerFake: fake, formats: map[string]string{"ps": value, "network": value}}
+			ensureHome(t, controlHome)
+			if err := rt.Up(ctx, ref, []string{"api"}); err != nil {
+				t.Fatalf("label %q: %v", value, err)
+			}
+			listings, inspects := 0, 0
+			for _, call := range fake.calls {
+				if slices.ContainsFunc(call.Args, func(a string) bool { return strings.HasPrefix(a, "{{.ID}}") }) {
+					listings++
+				}
+				if len(call.Args) > 0 && call.Args[0] == "inspect" {
+					inspects++
+				}
+			}
+			if listings != 2 || inspects != 0 {
+				t.Fatalf("label %q: listings = %d, inspects = %d", value, listings, inspects)
+			}
+		}
+	})
+}

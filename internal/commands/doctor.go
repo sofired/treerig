@@ -495,14 +495,19 @@ func lockCheck(id, subject string, scope lock.Scope, handRemoval string) (check 
 	if err != nil {
 		return Check{ID: id, Status: StatusFail, Subject: subject, Detail: fmt.Sprintf("could not be checked: %s", err)}, true
 	}
+	if described.Record != nil && described.Record.NewerFormat() != "" {
+		// Held or not, a holder this build cannot identify is not recovered
+		// automatically: it is refused until upgraded past or cleared, like any
+		// unverifiable one.
+		state := "unreleased"
+		if described.State == lock.Held {
+			state = "held"
+		}
+		return Check{ID: id, Status: StatusWarn, Subject: subject,
+			Detail: state + ", and its holder record is " + stateformat.Detail(described.Record.NewerFormat(), stateformat.LockRecord)}, true
+	}
 	if described.State == lock.Held {
 		return Check{ID: id, Status: StatusOK, Subject: subject, Detail: "held by " + lock.HolderLabel(described.Record)}, true
-	}
-	if described.Record != nil && described.Record.NewerFormat() != "" {
-		// Not recovered automatically: a holder this build cannot identify is
-		// refused until upgraded past or cleared, like any unverifiable one.
-		return Check{ID: id, Status: StatusWarn, Subject: subject,
-			Detail: "unreleased, and its holder record is " + stateformat.Detail(described.Record.NewerFormat(), stateformat.LockRecord)}, true
 	}
 	if described.Record != nil && described.Record.ReleasedAt == nil {
 		detail := fmt.Sprintf("unreleased by %s; recovered automatically the next time this lock is taken", lock.HolderLabel(described.Record))

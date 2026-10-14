@@ -50,8 +50,8 @@ const (
 	// IndexCard is the version in a worktree's index card.
 	IndexCard = 1
 	// DockerLabel is the value of the format label (brand.FormatLabel) on
-	// every container, network, volume and image berth creates for a
-	// worktree or a shared stack.
+	// every container, network and image berth creates for a worktree or a
+	// shared stack. Named volumes carry none (docs/design/state.md).
 	DockerLabel = 1
 )
 

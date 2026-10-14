@@ -50,10 +50,11 @@ is a constant there, pinned by its tests.
 ### Why each is, or is not, versioned
 
 **Control home.** The marker says `format 2` and berth refuses a directory
-whose marker holds anything else. The number stays 2: the marker's bytes are a
-storage name (`CONTRIBUTING.md`), written into every control home, and a
-different number would make those homes read as newer or foreign. The other
-counters start at 1. The marker's bytes never vary by writer (no PID, no
+whose marker holds anything else. 2 is the current version: the marker's bytes
+are a storage name (`CONTRIBUTING.md`), written into every control home, so the
+number changes only through a migration that updates existing control homes
+before it writes the new marker (see "Adding a migration"). The other counters
+start at 1. The marker's bytes never vary by writer (no PID, no
 timestamp), because `writeMarkerRacingCreators` adopts a racing creator's
 marker on that basis.
 
@@ -184,9 +185,18 @@ unproven network is reported and never touched. A volume is proven without the
 format label (above). Listing, status and the index only read, so they do not
 check the format; in particular `VerifyConsumer`, which finds the containers
 that use a shared service, counts any managed container regardless of its
-format. `up` does not inventory before it starts, so what Compose reconciles
-within a project is Compose's; berth's own proof points are teardown, reap,
-connect and disconnect.
+format.
+
+Before `compose up` (a worktree's `up`, and a shared stack's start), berth makes
+one cheap check: a `docker ps -a` and a `docker network ls`, filtered by the
+ownership labels and printing only each ID and its format label. A container or
+network of a newer format refuses the start with the usual message, because the
+override this build writes carries its own format label, which Compose reads as
+a changed configuration and answers by recreating the resource. No inspect is
+made and a full inventory is not taken on every `up`; a resource with a missing
+label is not refused here, and is left to the proof at teardown so that `up`
+never traps a project. Berth's other proof points are teardown, reap, connect
+and disconnect.
 
 ## Missing or unknown version
 
@@ -238,8 +248,9 @@ Nothing here implements one.
    without a lock. The lock order does not change.
 4. **The control-home marker bumps only on a layout change**, as an explicit
    eager step under the registry lock, with the marker written last, after
-   everything it covers has moved, so an interrupted step is retried rather than
-   half-believed. The marker is also what racing creators adopt, so a bump has to
+   everything it covers has moved, so every existing control home is updated
+   before the new marker is written and an interrupted step is retried rather
+   than half-believed. The marker is also what racing creators adopt, so a bump has to
    revisit `writeMarkerRacingCreators`.
 5. **Docker labels cannot be rewritten on an existing resource**, and Compose
    treats a label change on a volume as data loss. A label migration therefore

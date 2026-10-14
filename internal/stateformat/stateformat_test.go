@@ -21,6 +21,7 @@ func TestVersions(t *testing.T) {
 			"shared record":   {stateformat.SharedRecord, 1},
 			"router state":    {stateformat.RouterState, 1},
 			"index card":      {stateformat.IndexCard, 1},
+			"lock record":     {stateformat.LockRecord, 1},
 			"docker label":    {stateformat.DockerLabel, 1},
 		} {
 			if got[0] != got[1] {

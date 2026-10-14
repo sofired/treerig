@@ -194,4 +194,21 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 			t.Fatalf("the failure is reported %d times", fails)
 		}
 	})
+
+	t.Run("warns for a lock still held whose record a newer berth wrote, instead of reporting it ok", func(t *testing.T) {
+		scope := lock.Scope{Target: filepath.Join(t.TempDir(), "worktree"), Description: "worktree main"}
+		held := lock.New(scope, lock.Options{Watchdog: -1})
+		if _, err := held.Acquire(context.Background(), "berth up"); err != nil {
+			t.Fatal(err)
+		}
+		defer held.Release()
+		if err := os.WriteFile(scope.Target+".holder", []byte(`{"version":2,"anything":"else"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		check, ok := lockCheck("locks.test", "test lock", scope, "")
+		want := "held, and its holder record is format 2" + upgrade + "1. Upgrade berth, then run this again"
+		if !ok || check.Status != StatusWarn || check.Detail != want {
+			t.Fatalf("got %+v, %v\nwant detail %s", check, ok, want)
+		}
+	})
 }

@@ -215,7 +215,7 @@ case " $* " in
     id=$(eval echo "\${$#}")
     case "$id" in
       c1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+fixtureWt+`\tapi\t1\n' ;;
-      v1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+owner+`\t\t1\n' ;;
+      v1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+owner+`\t\t\n' ;;
       *) echo "Error: No such object: $id" >&2; exit 1 ;;
     esac
     exit 0 ;;
