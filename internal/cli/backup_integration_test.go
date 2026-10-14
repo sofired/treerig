@@ -83,9 +83,17 @@ func newBundleFixture(t *testing.T, binary string, hooked bool) upFixture {
 			t.Fatal(err)
 		}
 	}
-	if output, err := f.command(binary, "up").CombinedOutput(); err != nil {
+	output, err := f.command(binary, "up").CombinedOutput()
+	if err != nil && f.seededPortTaken(string(output)) {
+		// Something took a seeded port in the moment between freePorts
+		// closing it and `up` probing it; pick a fresh pair, once.
+		f.seededPorts = seedRouterPorts(t, f.routerState)
+		output, err = f.command(binary, "up").CombinedOutput()
+	}
+	if err != nil {
 		t.Fatalf("up: %v\n%s", err, output)
 	}
+	f.requireSeededRouterPorts(t)
 	return f
 }
 
@@ -298,6 +306,8 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 // worktree's lock is released.
 func TestBackupSignalsThroughTheBinary(t *testing.T) {
 	binary := buildBinary(t)
+	// So berth gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
+	catchTerminationSignals(t)
 	for _, stage := range []string{"backup", "restore"} {
 		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
 			t.Run(fmt.Sprintf("%s dies by %v with the hook's group gone and the lock released", stage, sig), func(t *testing.T) {

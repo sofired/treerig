@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -27,16 +27,29 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// catchTerminationSignals is for every test that signals a berth binary
+// (#140). It makes the binaries the test starts see the default action of
+// SIGINT, SIGTERM and SIGHUP. A signal ignored when berth starts stays
+// ignored (lifecycle.Start leaves it alone, as a nohup'd process expects),
+// and the test may itself be running under nohup, whose ignored SIGHUP every
+// child inherits. A caught signal is reset to its default across exec, so
+// catching them here hands berth the defaults whatever this process was
+// started with. The channel exists only as Notify's destination and is
+// deliberately never read. While the helper is active a real Ctrl-C or
+// SIGTERM sent to `go test` is swallowed, until the test's cleanup stops
+// the catch.
+func catchTerminationSignals(t *testing.T) {
+	t.Helper()
+	caught := make(chan os.Signal, 1)
+	signal.Notify(caught, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	t.Cleanup(func() { signal.Stop(caught) })
+}
+
 // freeTCPPort asks the kernel for a free loopback port, for a test router
 // that must not collide with a real one already bound to 80.
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	return freePorts(t, 1)[0]
 }
 
 // Interrupting a mutation, through the real binary: the process must die by

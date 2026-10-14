@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -366,14 +365,8 @@ func TestRunLocking(t *testing.T) {
 // same whether or not the command took the lock, and with no terminal.
 func TestRunInterrupted(t *testing.T) {
 	binary := buildBinary(t)
-	// A signal ignored when berth starts stays ignored (lifecycle.Start
-	// leaves it alone, as a nohup'd process expects), and the test may itself
-	// be running under nohup, whose ignored SIGHUP every child inherits. A
-	// caught signal is reset to its default across exec, so catching them
-	// here hands berth the defaults whatever this process was started with.
-	caught := make(chan os.Signal, 1)
-	signal.Notify(caught, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	t.Cleanup(func() { signal.Stop(caught) })
+	// So berth gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
+	catchTerminationSignals(t)
 	for _, name := range []string{"hold", "holdfree"} {
 		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
 			t.Run(fmt.Sprintf("dies by %v during %s, with the command's group gone and the lock released", sig, name), func(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/sofired/berth/internal/backend"
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/router"
@@ -119,7 +121,9 @@ func healthyRouter(t *testing.T, state, home string, port int) {
 type upFixture struct {
 	base, checkout, controlHome, state, log string
 	routerState                             layout.RouterLayout
-	env                                     []string
+	// seededPorts are the router state seedRouterPorts wrote.
+	seededPorts router.State
+	env         []string
 }
 
 // newUpFixture builds a checkout with a berth.toml, a compose file, a hook
@@ -189,8 +193,93 @@ func newUpFixture(t *testing.T) upFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.seededPorts = seedRouterPorts(t, f.routerState)
 	healthyRouter(t, f.state, f.controlHome, port)
 	return f
+}
+
+// seedRouterPorts writes the router state file with an index port and a ping
+// port that were free when picked, and returns them. It is for fixtures with
+// a fake router only; suites with a real router keep the product's range
+// allocation. Left to itself the router picks both from a hash start that is
+// the same in every berth root (by design: the ports stay stable after a lost
+// state file, and there is one router per daemon), so every fixture of every
+// concurrently running test binary probes the very same two ports on each
+// `up`, and one probe's brief bind makes another's port look held by another
+// process (#140). Ports of its own are unlikely to meet any other probe. The
+// file goes through the product's writer and is read back through its reader,
+// so a state the router would ignore (a changed version, say) fails here.
+func seedRouterPorts(t *testing.T, state layout.RouterLayout) router.State {
+	t.Helper()
+	chosen := freePorts(t, 2)
+	want := router.State{Version: routerStateVersion, IndexPort: chosen[0], PingPort: chosen[1]}
+	if err := os.MkdirAll(state.StateDir, 0o700); err != nil {
+		t.Fatalf("seed router ports: create %s: %v", state.StateDir, err)
+	}
+	if err := files.AtomicJSON(state.StateFile, want); err != nil {
+		t.Fatalf("seed router ports: write %s: %v", state.StateFile, err)
+	}
+	got, found, err := router.ReadState(state)
+	if err != nil || !found || got != want {
+		t.Fatalf("seed router ports: read back %s = %+v, found %v, %v; want %+v", state.StateFile, got, found, err, want)
+	}
+	return want
+}
+
+// routerStateVersion is the version of the router state file's shape, which
+// the router package keeps unexported; seedRouterPorts' read-back fails if it
+// drifts.
+const routerStateVersion = 1
+
+// freePorts is n distinct loopback ports that were free when picked. The
+// listeners stay open together until every port is chosen, so the kernel
+// cannot hand out the same one twice, and are closed before it returns.
+func freePorts(t *testing.T, n int) []int {
+	t.Helper()
+	var listeners []net.Listener
+	var chosen []int
+	for range n {
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("pick a free port: %v", err)
+		}
+		listeners = append(listeners, listener)
+		chosen = append(chosen, listener.Addr().(*net.TCPAddr).Port)
+	}
+	for _, listener := range listeners {
+		_ = listener.Close()
+	}
+	return chosen
+}
+
+// requireSeededRouterPorts fails unless the router state still holds the
+// ports the fixture seeded, so a fixture whose `up` re-picked them fails
+// loudly instead of probing the shared hash-start ports again. It is called
+// after a fixture's first `up`, and only the bundle fixtures
+// (newBundleFixture) call it.
+func (f upFixture) requireSeededRouterPorts(t *testing.T) {
+	t.Helper()
+	got, found, err := router.ReadState(f.routerState)
+	if err != nil || !found || got != f.seededPorts {
+		t.Fatalf("router state after up = %+v, found %v, %v; want the seeded %+v", got, found, err, f.seededPorts)
+	}
+}
+
+// seededPortTaken reports whether output is the router's refusal to start
+// because one of f's seeded ports is in use. The router keeps a stored port
+// rather than picking another, so a seeded port something else took between
+// freePorts and `up` fails `up`; only that failure, naming that port, is
+// worth retrying with fresh ports.
+func (f upFixture) seededPortTaken(output string) bool {
+	if !strings.Contains(output, "a port it needs is in use") {
+		return false
+	}
+	for _, port := range []int{f.seededPorts.IndexPort, f.seededPorts.PingPort} {
+		if strings.Contains(output, fmt.Sprintf("127.0.0.1:%d ", port)) {
+			return true
+		}
+	}
+	return false
 }
 
 // command builds binary to run in f's checkout with f's environment, ready
