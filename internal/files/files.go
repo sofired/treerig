@@ -793,6 +793,21 @@ func SecureBinDirectory(l layout.Control, userHome string) error {
 	return createSecureDirectories(l.ControlHome, []string{l.BinDir}, 0o700)
 }
 
+// SecureTeardownDirectory makes sure the control home's own directories are
+// in place (SecureControlDirectories, with userHome passed straight through),
+// then creates the teardown directory, which holds the teardown pin and the
+// binaries it names (#85), or tightens it to 0700, refusing a symlinked or
+// non-directory path there. Callers run it lazily, only when about to write
+// the pin, as SecureBinDirectory's callers do. The directory is kept apart
+// from the bin directory on purpose (docs/design/teardown.md): that one is
+// swept by age and count.
+func SecureTeardownDirectory(l layout.Control, userHome string) error {
+	if err := SecureControlDirectories(l, userHome); err != nil {
+		return err
+	}
+	return createSecureDirectories(l.ControlHome, []string{l.TeardownDir}, 0o700)
+}
+
 // SecureRegistrationDirectories are the directories a worktree needs before
 // it can be registered — no home yet.
 func SecureRegistrationDirectories(l layout.Worktree, userHome string) error {

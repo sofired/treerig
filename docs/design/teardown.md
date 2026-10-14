@@ -85,7 +85,10 @@ swept by age and count. Directories are `0700` and created by
 `files.SecureTeardownDirectory`, which mirrors `SecureBinDirectory`; the pin
 file is `0600`, written with `files.AtomicJSON`. Every read and write of the pin
 first passes `files.AssertSafeFilePath`. Binaries are stored with
-`binstore.Install` (mode `0700`) and `binstore.Hash`/`Path`.
+`binstore.Install` (mode `0700`) and `binstore.Hash`/`Path`. The update rules
+below are `teardown.Update`, a pure function; `teardown.Save` is the writer
+(binary, then `pin.json`, then the sweep) and refuses a pin that does not name
+the bytes it installs.
 
 ```json
 {
@@ -106,19 +109,24 @@ first passes `files.AssertSafeFilePath`. Binaries are stored with
 
 | Field | Rule |
 | --- | --- |
-| `release` | A release pin: the version, matching the pattern below. A file pin: `--release`, `[0-9A-Za-z][0-9A-Za-z._+-]{0,63}`. |
-| `source` | The `https://…/releases/download/vX.Y.Z/` base, or `file:<absolute, cleaned path>`. |
-| `signer` | The cosign identity that was verified; empty for a file pin. |
+| `release` | A release pin: the version, matching the pattern below and parsing as strict SemVer (`internal/semver`). A file pin: `--release`, `[0-9A-Za-z][0-9A-Za-z._+-]{0,63}`. |
+| `source` | The `https://…/releases/download/vX.Y.Z/` base (host required; no user, query or fragment; the `v<release>` path segment must equal `release`, so `vX.Y.Z` or `vX.Y.Z-pre`), or `file:<absolute, cleaned path>`. A `file:` source is what makes it a file pin. |
+| `signer` | The cosign identity that was verified: for a release pin, non-empty, with no whitespace and no control characters. Empty for a file pin. |
 | `checksums_sha256` | The hash of the verified `checksums.txt`; empty for a file pin. |
 | `pinned_at` | RFC 3339, UTC, `Z` suffix. |
-| `platforms` | Keyed `<GOOS>_<GOARCH>` of the process that pins and the one that removes (a darwin/amd64 build under Rosetta is `darwin_amd64`). |
-| `archive_sha256` | Lowercase 64-hex. Recorded for all four platforms of a release pin, from the one verified `checksums.txt`. Kept for platforms not installed here because it records what was signed, lets `status` name the platforms with no binary, and lets a later `pin` for another platform of the same release merge without a new decision. |
-| `binary_sha256` | Lowercase 64-hex hash of the extracted `berth`: the **runtime trust anchor**. `checksums.txt` lists archive digests only, so it is computed at install, after the archive digest matched. Present only for platforms installed on this machine. |
+| `platforms` | Keyed `<GOOS>_<GOARCH>` of the process that pins and the one that removes (a darwin/amd64 build under Rosetta is `darwin_amd64`). Only four keys exist: `linux_amd64`, `linux_arm64`, `darwin_amd64` and `darwin_arm64`. A release pin has all four; a file pin has exactly one entry, the machine it was made on. At least one entry names a binary. |
+| `archive_sha256` | Lowercase 64-hex; empty for a file pin, which has no archive. Recorded for all four platforms of a release pin, from the one verified `checksums.txt`. Kept for platforms not installed here because it records what was signed, lets `status` name the platforms with no binary, and lets a later `pin` for another platform of the same release merge without a new decision. |
+| `binary_sha256` | Lowercase 64-hex hash of the extracted `berth`: the **runtime trust anchor**. `checksums.txt` lists archive digests only, so it is computed at install, after the archive digest matched. Present only for platforms installed on this machine, and omitted rather than written empty: `"binary_sha256": ""` is foreign. Required (and the only digest) in a file pin's entry. |
 
-**Unknown keys are foreign.** A pin carrying a key this build does not know, at a
-version it reads, is not a pin this build wrote: a new key is a version bump
-(`state.md`, "Adding a migration"), and a security record is not parsed
-leniently. Version is judged first, on its own (`state.md`, rule 4).
+**Unknown keys are foreign.** Keys are matched exactly (`Release` is not
+`release`), and a key may not appear twice in one object. Every key is required
+except a platform's `binary_sha256`. None may be `null`. This holds at the top
+level and in each platform entry.
+
+A pin carrying a key this build does not know, at a version it reads, is not a
+pin this build wrote: a new key is a version bump (`state.md`, "Adding a
+migration"), and a security record is not parsed leniently. Version is judged
+first, on its own (`state.md`, rule 4).
 
 **Reading.** `teardown.ReadPin` is the one reader, used by `pin`, `status` and
 the gate. It returns the pin, no pin, or a refusal:
@@ -126,7 +134,9 @@ the gate. It returns the pin, no pin, or a refusal:
 | Found | Result |
 | --- | --- |
 | Newer `version` | `stateformat.Newer("use", "the teardown pin <path>", …)`: `state.md`'s refusal, "Upgrade berth". |
-| No version, an unknown version, an unknown key or a bad field | Foreign: the text below. Never "Upgrade berth"; never rewritten. |
+| No version, an unknown version, an unknown key, a duplicate key or a bad field | Foreign: the text below. Never "Upgrade berth"; never rewritten. |
+| `pin.json` is a symlink or not a regular file, or the directory is | `Refusing symlinked or non-file managed path: <path>` (`files.AssertSafeFilePath`). |
+| The file cannot be read | `Could not read the teardown pin <path>: <reason>. Check its permissions, or delete <control home>/teardown/ and pin again.` `<reason>` is the system error without the path (`permission denied`). The gate re-wraps it in its own refusal. |
 
 ```
 Refusing to use the teardown pin <path>: it is not a pin this build wrote. Delete <control home>/teardown/ and pin again.
@@ -281,7 +291,7 @@ Refusing to pin <release>: cosign could not verify checksums.txt: <stderr>. If i
 | Existing pin | Result |
 | --- | --- |
 | None | Written. |
-| Same `checksums_sha256` (the same release, another platform) | The platform entry is merged; the others are kept; `pinned_at` is refreshed. |
+| Same `checksums_sha256` (the same release, another platform) | Merged, in this order: (1) a platform only the new pin names is added; (2) a platform both name takes the new `binary_sha256`, and keeps the existing one when the new pin recorded none; (3) platforms the new pin omits, and the existing `release`, `source` and `signer`, are kept; (4) `pinned_at` is refreshed. Two pins with one `checksums_sha256` cannot differ in a platform's `archive_sha256` (one verified `checksums.txt` lists one), so that case is unreachable; the code replaces such an entry whole, and the writer refuses a result that names no binary. |
 | Any other release or source | Replaced. A file pin has an empty `checksums_sha256`, so it never merges. |
 | Older or newer release than the new pin | Allowed, including a downgrade; the plan names it: `(current pin: 1.3.0; this is older)`. File labels are not compared. |
 | Newer format | `pin` refuses with `state.md`'s refusal. |
@@ -322,20 +332,54 @@ Pin the teardown binary
 
 No lock exists for the pin, so the lock order is unchanged. A writer:
 
-1. `binstore.Install`s the binary (atomic, idempotent, refreshes the mtime);
+1. `binstore.Install`s the binary (atomic, idempotent, refreshes the mtime of a
+   reused one);
 2. replaces `pin.json` by atomic rename; the last writer wins, and a reader sees
    the old pin or the new one, never a mixture;
-3. then, best-effort and only after the rename, runs the **teardown sweep**.
+3. checks that the binary is still there and installs it again if it is not;
+4. drops the name of any merged-in binary whose file is gone, rewriting
+   `pin.json` if it did;
+5. then, best-effort and after the last pin write, runs the **teardown sweep**.
 
-The sweep reads `teardown/` with `Lstat` and considers only regular files named
-64 lowercase hex characters; symlinks and everything else (`pin.json`, temporary
-files) are left alone. It keeps every `binary_sha256` the pin it just wrote
-names, and any file modified within the last 10 minutes, and removes the rest.
+`teardown.Save` is this sequence, and `teardown.Update` is the pure merge step
+before it. A concurrent merge is a read-modify-write with no lock, so two
+writers pinning other platforms of one release at once can lose one platform's
+entry (the last writer wins). `teardown status` reports the platform with no
+binary, and pinning again on the machine for that platform repairs it.
+
+**The sweep's rules.** It reads `teardown/` with `Lstat` and considers only
+regular files, never a symlink, a directory, `pin.json` or anything else.
+
+- It removes a stored binary, named 64 lowercase hex characters, that no pin
+  names.
+- It removes a temporary file a killed writer left, named by
+  `files.AtomicWrite`'s own format: `<64 hex>.tmp.<pid>.<suffix>` or
+  `pin.json.tmp.<pid>.<suffix>`
+  (`^([0-9a-f]{64}|pin\.json)\.tmp\.[0-9]+\.[0-9a-z]+$`). Without this they
+  would stay until `teardown/` is deleted.
+- It reads the pin on disk once, before removing anything, and keeps every
+  `binary_sha256` that pin names as well as those of the pin it was given. If
+  that read fails for any reason but the file being absent (an I/O error, a
+  foreign or newer pin, an unsafe path), it removes nothing. So while the pin
+  is foreign or newer every sweep is skipped, and temporary files from killed
+  writers stay until the pin is fixed.
+- It keeps any file modified within the last 10 minutes.
+- It looks at each file again just before removing it, and skips one that is no
+  longer a regular file or has become fresh.
+
 The grace window protects a binary installed in the last 10 minutes: a
 concurrent writer's fresh install that its own `pin.json` rename has not reached
-yet. The sweep never runs from the gate or from `status`. `binstore.Prune` is
-not used: it ranks every entry of a directory by age and count under `bin/`'s
-policy and has no notion of a pin file or of which entries a record names.
+yet, and the temporary file of a write in progress. The remaining window is a
+writer stalled for more than 10 minutes between its install and its rename, or a
+rename that lands between the sweep's read of the pin and its unlink: the new
+pin then names a binary that is not there. That costs a refusal and a re-pin,
+never a wrong binary run, because the gate checks the binary's hash at every
+use.
+
+The sweep never runs from the gate or from `status`. `binstore.Prune` is not
+used: it ranks every entry of a directory by age and count under `bin/`'s policy
+and has no notion of a pin file or of which entries a record names. `Save`'s
+errors are internal and lowercase; the commands wrap them.
 
 ### `status`
 
@@ -584,7 +628,7 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 | 1. This note, with the `state.md`, `release.md` and `AGENTS.md` entries and the pinned `cosign-release` | #29 | Merged |
 | 2. Pin store: `layout.TeardownDir`/`PinPath`, `files.SecureTeardownDirectory`, `internal/teardown`, `internal/semver`, `stateformat.TeardownPin`, the sweep, the `state.md` refusal-table row | 1 | Round trip, newer, foreign, unknown key, update rules, modes, sweep and concurrent writers are tested |
 | 3. `teardown pin --file` and `teardown status`, with the confirmation, goldens and README section | 2 | A pin can be made from a local binary and `status` verifies it |
-| 4. `teardown pin --version` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse |
+| 4. `teardown pin --version` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. An EACCES or ENOEXEC when the stored binary is first executed maps to the noexec message (below), naming the mount |
 | 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped; the hermetic sign and verify argv has been run against cosign v3.0.6 and this note corrected to match |
 | 6. **#146** The fail-closed gate and `--dev-teardown`; the README's relocation paragraph; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy |
 | 6b. Cut `v0.1.0-rc.2` | 6 merged | A release containing the gate is published |

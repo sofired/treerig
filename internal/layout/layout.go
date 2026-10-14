@@ -12,6 +12,8 @@
 //	    repositories/<repo>/instances/<wt>/   the worktree's home
 //	    repositories/<repo>/instances/<wt>/backups/<timestamp>/   `backup`'s default bundles
 //	    bin/<sha256>                      BinDir: `worktree remove`'s own content-addressed copies (#7)
+//	    teardown/pin.json                 PinPath: the teardown pin (#85)
+//	    teardown/<sha256>                 TeardownDir: the pinned teardown binaries (#85)
 //
 // The shared router's own stack file, protocol record, dynamic and index
 // directories, and lock live under the berth root rather than inside the
@@ -47,6 +49,13 @@ type Control struct {
 	// bytes that were invoked, nothing more. Entries are named by the
 	// sha256 of their bytes; see internal/binstore.
 	BinDir string
+	// TeardownDir holds the teardown pin and the binaries it names, entries
+	// named by the sha256 of their bytes (#85, docs/design/teardown.md). It
+	// is separate from BinDir, which holds unvetted copies of whatever was
+	// invoked and is swept by age and count.
+	TeardownDir string
+	// PinPath is the teardown pin, TeardownDir/pin.json.
+	PinPath string
 }
 
 // Repository adds one repository's directories.
@@ -239,6 +248,8 @@ func ControlLayout(controlHome string) Control {
 		LocksDir:         locksDir,
 		RegistryLockPath: filepath.Join(locksDir, "registry"),
 		BinDir:           filepath.Join(resolved, "bin"),
+		TeardownDir:      filepath.Join(resolved, "teardown"),
+		PinPath:          filepath.Join(resolved, "teardown", "pin.json"),
 	}
 }
 

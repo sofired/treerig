@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "release": "my-build",
+  "source": "file:/home/me/berth",
+  "signer": "",
+  "checksums_sha256": "",
+  "pinned_at": "2026-10-14T12:00:00Z",
+  "platforms": {
+    "linux_amd64": {
+      "archive_sha256": "",
+      "binary_sha256": "8065822ca5aedd4917dbb54fd806dba3330b444eacff10cfcd431fd9cd3f4356"
+    }
+  }
+}
