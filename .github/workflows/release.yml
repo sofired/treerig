@@ -1,48 +1,42 @@
 name: Release
 
-# Builds the four release targets on every push to main (so a binary from
-# main is always available without waiting for a tag) and on every version
-# tag. Publishing a GitHub Release from these binaries is #8, not this
-# workflow: here "release" means "produced the way a release would build
-# it," not "published."
+# Cutting a release is `git tag vX.Y.Z && git push origin vX.Y.Z`;
+# CONTRIBUTING.md has the checklist. The pull-request side of this pipeline is
+# the release-snapshot job in go.yml, which builds everything below except the
+# signing, the publishing and the tap bump. Every action here is pinned to a
+# commit, since this workflow publishes what users install; go.yml's are not.
+#
+# Renaming this file changes the signing identity that verifiers check
+# (docs/design/release.md): treat it as a migration.
 on:
   push:
-    branches: [main]
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: build binaries
+  # Never publish something that doesn't pass its own tests, or under a tag
+  # that isn't a version.
+  verify:
+    name: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
+      # The whole history, to ask whether the tag is on main.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          go-version-file: go.mod
+          fetch-depth: 0
 
-      # The tag name (with its leading v stripped) on a tag push, so
-      # `--version` matches what the tag says; a dev version carrying the
-      # short commit on every other push, so a main build is never
-      # mistakable for a tagged one. A plain `go build` with no ldflags
-      # still prints brand.Version's own "0.1.0" default, untouched.
-      - name: Determine version
-        id: version
+      # The tag name (with its leading v stripped) becomes brand.Version through
+      # GoReleaser's -ldflags -X, so `--version` matches what the tag says.
+      - name: Validate the tag
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="0.0.0-dev+${GITHUB_SHA::12}"
-          fi
-          # Goes straight into -ldflags -X below; a tag name with a quote
-          # or space in it would otherwise break the build step's quoting.
-          # A bare `v` tag leaves nothing to print for `--version`.
+          version="${GITHUB_REF_NAME#v}"
+          # Goes straight into -ldflags -X; a tag name with a quote or space in
+          # it would otherwise break the build step's quoting. A bare `v` tag
+          # leaves nothing to print for `--version`.
           case "$version" in
             '')
               echo "::error::tag '${GITHUB_REF_NAME}' has no version after its leading v" >&2
@@ -53,37 +47,341 @@ jobs:
               exit 1
               ;;
           esac
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          # GoReleaser, the packages and Homebrew all expect semantic versions.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'; then
+            echo "::error::tag '${GITHUB_REF_NAME}' isn't a semantic version (vMAJOR.MINOR.PATCH, optionally with -prerelease or +build)" >&2
+            exit 1
+          fi
 
-      # linux/darwin x amd64/arm64: the same four targets go.yml's
-      # cross-compile job also builds, on every pull request. CGO_ENABLED=0
-      # matches go.yml's "Tests without cgo, as released" leg -- releases
-      # never link cgo.
-      - name: Build
-        env:
-          CGO_ENABLED: '0'
-          VERSION: ${{ steps.version.outputs.version }}
+      # Only a commit that is on main can be released: whoever can push a tag
+      # (the repository's tag ruleset, docs/design/release.md, says who) cannot
+      # publish a branch that was never reviewed.
+      - name: The tag is on main
         run: |
           set -euo pipefail
-          mkdir -p dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            goos="${target%/*}"
-            goarch="${target#*/}"
-            out="dist/berth-${goos}-${goarch}"
-            echo "building ${out} (version ${VERSION})"
-            GOOS="${goos}" GOARCH="${goarch}" go build \
-              -trimpath \
-              -ldflags "-s -w -X github.com/sofired/berth/internal/brand.Version=${VERSION}" \
-              -o "${out}" \
-              ./cmd/berth
-          done
+          git fetch --no-tags --quiet origin '+refs/heads/main:refs/remotes/origin/main'
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main; merge it first, then tag the merge" >&2
+            exit 1
+          fi
 
-      - name: Checksums
-        working-directory: dist
-        run: sha256sum berth-* | tee checksums.txt
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          name: berth-${{ steps.version.outputs.version }}
-          path: dist/
-          if-no-files-found: error
+          go-version-file: go.mod
+          cache: false
+
+      # As released: without cgo (go.yml's "Tests without cgo, as released"
+      # leg runs the integration tests too, on every push to main).
+      - name: Unit tests
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+
+  release:
+    name: publish release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # What controls the signing identity is the repository's `v*` tag ruleset
+    # and verify's check that the tag is on main: a tag on a commit whose copy
+    # of this file drops `environment:` would still sign. The environment adds
+    # a human approval here, and keeps the tap token (below) out of reach of
+    # anything that does not run in it (CONTRIBUTING.md has the setup).
+    environment: release
+    # One release per tag at a time.
+    concurrency:
+      group: release-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      # Create the GitHub Release and upload its assets.
+      contents: write
+      # Sigstore keyless signing (cosign) and the attestation both exchange
+      # this job's OIDC token for a short-lived certificate.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # GoReleaser builds the release notes from the history since the
+          # previous tag.
+          fetch-depth: 0
+          # GoReleaser publishes through GITHUB_TOKEN and only reads git
+          # locally, so the token isn't left in .git/config for the build.
+          persist-credentials: false
+
+      # No build cache: this job's output is what users install, and a cache
+      # is the one input a pull request's workflow run could have written.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.18.3
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Provenance for every archive and package, from the checksums
+      # GoReleaser just published: `gh attestation verify <file> --repo
+      # sofired/berth` checks any of them.
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
+
+  # Only a final release reaches Homebrew: a prerelease or build-metadata tag
+  # stays on GitHub.
+  homebrew-tap:
+    name: update sofired/homebrew-tap
+    # Its own job so a tap-side hiccup (bad token, tap unreachable, formula
+    # drift) can never hold up the GitHub release.
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') && !contains(github.ref_name, '+') }}
+    # A protected environment, so a tag push alone cannot push a formula that
+    # `brew install` users then build and run. HOMEBREW_TAP_TOKEN lives here.
+    environment: release
+    # A single constant group serializes ALL tap updates, not just same-tag
+    # ones. Each tag gets its own branch and PR, but two runs racing here would
+    # still either duplicate a retry's PR for the same tag or pile several tap
+    # bottle builds and publishes on top of each other. GitHub keeps one pending
+    # run per group, so a third release tagged while the first is still waiting
+    # on the tap's bottles replaces the second's pending bump: re-run the
+    # replaced run's tap job by hand (CONTRIBUTING.md).
+    concurrency:
+      group: homebrew-tap-update
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    # Three bottle builds on the tap plus its publish run; waiting is the bulk.
+    timeout-minutes: 90
+    steps:
+      # HOMEBREW_TAP_TOKEN is a fine-grained PAT scoped to sofired/homebrew-tap
+      # only, with contents:write (push the bump branch), pull-requests:write
+      # (open the PR and read its checks with `gh pr checks`) and actions:write
+      # (dispatch the tap's publish workflow). It is optional: a run before the
+      # maintainer provisions it degrades to a clear skip rather than failing
+      # the release. Every other step is gated on this.
+      - name: Does the tap have a token?
+        id: gate
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the tap update. Open a PR bumping Formula/berth.rb in the tap by hand for this release, so the tap's CI still builds its bottles."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The tag is attacker-influenceable (anyone who can push a tag), and its
+      # derived values get written into a Ruby file Homebrew executes on every
+      # user's machine. Validate them here (strict semver, 64-hex digest) and
+      # refuse otherwise; this is the injection defense, not the verify job.
+      #
+      # The formula builds from the release's own source archive, and its
+      # checksum comes from the checksums.txt the release job published (and
+      # signed and attested), not from a tarball GitHub generates on request.
+      - name: Validate the tag and read the source archive's checksum
+        id: meta
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "refusing to update the tap: '$version' is not a MAJOR.MINOR.PATCH version" >&2
+            exit 1
+          fi
+          archive="berth-${version}.tar.gz"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${archive}"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir "$RUNNER_TEMP"
+          sha=$(awk -v f="$archive" '$2 == f { print $1; exit }' "$RUNNER_TEMP/checksums.txt")
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "refusing to update the tap: checksums.txt has no valid sha256 for ${archive} (got '$sha')" >&2
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "url=$url"
+            echo "sha256=$sha"
+          } >> "$GITHUB_OUTPUT"
+
+      # This repository, for packaging/homebrew/berth.rb: the formula's first
+      # appearance in the tap is a copy of it.
+      - name: Check out berth
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: berth
+          persist-credentials: false
+
+      # actions/checkout stores the token as an http.extraheader that it scrubs
+      # in its post step, rather than us baking it into a remote URL that would
+      # persist in .git/config.
+      - name: Check out the tap
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: sofired/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update Formula/berth.rb on a branch
+        id: bump
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          F_URL: ${{ steps.meta.outputs.url }}
+          F_SHA256: ${{ steps.meta.outputs.sha256 }}
+          F_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          formula="tap/Formula/berth.rb"
+          # Retry-safe: an earlier run of this job may already have pushed the
+          # branch (and opened the PR) before a later step failed. Build on that
+          # branch rather than on main, so the push below fast-forwards.
+          branch="berth-${F_VERSION}"
+          reused=false
+          cd tap
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "::notice::$branch already exists on the tap from an earlier run; reusing it."
+            git fetch -q origin "$branch"
+            git checkout -q -B "$branch" FETCH_HEAD
+            reused=true
+          else
+            git checkout -q -b "$branch"
+          fi
+          cd ..
+          # The tap has no formula yet: start from this repository's. The PR
+          # below is still where a person reads it before it ships.
+          if [ ! -f "$formula" ]; then
+            echo "::notice::the tap has no $formula; starting from packaging/homebrew/berth.rb."
+            mkdir -p tap/Formula
+            cp berth/packaging/homebrew/berth.rb "$formula"
+          fi
+          # Rewrite only the first stable url/sha256 pair. The snapshot build
+          # (packaging/verify-snapshot.sh) renders its formula with the same
+          # script, so pull requests exercise this step.
+          python3 berth/packaging/homebrew/set-source.py "$formula" "$F_URL" "$F_SHA256"
+          # Post-conditions: the new values landed on the first stanza.
+          grep -qF "url \"$F_URL\"" "$formula"
+          grep -qF "sha256 \"$F_SHA256\"" "$formula"
+          cd tap
+          git add Formula/berth.rb
+          if git diff --cached --quiet; then
+            if [ "$reused" = true ]; then
+              echo "::notice::$branch already carries this url/sha256; continuing to its PR."
+            else
+              echo "::notice::the tap's main already has this url/sha256; nothing to do."
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            # A branch, not main: the tap bottles a formula on its PR CI, and
+            # `brew pr-pull` lands the bump together with the bottle block.
+            git -c user.name="berth-release" \
+                -c user.email="actions@users.noreply.github.com" \
+                commit -m "berth ${F_VERSION}"
+          fi
+          git push origin "HEAD:refs/heads/${branch}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # The tap's tests.yml builds and tests the bumped formula on every bottle
+      # platform and stores the bottles as artifacts; its publish.yml (`brew
+      # pr-pull`) then uploads them to the tap's `bottles` release and pushes
+      # the bump plus the `bottle do` block to main. This step opens the PR,
+      # waits for its checks, and dispatches that workflow. A failure here
+      # leaves the PR open for a maintainer; the GitHub release is already
+      # published by then.
+      - name: Open the tap pull request, wait for its bottles, and dispatch their publish
+        if: steps.gate.outputs.enabled == 'true' && steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          F_VERSION: ${{ steps.meta.outputs.version }}
+          F_URL: ${{ steps.meta.outputs.url }}
+          TAP: sofired/homebrew-tap
+        run: |
+          set -euo pipefail
+          cd tap
+          head_sha=$(git rev-parse HEAD)
+          branch="berth-${F_VERSION}"
+          # Whether this bump is already published is decided by the tap's main,
+          # not by PR state: brew pr-pull lands by cherry-pick, so a *successful*
+          # publish leaves the PR either merged (fast-forward) or closed by the
+          # tap's publish workflow. Check main for this version first; only if it
+          # is absent do we (re)drive a PR.
+          git fetch -q origin main
+          if git show origin/main:Formula/berth.rb 2>/dev/null | grep -qF "url \"$F_URL\""; then
+            echo "::notice::the tap's main already carries berth ${F_VERSION}; bottles are published. Nothing to do."
+            exit 0
+          fi
+          # Not on main yet. Find this branch's PR in the tap. Only one whose head
+          # lives in the tap itself counts: `--head` matches by branch name alone
+          # and a fork could reuse it. Reuse an open one, reopen a closed one that
+          # never actually published, or open a fresh PR.
+          pr_json=$(gh pr list --repo "$TAP" --head "$branch" --state all \
+            --json url,number,state,headRepositoryOwner \
+            --jq '[.[] | select(.headRepositoryOwner.login == "sofired")][0] // empty')
+          pr_url=$(printf '%s' "$pr_json" | jq -r '.url // empty')
+          pr_number=$(printf '%s' "$pr_json" | jq -r '.number // empty')
+          case "$(printf '%s' "$pr_json" | jq -r '.state // "NONE"')" in
+            OPEN)
+              echo "::notice::reusing the open PR ${pr_url} from an earlier run." ;;
+            CLOSED)
+              echo "::notice::${pr_url} was closed without publishing ${F_VERSION} (it is not on main); reopening to finish."
+              gh pr reopen "$pr_number" --repo "$TAP" ;;
+            *)
+              # No PR for the branch, or a merged one that never reached main
+              # (which cannot be reopened): open a fresh PR from the branch.
+              pr_url=$(gh pr create --repo "$TAP" --base main \
+                --head "$branch" \
+                --title "berth ${F_VERSION}" \
+                --body "Version bump from the berth ${GITHUB_REF_NAME} release. This PR's checks build the bottles; the brew pr-pull workflow publishes them and lands the bump.")
+              echo "::notice::opened ${pr_url}" ;;
+          esac
+          pr_number="${pr_url##*/}"
+          # Checks register a few seconds after the PR opens, and `gh pr checks`
+          # errors until they do (exit 8 means they exist and are pending).
+          for _ in $(seq 1 18); do
+            gh pr checks "$pr_number" --repo "$TAP" >/dev/null 2>&1 && break
+            [ "$?" -eq 8 ] && break
+            sleep 10
+          done
+          gh pr checks "$pr_number" --repo "$TAP" --watch --fail-fast
+          # Snapshot the existing publish.yml run ids so we can identify the run
+          # our dispatch creates (gh workflow run returns no id). The
+          # homebrew-tap-update lock this job holds already keeps two automated
+          # releases from dispatching at once; the set-difference below plus the
+          # fail-closed handling also cover a manual dispatch racing this one.
+          before_ids=$(gh run list --repo "$TAP" --workflow publish.yml --limit 50 --json databaseId --jq '.[].databaseId')
+          gh workflow run publish.yml --repo "$TAP" \
+            -f pull_request="$pr_number" -f head_sha="$head_sha"
+          # Wait for exactly the run we triggered: the one publish.yml run id that
+          # was not present before. Fail closed rather than release the lock on
+          # an unknown state: no run, or two new runs we can't tell apart.
+          run_id=""
+          for _ in $(seq 1 24); do
+            new_ids=$(gh run list --repo "$TAP" --workflow publish.yml --limit 50 --json databaseId --jq '.[].databaseId' \
+              | grep -vxF -f <(printf '%s\n' "$before_ids") || true)
+            count=$(printf '%s' "$new_ids" | grep -c . || true)
+            if [ "$count" -eq 1 ]; then run_id="$new_ids"; break; fi
+            if [ "$count" -gt 1 ]; then
+              echo "::error::more than one new publish.yml run appeared after dispatch (${new_ids//$'\n'/, }); cannot tell which is ours, so failing rather than release the tap lock on an unverified publish."
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::dispatched publish.yml for ${pr_url} but its run never appeared; failing so the tap lock is not released while the publish state is unknown."
+            exit 1
+          fi
+          echo "::notice::waiting for the tap's publish run ${run_id} for berth ${F_VERSION}..."
+          gh run watch "$run_id" --repo "$TAP" --exit-status
+          echo "::notice::berth ${F_VERSION} bottles published from ${pr_url}"

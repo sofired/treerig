@@ -127,6 +127,108 @@ you rename or remove it in the schema.
   them. CodeRabbit checks this on each pull request, against an 80%
   threshold.
 
+## Releases
+
+A release is a `v*` tag. The Release workflow
+(`.github/workflows/release.yml`) tests the tag and checks that its commit is
+on `main`, then GoReleaser (`.goreleaser.yaml`) builds linux/darwin on amd64
+and arm64 with `CGO_ENABLED=0` and `brand.Version` set from the tag, and
+publishes a GitHub Release with the archives, the source archive, the `.deb`,
+`.rpm` and `.apk` packages, `checksums.txt`, its cosign (keyless) bundle and
+release notes from the commits since the previous tag. The job then attests the
+build provenance of every file. A final job opens a pull request in
+`sofired/homebrew-tap` and drives the tap's own bottle and publish workflows to
+land it. The names, the signing identity and what depends on them are in
+[`docs/design/release.md`](docs/design/release.md); renaming `release.yml` or a
+file-name template is a migration.
+
+**Before the first tag** (each item is a blocker, not a nicety). A source build
+reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
+
+- [ ] The repository is public. Every channel downloads release assets
+  anonymously, and build provenance attestations need it on this plan.
+- [ ] #29 (migrating stored state between releases) has landed: the first
+  tagged release is when state first outlives a build.
+- [ ] A `release` environment (Settings, Environments) with required
+  reviewers, and a deployment rule limiting it to the tag pattern `v*`. Both the
+  `release` and `homebrew-tap` jobs run in it. It protects the tap token and
+  adds a human approval; it is not what controls the signing identity (the tag
+  ruleset below and the on-`main` check are).
+- [ ] A tag ruleset for `v*` (Settings, Rules): only maintainers may create
+  them, and nobody may update or delete one. The workflow also refuses a tag
+  whose commit is not on `main`.
+- [ ] `HOMEBREW_TAP_TOKEN`, a secret in the `release` environment: a
+  fine-grained personal access token for `sofired/homebrew-tap` only, with
+  Contents, Pull requests and Actions read and write, and an expiry. Put the
+  expiry in a calendar; when it lapses the tap job fails on its checkout. Without
+  the secret the tap job notes that it skipped and the release itself is
+  unaffected.
+- [ ] If you protect the tap's `main`, let GitHub Actions push to it or bypass
+  the rule: the tap's `publish.yml` (`brew pr-pull`) pushes the bump and its
+  bottle block straight to `main` with the workflow's `GITHUB_TOKEN`, after the
+  pull request this job opens has passed the tap's checks.
+- [ ] The first tap pull request starts from `packaging/homebrew/berth.rb`;
+  later ones only change its `url` and `sha256`. Change the formula's body in
+  the tap, and keep the template in step.
+
+**Cutting a release:**
+
+1. `main` is green and holds what you mean to ship.
+2. Tag the commit and push the tag: `git tag vMAJOR.MINOR.PATCH && git push
+   origin vMAJOR.MINOR.PATCH`. The tag is the version (`v1.2.3` reports
+   `1.2.3`); it must be a semantic version. A tag with a pre-release suffix
+   (`v1.2.3-rc.1`) publishes a GitHub pre-release, which is never "latest", and
+   does not touch Homebrew. Release notes list the commits since the previous
+   tag, so after an rc they cover only what changed since the rc; and the first
+   release's notes are the whole history, long enough to trim by hand on the
+   release page.
+3. Approve the run in the `release` environment, and watch it. Approval is
+   requested once per gated job, so twice per release: first `release`, then
+   `homebrew-tap`. When it finishes, check the release page, then try `brew install sofired/tap/berth`,
+   `install.sh` and one package.
+
+**When it fails:**
+
+- Before the GitHub Release exists: fix the cause and re-run the failed jobs.
+- After GoReleaser created the release, in the same job (the attestation, say):
+  re-run the failed jobs. `release.replace_existing_artifacts` makes GoReleaser
+  replace the assets it already uploaded, including the signature bundle (the
+  bytes are the same, since a build of one commit is reproducible), and the
+  attestation step only adds one. If the repository ever turns on immutable
+  releases, assets cannot be replaced: delete the release (`gh release delete
+  vX.Y.Z`, keeping the tag) and re-run instead.
+- Only the `homebrew-tap` job failed: re-run just that job ("Re-run failed
+  jobs"). It reuses the tap's `berth-X.Y.Z` branch and its open pull request,
+  and does nothing if the tap's `main` already has the version. GitHub keeps one
+  pending run per concurrency group, so if two releases were tagged while one
+  waited on the tap, the replaced run's tap job has to be re-run by hand.
+- The tap's pull request fails its checks because the formula no longer builds,
+  most often because `go.mod` asks for a newer Go than Homebrew's `go` formula
+  has. Wait for Homebrew to catch up, or lower the requirement; the release
+  itself is not affected.
+
+`install.sh` is served from `main` (or a tag), not from a release: a change to
+it ships when it merges.
+
+**Trying it without publishing.** Pull requests and pushes to `main` run the
+`release-snapshot` job in `go.yml`: shellcheck, `goreleaser check`, a snapshot
+build, a second build whose `checksums.txt` must match the first, and
+`packaging/verify-snapshot.sh` (every artifact, the files in each, how each
+binary was built, the tap formula rendered into `dist/berth.rb` from the
+source archive, and `install.sh` against the snapshot through a local server).
+The job uploads the artifacts and the formula. To do the same locally:
+
+```bash
+go install github.com/goreleaser/goreleaser/v2@v2.18.3   # the version both workflows pin
+goreleaser check
+goreleaser release --snapshot --clean --skip=sign
+packaging/verify-snapshot.sh dist
+```
+
+`--skip=sign` is needed because signing wants the release job's OIDC token.
+Change the GoReleaser version in `go.yml` and `release.yml` together; the
+actions in `release.yml` are pinned by commit, so bump those on purpose.
+
 ## Commit messages
 
 Conventional-commit style: `feat(runtime): …`, `fix(locks): …`,

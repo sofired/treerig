@@ -56,14 +56,15 @@ const (
 	EnvPrefix = "BERTH"
 )
 
-// Version is what `--version` prints. It stays "0.1.0" for a plain `go
+// Version is what `--version` prints. It stays "0.0.0-dev" for a plain `go
 // build`, including in tests, which is what the golden corpus pins. The
-// release workflow overrides it at build time with the tag, via
+// release (GoReleaser, see .goreleaser.yaml) overrides it at build time with
+// the tag, via
 //
 //	-ldflags "-X github.com/sofired/berth/internal/brand.Version=<version>"
 //
 // which requires a var: -X cannot set a const.
-var Version = "0.1.0"
+var Version = "0.0.0-dev"
 
 // LabelNamespacePattern is what a label namespace must look like: a reverse domain.
 var LabelNamespacePattern = regexp.MustCompile(`^[a-z0-9]+(\.[a-z0-9-]+)+$`)

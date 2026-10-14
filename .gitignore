@@ -1,4 +1,6 @@
 dist/
+# GoReleaser's before hook writes the shell completions here
+/completions/
 *.log
 .DS_Store
 
