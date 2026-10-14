@@ -54,11 +54,23 @@ code to pin is berth's own. A hook later added to removal needs its own trust
 rule. `down` and `restore` are out of scope.
 
 The pin protects against **unreviewed branch code running as berth during a
-removal**. That includes branch code that steers the install: a `.envrc` that
-puts a fake `cosign` first on `PATH` or points cosign at another trust root, so
-the cosign run is hardened below. It does not protect against a hostile process
-running as the same user with write access to the control home, which can rewrite
-the pin as easily as anything else there. A root-owned location is not a goal.
+removal**. It does not protect against a hostile process running as the same
+user with write access to the control home, which can rewrite the pin as easily
+as anything else there. A root-owned location is not a goal.
+
+**Verification trusts the user's `PATH`.** `teardown pin` runs the `cosign` it
+finds there, and a fake one can report success. Embedding sigstore-go, which
+would remove that dependence, was declined (decision 2). So:
+
+- Run `teardown pin` from a shell you trust, not from a directory whose `.envrc`
+  or similar you have not read. Pinning is the user's one deliberate trust act;
+  the gate protects the removals after it. Branch code that controls `PATH` at pin
+  time could equally replace `berth` itself, so nothing here claims to defend that.
+- berth narrows the common case: it refuses a cosign that resolves inside a
+  checkout or the control home (below), and removes the sigstore settings that
+  would point cosign at another trust root.
+- **Accepted limit:** a cosign elsewhere on a hijacked `PATH`, outside every
+  checkout and the control home, is trusted.
 
 ## Where the pin lives
 
@@ -169,9 +181,15 @@ Before anything is written to the control home:
 
 1. `checksums.txt` and `checksums.txt.sigstore.json` are written to a `0700`
    temporary directory, and the bytes held in memory are the ones parsed later.
-2. cosign is resolved **once** with `run.ResolveExecutable`, and that absolute
-   path is the one run for both steps below, so a `PATH` change between them
-   cannot swap it. The plan shows the path and the version.
+2. cosign is resolved **once** with `run.ResolveExecutable`, and that
+   **PATH-resolved path**, made absolute with `filepath.Abs`, is the one run for
+   both steps below, so a `PATH` change between them cannot swap it. It is run as
+   resolved, not as its canonical form, because shims (asdf, mise), Nix wrappers
+   and multi-call binaries dispatch on `argv[0]`. For the containment test only,
+   it is then canonicalised with `filepath.EvalSymlinks`, and **refused** when
+   that result is inside one of the roots below. The plan shows both paths and
+   the version, as in `cosign /usr/local/bin/cosign -> /opt/cosign/cosign (3.0.6)`.
+   The gap between the check and the exec is accepted, as in the TOCTOU row.
 3. `<cosign> version --json` is parsed and its `gitVersion` read (a leading `v`
    dropped). **3.0.0 or newer** is required, because the release workflow
    installs cosign v3.0.6 (`release.md`) and writes the protobuf bundle that
@@ -199,6 +217,21 @@ For `--file` only the supplied digest is checked; the plan says so. There is no
 sha256-only download mode (a digest fetched from the file's own source proves
 nothing), and no flag skips the signature or changes the identity.
 
+**Containment roots** (no `git` is run):
+
+| Root | Source |
+| --- | --- |
+| Registered worktrees | The registry. Empty or absent: no roots. Unreadable or of a newer format: skipped with a note on stderr, not a refusal, since pinning is the bootstrap. |
+| The current checkout | Walk up from the working directory to the first ancestor holding a `.git` file or directory. |
+| That checkout's repository | For a worktree, follow the `.git` file's `gitdir:` to the common directory and take its parent, so sibling worktrees are covered. |
+| The control home | `canonical(controlHome)`. |
+
+Containment compares canonical forms with `filepath.Rel` and rejects a result
+that is `..` or starts with `..` plus a separator; a string prefix is never used,
+so `berth.foo` is not inside `berth`. On darwin, where volumes can be
+case-insensitive, each ancestor of the cosign path is also compared with each
+root through `os.SameFile`.
+
 **The cosign contract.**
 
 - The policy (the argv) is a small interface with one production implementation,
@@ -215,6 +248,7 @@ nothing), and no flag skips the signature or changes the identity.
   refusal:
 
 ```
+Refusing to pin <release>: cosign resolves to <path> (<canonical path>), which is inside <the worktree <identifier> | this checkout | the control home>, where branch code could have put it. Install cosign outside any checkout, or verify the download by hand and use `berth teardown pin --file <path> --sha256 <digest> --release <release>`.
 Refusing to pin <release>: cosign 3.0.0 or newer is required to verify it, and <cosign path or "none was found"> does not qualify (<found>). Install cosign, or verify the download by hand and use `berth teardown pin --file <path> --sha256 <digest> --release <release>`.
 Refusing to pin <release>: cosign could not verify checksums.txt: <stderr>. If it names the trust root, run `cosign initialize` with network access once, or use `berth teardown pin --file <path> --sha256 <digest> --release <release>` to pin without it.
 ```
@@ -268,7 +302,7 @@ Pin the teardown binary
   release   1.2.3  (current pin: 1.1.0)
   source    https://github.com/sofired/berth/releases/download/v1.2.3/
   signer    https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3  (cosign verified)
-  cosign    /usr/local/bin/cosign  (3.0.6)
+  cosign    /usr/local/bin/cosign -> /opt/cosign/cosign  (3.0.6)
   platform  linux_amd64  sha256 3f2a…
   `worktree remove` does not run this binary yet.
 ```
@@ -357,10 +391,9 @@ Gate(env, options):
 
   1. running is <controlHome>/teardown/<64-hex> and bytes == that name:   -- a pinned child
        if options.DevTeardown: refuse
-       pin := ReadPin()
-       pin newer or foreign: refuse
-       pin readable and platforms[GOOS_GOARCH].binary_sha256 != name: refuse
-       print the child line; return                  -- pin absent or an I/O error: proceeds
+       pin := ReadPin()                              -- absent, unreadable, newer, foreign: refuse
+       platforms[GOOS_GOARCH].binary_sha256 != name: refuse
+       print the child line; return
   2. running is <controlHome>/bin/<64-hex>, bytes == that name, options.DevTeardown:
        return                                         -- the relocated dev copy: silent
   3. options.DevTeardown:  notice; relocate through bin/; return
@@ -374,13 +407,14 @@ Gate(env, options):
 
 - **Check 1 is a pinned child.** It reads the pin only to confirm membership: the
   entry for this `GOOS_GOARCH` must name the child's own hash. A stale file left
-  in `teardown/` by a failed sweep or a manual copy does not run once a readable
+  in `teardown/` by a failed sweep or a manual copy does not run once the
   pin does not name it, and a pin replaced in the milliseconds between the exec
   and this check makes the child refuse safely (nothing is removed; run the
-  command again). It refuses a newer or foreign pin and a pin that does not name
-  it; it proceeds when the pin is absent or cannot be read (an I/O error), so a
-  removal the verified parent already started is not stranded. Every case where it
-  proceeds prints the child line.
+  command again). It requires a readable pin whose entry for this platform names
+  it: an absent, unreadable, newer or foreign pin, or one that does not name it,
+  all refuse, so running `teardown/<hash>` directly is no way around the pin (the
+  `--dev-teardown` path is the only intended exception).
+  The child line is printed only when it proceeds.
 - **Check 2 is how `--dev-teardown` avoids a second notice.** Relocation
   re-executes the same argv from `bin/<hash>`, so the flag travels with it and no
   environment marker exists. A `bin/` copy run without the flag matches neither
@@ -425,7 +459,8 @@ Refusing to remove <target>: no pinned teardown binary exists, and this build is
 Refusing to remove <target>: the pinned teardown binary <path> cannot be read (<error>) / has sha256 <found>, not the pinned <want>. Run <pin command> to install it again. Nothing was removed.
 Refusing to remove <target>: the teardown pin has no binary for <platform>. Run <pin command> on this machine. Nothing was removed.
 Refusing to remove <target>: the teardown pin <path> is not one this build wrote. Delete <control home>/teardown/ and run <pin command>. Nothing was removed.
-Refusing to remove <target>: this teardown binary <path> is not the pinned one. Run <pin command>. Nothing was removed.
+Refusing to remove <target>: the teardown pin <path> could not be read (<error>). Run <pin command>. Nothing was removed.
+Refusing to remove <target>: this teardown binary <path> is not the one the pin names, or the pin was replaced just now. Run this again; if it refuses again, run <pin command>. Nothing was removed.
 Refusing to remove <target>: could not run the pinned teardown binary <path> (<error>). If the filesystem holding the control home (<control home>) cannot run programs, remount it with exec. Nothing was removed.
 Refusing --dev-teardown: this is a pinned teardown binary. Nothing was removed.
 ```
@@ -503,8 +538,8 @@ pinned with an explicit `--version`.
 | Pin format, versions, refusals | Unit tests with `testdata` fixtures: round trip, newer, foreign, unknown key, bad fields, modes; the constant is pinned by `stateformat`'s test. |
 | Update rules and the sweep | Unit tests: merge, replace, downgrade; the sweep keeps the pin's binaries and the grace window and touches only 64-hex regular files, never a symlink. |
 | Download and extraction | `httptest` TLS server serving a release laid out per `release.md`, with a client trusting its certificate; hostile archives (links, `..`, duplicates, oversize). |
-| cosign | `fakerun` asserts the exact argv, the absolute path, the version check, the removed variables, the timeouts and the stderr in the refusal. |
-| The gate | Unit tests with `Env.Executable` and `Env.Exec` fakes: the order of checks 1 to 4, the exact refusal text, and that `Context` is never built on a refusal. |
+| cosign | `fakerun` asserts the exact argv, the absolute path, the PATH-resolved path being the one run, the refusal of a path inside a worktree root, the checkout or the control home (including a sibling name that shares a prefix, which is not inside, and a case difference on darwin, which is), the version check, the removed variables, the timeouts and the stderr in the refusal. |
+| The gate | Unit tests with `Env.Executable` and `Env.Exec` fakes: the order of checks 1 to 4 (a pinned child with an absent, unreadable, newer, foreign or non-naming pin refuses), the exact refusal text, and that `Context` is never built on a refusal. |
 | Pinned code ran | Integration test over the built binary, as described under "The two lines". No Docker for the assertion. |
 | Snapshot | See "CI". |
 
