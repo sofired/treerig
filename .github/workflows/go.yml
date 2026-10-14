@@ -72,7 +72,9 @@ jobs:
   docker:
     name: docker ubuntu-latest
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # -timeout 20m stops a hung package; 50m leaves room for one in each leg,
+    # plus setup. Measured 2026-10: about 14m for the whole job.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -83,15 +85,18 @@ jobs:
           BERTH_TEST_REQUIRE_DOCKER: '1'
         # -p 1: one package at a time. The Docker suites pick the router's
         # index and ping ports from a deterministic hash start, so packages
-        # running in parallel collide.
-        run: go test -race -p 1 -count=1 -tags integration ./...
+        # running in parallel collide. -timeout 20m: Go's default of 10m per
+        # package is too tight. internal/commands takes about 5 to 7m under
+        # -race on CI and about 12m on a slower machine, and keeps growing.
+        # A timeout panic skips t.Cleanup and leaks resources.
+        run: go test -race -p 1 -timeout 20m -count=1 -tags integration ./...
 
       # As in the go job: releases are built without cgo.
       - name: Integration tests against Docker without cgo, as released
         env:
           CGO_ENABLED: '0'
           BERTH_TEST_REQUIRE_DOCKER: '1'
-        run: go test -p 1 -count=1 -tags integration ./...
+        run: go test -p 1 -timeout 20m -count=1 -tags integration ./...
 
   cross:
     name: cross-compile

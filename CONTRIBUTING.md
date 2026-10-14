@@ -66,16 +66,21 @@ go vet -tags integration ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags integration ./...
 go test -race ./...                                         # unit
-go test -race -p 1 -tags integration ./...                   # real git, processes, signals, Docker, goldens
-CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -p 1 -tags integration ./...
+go test -race -p 1 -timeout 20m -tags integration ./...     # real git, processes, signals, Docker, goldens
+CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -p 1 -timeout 20m -tags integration ./...
 ```
 
 The `CGO_ENABLED=0` run matters on its own: cgo changes how the Go runtime
 behaves (an extra thread, notably), and releases build with it disabled.
-The integration runs use `-p 1`, one package at a time: the Docker suites pick the
-router's index and ping ports from a deterministic hash start, so packages running in
-parallel collide on them.
-`go test -race -p 1 -tags integration ./...` also runs the streams contract
+The integration runs use `-p 1`, one package at a time: the Docker suites pick
+the router's index and ping ports from a deterministic hash start, so packages
+running in parallel collide on them. `-timeout 20m` replaces Go's 10-minute
+per-package default: `internal/commands` takes about 5 to 7 minutes under
+`-race` on CI and about 12 on a slower machine, and keeps growing, so the
+default is too tight. A timeout panic skips `t.Cleanup`, which leaks Docker
+resources until the next run sweeps them.
+
+The `-race` integration run above also runs the streams contract
 (`internal/cli/streams_integration_test.go`'s `TestStreamsContract`), against
 a binary it builds itself.
 

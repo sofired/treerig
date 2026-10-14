@@ -23,13 +23,17 @@ integration suites.
 gofmt -l cmd internal # must print nothing
 go vet ./... && go vet -tags integration ./...
 go test -race ./...
-go test -race -p 1 -tags integration ./...
+go test -race -p 1 -timeout 20m -tags integration ./...
 CGO_ENABLED=0 go test ./...
 ```
 
 The integration runs use `-p 1` (one package at a time): the Docker suites pick
 the router's index and ping ports from a deterministic hash start, so packages
-running in parallel collide.
+running in parallel collide. `-timeout 20m` replaces Go's 10-minute per-package
+default: `internal/commands` takes about 5 to 7 minutes under `-race` on CI and
+about 12 on a slower machine, and keeps growing, so the default is too tight. A
+timeout panic skips `t.Cleanup`, which leaks Docker resources until the next run
+sweeps them.
 
 `CONTRIBUTING.md` has the full list (staticcheck, the `CGO_ENABLED=0`
 integration run, the streams contract against a built binary). Run these
