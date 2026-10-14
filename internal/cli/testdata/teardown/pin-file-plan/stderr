@@ -1,0 +1,12 @@
+Pin the teardown binary
+  release   my-build  (current pin: none)
+  source    file:BASE/bin/berth-local
+  signer    none (digest supplied by you); no signature was checked
+  platform  PLATFORM  sha256 DIGEST
+  `worktree remove` does not run this binary yet.
+
+Type this exact phrase to continue:
+
+  pin teardown binary
+
+> [berth] Pinned the teardown binary: release my-build (PLATFORM), stored at BASE/berth-home/control-home/teardown/DIGEST.

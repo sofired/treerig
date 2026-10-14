@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,6 +28,26 @@ import (
 func Hash(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
+}
+
+// HashReader is the hex sha256 of everything r yields, read as a stream.
+func HashReader(r io.Reader) (string, error) {
+	sum := sha256.New()
+	if _, err := io.Copy(sum, r); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+// HashFile is the hex sha256 of the file at path, read as a stream; it
+// follows a symlink at path.
+func HashFile(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	return HashReader(file)
 }
 
 // Path is where the entry for hash lives under dir, installed or not.

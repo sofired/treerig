@@ -34,6 +34,10 @@ type Env struct {
 	// OS is runtime.GOOS, set by the entry point: library code does not ask
 	// the runtime, so a test names the OS it means.
 	OS string
+	// Arch is runtime.GOARCH, set by the entry point for the same reason as
+	// OS; together they name the platform a teardown pin is made and checked
+	// on.
+	Arch string
 	// Cwd is the physical working directory.
 	Cwd string
 	// ConfigPath is --config; empty means the nearest berth.toml above Cwd.

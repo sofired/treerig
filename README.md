@@ -415,6 +415,7 @@ written:
   skipping any already named on the command line. Each is described by its
   `[service.<name>.index]` label, else its subdomain or path, else "host root".
 - `backup` and `restore` complete directories, for their bundle directory.
+- `teardown pin --file` completes file names, for the binary to pin.
 - `run` completes the command names under `[commands]`, in the order the file
   lists them, each described by its command line. Only the name is completed,
   never what follows it.
@@ -1223,17 +1224,93 @@ label names) does not match. Named volumes carry no format label, so a volume
 is proven by its other ownership labels. That is what keeps `worktree remove` from deleting something it did
 not create — not a claim about what your branch's code can do once it runs.
 
+## Teardown pin
+
+`worktree remove` is meant to run a pinned, trusted build of berth, not the
+code of whichever build you invoked, so that code from a branch does not run
+while it takes a worktree apart ([`docs/design/teardown.md`](docs/design/teardown.md),
+#85). **Only the pin exists so far.** `worktree remove` does not run the pinned
+binary yet and does not refuse without one (#146); nothing here changes what it
+does. The two commands below install a pin and check it.
+
+The pin lives under the control home, in `teardown/`: `pin.json` and the pinned
+binaries, each named by its sha256. The control home is `control-home/` under
+the berth root (`~/.berth` by default) unless `BERTH_CONTROL_HOME` moves it, and
+`berth doctor` prints it. There is one pin per control home, shared by every
+berth root that uses it. Nothing pins, updates or unpins on its own, and
+nothing downloads.
+
+### `teardown pin --file`
+
+Pin a berth binary you have verified yourself, such as one you built. For a
+download, first verify the archive by the steps under
+[Verifying a download](#verifying-a-download), then extract `berth` from it and
+take that binary's own digest:
+
+```bash
+sha256sum berth     # macOS: shasum -a 256 berth
+berth teardown pin --file ./berth --sha256 <that digest> --release my-build
+```
+
+The digest you give approves exactly the bytes you hold: berth hashes the file,
+requires the same digest, and stores those bytes. It also checks that the file is
+an executable for this machine (an ELF file on Linux, a Mach-O file on macOS, for
+this architecture) and refuses an empty file or a binary for another platform;
+beyond that, the digest is the approval. It is a meaningful check only
+when the digest comes from a second trusted source, such as your own build; a
+digest taken from the file you are about to pin proves nothing more than that
+you meant to pin it. `--release` is a label for the pin: letters, digits, `.`,
+`_`, `+` and `-`, starting with a letter or digit, at most 64 characters. The
+command shows what it will pin and asks you to type `pin teardown binary`;
+`--yes` skips the phrase, and without a terminal it refuses to ask. A file pin
+records only this machine's platform, so another platform pins its own binary.
+Pinning again replaces the pin, a downgrade included. There is no unpin: delete
+`<control home>/teardown/`.
+
+No signature is checked and no program is run. Pinning a downloaded release,
+verified with cosign, is not built yet.
+
+### `teardown status`
+
+Reports whether the pin is intact on this machine, and nothing about removal:
+whether it can be read, and whether the stored binary for this platform exists
+and has the sha256 the pin records. It prints the pin on stdout and exits 0 when
+all is well. When there is no pin, the pin is of a newer format or is not one
+berth wrote, or the binary is missing or different, it says so on stderr and
+exits 1; the first two print nothing on stdout, and the others print the report
+first. With `--json` it prints one document instead:
+`pinned`, `ok`, `release`, `source`, `signer` (absent for a file pin),
+`pinnedAt`, `platform`, `binary` (`path` and `sha256`, absent when the state is
+`none`, and `state`: `ok`, `missing`, `mismatch` or `none` for a platform the
+pin has no binary for) and `running` (`version`, `isPin`: this build is the
+pinned binary, and `newerThanPin`). `mismatch` also covers a stored binary that
+cannot be read or is not a regular file; the text form says which. With no pin
+it prints `{"pinned": false}` and exits 1. When the running build is newer than
+the pinned release, the text form adds a line on stderr saying to pin again.
+
+### What it does not protect against
+
+The pin is meant to keep unreviewed branch code from running as berth during a
+removal. It does not protect against a hostile process running as you with write
+access to the control home, which can rewrite the pin as easily as anything else
+there, and a file pin is exactly as trustworthy as the digest you checked.
+
 ## Output and exit codes
 
 The commands that produce data — `index`, `status`, `urls`, `router status`,
-`shared status`, `route ls`, `config show`, `config validate`, `worktree list`, `doctor` — write that data to stdout
+`shared status`, `route ls`, `config show`, `config validate`, `worktree list`, `doctor`, `teardown status` — write that data to stdout
 and nothing else, so `berth index > page.txt` and
 `berth worktree list --json | jq` get what they asked for. Progress, waiting
-notices, confirmation prompts, warnings and failures go to stderr. Seven of
-these (`index`, `status`, `urls`, `shared status`, `route ls`, `worktree list` and `doctor`) take `--json`:
+notices, confirmation prompts, warnings and failures go to stderr. Eight of
+these (`index`, `status`, `urls`, `shared status`, `route ls`, `worktree list`, `doctor` and `teardown status`) take `--json`:
 see [Machine-readable output](#machine-readable-output).
 
 `worktree rename` writes only its notice, to stderr, and nothing to stdout.
+
+`teardown pin` writes only its notices to stderr, and nothing to stdout.
+`teardown status` writes its report to stdout, and takes `--json` (see
+[Teardown pin](#teardown-pin)); a problem, no pin included, is an error on
+stderr that exits 1.
 
 `up`, `dev`, `down`, `backup`, `restore`, `router down` and `worktree remove`
 are the exception: they pass your hooks' and Compose's own stdout through as
@@ -1325,7 +1402,7 @@ SIGTERM, 129 for SIGHUP.
 
 ### Machine-readable output
 
-`worktree list`, `doctor`, `status`, `shared status`, `route ls`, `urls` and `index` take `--json`. With
+`worktree list`, `doctor`, `status`, `shared status`, `route ls`, `urls`, `index` and `teardown status` take `--json`. With
 it, stdout carries exactly one JSON document, indented and ASCII-only (every
 non-ASCII character is escaped `\uXXXX`), and the exit code is the text
 form's. Notices, warnings, the `doctor` summary and errors stay on stderr in
@@ -1347,6 +1424,10 @@ Rules that hold for every document:
 - Until 1.0 any shape may change. After 1.0 changes are additive only: a new
   key, or a new member of an enum. Consumers must ignore keys they do not know
   and treat an unknown enum value as unknown. Documents carry no version field.
+
+**`teardown status --json`** is described under [Teardown pin](#teardown-pin). When
+it prints nothing at all and exits 1, the pin could not be read (it is of a
+newer format, or not one berth wrote): stdout is empty and stderr says why.
 
 **`worktree list --json`** prints one array, `[]` when there is nothing,
 sorted by domain and then slug. Each row has `repositoryId`, `worktreeId`,
@@ -1918,6 +1999,9 @@ Shipped:
 - **`init`** (#9) — writes a commented starter `berth.toml` at the Git
   checkout's root, with the schema directive and the Compose file it finds
   there, and never replaces an existing one.
+- **`teardown pin --file` / `teardown status`** (#85) — pin a berth binary you
+  verified by its sha256 as the teardown binary, and check the pin; see
+  [Teardown pin](#teardown-pin). `worktree remove` does not run it yet.
 - **`doctor`** — one read-only report: Git, Docker and Compose against the
   versions this tool needs; the berth root and every registration
   (unreadable records, a hostname claimed twice, the index's own hostname);
@@ -1928,16 +2012,20 @@ Shipped:
   its `verify` hook, and any registration of its repository whose checkout
   Git no longer lists.
 
-Not built yet, in rough order; none of these is a command at all.
+Not built yet, in rough order; apart from the pin commands in item 2, none of
+these is a command at all.
 
 1. **Migrating stored state between releases** (#29) — every store already
    carries a format version and refuses a newer one
    ([`docs/design/state.md`](docs/design/state.md)); a migration comes with the
    first change to a store's format after a release.
-2. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
-   stronger guarantee the relocated-copy mechanism above is a step toward.
-   Tagged releases, with the names and signing identity in
-   [`docs/design/release.md`](docs/design/release.md), are what it will pin to.
+2. **Running `worktree remove` from a pinned, trusted binary** (#85, #146) —
+   the stronger guarantee the relocated-copy mechanism above is a step toward.
+   The pin and its two commands are built ([Teardown pin](#teardown-pin));
+   pinning a downloaded release, verified with cosign, and the gate that makes
+   removal run the pinned binary are not. Tagged releases, with the names and
+   signing identity in [`docs/design/release.md`](docs/design/release.md), are
+   what it will pin to.
 
 ## License
 

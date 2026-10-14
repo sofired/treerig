@@ -69,3 +69,11 @@ func SetContainerPollForTest(interval time.Duration) (restore func()) {
 	containerPoll = interval
 	return func() { containerPoll = previous }
 }
+
+// SetMaxTeardownBinaryForTest lowers the size `teardown pin` accepts, and
+// returns a func that restores it.
+func SetMaxTeardownBinaryForTest(n int64) (restore func()) {
+	previous := maxTeardownBinary
+	maxTeardownBinary = n
+	return func() { maxTeardownBinary = previous }
+}

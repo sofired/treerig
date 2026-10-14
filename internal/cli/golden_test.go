@@ -24,6 +24,10 @@ package cli_test
 // help-cmd-run and the err-run-* and run-* cases pin `run` (#94); help-dev and
 // help-cmd-dev pin `dev` (#5).
 //
+// help-teardown*, help-cmd-teardown*, bare-teardown, complete-teardown* and the
+// err-*teardown* cases pin `teardown pin` and `teardown status` (#85). The
+// cases that run them against a scratch home are in teardown_golden_test.go.
+//
 // help-worktree-rename, help-cmd-worktree-rename, complete-worktree-rename-slug
 // and the err-*-rename cases pin `worktree rename` (#11); the other worktree
 // goldens list it.
@@ -97,6 +101,10 @@ var goldenCases = []goldenCase{
 	{"help-worktree-remove", []string{"worktree", "remove", "--help"}},
 	{"help-worktree-rename", []string{"worktree", "rename", "--help"}},
 	{"help-worktree-unlock", []string{"worktree", "unlock", "--help"}},
+	{"help-teardown", []string{"teardown", "--help"}},
+	{"help-teardown-short", []string{"teardown", "-h"}},
+	{"help-teardown-pin", []string{"teardown", "pin", "--help"}},
+	{"help-teardown-status", []string{"teardown", "status", "--help"}},
 
 	// --- the "help [command]" form, walking the full path given ---
 	{"help-cmd-init", []string{"help", "init"}},
@@ -114,6 +122,9 @@ var goldenCases = []goldenCase{
 	{"help-cmd-dev", []string{"help", "dev"}},
 	{"help-cmd-run", []string{"help", "run"}},
 	{"help-cmd-backup", []string{"help", "backup"}},
+	{"help-cmd-teardown", []string{"help", "teardown"}},
+	{"help-cmd-teardown-pin", []string{"help", "teardown", "pin"}},
+	{"help-cmd-teardown-status", []string{"help", "teardown", "status"}},
 	// "a" is not a real command, so this falls all the way back to the
 	// program's own error help; "b" is never reached.
 	{"help-cmd-a-b", []string{"help", "a", "b"}},
@@ -132,6 +143,7 @@ var goldenCases = []goldenCase{
 	{"bare-route", []string{"route"}},
 	{"bare-shared", []string{"shared"}},
 	{"bare-worktree", []string{"worktree"}},
+	{"bare-teardown", []string{"teardown"}},
 
 	// --- shell completion: the scripts themselves are cobra's, so only the
 	// group, one shell's help and the requests a script sends are pinned ---
@@ -150,6 +162,11 @@ var goldenCases = []goldenCase{
 	{"complete-shared-down-flags", []string{"__complete", "shared", "down", "--"}},
 	{"complete-shared-up-no-config", []string{"__complete", "shared", "up", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
 	{"complete-worktree", []string{"__complete", "worktree", ""}},
+	{"complete-teardown", []string{"__complete", "teardown", ""}},
+	{"complete-teardown-pin-flags", []string{"__complete", "teardown", "pin", "--"}},
+	{"complete-teardown-pin-file", []string{"__complete", "teardown", "pin", "--file", ""}},
+	{"complete-teardown-pin-release", []string{"__complete", "teardown", "pin", "--release", ""}},
+	{"complete-teardown-status-flags", []string{"__complete", "teardown", "status", "--"}},
 	{"complete-worktree-rename-slug", []string{"__complete", "worktree", "rename", ""}},
 	{"complete-worktree-remove-flags", []string{"__complete", "worktree", "remove", "--"}},
 	{"complete-no-descriptions", []string{"__completeNoDesc", "router", ""}},
@@ -184,6 +201,17 @@ var goldenCases = []goldenCase{
 	{"err-excess-arguments-shared-status", []string{"shared", "status", "now"}},
 	{"shared-up-missing-file", []string{"shared", "up", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"err-unknown-command-in-config-group", []string{"config", "nonexistentSub"}},
+	{"err-unknown-command-in-teardown", []string{"teardown", "pn"}},
+	{"err-unknown-command-near-teardown", []string{"teardwn"}},
+	{"err-unknown-option-teardown-pin", []string{"teardown", "pin", "--fil", "x"}},
+	{"err-excess-arguments-teardown-pin", []string{"teardown", "pin", "extra"}},
+	{"err-excess-arguments-teardown-status", []string{"teardown", "status", "extra"}},
+	{"err-teardown-pin-no-file", []string{"teardown", "pin"}},
+	{"err-teardown-pin-no-sha256", []string{"teardown", "pin", "--file", "berth"}},
+	{"err-teardown-pin-no-release", []string{"teardown", "pin", "--file", "berth", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000"}},
+	{"err-teardown-pin-bad-sha256", []string{"teardown", "pin", "--file", "berth", "--sha256", "abc", "--release", "x"}},
+	{"err-teardown-pin-bad-release", []string{"teardown", "pin", "--file", "berth", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000", "--release", "a/b"}},
+	{"err-missing-option-arg-teardown-file", []string{"teardown", "pin", "--file"}},
 
 	// --- unknown option, with and without a suggestion, short and long ---
 	{"err-unknown-option-long", []string{"--frobnicate"}},

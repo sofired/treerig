@@ -1,0 +1,5 @@
+Teardown pin: release my-build (PLATFORM)
+  source  file:BASE/bin/berth-local
+  signer  none (digest supplied by you)
+  binary  BASE/berth-home/control-home/teardown/DIGEST missing
+  pinned  TIMESTAMP

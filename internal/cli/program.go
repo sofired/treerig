@@ -965,6 +965,65 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 
 	root.AddCommand(worktree)
 
+	teardownGroup := &cobra.Command{
+		Use:   "teardown",
+		Short: "pin and check the trusted berth build for worktree removal",
+		Long: "The pinned teardown binary is the build of berth that `worktree remove` is meant to run in place of whichever build you invoke, " +
+			"so that code from a branch does not run during a removal. These commands install the pin and check it. " +
+			"`worktree remove` does not run the pinned binary yet.",
+		Args: usageArgs(unknownSubcommand),
+		RunE: bareGroup(p),
+	}
+	var pinFile, pinSHA256, pinRelease string
+	var pinYes bool
+	pin := &cobra.Command{
+		Use:   "pin --file PATH --sha256 HEX --release LABEL",
+		Short: "pin a berth binary you have verified as the teardown binary",
+		Long: "Install a berth binary from a local file as the teardown pin. You give its sha256, and this approves exactly the bytes you hold: " +
+			"take the digest of the binary itself (for a download, extract `berth` from the archive you verified, then run `sha256sum berth`), " +
+			"and it is a meaningful check only when it comes from a second trusted source, such as your own build. " +
+			"The file is read once, those bytes are hashed and compared with it, and the same bytes are stored in the control home. " +
+			"No signature is checked and nothing is run. There is one pin per control home, and pinning again replaces it. " +
+			"The command shows what it will pin and asks you to type a phrase, unless you pass --yes.",
+		Args: maxArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.TeardownPin(cmd.Context(), env, commands.TeardownPinOptions{File: pinFile, SHA256: pinSHA256, Release: pinRelease, Yes: pinYes})
+		},
+	}
+	pin.Flags().StringVar(&pinFile, "file", "", "the berth binary to pin (required)")
+	pin.Flags().StringVar(&pinSHA256, "sha256", "", "the sha256 of that file itself, from a source you trust (required)")
+	pin.Flags().StringVar(&pinRelease, "release", "", "a label for this pin, such as the version you built (required)")
+	pin.Flags().BoolVar(&pinYes, "yes", false, "skip the confirmation phrase")
+	// The one flag that names a file in this tree besides --config; addCompletion
+	// gives every other string flag no completions at all.
+	_ = pin.RegisterFlagCompletionFunc("file", func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		return nil, cobra.ShellCompDirectiveDefault
+	})
+	teardownGroup.AddCommand(pin)
+	var teardownStatusJSON bool
+	teardownStatus := &cobra.Command{
+		Use:   "status",
+		Short: "check the teardown pin and its stored binary",
+		Long: "Check the teardown pin on this machine: that it can be read, and that the stored binary for this platform exists and still has the sha256 the pin records. " +
+			"It reports the pin's integrity and nothing about removal. Exit 0 means the pin is intact; no pin, or any problem, is reported on stderr with exit 1. " +
+			"With --json, one document on stdout; with no pin, {\"pinned\": false}; empty stdout with exit 1 means the pin could not be read.",
+		Args: maxArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.TeardownStatus(cmd.Context(), env, commands.TeardownStatusOptions{JSON: teardownStatusJSON, Version: version})
+		},
+	}
+	teardownStatus.Flags().BoolVar(&teardownStatusJSON, "json", false, "machine-readable output")
+	teardownGroup.AddCommand(teardownStatus)
+	root.AddCommand(teardownGroup)
+
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	// Must run after every RegisterFlagCompletionFunc above it (identifier

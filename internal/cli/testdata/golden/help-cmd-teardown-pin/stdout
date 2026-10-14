@@ -1,0 +1,25 @@
+Install a berth binary from a local file as the teardown pin. You give its
+sha256, and this approves exactly the bytes you hold: take the digest of the
+binary itself (for a download, extract `berth` from the archive you verified,
+then run `sha256sum berth`), and it is a meaningful check only when it comes
+from a second trusted source, such as your own build. The file is read once,
+those bytes are hashed and compared with it, and the same bytes are stored in
+the control home. No signature is checked and nothing is run. There is one pin
+per control home, and pinning again replaces it. The command shows what it will
+pin and asks you to type a phrase, unless you pass --yes.
+
+Usage:
+  berth teardown pin --file PATH --sha256 HEX --release LABEL [flags]
+
+Flags:
+      --file string      the berth binary to pin (required)
+  -h, --help             help for pin
+      --release string   a label for this pin, such as the version you built
+                         (required)
+      --sha256 string    the sha256 of that file itself, from a source you trust
+                         (required)
+      --yes              skip the confirmation phrase
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

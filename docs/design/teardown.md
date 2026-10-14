@@ -5,13 +5,19 @@ build that was invoked (#85). This note says where the pin lives, what it
 holds, how it is installed and verified, how removal uses it, and what it does
 not protect against. The pin is stored state, so it follows `state.md`.
 
-**Status.** The pin store and `berth teardown pin` / `teardown status` come
-first. The removal gate and `--dev-teardown` are tracked in #146 and the
-cross-platform smoke test in #147; both wait for the first tag, `v0.1.0-rc.1`.
-Until the gate lands, `worktree remove` is unchanged and nothing but this note,
-`state.md`, `release.md` and `AGENTS.md` mentions it. Text marked **[gate]**
-describes what exists only after #146; the strings #146 changes are listed under
-"Order of work".
+**Status.** The pin store, `berth teardown pin --file` and `teardown status`
+exist. The download forms, `teardown pin --release X.Y.Z` and `--latest` (step 4),
+do not yet, so until step 4 the pin command in the messages below is the `--file`
+form, `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Step 4
+changes that one function (`teardownPinCommand`) and regenerates the goldens
+that quote it. The removal
+gate and `--dev-teardown` are tracked in #146 and the cross-platform smoke test
+in #147; both wait for the first tag, `v0.1.0-rc.1`. Until the gate lands,
+`worktree remove` is unchanged and nothing but this note, `state.md`,
+`release.md`, `AGENTS.md`, the README's "Teardown pin" section and the help of
+the `teardown` commands mentions it. Text marked **[gate]** describes what
+exists only after #146; the strings #146 changes are listed under "Order of
+work".
 
 ## Decisions
 
@@ -27,8 +33,8 @@ describes what exists only after #146; the strings #146 changes are listed under
 | 8 | There is one pin per control home. |
 | 9 | `--yes` is allowed on `teardown pin`. |
 
-**The pin command**, in every message below, is `berth teardown pin --latest`,
-or `berth teardown pin --version <release>` while the repository has only
+**The pin command**, in every message below once step 4 lands, is `berth teardown pin --latest`,
+or `berth teardown pin --release <release>` while the repository has only
 pre-releases (`--latest` never selects one).
 
 ## Rules
@@ -145,10 +151,16 @@ Refusing to use the teardown pin <path>: it is not a pin this build wrote. Delet
 ## Installing or updating the pin
 
 ```
-berth teardown pin --version X.Y.Z | --latest   [--yes]
+berth teardown pin --release X.Y.Z | --latest   [--yes]
 berth teardown pin --file PATH --sha256 HEX --release LABEL   [--yes]
 berth teardown status [--json]
 ```
+
+`--release` means "which release" everywhere: with `--file` it is the label the
+pin carries, and without it it is the version to download. `--release` and
+`--latest` are mutually exclusive, and `--latest` takes no label. (The root's
+persistent `-V, --version` is the build's own version, so no pin flag uses that
+name.)
 
 There is no `unpin`: deleting `<control home>/teardown/` does it. `--yes` is
 "skip the confirmation phrase", as on `worktree remove`.
@@ -157,13 +169,46 @@ There is no `unpin`: deleting `<control home>/teardown/` does it. `--yes` is
 
 | Source | Flow |
 | --- | --- |
-| `--version` | The value must match release.yml's pattern `^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$`. `0.1.0-rc.1` passes, and so does the snapshot's `0.0.0-dev+<sha12>` (a pre-release part and a build part), which is why the CI pin flow runs unchanged against it. Everything is fetched from `https://github.com/sofired/berth/releases/download/vX.Y.Z/`. |
-| `--latest` | **Discovery only.** Fetches `…/releases/latest/download/checksums.txt`, reads the version from the archive names in it (they must all agree and match the pattern), and discards the bytes. Then it behaves as `--version` with that value and refetches everything, `checksums.txt` included, from the versioned URL. `releases/latest` never selects a pre-release, so before a stable release exists it answers 404 and the command refuses (below). |
+| `--release X.Y.Z` | The value must match release.yml's pattern `^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$`. `0.1.0-rc.1` passes, and so does the snapshot's `0.0.0-dev+<sha12>` (a pre-release part and a build part), which is why the CI pin flow runs unchanged against it. Everything is fetched from `https://github.com/sofired/berth/releases/download/vX.Y.Z/`. |
+| `--latest` | **Discovery only.** Fetches `…/releases/latest/download/checksums.txt`, reads the version from the archive names in it (they must all agree and match the pattern), and discards the bytes. Then it behaves as `--release` with that value and refetches everything, `checksums.txt` included, from the versioned URL. `releases/latest` never selects a pre-release, so before a stable release exists it answers 404 and the command refuses (below). |
 | `--file` | Reads the file once into memory (at most 200 MiB), hashes those bytes, compares with `--sha256`, and `binstore.Install`s the same bytes. For users without cosign and for development. |
 
 ```
-Refusing to pin the latest release: sofired/berth has no release that is not a pre-release yet. Pin a pre-release with `berth teardown pin --version <release>`.
+Refusing to pin the latest release: sofired/berth has no release that is not a pre-release yet. Pin a pre-release with `berth teardown pin --release <release>`.
 ```
+
+**What `--file` does, in order.** It checks the flags (all missing required flags are named in one line;
+`--sha256` is 64 hex
+digits, in either case, compared in lowercase; `--release` fits the label
+pattern; this platform is one of the four), reads the file once, hashes those
+bytes and compares, checks that they are an executable for this platform, reads the pin (a newer or foreign one refuses here),
+shows the plan, asks, reads the pin again, and calls `teardown.Update` and
+`teardown.Save` with the bytes it hashed. The second read is the
+read-modify-write's: the plan was drawn from a read a prompt old, and nothing
+locks the pin, so a pin that became newer or foreign while the prompt was up is
+refused rather than overwritten; a writer landing after that read still loses to
+this one (last writer wins). The plan shows the full digest, not an elided one.
+A relative `--file` is resolved against the working directory the entry point
+gave, and the source is the absolute, cleaned result. A mismatch refuses before
+anything is asked or written:
+
+```
+Refusing to pin <release>: <path> has sha256 <found>, not the <given> you supplied. Nothing was pinned. Check that you are pinning the file you verified and that --sha256 is its digest.
+```
+
+A digest that matches is the approval, but it does not make any file a pin. After the
+comparison, `teardown.CheckExecutable` reads only the headers (`debug/elf` for
+`linux_*`, `debug/macho` for `darwin_*`) and refuses an empty file, a file of
+another format or one built for another architecture (a fat Mach-O passes when it
+holds this one), so `status` cannot report such a file as intact:
+
+```
+Refusing to pin <release>: <path> is not a <platform> executable (<reason>). Nothing was pinned. Pin the berth binary built for this machine.
+```
+
+On success, one line on stderr and nothing on stdout:
+`Pinned the teardown binary: release <release> (<platform>), stored at <path>.`
+(the path is named by the hash); a sweep that could not finish is a warning after it.
 
 `--file --sha256` is also the **offline route**: a user who verified a download
 by hand with the README's steps, or has no network, pins without cosign.
@@ -397,22 +442,49 @@ exit 1, and exit 0 means the pin is intact for this platform.
 The problem lines on stderr:
 
 ```
-No teardown binary is pinned. Run <pin command>.
-The teardown pin has no binary for <platform>. Run <pin command> on this machine.
-The pinned teardown binary <path> <problem>. Run <pin command> to install it again.
+No teardown binary is pinned. Pin one with <pin command>.
+The teardown pin has no binary for <platform>. Pin one on this machine with <pin command>.
+The pinned teardown binary <path> <problem>. Pin it again with <pin command>.
 ```
 
 `--json` prints one document on stdout and the same exit code:
-`{"pinned", "ok", "release", "source", "signer", "pinned_at", "platform",
-"binary": {"path", "sha256", "state"}, "running": {"version", "is_pin",
-"newer_than_pin"}}`, where `state` is `ok`, `missing`, `mismatch` or `none`. With
+`{"pinned", "ok", "release", "source", "signer", "pinnedAt", "platform",
+"binary": {"path", "sha256", "state"}, "running": {"version", "isPin",
+"newerThanPin"}}`, where `state` is `ok`, `missing`, `mismatch` or `none`. With
 no pin it prints `{"pinned": false}` and exits 1.
+
+Details the table leaves open:
+
+- With `--json`, the problem line still goes to stderr and the exit code is the
+  same; the document is printed first. A newer or foreign pin prints no document
+  (the pin cannot be described), only the refusal.
+- Keys are camelCase and optional keys are omitted, as for every other
+  document (README, "Machine-readable output"): `signer` is absent for a file
+  pin, and `binary.path` and `binary.sha256` are absent when `state` is `none`.
+  A newer or foreign pin prints nothing on stdout, and README says that empty
+  stdout with exit 1 means the pin could not be read.
+- `binary.sha256` is the digest the pin records for this platform, and `state`
+  says whether the file at `binary.path` has it; the digest found on disk is in
+  the text form only. The state set stays closed: `mismatch` also covers a
+  stored path that cannot be read, or is not a regular file (a symlink
+  included), because the gate refuses all of them alike; the text form's
+  problem line says which. `teardown.InspectBinary` makes the check, opening the
+  file with `O_NOFOLLOW` and hashing the descriptor it opened, so the gate
+  reuses it unchanged.
+- `platform` is this machine's key. `running.isPin` is true when the running binary's bytes hash
+  to this platform's `binary_sha256`, which only the real entry point can tell
+  (`Env.Executable`), so it is false under `cli.Main`.
+- The hint is printed in every state in which a pin was read, after the report
+  and before the refusal, and only in the text form: `--json` carries
+  `newerThanPin` instead. A file pin never drives it (`newerThanPin` is false):
+  its release is a free label, so a file pin labelled `1.0.0` is not a claim
+  about a version.
 
 When the running build's version is newer than the pin's release (by the
 comparer above), the human form adds on stderr:
 
 ```
-The running build (<version>) is newer than the pinned release (<release>). Run <pin command> to update it.
+The running build (<version>) is newer than the pinned release (<release>). Pin the new build with <pin command> to update it.
 ```
 
 ## How `worktree remove` uses it [gate]
@@ -570,10 +642,10 @@ contain it. A pinned child of a release without the gate runs the relocation of
 its own bytes through `bin/` and then proceeds; that is accepted, because the
 bytes are the pinned bytes and no unpinned code runs. The first release that
 contains the gate is the one cut after #146 lands (`v0.1.0-rc.2`), and #147 pins
-that release. `rc.1` is what the pin store, `teardown pin --version` and `status`
+that release. `rc.1` is what the pin store, `teardown pin --release` and `status`
 meet a real signature, real URLs and real macOS binaries on. Both are
 pre-releases, which `install.sh`, Homebrew and `--latest` skip, so they are
-pinned with an explicit `--version`.
+pinned with an explicit `--release`.
 
 ## Testing
 
@@ -594,7 +666,7 @@ with `cosign-release: v3.0.6` (the version `release.md` fixes), and pins the
 snapshot after "Verify the artifacts" (the reproducibility step's `--clean` wipes
 `dist/`). A test in `internal/teardown`, given the `dist/` path and the
 snapshot's version, serves `dist/` over an `httptest` TLS server and runs
-`teardown pin --version` against it. It asserts all four `archive_sha256` values
+`teardown pin --release` against it. It asserts all four `archive_sha256` values
 equal `checksums.txt` and the host's `binary_sha256` equals the hash of the built
 `berth`.
 
@@ -628,9 +700,9 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 | 1. This note, with the `state.md`, `release.md` and `AGENTS.md` entries and the pinned `cosign-release` | #29 | Merged |
 | 2. Pin store: `layout.TeardownDir`/`PinPath`, `files.SecureTeardownDirectory`, `internal/teardown`, `internal/semver`, `stateformat.TeardownPin`, the sweep, the `state.md` refusal-table row | 1 | Round trip, newer, foreign, unknown key, update rules, modes, sweep and concurrent writers are tested |
 | 3. `teardown pin --file` and `teardown status`, with the confirmation, goldens and README section | 2 | A pin can be made from a local binary and `status` verifies it |
-| 4. `teardown pin --version` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. An EACCES or ENOEXEC when the stored binary is first executed maps to the noexec message (below), naming the mount |
+| 4. `teardown pin --release X.Y.Z` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The flag rules become: `--file` requires `--sha256` and `--release`; a download takes `--release` or `--latest`. So "Missing required flag: --file." (and its plural) changes to ask for a source, and `teardownPinCommand` and the goldens that quote it, the missing-flag ones included, change to `--latest` or `--release <release>`. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. An EACCES or ENOEXEC when the stored binary is first executed maps to the noexec message (below), naming the mount |
 | 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped; the hermetic sign and verify argv has been run against cosign v3.0.6 and this note corrected to match |
-| 6. **#146** The fail-closed gate and `--dev-teardown`; the README's relocation paragraph; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy |
+| 6. **#146** The fail-closed gate and `--dev-teardown`; the README's relocation paragraph; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes |
 | 6b. Cut `v0.1.0-rc.2` | 6 merged | A release containing the gate is published |
 | 7. **#147** Smoke test after a release | 6b | Passes on all three runners |
 
@@ -640,18 +712,22 @@ actions and `permissions: contents: read`; takes the tag from
 `github.event.workflow_run.head_branch`, checked against the version pattern
 before use; and runs on `ubuntu-latest`, `ubuntu-24.04-arm` and `macos-latest`
 with scratch `BERTH_HOME` and `BERTH_CONTROL_HOME`. It runs
-`teardown pin --version 0.1.0-rc.2 --yes` (explicit, since the tag is a
+`teardown pin --release 0.1.0-rc.2 --yes` (explicit, since the tag is a
 pre-release), `status`, and a `worktree remove` with no terminal and no `--yes`, in a scratch checkout. It
 stops at the gate's two lines: it asserts both, and accepts the refusal that
 follows, so nothing is removed. The removal's `Inventory` calls Docker, which fails on a
 macOS runner without it; the test accepts that refusal too.
 
 **Strings step 6 changes** (goldens reviewed with #146; `<pin command>` is rendered
-as the literal command, `--latest` or `--version <release>`, chosen once per
+as the literal command, `--latest` or `--release <release>`, chosen once per
 process): the last plan line of
 `teardown pin`, from "`worktree remove` does not run this binary yet." to
-"`worktree remove` will run this binary instead of the build you invoke."; the
-help text of `worktree remove` (adds `--dev-teardown`); `status` gains the line
+"`worktree remove` will run this binary instead of the build you invoke.";
+the help text of `teardown` (whose description ends "`worktree remove` does not
+run the pinned binary yet.") and of `teardown status` (which says it reports
+nothing about removal); the README's "Teardown pin" section, which says the
+gate does not exist, and its roadmap entry; the help text of `worktree remove`
+(adds `--dev-teardown`); `status` gains the line
 `worktree remove: will run this binary` (intact) or `worktree remove: would
 refuse` (otherwise) and keeps its exit codes; and the removal refusals, the two
 lines and the warning above appear. `AGENTS.md` ("Running things safely") and the

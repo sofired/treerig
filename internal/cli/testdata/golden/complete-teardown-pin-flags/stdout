@@ -1,0 +1,8 @@
+--config	path to berth.toml (default: nearest above cwd)
+--version	output the version number
+--file	the berth binary to pin (required)
+--help	help for pin
+--release	a label for this pin, such as the version you built (required)
+--sha256	the sha256 of that file itself, from a source you trust (required)
+--yes	skip the confirmation phrase
+:4

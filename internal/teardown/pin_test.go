@@ -309,3 +309,14 @@ func requireForeign(t *testing.T, l layout.Control, before []byte) {
 		t.Errorf("the pin was changed: %q, %v", after, readErr)
 	}
 }
+
+func TestValidLabel(t *testing.T) {
+	for label, want := range map[string]bool{
+		"my-build": true, "1.2.3": true, "a": true, "0": true, "v1_2+3": true, strings.Repeat("a", 64): true,
+		"": false, ".x": false, "-x": false, "_x": false, "a b": false, "a/b": false, "a\n": false, strings.Repeat("a", 65): false,
+	} {
+		if got := teardown.ValidLabel(label); got != want {
+			t.Errorf("ValidLabel(%q) = %v, want %v", label, got, want)
+		}
+	}
+}

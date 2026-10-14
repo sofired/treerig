@@ -114,6 +114,11 @@ var (
 	platformPattern = regexp.MustCompile(`^(linux|darwin)_(amd64|arm64)$`)
 )
 
+// ValidLabel reports whether s is a label a file pin may carry as its release:
+// 1 to 64 characters, letters, digits and . _ + -, starting with a letter or a
+// digit.
+func ValidLabel(s string) bool { return labelPattern.MatchString(s) }
+
 // fileScheme is the prefix of a file pin's source.
 const fileScheme = "file:"
 
