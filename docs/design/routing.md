@@ -767,12 +767,14 @@ Run these steps from a checkout of the branch with Docker Desktop running. Use a
 **Setup**
 
 1. Build berth and create the scratch home:
-   ```
+
+   ```sh
    go build -o /tmp/berth-mac ./cmd/berth
    export BERTH_HOME=$(mktemp -d)
    printf '[ports]\nrange = "30000-30999"\n[router]\nport = 30080\n' > $BERTH_HOME/settings.toml
    (docker ps -a --format '{{.Names}}'; docker network ls --format '{{.Name}}'; docker volume ls -q) | sort > /tmp/mac-before.txt
    ```
+
 2. Make a small git repo with a berth.toml and a one-service compose file. Copying berth.example.toml works. Then:
    - `cd` into the repo and run `/tmp/berth-mac up`, then `/tmp/berth-mac router status`.
    - Expect: mode `bridge`, port 30080.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -140,6 +141,26 @@ func TestHostRouteChecks(t *testing.T) {
 		}
 		if checks[1].ID != "checkout.host-routes" || checks[1].Status != StatusOK {
 			t.Fatalf("listener check = %+v", checks[1])
+		}
+	})
+
+	t.Run("fails, naming the error, when the route file cannot be looked for", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root reads any directory")
+		}
+		registration := hostRegistration(5173)
+		state := withFile(t, registration)
+		if err := os.Chmod(state.DynamicDir, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(state.DynamicDir, 0o755) })
+		checks := hostRouteChecks(ctx, options(state, answersOn{"127.0.0.1:5173": true}, bridge), registration)
+		if len(checks) != 2 {
+			t.Fatalf("checks = %+v", checks)
+		}
+		file := checks[0]
+		if file.Status != StatusFail || file.ID != "checkout.host-route-files" || file.Instance != "web0" || !strings.Contains(file.Detail, "permission denied") {
+			t.Fatalf("file check = %+v, want a failure naming the error, not a missing file", file)
 		}
 	})
 

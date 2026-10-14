@@ -45,6 +45,12 @@ func hostRouteChecks(ctx context.Context, opts doctorOptions, registration *regi
 				checks = append(checks, Check{Status: StatusWarn, ID: "checkout.host-route-files", Instance: route.Name, Subject: subject, Detail: fmt.Sprintf(
 					"its route file is missing from %s, so the router does not route it. Run '%s route add %s' again with the same fields to write it ('%s route ls --json' lists them).",
 					opts.RouterState.DynamicDir, opts.CommandName, hostRouteAddArguments(route), opts.CommandName)})
+			} else if err != nil {
+				// Absent is the only answer that means "missing"; anything
+				// else (permission, I/O) means the file could not be looked for.
+				failed := failureCheck("checkout.host-route-files", subject, err)
+				failed.Instance = route.Name
+				checks = append(checks, failed)
 			}
 		}
 		address := "127.0.0.1:" + strconv.Itoa(route.Port)
