@@ -226,25 +226,25 @@ func TestFirstDifference(t *testing.T) {
 // TestCause pins that a cause is named only when substituting the scratch
 // directory for the real one reproduces the second read.
 func TestCause(t *testing.T) {
-	const real, probe = "/work/acme/docker", "/scratch/a/b/c/d"
+	const realDir, probe = "/work/acme/docker", "/scratch/a/b/c/d"
 	const neutral = "a path or variable that depends on the checkout"
 	cases := []struct {
 		name, pwd, here, other, want string
 	}{
 		{"PWD itself", "/home/dev/acme", "/home/dev/acme", probe, "${PWD}"},
 		{"PWD with a suffix", "/home/dev/acme", "/home/dev/acme/data", probe + "/data", "${PWD}"},
-		{"a path in the project directory", "/home/dev", real + "/data", probe + "/data", "a relative path"},
+		{"a path in the project directory", "/home/dev", realDir + "/data", probe + "/data", "a relative path"},
 		{"a path that climbs out of it", "/home/dev", "/work/shared-data", "/scratch/a/b/shared-data", "a relative path"},
-		{"a command run from the project directory", real, real, probe, neutral},
-		{"PWD an ancestor of the project directory, value the project directory", "/work", real, probe, "a relative path"},
+		{"a command run from the project directory", realDir, realDir, probe, neutral},
+		{"PWD an ancestor of the project directory, value the project directory", "/work", realDir, probe, "a relative path"},
 		{"a command string", "/home/dev", "echo /work/acme", "echo /somewhere/else", neutral},
-		{"no PWD, the scratch directory itself", "", real, probe, "a relative path"},
+		{"no PWD, the scratch directory itself", "", realDir, probe, "a relative path"},
 		{"no PWD, nothing to substitute", "", "alice", "bob", neutral},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			d := difference{path: "p", here: c.here, other: c.other}
-			if got := d.cause(real, probe, c.pwd); got != c.want {
+			if got := d.cause(realDir, probe, c.pwd); got != c.want {
 				t.Fatalf("cause = %q, want %q", got, c.want)
 			}
 		})

@@ -3,6 +3,7 @@ package shared_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ import (
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/run/fakerun"
 	"github.com/sofired/berth/internal/shared"
+	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -1124,12 +1126,6 @@ func (c checkout) stack(t *testing.T, handler fakerun.Handler, log logger.Logger
 	})
 }
 
-// normalise replaces c's directories in text with stable names, so a message
-// can be pinned whole.
-func (c checkout) normalise(text string) string {
-	return strings.NewReplacer(c.parent, "/work").Replace(text)
-}
-
 // TestDefinitionHashIsTheSameInEveryCheckout pins decision 16's promise: two
 // checkouts of one repository, under different parent directories, either
 // compute the same hash for the shared file or one of them refuses it, never a
@@ -1176,12 +1172,18 @@ func TestDefinitionHashIsTheSameInEveryCheckout(t *testing.T) {
 		d := service(commandstest.ProjectGrandparent+"/shared-data", nil)
 		for _, c := range []checkout{first, second} {
 			_, err := hashIn(t, c, d)
-			want := `docker/compose.shared.yaml reads differently in each checkout: services.db.volumes[0].source resolves to "/work/shared-data" here, from a relative path. ` + remedy
-			if err == nil || c.normalise(err.Error()) != want {
+			// The value is the checkout's real path, cut as the message cuts
+			// it: a long temporary directory (macOS's /private/var/folders/...)
+			// is shortened in the message itself.
+			value := text.OneLine(filepath.Join(c.parent, "shared-data"), 80)
+			want := fmt.Sprintf(`docker/compose.shared.yaml reads differently in each checkout: services.db.volumes[0].source resolves to %q here, from a relative path. `, value) + remedy
+			if err == nil || err.Error() != want {
 				t.Fatalf("err = %v\nwant %s", err, want)
 			}
-			if len(want) > 300 {
-				t.Fatalf("the message is %d characters; shared status cuts at 300", len(want))
+			// doctor shows this refusal and cuts a detail at 400 characters;
+			// shared status never checks, so its 300 does not apply.
+			if len(want) > 400 {
+				t.Fatalf("the message is %d characters; doctor cuts at 400", len(want))
 			}
 		}
 	})

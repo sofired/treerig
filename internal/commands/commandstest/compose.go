@@ -429,7 +429,7 @@ func positional(args []string) []string {
 // Placeholders a shared service entry may hold (SetSharedService), which
 // `compose config` resolves as Compose would from the --project-directory it
 // is given and the PWD of its environment, so a test can read one file from two
-// checkouts: ProjectDirectory is the project directory, ProjectParent its
+// checkouts: ProjectDirectory is the project directory, ProjectGrandparent its
 // grandparent (what `../../` names: the directory holding a checkout whose
 // shared file is one directory deep), WorkingDirectory the PWD variable.
 const (
