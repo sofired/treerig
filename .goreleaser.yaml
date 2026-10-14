@@ -1,0 +1,181 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# Builds, packages and publishes a berth release. `goreleaser release --clean`
+# runs on a v* tag (.github/workflows/release.yml); `goreleaser release
+# --snapshot --clean --skip=sign` runs on every pull request and on every push
+# to main (the release-snapshot job in .github/workflows/go.yml) and publishes
+# nothing; signing needs the release job's OIDC token, so a snapshot skips it.
+# CONTRIBUTING.md says how to cut a release, and docs/design/release.md pins
+# the names and identities that install.sh and verifiers depend on.
+#
+# Homebrew is not configured here: the tap's formula builds from the source
+# archive below, so its bump is the release workflow's homebrew-tap job and the
+# template is packaging/homebrew/berth.rb.
+version: 2
+
+project_name: berth
+
+before:
+  hooks:
+    - sh packaging/completions.sh
+
+builds:
+  - id: berth
+    main: ./cmd/berth
+    binary: berth
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    # The same ldflags target the version rules in release.yml validate.
+    ldflags:
+      - -s -w -X github.com/sofired/berth/internal/brand.Version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# Every file in an archive or package carries the commit's date and root
+# ownership, so two builds of one commit produce the same bytes.
+archives:
+  - id: berth
+    ids: [berth]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # install.sh depends on the file name above and on `berth` sitting at the
+    # archive's root (docs/design/release.md).
+    wrap_in_directory: false
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: &archive_info
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: NOTICE
+        info: *archive_info
+      - src: README.md
+        info: *archive_info
+      - src: completions/*
+        dst: completions
+        strip_parent: true
+        info: *archive_info
+
+# The tag's source, which Homebrew builds from. Unlike GitHub's generated
+# tarball, it is listed in checksums.txt, so it is signed and attested.
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}-{{ .Version }}"
+  format: tar.gz
+  prefix_template: "{{ .ProjectName }}-{{ .Version }}/"
+
+nfpms:
+  - id: berth
+    ids: [berth]
+    package_name: berth
+    # The package's own build time (rpm, deb) and directory dates.
+    mtime: "{{ .CommitDate }}"
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: Southern Fired Software, LLC
+    homepage: https://github.com/sofired/berth
+    maintainer: Southern Fired Software, LLC <packages@sofired.io>
+    description: |-
+      Give every Git worktree a durable identity, an isolated home, and a routed URL.
+      Needs Git, Docker and Docker Compose at run time.
+    license: Apache-2.0
+    section: utils
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    recommends: [git]
+    contents:
+      - src: completions/berth.bash
+        dst: /usr/share/bash-completion/completions/berth
+        file_info: &package_info
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: completions/_berth
+        dst: /usr/share/zsh/site-functions/_berth
+        file_info: *package_info
+      - src: completions/berth.fish
+        dst: /usr/share/fish/vendor_completions.d/berth.fish
+        file_info: *package_info
+      # Debian wants a machine-readable copyright file that points at the
+      # system's copy of the license text.
+      - src: packaging/debian/copyright
+        dst: /usr/share/doc/berth/copyright
+        packager: deb
+        file_info: *package_info
+      - src: LICENSE
+        dst: /usr/share/licenses/berth/LICENSE
+        type: license
+        packager: rpm
+        file_info: *package_info
+      - src: LICENSE
+        dst: /usr/share/licenses/berth/LICENSE
+        packager: apk
+        file_info: *package_info
+      - src: NOTICE
+        dst: /usr/share/doc/berth/NOTICE
+        file_info: *package_info
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# Keyless: the Sigstore certificate is bound to the release workflow's identity
+# through the job's OIDC token (id-token: write), so there is no key to store.
+# The bundle carries the signature, the certificate and the transparency-log
+# entry, which is all `cosign verify-blob --bundle` needs.
+signs:
+  - id: checksums
+    cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "--yes"
+      - "${artifact}"
+    artifacts: checksum
+
+# What `goreleaser release --snapshot` stamps in place of a tag: not a version
+# anyone could mistake for a release's.
+snapshot:
+  version_template: "0.0.0-dev+{{ slice .FullCommit 0 12 }}"
+
+changelog:
+  sort: asc
+  use: git
+  filters:
+    exclude:
+      - '^test(\(.+\))?!?:'
+      - '^ci(\(.+\))?!?:'
+      - '^chore(\(.+\))?!?:'
+      - '^style(\(.+\))?!?:'
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Documentation
+      regexp: '^docs(\(.+\))?!?:'
+      order: 2
+    - title: Other changes
+      order: 999
+
+release:
+  name_template: "{{ .Tag }}"
+  prerelease: auto
+  # A re-run of the release job (after a failure past the upload) replaces the
+  # assets of the release it already created instead of failing on them.
+  replace_existing_artifacts: true
+  footer: |
+    Verify a download against `checksums.txt`, its Sigstore bundle and the
+    build provenance attestation as the
+    [README](https://github.com/sofired/berth#verifying-a-download) describes.

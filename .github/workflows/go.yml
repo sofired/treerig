@@ -93,27 +93,63 @@ jobs:
           BERTH_TEST_REQUIRE_DOCKER: '1'
         run: go test -p 1 -count=1 -tags integration ./...
 
-  cross:
-    name: cross-compile
+  # Everything the release builds, minus the publishing and the signing, which
+  # need a tag and an OIDC token: GoReleaser's check, then a snapshot of the
+  # four binaries, the archives, the source archive, the .deb/.rpm/.apk
+  # packages and checksums.txt.
+  # It also replaces a plain cross-compile of the four targets, since the
+  # snapshot builds them the way a release does (CGO_ENABLED=0, trimpath).
+  # packaging/verify-snapshot.sh then checks the artifacts and runs install.sh
+  # against them.
+  release-snapshot:
+    name: release snapshot
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/setup-go
-      # linux/darwin x amd64/arm64: the same four targets release.yml
-      # builds for every push to main. release.yml does not run on a pull
-      # request, so this job stays here to catch a cross-compile break
-      # before it merges, built the same way (CGO_ENABLED=0; releases never
-      # link cgo) but without release.yml's version stamping or checksums,
-      # neither of which matter to a build that is discarded when the job ends.
-      - name: Build every target
-        env:
-          CGO_ENABLED: '0'
+
+      - name: ShellCheck
+        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh
+
+      - name: GoReleaser check
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.18.3
+          args: check
+
+      - name: Snapshot build
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.18.3
+          args: release --snapshot --clean --skip=sign
+
+      - name: Verify the artifacts and install.sh
+        run: packaging/verify-snapshot.sh dist
+
+      # The same commit builds to the same bytes (commit-dated, root-owned
+      # files), so a published checksum can be checked by rebuilding.
+      - name: The snapshot is reproducible
         run: |
-          set -euo pipefail
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            goos="${target%/*}"
-            goarch="${target#*/}"
-            echo "building ${goos}/${goarch}"
-            GOOS="${goos}" GOARCH="${goarch}" go build -o "dist/berth-${goos}-${goarch}" ./cmd/berth
-          done
+          cp dist/checksums.txt "$RUNNER_TEMP/first-checksums.txt"
+          goreleaser release --snapshot --clean --skip=sign
+          diff "$RUNNER_TEMP/first-checksums.txt" dist/checksums.txt
+
+      # Reviewers can install a pull request's build, and the latest main
+      # build stays available without waiting for a tag.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: berth-snapshot
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/checksums.txt
+          retention-days: 14
+          if-no-files-found: error

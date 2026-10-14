@@ -264,8 +264,120 @@ advice.
 
 ## Install
 
-There is no published binary yet — releases aren't set up (#8). Build it
-from source with Go, at least the version [`go.mod`](go.mod) names:
+berth is a single static binary for Linux and macOS, on amd64 and arm64
+(Windows is not supported). It needs Git, Docker and Docker Compose at run
+time; `berth doctor` checks all three once it is on PATH. Homebrew and the
+install script install the latest release, which is never a pre-release (see
+[Pre-releases](#pre-releases)); the packages and archives are per release.
+
+### Homebrew
+
+```bash
+brew install sofired/tap/berth
+```
+
+Homebrew installs a prebuilt bottle where the tap has one for your platform;
+otherwise it builds berth from the release's source, which needs Go (Homebrew
+installs that for the build). Shell completions install with it.
+
+### Install script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sofired/berth/main/install.sh | sh
+```
+
+[`install.sh`](install.sh) picks the release archive for your platform,
+checks its sha256 against the release's `checksums.txt` before extracting
+anything, and installs `berth` into `~/.local/bin`. It never uses `sudo`. It
+checks the checksum, not the signature on `checksums.txt`: that is a separate
+step (see [Verifying a download](#verifying-a-download)). Pass options after
+`sh -s --`, and pin the script itself to a tag if you want the exact script a
+release shipped with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sofired/berth/v1.2.3/install.sh \
+  | sh -s -- --version 1.2.3 --dir /usr/local/bin
+```
+
+`--dir` (or `BERTH_INSTALL_DIR`) is the directory to install into and
+`--version` (or `BERTH_VERSION`) pins a release; without it the latest release
+is installed. It uses `curl`, or `wget` when there is no `curl`, and
+`sha256sum`, or `shasum -a 256` when there is no `sha256sum`.
+If the directory is not on your PATH, it prints the line to add.
+
+### Linux packages
+
+Each release attaches a `.deb`, an `.rpm` and an `.apk` for amd64 and arm64.
+They put `berth` in `/usr/bin` and the bash, zsh and fish completions where
+those shells look for them:
+
+```bash
+VERSION=1.2.3    # a release on the Releases page
+curl -fsSLO "https://github.com/sofired/berth/releases/download/v${VERSION}/berth_${VERSION}_amd64.deb"
+sudo apt install "./berth_${VERSION}_amd64.deb"                    # Debian, Ubuntu
+
+curl -fsSLO "https://github.com/sofired/berth/releases/download/v${VERSION}/berth-${VERSION}-1.x86_64.rpm"
+sudo dnf install "./berth-${VERSION}-1.x86_64.rpm"                 # Fedora, RHEL
+
+curl -fsSLO "https://github.com/sofired/berth/releases/download/v${VERSION}/berth_${VERSION}_x86_64.apk"
+sudo apk add --allow-untrusted "./berth_${VERSION}_x86_64.apk"     # Alpine
+```
+
+On ARM the architecture is `arm64` in the `.deb` name and `aarch64` in the
+`.rpm` and `.apk` names. The packages are not signed with a package-manager
+key, so apk needs `--allow-untrusted`; check the download as described under
+[Verifying a download](#verifying-a-download) instead. Uninstall them with your
+package manager.
+
+### Release archive
+
+Each release also has a `berth_<version>_<os>_<arch>.tar.gz` for `linux` and
+`darwin`, with `amd64` and `arm64`. It holds `berth` at its root, with
+`LICENSE`, `NOTICE`, `README.md` and the shell completions under
+`completions/`; extract it and put `berth` anywhere on PATH.
+
+### Pre-releases
+
+A tag with a suffix, such as `v1.2.3-rc.1`, is published as a GitHub
+pre-release. It is never "latest", so the commands above do not install it,
+and Homebrew does not see it. Install one with `install.sh --version
+1.2.3-rc.1`, or download its files from the
+[Releases page](https://github.com/sofired/berth/releases).
+
+### Verifying a download
+
+Every release publishes `checksums.txt`, covering the archives, the source
+archive and the packages. Compare the file you downloaded with it (run in the
+directory holding both; this works with `sha256sum` or, on macOS,
+`shasum -a 256`):
+
+```bash
+VERSION=1.2.3
+FILE="berth_${VERSION}_linux_amd64.tar.gz"
+grep " ${FILE}\$" checksums.txt | sha256sum --check     # macOS: shasum -a 256 --check
+```
+
+Optionally, check that `checksums.txt` came from this repository's release
+workflow. It is signed with [cosign](https://github.com/sigstore/cosign)
+(keyless, with the workflow's identity), and each file has a GitHub build
+provenance attestation. Download `checksums.txt.sigstore.json` beside it:
+
+```bash
+VERSION=1.2.3
+FILE="berth_${VERSION}_linux_amd64.tar.gz"
+cosign verify-blob \
+  --certificate-identity "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v${VERSION}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle checksums.txt.sigstore.json checksums.txt
+gh attestation verify "$FILE" --repo sofired/berth
+```
+
+[`docs/design/release.md`](docs/design/release.md) lists every asset name and
+the identity.
+
+### From source
+
+Build it with Go, at least the version [`go.mod`](go.mod) names:
 
 ```bash
 git clone https://github.com/sofired/berth && cd berth
@@ -278,7 +390,9 @@ or build a binary yourself and put it wherever you like:
 mkdir -p ~/.local/bin && go build -o ~/.local/bin/berth ./cmd/berth   # any directory on PATH
 ```
 
-`berth doctor` checks Git, Docker and Docker Compose once it is on PATH.
+A plain build prints `0.0.0-dev` for `berth --version`, not a release's
+version. To stamp one, build with
+`-ldflags "-X github.com/sofired/berth/internal/brand.Version=<version>"`.
 
 ### Shell completion
 
@@ -503,7 +617,8 @@ the binary that was invoked, though, nothing more: a build made from a
 branch still runs that branch's code once relocated, just from somewhere the
 checkout it is removing cannot take down with it. Running only a trusted,
 pinned build regardless of what invoked `worktree remove` is a separate,
-later guarantee tied to how releases are distributed (#8, #85). Copies are
+later guarantee tied to how releases are distributed (#85, see
+[`docs/design/release.md`](docs/design/release.md)). Copies are
 content-addressed, so a rebuild that changes nothing installs nothing new;
 one that has not been installed or reused in the last 30 days, or that is
 not among the 5 most recently used besides the current one, whichever rule
@@ -1733,13 +1848,12 @@ Shipped:
 
 Not built yet, in rough order; none of these is a command at all.
 
-1. **Binary distribution** (#8) — per-platform release builds, so installing
-   no longer means building from source.
-2. **Migrating stored state between releases** (#29), once there are
-   releases to migrate between.
-3. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
-   stronger guarantee the relocated-copy mechanism above is a step toward,
-   tied to binary distribution (#8).
+1. **Migrating stored state between releases** (#29) — due before the first
+   tagged release, which is when stored state first outlives a build.
+2. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
+   stronger guarantee the relocated-copy mechanism above is a step toward.
+   Tagged releases, with the names and signing identity in
+   [`docs/design/release.md`](docs/design/release.md), are what it will pin to.
 
 ## License
 

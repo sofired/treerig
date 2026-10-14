@@ -59,7 +59,7 @@ const standaloneGrace = 10 * time.Minute
 // relocation moves where the program's file lives, not what it does.
 // Running only a trusted, pinned build regardless of which binary invoked
 // `worktree remove` is a separate, later guarantee tied to how releases are
-// distributed (#8), not this one.
+// distributed (#85), not this one.
 //
 // It runs before Context builds anything and before any lock is taken.
 // That ordering is load-bearing two ways: Go opens file descriptors
