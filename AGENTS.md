@@ -47,6 +47,9 @@ printed.
 - `cmd/berth`, `internal/`: the build. One package per concern.
 - `docs/design/state.md`: which stored state carries a format version, the
   newer-format refusal, and how a migration is added.
+- `docs/design/teardown.md`: the teardown pin, a trusted teardown binary
+  installed and verified by `berth teardown pin`. The removal gate that runs it
+  is pending (#146).
 - `docs/design/locks.md`, `docs/design/config.md`, `docs/design/release.md`,
   `docs/hooks.md`: design notes (locks; the config file, its JSON Schema and
   examples; the release assets and signing identity) and the hook protocol.
