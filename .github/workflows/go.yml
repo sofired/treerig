@@ -115,19 +115,20 @@ jobs:
       - name: ShellCheck
         run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh
 
-      - name: GoReleaser check
+      # Installed once and put on PATH, so the reproducibility step below can
+      # run it again; the action alone leaves no goreleaser on PATH.
+      - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: v2.18.3
-          args: check
+          install-only: true
+
+      - name: GoReleaser check
+        run: goreleaser check
 
       - name: Snapshot build
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: v2.18.3
-          args: release --snapshot --clean --skip=sign
+        run: goreleaser release --snapshot --clean --skip=sign
 
       - name: Verify the artifacts and install.sh
         run: packaging/verify-snapshot.sh dist
