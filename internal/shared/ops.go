@@ -98,7 +98,7 @@ func (s *Stack) Up(ctx context.Context, request UpRequest) error {
 	// Before the override is written or Compose runs: Compose recreates a
 	// container or network whose labels differ from this build's override,
 	// including one a newer berth stamped (docs/design/state.md).
-	newer, err := docker.FindNewerFormats(ctx, s.o.Runner, s.ownership(), brand.FormatLabel(s.o.LabelNamespace), stateformat.DockerLabel, probeTimeout)
+	newer, err := docker.FindNewerFormats(ctx, s.o.Runner, s.ownership(), brand.FormatLabel(s.o.LabelNamespace), stateformat.DockerLabel, false, probeTimeout)
 	if err != nil {
 		return err
 	}

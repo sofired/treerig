@@ -189,14 +189,18 @@ format.
 
 Before `compose up` (a worktree's `up`, and a shared stack's start), berth makes
 one cheap check: a `docker ps -a` and a `docker network ls`, filtered by the
-ownership labels and printing only each ID and its format label. A container or
-network of a newer format refuses the start with the usual message, because the
-override this build writes carries its own format label, which Compose reads as
-a changed configuration and answers by recreating the resource. No inspect is
-made and a full inventory is not taken on every `up`; a resource with a missing
-label is not refused here, and is left to the proof at teardown so that `up`
-never traps a project. Berth's other proof points are teardown, reap, connect
-and disconnect.
+ownership labels and printing only each ID and its format label. A worktree's
+`up` also lists the images it owns (`docker image ls -q`, since that command
+cannot print a label) and, only if there are any, reads their labels with one
+`docker image inspect`; the shared stack builds no images and skips this. A
+container, network or image of a newer format refuses the start with the usual
+message. The override this build writes carries its own format label, which
+Compose reads as a changed configuration and answers by recreating the
+resource, and `--build` re-tags the worktree's service images, so an older build
+could otherwise replace the tag of an image a newer berth built. A full
+inventory is not taken on every `up`; a resource with a missing label is not
+refused here, and is left to the proof at teardown so that `up` never traps a
+project. Berth's other proof points are teardown, reap, connect and disconnect.
 
 ## Missing or unknown version
 

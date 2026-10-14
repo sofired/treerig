@@ -1167,8 +1167,9 @@ Five things follow from that, and this tool does not change them:
 
 What the tool does guarantee is ownership: every resource it creates carries
 its labels, and it refuses to touch anything whose full ownership tuple (the
-managed, repository and worktree labels, in the format label's format) does
-not match. That is what keeps `worktree remove` from deleting something it did
+managed, repository and worktree labels, in the format the `dev.berth.format`
+label names) does not match. Named volumes carry no format label, so a volume
+is proven by its other ownership labels. That is what keeps `worktree remove` from deleting something it did
 not create — not a claim about what your branch's code can do once it runs.
 
 ## Output and exit codes

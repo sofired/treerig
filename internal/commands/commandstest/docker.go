@@ -162,7 +162,10 @@ func (d *Docker) Up(ref worktree.Ref, namespace string, services ...string) []st
 		labels["com.docker.compose.service"] = service
 		ids = append(ids, d.add("container", labels))
 	}
-	ids = append(ids, d.add("volume", Ownership(ref, namespace)))
+	// A named volume carries no format label (docs/design/state.md).
+	volumeLabels := Ownership(ref, namespace)
+	delete(volumeLabels, brand.FormatLabel(namespace))
+	ids = append(ids, d.add("volume", volumeLabels))
 	return ids
 }
 

@@ -212,12 +212,27 @@ func TestComposeNeverPrompts(t *testing.T) {
 // each ID and its format label, and defers everything else to the fake.
 type listingRunner struct {
 	*dockerFake
-	// formats maps a kind ("ps" or "network") to the value of its resource's label.
+	// formats maps a kind ("ps", "network" or "image") to the value of its
+	// resource's format label; an image is only listed when it has an entry.
 	formats map[string]string
 }
 
 // Run answers a `ps` or `network ls` carrying an ID-and-label template.
 func (l listingRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	if len(spec.Args) >= 2 && spec.Args[0] == "image" {
+		value, listed := l.formats["image"]
+		l.dockerFake.mu.Lock()
+		l.dockerFake.calls = append(l.dockerFake.calls, spec)
+		l.dockerFake.mu.Unlock()
+		switch {
+		case !listed:
+			return run.Finish(spec, run.Result{})
+		case spec.Args[1] == "ls":
+			return run.Finish(spec, run.Result{Stdout: "0123456789ab\n"})
+		case spec.Args[1] == "inspect":
+			return run.Finish(spec, run.Result{Stdout: "sha256:0123456789abcdef0123456789abcdef\t" + value + "\n"})
+		}
+	}
 	index := slices.Index(spec.Args, "--format")
 	if index >= 0 && strings.HasPrefix(spec.Args[index+1], "{{.ID}}\t{{.Label") {
 		l.dockerFake.mu.Lock()
@@ -235,14 +250,18 @@ func (l listingRunner) Run(ctx context.Context, spec run.Spec) (run.Result, erro
 // two listings and no inspect (docs/design/state.md).
 func TestUpRefusesNewerResources(t *testing.T) {
 	ctx := context.Background()
-	for _, kind := range []struct{ arg, noun string }{{"ps", "container"}, {"network", "network"}} {
+	for _, kind := range []struct{ arg, noun string }{{"ps", "container"}, {"network", "network"}, {"image", "image"}} {
 		t.Run("refuses a "+kind.noun+" of a newer format before `compose up` runs", func(t *testing.T) {
 			fake := newFake()
 			rt, controlHome := routedRuntime(t, fake, nil)
 			rt.options.Runner = listingRunner{dockerFake: fake, formats: map[string]string{kind.arg: "2"}}
 			ensureHome(t, controlHome)
 			err := rt.Up(ctx, ref, []string{"api"})
-			want := "Refusing to touch the " + kind.noun + " res-" + kind.arg + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			id := "res-" + kind.arg
+			if kind.arg == "image" {
+				id = "0123456789ab"
+			}
+			want := "Refusing to touch the " + kind.noun + " " + id + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
 			if err == nil || err.Error() != want {
 				t.Fatalf("err = %v\nwant %s", err, want)
 			}
@@ -252,7 +271,28 @@ func TestUpRefusesNewerResources(t *testing.T) {
 		})
 	}
 
-	t.Run("starts when the format labels are current, missing or unrecognised, using two listings and no inspect", func(t *testing.T) {
+	t.Run("refuses an image a newer berth built, so an older build cannot re-tag over it", func(t *testing.T) {
+		// Covered by the table above; this pins that the image is inspected
+		// once, all together, and only because one was listed.
+		fake := newFake()
+		rt, controlHome := routedRuntime(t, fake, nil)
+		rt.options.Runner = listingRunner{dockerFake: fake, formats: map[string]string{"image": "3"}}
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, []string{"api"}); err == nil || !strings.Contains(err.Error(), "the image 0123456789ab: it is format 3") {
+			t.Fatalf("err = %v", err)
+		}
+		inspects := 0
+		for _, call := range fake.calls {
+			if len(call.Args) > 1 && call.Args[0] == "image" && call.Args[1] == "inspect" {
+				inspects++
+			}
+		}
+		if inspects != 1 || len(fake.composeCalls("up")) != 0 {
+			t.Fatalf("image inspects = %d, compose up calls = %d", inspects, len(fake.composeCalls("up")))
+		}
+	})
+
+	t.Run("starts when the format labels are current, missing or unrecognised, using two listings, one image listing and no inspect", func(t *testing.T) {
 		for _, value := range []string{"1", "", "junk"} {
 			fake := newFake()
 			rt, controlHome := routedRuntime(t, fake, nil)
@@ -261,8 +301,11 @@ func TestUpRefusesNewerResources(t *testing.T) {
 			if err := rt.Up(ctx, ref, []string{"api"}); err != nil {
 				t.Fatalf("label %q: %v", value, err)
 			}
-			listings, inspects := 0, 0
+			listings, inspects, imageCalls := 0, 0, 0
 			for _, call := range fake.calls {
+				if len(call.Args) > 1 && call.Args[0] == "image" {
+					imageCalls++
+				}
 				if slices.ContainsFunc(call.Args, func(a string) bool { return strings.HasPrefix(a, "{{.ID}}") }) {
 					listings++
 				}
@@ -270,8 +313,8 @@ func TestUpRefusesNewerResources(t *testing.T) {
 					inspects++
 				}
 			}
-			if listings != 2 || inspects != 0 {
-				t.Fatalf("label %q: listings = %d, inspects = %d", value, listings, inspects)
+			if listings != 2 || inspects != 0 || imageCalls != 1 {
+				t.Fatalf("label %q: listings = %d, inspects = %d, image calls = %d", value, listings, inspects, imageCalls)
 			}
 		}
 	})

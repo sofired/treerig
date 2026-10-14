@@ -151,9 +151,27 @@ func TestDecoysOnARealDaemon(t *testing.T) {
 		current := container(t, ownership())
 		found, err := docker.FindNewerFormats(ctx, osrun.New(), []string{
 			brand.ManagedLabel(decoyNamespace) + "=true", brand.WorktreeLabel(decoyNamespace) + "=" + ref.WorktreeID,
-		}, brand.FormatLabel(decoyNamespace), 1, time.Minute)
+		}, brand.FormatLabel(decoyNamespace), 1, true, time.Minute)
 		if err != nil || len(found) != 1 || found[0].Kind != "container" || found[0].Found != "2" || !strings.HasPrefix(newer, found[0].ID) {
 			t.Fatalf("found = %+v, err = %v (newer %s, current %s)", found, err, newer, current)
+		}
+	})
+	t.Run("the pre-start check finds an image of a newer format on a real daemon", func(t *testing.T) {
+		labels := ownership()
+		labels[brand.FormatLabel(decoyNamespace)] = "2"
+		base := container(t, ownership())
+		name := "berth-decoy-image-" + uuid(t)[:8]
+		args := []string{"commit"}
+		for label, value := range labels {
+			args = append(args, "--change", "LABEL "+label+"="+value)
+		}
+		dockerRun(t, append(args, base, name)...)
+		t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "--force", name).Run() })
+		found, err := docker.FindNewerFormats(ctx, osrun.New(), []string{
+			brand.ManagedLabel(decoyNamespace) + "=true", brand.WorktreeLabel(decoyNamespace) + "=" + ref.WorktreeID,
+		}, brand.FormatLabel(decoyNamespace), 1, true, time.Minute)
+		if err != nil || len(found) != 1 || found[0].Kind != "image" || found[0].Found != "2" {
+			t.Fatalf("found = %+v, err = %v", found, err)
 		}
 	})
 	t.Run("proves a volume by the ownership labels alone, with no format label", func(t *testing.T) {
