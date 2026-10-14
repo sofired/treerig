@@ -1713,15 +1713,17 @@ for whichever it accepted unchecked.
 Go, at least the version [`go.mod`](go.mod) names.
 
 ```bash
-gofmt -l cmd internal                                   # must print nothing
+gofmt -l cmd internal                                             # must print nothing
 go vet ./...
 go vet -tags integration ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags integration ./...
-go test -race ./...                                     # unit
-go test -race -tags integration ./...                   # real git, subprocesses, signals, Docker
-CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -tags integration ./...
+go test -race ./...                                               # unit
+go test -race -p 1 -timeout 20m -count=1 -tags integration ./...  # real git, subprocesses, signals, Docker
+CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go test -p 1 -timeout 20m -count=1 -tags integration ./...
 ```
+
+`-p 1`, `-timeout 20m` and `-count=1` are explained in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 `-tags integration` marks tests that touch something real — a process, a
 signal, or a Docker daemon — and are excluded from the default `go test
@@ -1734,7 +1736,7 @@ of them at a time on a machine.
 The `CGO_ENABLED=0` run matters on its own: cgo changes how the Go runtime
 behaves (an extra thread, notably), and releases will build with it
 disabled. CI also runs the streams contract — every command's
-stdout/stderr split — as part of `go test -race -tags integration ./...`,
+stdout/stderr split — as part of the `-race` integration run above,
 against a binary it builds itself (`internal/cli/streams_integration_test.go`).
 The help and output goldens under `internal/cli/testdata/` are
 hand-maintained fixtures; [`CONTRIBUTING.md`](CONTRIBUTING.md) says how.
