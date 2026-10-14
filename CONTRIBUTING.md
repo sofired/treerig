@@ -77,8 +77,9 @@ the router's index and ping ports from a deterministic hash start, so packages
 running in parallel collide on them. `-timeout 20m` replaces Go's 10-minute
 per-package default: `internal/commands` takes about 5 to 7 minutes under
 `-race` on CI and about 12 on a slower machine, and keeps growing, so the
-default is too tight. A timeout panic skips `t.Cleanup`, which leaks Docker
-resources until the next run sweeps them.
+default is too tight. A timeout panic skips `t.Cleanup`, which can leave Docker
+resources behind: only some suites, such as the router's, sweep what an earlier
+run abandoned.
 
 The `-race` integration run above also runs the streams contract
 (`internal/cli/streams_integration_test.go`'s `TestStreamsContract`), against
