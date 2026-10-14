@@ -93,10 +93,17 @@ func (l *Lock) refuseVerbOrDefault() string {
 	return "taking"
 }
 
+// refusalPrefix is the "Not <verb> the <scope> lock:" opening shared by the
+// refusals of Acquire's recovery path.
+func (l *Lock) refusalPrefix() string {
+	return fmt.Sprintf("Not %s the %s lock:", l.refuseVerbOrDefault(), l.scope.Description)
+}
+
 // refuse builds the standard "Not <verb> the <scope> lock: <reason>." error
-// every refusal in this file shares.
+// for a reason that is a plain clause; a refusal whose reason ends in a list
+// builds its own text instead.
 func (l *Lock) refuse(reason string) error {
-	return clierr.Newf("Not %s the %s lock: %s.", l.refuseVerbOrDefault(), l.scope.Description, reason)
+	return clierr.Newf("%s %s.", l.refusalPrefix(), reason)
 }
 
 // aliveContradiction is the refusal judgeAndHandle and judgeForClear both
@@ -126,9 +133,21 @@ func (l *Lock) scanSurvivors() error {
 	if err != nil || len(survivors) == 0 {
 		return err
 	}
-	return l.refuse(fmt.Sprintf(
-		"its previous holder is gone, but %s it started %s still running:\n%s",
-		pluralCount(len(survivors)), pluralIsAre(len(survivors)), listProcs(survivors)))
+	// Not l.refuse: the reason ends in a list, which cannot take refuse's
+	// trailing period, so the advice follows on a line of its own.
+	return clierr.Newf("%s its previous holder is gone, but %s it started %s still running:\n%s\n%s",
+		l.refusalPrefix(), pluralCount(len(survivors)), pluralIsAre(len(survivors)),
+		listProcs(survivors), survivorsAdvice(len(survivors)))
+}
+
+// survivorsAdvice is the sentence that follows a list of n surviving
+// processes in a refusal, on a line of its own so that no punctuation is
+// read as part of the last command line.
+func survivorsAdvice(n int) string {
+	if n == 1 {
+		return "Let it finish or stop it, then run this again."
+	}
+	return "Let them finish or stop them, then run this again."
 }
 
 // markedSurvivors scans the process table and returns the processes carrying
@@ -449,8 +468,8 @@ func scanSurvivorsAcross(ctx context.Context, held []*clearScope, opts ClearOpti
 		unreadable, othersHidden = scan.Unreadable, scan.OthersHidden
 	}
 	if len(survivors) > 0 {
-		return "", clierr.Newf("Not clearing any lock: %s it started %s still running:\n%s\nLet them finish or stop them, then run this again.",
-			pluralCount(len(survivors)), pluralIsAre(len(survivors)), listProcs(survivors))
+		return "", clierr.Newf("Not clearing any lock: %s it started %s still running:\n%s\n%s",
+			pluralCount(len(survivors)), pluralIsAre(len(survivors)), listProcs(survivors), survivorsAdvice(len(survivors)))
 	}
 
 	unread := ""
