@@ -20,6 +20,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // IndexCardFile is the card's filename inside a worktree's home.
@@ -126,7 +127,7 @@ func WriteIndexCard(controlHome, repositoryID, worktreeID string, card IndexCard
 		services[i] = cardServiceJSON(service)
 	}
 	return files.AtomicJSON(IndexCardPath(controlHome, repositoryID, worktreeID), cardJSON{
-		Version:        1,
+		Version:        stateformat.IndexCard,
 		Project:        card.Project,
 		Domain:         card.Domain,
 		Slug:           card.Slug,
@@ -330,6 +331,10 @@ func requiredServiceKeysPresent(s rawIndexService) bool {
 // parseCardJSON decodes data as one index card: version 1, every required
 // key present, and its bounds satisfied via cardBounds — the read side's
 // half of the schema WriteIndexCard's own cardBounds call enforces on write.
+//
+// A card of any other version, a newer berth's included, is not one this
+// build can show, so it reads as no card. The next `up` regenerates a card
+// and none decides anything, so the index leaves it out instead of refusing.
 func parseCardJSON(data []byte) (IndexCard, bool) {
 	var raw rawIndexCard
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -337,7 +342,7 @@ func parseCardJSON(data []byte) (IndexCard, bool) {
 	if err := decoder.Decode(&raw); err != nil {
 		return IndexCard{}, false
 	}
-	if raw.Version == nil || *raw.Version != 1 {
+	if raw.Version == nil || *raw.Version != stateformat.IndexCard {
 		return IndexCard{}, false
 	}
 	if !requiredCardKeysPresent(raw) {

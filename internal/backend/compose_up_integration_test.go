@@ -170,6 +170,26 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 		t.Fatalf("image label = %q", got)
 	}
 
+	// The format label landed on the container, the network and the image,
+	// so the ownership proof at teardown accepts what this build created
+	// (docs/design/state.md), and on no volume: Compose offers to recreate a
+	// volume whose label changed, losing its data.
+	for what, args := range map[string][]string{
+		"container": {"inspect", apiID},
+		"network":   {"network", "inspect", project + "_default"}, "image": {"image", "inspect", project + "-builder"},
+	} {
+		template := `{{ index .Labels "` + composeNamespace + `.format" }}`
+		if what == "container" || what == "image" {
+			template = `{{ index .Config.Labels "` + composeNamespace + `.format" }}`
+		}
+		if got := dockerFormat(t, template, args...); got != "1" {
+			t.Fatalf("%s format label = %q, want 1", what, got)
+		}
+	}
+	if got := dockerFormat(t, `{{ len .Labels }} {{ index .Labels "`+composeNamespace+`.format" }}`, "volume", "inspect", project+"_data"); strings.Contains(got, " 1") {
+		t.Fatalf("the volume carries a format label: %q", got)
+	}
+
 	// The consumer's Compose file saw the BERTH_* environment.
 	env := dockerFormat(t, "{{ range .Config.Env }}{{ println . }}{{ end }}", "inspect", apiID)
 	for _, want := range []string{

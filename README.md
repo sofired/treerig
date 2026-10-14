@@ -36,7 +36,7 @@ berth.toml ──reads──▶  berth  ──spawns──▶  your hooks (any l
 **Identity.** Two UUIDs are written into the Git directory: one for the
 repository, one for the worktree. Paths and branch names can change; the UUIDs
 cannot. A worktree keeps its environment across branch renames, rebases, and
-moves.
+moves. Each marker file starts with a `format` line, then the UUID.
 
 **Slugs.** Each worktree gets a slug derived from its branch — `feature/login`
 becomes `feature-login` — and is routed as `feature-login.<your-domain>`. Slugs
@@ -801,9 +801,30 @@ bookkeeping too, rather than taking turns recreating it.
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.berth-control-home` marker to
 recognise its own, and refuses a directory whose marker holds anything but
-its own format, or is empty beside existing content. Your home directory, anything above it, and the
-filesystem root are always refused, whether reached through `BERTH_HOME` or
-`BERTH_CONTROL_HOME`.
+its own format, or is empty beside existing content. The marker says which
+format of control home it is (`format 2`). Your home directory, anything
+above it, and the filesystem root are always refused, whether reached through
+`BERTH_HOME` or `BERTH_CONTROL_HOME`.
+
+**Stored-state format.** Everything berth writes and reads back says which
+format wrote it: the control home's marker, the identity markers in the Git
+directory, registrations and shared-service records, the router's `state.json`,
+a lock's holder record, a worktree's index card, and a `dev.berth.format` label
+on every container, network and image berth creates for a worktree or a shared
+stack (named volumes carry none: Compose would offer to recreate a volume whose
+label changed, losing its data). A build that finds a newer format than it
+reads refuses, names what it found and what it reads, and says to upgrade
+berth, for example `Refusing to use the router state … : it is format 2,
+written by a newer berth, and this build reads format 1. Upgrade berth, then
+run this again.`; it does not read, repair, rewrite or delete that state. A
+container, network or image of a newer format, or without the label, is not
+proven to be yours, so `worktree remove`, `shared down` and the network
+connects and disconnects refuse to touch it, and the message says what to
+remove by hand. State with no recognisable format is treated as not berth's.
+`doctor` reports it for the control home, registrations, shared-service
+records, the router state, lock records and a checkout's identity markers; it
+does not look at Docker resources. [`docs/design/state.md`](docs/design/state.md)
+has the full list.
 
 ### Editor support
 
@@ -1142,7 +1163,8 @@ Five things follow from that, and this tool does not change them:
   local user can reach.
 
 What the tool does guarantee is ownership: every resource it creates carries
-its labels, and it refuses to touch anything whose full ownership tuple does
+its labels, and it refuses to touch anything whose full ownership tuple (the
+managed, repository and worktree labels, in the format label's format) does
 not match. That is what keeps `worktree remove` from deleting something it did
 not create — not a claim about what your branch's code can do once it runs.
 
@@ -1771,6 +1793,8 @@ internal/
   files/                  owner-only, symlink-refusing filesystem primitives
   text/                   the filter every printed line goes through
   brand/                  the product name and the presentation/storage split
+  stateformat/            the format version of each stored state, and the
+                          refusal of one a newer berth wrote
   clierr/                 the error type a command reports and exits with
   logger/                 the stdout/stderr split every command writes through
   run/, run/osrun,
@@ -1791,7 +1815,7 @@ needs a real process, a signal, or a Docker daemon is behind
 Shipped:
 
 - **Compose runtime** — `up`/`down` that stamp every resource with
-  `<namespace>.managed`, `.repository-uuid`, `.worktree-uuid`; inventory and
+  `<namespace>.managed`, `.repository-uuid`, `.worktree-uuid` and `.format`; inventory and
   teardown that verify the full ownership tuple on every resource before
   touching it.
 - **`up` / `down` / `status` / `urls`** — under the worktree lock, with
@@ -1850,8 +1874,10 @@ Shipped:
 
 Not built yet, in rough order; none of these is a command at all.
 
-1. **Migrating stored state between releases** (#29) — due before the first
-   tagged release, which is when stored state first outlives a build.
+1. **Migrating stored state between releases** (#29) — every store already
+   carries a format version and refuses a newer one
+   ([`docs/design/state.md`](docs/design/state.md)); a migration comes with the
+   first change to a store's format after a release.
 2. **Running `worktree remove` from a pinned, trusted binary** (#85) — the
    stronger guarantee the relocated-copy mechanism above is a step toward.
    Tagged releases, with the names and signing identity in

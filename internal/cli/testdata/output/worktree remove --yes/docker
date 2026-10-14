@@ -1,19 +1,19 @@
 ps -aq --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
-inspect --format {{ index .Config.Labels "dev.berth.managed" }}	{{ index .Config.Labels "com.docker.compose.project" }}	{{ index .Config.Labels "dev.berth.repository-uuid" }}	{{ index .Config.Labels "dev.berth.worktree-uuid" }}	{{ index .Config.Labels "com.docker.compose.service" }} c1
+inspect --format {{ index .Config.Labels "dev.berth.managed" }}	{{ index .Config.Labels "com.docker.compose.project" }}	{{ index .Config.Labels "dev.berth.repository-uuid" }}	{{ index .Config.Labels "dev.berth.worktree-uuid" }}	{{ index .Config.Labels "com.docker.compose.service" }}	{{ index .Config.Labels "dev.berth.format" }} c1
 volume ls -q --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 volume ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
-volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }} v1
+volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }}	{{ index .Labels "dev.berth.format" }} v1
 network ls -q --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 network ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
 image ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.shared=true
 ps -aq --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
-inspect --format {{ index .Config.Labels "dev.berth.managed" }}	{{ index .Config.Labels "com.docker.compose.project" }}	{{ index .Config.Labels "dev.berth.repository-uuid" }}	{{ index .Config.Labels "dev.berth.worktree-uuid" }}	{{ index .Config.Labels "com.docker.compose.service" }} c1
+inspect --format {{ index .Config.Labels "dev.berth.managed" }}	{{ index .Config.Labels "com.docker.compose.project" }}	{{ index .Config.Labels "dev.berth.repository-uuid" }}	{{ index .Config.Labels "dev.berth.worktree-uuid" }}	{{ index .Config.Labels "com.docker.compose.service" }}	{{ index .Config.Labels "dev.berth.format" }} c1
 volume ls -q --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 volume ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
-volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }} v1
+volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }}	{{ index .Labels "dev.berth.format" }} v1
 network ls -q --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 network ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
 image ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
@@ -22,12 +22,12 @@ ps -aq --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
 volume ls -q --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 volume ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
-volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }} v1
+volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }}	{{ index .Labels "dev.berth.format" }} v1
 network ls -q --filter label=com.docker.compose.project=berth-5ae52fc96f4e40fdd30f35b5
 network ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
 image ls -q --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.worktree-uuid=2b41d9d4-ed88-49c1-be9c-5439bdf6a431
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.shared=true
-volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }} v1
+volume inspect --format {{ index .Labels "dev.berth.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.berth.repository-uuid" }}	{{ index .Labels "dev.berth.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }}	{{ index .Labels "dev.berth.format" }} v1
 volume rm v1
 ps --all --filter label=dev.berth.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.berth.repository-uuid"}}	{{.Label "dev.berth.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.berth.shared"}}
 ps -aq --filter label=dev.berth.managed=true --filter label=dev.berth.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.berth.shared=true

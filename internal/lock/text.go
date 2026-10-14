@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/text"
 )
 
@@ -22,6 +23,9 @@ func quoteOneLine(value string) string {
 func HolderLabel(rec *Record) string {
 	if rec == nil {
 		return "an unidentified holder"
+	}
+	if rec.newer != "" {
+		return "a holder recorded in format " + rec.newer + " by a newer " + brand.Name
 	}
 	where := fmt.Sprintf("PID %d on %s", rec.PID, quoteOneLine(rec.Host))
 	if rec.Command == "" {

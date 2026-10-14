@@ -373,7 +373,7 @@ func TestSharedRecordShape(t *testing.T) {
 	})
 
 	for name, raw := range map[string]string{
-		"a version other than 1":          `{"version":2,"name":"mailpit","domain":"d","ports":{}}`,
+		"a version other than 1":          `{"version":0,"name":"mailpit","domain":"d","ports":{}}`,
 		"no version":                      `{"name":"mailpit","domain":"d","ports":{}}`,
 		"a name that is not a slug":       `{"version":1,"name":"Mail!","domain":"d","ports":{}}`,
 		"a name other than the file's":    `{"version":1,"name":"other","domain":"d","ports":{}}`,

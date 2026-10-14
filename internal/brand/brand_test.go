@@ -87,3 +87,20 @@ func TestSharedStorageNames(t *testing.T) {
 		}
 	})
 }
+
+// TestFormatLabel pins the label that carries a resource's state format
+// version (docs/design/state.md). Every resource berth creates has it, so
+// changing the name is a migration, not a rename.
+func TestFormatLabel(t *testing.T) {
+	t.Run("the default namespace", func(t *testing.T) {
+		if got := brand.FormatLabel(brand.LabelNamespace); got != "dev.berth.format" {
+			t.Errorf("FormatLabel = %q", got)
+		}
+	})
+
+	t.Run("follows a project's own namespace", func(t *testing.T) {
+		if got := brand.FormatLabel("dev.example"); got != "dev.example.format" {
+			t.Errorf("FormatLabel = %q", got)
+		}
+	})
+}

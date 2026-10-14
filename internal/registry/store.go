@@ -11,6 +11,7 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // Store is the read side of one repository's registrations: one JSON record
@@ -71,6 +72,10 @@ func (s *Store) readStoredRecord(file string) (*storedRecord, error) {
 	}
 	parsed, err := parseRecordJSON(data)
 	if err != nil {
+		var newer *newerFormat
+		if errors.As(err, &newer) {
+			return nil, stateformat.Newer("use", "the registration "+file, newer.found, stateformat.Registration)
+		}
 		if errors.Is(err, errInvalidJSON) {
 			return nil, clierr.Newf("Registry record is not valid JSON: %s", file)
 		}
@@ -108,7 +113,7 @@ func (s *Store) Scan() ([]RegisteredWorktree, []RegistryProblem, error) {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			problems = append(problems, RegistryProblem{File: file, Reason: err.Error()})
+			problems = append(problems, RegistryProblem{File: file, Reason: err.Error(), Newer: errors.Is(err, stateformat.ErrNewer)})
 			continue
 		}
 		records = append(records, stored.Registration)

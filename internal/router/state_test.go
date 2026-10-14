@@ -32,7 +32,7 @@ func TestReadState(t *testing.T) {
 	})
 
 	t.Run("refuses a file that is not JSON, or of another version, telling the user to remove it", func(t *testing.T) {
-		for name, contents := range map[string]string{"garbage": "{nope", "version 2": `{"version":2,"indexPort":30500}`, "empty": ""} {
+		for name, contents := range map[string]string{"garbage": "{nope", "version 0": `{"version":0,"indexPort":30500}`, "empty": ""} {
 			w := newWorld(t, 80, "")
 			if err := os.WriteFile(w.State.StateFile, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)

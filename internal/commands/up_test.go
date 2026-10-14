@@ -460,7 +460,7 @@ func TestUpWithContext(t *testing.T) {
 			// distinct from the "registration was removed" case above, which
 			// never touches the marker itself.
 			marker := filepath.Join(identity.GitDir, brand.MarkerDir, "worktree-id")
-			if err := os.WriteFile(marker, []byte("11111111-1111-4111-8111-111111111111\n"), 0o600); err != nil {
+			if err := os.WriteFile(marker, []byte(registry.IdentityMarkerContents("11111111-1111-4111-8111-111111111111")), 0o600); err != nil {
 				t.Fatalf("rewrite worktree marker: %v", err)
 			}
 		})

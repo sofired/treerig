@@ -80,7 +80,7 @@ func TestComposeUp(t *testing.T) {
 		}
 		api := services["api"].(map[string]any)
 		wantLabels := map[string]any{
-			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID,
+			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID, ns + ".format": "1",
 		}
 		if labels := api["labels"].(map[string]any); !reflectEqual(labels, wantLabels) {
 			t.Fatalf("api labels = %v, want %v", labels, wantLabels)
@@ -116,7 +116,7 @@ func TestComposeUp(t *testing.T) {
 			t.Fatalf("services = %v, want debugOnly labeled too", keysOf(services))
 		}
 		wantLabels := map[string]any{
-			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID,
+			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID, ns + ".format": "1",
 		}
 		if labels := debugOnly["labels"].(map[string]any); !reflectEqual(labels, wantLabels) {
 			t.Fatalf("debugOnly labels = %v, want %v", labels, wantLabels)
@@ -186,7 +186,7 @@ func TestComposeUp(t *testing.T) {
 		services := doc["services"].(map[string]any)
 		builder := services["builder"].(map[string]any)
 		ownership := map[string]any{
-			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID,
+			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID, ns + ".format": "1",
 		}
 		build, ok := builder["build"].(map[string]any)
 		if !ok {
@@ -239,7 +239,7 @@ func TestComposeUp(t *testing.T) {
 		services := doc["services"].(map[string]any)
 		api := services["api"].(map[string]any)
 		wantAPILabels := map[string]any{
-			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID,
+			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": ref.WorktreeID, ns + ".format": "1",
 		}
 		if labels := api["labels"].(map[string]any); !reflectEqual(labels, wantAPILabels) {
 			t.Fatalf("api labels = %v, want %v", labels, wantAPILabels)

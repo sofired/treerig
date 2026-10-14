@@ -85,6 +85,7 @@ func TestDecoysOnARealDaemon(t *testing.T) {
 			brand.ManagedLabel(decoyNamespace):    "true",
 			brand.RepositoryLabel(decoyNamespace): ref.RepositoryID,
 			brand.WorktreeLabel(decoyNamespace):   ref.WorktreeID,
+			brand.FormatLabel(decoyNamespace):     "1",
 			ComposeProjectLabel:                   project,
 		}
 	}
@@ -127,6 +128,33 @@ func TestDecoysOnARealDaemon(t *testing.T) {
 		labels := ownership()
 		labels[brand.WorktreeLabel(decoyNamespace)] = uuid(t)
 		refuses(t, volume(t, labels))
+	})
+	t.Run("refuses a container of a newer format, naming it and saying to upgrade", func(t *testing.T) {
+		labels := ownership()
+		labels[brand.FormatLabel(decoyNamespace)] = "2"
+		id := container(t, labels)
+		_, err := runtime.Inventory(ctx, ref)
+		if err == nil || !strings.Contains(err.Error(), "Refusing to touch the container "+id[:12]+": it is format 2, written by a newer berth") ||
+			!strings.Contains(err.Error(), "Upgrade berth") {
+			t.Fatalf("inventory = %v", err)
+		}
+		if out, _ := exec.Command("docker", "inspect", id).CombinedOutput(); strings.Contains(string(out), "No such object") {
+			t.Fatalf("%s was removed", id)
+		}
+	})
+	t.Run("proves a volume by the ownership labels alone, with no format label", func(t *testing.T) {
+		labels := ownership()
+		delete(labels, brand.FormatLabel(decoyNamespace))
+		mine := volume(t, labels)
+		owned, err := runtime.Inventory(ctx, ref)
+		if err != nil || len(owned) != 1 || owned[0].ID != mine {
+			t.Fatalf("owned = %v, err = %v", owned, err)
+		}
+	})
+	t.Run("refuses a container with every ownership label but no format label", func(t *testing.T) {
+		labels := ownership()
+		delete(labels, brand.FormatLabel(decoyNamespace))
+		refuses(t, container(t, labels))
 	})
 	t.Run("refuses a container with no Compose project label: only images may lack one", func(t *testing.T) {
 		labels := ownership()

@@ -23,6 +23,7 @@ import (
 
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/run/ptytest"
 )
 
@@ -31,11 +32,7 @@ import (
 func (f upFixture) developmentLock(t *testing.T) string {
 	t.Helper()
 	read := func(name string) string {
-		data, err := os.ReadFile(filepath.Join(f.checkout, ".git", "berth", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return strings.TrimSpace(string(data))
+		return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "berth", name))
 	}
 	return layout.WorktreeLayout(f.controlHome, read("repository-id"), read("worktree-id")).DevelopmentLockPath
 }

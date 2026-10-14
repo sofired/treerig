@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // recordMaxBytes: a record is one short line; anything larger is not ours and is not read.
@@ -22,9 +23,12 @@ type FileID struct {
 }
 
 // Record is what the holder wrote about itself into the sidecar file when it
-// acquired the lock. Read across versions of this tool, so unknown fields
-// are ignored, not refused.
+// acquired the lock. Its Version says which format wrote it
+// (stateformat.LockRecord); a record of a newer format is read as one whose
+// holder cannot be judged (see newer), and unknown fields of the current
+// format are ignored, not refused.
 type Record struct {
+	Version    int        `json:"version"`
 	PID        int        `json:"pid"`
 	Host       string     `json:"host"`
 	Command    string     `json:"command"`
@@ -36,7 +40,17 @@ type Record struct {
 	PIDNS      string     `json:"pidNs,omitempty"`
 	StartTicks *uint64    `json:"startTicks,omitempty"`
 	StartUs    *int64     `json:"startUs,omitempty"`
+
+	// newer is the version, as written, of a record a newer berth wrote:
+	// everything else in it is unread, since its shape is not this build's to
+	// interpret. Never serialised.
+	newer string
 }
+
+// NewerFormat is the version, as written, of a record a newer berth wrote,
+// or "" for one this build can read. Such a record names no holder this build
+// can identify (see judgeHolder).
+func (r *Record) NewerFormat() string { return r.newer }
 
 // valid reports whether r has the minimum a real holder record must have —
 // a positive PID and a host — so garbage or a half-written file is treated
@@ -66,6 +80,18 @@ func readRecord(path string) (*Record, error) {
 		}
 		return nil, err
 	}
+	// The version is judged before the rest of the shape: a newer berth's
+	// record is a holder this build cannot identify, which judgeHolder refuses
+	// to take over, not a file nobody wrote. A record with no version, or one
+	// this build never wrote, is no record at all.
+	verdict, found := stateformat.JSON(data, stateformat.LockRecord)
+	switch verdict {
+	case stateformat.FromNewer:
+		return &Record{newer: found}, nil
+	case stateformat.Current:
+	default:
+		return nil, nil
+	}
 	var rec Record
 	if err := json.Unmarshal(data, &rec); err != nil {
 		return nil, nil
@@ -79,6 +105,7 @@ func readRecord(path string) (*Record, error) {
 // writeRecordAtomic writes rec to path via a temp file and rename, so a
 // reader never observes a partial record.
 func writeRecordAtomic(path string, rec Record) error {
+	rec.Version = stateformat.LockRecord
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return err
@@ -142,6 +169,9 @@ const startToleranceUs = 2_000_000
 func judgeHolder(record *Record, currentFile FileID, self procid.Identity, hostname string, table procid.Table) (Verdict, error) {
 	if record == nil {
 		return Verdict{Kind: Unverifiable, Reason: "its holder left no record of who it is"}, nil
+	}
+	if record.newer != "" {
+		return Verdict{Kind: Unverifiable, Reason: "its holder record is " + stateformat.Detail(record.newer, stateformat.LockRecord)}, nil
 	}
 	who := fmt.Sprintf("PID %d on %s", record.PID, quoteOneLine(record.Host))
 

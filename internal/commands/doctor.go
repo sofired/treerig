@@ -56,6 +56,7 @@ import (
 	"github.com/sofired/berth/internal/router"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/settings"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -358,6 +359,12 @@ func controlHomeCheck(controlHome, userHome string) (Check, error) {
 	if err := files.AssertAdoptableControlHome(controlHome, userHome); err != nil {
 		return Check{}, err
 	}
+	// A control home a newer berth made fails here with the upgrade
+	// instruction, the same refusal every other command gives it
+	// (docs/design/state.md).
+	if err := files.AssertControlHomeFormat(controlHome); err != nil {
+		return Check{}, err
+	}
 	return Check{Status: StatusOK, ID: "registry.control-home", Subject: "control home", Detail: controlHome}, nil
 }
 
@@ -433,7 +440,28 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 		return nil, err
 	}
 	checks = append(checks, controlHomeChecks...)
-	checks = append(checks, Check{Status: StatusOK, ID: "registry.router-state", Subject: "router state", Detail: opts.RouterStateDir})
+	routerStateChecks, err := guarded("registry.router-state", "router state", func() ([]Check, error) {
+		// The state file is read, not just named: a file that is unreadable or
+		// written by a newer berth is a failed line carrying the same message
+		// every command that needs the router's ports would give.
+		if opts.RouterState.StateFile != "" {
+			if _, _, err := router.ReadState(opts.RouterState); err != nil {
+				return nil, err
+			}
+		}
+		return []Check{{Status: StatusOK, ID: "registry.router-state", Subject: "router state", Detail: opts.RouterStateDir}}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	checks = append(checks, routerStateChecks...)
+	for _, check := range controlHomeChecks {
+		if check.Status == StatusFail {
+			// Nothing under a control home berth refuses is read: a scan would
+			// answer "none yet" about records it never looked at.
+			return append(checks, Check{Status: StatusSkip, ID: "registry.registrations", Subject: "registrations", Detail: "control home not readable"}), nil
+		}
+	}
 	registrations, err := guarded("registry.registrations", "registrations", func() ([]Check, error) {
 		scan, err := registry.ScanRegistrations(opts.ControlHome)
 		if err != nil {
@@ -469,6 +497,12 @@ func lockCheck(id, subject string, scope lock.Scope, handRemoval string) (check 
 	}
 	if described.State == lock.Held {
 		return Check{ID: id, Status: StatusOK, Subject: subject, Detail: "held by " + lock.HolderLabel(described.Record)}, true
+	}
+	if described.Record != nil && described.Record.NewerFormat() != "" {
+		// Not recovered automatically: a holder this build cannot identify is
+		// refused until upgraded past or cleared, like any unverifiable one.
+		return Check{ID: id, Status: StatusWarn, Subject: subject,
+			Detail: "unreleased, and its holder record is " + stateformat.Detail(described.Record.NewerFormat(), stateformat.LockRecord)}, true
 	}
 	if described.Record != nil && described.Record.ReleasedAt == nil {
 		detail := fmt.Sprintf("unreleased by %s; recovered automatically the next time this lock is taken", lock.HolderLabel(described.Record))
@@ -1331,6 +1365,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 	}
 
 	identified := true
+	identityFailure := ""
 	var registration *registry.WorktreeRegistration
 	if regErr != nil {
 		identified = false
@@ -1344,6 +1379,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 				return nil, err
 			}
 			identified = false
+			identityFailure = err.Error()
 			checks = append(checks, failureCheck("checkout.worktree", "this worktree", err))
 		} else if registration != nil {
 			checks = append(checks, Check{Status: StatusOK, ID: "checkout.worktree", Subject: "this worktree",
@@ -1370,6 +1406,14 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 		})
 		if err != nil {
 			return nil, err
+		}
+		// The scan reads every checkout's identity markers, this one's
+		// included, so a marker this build cannot read fails it with the very
+		// message already given above. That is reported once.
+		for i, check := range missing {
+			if !identified && check.Status == StatusFail && check.Detail == identityFailure {
+				missing[i] = Check{Status: StatusSkip, ID: check.ID, Subject: check.Subject, Detail: "needs this worktree to be identified"}
+			}
 		}
 		checks = append(checks, missing...)
 	}

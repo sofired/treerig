@@ -15,6 +15,7 @@ import (
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -77,14 +78,23 @@ func (c *Compose) overridePath(ref worktree.Ref) string {
 	return filepath.Join(c.home(ref), brand.Name+".override.yaml")
 }
 
-// ownershipLabels are the three labels stamped onto every resource this
-// worktree's Compose file creates, so Inventory can find and verify them later.
-func (c *Compose) ownershipLabels(ref worktree.Ref) *jsonKV {
+// ownershipLabels are the labels stamped onto the resources this worktree's
+// Compose file creates, so Inventory can find and verify them later: managed,
+// repository and worktree, which prove who owns a resource, and, with
+// withFormat, the format label, which says what the other three mean
+// (docs/design/state.md). Named volumes get no format label: Compose treats
+// a changed label on an existing volume as drift and offers to recreate it,
+// losing its data, so a volume is proven by the three ownership labels alone.
+func (c *Compose) ownershipLabels(ref worktree.Ref, withFormat bool) *jsonKV {
 	namespace := c.options.LabelNamespace
-	return newJSONKV().
+	labels := newJSONKV().
 		set(brand.ManagedLabel(namespace), "true").
 		set(brand.RepositoryLabel(namespace), ref.RepositoryID).
 		set(brand.WorktreeLabel(namespace), ref.WorktreeID)
+	if withFormat {
+		labels.set(brand.FormatLabel(namespace), strconv.Itoa(stateformat.DockerLabel))
+	}
+	return labels
 }
 
 // composeConfigJSON is `docker compose config --format json` against the
@@ -402,7 +412,8 @@ func parseLeadingInt(s string) (int, bool) {
 // assignment (overwrite in place, append if new) — see jsonKV's own
 // comment.
 func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks *jsonKV) (*jsonKV, error) {
-	labels := c.ownershipLabels(ref)
+	labels := c.ownershipLabels(ref, true)
+	volumeLabels := c.ownershipLabels(ref, false)
 	stamp := func() *jsonKV { return newJSONKV().set("labels", labels) }
 
 	outServices := newJSONKV()
@@ -425,7 +436,7 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 		if isExternal(volume) {
 			continue
 		}
-		outVolumes.set(name, stamp())
+		outVolumes.set(name, newJSONKV().set("labels", volumeLabels))
 	}
 
 	outNetworks := newJSONKV()

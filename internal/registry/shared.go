@@ -18,6 +18,7 @@ import (
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/ports"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // Shared-service state (docs/design/routing.md, decision 19): one record per
@@ -86,7 +87,7 @@ func recordForShared(record SharedRecord) sharedRecordJSON {
 	for container, host := range record.Ports {
 		written[strconv.Itoa(container)] = host
 	}
-	return sharedRecordJSON{Version: 1, Name: record.Name, Domain: record.Domain, Ports: written, Routed: record.Routed}
+	return sharedRecordJSON{Version: stateformat.SharedRecord, Name: record.Name, Domain: record.Domain, Ports: written, Routed: record.Routed}
 }
 
 // rawSharedRecord is the on-disk shape, decoded strictly: an unknown key is a
@@ -108,13 +109,16 @@ func parseSharedRecordJSON(data []byte) (SharedRecord, error) {
 	if !json.Valid(data) {
 		return SharedRecord{}, errInvalidJSON
 	}
+	if verdict, found := stateformat.JSON(data, stateformat.SharedRecord); verdict == stateformat.FromNewer {
+		return SharedRecord{}, &newerFormat{found: found}
+	}
 	var raw rawSharedRecord
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&raw); err != nil {
 		return SharedRecord{}, errUnrecognizedShape
 	}
-	if raw.Version == nil || *raw.Version != 1 || raw.Name == nil || !slugPattern.MatchString(*raw.Name) ||
+	if raw.Version == nil || *raw.Version != stateformat.SharedRecord || raw.Name == nil || !slugPattern.MatchString(*raw.Name) ||
 		raw.Domain == nil || *raw.Domain == "" || raw.Ports == nil {
 		return SharedRecord{}, errUnrecognizedShape
 	}
@@ -185,6 +189,10 @@ func (s *Store) readSharedRecord(file string) (*SharedRecord, error) {
 	}
 	record, err := parseSharedRecordJSON(data)
 	if err != nil {
+		var newer *newerFormat
+		if errors.As(err, &newer) {
+			return nil, stateformat.Newer("use", "the shared-service record "+file, newer.found, stateformat.SharedRecord)
+		}
 		if errors.Is(err, errInvalidJSON) {
 			return nil, clierr.Newf("Shared-service record is not valid JSON: %s", file)
 		}
@@ -223,7 +231,7 @@ func (s *Store) SharedRecords() ([]SharedRecord, []RegistryProblem, error) {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			problems = append(problems, RegistryProblem{File: file, Reason: err.Error()})
+			problems = append(problems, RegistryProblem{File: file, Reason: err.Error(), Newer: errors.Is(err, stateformat.ErrNewer)})
 			continue
 		}
 		records = append(records, *record)

@@ -10,6 +10,7 @@ import (
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/docker"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -201,7 +202,16 @@ func (c *Compose) ProveNetwork(ctx context.Context, ref worktree.Ref, idOrName s
 		network.Labels[ComposeProjectLabel] != c.project(ref):
 		proof.Reason = "its ownership labels do not match this worktree"
 	default:
-		proof.Owned = true
+		// As in verify: ownership labels prove ownership only in the format
+		// they were written in.
+		switch verdict, found := stateformat.Label(network.Labels[brand.FormatLabel(namespace)], stateformat.DockerLabel); verdict {
+		case stateformat.Current:
+			proof.Owned = true
+		case stateformat.FromNewer:
+			proof.Reason = "it is " + stateformat.Detail(found, stateformat.DockerLabel)
+		default:
+			proof.Reason = stateformat.UnprovenReason(brand.FormatLabel(namespace), "it is this worktree's")
+		}
 	}
 	return proof, nil
 }

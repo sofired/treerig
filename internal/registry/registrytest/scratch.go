@@ -3,6 +3,7 @@ package registrytest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sofired/berth/internal/files"
@@ -36,4 +37,18 @@ func ClaimControlHome(t testing.TB, dir string) {
 	if err := os.WriteFile(filepath.Join(dir, files.ControlHomeMarker), []byte(files.ControlHomeFormat), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// ReadIdentityMarker is the UUID held by the identity marker at path (the
+// repository-id or worktree-id file under a checkout's .git/berth): the last
+// line of its text, after the format line. A test that needs a checkout's IDs
+// reads them through it, which knows the marker is a format line and then the UUID.
+func ReadIdentityMarker(t testing.TB, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	return lines[len(lines)-1]
 }

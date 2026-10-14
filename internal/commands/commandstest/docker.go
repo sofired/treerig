@@ -13,6 +13,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -137,12 +138,14 @@ func NewDocker(services ...string) *Docker {
 	}
 }
 
-// Ownership is the three ownership labels plus Compose's own, as `up` stamps them.
+// Ownership is the three ownership labels, the format label and Compose's
+// own project label, as `up` stamps them.
 func Ownership(ref worktree.Ref, namespace string) map[string]string {
 	return map[string]string{
 		brand.ManagedLabel(namespace):    "true",
 		brand.RepositoryLabel(namespace): ref.RepositoryID,
 		brand.WorktreeLabel(namespace):   ref.WorktreeID,
+		brand.FormatLabel(namespace):     strconv.Itoa(stateformat.DockerLabel),
 		"com.docker.compose.project":     layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID),
 	}
 }

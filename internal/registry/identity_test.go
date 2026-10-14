@@ -186,7 +186,7 @@ func TestIdentityServiceRemoveWorktreeMarker(t *testing.T) {
 			t.Fatalf("Ensure: %v", err)
 		}
 		marker := filepath.Join(identity.GitDir, "berth", "worktree-id")
-		if err := os.WriteFile(marker, []byte("2b41d9d4-ed88-49c1-be9c-5439bdf6a431\n"), 0o600); err != nil {
+		if err := os.WriteFile(marker, []byte(registry.IdentityMarkerContents("2b41d9d4-ed88-49c1-be9c-5439bdf6a431")), 0o600); err != nil {
 			t.Fatalf("overwrite marker: %v", err)
 		}
 

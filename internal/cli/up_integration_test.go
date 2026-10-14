@@ -31,6 +31,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/berth/internal/stateformat"
 	"golang.org/x/sys/unix"
 )
 
@@ -212,7 +213,7 @@ func newUpFixture(t *testing.T) upFixture {
 func seedRouterPorts(t *testing.T, state layout.RouterLayout) router.State {
 	t.Helper()
 	chosen := freePorts(t, 2)
-	want := router.State{Version: routerStateVersion, IndexPort: chosen[0], PingPort: chosen[1]}
+	want := router.State{Version: stateformat.RouterState, IndexPort: chosen[0], PingPort: chosen[1]}
 	if err := os.MkdirAll(state.StateDir, 0o700); err != nil {
 		t.Fatalf("seed router ports: create %s: %v", state.StateDir, err)
 	}
@@ -225,11 +226,6 @@ func seedRouterPorts(t *testing.T, state layout.RouterLayout) router.State {
 	}
 	return want
 }
-
-// routerStateVersion is the version of the router state file's shape, which
-// the router package keeps unexported; seedRouterPorts' read-back fails if it
-// drifts.
-const routerStateVersion = 1
 
 // freePorts is n distinct loopback ports that were free when picked. The
 // listeners stay open together until every port is chosen, so the kernel
@@ -335,11 +331,7 @@ func requireReleased(t *testing.T, path string) {
 func (f upFixture) worktreeLock(t *testing.T) string {
 	t.Helper()
 	read := func(name string) string {
-		data, err := os.ReadFile(filepath.Join(f.checkout, ".git", brand.Name, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return strings.TrimSpace(string(data))
+		return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", brand.Name, name))
 	}
 	return layout.WorktreeLayout(f.controlHome, read("repository-id"), read("worktree-id")).LockPath
 }
