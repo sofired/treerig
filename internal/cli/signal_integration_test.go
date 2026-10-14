@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/registry"
@@ -73,21 +74,37 @@ func buildBinary(t *testing.T) string {
 	return binary
 }
 
+// hangPoint is where fakeDocker's daemon stops answering.
+type hangPoint string
+
+const (
+	// hangInDown hangs `compose down`, before a removal has destroyed anything.
+	hangInDown hangPoint = "down"
+	// hangInReap answers `compose down` and hangs removing the container,
+	// after a removal has marked the worktree pending.
+	hangInReap hangPoint = "reap"
+)
+
 // fakeDocker answers as a daemon holding one container of the worktree,
-// and hangs in `compose down` — in a grandchild, so only a group kill stops it.
-func fakeDocker(t *testing.T, bin, state string, repositoryID, worktreeID string) {
+// and hangs where at says — in a grandchild, so only a group kill stops it.
+func fakeDocker(t *testing.T, bin, state string, repositoryID, worktreeID string, at hangPoint) {
 	t.Helper()
 	project := layout.ComposeProjectName(repositoryID, worktreeID)
+	const hang = `sh -c 'echo $$ > "$0/grandchild.pid"; exec sleep 60' "$state" & echo $$ > "$state/down.pid"; wait; exit 0`
+	down, rm := hang, `rm -f "$state/c1"; exit 0`
+	if at == hangInReap {
+		down, rm = "exit 0", hang
+	}
 	script := fmt.Sprintf(`#!/bin/sh
 state=%q
 case " $* " in
-  *" compose "*" down "*) sh -c 'echo $$ > "$0/grandchild.pid"; exec sleep 60' "$state" & echo $$ > "$state/down.pid"; wait; exit 0 ;;
+  *" compose "*" down "*) %s ;;
   *" --filter "*) case "$1" in ps) case " $* " in *"label=dev.berth.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;; esac; exit 0 ;;
   *" --format "*) printf 'true\t%s\t%s\t%s\tapi\t1\n'; exit 0 ;;
-  *" rm "*) rm -f "$state/c1"; exit 0 ;;
+  *" rm "*) %s ;;
 esac
 exit 0
-`, state, project, repositoryID, worktreeID)
+`, state, down, project, repositoryID, worktreeID, rm)
 	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -133,11 +150,24 @@ func alive(pid int) bool {
 
 func TestInterruptedMutation(t *testing.T) {
 	binary := buildBinary(t)
-	for _, verb := range [][]string{{"worktree", "remove", "--yes"}, {"down"}} {
-		verb := verb
+	type scenario struct {
+		verb []string
+		at   hangPoint
+	}
+	for _, sc := range []scenario{
+		{[]string{"worktree", "remove", "--yes"}, hangInDown},
+		{[]string{"down"}, hangInDown},
+		// Past the point where the registration is marked pending (#149).
+		{[]string{"worktree", "remove", "--yes"}, hangInReap},
+	} {
+		verb, at := sc.verb, sc.at
 		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
 			sig := sig
-			t.Run(strings.Join(verb[:len(verb)-min(1, len(verb)-1)], " ")+" "+sig.String(), func(t *testing.T) {
+			name := strings.Join(verb[:len(verb)-min(1, len(verb)-1)], " ") + " " + sig.String()
+			if at == hangInReap {
+				name += " while removing"
+			}
+			t.Run(name, func(t *testing.T) {
 				base, _ := filepath.EvalSymlinks(t.TempDir())
 				controlHome := filepath.Join(base, "control")
 				checkout := filepath.Join(base, "checkout")
@@ -170,7 +200,7 @@ func TestInterruptedMutation(t *testing.T) {
 				if err := os.WriteFile(paths.RecordPath, append(record, '\n'), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				fakeDocker(t, bin, state, identity.RepositoryID, identity.WorktreeID)
+				fakeDocker(t, bin, state, identity.RepositoryID, identity.WorktreeID, at)
 
 				// Both verbs here remove route files and refresh the index
 				// page, which live in the shared router's state directory:
@@ -256,6 +286,25 @@ func TestInterruptedMutation(t *testing.T) {
 				// Nothing was destroyed past the point of interruption: the registration is still there.
 				if found, _ := files.PathExists(paths.RecordPath); !found {
 					t.Fatal("the registration went")
+				}
+				// An interruption past the pending mark says what it left (#149);
+				// one before it left nothing to say.
+				notice := "Interrupted (" + clierr.SignalName(sig) + ") while removing feature-login.acme.localhost. " +
+					"Removed so far: nothing confirmed yet. It is still registered, now pending: " +
+					"'berth worktree remove' finishes the removal, 'berth up' starts it again and runs the seed hook again."
+				if at == hangInReap {
+					if !strings.Contains(stderr.String(), notice+"\n") {
+						t.Fatalf("stderr lacks the interruption notice %q:\n%s", notice, stderr.String())
+					}
+					var record struct {
+						Initialization string `json:"initialization"`
+					}
+					data, err := os.ReadFile(paths.RecordPath)
+					if err != nil || json.Unmarshal(data, &record) != nil || record.Initialization != "pending" {
+						t.Fatalf("record = %s, %v; want it pending", data, err)
+					}
+				} else if strings.Contains(stderr.String(), "Interrupted (") {
+					t.Fatalf("stderr has an interruption notice for a removal that had destroyed nothing:\n%s", stderr.String())
 				}
 			})
 		}
