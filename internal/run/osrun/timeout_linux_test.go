@@ -32,11 +32,14 @@ func TestRunnerTimeoutWhenTheDrainFails(t *testing.T) {
 	dir := scratch(t)
 	pidPath := filepath.Join(dir, "zombie.pid")
 	script := filepath.Join(dir, "leave-a-zombie.sh")
-	// A short-lived child is orphaned at once, when the shell that started
-	// it exits, so it is handed to this process, not left to a shell that
-	// would reap it. The script itself then hangs until the timeout.
+	// The background child outlives the shell that started it, so it is
+	// always orphaned to this process when that shell exits. A child that
+	// ended first could be reaped by that shell (dash does, sometimes),
+	// leaving no zombie and an empty group (#8's CI flake). The drain's
+	// SIGKILL then makes it a zombie nothing reaps. The script itself hangs
+	// until the timeout.
 	body := "#!/bin/sh\n" +
-		"sh -c 'true & echo $! > \"$1\"' sh \"" + pidPath + "\"\n" +
+		"sh -c 'sleep 60 & echo $! > \"$1\"' sh \"" + pidPath + "\"\n" +
 		"while :; do sleep 1; done\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
@@ -56,7 +59,12 @@ func TestRunnerTimeoutWhenTheDrainFails(t *testing.T) {
 		t.Fatal(readErr)
 	}
 	if pid, convErr := strconv.Atoi(strings.TrimSpace(string(raw))); convErr == nil {
-		t.Cleanup(func() { _, _ = syscall.Wait4(pid, nil, 0, nil) }) // reap the zombie
+		t.Cleanup(func() {
+			// Killed first, in case a failed run left it alive, so the wait
+			// that reaps the zombie cannot block.
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			_, _ = syscall.Wait4(pid, nil, 0, nil)
+		})
 	}
 
 	if err == nil || !strings.Contains(err.Error(), "The hang hook left processes running (process group") {
