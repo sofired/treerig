@@ -107,6 +107,9 @@ jobs:
           # GoReleaser builds the release notes from the history since the
           # previous tag.
           fetch-depth: 0
+          # GoReleaser publishes through GITHUB_TOKEN and only reads git
+          # locally, so the token isn't left in .git/config for the build.
+          persist-credentials: false
 
       # No build cache: this job's output is what users install, and a cache
       # is the one input a pull request's workflow run could have written.
