@@ -43,6 +43,8 @@ is a constant there, pinned by its tests.
 | Named volumes | none | proven by the ownership labels alone |
 | Route files, router stack file, index page, override files | `<berth root>/router/…`, `<worktree home>/berth.override.yaml`, `<repo>/shared/berth.override.yaml` | none: derived |
 | Relocated copies | `<control home>/bin/<sha256>` | none: the name is the version |
+| Teardown pin | `<control home>/teardown/pin.json` | `"version": 1`, `stateformat.TeardownPin` |
+| Pinned teardown binaries | `<control home>/teardown/<sha256>` | none: the name is the version |
 | Backup bundles | where `backup` was told | none: the hook's |
 | `settings.toml`, `berth.toml` | the berth root, the repository | none: user-written |
 | Quarantined homes | `<repo>/instances/.deleting-<worktree>` | none: a renamed home |
@@ -117,8 +119,16 @@ follower is `Interactive`.
 keys. They are written from versioned state and rewritten by the next `up` or
 repair; a route file whose contents berth does not recognise is never trusted.
 
-**Relocated copies, backup bundles.** An entry is named by the sha256 of its
-bytes; a bundle's contents belong to the project's hook (`docs/hooks.md`).
+**Relocated copies, pinned teardown binaries, backup bundles.** An entry is
+named by the sha256 of its bytes; a bundle's contents belong to the project's
+hook (`docs/hooks.md`).
+
+**Teardown pin.** `pin.json` names the pinned teardown binaries and the
+hash each must have, so it carries a version. A newer pin is refused with the
+refusal below, subject `the teardown pin <path>`. A pin with no version, an
+unknown version, an unknown key or a bad field is foreign: it is never
+rewritten and is told to be deleted with `<control home>/teardown/`, not
+upgraded (`docs/design/teardown.md`).
 
 **`settings.toml`, `berth.toml`.** They are written by people and validated
 against a schema that rejects unknown keys (`docs/design/config.md`). A key a
@@ -154,6 +164,7 @@ still needs.
 | Shared records | `Store.FindShared` and every writer; `SharedRecords` reports a problem | `the shared-service record <path>` |
 | Router state | `router.ReadState`, so `Ensure`, `CheckPorts` and port allocation | `the router state <path>` |
 | Lock holder records | taking, clearing and describing a lock | the lock's refusal, above |
+| Teardown pin | `teardown.ReadPin`, so `teardown pin` and `teardown status` | `the teardown pin <path>` |
 | Docker containers, networks, images | `Inventory`, `Reap` and `ProveNetwork` (worktree), the shared stack's `verify` | `the container <id> (service <name>)`, `the network <id>`, … |
 
 A newer registration also stops port allocation and hostname allocation while
@@ -210,6 +221,7 @@ project. Berth's other proof points are teardown, reap, connect and disconnect.
 | Identity markers | `Invalid identity marker: <file>. A marker is the line "format 1" and then the checkout's UUID. To start over, move the file aside: …` Never rewritten: the markers are the checkout's identity, and a guess would orphan its registration. |
 | Registrations, shared records | `… has an unrecognized version or shape: <file>`: skipped by listings, refused by writers, and blocking port allocation. |
 | Router state | `The router state <file> is not readable. Remove it and run this again; the router picks its ports afresh.` That advice is safe only for unreadable state, not newer, and the router re-picks its ports. |
+| Teardown pin | `Refusing to use the teardown pin <path>: it is not a pin this build wrote. Delete <control home>/teardown/ and pin again.` Never rewritten. |
 | Lock holder record | No record: nothing to recover. |
 | Index card | No card. |
 | Container, network, image | Not proven owned (above). |
