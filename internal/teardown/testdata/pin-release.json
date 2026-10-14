@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "release": "1.2.3",
+  "source": "https://github.com/sofired/berth/releases/download/v1.2.3/",
+  "signer": "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3",
+  "checksums_sha256": "d3beb16ca27a9fc332b55f526e1c8da6db0b2f58d50c9d27d59e15e23a4e35a8",
+  "pinned_at": "2026-10-14T12:00:00Z",
+  "platforms": {
+    "darwin_amd64": {
+      "archive_sha256": "eb13b2ff0d05509ef365d945f066a0e245ecdfcc505bff875c91fe14727826fa"
+    },
+    "darwin_arm64": {
+      "archive_sha256": "5bbe7b770751cdead7a6a9bcfb400ef0c4a64943ad766be525ea39ec1cef0777",
+      "binary_sha256": "38d4ddda70da3b195b327829533bec73b9f9aedca42422931005d8bf37ea08c5"
+    },
+    "linux_amd64": {
+      "archive_sha256": "31b0bd9afe45ab7c820485a3b57048e28022df7bf3d531735543caccd31511db",
+      "binary_sha256": "8065822ca5aedd4917dbb54fd806dba3330b444eacff10cfcd431fd9cd3f4356"
+    },
+    "linux_arm64": {
+      "archive_sha256": "1866e05af3d000efac5be48494dcf9cf95dba64fbccb385755a24bf7751a5947"
+    }
+  }
+}

@@ -235,3 +235,20 @@ func TestSharedLayout(t *testing.T) {
 		}
 	})
 }
+
+// TestTeardownLayout pins the teardown pin's paths: a storage contract
+// (docs/design/teardown.md), apart from the bin directory.
+func TestTeardownLayout(t *testing.T) {
+	t.Run("the pin and its binaries live under teardown/ in the control home, not bin/", func(t *testing.T) {
+		l := layout.ControlLayout("/ctl")
+		if l.TeardownDir != filepath.Join("/ctl", "teardown") {
+			t.Errorf("TeardownDir = %q", l.TeardownDir)
+		}
+		if l.PinPath != filepath.Join("/ctl", "teardown", "pin.json") {
+			t.Errorf("PinPath = %q", l.PinPath)
+		}
+		if l.TeardownDir == l.BinDir {
+			t.Error("the teardown directory is the bin directory")
+		}
+	})
+}
