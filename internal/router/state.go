@@ -21,10 +21,11 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // stateVersion is the version of the state file's shape.
-const stateVersion = 1
+const stateVersion = stateformat.RouterState
 
 // State is the router's own allocated ports.
 type State struct {
@@ -60,6 +61,12 @@ func ReadState(state layout.RouterLayout) (State, bool, error) {
 			return State{}, false, nil
 		}
 		return State{}, false, clierr.Newf("Could not read the router state %s: %s", state.StateFile, err)
+	}
+	// A newer berth's file is judged by its version alone: the rest of its
+	// shape is not this build's to read, and "remove it" would throw away
+	// ports a newer router still holds.
+	if verdict, found := stateformat.JSON(data, stateVersion); verdict == stateformat.FromNewer {
+		return State{}, false, stateformat.Newer("use", "the router state "+state.StateFile, found, stateVersion)
 	}
 	var parsed State
 	if err := json.Unmarshal(data, &parsed); err != nil || parsed.Version != stateVersion {

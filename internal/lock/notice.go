@@ -37,7 +37,7 @@ func formatDuration(d time.Duration) string {
 // command beside it, so prose in a hostname cannot close the clause and
 // read as part of this tool's own sentence.
 func (l *Lock) who(rec *Record, now time.Time) string {
-	if rec == nil {
+	if rec == nil || rec.newer != "" {
 		return "An unidentified holder has it"
 	}
 	held := formatDuration(now.Sub(rec.StartedAt))
@@ -84,7 +84,7 @@ func (l *Lock) holdingProcs(fileID FileID) []procid.Proc {
 func (l *Lock) advice(rec *Record, now time.Time, final bool, holding []procid.Proc) string {
 	who := l.who(rec, now)
 	stopped := false
-	if rec != nil {
+	if rec != nil && rec.newer == "" {
 		if status, err := l.opts.Table.Inspect(rec.PID); err == nil && status.State == procid.Stopped {
 			stopped = true
 		}
@@ -101,16 +101,16 @@ func (l *Lock) advice(rec *Record, now time.Time, final bool, holding []procid.P
 		return fmt.Sprintf("%s; it is stopped, not gone: %s.%s", who, action, extra)
 	}
 	action := "Wait for it to finish, or stop it"
-	if rec != nil {
+	if rec != nil && rec.newer == "" {
 		action = fmt.Sprintf("Wait for it to finish, or stop it (`kill %d`)", rec.PID)
 	}
-	if l.scope.EndHint != "" && rec != nil && isVerb(rec.Command, l.scope.EndHintWord) {
+	if l.scope.EndHint != "" && rec != nil && rec.newer == "" && isVerb(rec.Command, l.scope.EndHintWord) {
 		action = l.scope.EndHint
 	}
 	if final {
 		action += ", then retry"
 	}
-	if rec == nil {
+	if rec == nil || rec.newer != "" {
 		return fmt.Sprintf("%s. %s.%s", who, action, extra)
 	}
 	return fmt.Sprintf("%s; it still holds the lock. %s.%s", who, action, extra)

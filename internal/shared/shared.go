@@ -25,6 +25,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // Compose's own labels.
@@ -118,7 +119,20 @@ func (s *Stack) verify(kind, id string, labels map[string]string) error {
 		labels[brand.SharedLabel(ns)] != "true" || labels[composeProjectLabel] != s.Project() || hasWorktree {
 		return clierr.Newf("Refusing to touch %s %s: its labels do not say it belongs to this repository's shared services.", kind, id)
 	}
-	return nil
+	// As for a worktree's resources: the labels above prove ownership only in
+	// the format they were written in (docs/design/state.md), except for a
+	// volume, which carries no format label.
+	if kind == "volume" {
+		return nil
+	}
+	switch verdict, found := stateformat.Label(labels[brand.FormatLabel(ns)], stateformat.DockerLabel); verdict {
+	case stateformat.Current:
+		return nil
+	case stateformat.FromNewer:
+		return stateformat.Newer("touch", stateformat.DescribeResource(kind, id, labels[composeServiceLabel]), found, stateformat.DockerLabel)
+	}
+	return clierr.Newf("Refusing to touch %s: %s", stateformat.DescribeResource(kind, id, labels[composeServiceLabel]),
+		stateformat.Unproven(kind, id, brand.FormatLabel(ns), "it belongs to this repository's shared services"))
 }
 
 // State is where a shared service stands, in the words a worktree's own

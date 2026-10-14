@@ -78,6 +78,12 @@ func RepositoryLabel(namespace string) string { return namespace + ".repository-
 // WorktreeLabel carries the owning worktree's UUID.
 func WorktreeLabel(namespace string) string { return namespace + ".worktree-uuid" }
 
+// FormatLabel carries the format version of the labels and records berth
+// stamped on a resource ("1"), so a build that does not know a resource's
+// format refuses to touch it rather than guess (docs/design/state.md). A
+// storage name: it is on every resource berth creates.
+func FormatLabel(namespace string) string { return namespace + ".format" }
+
 // SharedLabel marks a resource as part of a repository's shared-services
 // stack (docs/design/routing.md, decision 17): it is the label that, with
 // the managed and repository labels, finds the stack's containers, volumes

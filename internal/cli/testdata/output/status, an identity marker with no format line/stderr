@@ -1,0 +1,1 @@
+[berth] ERROR: Invalid identity marker: FIXTURE/checkout/.git/berth/worktree-id. A marker is the line "format 1" and then the checkout's UUID. To start over, move the file aside: the checkout then gets a new identity, and its old registration is reported by `doctor` for `worktree remove` to clear.

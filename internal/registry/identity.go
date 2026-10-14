@@ -32,6 +32,7 @@ import (
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // uuidPattern is zod's `.uuid()` with no version pinned: any RFC 9562/4122
@@ -158,11 +159,39 @@ func readUUID(file string) (value string, present bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	value = strings.TrimSpace(string(data))
-	if !uuidPattern.MatchString(value) {
-		return "", false, clierr.Newf("Invalid identity marker: %s", file)
+	value, err = parseIdentityMarker(file, string(data))
+	if err != nil {
+		return "", false, err
 	}
 	return value, true, nil
+}
+
+// IdentityMarkerContents is what an identity marker holds for id: its format
+// line, then the UUID (docs/design/state.md). The marker is two lines so a
+// build that does not know its format never mistakes it for a UUID.
+func IdentityMarkerContents(id string) string {
+	return stateformat.FormatLine(stateformat.IdentityMarker) + "\n" + id + "\n"
+}
+
+// parseIdentityMarker reads the UUID out of the marker file's text. A format
+// above the one this build writes is a checkout a newer berth marked, refused
+// with the upgrade instruction before anything else is looked at, since its
+// layout is not this build's to judge. A marker with no format line, an
+// unknown one, or anything else but the UUID after it, is not one berth wrote:
+// it is invalid, like any other garbage in the marker's place.
+func parseIdentityMarker(file, text string) (string, error) {
+	first, rest, _ := strings.Cut(strings.TrimSuffix(text, "\n"), "\n")
+	switch verdict, found := stateformat.Line(first, stateformat.IdentityMarker); verdict {
+	case stateformat.FromNewer:
+		return "", stateformat.Newer("use", "the identity marker "+file, found, stateformat.IdentityMarker)
+	case stateformat.Current:
+		if uuidPattern.MatchString(rest) {
+			return rest, nil
+		}
+	}
+	return "", clierr.Newf("Invalid identity marker: %s. A marker is the line \"%s\" and then the checkout's UUID. "+
+		"To start over, move the file aside: the checkout then gets a new identity, and its old registration is reported by `doctor` for `worktree remove` to clear.",
+		file, stateformat.FormatLine(stateformat.IdentityMarker))
 }
 
 // newUUIDv4 generates a random RFC 4122 version-4 UUID.
@@ -206,7 +235,7 @@ func readOrCreateUUID(file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, writeErr := handle.WriteString(value + "\n")
+	_, writeErr := handle.WriteString(IdentityMarkerContents(value))
 	if closeErr := handle.Close(); writeErr == nil {
 		writeErr = closeErr
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/registry"
 	"github.com/sofired/berth/internal/registry/registrytest"
 )
 
@@ -167,8 +168,8 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 	if output, err := git.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)
 	}
-	write(filepath.Join(f.checkout, ".git", "berth", "repository-id"), fixtureRepo+"\n", 0o600)
-	write(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), fixtureWt+"\n", 0o600)
+	write(filepath.Join(f.checkout, ".git", "berth", "repository-id"), registry.IdentityMarkerContents(fixtureRepo), 0o600)
+	write(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), registry.IdentityMarkerContents(fixtureWt), 0o600)
 	paths := layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt)
 	// This build's own marker format: files.AssertAdoptableControlHome only
 	// cares that the marker exists, not its exact bytes, but this is what a
@@ -213,8 +214,8 @@ case " $* " in
   *" --format "*)
     id=$(eval echo "\${$#}")
     case "$id" in
-      c1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+fixtureWt+`\tapi\n' ;;
-      v1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+owner+`\t\n' ;;
+      c1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+fixtureWt+`\tapi\t1\n' ;;
+      v1) printf 'true\t`+project+`\t`+fixtureRepo+`\t`+owner+`\t\t\n' ;;
       *) echo "Error: No such object: $id" >&2; exit 1 ;;
     esac
     exit 0 ;;
@@ -475,6 +476,64 @@ func TestOutputGoldens(t *testing.T) {
 				}
 				contents = append(contents, []byte("[hooks]\nprepare = \"./hooks/prepare\"\nseed = \"./hooks/seed\"\n")...)
 				if err := os.WriteFile(tomlPath, contents, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		// #29: a state refusal's exact text, end to end. The first is a control
+		// home whose marker a newer berth wrote; the second a container whose
+		// format label is a newer berth's. Both name the store, the format found,
+		// the format this build reads, and say to upgrade.
+		{
+			name: "worktree unlock --registry, control home from a newer berth", args: []string{"worktree", "unlock", "--registry"},
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(f.controlHome, ".berth-control-home"), []byte("format 3\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "status, an identity marker with no format line", args: []string{"status"},
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), []byte(fixtureWt+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "worktree remove --yes, refusing a container with no format label", args: []string{"worktree", "remove", "--yes"},
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				script := filepath.Join(f.bin, "docker")
+				contents, err := os.ReadFile(script)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unlabelled := strings.Replace(string(contents), `\tapi\t1\n'`, `\tapi\t\n'`, 1)
+				if unlabelled == string(contents) {
+					t.Fatal("the fake docker's container line was not found")
+				}
+				if err := os.WriteFile(script, []byte(unlabelled), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "worktree remove --yes, refusing a container of a newer format", args: []string{"worktree", "remove", "--yes"},
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				script := filepath.Join(f.bin, "docker")
+				contents, err := os.ReadFile(script)
+				if err != nil {
+					t.Fatal(err)
+				}
+				newer := strings.Replace(string(contents), `\tapi\t1\n'`, `\tapi\t2\n'`, 1)
+				if newer == string(contents) {
+					t.Fatal("the fake docker's container line was not found")
+				}
+				if err := os.WriteFile(script, []byte(newer), 0o755); err != nil {
 					t.Fatal(err)
 				}
 			},

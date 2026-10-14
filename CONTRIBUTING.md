@@ -26,7 +26,10 @@ tests.
 **Storage identity is a contract.** `internal/brand` names things that end up
 on disk or in Docker — see its own tests. Changing any of them is a
 migration for every existing user and needs a versioned record schema or a
-migration command — not a find-and-replace.
+migration command — not a find-and-replace. Every store berth reads back
+carries a format version (`internal/stateformat`, pinned by its tests), and a
+build refuses a newer one; `docs/design/state.md` lists the stores, the
+refusal, and how a migration is added.
 
 ## Tests
 
@@ -154,8 +157,6 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
 
 - [ ] The repository is public. Every channel downloads release assets
   anonymously, and build provenance attestations need it on this plan.
-- [ ] #29 (migrating stored state between releases) has landed: the first
-  tagged release is when state first outlives a build.
 - [ ] A `release` environment (Settings, Environments) with required
   reviewers, and a deployment rule limiting it to the tag pattern `v*`. Both the
   `release` and `homebrew-tap` jobs run in it. It protects the tap token and

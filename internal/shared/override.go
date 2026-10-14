@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // LoopbackHost is the host address a shared service's ports are published on.
@@ -14,23 +15,30 @@ const LoopbackHost = "127.0.0.1"
 
 // overrideDocument is the Compose override berth starts the stack with
 // (decision 17): ownership labels on every service, volume and network the
-// shared file creates, the definition hash and the defining worktree on every
+// shared file creates (and, on all but the volumes, the format label, which
+// says what they mean: docs/design/state.md; a volume is proven by the
+// ownership labels alone, since Compose offers to recreate a volume whose
+// label changed, losing its data), the definition hash and the defining worktree on every
 // service, and each declared port published on its pinned loopback port.
 // published maps service to container port to host port. encoding/json sorts
 // map keys, so the same inputs are the same bytes.
 func (s *Stack) overrideDocument(d Definition, published map[string]map[int]int, definedBy string) (map[string]any, error) {
 	ns := s.o.LabelNamespace
-	ownership := func() map[string]any {
-		return map[string]any{
+	ownership := func(withFormat bool) map[string]any {
+		labels := map[string]any{
 			brand.ManagedLabel(ns):    "true",
 			brand.RepositoryLabel(ns): s.o.RepositoryID,
 			brand.SharedLabel(ns):     "true",
 		}
+		if withFormat {
+			labels[brand.FormatLabel(ns)] = strconv.Itoa(stateformat.DockerLabel)
+		}
+		return labels
 	}
 
 	services := map[string]any{}
 	for _, name := range d.Services() {
-		labels := ownership()
+		labels := ownership(true)
 		hash, err := d.Hash(name)
 		if err != nil {
 			return nil, err
@@ -63,13 +71,13 @@ func (s *Stack) overrideDocument(d Definition, published map[string]map[int]int,
 	volumes := map[string]any{}
 	for name, volume := range d.volumes {
 		if !isExternal(volume) {
-			volumes[name] = map[string]any{"labels": ownership()}
+			volumes[name] = map[string]any{"labels": ownership(false)}
 		}
 	}
 	networks := map[string]any{}
 	for name, network := range d.networks {
 		if !isExternal(network) {
-			networks[name] = map[string]any{"labels": ownership()}
+			networks[name] = map[string]any{"labels": ownership(true)}
 		}
 	}
 	return map[string]any{"services": services, "volumes": volumes, "networks": networks}, nil

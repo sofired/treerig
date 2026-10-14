@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/registry/registrytest"
 )
 
 // bundleWrapperDocker answers `compose ps` for the worktree's project with one
@@ -100,11 +101,7 @@ func newBundleFixture(t *testing.T, binary string, hooked bool) upFixture {
 // repositoryID is the fixture repository's UUID, from its identity markers.
 func (f upFixture) repositoryID(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.checkout, ".git", "berth", "repository-id"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.TrimSpace(string(data))
+	return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "berth", "repository-id"))
 }
 
 // bundleLog is what the hooks recorded, one entry per run.

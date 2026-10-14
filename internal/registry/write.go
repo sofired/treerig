@@ -8,11 +8,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lock"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // Writer is who is writing: named to whoever waits on a lock.
@@ -114,7 +116,7 @@ type recordJSON struct {
 // registration and passes the rest through cannot drop the others.
 func recordFor(registration RegisteredWorktree, initialization WorktreeInitialization) recordJSON {
 	return recordJSON{
-		Version:        1,
+		Version:        stateformat.Registration,
 		RepositoryID:   registration.RepositoryID,
 		WorktreeID:     registration.WorktreeID,
 		Slug:           registration.Slug,
@@ -312,13 +314,26 @@ func (s *Store) Ensure(
 // problem is listed with its reason beside its file.
 func refuseUnreadable(what, consequence string, problems []RegistryProblem) error {
 	var listing strings.Builder
+	allNewer, anyNewer := len(problems) > 0, false
 	for _, problem := range problems {
 		fmt.Fprintf(&listing, "  %s: %s\n", problem.File, problem.Reason)
+		allNewer = allNewer && problem.Newer
+		anyNewer = anyNewer || problem.Newer
+	}
+	// A record a newer berth wrote is intact, only unreadable here, and may
+	// hold what is being allocated: moving it aside would be the wrong advice.
+	// Only files that are damaged or foreign are told to be moved.
+	advice := "Move a file aside once you know what it is: " + consequence
+	switch {
+	case allNewer:
+		advice = "Upgrade " + brand.Name + " to read them: " + consequence
+	case anyNewer:
+		advice = "Upgrade " + brand.Name + " to read the files that say so, and move any other file aside once you know what it is: " + consequence
 	}
 	return clierr.Newf(
 		"Refusing to allocate %s while the registry has unreadable records:\n%s"+
-			"Each reason is beside its file above. Move a file aside once you know what it is: %s",
-		what, listing.String(), consequence,
+			"Each reason is beside its file above. %s",
+		what, listing.String(), advice,
 	)
 }
 

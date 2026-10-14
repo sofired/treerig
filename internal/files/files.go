@@ -38,6 +38,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/text"
 )
 
@@ -346,7 +347,10 @@ func firstN(values []string, n int) []string {
 	return values[:n]
 }
 
-// ControlHomeFormat is what this build writes into the marker.
+// ControlHomeFormat is what this build writes into the marker: the line
+// stateformat.FormatLine(stateformat.ControlHome), pinned equal by
+// TestControlHomeFormatVersion. It is a storage name: the marker's bytes are
+// on disk in every control home (docs/design/state.md).
 //
 // Its bytes must never vary by writer (no PID, timestamp or nonce):
 // writeMarkerRacingCreators claims a marker still empty after a bounded
@@ -433,18 +437,53 @@ func establishControlHome(controlHome, userHome string) error {
 			return err
 		}
 	}
-	if string(contents) != ControlHomeFormat {
-		// A marker with real content that is not this build's own format is
-		// not this build's to rewrite: refuse rather than adopt or
-		// overwrite it. Reached both for a marker this call read directly
-		// above, and for one writeMarkerRacingCreators adopted from
-		// whichever creator won a race for it — a foreign winner's marker
-		// is refused exactly the same way.
-		return clierr.Newf(
-			"Refusing to use %s as the control home: its marker %s is not %s's own format. Point %s at an empty directory instead.",
-			controlHome, marker, brand.Name, brand.ControlHomeEnv)
+	return checkControlHomeMarker(controlHome, marker, contents)
+}
+
+// checkControlHomeMarker judges the marker's contents. Exactly this build's
+// own format is accepted. A "format N" with N above it is a control home a
+// newer berth made: refused with the upgrade instruction (stateformat.Newer),
+// never rewritten. Anything else, a smaller number included, is not a marker
+// this build wrote: it is foreign, refused the same way as a directory that
+// is not a control home at all. Reached both for a marker establishControlHome
+// read directly, and for one writeMarkerRacingCreators adopted from whichever
+// creator won a race for it, so a foreign winner is refused exactly the same
+// way.
+func checkControlHomeMarker(controlHome, marker string, contents []byte) error {
+	if string(contents) == ControlHomeFormat {
+		return nil
 	}
-	return nil
+	if line, ok := strings.CutSuffix(string(contents), "\n"); ok {
+		if verdict, found := stateformat.Line(line, stateformat.ControlHome); verdict == stateformat.FromNewer {
+			return stateformat.Newer("use", "the control home "+controlHome, found, stateformat.ControlHome)
+		}
+	}
+	return clierr.Newf(
+		"Refusing to use %s as the control home: its marker %s is not %s's own format. Point %s at an empty directory instead.",
+		controlHome, marker, brand.Name, brand.ControlHomeEnv)
+}
+
+// AssertControlHomeFormat is the read-only form of establishControlHome's
+// marker check, for `doctor`: nil when controlHome has no marker yet (nothing
+// has claimed it) or one in this build's format, and checkControlHomeMarker's
+// refusal otherwise. It never writes, and reads the marker as
+// establishControlHome does, through the directory's descriptor and refusing
+// a symlink.
+func AssertControlHomeFormat(controlHome string) error {
+	dir, err := openControlHomeNoFollow(controlHome)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	marker := filepath.Join(controlHome, ControlHomeMarker)
+	contents, err := readMarkerDirect(dir, marker)
+	if err != nil {
+		return err
+	}
+	if len(contents) == 0 {
+		return nil
+	}
+	return checkControlHomeMarker(controlHome, marker, contents)
 }
 
 // afterMarkerReadForTest runs, if set, in establishControlHome right after

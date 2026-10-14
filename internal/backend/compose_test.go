@@ -117,6 +117,7 @@ func (f *dockerFake) own(id, service string, composeLabels bool) {
 		ns + ".managed":         "true",
 		ns + ".repository-uuid": ref.RepositoryID,
 		ns + ".worktree-uuid":   ref.WorktreeID,
+		ns + ".format":          "1",
 	}
 	if composeLabels {
 		labels[ComposeProjectLabel] = project

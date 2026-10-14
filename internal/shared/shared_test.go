@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -571,6 +572,97 @@ func TestOwnershipAndRemoval(t *testing.T) {
 		labels["com.docker.compose.project"] = "someone-elses"
 		if _, err := f.stack.Inventory(ctx); err == nil {
 			t.Fatal("a container in another project was listed")
+		}
+	})
+
+	t.Run("stamps the stack's containers and networks with the format label, and its volumes with none", func(t *testing.T) {
+		f := newFixture(t)
+		f.start("mailpit")
+		for _, kind := range []string{"container", "network", "volume"} {
+			ids := f.docker.Find(kind, map[string]string{brand.SharedLabel(ns): "true"})
+			if len(ids) == 0 {
+				t.Fatalf("no shared %s", kind)
+			}
+			for _, id := range ids {
+				got, stamped := f.docker.Labels(kind, id)[brand.FormatLabel(ns)]
+				// Compose offers to recreate a volume whose label changed,
+				// losing its data, so a volume never carries the label.
+				if kind == "volume" && stamped {
+					t.Errorf("volume %s carries the format label %q", id, got)
+				}
+				if kind != "volume" && got != "1" {
+					t.Errorf("%s %s: format label = %q", kind, id, got)
+				}
+			}
+		}
+	})
+
+	t.Run("refuses a container or network of a newer format, or with no format label, listing and removing nothing", func(t *testing.T) {
+		for name, mutate := range map[string]func(labels map[string]string){
+			"a newer format": func(labels map[string]string) { labels[brand.FormatLabel(ns)] = "2" },
+			"no format":      func(labels map[string]string) { delete(labels, brand.FormatLabel(ns)) },
+			"a format of 0":  func(labels map[string]string) { labels[brand.FormatLabel(ns)] = "0" },
+		} {
+			for _, kind := range []string{"container", "network"} {
+				f := newFixture(t)
+				f.start("mailpit")
+				id := f.docker.Find(kind, map[string]string{brand.SharedLabel(ns): "true"})[0]
+				mutate(f.docker.Labels(kind, id))
+
+				_, err := f.stack.Inventory(ctx)
+				want := "Refusing to touch the " + kind + " " + id
+				if err == nil || !strings.HasPrefix(err.Error(), want) {
+					t.Fatalf("%s, %s: err = %v", name, kind, err)
+				}
+				if name == "a newer format" && !strings.HasSuffix(err.Error(), ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again.") {
+					t.Errorf("%s: err = %v", kind, err)
+				}
+				if name != "a newer format" && !strings.HasSuffix(err.Error(), "its dev.berth.format label is missing or not recognised, so berth cannot prove it belongs to this repository's shared services. "+
+					"After checking that nothing needs it, remove it with `docker "+kind+" rm "+id+"`.") {
+					t.Errorf("%s, %s: err = %v", name, kind, err)
+				}
+				if reapErr := f.stack.Reap(ctx, shared.Resource{Kind: kind, ID: id}); reapErr == nil || !f.docker.Exists(kind, id) {
+					t.Errorf("%s, %s: Reap = %v, exists = %v", name, kind, reapErr, f.docker.Exists(kind, id))
+				}
+			}
+		}
+	})
+
+	t.Run("refuses to start over a container or network of a newer format, before writing the override or running Compose", func(t *testing.T) {
+		for _, kind := range []string{"container", "network"} {
+			f := newFixture(t)
+			definition := f.start("mailpit")
+			id := f.docker.Find(kind, map[string]string{brand.SharedLabel(ns): "true"})[0]
+			f.docker.Labels(kind, id)[brand.FormatLabel(ns)] = "2"
+			before := len(f.docker.Calls())
+			err := f.stack.Up(ctx, shared.UpRequest{
+				Definition: definition, Services: []string{"mailpit"}, DefinedBy: worktreeA,
+				Published: map[string]map[int]int{"mailpit": {1025: 30001, 8025: 30002}},
+			})
+			want := "Refusing to touch the " + kind + " " + id + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			if err == nil || err.Error() != want {
+				t.Fatalf("%s: err = %v\nwant %s", kind, err, want)
+			}
+			for _, call := range f.docker.Calls()[before:] {
+				if strings.Contains(call, "compose") {
+					t.Errorf("%s: Compose ran after the refusal: %s", kind, call)
+				}
+			}
+		}
+	})
+
+	t.Run("proves a volume by the ownership labels alone, whatever its format label says", func(t *testing.T) {
+		for _, value := range []string{"", "2", "junk"} {
+			f := newFixture(t)
+			f.start("mailpit")
+			id := f.docker.Find("volume", map[string]string{brand.SharedLabel(ns): "true"})[0]
+			if value != "" {
+				f.docker.Labels("volume", id)[brand.FormatLabel(ns)] = value
+			}
+			inventory, err := f.stack.Inventory(ctx)
+			if err != nil || !slices.ContainsFunc(inventory, func(r shared.Resource) bool { return r.ID == id }) {
+				t.Fatalf("format %q: inventory = %v, err = %v", value, inventory, err)
+			}
 		}
 	})
 

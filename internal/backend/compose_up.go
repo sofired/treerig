@@ -12,9 +12,11 @@ import (
 
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/berth/internal/docker"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -77,14 +79,23 @@ func (c *Compose) overridePath(ref worktree.Ref) string {
 	return filepath.Join(c.home(ref), brand.Name+".override.yaml")
 }
 
-// ownershipLabels are the three labels stamped onto every resource this
-// worktree's Compose file creates, so Inventory can find and verify them later.
-func (c *Compose) ownershipLabels(ref worktree.Ref) *jsonKV {
+// ownershipLabels are the labels stamped onto the resources this worktree's
+// Compose file creates, so Inventory can find and verify them later: managed,
+// repository and worktree, which prove who owns a resource, and, with
+// withFormat, the format label, which says what the other three mean
+// (docs/design/state.md). Named volumes get no format label: Compose treats
+// a changed label on an existing volume as drift and offers to recreate it,
+// losing its data, so a volume is proven by the three ownership labels alone.
+func (c *Compose) ownershipLabels(ref worktree.Ref, withFormat bool) *jsonKV {
 	namespace := c.options.LabelNamespace
-	return newJSONKV().
+	labels := newJSONKV().
 		set(brand.ManagedLabel(namespace), "true").
 		set(brand.RepositoryLabel(namespace), ref.RepositoryID).
 		set(brand.WorktreeLabel(namespace), ref.WorktreeID)
+	if withFormat {
+		labels.set(brand.FormatLabel(namespace), strconv.Itoa(stateformat.DockerLabel))
+	}
+	return labels
 }
 
 // composeConfigJSON is `docker compose config --format json` against the
@@ -402,7 +413,8 @@ func parseLeadingInt(s string) (int, bool) {
 // assignment (overwrite in place, append if new) — see jsonKV's own
 // comment.
 func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks *jsonKV) (*jsonKV, error) {
-	labels := c.ownershipLabels(ref)
+	labels := c.ownershipLabels(ref, true)
+	volumeLabels := c.ownershipLabels(ref, false)
 	stamp := func() *jsonKV { return newJSONKV().set("labels", labels) }
 
 	outServices := newJSONKV()
@@ -425,7 +437,7 @@ func (c *Compose) overrideDocument(ref worktree.Ref, services, volumes, networks
 		if isExternal(volume) {
 			continue
 		}
-		outVolumes.set(name, stamp())
+		outVolumes.set(name, newJSONKV().set("labels", volumeLabels))
 	}
 
 	outNetworks := newJSONKV()
@@ -641,6 +653,9 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	if err != nil {
 		return err
 	}
+	if err := c.refuseNewerFormats(ctx, ref); err != nil {
+		return err
+	}
 	timeout := DefaultWaitTimeoutSeconds
 	if c.options.WaitTimeoutSeconds != nil {
 		timeout = *c.options.WaitTimeoutSeconds
@@ -649,4 +664,26 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	args = append(args, services...)
 	_, err = c.compose(ctx, ref, args, overrideFiles, run.Spec{Output: run.Tee})
 	return err
+}
+
+// refuseNewerFormats refuses to start a worktree that owns a container,
+// network or image a newer berth stamped. Up calls it once the override is
+// ready and before `compose up`: the override this build writes carries its own
+// format label, which Compose sees as a changed configuration and answers by
+// recreating what it finds, and `--build` re-tags the worktree's service
+// images, so the refusal cannot wait for the ownership proof at teardown. It is
+// the cheap check docker.FindNewerFormats makes (two listings, an image listing
+// and one inspect only when images exist), not a full Inventory; a resource
+// with a missing label is left to that proof.
+func (c *Compose) refuseNewerFormats(ctx context.Context, ref worktree.Ref) error {
+	namespace := c.options.LabelNamespace
+	newer, err := docker.FindNewerFormats(ctx, c.options.Runner, []string{
+		brand.ManagedLabel(namespace) + "=true",
+		brand.RepositoryLabel(namespace) + "=" + ref.RepositoryID,
+		brand.WorktreeLabel(namespace) + "=" + ref.WorktreeID,
+	}, brand.FormatLabel(namespace), stateformat.DockerLabel, true, c.timeouts.Probe)
+	if err != nil || len(newer) == 0 {
+		return err
+	}
+	return stateformat.Newer("touch", stateformat.DescribeResource(newer[0].Kind, newer[0].ID, ""), newer[0].Found, stateformat.DockerLabel)
 }

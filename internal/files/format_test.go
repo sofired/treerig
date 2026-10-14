@@ -12,6 +12,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/files"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 func TestControlHomeFormat(t *testing.T) {
@@ -68,20 +69,20 @@ func TestControlHomeFormat(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses an existing control home whose marker names another format, leaving it as it is", func(t *testing.T) {
+	t.Run("refuses an existing control home whose marker names a format this build never wrote, leaving it as it is", func(t *testing.T) {
 		home := filepath.Join(t.TempDir(), "control")
 		if err := os.MkdirAll(home, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		marker := filepath.Join(home, files.ControlHomeMarker)
-		if err := os.WriteFile(marker, []byte("format 3\n"), 0o600); err != nil {
+		if err := os.WriteFile(marker, []byte("format 1\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), "Refusing to use") || !strings.Contains(err.Error(), brand.Name+"'s own format") {
 			t.Fatalf("got %v", err)
 		}
-		if data, _ := os.ReadFile(marker); string(data) != "format 3\n" {
+		if data, _ := os.ReadFile(marker); string(data) != "format 1\n" {
 			t.Fatalf("marker rewritten to %q", data)
 		}
 	})
@@ -199,6 +200,119 @@ func TestControlHomeFormat(t *testing.T) {
 		}
 		if exists {
 			t.Fatal("expected the swapped-to directory to get no marker")
+		}
+	})
+}
+
+// TestControlHomeFormatVersion covers the marker's version
+// (docs/design/state.md): the marker this build writes is the one the version
+// constant says, a newer one is refused with the upgrade instruction and left
+// alone, and one that is not "format <n>" at all is foreign.
+func TestControlHomeFormatVersion(t *testing.T) {
+	t.Run("writes the line the format version constant names", func(t *testing.T) {
+		if want := stateformat.FormatLine(stateformat.ControlHome) + "\n"; files.ControlHomeFormat != want {
+			t.Fatalf("ControlHomeFormat = %q, want %q", files.ControlHomeFormat, want)
+		}
+	})
+
+	t.Run("refuses a control home whose marker says a newer format, naming both versions and leaving it as it is", func(t *testing.T) {
+		for _, marker := range []string{"format 3\n", "format 10\n"} {
+			home := filepath.Join(t.TempDir(), "control")
+			if err := os.MkdirAll(filepath.Join(home, "repositories"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(home, files.ControlHomeMarker)
+			if err := os.WriteFile(path, []byte(marker), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
+			found := strings.TrimSpace(strings.TrimPrefix(marker, "format "))
+			want := "Refusing to use the control home " + layout.ControlLayout(home).ControlHome + ": it is format " + found +
+				", written by a newer berth, and this build reads format 2. Upgrade berth, then run this again."
+			if err == nil || err.Error() != want {
+				t.Fatalf("marker %q: got %v\nwant %s", marker, err, want)
+			}
+			if data, _ := os.ReadFile(path); string(data) != marker {
+				t.Fatalf("marker rewritten to %q", data)
+			}
+		}
+	})
+
+	t.Run("treats a marker that is not exactly format and a number as foreign, not as a newer berth's", func(t *testing.T) {
+		for _, marker := range []string{"format 3", "format 03\n", "format 3\n\n", "format\n", "3\n", "Format 3\n", "format 3 \n", "garbage\n", "format 1\n", "format 0\n"} {
+			home := filepath.Join(t.TempDir(), "control")
+			if err := os.MkdirAll(home, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(home, files.ControlHomeMarker)
+			if err := os.WriteFile(path, []byte(marker), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), brand.Name+"'s own format") || strings.Contains(err.Error(), "newer") {
+				t.Fatalf("marker %q: got %v", marker, err)
+			}
+			if data, _ := os.ReadFile(path); string(data) != marker {
+				t.Fatalf("marker %q rewritten to %q", marker, data)
+			}
+		}
+	})
+}
+
+// TestAssertControlHomeFormat covers the read-only check `doctor` makes.
+func TestAssertControlHomeFormat(t *testing.T) {
+	home := func(t *testing.T, marker *string) string {
+		t.Helper()
+		dir := filepath.Join(t.TempDir(), "control")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if marker != nil {
+			if err := os.WriteFile(filepath.Join(dir, files.ControlHomeMarker), []byte(*marker), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	text := func(s string) *string { return &s }
+
+	t.Run("accepts this build's own marker", func(t *testing.T) {
+		if err := files.AssertControlHomeFormat(home(t, text(files.ControlHomeFormat))); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("accepts a control home with no marker yet, writing nothing", func(t *testing.T) {
+		dir := home(t, nil)
+		if err := files.AssertControlHomeFormat(dir); err != nil {
+			t.Fatal(err)
+		}
+		if exists, _ := files.PathExists(filepath.Join(dir, files.ControlHomeMarker)); exists {
+			t.Fatal("a marker was written")
+		}
+	})
+
+	t.Run("refuses a newer marker with the upgrade instruction", func(t *testing.T) {
+		err := files.AssertControlHomeFormat(home(t, text("format 3\n")))
+		if err == nil || !strings.Contains(err.Error(), "it is format 3, written by a newer berth, and this build reads format 2. Upgrade berth") {
+			t.Fatalf("got %v", err)
+		}
+	})
+
+	t.Run("refuses a foreign marker", func(t *testing.T) {
+		err := files.AssertControlHomeFormat(home(t, text("hello\n")))
+		if err == nil || !strings.Contains(err.Error(), "is not berth's own format") {
+			t.Fatalf("got %v", err)
+		}
+	})
+
+	t.Run("refuses a marker that is a symlink", func(t *testing.T) {
+		dir := home(t, nil)
+		if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), filepath.Join(dir, files.ControlHomeMarker)); err != nil {
+			t.Fatal(err)
+		}
+		if err := files.AssertControlHomeFormat(dir); err == nil {
+			t.Fatal("expected a refusal")
 		}
 	})
 }

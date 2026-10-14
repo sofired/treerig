@@ -23,6 +23,7 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 
+	"github.com/sofired/berth/internal/registry/registrytest"
 	"github.com/sofired/berth/internal/run/ptytest"
 )
 
@@ -123,11 +124,7 @@ kill-after = "2s"
 // worktreeID is the fixture worktree's UUID, from its identity markers.
 func (f upFixture) worktreeID(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.checkout, ".git", "berth", "worktree-id"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.TrimSpace(string(data))
+	return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "berth", "worktree-id"))
 }
 
 // lockHeld reports whether the lock file at path is flock-held by anyone.

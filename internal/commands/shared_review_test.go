@@ -294,6 +294,7 @@ func TestSharedDownRefusesWhenThePlanGrewWhileYouDecided(t *testing.T) {
 		labels := map[string]string{
 			brand.ManagedLabel(brand.LabelNamespace): "true", brand.RepositoryLabel(brand.LabelNamespace): result.Registration.RepositoryID,
 			brand.SharedLabel(brand.LabelNamespace): "true", "com.docker.compose.project": w.project(t, tc),
+			brand.FormatLabel(brand.LabelNamespace): "1",
 		}
 		extra = w.Docker.Add("volume", labels)
 	})
@@ -478,6 +479,7 @@ func TestAStartThatFailedWithAContainerUpStillConnectsTheOthers(t *testing.T) {
 		labels := map[string]string{
 			brand.ManagedLabel(brand.LabelNamespace): "true", brand.RepositoryLabel(brand.LabelNamespace): one.Registration.RepositoryID,
 			brand.SharedLabel(brand.LabelNamespace): "true", "com.docker.compose.project": project, "com.docker.compose.service": "mailpit",
+			brand.FormatLabel(brand.LabelNamespace): "1",
 		}
 		created := w.Docker.Add("container", labels)
 		w.Docker.SetName(created, project+"-mailpit-1")

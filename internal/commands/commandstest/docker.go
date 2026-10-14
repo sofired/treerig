@@ -13,6 +13,7 @@ import (
 	"github.com/sofired/berth/internal/brand"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -137,12 +138,14 @@ func NewDocker(services ...string) *Docker {
 	}
 }
 
-// Ownership is the three ownership labels plus Compose's own, as `up` stamps them.
+// Ownership is the three ownership labels, the format label and Compose's
+// own project label, as `up` stamps them.
 func Ownership(ref worktree.Ref, namespace string) map[string]string {
 	return map[string]string{
 		brand.ManagedLabel(namespace):    "true",
 		brand.RepositoryLabel(namespace): ref.RepositoryID,
 		brand.WorktreeLabel(namespace):   ref.WorktreeID,
+		brand.FormatLabel(namespace):     strconv.Itoa(stateformat.DockerLabel),
 		"com.docker.compose.project":     layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID),
 	}
 }
@@ -159,7 +162,10 @@ func (d *Docker) Up(ref worktree.Ref, namespace string, services ...string) []st
 		labels["com.docker.compose.service"] = service
 		ids = append(ids, d.add("container", labels))
 	}
-	ids = append(ids, d.add("volume", Ownership(ref, namespace)))
+	// A named volume carries no format label (docs/design/state.md).
+	volumeLabels := Ownership(ref, namespace)
+	delete(volumeLabels, brand.FormatLabel(namespace))
+	ids = append(ids, d.add("volume", volumeLabels))
 	return ids
 }
 
@@ -389,6 +395,15 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			}
 			if matches {
 				ids = append(ids, id)
+			}
+		}
+		// A listing that asks for one label beside each ID, as the pre-start
+		// check for resources of a newer format does: "{{.ID}}<tab>{{.Label "x"}}".
+		if template := after(args, "--format"); strings.HasPrefix(template, "{{.ID}}\t{{.Label ") {
+			if match := labelName.FindStringSubmatch(template); match != nil {
+				for i, id := range ids {
+					ids[i] = id + "\t" + d.resources[kind][id][match[1]]
+				}
 			}
 		}
 		return ok(strings.Join(ids, "\n"))

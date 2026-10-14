@@ -107,7 +107,7 @@ func sharedChecks(ctx context.Context, opts doctorOptions, loaded *config.Loaded
 	var checks []Check
 	for _, problem := range problems {
 		checks = append(checks, Check{Status: StatusFail, ID: "shared.unreadable-record", Instance: recordInstance(problem.File),
-			Subject: "shared-service record " + recordInstance(problem.File), Detail: problem.Reason + ". Move the file aside once you know what it is: a record that cannot be read may hold a port."})
+			Subject: "shared-service record " + recordInstance(problem.File), Detail: unreadableRecordDetail(problem)})
 	}
 	if !opts.DockerAnswered {
 		return append(checks, Check{Status: StatusSkip, ID: "shared.services", Subject: "shared services", Detail: "Docker is not answering, so their state is unknown"}), nil
@@ -551,4 +551,15 @@ func repositoryNames(records []registry.RegisteredWorktree) map[string]string {
 		}
 	}
 	return names
+}
+
+// unreadableRecordDetail is a shared-service record problem's line. A record a
+// newer berth wrote is intact, only unreadable here, so its reason already says
+// what to do and moving it aside would be wrong; any other is a file nobody
+// vouches for, which may hold a port.
+func unreadableRecordDetail(problem registry.RegistryProblem) string {
+	if problem.Newer {
+		return problem.Reason
+	}
+	return problem.Reason + ". Move the file aside once you know what it is: a record that cannot be read may hold a port."
 }

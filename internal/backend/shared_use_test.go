@@ -57,7 +57,7 @@ func TestOverrideStampsSharedUse(t *testing.T) {
 
 	t.Run("labels each using service with a shared-use label per shared service, besides its ownership", func(t *testing.T) {
 		web := labelsOf(t, document, "web")
-		for _, name := range []string{"dev.berth.managed", "dev.berth.repository-uuid", "dev.berth.worktree-uuid", "dev.berth.shared-use.mailpit", "dev.berth.shared-use.objects"} {
+		for _, name := range []string{"dev.berth.managed", "dev.berth.repository-uuid", "dev.berth.worktree-uuid", "dev.berth.format", "dev.berth.shared-use.mailpit", "dev.berth.shared-use.objects"} {
 			if web[name] == "" {
 				t.Errorf("web lacks %s: %v", name, web)
 			}
@@ -78,7 +78,7 @@ func TestOverrideStampsSharedUse(t *testing.T) {
 				t.Errorf("db carries %s", name)
 			}
 		}
-		if len(db) != 3 {
+		if len(db) != 4 {
 			t.Errorf("db = %v", db)
 		}
 	})

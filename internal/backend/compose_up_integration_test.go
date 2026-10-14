@@ -11,6 +11,7 @@ package backend
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -168,6 +169,30 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 	}
 	if got := dockerFormat(t, fmt.Sprintf(`{{ index .Config.Labels "%s.worktree-uuid" }}`, composeNamespace), "image", "inspect", project+"-builder"); got != subject.WorktreeID {
 		t.Fatalf("image label = %q", got)
+	}
+
+	// The format label landed on the container, the network and the image,
+	// so the ownership proof at teardown accepts what this build created
+	// (docs/design/state.md), and on no volume: Compose offers to recreate a
+	// volume whose label changed, losing its data.
+	for what, args := range map[string][]string{
+		"container": {"inspect", apiID},
+		"network":   {"network", "inspect", project + "_default"}, "image": {"image", "inspect", project + "-builder"},
+	} {
+		template := `{{ index .Labels "` + composeNamespace + `.format" }}`
+		if what == "container" || what == "image" {
+			template = `{{ index .Config.Labels "` + composeNamespace + `.format" }}`
+		}
+		if got := dockerFormat(t, template, args...); got != "1" {
+			t.Fatalf("%s format label = %q, want 1", what, got)
+		}
+	}
+	var volumeLabels map[string]string
+	if err := json.Unmarshal([]byte(dockerFormat(t, "{{ json .Labels }}", "volume", "inspect", project+"_data")), &volumeLabels); err != nil {
+		t.Fatalf("volume labels: %v", err)
+	}
+	if _, stamped := volumeLabels[composeNamespace+".format"]; stamped || volumeLabels[composeNamespace+".worktree-uuid"] != subject.WorktreeID {
+		t.Fatalf("volume labels = %v, want the ownership labels and no %s.format", volumeLabels, composeNamespace)
 	}
 
 	// The consumer's Compose file saw the BERTH_* environment.

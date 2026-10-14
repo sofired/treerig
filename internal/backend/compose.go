@@ -31,6 +31,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/berth/internal/stateformat"
 	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
@@ -484,9 +485,9 @@ func (c *Compose) list(ctx context.Context, kind resourceType, filters []string)
 	return ids, nil
 }
 
-// verify is one inspect per resource, reading all four ownership labels and
-// the Compose service name together. Any mismatch is a refusal; a resource
-// whose labels cannot be read is treated the same way.
+// verify is one inspect per resource, reading the three ownership labels,
+// the format label and the Compose service name together. Any mismatch is a
+// refusal; a resource whose labels cannot be read is treated the same way.
 func (c *Compose) verify(ctx context.Context, ref worktree.Ref, kind resourceType, id string) (string, error) {
 	namespace := c.options.LabelNamespace
 	label := func(name string) string { return fmt.Sprintf(`{{ index %s.Labels "%s" }}`, kind.labelPrefix, name) }
@@ -496,6 +497,7 @@ func (c *Compose) verify(ctx context.Context, ref worktree.Ref, kind resourceTyp
 		label(brand.RepositoryLabel(namespace)),
 		label(brand.WorktreeLabel(namespace)),
 		label(ComposeServiceLabel),
+		label(brand.FormatLabel(namespace)),
 	}, "\t")
 	args := append(slices.Clone(kind.inspectCommand), "--format", format, id)
 	result, err := docker.Run(ctx, c.options.Runner, args, run.Spec{AllowFailure: true, Timeout: c.timeouts.Probe})
@@ -512,13 +514,29 @@ func (c *Compose) verify(ctx context.Context, ref worktree.Ref, kind resourceTyp
 		}
 		return ""
 	}
-	managed, project, repositoryID, worktreeID, service := field(0), field(1), field(2), field(3), field(4)
+	managed, project, repositoryID, worktreeID, service, format := field(0), field(1), field(2), field(3), field(4), field(5)
 	// Compose's own project label is not promised on images: its bake
 	// builder leaves it off, while our build.labels always land. An image may
 	// lack it; one that carries it must carry ours.
 	projectOK := project == c.project(ref) || (kind.kind == "image" && project == "")
 	if managed != "true" || !projectOK || repositoryID != ref.RepositoryID || worktreeID != ref.WorktreeID {
 		return "", clierr.Newf("Refusing to touch %s %s: its ownership labels do not match this worktree.", kind.kind, id)
+	}
+	// A volume is proven by the ownership labels alone (see ownershipLabels).
+	if kind.kind == "volume" {
+		return service, nil
+	}
+	// The ownership labels above prove ownership only in the format they
+	// were written in. A resource of a newer format may mean them
+	// differently, and one with no format label is not one this build
+	// stamped: neither is proven owned, so neither is touched
+	// (docs/design/state.md).
+	switch verdict, found := stateformat.Label(format, stateformat.DockerLabel); verdict {
+	case stateformat.Current:
+	case stateformat.FromNewer:
+		return "", stateformat.Newer("touch", stateformat.DescribeResource(kind.kind, id, service), found, stateformat.DockerLabel)
+	default:
+		return "", clierr.Newf("Refusing to touch %s: %s", stateformat.DescribeResource(kind.kind, id, service), stateformat.Unproven(kind.kind, id, brand.FormatLabel(namespace), "it is this worktree's"))
 	}
 	return service, nil
 }

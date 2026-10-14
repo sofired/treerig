@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 // WorktreeInitialization is where a registered worktree's environment stands.
@@ -72,6 +73,10 @@ type EnsuredRegistration struct {
 type RegistryProblem struct {
 	File   string
 	Reason string
+	// Newer is true when the file was written by a newer berth than this
+	// build (Reason then says to upgrade): it is intact, only unreadable
+	// here, so a caller must not advise moving it aside.
+	Newer bool
 }
 
 // HostnameConflicts maps a hostname to the two or more worktrees claiming it.
@@ -98,6 +103,15 @@ var (
 	errUnrecognizedShape = errors.New("unrecognized version or shape")
 )
 
+// newerFormat is what the record parsers return for a record whose version is
+// above the one this build writes. found is the version as the record
+// declares it. Callers turn it into stateformat.Newer, naming the file.
+type newerFormat struct{ found string }
+
+// Error satisfies error; callers never show this text, they show
+// stateformat.Newer's.
+func (e *newerFormat) Error() string { return "format " + e.found + " is newer than this build reads" }
+
 // rawRecord is the on-disk shape, decoded strictly: an unknown key is a
 // shape error.
 type rawRecord struct {
@@ -122,7 +136,9 @@ type parsedRecord struct {
 	Initialization WorktreeInitialization
 }
 
-// parseRecordJSON validates data against the record schema: version 1,
+// parseRecordJSON validates data against the record schema: version 1 (a
+// version above it is a *newerFormat, judged before the rest of the shape,
+// which a newer build may have changed),
 // repositoryId and worktreeId are UUIDs, slug matches the slug pattern,
 // domain is non-empty, labelNamespace (if present) matches the label
 // namespace pattern, initialization is "pending" or "complete", ports (if
@@ -133,13 +149,16 @@ func parseRecordJSON(data []byte) (parsedRecord, error) {
 	if !json.Valid(data) {
 		return parsedRecord{}, errInvalidJSON
 	}
+	if verdict, found := stateformat.JSON(data, stateformat.Registration); verdict == stateformat.FromNewer {
+		return parsedRecord{}, &newerFormat{found: found}
+	}
 	var raw rawRecord
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&raw); err != nil {
 		return parsedRecord{}, errUnrecognizedShape
 	}
-	ok := raw.Version != nil && *raw.Version == 1 &&
+	ok := raw.Version != nil && *raw.Version == stateformat.Registration &&
 		raw.RepositoryID != nil && uuidPattern.MatchString(*raw.RepositoryID) &&
 		raw.WorktreeID != nil && uuidPattern.MatchString(*raw.WorktreeID) &&
 		raw.Slug != nil && slugPattern.MatchString(*raw.Slug) &&

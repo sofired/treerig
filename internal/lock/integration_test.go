@@ -34,6 +34,7 @@ import (
 	"github.com/sofired/berth/internal/procid"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/berth/internal/stateformat"
 )
 
 const (
@@ -642,6 +643,7 @@ func TestContradictionWithARealProcess(t *testing.T) {
 	}
 
 	rec := struct {
+		Version    int         `json:"version"`
 		PID        int         `json:"pid"`
 		Host       string      `json:"host"`
 		Command    string      `json:"command"`
@@ -653,7 +655,8 @@ func TestContradictionWithARealProcess(t *testing.T) {
 		StartTicks *uint64     `json:"startTicks,omitempty"`
 		StartUs    *int64      `json:"startUs,omitempty"`
 	}{
-		PID: os.Getpid(), Host: hostname, Command: "this test process",
+		Version: stateformat.LockRecord,
+		PID:     os.Getpid(), Host: hostname, Command: "this test process",
 		StartedAt: time.Now(), File: lock.FileID{Dev: dev, Ino: ino},
 		MachineID: self.MachineID, BootID: self.BootID, PIDNS: self.PIDNS,
 		StartTicks: status.StartTicks, StartUs: status.StartUs,
