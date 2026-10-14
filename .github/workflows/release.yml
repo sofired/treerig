@@ -266,25 +266,10 @@ jobs:
             mkdir -p tap/Formula
             cp berth/packaging/homebrew/berth.rb "$formula"
           fi
-          # Rewrite only the first stable url/sha256 pair, via python with literal
-          # replacements read from the environment (no sed delimiter hazard, no
-          # untrusted data spliced into a program). The head stanza is a `head`
-          # line, not a `url` line, so it is untouched.
-          python3 <<'PY'
-          import os, re, sys
-          path = "tap/Formula/berth.rb"
-          url, sha = os.environ["F_URL"], os.environ["F_SHA256"]
-          text = open(path).read()
-          text, n_url = re.subn(r'^(\s*)url "[^"]*"',
-                                lambda m: m.group(1) + 'url "' + url + '"',
-                                text, count=1, flags=re.M)
-          text, n_sha = re.subn(r'^(\s*)sha256 "[^"]*"',
-                                lambda m: m.group(1) + 'sha256 "' + sha + '"',
-                                text, count=1, flags=re.M)
-          if (n_url, n_sha) != (1, 1):
-              sys.exit("expected exactly one url and one sha256 stanza (got url=%d, sha256=%d)" % (n_url, n_sha))
-          open(path, "w").write(text)
-          PY
+          # Rewrite only the first stable url/sha256 pair. The snapshot build
+          # (packaging/verify-snapshot.sh) renders its formula with the same
+          # script, so pull requests exercise this step.
+          python3 berth/packaging/homebrew/set-source.py "$formula" "$F_URL" "$F_SHA256"
           # Post-conditions: the new values landed on the first stanza.
           grep -qF "url \"$F_URL\"" "$formula"
           grep -qF "sha256 \"$F_SHA256\"" "$formula"

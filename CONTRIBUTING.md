@@ -212,10 +212,11 @@ it ships when it merges.
 
 **Trying it without publishing.** Pull requests and pushes to `main` run the
 `release-snapshot` job in `go.yml`: shellcheck, `goreleaser check`, a snapshot
-build, `packaging/verify-snapshot.sh` (every artifact, the files in each, how
-each binary was built, and `install.sh` against the snapshot through a local
-server), and a second build whose `checksums.txt` must match the first. To do
-the same locally:
+build, a second build whose `checksums.txt` must match the first, and
+`packaging/verify-snapshot.sh` (every artifact, the files in each, how each
+binary was built, the tap formula rendered into `dist/berth.rb` from the
+source archive, and `install.sh` against the snapshot through a local server).
+The job uploads the artifacts and the formula. To do the same locally:
 
 ```bash
 go install github.com/goreleaser/goreleaser/v2@v2.18.3   # the version both workflows pin

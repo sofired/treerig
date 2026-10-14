@@ -100,6 +100,30 @@ printf '%s\n' "$source_list" | grep -v "^berth-${version}/" | grep -q . &&
   fail "$source_archive holds files outside berth-${version}/"
 echo "source archive: ok"
 
+# The tap formula, rendered the way the release workflow's tap job renders it:
+# packaging/homebrew/berth.rb pointed at this build's source archive, with the
+# checksum checksums.txt lists for it. It lands in dist/ beside the rest.
+source_sha=$(awk -v f="$source_archive" '$2 == f { print $1; exit }' "$dist/checksums.txt")
+printf '%s' "$source_sha" | grep -Eq '^[0-9a-f]{64}$' ||
+  fail "checksums.txt has no sha256 for $source_archive"
+source_url="https://github.com/sofired/berth/releases/download/v${version}/${source_archive}"
+cp "$repo/packaging/homebrew/berth.rb" "$dist/berth.rb"
+python3 "$repo/packaging/homebrew/set-source.py" "$dist/berth.rb" "$source_url" "$source_sha" ||
+  fail "could not render the formula"
+grep -qxF "  url \"$source_url\"" "$dist/berth.rb" || fail "berth.rb does not point at $source_url"
+grep -qxF "  sha256 \"$source_sha\"" "$dist/berth.rb" || fail "berth.rb does not carry $source_archive's sha256"
+grep -qF 'head "https://github.com/sofired/berth.git", branch: "main"' "$dist/berth.rb" ||
+  fail "rendering berth.rb changed its head stanza"
+# The formula stamps the version through the same -X flag as the release.
+grep -qF -- '-X github.com/sofired/berth/internal/brand.Version=' "$dist/berth.rb" ||
+  fail "berth.rb does not stamp brand.Version"
+if command -v ruby >/dev/null 2>&1; then
+  ruby -c "$dist/berth.rb" >/dev/null || fail "berth.rb is not valid Ruby"
+  echo "formula: ok (dist/berth.rb)"
+else
+  echo "formula: ok (dist/berth.rb; Ruby syntax not checked, no ruby on this machine)"
+fi
+
 # Every binary was built without cgo and with trimmed paths, and carries the
 # stamped version.
 for dir in "$dist"/berth_linux_amd64_* "$dist"/berth_linux_arm64_* "$dist"/berth_darwin_amd64_* "$dist"/berth_darwin_arm64_*; do

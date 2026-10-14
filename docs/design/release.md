@@ -58,7 +58,9 @@ emits is signed by a package-manager key.
   not with a release.
 - **The Homebrew formula** in `sofired/homebrew-tap` builds from the source
   archive; the release workflow takes its digest from `checksums.txt`. The
-  template is `packaging/homebrew/berth.rb`.
+  template is `packaging/homebrew/berth.rb`, and
+  `packaging/homebrew/set-source.py` points it at a release. The tap job and
+  the snapshot (`dist/berth.rb`) both render it with that script.
 - **The README's verification steps** pin the identity above.
 - **#85** (running `worktree remove` from a pinned, trusted binary) is built on
   this: what it pins to is the digest list and identity in this note.

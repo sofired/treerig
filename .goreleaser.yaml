@@ -9,8 +9,9 @@
 # the names and identities that install.sh and verifiers depend on.
 #
 # Homebrew is not configured here: the tap's formula builds from the source
-# archive below, so its bump is the release workflow's homebrew-tap job and the
-# template is packaging/homebrew/berth.rb.
+# archive below, so its bump is the release workflow's homebrew-tap job, the
+# template is packaging/homebrew/berth.rb, and packaging/verify-snapshot.sh
+# renders a snapshot's formula into dist/berth.rb.
 version: 2
 
 project_name: berth

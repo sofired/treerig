@@ -99,8 +99,9 @@ jobs:
   # packages and checksums.txt.
   # It also replaces a plain cross-compile of the four targets, since the
   # snapshot builds them the way a release does (CGO_ENABLED=0, trimpath).
-  # packaging/verify-snapshot.sh then checks the artifacts and runs install.sh
-  # against them.
+  # packaging/verify-snapshot.sh then checks the artifacts, renders the tap
+  # formula (dist/berth.rb) the way the release's tap job does, and runs
+  # install.sh against them.
   release-snapshot:
     name: release snapshot
     runs-on: ubuntu-latest
@@ -130,16 +131,18 @@ jobs:
       - name: Snapshot build
         run: goreleaser release --snapshot --clean --skip=sign
 
-      - name: Verify the artifacts and install.sh
-        run: packaging/verify-snapshot.sh dist
-
       # The same commit builds to the same bytes (commit-dated, root-owned
-      # files), so a published checksum can be checked by rebuilding.
+      # files), so a published checksum can be checked by rebuilding. It runs
+      # before the verify step, whose dist/berth.rb a --clean rebuild would
+      # delete.
       - name: The snapshot is reproducible
         run: |
           cp dist/checksums.txt "$RUNNER_TEMP/first-checksums.txt"
           goreleaser release --snapshot --clean --skip=sign
           diff "$RUNNER_TEMP/first-checksums.txt" dist/checksums.txt
+
+      - name: Verify the artifacts, the tap formula and install.sh
+        run: packaging/verify-snapshot.sh dist
 
       # Reviewers can install a pull request's build, and the latest main
       # build stays available without waiting for a tag.
@@ -152,5 +155,6 @@ jobs:
             dist/*.rpm
             dist/*.apk
             dist/checksums.txt
+            dist/berth.rb
           retention-days: 14
           if-no-files-found: error
