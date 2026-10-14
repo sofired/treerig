@@ -53,6 +53,9 @@ const (
 	// every container, network and image berth creates for a worktree or a
 	// shared stack. Named volumes carry none (docs/design/state.md).
 	DockerLabel = 1
+	// TeardownPin is the version in the teardown pin, teardown/pin.json
+	// under the control home (docs/design/teardown.md).
+	TeardownPin = 1
 )
 
 // Verdict is how a stored version compares with the one this build writes.

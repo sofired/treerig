@@ -311,6 +311,49 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		requireNoError(t, files.SecureBinDirectory(l, userHome)) // and again, idempotently
 	})
 
+	t.Run("creates the teardown directory owner-only, lazily, apart from the bin directory", func(t *testing.T) {
+		controlHome := filepath.Join(t.TempDir(), "control")
+		l := layout.ControlLayout(controlHome)
+		userHome := t.TempDir()
+
+		requireNoError(t, files.SecureControlDirectories(l, userHome))
+		exists, err := files.PathExists(l.TeardownDir)
+		requireNoError(t, err)
+		if exists {
+			t.Fatalf("expected %s not to be created by SecureControlDirectories alone", l.TeardownDir)
+		}
+
+		requireNoError(t, files.SecureTeardownDirectory(l, userHome))
+		if mode := fileMode(t, l.TeardownDir); mode != 0o700 {
+			t.Fatalf("expected %s to be 0700, got %o", l.TeardownDir, mode)
+		}
+		exists, err = files.PathExists(l.BinDir)
+		requireNoError(t, err)
+		if exists {
+			t.Fatalf("expected %s not to be created with the teardown directory", l.BinDir)
+		}
+		requireNoError(t, files.SecureTeardownDirectory(l, userHome)) // and again, idempotently
+	})
+
+	t.Run("refuses a symlinked teardown directory and tightens a loose one", func(t *testing.T) {
+		controlHome := filepath.Join(t.TempDir(), "control")
+		l := layout.ControlLayout(controlHome)
+		userHome := t.TempDir()
+		requireNoError(t, files.SecureTeardownDirectory(l, userHome))
+		requireNoError(t, os.Chmod(l.TeardownDir, 0o755))
+		requireNoError(t, files.SecureTeardownDirectory(l, userHome))
+		if mode := fileMode(t, l.TeardownDir); mode != 0o700 {
+			t.Fatalf("expected %s to be tightened to 0700, got %o", l.TeardownDir, mode)
+		}
+
+		requireNoError(t, os.Remove(l.TeardownDir))
+		elsewhere := t.TempDir()
+		requireNoError(t, os.Symlink(elsewhere, l.TeardownDir))
+		if err := files.SecureTeardownDirectory(l, userHome); err == nil {
+			t.Fatal("expected a symlinked teardown directory to be refused")
+		}
+	})
+
 	t.Run("creates a worktree home owner-only and refuses while a removal is half-finished", func(t *testing.T) {
 		controlHome := filepath.Join(t.TempDir(), "control")
 		l := layout.WorktreeLayout(controlHome, "a08b4892-5111-49f1-a47a-5ab988c7f676", "2b41d9d4-ed88-49c1-be9c-5439bdf6a431")
