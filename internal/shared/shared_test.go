@@ -3,6 +3,7 @@ package shared_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,8 +17,10 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/run/fakerun"
 	"github.com/sofired/berth/internal/shared"
+	"github.com/sofired/berth/internal/text"
 	"github.com/sofired/berth/internal/worktree"
 )
 
@@ -1074,4 +1077,248 @@ func TestStatusesSurviveOneBadContainer(t *testing.T) {
 	if _, err := f.stack.Instance(ctx, "db"); err == nil {
 		t.Error("Instance accepted a stack with a container that cannot be proven")
 	}
+}
+
+// checkout is a shared file at <parent>/acme/docker/compose.shared.yaml, one
+// checkout of a repository, under its own parent directory.
+type checkout struct {
+	parent string
+	root   string
+	file   string
+	// roots are the worktree roots the stack is given; newCheckout sets the
+	// checkout's own.
+	roots []string
+}
+
+// newCheckout makes a checkout with its own parent directory and the shared
+// file's directory on disk.
+func newCheckout(t *testing.T) checkout {
+	t.Helper()
+	parent := registrytest.TempDir(t)
+	root := filepath.Join(parent, "acme")
+	file := filepath.Join(root, "docker", "compose.shared.yaml")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(file), "db.env"), []byte("X=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return checkout{parent: parent, root: root, file: file, roots: []string{root}}
+}
+
+// recorder is a logger that keeps its warnings.
+type recorder struct {
+	logger.Silent
+	warnings []string
+}
+
+// Warn keeps the message.
+func (r *recorder) Warn(message string) { r.warnings = append(r.warnings, message) }
+
+// stack is the shared stack as a command run in c would build it, over the
+// given runner handler, with the given inherited environment and logger.
+func (c checkout) stack(t *testing.T, handler fakerun.Handler, log logger.Logger, environ ...string) *shared.Stack {
+	t.Helper()
+	return shared.New(shared.Options{
+		RepositoryID: repository, LabelNamespace: ns, ControlHome: filepath.Join(c.parent, "control"),
+		ComposeFile: c.file, ProjectName: "acme", WorktreeRoots: c.roots, Environ: environ,
+		Runner: &fakerun.Runner{Handler: handler}, Logger: log,
+	})
+}
+
+// TestDefinitionHashIsTheSameInEveryCheckout pins decision 16's promise: two
+// checkouts of one repository, under different parent directories, either
+// compute the same hash for the shared file or one of them refuses it, never a
+// different hash that would show as a false "definition differs".
+func TestDefinitionHashIsTheSameInEveryCheckout(t *testing.T) {
+	first, second := newCheckout(t), newCheckout(t)
+	hashIn := func(t *testing.T, c checkout, d *commandstest.Docker, environ ...string) (string, error) {
+		t.Helper()
+		definition, err := c.stack(t, d.Handle, logger.Silent{}, environ...).ReadDefinition(context.Background())
+		if err != nil {
+			return "", err
+		}
+		return definition.Hash("db")
+	}
+	service := func(volume, extra any) *commandstest.Docker {
+		d := commandstest.NewDocker()
+		entry := map[string]any{"image": "postgres", "volumes": []any{
+			map[string]any{"type": "bind", "source": volume, "target": "/data"},
+		}}
+		if extra != nil {
+			entry["environment"] = map[string]any{"HERE": extra}
+		}
+		d.SetSharedService("db", entry)
+		return d
+	}
+	const remedy = "Use an absolute path outside every worktree, a named volume, or a value that is the same in every checkout."
+
+	t.Run("an absolute bind source outside every worktree hashes alike", func(t *testing.T) {
+		d := service("/srv/shared/db", nil)
+		a, err := hashIn(t, first, d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := hashIn(t, second, d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a != b {
+			t.Fatalf("hashes differ: %s, %s", a, b)
+		}
+	})
+
+	t.Run("refuses a relative bind source that climbs out of the checkout, in these words", func(t *testing.T) {
+		d := service(commandstest.ProjectGrandparent+"/shared-data", nil)
+		for _, c := range []checkout{first, second} {
+			_, err := hashIn(t, c, d)
+			// The value is the checkout's real path, cut as the message cuts
+			// it: a long temporary directory (macOS's /private/var/folders/...)
+			// is shortened in the message itself.
+			value := text.OneLine(filepath.Join(c.parent, "shared-data"), 80)
+			want := fmt.Sprintf(`docker/compose.shared.yaml reads differently in each checkout: services.db.volumes[0].source resolves to %q here, from a relative path. `, value) + remedy
+			if err == nil || err.Error() != want {
+				t.Fatalf("err = %v\nwant %s", err, want)
+			}
+			// doctor shows this refusal and cuts a detail at 400 characters;
+			// shared status never checks, so its 300 does not apply.
+			if len(want) > 400 {
+				t.Fatalf("the message is %d characters; doctor cuts at 400", len(want))
+			}
+		}
+	})
+
+	t.Run("refuses ${PWD} in the file, and says so", func(t *testing.T) {
+		d := service("/srv/shared/db", commandstest.WorkingDirectory)
+		_, err := hashIn(t, first, d, "PWD=/home/dev/acme/docker")
+		want := `services.db.environment.HERE resolves to "/home/dev/acme/docker" here, from ${PWD}.`
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v\nwant %s", err, want)
+		}
+	})
+
+	t.Run("reports the first difference in sorted key order when two differ", func(t *testing.T) {
+		d := service(commandstest.ProjectGrandparent+"/shared-data", commandstest.WorkingDirectory)
+		_, err := hashIn(t, first, d, "PWD=/home/dev/acme/docker")
+		if err == nil || !strings.Contains(err.Error(), "services.db.environment.HERE") || strings.Contains(err.Error(), "volumes[0]") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("shows the path of a difference safe to print", func(t *testing.T) {
+		d := commandstest.NewDocker()
+		d.SetSharedService("db", map[string]any{"image": "postgres", "environment": map[string]any{"A\u001b[2KB": commandstest.WorkingDirectory}})
+		_, err := hashIn(t, first, d, "PWD=/home/dev/acme")
+		if err == nil || strings.Contains(err.Error(), "\x1b") {
+			t.Fatalf("err = %q", err)
+		}
+	})
+
+	t.Run("does not check a file outside every worktree, where every checkout reads the same", func(t *testing.T) {
+		outside := first
+		outside.roots = []string{filepath.Join(first.parent, "elsewhere")}
+		d := service(commandstest.ProjectGrandparent+"/shared-data", commandstest.WorkingDirectory)
+		runner := &fakerun.Runner{Handler: d.Handle}
+		stack := shared.New(shared.Options{
+			RepositoryID: repository, LabelNamespace: ns, ControlHome: filepath.Join(outside.parent, "control"),
+			ComposeFile: outside.file, ProjectName: "acme", WorktreeRoots: outside.roots, Environ: []string{"PWD=/x"},
+			Runner: runner, Logger: logger.Silent{},
+		})
+		if _, err := stack.ReadDefinition(context.Background()); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if n := len(runner.Calls()); n != 1 {
+			t.Fatalf("%d Compose calls, want 1: %v", n, runner.Argv())
+		}
+	})
+
+	t.Run("leaves no scratch directory behind", func(t *testing.T) {
+		d := service(commandstest.ProjectGrandparent+"/shared-data", nil)
+		_, _ = hashIn(t, first, d)
+		found, err := filepath.Glob(filepath.Join(first.parent, "control", "shared-probe-*"))
+		if err != nil || len(found) != 0 {
+			t.Fatalf("scratch directories left: %v, %v", found, err)
+		}
+	})
+
+	t.Run("a second read Compose cannot make accepts the file with a warning naming Compose's error", func(t *testing.T) {
+		d := service(commandstest.ProjectGrandparent+"/shared-data", nil)
+		d.FailCall("shared-probe-", "env file ../../outside.env not found\nsecond line", 1, -1)
+		log := &recorder{}
+		if _, err := first.stack(t, d.Handle, log).ReadDefinition(context.Background()); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		want := "Could not check whether docker/compose.shared.yaml reads the same from every checkout (env file ../../outside.env not found); " +
+			"a relative path or ${PWD} there may give each checkout its own definition. " +
+			"Use absolute paths there, or keep the files it reads under its own directory, to silence this."
+		if len(log.warnings) != 1 || log.warnings[0] != want {
+			t.Fatalf("warnings = %q\nwant %q", log.warnings, want)
+		}
+	})
+
+	t.Run("a second read that is not JSON accepts the file with a warning", func(t *testing.T) {
+		d := service("/srv/shared/db", nil)
+		handler := func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if strings.Contains(strings.Join(spec.Args, " "), "shared-probe-") {
+				return run.Finish(spec, run.Result{Stdout: "not json"})
+			}
+			return d.Handle(ctx, spec)
+		}
+		log := &recorder{}
+		if _, err := first.stack(t, handler, log).ReadDefinition(context.Background()); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if len(log.warnings) != 1 || !strings.Contains(log.warnings[0], "Could not check whether docker/compose.shared.yaml") ||
+			!strings.Contains(log.warnings[0], "decoding the second read") {
+			t.Fatalf("warnings = %q", log.warnings)
+		}
+	})
+
+	t.Run("prints a control character in the file's name safely", func(t *testing.T) {
+		c := newCheckout(t)
+		named := filepath.Join(filepath.Dir(c.file), "compose\x1b[2K.yaml")
+		c.file = named
+		d := service("/srv/shared/db", nil)
+		d.FailCall("shared-probe-", "boom", 1, -1)
+		log := &recorder{}
+		if _, err := c.stack(t, d.Handle, log).ReadDefinition(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(log.warnings) != 1 || strings.Contains(log.warnings[0], "\x1b") {
+			t.Fatalf("warnings = %q", log.warnings)
+		}
+	})
+
+	t.Run("a scratch directory that cannot be made is a warning, not a failure", func(t *testing.T) {
+		d := service("/srv/shared/db", nil)
+		blocked := newCheckout(t)
+		if err := os.WriteFile(filepath.Join(blocked.parent, "control"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		log := &recorder{}
+		if _, err := blocked.stack(t, d.Handle, log).ReadDefinition(context.Background()); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if len(log.warnings) != 1 || !strings.Contains(log.warnings[0], "Could not check whether") {
+			t.Fatalf("warnings = %q", log.warnings)
+		}
+	})
+
+	t.Run("a cancelled context is returned, not skipped", func(t *testing.T) {
+		d := service("/srv/shared/db", nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		handler := func(callCtx context.Context, spec run.Spec) (run.Result, error) {
+			if strings.Contains(strings.Join(spec.Args, " "), "shared-probe-") {
+				cancel()
+				return run.Result{}, context.Canceled
+			}
+			return d.Handle(callCtx, spec)
+		}
+		log := &recorder{}
+		_, err := first.stack(t, handler, log).ReadDefinition(ctx)
+		if !errors.Is(err, context.Canceled) || len(log.warnings) != 0 {
+			t.Fatalf("err = %v, warnings = %q", err, log.warnings)
+		}
+	})
 }

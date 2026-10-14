@@ -180,3 +180,92 @@ func TestAHashThatCannotBeComputedFailsTheStartAndWritesNothing(t *testing.T) {
 		t.Fatalf("override files written: %v", found)
 	}
 }
+
+// TestFirstDifference pins what two reads of a shared file are said to differ
+// in: equal outputs do not, and a type mismatch, a list of another length, a
+// key only one read has and a changed leaf each do, at their path.
+func TestFirstDifference(t *testing.T) {
+	cases := []struct {
+		name        string
+		here, other string
+		path, value string
+		differs     bool
+	}{
+		{"equal", `{"a":{"b":[1,"x"]}}`, `{"a":{"b":[1,"x"]}}`, "", "", false},
+		{"a changed leaf", `{"a":{"b":"/x"}}`, `{"a":{"b":"/y"}}`, "a.b", `"/x"`, true},
+		{"a type mismatch", `{"a":{"b":"1"}}`, `{"a":{"b":1}}`, "a.b", `"1"`, true},
+		{"an object against a string", `{"a":{"b":1}}`, `{"a":"s"}`, "a", `{"b":1}`, true},
+		{"lists of another length", `{"a":["x","y"]}`, `{"a":["x"]}`, "a", `["x","y"]`, true},
+		{"a key only the second read has", `{"a":1}`, `{"a":1,"b":2}`, "b", "nothing", true},
+		{"a key only the first read has", `{"a":1,"b":2}`, `{"a":1}`, "b", "2", true},
+		{"null against a value", `{"a":null}`, `{"a":"x"}`, "a", "nothing", true},
+		{"two differences report the first key", `{"b":"1","a":"1"}`, `{"b":"2","a":"2"}`, "a", `"1"`, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			found, differs, err := firstDifference(c.here, c.other)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if differs != c.differs || found.path != c.path || (differs && found.describeHere() != c.value) {
+				t.Fatalf("got differs=%v path=%q value=%s; want differs=%v path=%q value=%s", differs, found.path, found.describeHere(), c.differs, c.path, c.value)
+			}
+		})
+	}
+
+	t.Run("reports output it cannot decode", func(t *testing.T) {
+		if _, _, err := firstDifference(`{`, `{}`); err == nil {
+			t.Fatal("no error for the first read")
+		}
+		if _, _, err := firstDifference(`{}`, `{`); err == nil {
+			t.Fatal("no error for the second read")
+		}
+	})
+}
+
+// TestCause pins that a cause is named only when substituting the scratch
+// directory for the real one reproduces the second read.
+func TestCause(t *testing.T) {
+	const realDir, probe = "/work/acme/docker", "/scratch/a/b/c/d"
+	const neutral = "a path or variable that depends on the checkout"
+	cases := []struct {
+		name, pwd, here, other, want string
+	}{
+		{"PWD itself", "/home/dev/acme", "/home/dev/acme", probe, "${PWD}"},
+		{"PWD with a suffix", "/home/dev/acme", "/home/dev/acme/data", probe + "/data", "${PWD}"},
+		{"a path in the project directory", "/home/dev", realDir + "/data", probe + "/data", "a relative path"},
+		{"a path that climbs out of it", "/home/dev", "/work/shared-data", "/scratch/a/b/shared-data", "a relative path"},
+		{"a command run from the project directory", realDir, realDir, probe, neutral},
+		{"PWD an ancestor of the project directory, value the project directory", "/work", realDir, probe, "a relative path"},
+		{"a command string", "/home/dev", "echo /work/acme", "echo /somewhere/else", neutral},
+		{"no PWD, the scratch directory itself", "", realDir, probe, "a relative path"},
+		{"no PWD, nothing to substitute", "", "alice", "bob", neutral},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := difference{path: "p", here: c.here, other: c.other}
+			if got := d.cause(realDir, probe, c.pwd); got != c.want {
+				t.Fatalf("cause = %q, want %q", got, c.want)
+			}
+		})
+	}
+
+	t.Run("bounds a long value, keeping the quoting", func(t *testing.T) {
+		long := strings.Repeat("k", 500)
+		for name, value := range map[string]any{"a string": long, "a list": []any{long}} {
+			got := difference{here: value}.describeHere()
+			if len([]rune(got)) > describeLimit+4 || !strings.Contains(got, "…") {
+				t.Fatalf("%s: describeHere is %d characters: %s", name, len(got), got)
+			}
+		}
+		if got := (difference{here: "a\x1bb"}).describeHere(); strings.Contains(got, "\x1b") {
+			t.Fatalf("describeHere = %q", got)
+		}
+	})
+
+	t.Run("describes an empty value", func(t *testing.T) {
+		if got := (difference{here: ""}).describeHere(); got != "an empty value" {
+			t.Fatalf("describeHere = %q", got)
+		}
+	})
+}
