@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -211,12 +210,8 @@ func TestDevThroughTheBinary(t *testing.T) {
 // that signal only once it is gone, with the development lock released.
 func TestDevInterrupted(t *testing.T) {
 	binary := buildBinary(t)
-	// A signal ignored when berth starts stays ignored; catching them here
-	// hands berth the defaults whatever this test was started with, as
-	// TestRunInterrupted does.
-	caught := make(chan os.Signal, 1)
-	signal.Notify(caught, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	t.Cleanup(func() { signal.Stop(caught) })
+	// So berth gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
+	catchTerminationSignals(t)
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
 		t.Run(fmt.Sprintf("dies by %v, with the follower's group gone and both locks released", sig), func(t *testing.T) {
 			f := newUpFixture(t)
