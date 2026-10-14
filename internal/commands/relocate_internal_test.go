@@ -7,15 +7,18 @@ package commands
 // is already the installed copy, hands it to Exec unchanged.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/sofired/berth/internal/binstore"
+	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/registry/registrytest"
@@ -91,6 +94,14 @@ func (f *fakeEnv) controlLayout(t *testing.T) layout.Control {
 	return layout.ControlLayout(home)
 }
 
+// reexec runs relocateAndReexec with a live context and fails t on an error.
+func reexec(t *testing.T, env *Env) {
+	t.Helper()
+	if err := relocateAndReexec(context.Background(), env); err != nil {
+		t.Fatalf("relocateAndReexec = %v", err)
+	}
+}
+
 // wantWarning fails t unless log holds exactly one line equal to want.
 func wantWarning(t *testing.T, log *logger.Recording, want string) {
 	t.Helper()
@@ -115,7 +126,7 @@ func TestRelocateAndReexec(t *testing.T) {
 	t.Run("does nothing when Executable or Exec is not wired", func(t *testing.T) {
 		f := newFakeEnv(t, "a build")
 		f.env.Exec = nil
-		relocateAndReexec(f.env) // Executable is set, Exec is not: still a no-op.
+		reexec(t, f.env) // Executable is set, Exec is not: still a no-op.
 		if _, err := os.Stat(f.controlLayout(t).BinDir); !os.IsNotExist(err) {
 			t.Fatalf("expected no bin directory, stat error: %v", err)
 		}
@@ -123,7 +134,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		f2 := newFakeEnv(t, "a build")
 		f2.env.Executable = nil
 		f2.env.Exec = func(string, []string, []string) error { t.Fatal("Exec should not be called"); return nil }
-		relocateAndReexec(f2.env)
+		reexec(t, f2.env)
 	})
 
 	t.Run("installs a copy outside the checkout and hands it to Exec with argv and env unchanged", func(t *testing.T) {
@@ -137,7 +148,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			return nil
 		}
 
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		if !called {
 			t.Fatalf("Exec was not called")
@@ -168,6 +179,25 @@ func TestRelocateAndReexec(t *testing.T) {
 		}
 	})
 
+	t.Run("returns the cancellation, and does not exec, when a signal arrived while the copy was installed", func(t *testing.T) {
+		f := newFakeEnv(t, "interrupted")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		interrupted := &clierr.Cancelled{Signal: syscall.SIGINT}
+		// The signal lands during relocation: Exec is the first thing that
+		// would notice, and it must never be reached.
+		cancel(interrupted)
+		f.env.Exec = func(string, []string, []string) error {
+			t.Fatal("Exec was called on a cancelled context; the interruption would be forgotten")
+			return nil
+		}
+
+		err := relocateAndReexec(ctx, f.env)
+
+		if !errors.Is(err, interrupted) {
+			t.Fatalf("relocateAndReexec = %v, want the cancellation", err)
+		}
+	})
+
 	t.Run("does not re-exec when already running the installed copy", func(t *testing.T) {
 		f := newFakeEnv(t, "already installed")
 		control := f.controlLayout(t)
@@ -182,7 +212,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			return nil
 		}
 
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 	})
 
 	t.Run("falls back to the running binary, warning, when it cannot find its own executable path", func(t *testing.T) {
@@ -193,7 +223,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			return nil
 		}
 
-		relocateAndReexec(f.env) // Must not panic and must not fail the caller.
+		reexec(t, f.env) // Must not panic and must not fail the caller.
 
 		wantWarning(t, f.log, "warn: Could not find its own running binary before removing: boom; continuing with this binary.")
 	})
@@ -207,7 +237,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			return nil
 		}
 
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		wantWarning(t, f.log, fmt.Sprintf("warn: Could not read its own running binary before removing: open %s: no such file or directory; continuing with this binary.", missing))
 	})
@@ -230,7 +260,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			return nil
 		}
 
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		wantWarningWrapping(t, f.log, "warn: Could not resolve the control home before removing: ", "; continuing with this binary.")
 	})
@@ -250,7 +280,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			return nil
 		}
 
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		wantWarningWrapping(t, f.log, "warn: Could not prepare a standalone copy of itself before removing: ", "; continuing with this binary.")
 	})
@@ -259,7 +289,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		f := newFakeEnv(t, "will fail to exec")
 		f.env.Exec = func(string, []string, []string) error { return errors.New("permission denied") }
 
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		wantWarning(t, f.log, "warn: Could not run its own standalone copy before removing: permission denied; continuing with this binary.")
 	})
@@ -271,7 +301,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		// AssertAdoptableControlHome-refused control home would otherwise
 		// refuse a bin/ directory seeded any other way — before a stale
 		// entry is added directly.
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		control := f.controlLayout(t)
 		stale, err := binstore.Install(control.BinDir, []byte("stale build"), 0o700, time.Now())
@@ -301,7 +331,7 @@ func TestRelocateAndReexec(t *testing.T) {
 					panic(r)
 				}
 			}()
-			relocateAndReexec(f.env)
+			reexec(t, f.env)
 		}()
 
 		if _, err := os.Stat(stale); !os.IsNotExist(err) {
@@ -317,7 +347,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		// AssertAdoptableControlHome-refused control home would otherwise
 		// refuse a bin/ directory seeded any other way) before a second
 		// entry can be added directly.
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		control := f.controlLayout(t)
 		current, err := binstore.Install(control.BinDir, []byte("current build"), 0o700, time.Now())
@@ -342,7 +372,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			t.Fatal("Exec should not be called when already running the installed copy")
 			return nil
 		}
-		relocateAndReexec(f.env)
+		reexec(t, f.env)
 
 		if _, err := os.Stat(current); err != nil {
 			t.Fatalf("current entry was pruned: %v", err)

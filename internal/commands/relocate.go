@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -80,19 +81,23 @@ const standaloneGrace = 10 * time.Minute
 // checkout deleting the program removing it, it is not the ownership check
 // every resource still goes through regardless of which binary performs
 // the removal, and it does not vet the binary it relocates.
-func relocateAndReexec(env *Env) {
+//
+// The one error it returns is ctx's cause, when a signal has cancelled ctx
+// by the time the copy is ready to be exec-ed: nothing has been touched yet,
+// and the caller returns it so the process dies by the signal.
+func relocateAndReexec(ctx context.Context, env *Env) error {
 	if env.Executable == nil || env.Exec == nil {
-		return
+		return nil
 	}
 	current, err := env.Executable()
 	if err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not find its own running binary before removing: %s; continuing with this binary.", err))
-		return
+		return nil
 	}
 	content, err := os.ReadFile(current)
 	if err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not read its own running binary before removing: %s; continuing with this binary.", err))
-		return
+		return nil
 	}
 	// Through checkedHome, not layout.ResolveControlHome directly (#80): the
 	// berth root gets the same files.AssertSafeHome check every other verb
@@ -105,23 +110,23 @@ func relocateAndReexec(env *Env) {
 	home, userHome, err := checkedHome(env.Getenv)
 	if err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not resolve the control home before removing: %s; continuing with this binary.", err))
-		return
+		return nil
 	}
 	controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
 	if err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not resolve the control home before removing: %s; continuing with this binary.", err))
-		return
+		return nil
 	}
 	control := layout.ControlLayout(controlHome)
 	if err := files.SecureBinDirectory(control, userHome); err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not prepare a standalone copy of itself before removing: %s; continuing with this binary.", err))
-		return
+		return nil
 	}
 	now := time.Now()
 	installed, err := binstore.Install(control.BinDir, content, 0o700, now)
 	if err != nil {
 		env.Logger.Warn(fmt.Sprintf("Could not install a standalone copy of itself before removing: %s; continuing with this binary.", err))
-		return
+		return nil
 	}
 	// Best-effort, and run synchronously here rather than deferred: a
 	// successful Exec below replaces this process and never returns, so
@@ -133,16 +138,24 @@ func relocateAndReexec(env *Env) {
 		// Already running the installed copy — a previous relocation's own
 		// exec, or someone invoking the store's copy directly. Nothing left
 		// to relocate; the caller proceeds in this process.
-		return
+		return nil
 	}
 	if len(env.Args) == 0 {
-		return
+		return nil
+	}
+	// A signal that arrived while the copy was being installed was caught by
+	// this process, and exec would reset its handler: the new image would
+	// start with the interruption forgotten and remove anyway. Stop here
+	// instead, so the process dies by the signal.
+	if ctx.Err() != nil {
+		return context.Cause(ctx)
 	}
 	if err := env.Exec(installed, env.Args, env.Environ); err != nil {
 		// Exec only returns on failure; success replaces this process and
 		// never reaches here.
 		env.Logger.Warn(fmt.Sprintf("Could not run its own standalone copy before removing: %s; continuing with this binary.", err))
 	}
+	return nil
 }
 
 // canonical is path with every symlink resolved, falling back to path

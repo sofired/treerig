@@ -609,6 +609,24 @@ resources, the home directory, the registration, the identity marker.
 whose checkout is already gone; `--label-namespace` supplies the Docker label
 namespace of its resources when nothing on disk records it.
 
+A SIGINT, SIGTERM or SIGHUP that arrives once the removal has started
+destroying things leaves the worktree `pending`, and berth says so on stderr
+before it dies by the signal: `Interrupted (<signal>) while removing <host>.
+Removed so far (at least): <what>. It is still registered, now pending:
+'berth worktree remove' finishes the removal, 'berth up' starts it again and
+runs the seed hook again.` The counts are a lower bound (the resource being
+removed when the signal came is not counted), and "nothing confirmed yet"
+stands when none is known to be gone. The command names the target as you
+typed it (`'berth worktree remove <slug|uuid> --domain <domain>'`) and leaves out
+`up` when it is another worktree's removal that was interrupted. A signal
+during the earlier `compose down` destroys nothing and prints no such notice,
+and neither does one that also left a lock unreleased: that is reported as
+an error, and [Lock recovery](#lock-recovery) applies. `doctor` deliberately
+does not flag a `pending` worktree: a new worktree is `pending` until its
+first `up` finishes, and so is one whose first `up` failed, and nothing in
+the registration tells either from an interrupted removal, so a check could
+only warn about the ordinary case. `worktree list` shows it.
+
 `worktree remove` does not run the removal from wherever the invoked binary
 happens to live: before doing anything else, it installs a content-addressed
 copy of itself under the control home — outside any checkout — and hands the

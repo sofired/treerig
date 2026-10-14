@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -64,7 +65,9 @@ func Remove(ctx context.Context, env *Env, options RemoveOptions) error {
 	// which tests call directly, is deliberately not where this lives — a
 	// test's Env has no Executable/Exec wired, so it skips relocation and
 	// runs exactly as it always has.
-	relocateAndReexec(env)
+	if err := relocateAndReexec(ctx, env); err != nil {
+		return err
+	}
 	cctx, err := Context(env)
 	if err != nil {
 		return err
@@ -121,8 +124,19 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 
+	// Whether the target is this checkout's own worktree, which `up` can
+	// start again from here; only an interruption's notice reads it.
+	here := options.Identifier == ""
+	if !here {
+		if current, err := cctx.Registry.Current(ctx); err == nil && current != nil {
+			here = current.WorktreeID == target.WorktreeID
+		}
+	}
 	result := &RemoveResult{Target: *target}
 	store := cctx.Registry.Store(target.RepositoryID)
+	// Set once the registration is pending, which is when an interruption
+	// has left something worth telling the user about.
+	marked := false
 	err = cctx.mutate(ctx, ref, host, true, func(ctx context.Context) error {
 		// The lock was free while the prompt was up: another removal may have
 		// finished, or an `up` may have re-labelled the worktree's resources.
@@ -186,18 +200,24 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			if err := store.MarkPending(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 				return err
 			}
+			marked = true
+			// What `down` took, in case the signal lands before the first reap.
+			result.Resources = excludeResources(current, owned)
 			// Again, immediately before the first Reap: cheap, idempotent,
 			// and it closes a connect that slipped in since the first.
 			if err := disconnectShared(ctx, cctx, ref, stackNamespace, namespace); err != nil {
 				return err
 			}
 			var removed, kept []worktree.OwnedResource
-			for _, resource := range owned {
+			for i, resource := range owned {
 				if err := runtime.Reap(ctx, ref, resource); err != nil {
 					if errors.Is(err, backend.ErrNetworkKept) {
 						kept = append(kept, resource)
 						continue
 					}
+					// What an interruption's notice counts as gone: not the
+					// resource that failed, nor those after it.
+					result.Resources = excludeResources(mergeResources(current, removed), slices.Concat(kept, owned[i:]))
 					return err
 				}
 				removed = append(removed, resource)
@@ -248,6 +268,11 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil
 	})
 	if err != nil {
+		// After the locks are released, so the notice is the last thing
+		// said before the process dies by the signal.
+		if notice := interruptNotice(marked, context.Cause(ctx), err, result, host, removeNextSteps(cctx.CommandName, options, here)); notice != "" {
+			cctx.Logger.Info(notice)
+		}
 		return nil, err
 	}
 	// Best effort: prints nothing when the refresh succeeds.
@@ -526,6 +551,77 @@ func DescribePlan(host string, planned []worktree.OwnedResource, hasHome bool, b
 		home,
 		"  its registration",
 	}, "\n")
+}
+
+// removeNextSteps is the two commands an interrupted removal points to:
+// the one that finishes it, naming the target the way it was named to this
+// command, and the one that starts the worktree again, which only runs from
+// the target's own checkout (empty otherwise).
+func removeNextSteps(commandName string, options RemoveOptions, here bool) nextSteps {
+	// The values are echoed as typed, unquoted: slugs, UUIDs, domains and label
+	// namespaces are plain tokens, and the whole notice goes through
+	// text.Printable before it is shown.
+	finish := commandName + " worktree remove"
+	if options.Identifier != "" {
+		finish += " " + options.Identifier
+		if options.Domain != "" {
+			finish += " --domain " + options.Domain
+		}
+	}
+	// A namespace given on the command line is one the registration may not
+	// record, so finishing needs it again.
+	if options.LabelNamespace != "" {
+		finish += " --label-namespace " + options.LabelNamespace
+	}
+	steps := nextSteps{finish: finish}
+	if here {
+		steps.restart = commandName + " up"
+	}
+	return steps
+}
+
+// nextSteps is what an interrupted removal tells the user they can run.
+type nextSteps struct {
+	// finish is the command that completes the removal.
+	finish string
+	// restart is the command that starts the worktree again, or empty when
+	// that cannot be run from here.
+	restart string
+}
+
+// interruptNotice is what an interrupted removal says once the worktree is
+// pending, or "" when it has nothing to add. It speaks only when all of these
+// hold: the registration was marked pending; it still exists; a signal is why
+// the context ended (cause); and err is that interruption alone. An error
+// that carries more (a lock that could not be released, say) is reported on
+// its own and recovered through the lock, so a pending notice would mislead.
+//
+// The resources counted are a lower bound: the one being removed when the
+// signal came, and those after it, are not counted even if the daemon
+// finished the one in flight. The line is filtered as a whole, since it
+// carries the host.
+func interruptNotice(marked bool, cause, err error, result *RemoveResult, host string, next nextSteps) string {
+	var interrupted, plain *clierr.Cancelled
+	if !marked || result.Registration || !errors.As(cause, &interrupted) || !errors.As(err, &plain) {
+		return ""
+	}
+	var gone []string
+	if len(result.Resources) > 0 {
+		gone = append(gone, countResources(result.Resources))
+	}
+	if result.Home {
+		gone = append(gone, "home directory")
+	}
+	removed := "Removed so far: nothing confirmed yet"
+	if len(gone) > 0 {
+		removed = "Removed so far (at least): " + strings.Join(gone, ", ")
+	}
+	steps := fmt.Sprintf("'%s' finishes the removal", next.finish)
+	if next.restart != "" {
+		steps += fmt.Sprintf(", '%s' starts it again and runs the seed hook again", next.restart)
+	}
+	return text.Printable(fmt.Sprintf("Interrupted (%s) while removing %s. %s. It is still registered, now pending: %s.",
+		clierr.SignalName(interrupted.Signal), host, removed, steps))
 }
 
 // summarize renders what a completed removal actually took away, for the
