@@ -97,14 +97,15 @@ func withSuppressed(primary, also error) error {
 // recordFor constructs one: every writer starts from a RegisteredWorktree,
 // so a field it does not know about is carried, not erased (#119).
 type recordJSON struct {
-	Version        int            `json:"version"`
-	RepositoryID   string         `json:"repositoryId"`
-	WorktreeID     string         `json:"worktreeId"`
-	Slug           string         `json:"slug"`
-	Domain         string         `json:"domain"`
-	LabelNamespace *string        `json:"labelNamespace,omitempty"`
-	Initialization string         `json:"initialization"`
-	Ports          map[string]int `json:"ports,omitempty"`
+	Version        int             `json:"version"`
+	RepositoryID   string          `json:"repositoryId"`
+	WorktreeID     string          `json:"worktreeId"`
+	Slug           string          `json:"slug"`
+	Domain         string          `json:"domain"`
+	LabelNamespace *string         `json:"labelNamespace,omitempty"`
+	Initialization string          `json:"initialization"`
+	Ports          map[string]int  `json:"ports,omitempty"`
+	HostRoutes     []hostRouteJSON `json:"hostRoutes,omitempty"`
 }
 
 // recordFor is the one record builder: every registry writer goes through
@@ -121,6 +122,7 @@ func recordFor(registration RegisteredWorktree, initialization WorktreeInitializ
 		LabelNamespace: registration.LabelNamespace,
 		Initialization: string(initialization),
 		Ports:          nonEmptyPorts(registration.Ports),
+		HostRoutes:     hostRoutesJSON(registration.HostRoutes),
 	}
 }
 
@@ -252,11 +254,10 @@ func (s *Store) Ensure(
 			}
 		}
 		preferred := ""
-		var ports map[string]int
 		if stored != nil {
+			// A rename or a re-domain changes the hostname, never the ports
+			// or the host routes.
 			preferred = stored.Registration.Slug
-			// A rename or a re-domain changes the hostname, never the ports.
-			ports = stored.Registration.Ports
 		}
 		slug, err := allocate(others, preferred)
 		if err != nil {
@@ -277,9 +278,13 @@ func (s *Store) Ensure(
 				return err
 			}
 		}
-		written := RegisteredWorktree{
-			RepositoryID: s.RepositoryID, WorktreeID: worktreeID, Slug: slug, Domain: domain, LabelNamespace: namespace, Ports: ports,
+		// Starts from the stored record, so a field this rewrite does not
+		// mean to change (ports, host routes) is carried, not erased.
+		written := RegisteredWorktree{RepositoryID: s.RepositoryID, WorktreeID: worktreeID}
+		if stored != nil {
+			written = stored.Registration
 		}
+		written.Slug, written.Domain, written.LabelNamespace = slug, domain, namespace
 		if err := files.AtomicJSON(file, recordFor(written, initState)); err != nil {
 			return err
 		}

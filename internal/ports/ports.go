@@ -139,3 +139,52 @@ func Pick(ctx context.Context, r layout.PortRange, probe Probe, taken map[int]bo
 	}
 	return 0, ErrExhausted
 }
+
+// ListenerProbe says whether something accepts connections on a loopback
+// address. A host route's target (#6) is a process berth did not start, so
+// `route add` and `doctor` ask it which loopback addresses the process
+// listens on; a test supplies its own answers and binds nothing.
+type ListenerProbe interface {
+	// Answers reports whether a TCP connection to host:port succeeds, where
+	// host is "127.0.0.1" or "::1". A cancelled context never answers.
+	Answers(ctx context.Context, host string, port int) bool
+}
+
+// DialListener is the ListenerProbe that dials. It connects to whatever
+// answers and closes at once without sending anything.
+type DialListener struct{}
+
+// Answers is ListenerProbe's Answers.
+func (DialListener) Answers(ctx context.Context, host string, port int) bool {
+	dialer := net.Dialer{Timeout: dialTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// ListenerState is which loopback addresses a port answers on.
+type ListenerState struct {
+	// IPv4 is true when 127.0.0.1 answers.
+	IPv4 bool
+	// IPv6 is true when ::1 answers.
+	IPv6 bool
+}
+
+// Listening asks probe about both loopback addresses of port.
+func Listening(ctx context.Context, probe ListenerProbe, port int) ListenerState {
+	return ListenerState{
+		IPv4: probe.Answers(ctx, "127.0.0.1", port),
+		IPv6: probe.Answers(ctx, "::1", port),
+	}
+}
+
+// IPv6Only reports whether the port answers on ::1 and not on 127.0.0.1: the
+// case a host route cannot use through a proxy that reaches the host over
+// IPv4 alone.
+func (s ListenerState) IPv6Only() bool { return s.IPv6 && !s.IPv4 }
+
+// Silent reports whether the port answers on neither loopback address.
+func (s ListenerState) Silent() bool { return !s.IPv4 && !s.IPv6 }

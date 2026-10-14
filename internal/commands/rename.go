@@ -7,7 +7,8 @@ package commands
 //
 //   - the registry record: rewritten, last, under the registry lock, which is
 //     also where the slug is proven free in the record's domain;
-//   - the route files (<slug>.<domain> in their Host rules): removed before
+//   - the route files (<slug>.<domain> in their Host rules): a service's
+//     removed, a host route's rewritten from the renamed record, both before
 //     the record, see moveRoutes;
 //   - the index card (slug, host and service URLs): rewritten before the
 //     record, see moveIndexCard;
@@ -147,21 +148,33 @@ func RenameWithContext(ctx context.Context, cctx *CommandContext, options Rename
 
 // moveRoutes is the one place a rename deals with every route file a
 // worktree owns, and the seam for any other kind of file that carries the
-// hostname. Today that is the route files of Compose services, which it
-// removes: they exist only while containers do (`down` removes them), a
-// rename refuses while containers exist, so these are crash leftovers, dead
-// routes to a stopped worktree, and `up` writes them afresh at the new
-// hostname. Removing them, rather than rewriting the old hostname to the new
-// one, is what keeps a retried rename safe whatever slug it is retried with.
+// hostname. Two kinds do today.
 //
-// When host routes for processes outside Docker (#6) land, their files carry
-// the hostname too and belong here. They must be written from the record
-// (renamed is the new one), never by replacing the old hostname in the file,
-// for the same reason, and before the record changes. Shared services' route
-// files are keyed by repository and unaffected by a worktree's slug.
+// The route files of Compose services are removed: they exist only while
+// containers do (`down` removes them), a rename refuses while containers
+// exist, so these are crash leftovers, dead routes to a stopped worktree, and
+// `up` writes them afresh at the new hostname.
+//
+// The route files of host routes (#6) outlive `down`, so they are rewritten:
+// each recorded route's file is written from the renamed record (the new slug
+// and domain and the route's own definition), never by replacing the old
+// hostname in the file, and before the record changes. A route whose file is
+// missing gets one, which is the heal `route add` offers. Both are what keep
+// a retried rename safe whatever slug it is retried with: a file left by an
+// attempt that crashed after this step is overwritten from the record, and
+// none is left at a hostname no record owns. A file the record has no route
+// for is not touched here; the router's repair removes it.
+//
+// Shared services' route files are keyed by repository and unaffected by a
+// worktree's slug.
 func moveRoutes(cctx *CommandContext, renamed registry.RegisteredWorktree) error {
 	if err := router.RemoveWorktreeFragments(cctx.RouterState, renamed.RepositoryID, renamed.WorktreeID); err != nil {
 		return clierr.Wrap(fmt.Sprintf("Could not remove this worktree's route files before renaming it to %s", layout.WorktreeHost(renamed.Slug, renamed.Domain)), err)
+	}
+	for _, route := range renamed.HostRoutes {
+		if err := router.WriteHostFragment(cctx.RouterState, renamed.RepositoryID, renamed.WorktreeID, route.Name, hostRouteDocument(renamed, route)); err != nil {
+			return clierr.Wrap(fmt.Sprintf("Could not rewrite the route file of host route %q before renaming it to %s", route.Name, layout.WorktreeHost(renamed.Slug, renamed.Domain)), err)
+		}
 	}
 	return nil
 }

@@ -188,6 +188,19 @@ tests skip there.
   eventually consistent with the writer, which writes the same port. Files
   this control home holds no record of are never touched. The router lock and
   the registry lock are never nested.
+- Host routes (#6) follow the same split. `route add` and `route rm` take the
+  worktree's operation lock alone, with the registry lock nested inside it for
+  the one record write (`Store.UpdateHostRoutes`), and write or remove the
+  route file (`host.<repo>.<wt>.<name>.yaml`) inside the operation lock; `route
+  ls` takes none. `up` and `down` never touch a host route file, and
+  `worktree remove` removes them under the operation lock it already holds.
+  Repair is the router lock's, as above, and judges a host route file against
+  the record: it removes the file of a route the record no longer has and
+  rewrites one that differs, and it never creates a file, so it does not
+  bring back a file a removal has taken. A rewrite that raced a `worktree
+  remove` can still put one file back, a residual window service files share;
+  `doctor` then reports it as belonging to no registration. `route add` of a
+  route identical to a recorded one rewrites a missing file (the heal).
 - Opening a target creates it `0600` (parent `0700`) if missing, opens it
   `O_RDWR`, and keeps a strong reference to the `*os.File` for the whole
   hold — the GC finalizer would otherwise close it. A target that is not a

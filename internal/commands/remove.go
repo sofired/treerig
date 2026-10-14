@@ -151,6 +151,11 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if err := unrouteWorktree(cctx, ref); err != nil {
 			return err
 		}
+		// Host routes (#6) go with the worktree, before the record that holds
+		// them: `down` keeps them, this does not.
+		if err := unrouteHostRoutes(cctx, ref); err != nil {
+			return err
+		}
 		// Shared services are disconnected before anything of this worktree
 		// is stopped or reaped, from the networks it owns: an attached
 		// shared container would keep a network from being removed.

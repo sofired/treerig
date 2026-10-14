@@ -78,12 +78,12 @@ services (the owner ruled on the network model, 22, and on raw ports).
 | 3a | Registry locks are per control home. Two control homes can allocate the same port at once; this race is accepted, and Docker's bind error on the second `up` catches it. It covers the router's index and ping ports too (decisions 7 and 8): the remedy is `--reallocate-port` on the worktree side, or removing `router/state.json` for the router's. | A machine-wide registry lock is not this design (the same trade `docs/design/locks.md` records for the router). The failure is clean and recoverable (decision 4). |
 | 4 | Stuck port: `berth up --reallocate-port <service>`. It refuses when the port is held by this worktree's own container, proven by its ownership labels, and says the URL changes. | The escape hatch for a port another program took. Ownership proof stops it from moving a port out from under a running container. |
 | 5 | `up` releases the allocation of a service removed from `berth.toml`. Otherwise only `worktree remove` releases allocations, after the worktree's containers are gone (after Reap) and before the record itself is deleted. | A port may not be reused while a container of the old owner could still hold it. Releasing before the record is deleted keeps the allocation reachable if the process dies in between; the step is idempotent. |
-| 6 | `urls`, `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` stay hostname URLs. New: `BERTH_SERVICE_PORT_<NAME>` for hooks and `berth run`, and a `port` key in `urls --json` and `status --json` (additive). | Hostnames are the contract users bookmark; the port is for tools that must bypass the proxy. |
+| 6 | `urls`, `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` stay hostname URLs (a host route's entry in `urls --json` carries `"hostRoute": true`, and its `port` is the one its process listens on). New: `BERTH_SERVICE_PORT_<NAME>` for hooks and `berth run`, and a `port` key in `urls --json` and `status --json` (additive). | Hostnames are the contract users bookmark; the port is for tools that must bypass the proxy. |
 | 7 | The checkout index (busybox) publishes on its own `127.0.0.1` port and is routed like a service. Its port is stored in router state under `BERTH_HOME`, not in any registration, and is allocated once from the same range under the router lock. | One routing path for everything; no shared network for the index either. The index belongs to no worktree, so it has no record to hold a port; router state is where the router's other per-root facts live. |
 | 8 | Traefik's ping gets a dedicated entrypoint, never `web`. Host mode: `--entrypoints.traefik.address=127.0.0.1:<ping port>` with `--ping.entryPoint=traefik`, and the healthcheck carries the same address flag. The ping port is allocated like the index port (once, from the same range, under the router lock) and stored in router state. Bridge mode: the ping entrypoint listens on a fixed port inside the container, is never published, and takes no port from the range. The index and ping ports share one router-state file. Never Traefik's default `*:8080`. | Ping on `web` would shadow every routed service's own `/ping` on every hostname. `--ping=true` alone opens `*:8080`, a wildcard listener (spike). The healthcheck runs as a separate process and needs its own copy of the entrypoint flags (verified on Linux). |
-| 9 | A route file is judged only when this control home holds a record for that exact repository and worktree. For such a file, a record with no port for its service gets the file removed and a record with another port gets the file rewritten to the recorded one, by `router up`/`Ensure`; `doctor` reports both. A file with no such record is reported by `doctor` (`router.orphaned-routes`) with the count and how to remove it (delete it from the dynamic directory), and never removed, because the router's state is per berth root and it may belong to another control home. It is a warning (instance `unmatched`) when this control home knows the repository but not the worktree, likely stale, and a notice (instance `other-home`, status ok) when it does not know the repository, likely another control home's. `up` commits a port allocation to the registration before it writes the route file. Repair reads registrations without the registry lock (every registry writer goes through `files.AtomicJSON`, a temporary file then a rename) and re-reads a record immediately before acting, which narrows the window against a concurrent `up` or a just-added host route without closing it; the rewrite is eventually consistent with the writer, whose next `up` writes the same port. The router lock and the registry lock are never nested. | Once ports are reused, a stale file would send an old hostname to another worktree's service. |
+| 9 | A route file is judged only when this control home holds a record for that exact repository and worktree. For such a file, a record with no port for its service gets the file removed and a record with another port gets the file rewritten to the recorded one, by `router up`/`Ensure`; `doctor` reports both. A host route file is judged against `hostRoutes` the same way: a file whose record has no route of that name is removed, and a file that is not exactly what the record produces (another port, or another rule after the worktree's hostname changed) is rewritten whole. A recorded host route whose file is missing is reported by `doctor` (`checkout.host-route-files`) and never recreated by repair, which only acts on a file that exists, so it does not bring back a file a `worktree remove` has taken; `berth route add` with the route's own name, port, subdomain and path rewrites the file and changes no record, which is the heal. A repair rewrite that races a `worktree remove` can still put one file back, a residual window service files share; `doctor` reports it as unmatched. A file with no such record is reported by `doctor` (`router.orphaned-routes`) with the count and how to remove it (delete it from the dynamic directory), and never removed, because the router's state is per berth root and it may belong to another control home. It is a warning (instance `unmatched`) when this control home knows the repository but not the worktree, likely stale, and a notice (instance `other-home`, status ok) when it does not know the repository, likely another control home's. `up` commits a port allocation to the registration before it writes the route file. Repair reads registrations without the registry lock (every registry writer goes through `files.AtomicJSON`, a temporary file then a rename) and re-reads a record immediately before acting, which narrows the window against a concurrent `up` or a just-added host route without closing it; the rewrite is eventually consistent with the writer, whose next `up` writes the same port. The router lock and the registry lock are never nested. | Once ports are reused, a stale file would send an old hostname to another worktree's service. |
 | 10 | The name `router`, the router-home ownership check (#82) and the refusal of a router started by a newer berth stay. A running router with the per-worktree-network layout is refused with "run `berth router down` first". `Protocol` is bumped only when Compose cannot recreate a router of the older generation into the new one; a change of mode, port or digest never bumps it. `router status` and `doctor` report a running router at another protocol with the same advice. The labels `dev.berth.router-mode` and `dev.berth.router-port` and the file `router/state.json` are storage names, pinned by tests. | Those are safety properties, independent of the transport. No code converts the old layout. |
-| 11 | Host routes (#6) are stored in the registration record (`hostRoutes`); route files are derived from it, named `host.<repo>.<wt>.<name>.yaml`; the Traefik router name is `<project>_host_<name>`. A host route may not share a service's name. It takes the same routing fields as a `[service.<name>]` table (`--subdomain`, `--path`) and gets the hostname a service with that name and those fields would get. `route add` and `doctor` warn on a listener that answers only on `::1` in bridge mode (#120 maps `berth-loopback` to both `127.0.0.1` and `::1` in host mode, so there it is reachable; see Open items). | The record is the source of truth and route files are a cache, so decision 9's repair covers host routes too. `host.` is a prefix the service-route sweeps and `ListFragments` never match; `_` is outside the service-name alphabet, so the router name cannot collide with a service's. Repository and worktree IDs are UUIDs and service names are `[a-z0-9-]`, so `host.<repo>.<wt>.<name>.yaml` cannot collide with `<repo>.<wt>.<service>.yaml`; a test uses a repository named `host`. The `::1` warning holds in bridge mode: Docker Desktop cannot reach `::1`. In host mode `berth-loopback` maps to `::1` as well, which reaches a `::1`-only listener (verified). The fix is to bind `127.0.0.1`. |
+| 11 | Host routes (#6) are stored in the registration record (`hostRoutes`, a list sorted by name of `{name, port, subdomain?, path?}`); route files are derived from it, named `host.<repo>.<wt>.<name>.yaml`; the Traefik router name is `<project>_host_<name>`. A host route may not share a service's name, and two host routes may share a port (different places, one dev server). It takes the same routing fields as a `[service.<name>]` table (`--subdomain` and `--path`, either or both) and gets the hostname a service with that name and those fields would get. `route add` and `doctor` warn on a listener that answers only on `::1` in bridge mode (#120 maps `berth-loopback` to both `127.0.0.1` and `::1` in host mode, so there it is reachable; see Open items); they warn too when the mode cannot be read, since then it may be bridge. `route add`, `route rm` and `worktree remove` change host routes; `up` and `down` leave them alone, and neither writes nor removes a host route file. `route add` refuses a name that is a `[service.<name>]`, a declared `[shared.service.<name>]` or another host route's; a place (subdomain and path) a service or another host route already answers at; the router's own port; and a port berth pinned for a service or a shared service. The allocator treats a host route's port as taken. A shared service, or a `[service.<name>]`, named like an existing host route, or a `[service.<name>]` answering at its place, is refused by `up` and `shared up` before anything starts and again under the operation lock, because host routes live in the record and config validation cannot see them. `router.route-probe` probes host route files too, the only check of the proxy-to-host hop; a host route whose process is stopped (a 502, 503 or 504) is `ok` there, in the words of `checkout.host-routes`, since that is its normal state. The checkout index lists host routes from the record, never from the card, which only counts containers. | The record is the source of truth and route files are a cache, so decision 9's repair covers host routes too. `host.` is a prefix the service-route sweeps and `ListFragments` never match; `_` is outside the service-name alphabet, so the router name cannot collide with a service's. Repository and worktree IDs are UUIDs and service names are `[a-z0-9-]`, so `host.<repo>.<wt>.<name>.yaml` cannot collide with `<repo>.<wt>.<service>.yaml`; a test uses a repository named `host`. The `::1` warning holds in bridge mode: Docker Desktop cannot reach `::1`. In host mode `berth-loopback` maps to `::1` as well, which reaches a `::1`-only listener (verified). The fix is to bind `127.0.0.1`. |
 | 12 | `doctor` warns on a routed service with a fixed published host port. `up` refuses a routed service with `network_mode: host`, `network_mode: service:...`, or replicas above 1. | Berth needs to own the published port. A host-network or shared-namespace service has no port to publish; several replicas cannot share one. |
 | 13 | No Traefik API. `doctor` probes each route over HTTP. A 404 is judged by sending the same request (path and Host) straight to the route file's target on `127.0.0.1:<port>`: the same 404 there is the service's own and the route is fine; a 404 the target does not give means the route is not loaded (a failure), retried for 5-10 s. A 502, 503 or 504, an unreachable target or a router that does not answer is retried at most twice, and the total is capped. The comparison has limits: a service that itself 404s at the probed path makes an unloaded route read OK, and a router 404 with an unreachable target reads as target down (a warning), not as an unloaded route. | The file provider picks changes up after about a 2 s throttle. Without the API, the response itself is the evidence. |
 | 14 | This note lands in its own docs PR before #119. | So the decisions are reviewable apart from code. |
@@ -540,13 +540,17 @@ slug would leave the file at the first one, which no record owns.
 
 `moveRoutes` in `internal/commands/rename.go` is the one place a rename deals
 with every route file of a record, and the seam for any other kind of file
-that carries the hostname. When host routes (#6) land they belong there,
-written from the record (the new slug, domain and the route's own
-definition), never by replacing the old hostname in the file, and before the
-record changes. Until then no route file can disagree with its record after a
-rename, so `ClassifyFragment` needs no host-mismatch problem and `doctor` has
-nothing to report; #6's own repair, which rewrites its files from the record
-on the next `up` or `router up`, is where a half-renamed host route is caught.
+that carries the hostname. Host routes (#6) are handled there: each recorded
+route's file is rewritten from the renamed record (the new slug and domain and
+the route's own definition, `hostRouteDocument` and `WriteHostFragment`), never
+by replacing the old hostname in the file, and before the record changes. It is
+idempotent: a rename that crashed after this step and is retried with another
+slug overwrites each file from the record, so none is left at a hostname no
+record owns, and a route whose file was missing gets one. A file the record has
+no route for is left to the router's repair. The repair is also the net for a
+file that disagrees after a crash between this step and the record commit
+under the old slug: it rewrites the file from the record on the next `up` or
+`router up`.
 
 ## What the implementation removes and keeps
 
@@ -747,6 +751,90 @@ resource and the shared inventory never lists a worktree's, including with the
 shared container attached to the worktree's network; `worktree remove` and
 `down` while it is attached; a two-process test of concurrent first `up`s; and
 a recreate followed by the sweep, with a busy worktree skipped.
+
+Host routes (#6) are proved on Linux by the real-daemon suite
+(`host_routes_docker_integration_test.go`): a listener on the host, outside
+Docker, answers at its worktree hostname through the proxy, `router.route-probe`
+probes it, `down` keeps the route, `worktree remove` removes it, and a
+`::1`-only listener answers in host mode. Docker Desktop and OrbStack cannot be
+tested on Linux.
+
+**Manual Mac check for host routes (#6), Docker Desktop and then OrbStack.**
+
+Run these steps from a checkout of the branch with Docker Desktop running. Use a scratch home and router port 30080, not 80. If a router that another berth root started is already running on this daemon, `up` refuses; stop that router yourself first.
+
+
+**Setup**
+
+1. Build berth and create the scratch home:
+
+   ```sh
+   go build -o /tmp/berth-mac ./cmd/berth
+   export BERTH_HOME=$(mktemp -d)
+   printf '[ports]\nrange = "30000-30999"\n[router]\nport = 30080\n' > $BERTH_HOME/settings.toml
+   (docker ps -a --format '{{.Names}}'; docker network ls --format '{{.Name}}'; docker volume ls -q) | sort > /tmp/mac-before.txt
+   ```
+
+2. Make a small git repo with a berth.toml and a one-service compose file. Copying berth.example.toml works. Then:
+   - `cd` into the repo and run `/tmp/berth-mac up`, then `/tmp/berth-mac router status`.
+   - Expect: mode `bridge`, port 30080.
+
+
+**Routing to an IPv4 server**
+
+3. In another terminal, start the server: `python3 -m http.server 5173 --bind 127.0.0.1`
+4. Add the route: `/tmp/berth-mac route add web --port 5173 --subdomain app`
+   - Expect: "Routed http://app.<slug>.<domain>:30080/ to 127.0.0.1:5173", with no warning.
+5. Request it: `curl -sS -m 10 -w '\n%{http_code} %{time_total}s\n' <URL>`
+   - Expect: 200 and a directory listing. Record the time.
+6. Run `/tmp/berth-mac doctor`.
+   - Expect: "127.0.0.1:5173 answers" on the web host route, plus a router.route-probe OK line for it.
+7. Stop the server with Ctrl-C, then immediately run `curl -sS -m 30 -w '\n%{http_code} %{time_total}s\n' <URL>`.
+   - PASS: a 502 within a few seconds.
+   - FAIL, report it: a hang until the 30s limit, or a 504.
+   - Run `/tmp/berth-mac doctor` again. Expect a note that nothing is listening, and a route-probe warning.
+8. Restart the server on 127.0.0.1 and curl again.
+   - Expect: 200 immediately, with no berth action.
+
+
+**Other binds**
+
+9. Restart the server on IPv6 only: `python3 -m http.server 5173 --bind ::1`
+   - Run `/tmp/berth-mac route add web2 --port 5173 --subdomain two`.
+     - Expect: a warning that it "answers on ::1 but not on 127.0.0.1".
+   - Curl two.<slug>.<domain>:30080.
+     - Expect: failure (502). On OrbStack it may succeed; record what you see.
+   - Run `/tmp/berth-mac doctor`.
+     - Expect: a warning on web2.
+   - Clean up: `/tmp/berth-mac route rm web2`
+10. Bind all interfaces: `python3 -m http.server 5173 --bind 0.0.0.0`
+    - Curl the web URL. Expect 200, and note any macOS firewall prompt.
+    - Stop the server.
+11. Optional, with Vite: `npx vite --host 127.0.0.1 --port 5173`
+    - Open the page in a browser and check that HMR works.
+    - If your domain isn't under .localhost, confirm you get a 403 until `server.allowedHosts` is set.
+
+
+**Lifecycle**
+
+12. Run `/tmp/berth-mac route ls` and expect web.
+    - Run `/tmp/berth-mac down`.
+    - `route ls` still shows web.
+    - The web URL returns 502, and the service URL returns 404.
+    - The file `$BERTH_HOME/router/dynamic/host.*.web.yaml` remains.
+13. Run `/tmp/berth-mac worktree remove`, adding `-y` if it asks.
+    - The host.*.yaml file is gone.
+    - The web URL returns 404.
+
+
+**Cleanup and reporting**
+
+14. Stop the router and compare the daemon state with the snapshot from step 1:
+    - `/tmp/berth-mac router down`
+    - Run the snapshot command from step 1 again, into /tmp/mac-after.txt.
+    - `diff /tmp/mac-before.txt /tmp/mac-after.txt` should show nothing.
+    - `lsof -nP -iTCP:30080 -sTCP:LISTEN` should be empty.
+15. Post the output of steps 5, 7 and 9 on the PR, with your Docker Desktop and OrbStack versions.
 
 ## Sequence
 

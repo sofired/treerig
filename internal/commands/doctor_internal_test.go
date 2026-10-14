@@ -2505,6 +2505,8 @@ var documentedDoctorIDs = []string{
 	"checkout.ports",
 	"checkout.published-port",
 	"checkout.published-port-scan",
+	"checkout.host-routes",
+	"checkout.host-route-files",
 	"checkout.hooks.resolve",
 	"checkout.commands.resolve",
 	"checkout.hooks.verify",
@@ -2743,7 +2745,7 @@ func TestDoctorEmitsOnlyDocumentedIDs(t *testing.T) {
 func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	fset := token.NewFileSet()
 	var doctorFiles []*ast.File
-	for _, name := range []string{"doctor.go", "doctor_ports.go", "doctor_router.go", "doctor_shared.go"} {
+	for _, name := range []string{"doctor.go", "doctor_ports.go", "doctor_router.go", "doctor_shared.go", "doctor_hostroutes.go"} {
 		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)

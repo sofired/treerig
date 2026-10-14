@@ -101,7 +101,7 @@ func TestClassifyFragment(t *testing.T) {
 	})
 
 	t.Run("repairs only the problems that name a record of this control home", func(t *testing.T) {
-		for kind, want := range map[router.RouteProblemKind]bool{router.RouteUnregistered: false, router.RouteUnknownRepository: false, router.RouteNoPort: true, router.RouteStalePort: true} {
+		for kind, want := range map[router.RouteProblemKind]bool{router.RouteUnregistered: false, router.RouteUnknownRepository: false, router.RouteNoPort: true, router.RouteStalePort: true, router.RouteNoHostRoute: true, router.RouteStaleHostRoute: true} {
 			if got := (router.RouteProblem{Kind: kind}).Repairable(); got != want {
 				t.Errorf("%s: Repairable = %v, want %v", kind, got, want)
 			}

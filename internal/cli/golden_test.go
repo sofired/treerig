@@ -9,6 +9,9 @@ package cli_test
 // review every diff yourself: -update writes whatever cli.Main happened to
 // produce, not what it should have.
 //
+// help-route*, bare-route, complete-route and the err-*-route* cases pin
+// `route add|rm|ls` (#6).
+//
 // help-init, help-cmd-init, complete-init*, err-excess-arguments-init,
 // err-unknown-command-near-init and init-config-flag pin `init` (#9).
 //
@@ -84,6 +87,10 @@ var goldenCases = []goldenCase{
 	{"help-shared-up", []string{"shared", "up", "--help"}},
 	{"help-shared-down", []string{"shared", "down", "--help"}},
 	{"help-shared-status", []string{"shared", "status", "--help"}},
+	{"help-route", []string{"route", "--help"}},
+	{"help-route-add", []string{"route", "add", "--help"}},
+	{"help-route-rm", []string{"route", "rm", "--help"}},
+	{"help-route-ls", []string{"route", "ls", "--help"}},
 	{"help-worktree", []string{"worktree", "--help"}},
 	{"help-worktree-short", []string{"worktree", "-h"}},
 	{"help-worktree-list", []string{"worktree", "list", "--help"}},
@@ -98,6 +105,8 @@ var goldenCases = []goldenCase{
 	{"help-cmd-router", []string{"help", "router"}},
 	{"help-cmd-shared", []string{"help", "shared"}},
 	{"help-cmd-shared-down", []string{"help", "shared", "down"}},
+	{"help-cmd-route", []string{"help", "route"}},
+	{"help-cmd-route-add", []string{"help", "route", "add"}},
 	{"help-cmd-worktree", []string{"help", "worktree"}},
 	{"help-cmd-worktree-remove", []string{"help", "worktree", "remove"}},
 	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
@@ -120,6 +129,7 @@ var goldenCases = []goldenCase{
 	{"bare-root", nil},
 	{"bare-config", []string{"config"}},
 	{"bare-router", []string{"router"}},
+	{"bare-route", []string{"route"}},
 	{"bare-shared", []string{"shared"}},
 	{"bare-worktree", []string{"worktree"}},
 
@@ -132,6 +142,10 @@ var goldenCases = []goldenCase{
 	{"complete-init", []string{"__complete", "init", ""}},
 	{"complete-init-flags", []string{"__complete", "init", "--"}},
 	{"complete-config", []string{"__complete", "config", ""}},
+	{"complete-route", []string{"__complete", "route", ""}},
+	{"complete-route-add-flags", []string{"__complete", "route", "add", "--"}},
+	{"complete-route-rm-no-config", []string{"__complete", "route", "rm", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
+	{"complete-route-rm-name-given", []string{"__complete", "route", "rm", "web", ""}},
 	{"complete-shared", []string{"__complete", "shared", ""}},
 	{"complete-shared-down-flags", []string{"__complete", "shared", "down", "--"}},
 	{"complete-shared-up-no-config", []string{"__complete", "shared", "up", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
@@ -150,13 +164,21 @@ var goldenCases = []goldenCase{
 	// --- unknown command, with and without a suggestion ---
 	{"err-unknown-command-far", []string{"nonsense"}},
 	{"err-unknown-command-near-status", []string{"stat"}},
-	{"err-unknown-command-near-router", []string{"route"}},
+	{"err-unknown-command-near-router", []string{"rooter"}},
 	{"err-unknown-command-near-worktree", []string{"wroktree"}},
 	// No suggestion: cobra never suggests the help command itself.
 	{"err-unknown-command-near-help", []string{"helo"}},
 	{"err-unknown-command-near-down", []string{"dow"}},
 	{"err-unknown-command-near-init", []string{"inti"}},
 	{"err-unknown-command-in-group", []string{"worktree", "bogus"}},
+	{"err-unknown-command-in-route", []string{"route", "ad"}},
+	{"err-route-add-no-name", []string{"route", "add", "--port", "5173"}},
+	{"err-route-add-two-names", []string{"route", "add", "web", "api", "--port", "5173"}},
+	{"err-route-add-no-port", []string{"route", "add", "web"}},
+	{"err-route-rm-no-name", []string{"route", "rm"}},
+	{"err-unknown-option-route-add", []string{"route", "add", "web", "--prt", "5173"}},
+	{"err-excess-arguments-route-ls", []string{"route", "ls", "now"}},
+	{"route-ls-missing-file", []string{"route", "ls", "--config", "/nonexistent-berth-config-x7z.toml"}},
 	{"err-unknown-command-in-shared", []string{"shared", "dwon"}},
 	{"err-unknown-option-shared-up", []string{"shared", "up", "--recrate"}},
 	{"err-excess-arguments-shared-status", []string{"shared", "status", "now"}},

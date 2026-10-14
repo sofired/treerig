@@ -309,6 +309,28 @@ func TestRouteProbeCheck(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
+	t.Run("a host route whose process is stopped is ok, in checkout.host-routes' words; not loaded is still a failure", func(t *testing.T) {
+		host := routeTarget{claim: "app.main.acme.localhost", targetPort: 5173, hostRoute: true}
+		for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+			got := routeProbeCheck(host, 80, routeProbeResult{answer: answerTargetDown, status: status})
+			want := "app.main.acme.localhost: nothing is listening on 127.0.0.1:5173; requests for it get a 502 until a process is"
+			if got.Status != StatusOK || got.Detail != want {
+				t.Fatalf("status %d: got %+v", status, got)
+			}
+		}
+		if got := routeProbeCheck(host, 80, routeProbeResult{answer: answerNotLoaded, elapsed: 5 * time.Second}); got.Status != StatusFail {
+			t.Fatalf("not loaded: got %+v", got)
+		}
+		// A router 404 with an unreachable target may mean the route is not loaded: still a warning.
+		if got := routeProbeCheck(host, 80, routeProbeResult{answer: answerTargetDown, status: 404}); got.Status != StatusWarn {
+			t.Fatalf("404 with the target down: got %+v", got)
+		}
+		// A service's route keeps its warning.
+		service := routeTarget{claim: "web.main.acme.localhost", targetPort: 30501}
+		if got := routeProbeCheck(service, 80, routeProbeResult{answer: answerTargetDown, status: 502}); got.Status != StatusWarn {
+			t.Fatalf("service: got %+v", got)
+		}
+	})
 	t.Run("a router that does not answer fails, naming the port and the error", func(t *testing.T) {
 		got := routeProbeCheck(target, 8080, routeProbeResult{answer: answerNoProxy, err: errors.New("connection refused")})
 		if got.Status != StatusFail || !strings.Contains(got.Detail, "127.0.0.1:8080") || !strings.Contains(got.Detail, "connection refused") {
@@ -340,6 +362,32 @@ func TestRouteTargets(t *testing.T) {
 			if got[i] != want[i] {
 				t.Fatalf("got %+v, want %+v", got, want)
 			}
+		}
+	})
+	t.Run("lists a host route's file too, with the port it targets", func(t *testing.T) {
+		const repo, wt = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222221"
+		state := layout.RouterStateFrom(registrytest.TempDir(t))
+		if err := router.WriteIndexFragment(state, 30500); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web", router.NewFragmentDocument("berth-aaa-web", "Host(`web.main.acme.localhost`)", 30501)); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteHostFragment(state, repo, wt, "dev", router.HostFragmentDocument(repo, wt, "dev", "Host(`app.main.acme.localhost`)", 5173)); err != nil {
+			t.Fatal(err)
+		}
+		got, err := routeTargets(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, target := range got {
+			if target.claim == "app.main.acme.localhost" && target.targetPort == 5173 && target.path == "/" && target.hostRoute {
+				found = true
+			}
+		}
+		if !found || len(got) != 3 {
+			t.Fatalf("got %+v", got)
 		}
 	})
 	t.Run("lists nothing for a directory that does not exist", func(t *testing.T) {

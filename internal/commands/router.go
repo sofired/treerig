@@ -73,7 +73,7 @@ func (c controlHomeRegistrations) Lookup(repositoryID, worktreeID string) (route
 	if record == nil {
 		return router.Registration{Status: router.Unregistered}, nil
 	}
-	return router.Registration{Status: router.Registered, Ports: record.Ports}, nil
+	return router.Registration{Status: router.Registered, Ports: record.Ports, HostRoutes: hostRouteTargets(*record)}, nil
 }
 
 // LookupShared reads repositoryID's record of the shared service name afresh,

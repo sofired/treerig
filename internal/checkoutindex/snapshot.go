@@ -307,6 +307,8 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 			})
 		}
 
+		services = append(services, hostRouteLinks(record, input.RouterPort, status)...)
+
 		// A pointer, not `||`: a detached HEAD reports an empty branch,
 		// which is an answer, and must not fall through to the card's stale
 		// one.

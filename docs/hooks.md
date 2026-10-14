@@ -83,9 +83,9 @@ hook scripts keep working however the tool is invoked.
 | `COMPOSE_PROJECT_NAME` | The worktree's Compose project, `berth-<hash>`, so `docker compose exec` and `logs` in a hook reach this worktree's containers and not the project Compose would name after the directory. Replaces an inherited value |
 | `BERTH_COMPOSE_PROJECT` | The same name under berth's own prefix |
 | `COMPOSE_FILE` | Absolute path of the Compose file `[compose] file` names, which Compose otherwise looks for as `compose.yaml` beside `berth.toml`. Replaces an inherited value. The extra files berth adds when it starts services (published ports, labels) are not part of it. Compose splits this variable on `:`, so a path that contains one does not work; keep the checkout where its path has none |
-| `BERTH_URL` | This worktree's own URL: the `[service.<name>]` routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if no service claims that route. |
-| `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]`: its own routed URL. `<NAME>` is the service's name, upper-cased, with each `-` turned into `_` |
-| `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
+| `BERTH_URL` | This worktree's own URL: the `[service.<name>]` (or [host route](../README.md#host-routes)) routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if nothing claims that route. |
+| `BERTH_SERVICE_URL_<NAME>` | One per `[service.<name>]` and per [host route](../README.md#host-routes): its own routed URL. `<NAME>` is the service's or route's name, upper-cased, with each `-` turned into `_` (a host route cannot share a service's name, so the names never collide) |
+| `BERTH_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router; and one per host route: the port its process listens on. `<NAME>` maps as for `BERTH_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
 | `BERTH_SHARED_ADDR_<NAME>_<PORT>` | One per container port of a [shared service](../README.md#shared-services) that has a pinned loopback port: `127.0.0.1:<host port>`, for a process on the host. `<NAME>` is the shared service's name mapped as for `BERTH_SERVICE_URL_<NAME>`, and `<PORT>` its container port as declared (`BERTH_SHARED_ADDR_MAILPIT_1025`). Read from the repository's records, so it is set whether or not the service is running. Unset for a port with no pinned port yet |
 | `BERTH_SHARED_URL_<NAME>` | One per shared service with a routed `port`: the URL of its web UI, `http://<name>.shared.<domain>` with the router's port folded in as for `BERTH_SERVICE_URL_<NAME>`. `<NAME>` maps as there. Read from the repository's records, so it is set whether or not the service is running. Unset for a service with no routed port, or one that has not been started yet |
 
@@ -98,7 +98,7 @@ variables, an inherited one of either is dropped and this worktree's set
 instead. The shared service is connected to the worktree's network before
 `prepare` runs, so a hook may use it at once.
 
-`BERTH_SERVICE_PORT_<NAME>` is the `port` of `urls --json`: unlike the URLs
+`BERTH_SERVICE_PORT_<NAME>` is the `port` of `urls --json`. Unlike the URLs
 it does not go through the router, and it is allocated before any hook runs.
 `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` are the same URLs `berth urls`
 prints, router port included exactly as it folds that in there. When
@@ -111,6 +111,9 @@ them from a hook instead:
 ```sh
 curl -fsS "${BERTH_URL:?no service is routed at the host root}/health"
 ```
+
+Host routes are read from the registration when the hook starts, so a route
+added after `up` began is not in that run's variables.
 
 Under `set -u`, an unset `BERTH_URL` aborts the script; guard it with
 `${BERTH_URL:-}` or `${BERTH_URL:?…}` as above. A hook curling one of these

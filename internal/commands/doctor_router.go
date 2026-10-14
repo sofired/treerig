@@ -87,23 +87,37 @@ type routeTarget struct {
 	// targetPort is the loopback port the route file sends to; 0 when it
 	// names none.
 	targetPort int
+	// hostRoute marks a host route (#6): its target is a process berth does
+	// not run, so a target that is down is the normal state, not a warning.
+	hostRoute bool
 }
 
 // routeTargets are the routes the proxy is expected to serve: the index and
-// every route file, shared services' included, sorted by claim. A rule berth did not write is not
+// every route file, services', host routes' and shared services' included, sorted by claim. A rule berth did not write is not
 // probed.
 func routeTargets(state layout.RouterLayout) ([]routeTarget, error) {
 	fragments, err := router.ListFragments(state)
 	if err != nil {
 		return nil, err
 	}
+	// Host routes (#6) are probed too: the request through the proxy is the
+	// only check of its hop to the host process.
+	hostFragments, err := router.ListHostFragments(state)
+	if err != nil {
+		return nil, err
+	}
+	fragments = append(fragments, hostFragments...)
 	sharedFragments, err := router.ListSharedFragments(state)
 	if err != nil {
 		return nil, err
 	}
 	paths := []string{router.IndexFragmentPath(state)}
+	hostPaths := map[string]bool{}
 	for _, fragment := range fragments {
 		paths = append(paths, fragment.Path)
+		if fragment.HostRoute {
+			hostPaths[fragment.Path] = true
+		}
 	}
 	// A shared service's web UI is probed like any other route.
 	for _, fragment := range sharedFragments {
@@ -131,7 +145,7 @@ func routeTargets(state layout.RouterLayout) ([]routeTarget, error) {
 			if requestPath == "" {
 				requestPath = "/"
 			}
-			targets = append(targets, routeTarget{claim: claim, host: match[1], path: requestPath, targetPort: doc.TargetPort()})
+			targets = append(targets, routeTarget{claim: claim, host: match[1], path: requestPath, targetPort: doc.TargetPort(), hostRoute: hostPaths[path]})
 		}
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].claim < targets[j].claim })
@@ -239,6 +253,13 @@ func routeProbeCheck(target routeTarget, port int, result routeProbeResult) Chec
 		check.Status = StatusWarn
 		switch result.status {
 		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			if target.hostRoute {
+				// Not a warning, in the words checkout.host-routes uses: the
+				// route is loaded, and a dev server that is stopped is normal.
+				check.Status, check.Detail = StatusOK, fmt.Sprintf(
+					"%s: nothing is listening on 127.0.0.1:%d; requests for it get a 502 until a process is", target.claim, target.targetPort)
+				break
+			}
 			check.Detail = fmt.Sprintf(
 				"%s: its target is down or unreachable (the router answers %d); the service may be stopped or not listening on its port",
 				target.claim, result.status)

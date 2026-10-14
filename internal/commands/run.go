@@ -79,7 +79,7 @@ func RunWithContext(ctx context.Context, cctx *CommandContext, opts RunOptions) 
 			ProjectRoot: cctx.Loaded.Root,
 		},
 		Ref: ref, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ, ComposeFile: cctx.ComposeFile(),
-		Routes:     worktree.WithPorts(worktree.Routes(cfg.Service, ref.Slug, registration.Domain, cctx.RouterPort), registration.Ports),
+		Routes:     routesOf(cfg, ref.Slug, registration.Domain, cctx.RouterPort, registration.Ports, registration.HostRoutes).All(),
 		Shared:     sharedAddrs(cctx, ref.RepositoryID),
 		SharedURLs: sharedURLs(cctx, ref.RepositoryID, cctx.RouterPort),
 	}

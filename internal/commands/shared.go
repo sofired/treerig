@@ -139,6 +139,9 @@ func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Ro
 	if err != nil {
 		return err
 	}
+	if err := refuseHostRouteClashes(cctx.CommandName, cfg, registration.HostRoutes); err != nil {
+		return err
+	}
 	ref := toRef(registration.RegisteredWorktree)
 	namespace := cfg.LabelNamespace()
 	if options.Recreate && len(options.Names) == 0 {

@@ -3,6 +3,7 @@ package commands_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -286,6 +287,83 @@ func TestWorktreeRename(t *testing.T) {
 		}
 	})
 
+	t.Run("rewrites a host route's file at the new hostname, and a retry with another slug leaves none at the first", func(t *testing.T) {
+		rw := newRenameWorld(t, false)
+		rw.tc.Listeners = listeningOn("127.0.0.1:5173")
+		if err := commands.RouteAddWithContext(context.Background(), rw.tc.CommandContext, nil, commands.RouteAddOptions{Name: "web", Port: 5173, Subdomain: "app"}); err != nil {
+			t.Fatal(err)
+		}
+		path := router.HostFragmentPath(rw.RouterState, rw.ref.RepositoryID, rw.ref.WorktreeID, "web")
+		// The state a crash after moveRoutes and before the record commit
+		// leaves: the file already at the first attempt's hostname.
+		first := rw.record(t)
+		first.Slug = "first-try"
+		if err := router.WriteHostFragment(rw.RouterState, first.RepositoryID, first.WorktreeID, "web", router.HostFragmentDocument(first.RepositoryID, first.WorktreeID, "web", "Host(`app.first-try.acme.localhost`)", 5173)); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := rw.rename("login"); err != nil {
+			t.Fatal(err)
+		}
+		doc, err := router.ReadFragment(rw.RouterState, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := firstRuleOf(doc); got != "Host(`app.login.acme.localhost`)" || doc.TargetPort() != 5173 {
+			t.Fatalf("rule = %q, port %d", got, doc.TargetPort())
+		}
+		fragments, _ := router.ListHostFragments(rw.RouterState)
+		if len(fragments) != 1 {
+			t.Fatalf("host route files = %+v", fragments)
+		}
+		data, _ := os.ReadFile(path)
+		if strings.Contains(string(data), "first-try") {
+			t.Fatalf("a file is left at the first attempt's hostname:\n%s", data)
+		}
+		if routes := rw.record(t).HostRoutes; len(routes) != 1 || routes[0].Name != "web" {
+			t.Fatalf("routes = %+v", routes)
+		}
+	})
+
+	t.Run("a host route whose file is missing gets one when the worktree is renamed", func(t *testing.T) {
+		rw := newRenameWorld(t, false)
+		rw.tc.Listeners = listeningOn("127.0.0.1:5173")
+		if err := commands.RouteAddWithContext(context.Background(), rw.tc.CommandContext, nil, commands.RouteAddOptions{Name: "web", Port: 5173, Subdomain: "app"}); err != nil {
+			t.Fatal(err)
+		}
+		path := router.HostFragmentPath(rw.RouterState, rw.ref.RepositoryID, rw.ref.WorktreeID, "web")
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rw.rename("login"); err != nil {
+			t.Fatal(err)
+		}
+		if !hasFile(path) {
+			t.Fatal("no file after the rename")
+		}
+	})
+
+	t.Run("a failed host route rewrite stops the rename before the record changes", func(t *testing.T) {
+		rw := newRenameWorld(t, false)
+		rw.tc.Listeners = listeningOn("127.0.0.1:5173")
+		if err := commands.RouteAddWithContext(context.Background(), rw.tc.CommandContext, nil, commands.RouteAddOptions{Name: "web", Port: 5173, Subdomain: "app"}); err != nil {
+			t.Fatal(err)
+		}
+		// A directory where the file belongs: the atomic rename onto it fails.
+		path := router.HostFragmentPath(rw.RouterState, rw.ref.RepositoryID, rw.ref.WorktreeID, "web")
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(path, "x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, err := rw.rename("login")
+		wantErr(t, err, `Could not rewrite the route file of host route "web" before renaming it to login\.acme\.localhost`)
+		if got := rw.record(t).Slug; got != "feature-login" {
+			t.Fatalf("slug = %q", got)
+		}
+	})
+
 	t.Run("refuses while a container is stopped but not removed", func(t *testing.T) {
 		rw := newRenameWorld(t, true)
 		for _, id := range rw.Docker.Owned(rw.ref, brand.LabelNamespace) {
@@ -368,4 +446,12 @@ func TestWorktreeRename(t *testing.T) {
 			t.Fatalf("slug after Ensure = %q", ensured.Slug)
 		}
 	})
+}
+
+// firstRuleOf is the rule of a route file's only router.
+func firstRuleOf(doc router.FragmentDocument) string {
+	for _, entry := range doc.HTTP.Routers {
+		return entry.Rule
+	}
+	return ""
 }

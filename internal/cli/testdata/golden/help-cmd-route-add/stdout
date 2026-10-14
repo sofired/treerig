@@ -1,0 +1,22 @@
+Route a hostname of this worktree to the process listening on 127.0.0.1:<port>.
+Like a [service.<name>] table, the route takes a --subdomain and a --path, and
+gets the hostname a service with that name and those fields would get. The name
+must not be a service's or another host route's, and the route must not
+duplicate one; adding a route identical to a recorded one writes its route file
+again. Needs a registered worktree: run `berth up` first.
+
+Usage:
+  berth route add <name> --port <port> [flags]
+
+Flags:
+  -h, --help               help for add
+      --path string        route only this URL path prefix, which must start
+                           with /
+      --port int           the port the process on the host listens on, at
+                           127.0.0.1 (required)
+      --subdomain string   route <subdomain>.<this worktree's host> instead of
+                           the host itself
+
+Global Flags:
+      --config string   path to berth.toml (default: nearest above cwd)
+  -V, --version         output the version number

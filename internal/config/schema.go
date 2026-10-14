@@ -32,6 +32,18 @@ var (
 	urlPathPattern = regexp.MustCompile(`^/(?:[A-Za-z0-9._~!&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$`)
 )
 
+// The messages a service's routing fields are refused with, shared by the
+// schema and by CheckSubdomain and CheckRoutePath so that a host route
+// (#6), which takes the same fields, is refused in the same words.
+const (
+	subdomainMessage = "must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen"
+	pathMessage      = "must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits"
+	nameMessage      = "must be lower-case letters, digits, and hyphens"
+)
+
+// labelLengthMessage is the refusal of a name or subdomain over dnsLabelMax.
+var labelLengthMessage = fmt.Sprintf("must be at most %d characters", dnsLabelMax)
+
 const (
 	dnsLabelMax = 63
 	// domainMax: a routed hostname is <subdomain>.<slug>.<domain>; with two
@@ -91,8 +103,8 @@ const SchemaID = "https://raw.githubusercontent.com/sofired/berth/main/schema/be
 // what names the thing being named, for the description editors show.
 func nameKey(what string) *shape.StringSchema {
 	return shape.String().
-		Regex(slugPattern, "must be lower-case letters, digits, and hyphens").
-		Max(dnsLabelMax, fmt.Sprintf("must be at most %d characters", dnsLabelMax)).
+		Regex(slugPattern, nameMessage).
+		Max(dnsLabelMax, labelLengthMessage).
 		Describe(fmt.Sprintf("%s: lower-case letters, digits and hyphens, at most %d characters.", what, dnsLabelMax))
 }
 
@@ -120,12 +132,12 @@ func keyedTables(names *shape.StringSchema, entry shape.Schema, plural, header s
 func serviceSchema() *shape.ObjectSchema {
 	return shape.Object(
 		shape.F("subdomain", shape.String().
-			Regex(subdomainPattern, "must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen").
-			Max(dnsLabelMax, fmt.Sprintf("must be at most %d characters", dnsLabelMax)).
+			Regex(subdomainPattern, subdomainMessage).
+			Max(dnsLabelMax, labelLengthMessage).
 			Default("").
 			Describe("Subdomain under the worktree host, so the service is routed at <subdomain>.<slug>.<domain>. Empty (the default) routes at the worktree host root.")),
 		shape.F("path", shape.String().
-			Regex(urlPathPattern, "must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits").
+			Regex(urlPathPattern, pathMessage).
 			Optional().
 			Describe("Routes only this URL path prefix, which must start with /, so several services can share one host; also where the printed URL points. Omit to route the whole host.")),
 		shape.F("port", shape.Number().Int().Min(1).Max(65_535).Optional().

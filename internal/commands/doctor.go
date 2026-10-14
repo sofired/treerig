@@ -747,10 +747,14 @@ func readFragmentRules(dynamicDir, path string) []fragmentRule {
 // a route conflict is worth reporting whether or not the registry can name
 // its claimants.
 func fragmentIdentity(byKey map[string]registry.RegisteredWorktree, fragment router.FragmentInfo) string {
-	if record, ok := byKey[fragment.RepositoryID+"/"+fragment.WorktreeID]; ok {
-		return layout.WorktreeHost(record.Slug, record.Domain) + " (" + fragment.Service + ")"
+	name := fragment.Service
+	if fragment.HostRoute {
+		name = "host route " + name
 	}
-	return fragment.RepositoryID + "." + fragment.WorktreeID + "." + fragment.Service
+	if record, ok := byKey[fragment.RepositoryID+"/"+fragment.WorktreeID]; ok {
+		return layout.WorktreeHost(record.Slug, record.Domain) + " (" + name + ")"
+	}
+	return fragment.RepositoryID + "." + fragment.WorktreeID + "." + name
 }
 
 // routeConflicts is every rule more than one fragment's router claims, each
@@ -839,6 +843,14 @@ func routeChecks(state layout.RouterLayout, controlHome, commandName string) ([]
 	if err != nil {
 		return nil, err
 	}
+	hostFragments, err := router.ListHostFragments(state)
+	if err != nil {
+		return nil, err
+	}
+	// Host routes (#6) claim rules of their own, so they can conflict with a
+	// service's, a shared service's, or another worktree's host route: all
+	// of them are claims in the one check below.
+	fragments = append(fragments, hostFragments...)
 	sharedFragments, err := router.ListSharedFragments(state)
 	if err != nil {
 		return nil, err
@@ -1370,6 +1382,10 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 		checks = append(checks, portLines...)
 	}
 
+	if identified && registration != nil && len(registration.HostRoutes) > 0 {
+		checks = append(checks, hostRouteChecks(ctx, opts, registration)...)
+	}
+
 	checks = append(checks, hookResolutionChecks(loaded, opts.Environ)...)
 
 	command := loaded.Config.Hooks.Verify
@@ -1388,7 +1404,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 		// hook a wrong :0 URL rather than no URL at all.
 		var verifyRoutes []worktree.ServiceRoute
 		if opts.RouterErr == nil {
-			verifyRoutes = worktree.WithPorts(worktree.Routes(loaded.Config.Service, ref.Slug, registration.Domain, opts.RouterPort.Port), registration.Ports)
+			verifyRoutes = routesOf(loaded.Config, ref.Slug, registration.Domain, opts.RouterPort.Port, registration.Ports, registration.HostRoutes).All()
 		}
 		// Its output goes to stderr: stdout is this report.
 		_, hookErr := hooks.RunHook(ctx, config.Verify, hooks.HookContext{
@@ -1582,6 +1598,9 @@ type doctorOptions struct {
 	// PortProbe decides whether an allocated loopback port is free; nil asks
 	// the operating system (#119).
 	PortProbe ports.Probe
+	// Listeners says which loopback addresses a host route's port answers
+	// on; nil dials (ports.DialListener).
+	Listeners ports.ListenerProbe
 	// OS is Env.OS, for the tool a message suggests.
 	OS string
 	// RouteClient sends the route probes (decision 13); nil skips them.
@@ -1676,6 +1695,7 @@ func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state
 		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: userHome,
 		Runner: env.Runner, Logger: env.Logger, OS: env.OS,
 		Checkout: checkout, Invocation: env.Invocation, Environ: env.Environ,
+		Listeners: env.Listeners,
 	}
 	if svcErr != nil {
 		opts.RouterErr = svcErr
