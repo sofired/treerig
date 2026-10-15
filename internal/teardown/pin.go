@@ -108,7 +108,6 @@ func foreign(path, dir string, cause error) error {
 }
 
 var (
-	releasePattern  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$`)
 	labelPattern    = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$`)
 	sha256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	platformPattern = regexp.MustCompile(`^(linux|darwin)_(amd64|arm64)$`)
@@ -173,7 +172,7 @@ func (p Pin) validateIdentity() error {
 		}
 		return nil
 	}
-	if _, err := semver.Parse(p.Release); err != nil || !releasePattern.MatchString(p.Release) {
+	if !semver.IsRelease(p.Release) {
 		return fmt.Errorf("release %q is not a release version", p.Release)
 	}
 	if err := validateReleaseSource(p.Source, p.Release); err != nil {

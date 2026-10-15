@@ -14,6 +14,7 @@
 //	    bin/<sha256>                      BinDir: `worktree remove`'s own content-addressed copies (#7)
 //	    teardown/pin.json                 PinPath: the teardown pin (#85)
 //	    teardown/<sha256>                 TeardownDir: the pinned teardown binaries (#85)
+//	    teardown/cosign/{tuf,tmp}         CosignHome: the HOME, TUF_ROOT and TMPDIR cosign runs with (#85), a derived cache
 //
 // The shared router's own stack file, protocol record, dynamic and index
 // directories, and lock live under the berth root rather than inside the
@@ -56,6 +57,11 @@ type Control struct {
 	TeardownDir string
 	// PinPath is the teardown pin, TeardownDir/pin.json.
 	PinPath string
+	// CosignHome, CosignTUFRoot and CosignTmp are the HOME, TUF_ROOT and
+	// TMPDIR `teardown pin` gives cosign, so that no checkout's environment
+	// chooses where it keeps its trust root. They are a cache: derived,
+	// unversioned, safe to delete, and never touched by the teardown sweep.
+	CosignHome, CosignTUFRoot, CosignTmp string
 }
 
 // Repository adds one repository's directories.
@@ -250,6 +256,9 @@ func ControlLayout(controlHome string) Control {
 		BinDir:           filepath.Join(resolved, "bin"),
 		TeardownDir:      filepath.Join(resolved, "teardown"),
 		PinPath:          filepath.Join(resolved, "teardown", "pin.json"),
+		CosignHome:       filepath.Join(resolved, "teardown", "cosign"),
+		CosignTUFRoot:    filepath.Join(resolved, "teardown", "cosign", "tuf"),
+		CosignTmp:        filepath.Join(resolved, "teardown", "cosign", "tmp"),
 	}
 }
 

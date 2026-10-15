@@ -11,6 +11,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/releasefetch"
 	"github.com/sofired/berth/internal/run"
 )
 
@@ -27,8 +28,9 @@ var newRunner func() run.Runner
 // commands.Env's own Executable and Exec unchanged — nil from Main, so
 // relocation is always skipped there; real from MainProcess, cmd/berth's
 // own entry point, the only caller allowed to let a verb replace this
-// process's image.
-func envBuilder(commandName, invocation string, console *logger.Console, getenv layout.Getenv, stdin io.Reader, stderr io.Writer, life *lifecycle.Lifecycle, args []string, executable func() (string, error), execFn func(argv0 string, argv, envv []string) error) func(configPath string) (*commands.Env, error) {
+// process's image. releases becomes commands.Env.Releases the same way: nil
+// from Main, so no in-process test reaches the network.
+func envBuilder(commandName, invocation string, console *logger.Console, getenv layout.Getenv, stdin io.Reader, stderr io.Writer, life *lifecycle.Lifecycle, args []string, executable func() (string, error), execFn func(argv0 string, argv, envv []string) error, releases releasefetch.Fetcher) func(configPath string) (*commands.Env, error) {
 	return func(configPath string) (*commands.Env, error) {
 		cwd, err := layout.PhysicalWd()
 		if err != nil {
@@ -57,6 +59,7 @@ func envBuilder(commandName, invocation string, console *logger.Console, getenv 
 			StderrIsTTY: stderrIsTTY(),
 			Executable:  executable,
 			Exec:        execFn,
+			Releases:    releases,
 		}, nil
 	}
 }

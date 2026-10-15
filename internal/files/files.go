@@ -808,6 +808,17 @@ func SecureTeardownDirectory(l layout.Control, userHome string) error {
 	return createSecureDirectories(l.ControlHome, []string{l.TeardownDir}, 0o700)
 }
 
+// SecureCosignDirectories is SecureTeardownDirectory plus the directories
+// `teardown pin` gives cosign as HOME, TUF_ROOT and TMPDIR (layout.Control's
+// CosignHome, CosignTUFRoot and CosignTmp), all 0700 and checked against a
+// symlinked or foreign one. They are a derived cache, not stored state.
+func SecureCosignDirectories(l layout.Control, userHome string) error {
+	if err := SecureTeardownDirectory(l, userHome); err != nil {
+		return err
+	}
+	return createSecureDirectories(l.ControlHome, []string{l.CosignHome, l.CosignTUFRoot, l.CosignTmp}, 0o700)
+}
+
 // SecureRegistrationDirectories are the directories a worktree needs before
 // it can be registered — no home yet.
 func SecureRegistrationDirectories(l layout.Worktree, userHome string) error {

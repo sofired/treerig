@@ -247,6 +247,15 @@ func TestTeardownLayout(t *testing.T) {
 		if l.PinPath != filepath.Join("/ctl", "teardown", "pin.json") {
 			t.Errorf("PinPath = %q", l.PinPath)
 		}
+		for got, want := range map[string]string{
+			l.CosignHome:    filepath.Join("/ctl", "teardown", "cosign"),
+			l.CosignTUFRoot: filepath.Join("/ctl", "teardown", "cosign", "tuf"),
+			l.CosignTmp:     filepath.Join("/ctl", "teardown", "cosign", "tmp"),
+		} {
+			if got != want {
+				t.Errorf("cosign directory = %q, want %q", got, want)
+			}
+		}
 		if l.TeardownDir == l.BinDir {
 			t.Error("the teardown directory is the bin directory")
 		}

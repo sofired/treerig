@@ -415,7 +415,8 @@ written:
   skipping any already named on the command line. Each is described by its
   `[service.<name>.index]` label, else its subdomain or path, else "host root".
 - `backup` and `restore` complete directories, for their bundle directory.
-- `teardown pin --file` completes file names, for the binary to pin.
+- `teardown pin --file` completes file names, for the binary to pin. `--release`
+  completes nothing.
 - `run` completes the command names under `[commands]`, in the order the file
   lists them, each described by its command line. Only the name is completed,
   never what follows it.
@@ -1231,14 +1232,72 @@ code of whichever build you invoked, so that code from a branch does not run
 while it takes a worktree apart ([`docs/design/teardown.md`](docs/design/teardown.md),
 #85). **Only the pin exists so far.** `worktree remove` does not run the pinned
 binary yet and does not refuse without one (#146); nothing here changes what it
-does. The two commands below install a pin and check it.
+does. The commands below install a pin and check it.
 
 The pin lives under the control home, in `teardown/`: `pin.json` and the pinned
 binaries, each named by its sha256. The control home is `control-home/` under
 the berth root (`~/.berth` by default) unless `BERTH_CONTROL_HOME` moves it, and
 `berth doctor` prints it. There is one pin per control home, shared by every
 berth root that uses it. Nothing pins, updates or unpins on its own, and
-nothing downloads.
+nothing downloads except `teardown pin --release` or `--latest`, which you run.
+
+### `teardown pin --release` and `--latest`
+
+Download a release, verify it, and pin the `berth` inside it:
+
+```bash
+berth teardown pin --release 0.1.0-rc.1     # a version, as the tag without the v
+berth teardown pin --latest                 # the newest release that is not a pre-release
+```
+
+`--latest` only finds the version: it reads `releases/latest/download/checksums.txt`
+for the version in the archive names, discards it, and then behaves as
+`--release` with that version, fetching everything again from
+`https://github.com/sofired/berth/releases/download/vX.Y.Z/`. It never selects a
+pre-release, so while every release is one it refuses and tells you to name the
+release with `--release`. `--release` and `--latest` exclude each other.
+
+Verification needs **cosign 3.0.0 or newer** on your `PATH`. berth finds it once
+and runs that path for both steps, so check what `PATH` finds. It checks
+`checksums.txt` with `cosign verify-blob` against the release workflow's exact
+identity for that tag
+(`https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/vX.Y.Z`,
+issued by `https://token.actions.githubusercontent.com`), so another tag's
+signature does not verify. Only then does it read `checksums.txt`, compare the
+archive for your platform with its line there, extract `berth` (the one regular
+entry named `berth`; a link, an absolute or `..` name, a second `berth` or none
+refuses the archive) and check that it is an executable for this machine. The pin
+records the archive digest of all four platforms and the extracted binary's
+digest for yours. Downloads are HTTPS only, redirects included, with size limits
+(1 MiB for `checksums.txt` and the signature, 100 MiB for the archive) and a
+10-minute limit for the lot; your `HTTPS_PROXY` settings apply. Nothing is
+written to the control home until you approve the plan, which shows the release,
+source, signer, the cosign that ran and its version, and your platform's digest.
+
+berth refuses a cosign that lives inside a checkout (the current one, its
+repository, or any registered worktree) or inside the control home, since branch
+code could have put it there. What it checks is the current checkout and its
+repository, the worktrees that repository lists (`.git/worktrees`, registered
+with berth or not), the worktrees berth has registered (found through the index
+card `up` writes, so one that never ran `up` and is not listed is not checked)
+and the control home; if it cannot work these out it refuses. cosign runs with
+a fixed environment, not yours: `PATH`, `LANG` and `LC_*`, the `HTTP_PROXY`,
+`HTTPS_PROXY` and `NO_PROXY` variables (either case) and `SSL_CERT_FILE` and
+`SSL_CERT_DIR`, plus a `HOME`, `TUF_ROOT` and `TMPDIR` of berth's own under
+`<control home>/teardown/cosign/`, so no `COSIGN_*` or `SIGSTORE_*` setting in a
+checkout's environment can choose the trust root or switch a check off.
+`ALL_PROXY` is not passed. cosign fetches its trust root on the first run and
+keeps it there. A cosign elsewhere on a hijacked `PATH` is trusted. A cosign that is an asdf or mise shim is not supported: it needs the `HOME` and variables berth withholds, so install a cosign binary on `PATH`. Run `teardown pin` from a shell you trust. The pin reaches `github.com`,
+`release-assets.githubusercontent.com` (where GitHub redirects the downloads) and
+`tuf-repo-cdn.sigstore.dev` (cosign). When cosign fails, berth says which kind: a
+signature or identity failure means do not trust that release; only a trust root
+that could not be loaded suggests `cosign initialize` once with network access,
+or verifying by hand and using `teardown pin --file`.
+
+Pinning the same release for another platform merges into the pin; any other
+release replaces it, a downgrade included, and the plan says so. The pin does not
+run the binary: the first time it is executed is by the removal gate (#146),
+which is also where a filesystem that cannot run programs will be reported.
 
 ### `teardown pin --file`
 
@@ -1267,8 +1326,9 @@ records only this machine's platform, so another platform pins its own binary.
 Pinning again replaces the pin, a downgrade included. There is no unpin: delete
 `<control home>/teardown/`.
 
-No signature is checked and no program is run. Pinning a downloaded release,
-verified with cosign, is not built yet.
+No signature is checked, cosign is not run, and no program is run. For a file
+pin `--release` is only the label. To pin a downloaded release with cosign's
+verification, use `--release X.Y.Z` or `--latest` above.
 
 ### `teardown status`
 
@@ -1999,8 +2059,9 @@ Shipped:
 - **`init`** (#9) — writes a commented starter `berth.toml` at the Git
   checkout's root, with the schema directive and the Compose file it finds
   there, and never replaces an existing one.
-- **`teardown pin --file` / `teardown status`** (#85) — pin a berth binary you
-  verified by its sha256 as the teardown binary, and check the pin; see
+- **`teardown pin --release` / `--latest` / `--file`, `teardown status`** (#85) —
+  pin a release verified with cosign, or a berth binary you verified by its
+  sha256, as the teardown binary, and check the pin; see
   [Teardown pin](#teardown-pin). `worktree remove` does not run it yet.
 - **`doctor`** — one read-only report: Git, Docker and Compose against the
   versions this tool needs; the berth root and every registration
@@ -2021,9 +2082,9 @@ these is a command at all.
    first change to a store's format after a release.
 2. **Running `worktree remove` from a pinned, trusted binary** (#85, #146) —
    the stronger guarantee the relocated-copy mechanism above is a step toward.
-   The pin and its two commands are built ([Teardown pin](#teardown-pin));
-   pinning a downloaded release, verified with cosign, and the gate that makes
-   removal run the pinned binary are not. Tagged releases, with the names and
+   The pin, its commands and cosign-verified release pinning are built
+   ([Teardown pin](#teardown-pin)); the gate that makes removal run the pinned
+   binary is not. Tagged releases, with the names and
    signing identity in [`docs/design/release.md`](docs/design/release.md), are
    what it will pin to.
 

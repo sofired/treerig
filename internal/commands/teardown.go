@@ -1,10 +1,11 @@
 package commands
 
-// `teardown pin --file` and `teardown status` (#85, docs/design/teardown.md):
-// the commands over the pin store in internal/teardown. Nothing here pins,
-// updates or unpins implicitly, and nothing runs the pinned binary: the
-// removal gate (#146) does not exist yet, so `status` reports the pin's
-// integrity on this machine and says nothing about removal.
+// `teardown pin` (--file, --release, --latest) and `teardown status` (#85,
+// docs/design/teardown.md): the commands over the pin store in
+// internal/teardown. Nothing here pins, updates or unpins implicitly, and
+// nothing runs the pinned binary: the removal gate (#146) does not exist yet,
+// so `status` reports the pin's integrity on this machine and says nothing
+// about removal. The download forms are in teardown_release.go.
 
 import (
 	"context"
@@ -23,6 +24,7 @@ import (
 	"github.com/sofired/berth/internal/binstore"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/berth/internal/releasefetch"
 	"github.com/sofired/berth/internal/semver"
 	"github.com/sofired/berth/internal/teardown"
 	"github.com/sofired/berth/internal/text"
@@ -40,16 +42,31 @@ const noSignerText = "none (digest supplied by you)"
 
 // TeardownPinOptions are `teardown pin`'s flags.
 type TeardownPinOptions struct {
-	// File, SHA256 and Release are --file, --sha256 and --release: the
-	// binary to pin, the digest the user verified it against, and the label
-	// the pin carries.
+	// File, SHA256 and Release are --file, --sha256 and --release. With File,
+	// they are the binary to pin, the digest the user verified it against,
+	// and the label the pin carries; without it, Release is the version to
+	// download and verify.
 	File    string
 	SHA256  string
 	Release string
+	// Latest is --latest: download the newest release that is not a
+	// pre-release. It excludes Release and File.
+	Latest bool
 	// Yes skips the confirmation phrase.
 	Yes bool
 	// Now is the clock for pinned_at and the sweep; nil means time.Now.
 	Now func() time.Time
+
+	// Source, Policy and DownloadTimeout are for tests, and internal/cli must
+	// never set them: the production values are the zero ones, and a place a
+	// release is downloaded from, or a way of verifying it, that a caller could
+	// choose would defeat the pin. Source says where releases are published (the berth
+	// repository on GitHub), Policy builds the cosign policy for a release
+	// (keyless, with the release workflow's identity), and DownloadTimeout
+	// bounds the fetches and the cosign runs together (10 minutes).
+	Source          releasefetch.Source
+	Policy          func(release string) releasefetch.Policy
+	DownloadTimeout time.Duration
 }
 
 // TeardownStatusOptions are `teardown status`'s flags.
@@ -61,13 +78,14 @@ type TeardownStatusOptions struct {
 	Version string
 }
 
-// teardownPinCommand is the command the messages tell the user to run. Until
-// the `--release X.Y.Z` and `--latest` download forms exist (step 4 of
-// docs/design/teardown.md) that is the `--file` form; step 4 changes this one
-// function. Nothing else in the
-// commands depends on how a release is named.
+// teardownPinCommand is the command the messages tell the user to run
+// (docs/design/teardown.md, "The pin command"). `--latest` never selects a
+// pre-release, and the repository has only pre-releases so far, so the command
+// names a release; when the first release that is not a pre-release is
+// published this is the one function that becomes `--latest`. Nothing else in
+// the commands depends on how a release is named.
 func teardownPinCommand(env *Env) string {
-	return fmt.Sprintf("`%s teardown pin --file PATH --sha256 HEX --release LABEL`", env.CommandName)
+	return fmt.Sprintf("`%s teardown pin --release X.Y.Z`", env.CommandName)
 }
 
 // teardownControl resolves the control home through checkedHome, the one path
@@ -95,34 +113,69 @@ func teardownPlatform(env *Env, release string) (string, error) {
 	return key, nil
 }
 
-// TeardownPin is `teardown pin --file PATH --sha256 HEX --release LABEL`: pin a
-// local binary the user has verified by hand. The file is read once, those
-// bytes are hashed and compared with --sha256, and the same bytes are
-// installed. No signature is checked and no program is run; the plan says so.
+// pinSourceHelp is how a refusal names the ways to pin.
+const pinSourceHelp = "pass --release X.Y.Z or --latest to download and verify a release, or --file with --sha256 and --release to pin a binary you have verified"
+
+// checkPinFlags applies the flag rules of docs/design/teardown.md,
+// "Installing or updating the pin": a download takes --release or --latest, and
+// --file takes --sha256 and --release (the label). It returns whether this is a
+// file pin.
+func checkPinFlags(options TeardownPinOptions) (fromFile bool, err error) {
+	if options.File != "" {
+		if options.Latest {
+			return true, clierr.New("--latest cannot be used with --file: a file pin is for a binary you verified yourself.")
+		}
+		var missing []string
+		for _, flag := range []struct{ name, value string }{{"--sha256", options.SHA256}, {"--release", options.Release}} {
+			if flag.value == "" {
+				missing = append(missing, flag.name)
+			}
+		}
+		switch len(missing) {
+		case 0:
+		case 1:
+			return true, clierr.Newf("Missing required flag: %s.", missing[0])
+		default:
+			return true, clierr.Newf("Missing required flags: %s.", strings.Join(missing, ", "))
+		}
+		if !teardown.ValidSHA256(strings.ToLower(options.SHA256)) {
+			return true, clierr.New("--sha256 must be 64 hexadecimal characters.")
+		}
+		if !teardown.ValidLabel(options.Release) {
+			return true, clierr.New("--release must be 1 to 64 characters: letters, digits, '.', '_', '+' and '-', starting with a letter or a digit.")
+		}
+		return true, nil
+	}
+	switch {
+	case options.SHA256 != "":
+		return false, clierr.New("--sha256 can only be used with --file.")
+	case options.Latest && options.Release != "":
+		return false, clierr.New("--release and --latest cannot be used together.")
+	case !options.Latest && options.Release == "":
+		return false, clierr.Newf("Missing a source to pin: %s.", pinSourceHelp)
+	case !options.Latest && !semver.IsRelease(options.Release):
+		return false, clierr.New("--release must be a version such as 1.2.3 or 0.1.0-rc.1, without a leading v.")
+	}
+	return false, nil
+}
+
+// TeardownPin is `teardown pin`. With --file, it pins a local binary the user
+// has verified by hand: the file is read once, those bytes are hashed and
+// compared with --sha256, and the same bytes are installed. No signature is
+// checked and no program is run; the plan says so. With --release or --latest
+// it downloads a release and verifies it with cosign (teardown_release.go).
 func TeardownPin(ctx context.Context, env *Env, options TeardownPinOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var missing []string
-	for _, flag := range []struct{ name, value string }{{"--file", options.File}, {"--sha256", options.SHA256}, {"--release", options.Release}} {
-		if flag.value == "" {
-			missing = append(missing, flag.name)
-		}
+	fromFile, err := checkPinFlags(options)
+	if err != nil {
+		return err
 	}
-	switch len(missing) {
-	case 0:
-	case 1:
-		return clierr.Newf("Missing required flag: %s.", missing[0])
-	default:
-		return clierr.Newf("Missing required flags: %s.", strings.Join(missing, ", "))
+	if !fromFile {
+		return teardownPinRelease(ctx, env, options)
 	}
 	want := strings.ToLower(options.SHA256)
-	if !teardown.ValidSHA256(want) {
-		return clierr.New("--sha256 must be 64 hexadecimal characters.")
-	}
-	if !teardown.ValidLabel(options.Release) {
-		return clierr.New("--release must be 1 to 64 characters: letters, digits, '.', '_', '+' and '-', starting with a letter or a digit.")
-	}
 	release := options.Release
 	platform, err := teardownPlatform(env, release)
 	if err != nil {
@@ -149,7 +202,18 @@ func TeardownPin(ctx context.Context, env *Env, options TeardownPinOptions) erro
 	if err := teardown.CheckExecutable(binary, platform); err != nil {
 		return clierr.Newf("Refusing to pin %s: %s is not a %s executable (%s). Nothing was pinned. Pin the berth binary built for this machine.", release, text.Printable(path), platform, err)
 	}
+	return installPin(env, options, binary, release, platform, func(now time.Time) teardown.Pin {
+		return teardown.FilePin(path, release, platform, want, now)
+	}, func(existing teardown.Pin, found bool, outcome teardown.Outcome) string {
+		return pinPlan(existing, found, outcome, platform, want, [][2]string{{"signer", noSignerText + "; no signature was checked"}})
+	})
+}
 
+// installPin is the end of every pin: read the existing pin (a newer or foreign
+// one refuses here), show the plan and ask, read the pin again, and call
+// teardown.Update and teardown.Save with the bytes already verified. build
+// builds the pin to write for a given time; plan draws the confirmation screen.
+func installPin(env *Env, options TeardownPinOptions, binary []byte, release, platform string, build func(time.Time) teardown.Pin, plan func(teardown.Pin, bool, teardown.Outcome) string) error {
 	control, userHome, err := teardownControl(env)
 	if err != nil {
 		return err
@@ -163,9 +227,8 @@ func TeardownPin(ctx context.Context, env *Env, options TeardownPinOptions) erro
 		now = time.Now
 	}
 	// The plan does not show the time, so the pin it is drawn from carries none.
-	outcome := teardown.Update(existing, found, teardown.FilePin(path, release, platform, want, time.Time{}))
-	plan := teardownPlan(existing, found, outcome, platform, want)
-	if err := confirm(env, plan, teardownPhrase, options.Yes); err != nil {
+	outcome := teardown.Update(existing, found, build(time.Time{}))
+	if err := confirm(env, plan(existing, found, outcome), teardownPhrase, options.Yes); err != nil {
 		return err
 	}
 
@@ -173,15 +236,13 @@ func TeardownPin(ctx context.Context, env *Env, options TeardownPinOptions) erro
 	// that is a prompt old, so the pin is read again immediately before the
 	// update and the write, and the clock is read after the prompt too. A
 	// writer that lands between this read and Save's rename still loses to
-	// this one (the last writer wins), which docs/design/teardown.md accepts
-	// for a file pin: it has no checksums to merge, so replacing is all
-	// Update does with one.
+	// this one (the last writer wins), which docs/design/teardown.md accepts.
 	existing, found, err = teardown.ReadPin(control)
 	if err != nil {
 		return err
 	}
 	written := now()
-	outcome = teardown.Update(existing, found, teardown.FilePin(path, release, platform, want, written))
+	outcome = teardown.Update(existing, found, build(written))
 	saved, err := teardown.Save(control, userHome, binary, outcome.Pin, written)
 	if err != nil {
 		return clierr.Wrap(fmt.Sprintf("Could not pin the teardown binary in %s: %s.", text.Printable(control.TeardownDir), text.OneLine(err.Error(), 300)), err)
@@ -237,11 +298,12 @@ func reasonWithoutPath(err error) string {
 	return err.Error()
 }
 
-// teardownPlan is the confirmation screen for a file pin: the plan block of
-// docs/design/teardown.md. Every value is borrowed from the file system or
-// from a pin on disk, so each goes through text.Printable. The last line is
-// the pre-gate one; #146 changes it.
-func teardownPlan(existing teardown.Pin, found bool, outcome teardown.Outcome, platform, digest string) string {
+// pinPlan is the confirmation screen of a pin: the plan blocks of
+// docs/design/teardown.md. extra rows (signer, and for a release pin cosign)
+// are name, value pairs between "source" and "platform". Every value is
+// borrowed from the network, the file system or a pin on disk, so each goes
+// through text.Printable. The last line is the pre-gate one; #146 changes it.
+func pinPlan(existing teardown.Pin, found bool, outcome teardown.Outcome, platform, digest string, extra [][2]string) string {
 	current := "none"
 	if found {
 		current = text.Printable(existing.Release)
@@ -253,9 +315,9 @@ func teardownPlan(existing teardown.Pin, found bool, outcome teardown.Outcome, p
 	rows := [][2]string{
 		{"release", fmt.Sprintf("%s  (current pin: %s)", text.Printable(incoming.Release), current)},
 		{"source", text.Printable(incoming.Source)},
-		{"signer", noSignerText + "; no signature was checked"},
-		{"platform", fmt.Sprintf("%s  sha256 %s", platform, digest)},
 	}
+	rows = append(rows, extra...)
+	rows = append(rows, [2]string{"platform", fmt.Sprintf("%s  sha256 %s", platform, digest)})
 	lines := []string{"Pin the teardown binary"}
 	for _, row := range rows {
 		lines = append(lines, "  "+text.PadEnd(row[0], 8)+"  "+row[1])

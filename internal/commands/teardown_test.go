@@ -174,7 +174,7 @@ func wantRefusal(t *testing.T, err error, message string) {
 }
 
 // pinCommand is the command the refusals name.
-const pinCommand = "`berth teardown pin --file PATH --sha256 HEX --release LABEL`"
+const pinCommand = "`berth teardown pin --release X.Y.Z`"
 
 func TestTeardownPinFile(t *testing.T) {
 	t.Run("pins a local binary: stores the same bytes under their hash and writes a file pin for this platform", func(t *testing.T) {
@@ -274,11 +274,17 @@ func TestTeardownPinFile(t *testing.T) {
 			edit    func(*commands.TeardownPinOptions)
 			message string
 		}{
-			{"no --file", func(o *commands.TeardownPinOptions) { o.File = "" }, "Missing required flag: --file."},
+			{"no --file, but a digest", func(o *commands.TeardownPinOptions) { o.File = "" }, "--sha256 can only be used with --file."},
 			{"no --sha256", func(o *commands.TeardownPinOptions) { o.SHA256 = "" }, "Missing required flag: --sha256."},
 			{"no --release", func(o *commands.TeardownPinOptions) { o.Release = "" }, "Missing required flag: --release."},
-			{"all three missing", func(o *commands.TeardownPinOptions) { *o = commands.TeardownPinOptions{} }, "Missing required flags: --file, --sha256, --release."},
-			{"two missing", func(o *commands.TeardownPinOptions) { o.File, o.Release = "", "" }, "Missing required flags: --file, --release."},
+			{"--file alone", func(o *commands.TeardownPinOptions) { o.SHA256, o.Release = "", "" }, "Missing required flags: --sha256, --release."},
+			{"nothing at all asks for a source", func(o *commands.TeardownPinOptions) { *o = commands.TeardownPinOptions{} }, "Missing a source to pin: pass --release X.Y.Z or --latest to download and verify a release, or --file with --sha256 and --release to pin a binary you have verified."},
+			{"only --yes asks for a source", func(o *commands.TeardownPinOptions) { *o = commands.TeardownPinOptions{Yes: true} }, "Missing a source to pin: pass --release X.Y.Z or --latest to download and verify a release, or --file with --sha256 and --release to pin a binary you have verified."},
+			{"--file with --latest", func(o *commands.TeardownPinOptions) { o.Latest = true }, "--latest cannot be used with --file: a file pin is for a binary you verified yourself."},
+			{"--release with --latest", func(o *commands.TeardownPinOptions) { *o = commands.TeardownPinOptions{Release: "1.2.3", Latest: true} }, "--release and --latest cannot be used together."},
+			{"a download of something that is not a version", func(o *commands.TeardownPinOptions) { *o = commands.TeardownPinOptions{Release: "my-build"} }, "--release must be a version such as 1.2.3 or 0.1.0-rc.1, without a leading v."},
+			{"a download of a v-prefixed version", func(o *commands.TeardownPinOptions) { *o = commands.TeardownPinOptions{Release: "v1.2.3"} }, "--release must be a version such as 1.2.3 or 0.1.0-rc.1, without a leading v."},
+			{"a download of a version with a leading zero", func(o *commands.TeardownPinOptions) { *o = commands.TeardownPinOptions{Release: "01.2.3"} }, "--release must be a version such as 1.2.3 or 0.1.0-rc.1, without a leading v."},
 			{"a short digest", func(o *commands.TeardownPinOptions) { o.SHA256 = "abc" }, "--sha256 must be 64 hexadecimal characters."},
 			{"a digest that is not hex", func(o *commands.TeardownPinOptions) { o.SHA256 = strings.Repeat("g", 64) }, "--sha256 must be 64 hexadecimal characters."},
 			{"a label with a slash", func(o *commands.TeardownPinOptions) { o.Release = "a/b" }, "--release must be 1 to 64 characters: letters, digits, '.', '_', '+' and '-', starting with a letter or a digit."},
