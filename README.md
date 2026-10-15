@@ -2082,9 +2082,9 @@ these is a command at all.
    first change to a store's format after a release.
 2. **Running `worktree remove` from a pinned, trusted binary** (#85, #146) —
    the stronger guarantee the relocated-copy mechanism above is a step toward.
-   The pin and its two commands are built ([Teardown pin](#teardown-pin));
-   pinning a downloaded release, verified with cosign, and the gate that makes
-   removal run the pinned binary are not. Tagged releases, with the names and
+   The pin, its commands and cosign-verified release pinning are built
+   ([Teardown pin](#teardown-pin)); the gate that makes removal run the pinned
+   binary is not. Tagged releases, with the names and
    signing identity in [`docs/design/release.md`](docs/design/release.md), are
    what it will pin to.
 

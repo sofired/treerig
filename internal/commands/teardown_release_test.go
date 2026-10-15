@@ -1112,6 +1112,26 @@ func TestTeardownPinReleaseRootDiscovery(t *testing.T) {
 		}
 	})
 
+	t.Run("warns when the repository's worktree list exists but cannot be read", func(t *testing.T) {
+		f := newReleaseFixture(t, "1.2.3")
+		repository := filepath.Join(filepath.Dir(f.dir), "berth")
+		// A file where the worktrees directory should be: it exists, and
+		// reading it as a directory fails (ENOTDIR), even as root.
+		if err := os.MkdirAll(filepath.Join(repository, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repository, ".git", "worktrees"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f.env.Cwd = repository
+		if err := f.pin(f.options()); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(f.logged(), "warn: 1 worktree could not be checked for cosign (an index card, a gitdir file or the worktree list could not be read).") {
+			t.Fatalf("logged %q, want the unreadable worktree list reported", f.logged())
+		}
+	})
+
 	t.Run("warns once, with a count, about registered worktrees whose index card cannot be read, and about unreadable records", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		registrytest.ClaimControlHome(t, f.control.ControlHome)
@@ -1134,7 +1154,7 @@ func TestTeardownPinReleaseRootDiscovery(t *testing.T) {
 		for _, line := range strings.Split(f.logged(), "\n") {
 			if strings.HasPrefix(line, "warn: ") {
 				warnings++
-				if line != "warn: 2 worktrees could not be checked for cosign (an index card or gitdir file could not be read)." {
+				if line != "warn: 2 worktrees could not be checked for cosign (an index card, a gitdir file or the worktree list could not be read)." {
 					t.Fatalf("warning = %q", line)
 				}
 			}

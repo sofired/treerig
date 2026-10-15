@@ -322,8 +322,10 @@ Discovery fails closed: a required root that cannot be resolved refuses the pin
 (`Refusing to pin <release>: could not work out where cosign must not live: …`).
 A listed or registered worktree whose card or `gitdir` file cannot be read is
 skipped, counted, and reported once (`N worktrees could not be checked for
-cosign (an index card or gitdir file could not be read).`), and unreadable
-registry records once, with their count.
+cosign (an index card, a gitdir file or the worktree list could not be read).`).
+A worktree list that exists but cannot be read counts as one; only an absent
+list means "no listed worktrees". Unreadable registry records are reported
+once, with their count.
 
 Each root is canonicalised with `registry.CanonicalPath`, which tolerates a path
 that does not exist yet. Containment compares canonical forms with `filepath.Rel` and rejects a result
@@ -369,11 +371,11 @@ order of precedence, and only what the class supports is advised:
 
 | Class | Refusal |
 | --- | --- |
-| Signature or identity (`none of the expected identities matched`, `invalid signature`, `failed to verify log inclusion`, …) | `Refusing to pin <release>: checksums.txt did not verify against the release workflow's signature. cosign said: "<stderr>". Do not trust this release. Nothing was pinned.` The `--file` form is never offered. |
-| Trust root not loaded (`trusted root is required`, TUF errors) | `Refusing to pin <release>: cosign could not load the Sigstore trust root. cosign said: "<stderr>". Run `cosign initialize` once with network access, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.` The only class that offers the file form. |
-| cosign could not be started | `… cosign could not be run (<reason>). If it cannot load its trust root, run `cosign initialize` once with network access, then run this again. Nothing was pinned.` |
-| Timeout (60 seconds) | `… cosign did not finish within 60 seconds. If it is fetching its trust root on a slow connection, run `cosign initialize` …` |
-| Anything else | `Refusing to pin <release>: cosign could not verify checksums.txt. cosign said: "<stderr>". Nothing was pinned.` No advice. |
+| Signature or identity (`none of the expected identities matched`, `invalid signature`, `failed to verify log inclusion`, …) | `` Refusing to pin <release>: checksums.txt did not verify against the release workflow's signature. cosign said: "<stderr>". Do not trust this release. Nothing was pinned. `` The `--file` form is never offered. |
+| Trust root not loaded (`trusted root is required`, TUF errors) | `` Refusing to pin <release>: cosign could not load the Sigstore trust root. cosign said: "<stderr>". Run `cosign initialize` once with network access, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned. `` The only class that offers the file form. |
+| cosign could not be started | `` … cosign could not be run (<reason>). If it cannot load its trust root, run `cosign initialize` once with network access, then run this again. Nothing was pinned. `` |
+| Timeout (60 seconds) | `` … cosign did not finish within 60 seconds. If it is fetching its trust root on a slow connection, run `cosign initialize` … `` |
+| Anything else | `` Refusing to pin <release>: cosign could not verify checksums.txt. cosign said: "<stderr>". Nothing was pinned. `` No advice. |
 
 A cancellation or the download deadline ending while cosign runs is returned as
 that, never as a cosign refusal. Network failures end `Nothing was pinned. Check
@@ -726,7 +728,7 @@ pinned with an explicit `--release`.
 | Pin format, versions, refusals | Unit tests with `testdata` fixtures: round trip, newer, foreign, unknown key, bad fields, modes; the constant is pinned by `stateformat`'s test. |
 | Update rules and the sweep | Unit tests: merge, replace, downgrade; the sweep keeps the pin's binaries and the grace window and touches only 64-hex regular files, never a symlink. |
 | Download and extraction | `httptest` TLS server serving a release laid out per `release.md` (`releasefetch/releasetest`: four platform archives, a `checksums.txt` listing them, a placeholder bundle), with a client trusting its certificate; a 404, a redirect to `http`, size caps, a `--latest` that is overtaken by a newer release, hostile archives (links, absolute names, `..`, duplicates, a missing `berth`, devices, oversize and decompression bombs), a bad archive digest and a signature for another tag. Through the entry point: the built binary downloads through the proxy `HTTPS_PROXY` names. |
-| cosign | A real cosign 3 with a throwaway key (see "CI"), skipped without one; and `fakerun`, which asserts the exact argv, the absolute path, the PATH-resolved path being the one run, the refusal of a path inside a worktree root, the checkout or the control home (including a sibling name that shares a prefix, which is not inside, and a case difference on darwin, which is), the version check, the removed variables, the timeouts and the stderr in the refusal. |
+| cosign | A real cosign 3 with a throwaway key (see "CI"), skipped without one; and `fakerun`, which asserts the exact argv, the absolute path, the PATH-resolved path being the one run, the refusal of a path inside a worktree root, the checkout or the control home (including a sibling name that shares a prefix, which is not inside, and one directory reached by two spellings, which is: `TestLocateContainment` uses `/proc/self/root` on Linux, and no darwin case-difference test exists), the version check, the exact allowlisted environment of both cosign calls (`TestLocate`, `TestTeardownPinRelease`), the timeouts and the stderr in the refusal. |
 | The gate | Unit tests with `Env.Executable` and `Env.Exec` fakes: the order of checks 1 to 4 (a pinned child with an absent, unreadable, newer, foreign or non-naming pin refuses), the exact refusal text, and that `Context` is never built on a refusal. |
 | Pinned code ran | Integration test over the built binary, as described under "The two lines". No Docker for the assertion. |
 | Snapshot | See "CI". |

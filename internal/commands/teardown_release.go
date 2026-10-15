@@ -353,7 +353,7 @@ func cosignRoots(env *Env, control layout.Control) ([]releasefetch.Root, error) 
 		}
 	}
 	if skipped > 0 {
-		env.Logger.Warn(fmt.Sprintf("%d %s could not be checked for cosign (an index card or gitdir file could not be read).", skipped, plural(skipped, "worktree", "worktrees")))
+		env.Logger.Warn(fmt.Sprintf("%d %s could not be checked for cosign (an index card, a gitdir file or the worktree list could not be read).", skipped, plural(skipped, "worktree", "worktrees")))
 	}
 	return roots, nil
 }
@@ -422,8 +422,13 @@ func commonDirOfLinkedWorktree(dir string) (string, error) {
 // run; it covers worktrees that were never registered with berth.
 func listedWorktrees(common string) (roots []string, unreadable int) {
 	entries, err := os.ReadDir(filepath.Join(common, "worktrees"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, 0 // a repository with no linked worktrees
+	}
 	if err != nil {
-		return nil, 0
+		// The list exists but cannot be read: every worktree in it is
+		// unchecked, which the caller reports rather than passing over.
+		return nil, 1
 	}
 	for i, entry := range entries {
 		if i >= maxListedWorktrees {
