@@ -1,0 +1,58 @@
+# Keeps the GitHub Actions this repository uses current. In release.yml the
+# actions are pinned by commit (`actions/checkout@<sha> # v4.4.0`), and
+# Dependabot moves each SHA together with its `# vX.Y.Z` comment. Elsewhere they
+# are pinned to a major tag (`actions/checkout@v4`), which only moves when a new
+# major is released.
+#
+# "/" covers only .github/workflows (plus a root action.yml), so the composite
+# actions under .github/actions are listed as a second directory; the glob also
+# picks up any added there later.
+#
+# Grouping:
+# - `release-signing`: the three actions that only run on a release tag
+#   (cosign-installer, goreleaser-action, attest). No pull request's CI runs
+#   them, so they get their own weekly pull request, to be checked by hand
+#   before merging (CONTRIBUTING.md, Releases).
+# - `actions`: everything else, in one weekly pull request.
+# - Both groups take minor and patch updates only. A major update arrives as its
+#   own pull request.
+#
+# The cooldown waits a week before proposing a newly published version. Security
+# updates skip it, and they are never grouped.
+#
+# `cosign-release: v3.0.6` in release.yml is a `with:` input of
+# sigstore/cosign-installer, not an action reference, so Dependabot never sees
+# it. It is a contract pin that changes only on purpose (docs/design/release.md).
+#
+# Go modules are not covered: dependency bumps stay deliberate, by hand.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/.github/actions/*"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+    groups:
+      release-signing:
+        patterns:
+          - "sigstore/cosign-installer"
+          - "goreleaser/goreleaser-action"
+          - "actions/attest"
+        update-types:
+          - "minor"
+          - "patch"
+      actions:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "sigstore/cosign-installer"
+          - "goreleaser/goreleaser-action"
+          - "actions/attest"
+        update-types:
+          - "minor"
+          - "patch"

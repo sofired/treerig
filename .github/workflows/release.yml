@@ -120,9 +120,10 @@ jobs:
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
-          # Pinned to what v4.1.2 installs by default, so the signing tool does
-          # not change with the installer's own default. The teardown pin reads
-          # this bundle format (docs/design/release.md); changing it is a migration.
+          # Pinned to what v4.1.2 installed by default when this was pinned,
+          # so the signing tool does not change with the installer's own
+          # default. The teardown pin reads this bundle format
+          # (docs/design/release.md); changing it is a migration.
           cosign-release: v3.0.6
 
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
