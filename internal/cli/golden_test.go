@@ -24,9 +24,10 @@ package cli_test
 // help-cmd-run and the err-run-* and run-* cases pin `run` (#94); help-dev and
 // help-cmd-dev pin `dev` (#5).
 //
-// help-teardown*, help-cmd-teardown*, bare-teardown, complete-teardown* and the
-// err-*teardown* cases pin `teardown pin` and `teardown status` (#85). The
-// cases that run them against a scratch home are in teardown_golden_test.go.
+// help-teardown*, help-cmd-teardown*, bare-teardown, complete-teardown*,
+// teardown-pin-release and the err-*teardown* cases pin `teardown pin` (--file,
+// --release, --latest) and `teardown status` (#85). The cases that run them
+// against a scratch home are in teardown_golden_test.go.
 //
 // help-worktree-rename, help-cmd-worktree-rename, complete-worktree-rename-slug
 // and the err-*-rename cases pin `worktree rename` (#11); the other worktree
@@ -206,7 +207,15 @@ var goldenCases = []goldenCase{
 	{"err-unknown-option-teardown-pin", []string{"teardown", "pin", "--fil", "x"}},
 	{"err-excess-arguments-teardown-pin", []string{"teardown", "pin", "extra"}},
 	{"err-excess-arguments-teardown-status", []string{"teardown", "status", "extra"}},
-	{"err-teardown-pin-no-file", []string{"teardown", "pin"}},
+	{"err-teardown-pin-no-source", []string{"teardown", "pin"}},
+	{"err-teardown-pin-sha256-without-file", []string{"teardown", "pin", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000", "--release", "1.0.0"}},
+	{"err-teardown-pin-release-and-latest", []string{"teardown", "pin", "--release", "1.0.0", "--latest"}},
+	{"err-teardown-pin-latest-with-file", []string{"teardown", "pin", "--latest", "--file", "berth"}},
+	{"err-teardown-pin-release-not-a-version", []string{"teardown", "pin", "--release", "my-build"}},
+	// --release is the pin's own flag, not the root's -V/--version: a version
+	// reaches the command (which, under Main, has no way to download) rather
+	// than printing berth's version.
+	{"teardown-pin-release", []string{"teardown", "pin", "--release", "1.0.0"}},
 	{"err-teardown-pin-no-sha256", []string{"teardown", "pin", "--file", "berth"}},
 	{"err-teardown-pin-no-release", []string{"teardown", "pin", "--file", "berth", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000"}},
 	{"err-teardown-pin-bad-sha256", []string{"teardown", "pin", "--file", "berth", "--sha256", "abc", "--release", "x"}},

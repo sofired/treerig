@@ -18,8 +18,24 @@ package semver
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// releaseForm is release.yml's version pattern: what a release tag may carry
+// after its "v" (docs/design/teardown.md, "Sources").
+var releaseForm = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$`)
+
+// IsRelease reports whether s is a version a release may carry: release.yml's
+// pattern, and strict SemVer. `0.1.0-rc.1` and a snapshot's `0.0.0-dev+abc123`
+// qualify; `v1.2.3` and `1.2` do not.
+func IsRelease(s string) bool {
+	if !releaseForm.MatchString(s) {
+		return false
+	}
+	_, err := Parse(s)
+	return err == nil
+}
 
 // Version is a parsed version. Numeric parts are kept as their decimal digits,
 // which Compare orders by digit count and then lexically, so no width limits

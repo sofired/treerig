@@ -14,6 +14,7 @@ import (
 	"github.com/sofired/berth/internal/layout"
 	"github.com/sofired/berth/internal/lifecycle"
 	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/berth/internal/releasefetch"
 	"github.com/sofired/berth/internal/run"
 )
 
@@ -44,7 +45,7 @@ var startLifecycle = func(log logger.Logger) *lifecycle.Lifecycle {
 // place rather than the real berth CLI; #7's own fix shipped this bug once
 // already; see MainProcess and internal/cli's relocation tests.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv) int {
-	return runMain(args, stdin, stdout, stderr, getenv, nil, nil)
+	return runMain(args, stdin, stdout, stderr, getenv, nil, nil, nil)
 }
 
 // MainProcess is Main for the one caller allowed to hand `worktree remove`
@@ -54,13 +55,13 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layou
 // package — the same "only the entry point reads the environment" spirit
 // AGENTS.md asks of everything else this build reads from its process.
 func MainProcess(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv) int {
-	return runMain(args, stdin, stdout, stderr, getenv, os.Executable, osExec)
+	return runMain(args, stdin, stdout, stderr, getenv, os.Executable, osExec, releasefetch.NewHTTP(newReleaseClient()))
 }
 
 // runMain is Main and MainProcess's shared body; executable and execFn are
-// commands.Env's own Executable and Exec (nil from Main, real from
-// MainProcess) — see envBuilder.
-func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv, executable func() (string, error), execFn func(argv0 string, argv, envv []string) error) int {
+// commands.Env's own Executable and Exec, and releases its Releases (nil from
+// Main, real from MainProcess) — see envBuilder.
+func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv, executable func() (string, error), execFn func(argv0 string, argv, envv []string) error, releases releasefetch.Fetcher) int {
 	var programPath string
 	if len(args) > 0 {
 		programPath = args[0]
@@ -88,7 +89,7 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 
 	exitCode := new(int)
 	p := &program{
-		buildEnv: envBuilder(commandName, invocation, console, getenv, stdin, stderr, life, args, executable, execFn),
+		buildEnv: envBuilder(commandName, invocation, console, getenv, stdin, stderr, life, args, executable, execFn, releases),
 		exitCode: exitCode,
 	}
 	root := buildProgram(commandName, brand.Version, p, stdout, stderr)

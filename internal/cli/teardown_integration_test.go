@@ -2,7 +2,7 @@
 
 package cli_test
 
-// `teardown pin --file` and `teardown status` as a real process (#85): which
+// `teardown pin` and `teardown status` as a real process (#85): which
 // stream each line lands on, the exit codes, the confirmation on a real
 // terminal and without one, and `status` finding the running binary to be the
 // pinned one. No Docker is involved.
@@ -11,11 +11,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/creack/pty"
@@ -99,7 +102,7 @@ func TestTeardownPinAndStatus(t *testing.T) {
 
 	t.Run("with no pin: status says so on stderr and exits 1, and --json prints {pinned: false} first", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		want := "[berth] ERROR: No teardown binary is pinned. Pin one with `berth teardown pin --file PATH --sha256 HEX --release LABEL`.\n"
+		want := "[berth] ERROR: No teardown binary is pinned. Pin one with `berth teardown pin --release X.Y.Z`.\n"
 		text := runBerth(t, binary, dir, []string{"teardown", "status"}, berthOptions{})
 		if text.Code != 1 || text.Stdout != "" || text.Stderr != want {
 			t.Fatalf("status = %+v", text)
@@ -209,4 +212,40 @@ func TestTeardownPinAndStatus(t *testing.T) {
 			t.Fatalf("pin = %+v", result)
 		}
 	})
+}
+
+func TestTeardownPinDownloadsThroughTheProxyTheEnvironmentNames(t *testing.T) {
+	binary := buildBinary(t)
+	dir := scratchTeardownRoot(t)
+	// A cosign that reports a version is all the pin needs before it fetches.
+	tools := registrytest.TempDir(t)
+	if err := os.WriteFile(filepath.Join(tools, "cosign"), []byte("#!/bin/sh\necho '{\"gitVersion\": \"v3.0.6\"}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A proxy that records what it is asked to reach, and refuses.
+	var mu sync.Mutex
+	var asked []string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		asked = append(asked, req.Method+" "+req.Host)
+		mu.Unlock()
+		http.Error(w, "no", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+
+	result := runBerth(t, binary, dir, []string{"teardown", "pin", "--release", "1.2.3", "--yes"}, berthOptions{
+		path: tools + ":" + os.Getenv("PATH"),
+		env:  map[string]string{"HTTPS_PROXY": proxy.URL, "https_proxy": proxy.URL, "NO_PROXY": "", "no_proxy": ""},
+	})
+	if result.Code != 1 || result.Stdout != "" || !strings.Contains(result.Stderr, "[berth] Downloading https://github.com/sofired/berth/releases/download/v1.2.3/checksums.txt…\n[berth] ERROR: Refusing to pin 1.2.3: ") || !strings.HasSuffix(result.Stderr, " Nothing was pinned. Check your network connection and HTTPS_PROXY settings, then run it again.\n") {
+		t.Fatalf("pin = %+v", result)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) == 0 || asked[0] != "CONNECT github.com:443" {
+		t.Fatalf("the proxy was asked %v, want a CONNECT to github.com:443", asked)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "control-home", "control-home", "teardown", "pin.json")); !os.IsNotExist(err) {
+		t.Fatalf("pin.json: %v", err)
+	}
 }

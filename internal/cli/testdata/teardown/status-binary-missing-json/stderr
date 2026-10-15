@@ -1,1 +1,1 @@
-[berth] ERROR: The pinned teardown binary BASE/berth-home/control-home/teardown/DIGEST is missing. Pin it again with `berth teardown pin --file PATH --sha256 HEX --release LABEL`.
+[berth] ERROR: The pinned teardown binary BASE/berth-home/control-home/teardown/DIGEST is missing. Pin it again with `berth teardown pin --release X.Y.Z`.

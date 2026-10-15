@@ -975,15 +975,21 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		RunE: bareGroup(p),
 	}
 	var pinFile, pinSHA256, pinRelease string
-	var pinYes bool
+	var pinLatest, pinYes bool
 	pin := &cobra.Command{
-		Use:   "pin --file PATH --sha256 HEX --release LABEL",
-		Short: "pin a berth binary you have verified as the teardown binary",
-		Long: "Install a berth binary from a local file as the teardown pin. You give its sha256, and this approves exactly the bytes you hold: " +
-			"take the digest of the binary itself (for a download, extract `berth` from the archive you verified, then run `sha256sum berth`), " +
-			"and it is a meaningful check only when it comes from a second trusted source, such as your own build. " +
+		Use:   "pin (--release X.Y.Z | --latest | --file PATH)",
+		Short: "pin a berth release, or a berth binary you have verified, as the teardown binary",
+		Long: "Install a berth binary as the teardown pin, by downloading a release (`pin --release X.Y.Z` or `pin --latest`) or from a file (`pin --file PATH --sha256 HEX --release LABEL`). " +
+			"With --release X.Y.Z, or --latest for the newest release that is not a pre-release, berth downloads that release from GitHub, " +
+			"has cosign (3.0.0 or newer, found on your PATH) verify the release's checksums.txt against the release workflow's signature, " +
+			"checks the archive for this platform against it, and pins the `berth` inside. Nothing is pinned until you approve the plan. " +
+			"With --file PATH, berth pins a local binary you have verified yourself: you give its sha256, and this approves exactly the bytes you hold. " +
+			"Take the digest of the binary itself (for a download, extract `berth` from the archive you verified, then run `sha256sum berth`); " +
+			"it is a meaningful check only when it comes from a second trusted source, such as your own build. " +
 			"The file is read once, those bytes are hashed and compared with it, and the same bytes are stored in the control home. " +
-			"No signature is checked and nothing is run. There is one pin per control home, and pinning again replaces it. " +
+			"With --file, no signature is checked and cosign is not run; --release is then a label for the pin. " +
+			"Nothing is run from the pinned binary. There is one pin per control home, and pinning again replaces it, " +
+			"or adds this platform to it when it is the same release. " +
 			"The command shows what it will pin and asks you to type a phrase, unless you pass --yes.",
 		Args: maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -991,12 +997,13 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			if err != nil {
 				return err
 			}
-			return commands.TeardownPin(cmd.Context(), env, commands.TeardownPinOptions{File: pinFile, SHA256: pinSHA256, Release: pinRelease, Yes: pinYes})
+			return commands.TeardownPin(cmd.Context(), env, commands.TeardownPinOptions{File: pinFile, SHA256: pinSHA256, Release: pinRelease, Latest: pinLatest, Yes: pinYes})
 		},
 	}
-	pin.Flags().StringVar(&pinFile, "file", "", "the berth binary to pin (required)")
-	pin.Flags().StringVar(&pinSHA256, "sha256", "", "the sha256 of that file itself, from a source you trust (required)")
-	pin.Flags().StringVar(&pinRelease, "release", "", "a label for this pin, such as the version you built (required)")
+	pin.Flags().StringVar(&pinFile, "file", "", "pin this berth binary instead of downloading a release; needs --sha256 and --release")
+	pin.Flags().StringVar(&pinSHA256, "sha256", "", "with --file: the sha256 of that file itself, from a source you trust")
+	pin.Flags().StringVar(&pinRelease, "release", "", "the release to download and verify, such as 1.2.3 or 0.1.0-rc.1 (no leading v); with --file, a label for the pin instead")
+	pin.Flags().BoolVar(&pinLatest, "latest", false, "download the newest release that is not a pre-release")
 	pin.Flags().BoolVar(&pinYes, "yes", false, "skip the confirmation phrase")
 	// The one flag that names a file in this tree besides --config; addCompletion
 	// gives every other string flag no completions at all.

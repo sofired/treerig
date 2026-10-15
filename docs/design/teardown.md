@@ -5,14 +5,14 @@ build that was invoked (#85). This note says where the pin lives, what it
 holds, how it is installed and verified, how removal uses it, and what it does
 not protect against. The pin is stored state, so it follows `state.md`.
 
-**Status.** The pin store, `berth teardown pin --file` and `teardown status`
-exist. The download forms, `teardown pin --release X.Y.Z` and `--latest` (step 4),
-do not yet, so until step 4 the pin command in the messages below is the `--file`
-form, `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Step 4
-changes that one function (`teardownPinCommand`) and regenerates the goldens
-that quote it. The removal
-gate and `--dev-teardown` are tracked in #146 and the cross-platform smoke test
-in #147; both wait for the first tag, `v0.1.0-rc.1`. Until the gate lands,
+**Status.** The pin store, `berth teardown pin` in all three forms (`--release X.Y.Z`,
+`--latest` and `--file`) and `teardown status` exist (steps 2 to 4). The CI snapshot
+flow (step 5) is next. The pin command in the messages below is `berth teardown pin
+--release X.Y.Z` while the repository has only pre-releases; when the first
+release that is not a pre-release is published, `teardownPinCommand` becomes
+`--latest`, the one function that names it, and the goldens that quote it are
+regenerated. The removal gate and `--dev-teardown` are tracked in #146 and the
+cross-platform smoke test in #147; both wait for the first tag, `v0.1.0-rc.1`. Until the gate lands,
 `worktree remove` is unchanged and nothing but this note, `state.md`,
 `release.md`, `AGENTS.md`, the README's "Teardown pin" section and the help of
 the `teardown` commands mentions it. Text marked **[gate]** describes what
@@ -33,9 +33,10 @@ work".
 | 8 | There is one pin per control home. |
 | 9 | `--yes` is allowed on `teardown pin`. |
 
-**The pin command**, in every message below once step 4 lands, is `berth teardown pin --latest`,
-or `berth teardown pin --release <release>` while the repository has only
-pre-releases (`--latest` never selects one).
+**The pin command**, in every message below, is `berth teardown pin --latest`,
+or `berth teardown pin --release X.Y.Z` while the repository has only
+pre-releases (`--latest` never selects one); it is the latter until the first
+release that is not a pre-release exists.
 
 ## Rules
 
@@ -73,10 +74,14 @@ would remove that dependence, was declined (decision 2). So:
   the gate protects the removals after it. Branch code that controls `PATH` at pin
   time could equally replace `berth` itself, so nothing here claims to defend that.
 - berth narrows the common case: it refuses a cosign that resolves inside a
-  checkout or the control home (below), and removes the sigstore settings that
-  would point cosign at another trust root.
+  checkout or the control home (below), and gives cosign a fixed environment
+  (below), so that no `.envrc` can choose its trust root.
 - **Accepted limit:** a cosign elsewhere on a hijacked `PATH`, outside every
   checkout and the control home, is trusted.
+- **Not supported:** a cosign that is a version-manager shim (asdf, mise). The
+  allowlist withholds `HOME`, `ASDF_*` and `MISE_*` on purpose, so such a shim
+  cannot run; its version call fails and the refusal says to install a cosign
+  binary on `PATH`.
 
 ## Where the pin lives
 
@@ -84,6 +89,7 @@ would remove that dependence, was declined (decision 2). So:
 | --- | --- | --- |
 | Pin file | `<control home>/teardown/pin.json` (`layout.Control.PinPath`) | `"version": 1`, `stateformat.TeardownPin` |
 | Pinned teardown binaries | `<control home>/teardown/<binary sha256>` (`layout.Control.TeardownDir`) | none: the name is the version |
+| cosign's cache | `<control home>/teardown/cosign/{tuf,tmp}` (`layout.Control.CosignHome`, `CosignTUFRoot`, `CosignTmp`) | none: a derived cache, safe to delete |
 
 One pin per control home, shared by every berth root that uses it. `teardown/` is
 separate from `bin/`: `bin/` holds unvetted copies of whatever was invoked and is
@@ -158,9 +164,24 @@ berth teardown status [--json]
 
 `--release` means "which release" everywhere: with `--file` it is the label the
 pin carries, and without it it is the version to download. `--release` and
-`--latest` are mutually exclusive, and `--latest` takes no label. (The root's
-persistent `-V, --version` is the build's own version, so no pin flag uses that
-name.)
+`--latest` are mutually exclusive, and `--latest` takes no label. `--file`
+requires `--sha256` and `--release` and excludes `--latest`; `--sha256` is for
+`--file` only; a download takes `--release` or `--latest`. The refusals, in the
+order they are checked:
+
+```
+--latest cannot be used with --file: a file pin is for a binary you verified yourself.
+Missing required flag: --sha256.            (or --release; "Missing required flags: --sha256, --release." for both)
+--sha256 can only be used with --file.
+--release and --latest cannot be used together.
+Missing a source to pin: pass --release X.Y.Z or --latest to download and verify a release, or --file with --sha256 and --release to pin a binary you have verified.
+--release must be a version such as 1.2.3 or 0.1.0-rc.1, without a leading v.
+```
+
+(The root's persistent `-V, --version` is the build's own version, so no pin flag
+uses that name.) The usage line shows the three forms as `(--release X.Y.Z |
+--latest | --file PATH)`, and the description spells out the three forms, because
+the full `--file` triple does not fit the 80-column usage line.
 
 There is no `unpin`: deleting `<control home>/teardown/` does it. `--yes` is
 "skip the confirmation phrase", as on `worktree remove`.
@@ -174,7 +195,7 @@ There is no `unpin`: deleting `<control home>/teardown/` does it. `--yes` is
 | `--file` | Reads the file once into memory (at most 200 MiB), hashes those bytes, compares with `--sha256`, and `binstore.Install`s the same bytes. For users without cosign and for development. |
 
 ```
-Refusing to pin the latest release: sofired/berth has no release that is not a pre-release yet. Pin a pre-release with `berth teardown pin --release <release>`.
+Refusing to pin the latest release: sofired/berth has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `berth teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/berth/releases.
 ```
 
 **What `--file` does, in order.** It checks the flags (all missing required flags are named in one line;
@@ -223,28 +244,43 @@ by hand with the README's steps, or has no network, pins without cosign.
   regular entries (including `completions/berth`) and directories are skipped
   and never written. A link entry of any kind, an absolute name, a name with
   `..`, a duplicate `berth` or a missing one refuses the archive.
-- The fetcher is an interface taking an `*http.Client`. `cli.MainProcess`
+- The fetcher is an interface (`releasefetch.Fetcher`) whose one implementation
+  wraps an `*http.Client`; `commands.Env.Releases` carries it. `cli.MainProcess`
   builds the client, with `Proxy: http.ProxyFromEnvironment` set explicitly and a
-  `CheckRedirect` that refuses non-HTTPS. That is a deliberate exception to
+  `CheckRedirect` that refuses non-HTTPS (the fetcher also refuses a non-HTTPS
+  redirect through a client that would follow one, and asks for the identity
+  encoding so `net/http` does not decompress a body behind the size cap).
+  `cli.Main` passes none, so a download from an in-process test refuses (`this
+  process has no way to download a release`) rather than reaching the network. That is a deliberate exception to
   "values come from `getenv`": `net/http` reads the proxy variables itself, and
   `MainProcess` is the entry point, where environment reads belong. Library code
   never reads them.
 
 ### Verification
 
-Before anything is written to the control home:
+Before the pin is written to the control home. (The one thing written there
+earlier is cosign's own cache, `teardown/cosign/`, below: derived, not stored
+state.)
 
 1. `checksums.txt` and `checksums.txt.sigstore.json` are written to a `0700`
-   temporary directory, and the bytes held in memory are the ones parsed later.
+   temporary directory under `teardown/cosign/tmp/`, chosen by berth and never by
+   `TMPDIR`, and the bytes held in memory are the ones parsed later; the file
+   cosign verified is read back and must equal them. Each fetch is announced on
+   stderr (`Downloading <url>…`), since a stalled body otherwise waits out the
+   timeout in silence.
 2. cosign is resolved **once** with `run.ResolveExecutable`, and that
-   **PATH-resolved path**, made absolute with `filepath.Abs`, is the one run for
+   **PATH-resolved path**, made absolute (a relative `PATH` entry against the
+   working directory the entry point gave, never the process's own), is the one run for
    both steps below, so a `PATH` change between them cannot swap it. It is run as
-   resolved, not as its canonical form, because shims (asdf, mise), Nix wrappers
-   and multi-call binaries dispatch on `argv[0]`. For the containment test only,
+   resolved, not as its canonical form, because a multi-call binary or wrapper
+   script dispatches on `argv[0]`. For the containment test only,
    it is then canonicalised with `filepath.EvalSymlinks`, and **refused** when
    that result is inside one of the roots below. The plan shows both paths and
    the version, as in `cosign /usr/local/bin/cosign -> /opt/cosign/cosign (3.0.6)`.
-   The gap between the check and the exec is accepted, as in the TOCTOU row.
+   The gap between the check and the exec is accepted, as in the TOCTOU row. A
+   cosign that is a symlink can be repointed inside that gap by a process that
+   can write the link's directory; that is the same accepted limit as a cosign
+   on a hijacked `PATH`.
 3. `<cosign> version --json` is parsed and its `gitVersion` read (a leading `v`
    dropped). **3.0.0 or newer** is required, because the release workflow
    installs cosign v3.0.6 (`release.md`) and writes the protobuf bundle that
@@ -276,16 +312,25 @@ nothing), and no flag skips the signature or changes the identity.
 
 | Root | Source |
 | --- | --- |
-| Registered worktrees | The registry. Empty or absent: no roots. Unreadable or of a newer format: skipped with a note on stderr, not a refusal, since pinning is the bootstrap. |
-| The current checkout | Walk up from the working directory to the first ancestor holding a `.git` file or directory. |
-| That checkout's repository | For a worktree, follow the `.git` file's `gitdir:` to the common directory and take its parent, so sibling worktrees are covered. |
-| The control home | `canonical(controlHome)`. |
+| The control home | `canonical(controlHome)`. **Required.** |
+| The current checkout | Walk up from the working directory to the first ancestor holding a `.git` file or directory. **Required** when there is one: a `.git` that cannot be read or followed refuses. |
+| That checkout's repository | For a worktree, follow the `.git` file's `gitdir:` to the git directory and its `commondir`, and take the parent when the common directory is named `.git`, else the directory itself; named "the repository of this checkout". With no `commondir` (a submodule) there is no repository root and none is guessed. |
+| The repository's listed worktrees | Each `<common dir>/worktrees/*/gitdir` file holds the path of a linked worktree's `.git` file; its directory is a root ("a worktree of this repository"). This covers worktrees berth never registered, such as this project's `../berth.<slug>` siblings, which sit outside the repository. No `git` is run; at most 1000 entries. |
+| Registered worktrees | The registry's records, each placed by the root its index card last recorded (a registration carries no path of its own, and `git` is not run to find one). Empty or absent: no roots; a record with no card contributes none, so a worktree that never ran `up` and is neither the checkout nor listed is not checked. Unreadable or of a newer format: skipped with a note on stderr, not a refusal, since pinning is the bootstrap. |
 
-Containment compares canonical forms with `filepath.Rel` and rejects a result
+Discovery fails closed: a required root that cannot be resolved refuses the pin
+(`Refusing to pin <release>: could not work out where cosign must not live: …`).
+A listed or registered worktree whose card or `gitdir` file cannot be read is
+skipped, counted, and reported once (`N worktrees could not be checked for
+cosign (an index card or gitdir file could not be read).`), and unreadable
+registry records once, with their count.
+
+Each root is canonicalised with `registry.CanonicalPath`, which tolerates a path
+that does not exist yet. Containment compares canonical forms with `filepath.Rel` and rejects a result
 that is `..` or starts with `..` plus a separator; a string prefix is never used,
-so `berth.foo` is not inside `berth`. On darwin, where volumes can be
-case-insensitive, each ancestor of the cosign path is also compared with each
-root through `os.SameFile`.
+so `berth.foo` is not inside `berth`. Each ancestor of the cosign path is also
+compared with each root through `os.SameFile`, on every platform (one stat per
+ancestor), which sees through the case-insensitive volumes of macOS.
 
 **The cosign contract.**
 
@@ -293,20 +338,47 @@ root through `os.SameFile`.
   keyless with the identity above; tests supply their own.
 - cosign runs through `run.Runner` under a context timeout (10 seconds for
   `version`, 60 for `verify-blob`).
-- Its environment is berth's own (`Env.Environ`) with **three variables removed**:
-  `SIGSTORE_ROOT_FILE`, `SIGSTORE_REKOR_PUBLIC_KEY` and `TUF_ROOT`, which would
-  point verification at a trust root the repository's code chose. This is a
-  deliberate, small change, not an allowlist: `COSIGN_*`, the other `SIGSTORE_*`
-  settings, the proxy variables and `HOME` stay, since the user sets them for
-  their own network and a process that can set those can rewrite the pin.
+- Its environment is an **allowlist**, not berth's own with some variables
+  removed. cosign binds every flag to a `COSIGN_<FLAG>` variable
+  (`COSIGN_TRUSTED_ROOT` picks the trust root, `COSIGN_INSECURE_IGNORE_TLOG=true`
+  turns the log check off), reads `SIGSTORE_*`, and finds its TUF cache from
+  `HOME`, so a denylist cannot be made complete against what a checkout's
+  `.envrc` can set. (A `.envrc` can set variables but cannot write the control
+  home, which is why the same reasoning does not apply to the pin.) cosign gets
+  `PATH` (relative entries made absolute), `LANG` and `LC_*`, `HTTP_PROXY`,
+  `HTTPS_PROXY` and `NO_PROXY` in both cases, `SSL_CERT_FILE` and `SSL_CERT_DIR`,
+  and three that berth sets itself: `HOME=<control home>/teardown/cosign`,
+  `TUF_ROOT=<control home>/teardown/cosign/tuf` and
+  `TMPDIR=<control home>/teardown/cosign/tmp`, all `0700` and checked like the
+  other managed directories. `ALL_PROXY` is not passed. Checked against cosign
+  v3.0.6: with only these, `TUF_ROOT` relocates the cache, the first run fetches
+  it from `tuf-repo-cdn.sigstore.dev`, and the cache persists across runs. The
+  directory is a cache: derived, unversioned, safe to delete, never touched by
+  the sweep (which reads only regular files) or by `status`.
 - Its stderr, through `text.Printable` and cut to about 2 KiB, is part of every
   refusal:
 
 ```
-Refusing to pin <release>: cosign resolves to <path> (<canonical path>), which is inside <the worktree <identifier> | this checkout | the control home>, where branch code could have put it. Install cosign outside any checkout, or verify the download by hand and use `berth teardown pin --file <path> --sha256 <digest> --release <release>`.
-Refusing to pin <release>: cosign 3.0.0 or newer is required to verify it, and <cosign path or "none was found"> does not qualify (<found>). Install cosign, or verify the download by hand and use `berth teardown pin --file <path> --sha256 <digest> --release <release>`.
-Refusing to pin <release>: cosign could not verify checksums.txt: <stderr>. If it names the trust root, run `cosign initialize` with network access once, or use `berth teardown pin --file <path> --sha256 <digest> --release <release>` to pin without it.
+Refusing to pin <release>: cosign resolves to <path> [(<canonical path>, only when it differs)], which is inside <the worktree <slug> | this checkout | the repository of this checkout | a worktree of this repository | the control home>, where branch code could have put it. Install cosign outside any checkout, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.
+Refusing to pin <release>: cosign 3.0.0 or newer is required to verify it, and cosign is not on PATH | <path> does not qualify (<found>) | no usable cosign was found (<found>). Install cosign | Upgrade cosign, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.
 ```
+
+A failed `verify-blob` is classified from cosign's exit and its `Error:` lines
+(a `WARNING:` about the trust root can precede a real signature failure), in this
+order of precedence, and only what the class supports is advised:
+
+| Class | Refusal |
+| --- | --- |
+| Signature or identity (`none of the expected identities matched`, `invalid signature`, `failed to verify log inclusion`, …) | `Refusing to pin <release>: checksums.txt did not verify against the release workflow's signature. cosign said: "<stderr>". Do not trust this release. Nothing was pinned.` The `--file` form is never offered. |
+| Trust root not loaded (`trusted root is required`, TUF errors) | `Refusing to pin <release>: cosign could not load the Sigstore trust root. cosign said: "<stderr>". Run `cosign initialize` once with network access, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.` The only class that offers the file form. |
+| cosign could not be started | `… cosign could not be run (<reason>). If it cannot load its trust root, run `cosign initialize` once with network access, then run this again. Nothing was pinned.` |
+| Timeout (60 seconds) | `… cosign did not finish within 60 seconds. If it is fetching its trust root on a slow connection, run `cosign initialize` …` |
+| Anything else | `Refusing to pin <release>: cosign could not verify checksums.txt. cosign said: "<stderr>". Nothing was pinned.` No advice. |
+
+A cancellation or the download deadline ending while cosign runs is returned as
+that, never as a cosign refusal. Network failures end `Nothing was pinned. Check
+your network connection and HTTPS_PROXY settings, then run it again.`, and a
+timeout reads `10 minutes`.
 
 ### Versions
 
@@ -630,7 +702,7 @@ A test walks the config schema, the settings keys and the environment names
 | linux amd64, arm64 | Each has its own platform entry. A pin made on one has no `binary_sha256` for the other; the gate refuses there and names the fix. |
 | macOS quarantine | A Go HTTP client does not set `com.apple.quarantine`, and a `--file` copy carries no xattr; the user's `--sha256` is the approval. berth never runs `xattr`. |
 | macOS signing | The Go linker ad-hoc-signs darwin/arm64 binaries and the signature is in the Mach-O, so a copy executes. Releases are not Developer-ID signed or notarized. Any future signing step runs before archiving (`release.md`), so the digests describe the signed bytes. |
-| noexec control home | Exec fails and the gate refuses (the last-but-one refusal above). `--dev-teardown` relocates into the same filesystem and does not help. |
+| noexec control home | Exec fails and the gate refuses (the last-but-one refusal above). `--dev-teardown` relocates into the same filesystem and does not help. `teardown pin` never executes the stored binary (it only checks its headers, `teardown.CheckExecutable`, before storing), so the EACCES or ENOEXEC of a filesystem that cannot run programs first appears at the gate (#146), which owns the mapping to that refusal. Executing the binary at pin time to find out earlier was rejected: it would add an exec with its own argv, environment and timeout to a command that otherwise runs only cosign, to report a failure the gate must report anyway, and the gate's tests are where the mapping is pinned. |
 | Homebrew | Builds from the source archive, so its binary is not the release binary and is never the pin. A Homebrew user pins once, and again after an upgrade. |
 | deb, rpm, apk | `/usr/bin/berth` is the release binary (checked in the snapshot, below). The user still runs `teardown pin`. |
 | TOCTOU | The gate hashes the stored file and then executes its path. The directory is `0700` and user-owned; a process that can swap the file can edit the pin. Accepted. |
@@ -653,8 +725,8 @@ pinned with an explicit `--release`.
 | --- | --- |
 | Pin format, versions, refusals | Unit tests with `testdata` fixtures: round trip, newer, foreign, unknown key, bad fields, modes; the constant is pinned by `stateformat`'s test. |
 | Update rules and the sweep | Unit tests: merge, replace, downgrade; the sweep keeps the pin's binaries and the grace window and touches only 64-hex regular files, never a symlink. |
-| Download and extraction | `httptest` TLS server serving a release laid out per `release.md`, with a client trusting its certificate; hostile archives (links, `..`, duplicates, oversize). |
-| cosign | `fakerun` asserts the exact argv, the absolute path, the PATH-resolved path being the one run, the refusal of a path inside a worktree root, the checkout or the control home (including a sibling name that shares a prefix, which is not inside, and a case difference on darwin, which is), the version check, the removed variables, the timeouts and the stderr in the refusal. |
+| Download and extraction | `httptest` TLS server serving a release laid out per `release.md` (`releasefetch/releasetest`: four platform archives, a `checksums.txt` listing them, a placeholder bundle), with a client trusting its certificate; a 404, a redirect to `http`, size caps, a `--latest` that is overtaken by a newer release, hostile archives (links, absolute names, `..`, duplicates, a missing `berth`, devices, oversize and decompression bombs), a bad archive digest and a signature for another tag. Through the entry point: the built binary downloads through the proxy `HTTPS_PROXY` names. |
+| cosign | A real cosign 3 with a throwaway key (see "CI"), skipped without one; and `fakerun`, which asserts the exact argv, the absolute path, the PATH-resolved path being the one run, the refusal of a path inside a worktree root, the checkout or the control home (including a sibling name that shares a prefix, which is not inside, and a case difference on darwin, which is), the version check, the removed variables, the timeouts and the stderr in the refusal. |
 | The gate | Unit tests with `Env.Executable` and `Env.Exec` fakes: the order of checks 1 to 4 (a pinned child with an absent, unreadable, newer, foreign or non-naming pin refuses), the exact refusal text, and that `Context` is never built on a refusal. |
 | Pinned code ran | Integration test over the built binary, as described under "The two lines". No Docker for the assertion. |
 | Snapshot | See "CI". |
@@ -664,23 +736,36 @@ pinned with an explicit `--release`.
 The `release-snapshot` job gains a SHA-pinned `sigstore/cosign-installer` step
 with `cosign-release: v3.0.6` (the version `release.md` fixes), and pins the
 snapshot after "Verify the artifacts" (the reproducibility step's `--clean` wipes
-`dist/`). A test in `internal/teardown`, given the `dist/` path and the
-snapshot's version, serves `dist/` over an `httptest` TLS server and runs
-`teardown pin --release` against it. It asserts all four `archive_sha256` values
+`dist/`). A test in `internal/commands` (`TestTeardownPinSnapshot`), given the
+`dist/` path and the snapshot's version in `BERTH_SNAPSHOT_DIST` and
+`BERTH_SNAPSHOT_VERSION`, serves `dist/` over an `httptest` TLS server
+(`releasefetch/releasetest`) and runs `teardown pin --release` against it. It asserts all four `archive_sha256` values
 equal `checksums.txt` and the host's `binary_sha256` equals the hash of the built
 `berth`.
 
 - **Hermetic signing.** The test signs a copy of `checksums.txt` with a
   throwaway key and verifies with a test-only policy, so a real cosign runs end
-  to end with no public Rekor or TSA. In cosign 3, `sign-blob` has no
-  `--tlog-upload` (cosign 2 does): the transparency log and timestamping come
-  from the signing config, so the test passes `--key`, `--bundle` and a
-  `--signing-config` that names no Rekor or TSA. `--signing-config` is
-  documented for `sign-blob`; whether `verify-blob` accepts `--insecure-ignore-tlog`
-  with a key-signed, tlog-less bundle is checked at step 5, against the pinned
-  v3.0.6. If it does not, the bundle is built with `cosign bundle create --key
-  --ignore-tlog`, or the test is limited to the `fakerun` argv assertions plus the
-  version check. Either way, the real identity is first exercised at #147.
+  to end with no public Rekor or TSA and no network. In cosign 3, `sign-blob` has
+  no `--tlog-upload` (cosign 2 does): the transparency log and timestamping come
+  from the signing config. Run against cosign v3.0.6 (step 4), this works:
+
+  ```
+  cosign generate-key-pair                     # COSIGN_PASSWORD="" for no password
+  cosign signing-config create --no-default-fulcio --no-default-oidc \
+      --no-default-rekor --no-default-tsa --out signing-config.json
+  cosign sign-blob --key cosign.key --bundle checksums.txt.sigstore.json \
+      --signing-config signing-config.json --yes checksums.txt
+  cosign verify-blob --key cosign.pub --bundle checksums.txt.sigstore.json \
+      --insecure-ignore-tlog=true checksums.txt
+  ```
+
+  The signing config (`signing-config create`, with every default service
+  removed) names no Rekor or TSA, so signing makes no request, and `verify-blob`
+  accepts the key-signed, tlog-less bundle only with `--insecure-ignore-tlog`
+  (without it: `not enough verified log entries from transparency log: 0 < 1`).
+  The test-only policy lives in the test files (`keyPolicy` in
+  `internal/commands/teardown_cosign_test.go`); no key mode exists in production
+  code. The real keyless identity is first exercised at #147.
 - **No silent skip.** The `release-snapshot` job sets `BERTH_REQUIRE_COSIGN=1`, so
   a missing cosign fails the test instead of skipping it. The test skips when `dist/` is absent,
   and local runs skip without cosign.
@@ -700,8 +785,8 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 | 1. This note, with the `state.md`, `release.md` and `AGENTS.md` entries and the pinned `cosign-release` | #29 | Merged |
 | 2. Pin store: `layout.TeardownDir`/`PinPath`, `files.SecureTeardownDirectory`, `internal/teardown`, `internal/semver`, `stateformat.TeardownPin`, the sweep, the `state.md` refusal-table row | 1 | Round trip, newer, foreign, unknown key, update rules, modes, sweep and concurrent writers are tested |
 | 3. `teardown pin --file` and `teardown status`, with the confirmation, goldens and README section | 2 | A pin can be made from a local binary and `status` verifies it |
-| 4. `teardown pin --release X.Y.Z` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The flag rules become: `--file` requires `--sha256` and `--release`; a download takes `--release` or `--latest`. So "Missing required flag: --file." (and its plural) changes to ask for a source, and `teardownPinCommand` and the goldens that quote it, the missing-flag ones included, change to `--latest` or `--release <release>`. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. An EACCES or ENOEXEC when the stored binary is first executed maps to the noexec message (below), naming the mount |
-| 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped; the hermetic sign and verify argv has been run against cosign v3.0.6 and this note corrected to match |
+| 4. `teardown pin --release X.Y.Z` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The flag rules become: `--file` requires `--sha256` and `--release`; a download takes `--release` or `--latest`. So "Missing required flag: --file." (and its plural) changes to ask for a source, and `teardownPinCommand` and the goldens that quote it, the missing-flag ones included, change to `--latest` or `--release X.Y.Z`. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. The noexec mapping (an EACCES or ENOEXEC when the stored binary is first executed, naming the mount) belongs to the gate: pin never executes the stored binary (below). Delivered in step 4: the download forms, `teardownPinCommand` and the goldens that quote it |
+| 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped (the hermetic sign and verify flags were run against cosign v3.0.6 in step 4, and "CI" above matches them) |
 | 6. **#146** The fail-closed gate and `--dev-teardown`; the README's relocation paragraph; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes |
 | 6b. Cut `v0.1.0-rc.2` | 6 merged | A release containing the gate is published |
 | 7. **#147** Smoke test after a release | 6b | Passes on all three runners |
@@ -719,7 +804,7 @@ follows, so nothing is removed. The removal's `Inventory` calls Docker, which fa
 macOS runner without it; the test accepts that refusal too.
 
 **Strings step 6 changes** (goldens reviewed with #146; `<pin command>` is rendered
-as the literal command, `--latest` or `--release <release>`, chosen once per
+as the literal command, `--latest` or `--release X.Y.Z`, chosen once per
 process): the last plan line of
 `teardown pin`, from "`worktree remove` does not run this binary yet." to
 "`worktree remove` will run this binary instead of the build you invoke.";

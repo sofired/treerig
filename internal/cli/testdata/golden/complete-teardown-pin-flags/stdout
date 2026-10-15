@@ -1,8 +1,9 @@
 --config	path to berth.toml (default: nearest above cwd)
 --version	output the version number
---file	the berth binary to pin (required)
+--file	pin this berth binary instead of downloading a release; needs --sha256 and --release
 --help	help for pin
---release	a label for this pin, such as the version you built (required)
---sha256	the sha256 of that file itself, from a source you trust (required)
+--latest	download the newest release that is not a pre-release
+--release	the release to download and verify, such as 1.2.3 or 0.1.0-rc.1 (no leading v); with --file, a label for the pin instead
+--sha256	with --file: the sha256 of that file itself, from a source you trust
 --yes	skip the confirmation phrase
 :4

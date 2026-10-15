@@ -28,6 +28,30 @@ func FilePin(path, release, platform, binarySHA256 string, now time.Time) Pin {
 	}
 }
 
+// ReleasePin is the pin `teardown pin --release` and `--latest` write: a
+// release pin of the https source and the signer cosign verified, whose
+// platforms hold archiveSHA256 (the digests in the verified checksums.txt, one
+// per platform) and, for platform alone, the extracted binary's digest. The
+// caller has checked the arguments; Validate (and so Save) is the check on the
+// result.
+func ReleasePin(release, source, signer, checksumsSHA256 string, archiveSHA256 map[string]string, platform, binarySHA256 string, now time.Time) Pin {
+	platforms := make(map[string]Platform, len(archiveSHA256))
+	for key, digest := range archiveSHA256 {
+		platforms[key] = Platform{ArchiveSHA256: digest}
+	}
+	entry := platforms[platform]
+	entry.BinarySHA256 = binarySHA256
+	platforms[platform] = entry
+	return Pin{
+		Release:         release,
+		Source:          source,
+		Signer:          signer,
+		ChecksumsSHA256: checksumsSHA256,
+		PinnedAt:        FormatTime(now),
+		Platforms:       platforms,
+	}
+}
+
 // ValidSHA256 reports whether s is 64 lowercase hexadecimal characters, the
 // shape of every digest in a pin.
 func ValidSHA256(s string) bool { return sha256Pattern.MatchString(s) }

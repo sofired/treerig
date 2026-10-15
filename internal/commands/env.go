@@ -11,6 +11,7 @@ import (
 	"github.com/sofired/berth/internal/logger"
 	"github.com/sofired/berth/internal/ports"
 	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/berth/internal/releasefetch"
 	"github.com/sofired/berth/internal/run"
 	"github.com/sofired/berth/internal/text"
 )
@@ -43,6 +44,11 @@ type Env struct {
 	// ConfigPath is --config; empty means the nearest berth.toml above Cwd.
 	ConfigPath string
 	Runner     run.Runner
+	// Releases downloads a release for `teardown pin --release` and
+	// `--latest`: an HTTPS fetcher over the *http.Client cli.MainProcess builds
+	// (releasefetch.NewHTTP). Nil from cli.Main and from hand-built test Envs,
+	// where a download refuses instead of reaching the network.
+	Releases releasefetch.Fetcher
 	// PortProbe decides whether a port is free, for allocation and for the
 	// check before the router starts; nil asks the operating system
 	// (ports.LoopbackProbe). Tests set a fake so they bind nothing.

@@ -45,6 +45,7 @@ is a constant there, pinned by its tests.
 | Relocated copies | `<control home>/bin/<sha256>` | none: the name is the version |
 | Teardown pin | `<control home>/teardown/pin.json` | `"version": 1`, `stateformat.TeardownPin` |
 | Pinned teardown binaries | `<control home>/teardown/<sha256>` | none: the name is the version |
+| cosign's cache (HOME, TUF_ROOT, TMPDIR for `teardown pin`) | `<control home>/teardown/cosign/` | none: a derived cache, never read as state |
 | Backup bundles | where `backup` was told | none: the hook's |
 | `settings.toml`, `berth.toml` | the berth root, the repository | none: user-written |
 | Quarantined homes | `<repo>/instances/.deleting-<worktree>` | none: a renamed home |
