@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 20
     steps:
       # The whole history, to ask whether the tag is on main.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -65,7 +65,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -102,7 +102,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # GoReleaser builds the release notes from the history since the
           # previous tag.
@@ -113,7 +113,7 @@ jobs:
 
       # No build cache: this job's output is what users install, and a cache
       # is the one input a pull request's workflow run could have written.
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -223,17 +223,18 @@ jobs:
       # appearance in the tap is a copy of it.
       - name: Check out berth
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: berth
           persist-credentials: false
 
-      # actions/checkout stores the token as an http.extraheader that it scrubs
-      # in its post step, rather than us baking it into a remote URL that would
-      # persist in .git/config.
+      # actions/checkout keeps the token in a credentials file under RUNNER_TEMP
+      # that this repository's git config includes, and removes it in its post
+      # step, rather than us baking it into a remote URL that would persist in
+      # .git/config.
       - name: Check out the tap
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: sofired/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
