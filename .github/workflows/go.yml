@@ -106,7 +106,8 @@ jobs:
   # snapshot builds them the way a release does (CGO_ENABLED=0, trimpath).
   # packaging/verify-snapshot.sh then checks the artifacts, renders the tap
   # formula (dist/berth.rb) the way the release's tap job does, and runs
-  # install.sh against them.
+  # install.sh against them. A real cosign then pins the snapshot (teardown
+  # pin --release) with a throwaway key.
   release-snapshot:
     name: release snapshot
     runs-on: ubuntu-latest
@@ -130,6 +131,13 @@ jobs:
           version: v2.18.3
           install-only: true
 
+      # The teardown pin flow below runs a real cosign against the snapshot.
+      # Same installer commit and cosign version as release.yml; the version is
+      # an input Dependabot does not move (docs/design/release.md).
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
       - name: GoReleaser check
         run: goreleaser check
 
@@ -148,6 +156,34 @@ jobs:
 
       - name: Verify the artifacts, the tap formula and install.sh
         run: packaging/verify-snapshot.sh dist
+
+      # teardown pin --release against the snapshot: the test signs a copy of
+      # dist/checksums.txt with a throwaway key (no Rekor, no TSA, no network),
+      # serves dist/ from a local TLS server and checks the pin against
+      # checksums.txt and the built berth. It only reads dist/, so the upload
+      # below still sees the artifacts. BERTH_REQUIRE_COSIGN makes a missing
+      # cosign or snapshot a failure, not a skip. The log is then checked, so
+      # that a -run pattern that matches nothing, or a test that skips for any
+      # other reason, cannot pass: all four tests must report PASS
+      # (docs/design/teardown.md, "CI"). pipefail, from shell: bash, keeps a
+      # failing go test failing through the tee.
+      - name: The snapshot pins with a real cosign
+        shell: bash
+        env:
+          BERTH_REQUIRE_COSIGN: '1'
+        run: |
+          version=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)
+          test -n "$version"
+          log="$RUNNER_TEMP/pin-tests.log"
+          BERTH_SNAPSHOT_DIST="$PWD/dist" BERTH_SNAPSHOT_VERSION="$version" \
+            go test -v -race -count=1 -run '^(TestTeardownPinSnapshot|TestTeardownPinSnapshotTampering|TestTeardownPinWithRealCosign|TestTeardownPinWithRealCosignAndNoTrustRoot)$' ./internal/commands/ 2>&1 | tee "$log"
+          for name in TestTeardownPinSnapshot TestTeardownPinSnapshotTampering TestTeardownPinWithRealCosign TestTeardownPinWithRealCosignAndNoTrustRoot; do
+            grep -q -- "^--- PASS: $name " "$log" || { echo "::error::$name did not report PASS"; exit 1; }
+          done
+          if grep -q -- '--- SKIP' "$log"; then
+            echo "::error::a test skipped"
+            exit 1
+          fi
 
       # Reviewers can install a pull request's build, and the latest main
       # build stays available without waiting for a tag.

@@ -53,11 +53,15 @@ breaks every verification instruction already published.
 
 The signing tool is pinned: `release.yml` sets the installer's `cosign-release:`
 to `v3.0.6`, which cosign-installer v4.1.2 installed by default when it was
-pinned. The bundle it writes is what the teardown pin's minimum, cosign 3.0.0,
+pinned. `go.yml`'s `release-snapshot` job installs the same cosign, with the
+same installer commit and `cosign-release:`, to run the teardown pin flow
+against the snapshot; the two files change together, and
+`TestCosignPinnedTheSameInBothWorkflows` (`internal/style`) fails if they
+differ. The bundle it writes is what the teardown pin's minimum, cosign 3.0.0,
 reads, so **changing the pinned cosign is a migration for the pin**: raise it
 together with the pin's minimum and its tests. Dependabot bumps the installer
-action but not `cosign-release:`, so raising it is a manual step. Nothing the
-pipeline emits is signed by a package-manager key.
+action but not `cosign-release:`, so raising it is a manual step, in both
+files. Nothing the pipeline emits is signed by a package-manager key.
 
 ## What depends on it
 

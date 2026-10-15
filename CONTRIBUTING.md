@@ -222,18 +222,39 @@ it ships when it merges.
 `release-snapshot` job in `go.yml`: shellcheck, `goreleaser check`, a snapshot
 build, a second build whose `checksums.txt` must match the first, and
 `packaging/verify-snapshot.sh` (every artifact, the files in each, how each
-binary was built, the tap formula rendered into `dist/berth.rb` from the
-source archive, and `install.sh` against the snapshot through a local server).
-The job uploads the artifacts and the formula. To do the same locally:
+binary was built, that `/usr/bin/berth` in the host's `.deb` and `.rpm` is the
+`berth` in the host's archive, the tap formula rendered into `dist/berth.rb`
+from the source archive, and `install.sh` against the snapshot through a local
+server). The job also runs the teardown pin flow: `teardown pin --release`
+against the snapshot with a real cosign (`TestTeardownPinSnapshot`,
+`TestTeardownPinSnapshotTampering`, `TestTeardownPinWithRealCosign` and
+`TestTeardownPinWithRealCosignAndNoTrustRoot`). It uploads the artifacts and the
+formula. To do the same locally:
 
 ```bash
 go install github.com/goreleaser/goreleaser/v2@v2.18.3   # the version both workflows pin
 goreleaser check
 goreleaser release --snapshot --clean --skip=sign
 packaging/verify-snapshot.sh dist
+
+# The pin flow; cosign 3.0.0 or newer on PATH (the job installs v3.0.6). Run it
+# after the snapshot build, and after any second build, which `--clean` would wipe.
+BERTH_REQUIRE_COSIGN=1 \
+BERTH_SNAPSHOT_DIST="$PWD/dist" \
+BERTH_SNAPSHOT_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)" \
+  go test -race -count=1 -run '^(TestTeardownPinSnapshot|TestTeardownPinSnapshotTampering|TestTeardownPinWithRealCosign|TestTeardownPinWithRealCosignAndNoTrustRoot)$' ./internal/commands/
 ```
 
 `--skip=sign` is needed because signing wants the release job's OIDC token.
+
+The job sets `BERTH_REQUIRE_COSIGN=1` and checks the test log, so a missing
+cosign or snapshot fails the step instead of skipping, and so does any skipped
+test. Leave the variable out locally to skip those tests where cosign is absent;
+the tests use a throwaway key and a local server, and make no request to the
+internet. The package-hash check reads the `.deb` with `dpkg-deb` and the `.rpm`
+with `rpm2cpio` and `cpio`; locally it says "skipped" where a tool is missing,
+and under `CI` it fails instead.
+
 Change the GoReleaser version in `go.yml` and `release.yml` together; the
 actions in `release.yml` are pinned by commit, and Dependabot
 (`.github/dependabot.yml`) moves each pin together with its `# vX.Y.Z` comment.
@@ -241,15 +262,19 @@ It opens a weekly pull request for minor and patch updates, a separate one for
 each major update, and its own security updates.
 
 The `release-signing` group (cosign-installer, goreleaser-action and attest)
-only runs on a release tag, so no pull request's CI exercises it. Before
-merging an update to it, check by hand:
+signs and publishes only on a release tag. A pull request's CI installs
+cosign-installer and goreleaser-action in the `release-snapshot` job but never
+signs. `go.yml` and `release.yml` both pin cosign-installer, by the same commit,
+and both set `cosign-release:`; they change together, and
+`TestCosignPinnedTheSameInBothWorkflows` (`internal/style`) fails if they differ.
+Before merging an update to the group, check by hand:
 
 - `goreleaser release --snapshot --clean --skip=sign` still passes;
 - the new installer still takes `cosign-release:` and can still install
   `v3.0.6` (read its `action.yml` at the new commit and its release notes).
 
 `cosign-release:` is an input, not an action, so Dependabot leaves it alone;
-raise it by hand (`docs/design/release.md`).
+raise it by hand in both workflows (`docs/design/release.md`).
 
 ## Commit messages
 
