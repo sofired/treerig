@@ -12,7 +12,7 @@ package cli_test
 //	pin-file-plan                  the confirmation screen and the success line, typed on a terminal
 //	pin-file-yes                   --yes: no plan, the success line only
 //	pin-file-sha-mismatch          the digest given is not the file's
-//	pin-file-not-executable        the digest matches, but the file is a script
+//	pin-file-not-executable        the digest matches, but the file is empty, not an executable
 //	status-no-pin[-json]           nothing pinned: empty stdout (or {"pinned": false}), exit 1
 //	status-valid[-json]            an intact file pin: exit 0
 //	status-binary-missing[-json]   the stored binary is gone: the report, then the refusal
@@ -172,11 +172,13 @@ func TestTeardownPinGolden(t *testing.T) {
 
 	t.Run("pin-file-not-executable", func(t *testing.T) {
 		g := newTeardownGolden(t)
-		script := []byte("#!/bin/sh\necho not berth\n")
-		if err := os.WriteFile(g.file, script, 0o755); err != nil {
+		// An empty file is refused the same way on every platform; a script,
+		// a foreign architecture and the rest are internal/teardown's tests.
+		empty := []byte{}
+		if err := os.WriteFile(g.file, empty, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		stdout, stderr, code := g.run(t, "teardown", "pin", "--file", g.file, "--sha256", binstore.Hash(script), "--release", "my-build", "--yes")
+		stdout, stderr, code := g.run(t, "teardown", "pin", "--file", g.file, "--sha256", binstore.Hash(empty), "--release", "my-build", "--yes")
 		compareTeardownGolden(t, "pin-file-not-executable", stdout, stderr, code)
 	})
 
@@ -189,7 +191,7 @@ func TestTeardownPinGolden(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		env := &commands.Env{
 			CommandName: "berth", Logger: logger.NewConsole("berth", &stdout, &stderr), Getenv: g.getenv,
-			OS: "linux", Arch: "amd64", Cwd: g.base,
+			OS: runtime.GOOS, Arch: runtime.GOARCH, Cwd: g.base,
 			Stdin: strings.NewReader("pin teardown binary\n"), StdinIsTTY: true, Stderr: &stderr,
 		}
 		err := commands.TeardownPin(context.Background(), env, commands.TeardownPinOptions{

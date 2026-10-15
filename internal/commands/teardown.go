@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/sofired/berth/internal/binstore"
 	"github.com/sofired/berth/internal/clierr"
 	"github.com/sofired/berth/internal/layout"
@@ -195,19 +197,15 @@ func TeardownPin(ctx context.Context, env *Env, options TeardownPinOptions) erro
 // is not a regular file before opening it (a FIFO would hang the open), and
 // anything over maxTeardownBinary.
 func readPinFile(path string) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, clierr.Newf("Could not read %s: %s.", text.Printable(path), reasonWithoutPath(err))
-	}
-	if !info.Mode().IsRegular() {
-		return nil, clierr.Newf("Could not read %s: it is not a regular file.", text.Printable(path))
-	}
-	file, err := os.Open(path)
+	// O_NONBLOCK keeps a FIFO from hanging the open; the descriptor is then
+	// the only thing checked, so nothing can be swapped in after the check.
+	// Symlinks are followed: the path is the user's, and an installed berth is
+	// often one (a Homebrew bin/berth, say).
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, clierr.Newf("Could not read %s: %s.", text.Printable(path), reasonWithoutPath(err))
 	}
 	defer func() { _ = file.Close() }()
-	// The file may have been swapped between the stat and the open.
 	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
 		return nil, clierr.Newf("Could not read %s: it is not a regular file.", text.Printable(path))
 	}

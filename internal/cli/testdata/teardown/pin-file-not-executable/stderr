@@ -1,1 +1,1 @@
-[berth] ERROR: Refusing to pin my-build: BASE/bin/berth-local is not a PLATFORM executable (not an ELF file). Nothing was pinned. Pin the berth binary built for this machine.
+[berth] ERROR: Refusing to pin my-build: BASE/bin/berth-local is not a PLATFORM executable (the file is empty). Nothing was pinned. Pin the berth binary built for this machine.
