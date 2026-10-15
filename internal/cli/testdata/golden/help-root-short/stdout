@@ -24,6 +24,7 @@ Available Commands:
               hostname
   shared      manage the repository's shared services
   worktree    manage registered worktrees
+  teardown    pin and check the trusted berth build for worktree removal
   completion  print a shell completion script
   help        display help for command
 

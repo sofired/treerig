@@ -45,6 +45,7 @@ func envBuilder(commandName, invocation string, console *logger.Console, getenv 
 			Getenv:      getenv,
 			Environ:     os.Environ(),
 			OS:          runtime.GOOS,
+			Arch:        runtime.GOARCH,
 			Args:        args,
 			Cwd:         cwd,
 			ConfigPath:  configPath,

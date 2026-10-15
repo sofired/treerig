@@ -426,3 +426,17 @@ func TestPrune(t *testing.T) {
 		}
 	})
 }
+
+func TestHashFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(path, []byte("abc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := binstore.HashFile(path)
+	if err != nil || got != binstore.Hash([]byte("abc")) {
+		t.Fatalf("HashFile = %q, %v", got, err)
+	}
+	if _, err := binstore.HashFile(path + ".none"); err == nil {
+		t.Fatal("a missing file hashed")
+	}
+}

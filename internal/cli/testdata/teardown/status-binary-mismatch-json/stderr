@@ -1,0 +1,1 @@
+[berth] ERROR: The pinned teardown binary BASE/berth-home/control-home/teardown/DIGEST has sha256 671bf4eed8c3b3a2f75a9c40ccbfe5f2e078e894fb85d63bfd98dc5ab232933c, not the pinned DIGEST. Pin it again with `berth teardown pin --file PATH --sha256 HEX --release LABEL`.

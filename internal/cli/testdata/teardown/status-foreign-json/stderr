@@ -1,0 +1,1 @@
+[berth] ERROR: Refusing to use the teardown pin BASE/berth-home/control-home/teardown/pin.json: it is not a pin this build wrote. Delete BASE/berth-home/control-home/teardown/ and pin again.

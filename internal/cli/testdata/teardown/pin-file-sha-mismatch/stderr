@@ -1,0 +1,1 @@
+[berth] ERROR: Refusing to pin my-build: BASE/bin/berth-local has sha256 DIGEST, not the fd611b728e7fda802b450bbdbe84ef6e625e2a0b4df4dae2eff07e5442fdcc53 you supplied. Nothing was pinned. Check that you are pinning the file you verified and that --sha256 is its digest.

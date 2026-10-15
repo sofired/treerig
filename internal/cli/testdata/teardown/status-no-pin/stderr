@@ -1,0 +1,1 @@
+[berth] ERROR: No teardown binary is pinned. Pin one with `berth teardown pin --file PATH --sha256 HEX --release LABEL`.
