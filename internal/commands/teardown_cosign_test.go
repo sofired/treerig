@@ -9,8 +9,9 @@ package commands_test
 //
 // The tests skip without a cosign 3.0.0 or newer on PATH. With
 // BERTH_REQUIRE_COSIGN=1 (the release-snapshot job) a missing cosign fails
-// instead. The snapshot test runs against a GoReleaser snapshot's dist/ named
-// by BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION, and skips without them.
+// instead. The snapshot tests run against a GoReleaser snapshot's dist/ named
+// by BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION, and skip without them,
+// or fail, under BERTH_REQUIRE_COSIGN=1.
 
 import (
 	"bytes"
@@ -51,16 +52,39 @@ type cosignTool struct {
 	home string
 }
 
+// skipUnlessRequired skips the test with the reason, or fails it when
+// BERTH_REQUIRE_COSIGN=1: the release-snapshot job sets that so that a missing
+// cosign, or a missing snapshot, cannot pass as a skip.
+func skipUnlessRequired(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("BERTH_REQUIRE_COSIGN") == "1" {
+		t.Fatalf("BERTH_REQUIRE_COSIGN=1, so this test cannot skip: "+format, args...)
+	}
+	t.Skipf(format, args...)
+}
+
+// requireSnapshot returns the GoReleaser snapshot's dist/ and version named by
+// BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION. When they are unset or there
+// is no checksums.txt there, it hands the test to skipUnlessRequired.
+func requireSnapshot(t *testing.T) (dist, version string) {
+	t.Helper()
+	dist, version = os.Getenv("BERTH_SNAPSHOT_DIST"), os.Getenv("BERTH_SNAPSHOT_VERSION")
+	if dist == "" || version == "" {
+		skipUnlessRequired(t, "BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION are not set to a GoReleaser snapshot's dist/ and its version")
+	}
+	if _, err := os.Stat(filepath.Join(dist, "checksums.txt")); err != nil {
+		skipUnlessRequired(t, "no snapshot in %s: %v", dist, err)
+	}
+	return dist, version
+}
+
 // requireCosign3 finds a cosign 3.0.0 or newer on PATH, skipping the test
 // when there is none (or failing it, when BERTH_REQUIRE_COSIGN is set).
 func requireCosign3(t *testing.T) cosignTool {
 	t.Helper()
 	unavailable := func(format string, args ...any) {
 		t.Helper()
-		if os.Getenv("BERTH_REQUIRE_COSIGN") == "1" {
-			t.Fatalf("BERTH_REQUIRE_COSIGN=1, but "+format, args...)
-		}
-		t.Skipf("needs cosign 3.0.0 or newer: "+format, args...)
+		skipUnlessRequired(t, "cosign 3.0.0 or newer is needed, but "+format, args...)
 	}
 	path, err := exec.LookPath("cosign")
 	if err != nil {
@@ -218,13 +242,7 @@ func TestTeardownPinWithRealCosignAndNoTrustRoot(t *testing.T) {
 }
 
 func TestTeardownPinSnapshot(t *testing.T) {
-	dist, version := os.Getenv("BERTH_SNAPSHOT_DIST"), os.Getenv("BERTH_SNAPSHOT_VERSION")
-	if dist == "" || version == "" {
-		t.Skip("set BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION to a GoReleaser snapshot's dist/ and its version")
-	}
-	if _, err := os.Stat(filepath.Join(dist, "checksums.txt")); err != nil {
-		t.Skipf("no snapshot in %s: %v", dist, err)
-	}
+	dist, version := requireSnapshot(t)
 	tool := requireCosign3(t)
 
 	f := newTeardownFixture(t)
@@ -279,13 +297,7 @@ func TestTeardownPinSnapshot(t *testing.T) {
 }
 
 func TestTeardownPinSnapshotTampering(t *testing.T) {
-	dist, version := os.Getenv("BERTH_SNAPSHOT_DIST"), os.Getenv("BERTH_SNAPSHOT_VERSION")
-	if dist == "" || version == "" {
-		t.Skip("set BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION to a GoReleaser snapshot's dist/ and its version")
-	}
-	if _, err := os.Stat(filepath.Join(dist, "checksums.txt")); err != nil {
-		t.Skipf("no snapshot in %s: %v", dist, err)
-	}
+	dist, version := requireSnapshot(t)
 	tool := requireCosign3(t)
 	archive := releasefetch.ArchiveName(version, teardown.PlatformKey(runtime.GOOS, runtime.GOARCH))
 

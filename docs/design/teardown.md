@@ -6,8 +6,9 @@ holds, how it is installed and verified, how removal uses it, and what it does
 not protect against. The pin is stored state, so it follows `state.md`.
 
 **Status.** The pin store, `berth teardown pin` in all three forms (`--release X.Y.Z`,
-`--latest` and `--file`) and `teardown status` exist (steps 2 to 4). The CI snapshot
-flow (step 5) is next. The pin command in the messages below is `berth teardown pin
+`--latest` and `--file`) and `teardown status` exist (steps 2 to 4), and the
+`release-snapshot` job pins the snapshot with a real cosign and checks the packages'
+binaries (step 5). The pin command in the messages below is `berth teardown pin
 --release X.Y.Z` while the repository has only pre-releases; when the first
 release that is not a pre-release is published, `teardownPinCommand` becomes
 `--latest`, the one function that names it, and the goldens that quote it are
@@ -735,15 +736,18 @@ pinned with an explicit `--release`.
 
 ### CI
 
-The `release-snapshot` job gains a SHA-pinned `sigstore/cosign-installer` step
-with `cosign-release: v3.0.6` (the version `release.md` fixes), and pins the
-snapshot after "Verify the artifacts" (the reproducibility step's `--clean` wipes
-`dist/`). A test in `internal/commands` (`TestTeardownPinSnapshot`), given the
-`dist/` path and the snapshot's version in `BERTH_SNAPSHOT_DIST` and
-`BERTH_SNAPSHOT_VERSION`, serves `dist/` over an `httptest` TLS server
-(`releasefetch/releasetest`) and runs `teardown pin --release` against it. It asserts all four `archive_sha256` values
+The `release-snapshot` job has a SHA-pinned `sigstore/cosign-installer` step
+(the commit `release.yml` pins) with `cosign-release: v3.0.6` (the version
+`release.md` fixes), and pins the snapshot after "Verify the artifacts" (the
+reproducibility step's `--clean` wipes `dist/`). A test in `internal/commands`
+(`TestTeardownPinSnapshot`), given the `dist/` path and the snapshot's version in
+`BERTH_SNAPSHOT_DIST` and `BERTH_SNAPSHOT_VERSION`, serves `dist/` over an
+`httptest` TLS server (`releasefetch/releasetest`) and runs
+`teardown pin --release` against it. It asserts all four `archive_sha256` values
 equal `checksums.txt` and the host's `binary_sha256` equals the hash of the built
-`berth`.
+`berth`. The installer commit and `cosign-release:` are set in both `release.yml`
+and `go.yml`; `TestCosignPinnedTheSameInBothWorkflows` (`internal/style`) fails if
+they differ.
 
 - **Hermetic signing.** The test signs a copy of `checksums.txt` with a
   throwaway key and verifies with a test-only policy, so a real cosign runs end
@@ -768,13 +772,24 @@ equal `checksums.txt` and the host's `binary_sha256` equals the hash of the buil
   The test-only policy lives in the test files (`keyPolicy` in
   `internal/commands/teardown_cosign_test.go`); no key mode exists in production
   code. The real keyless identity is first exercised at #147.
-- **No silent skip.** The `release-snapshot` job sets `BERTH_REQUIRE_COSIGN=1`, so
-  a missing cosign fails the test instead of skipping it. The test skips when `dist/` is absent,
-  and local runs skip without cosign.
+- **No silent skip.** The `release-snapshot` job sets `BERTH_REQUIRE_COSIGN=1`,
+  so a missing cosign, an unset `BERTH_SNAPSHOT_DIST` or `BERTH_SNAPSHOT_VERSION`,
+  or a `dist/` without `checksums.txt` fails the tests instead of skipping them.
+  The step also runs `go test -v` and checks its log: it fails unless
+  `--- PASS:` appears for each of the four tests (`TestTeardownPinSnapshot`,
+  `TestTeardownPinSnapshotTampering`, `TestTeardownPinWithRealCosign` and
+  `TestTeardownPinWithRealCosignAndNoTrustRoot`), and on any `--- SKIP`, so a
+  `-run` pattern that matches nothing fails too. Locally, without the variable,
+  the tests skip.
 - `packaging/verify-snapshot.sh` additionally asserts that the host's
-  `/usr/bin/berth` in the deb (and the rpm where `rpm2cpio` is present) hashes to
-  the archive's `berth`. CONTRIBUTING.md's check list gains the pin flow when step
-  5 lands.
+  `/usr/bin/berth` in the deb (and the rpm where `rpm2cpio` and `cpio` are
+  present) hashes to the archive's `berth`. Locally it says "skipped" where a
+  reader is missing; with `CI` set (GitHub sets it) a missing reader fails, so the
+  check cannot pass by not running. CONTRIBUTING.md's "Trying it without
+  publishing" commands and its `release-signing` paragraph carry the pin flow and
+  this check.
+- The job runs the tests after "Verify the artifacts". They only read `dist/`, so
+  the artifact upload that follows still sees every file.
 
 **Only checkable after a tag:** the keyless identity against the real workflow,
 the `releases/latest/download` redirect and asset URLs, execution on real

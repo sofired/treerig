@@ -1,7 +1,8 @@
 #!/bin/sh
 # Checks what `goreleaser release --snapshot --clean --skip=sign` left in
 # dist/: every archive, package and checksum is there and agrees, each archive
-# and the host's .deb hold the files they should, every binary was built the way
+# and the host's .deb hold the files they should, the host's packages carry the
+# archive's binary at /usr/bin/berth, every binary was built the way
 # a release is (no cgo, trimmed paths, the version stamped in), and install.sh
 # installs the host's archive through a local HTTP server standing in for GitHub
 # Releases, with curl and with wget, and refuses an archive whose checksum does
@@ -9,7 +10,9 @@
 #
 # usage: packaging/verify-snapshot.sh [dist-dir]
 #
-# Needs go, python3 and tar; runs on Linux or macOS. CI runs it after the
+# Needs go, python3 and tar, plus dpkg-deb for the deb checks and rpm2cpio and
+# cpio for the rpm's: without them those checks are skipped, except under CI
+# (CI is set), where they fail. Runs on Linux or macOS. CI runs it after the
 # snapshot build (.github/workflows/go.yml); run it by hand the same way.
 set -eu
 
@@ -143,6 +146,20 @@ case "$(uname -m)" in
   *) fail "unsupported host architecture $(uname -m)" ;;
 esac
 
+# not_checked <label> <tool>: a package check that cannot run here. It
+# is skipped on a machine that is not Linux, or where a reader is missing, but
+# fails under CI (GitHub sets CI=true): there a missing tool would make the check
+# pass without ever running.
+not_checked() {
+  if [ "$os" != linux ]; then
+    echo "$1: skipped, not Linux"
+  elif [ -n "${CI:-}" ]; then
+    fail "$1: $2 is not on this machine, and CI does not skip this check"
+  else
+    echo "$1: skipped, no $2 on this machine"
+  fi
+}
+
 # The host's .deb, where dpkg-deb is here to read it.
 if [ "$os" = linux ] && command -v dpkg-deb >/dev/null 2>&1; then
   deb=$(find "$dist" -maxdepth 1 -name "*_${arch}.deb")
@@ -159,7 +176,63 @@ if [ "$os" = linux ] && command -v dpkg-deb >/dev/null 2>&1; then
   }
   echo "deb contents: ok"
 else
-  echo "deb contents: skipped, no dpkg-deb on this machine"
+  not_checked "deb contents" dpkg-deb
+fi
+
+# /usr/bin/berth in the host's packages is the release binary: the same bytes as
+# the berth in the host's archive, which is the file the teardown pin records as
+# binary_sha256 (docs/design/teardown.md, "Platforms"). The deb is read with
+# dpkg-deb and the rpm with rpm2cpio and cpio, where each is here.
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{ print $1 }'
+  else
+    shasum -a 256 | awk '{ print $1 }'
+  fi
+}
+
+# The archive is read into a file first, so a failing tar is a failure here and
+# not an empty hash.
+tar xzf "$dist/berth_${version}_${os}_${arch}.tar.gz" -C "$work" berth ||
+  fail "could not read berth from berth_${version}_${os}_${arch}.tar.gz"
+archive_sha=$(sha256_stdin <"$work/berth")
+rm -f "$work/berth"
+printf '%s' "$archive_sha" | grep -Eq '^[0-9a-f]{64}$' || fail "could not hash the archive's berth"
+
+# package_binary_matches <label> <package> <sha>: fail unless <sha>, the hash of
+# the package's /usr/bin/berth, is the archive's.
+package_binary_matches() {
+  printf '%s' "$3" | grep -Eq '^[0-9a-f]{64}$' || fail "$1: could not read /usr/bin/berth from $(basename "$2")"
+  [ "$3" = "$archive_sha" ] ||
+    fail "$1: /usr/bin/berth in $(basename "$2") is not the berth in the ${os}_${arch} archive (sha256 $3, the archive's is $archive_sha)"
+}
+
+if [ "$os" = linux ] && command -v dpkg-deb >/dev/null 2>&1; then
+  dpkg-deb --fsys-tarfile "$deb" >"$work/deb.tar" || fail "dpkg-deb could not read $(basename "$deb")"
+  tar xOf "$work/deb.tar" ./usr/bin/berth >"$work/deb-berth" 2>/dev/null || true
+  [ -s "$work/deb-berth" ] || fail "no /usr/bin/berth in $(basename "$deb")"
+  deb_sha=$(sha256_stdin <"$work/deb-berth")
+  rm -f "$work/deb.tar" "$work/deb-berth"
+  package_binary_matches deb "$deb" "$deb_sha"
+  echo "deb binary: ok (/usr/bin/berth is the archive's berth)"
+else
+  not_checked "deb binary" dpkg-deb
+fi
+if [ "$os" = linux ] && command -v rpm2cpio >/dev/null 2>&1 && command -v cpio >/dev/null 2>&1; then
+  case "$arch" in amd64) rpm_arch=x86_64 ;; *) rpm_arch=aarch64 ;; esac
+  rpm=$(find "$dist" -maxdepth 1 -name "*.${rpm_arch}.rpm")
+  [ -f "$rpm" ] || fail "expected one .rpm for $rpm_arch in $dist"
+  rpm2cpio "$rpm" >"$work/rpm.cpio" || fail "rpm2cpio could not read $(basename "$rpm")"
+  # rpm2cpio spells the member ./usr/bin/berth or /usr/bin/berth, by its version.
+  cpio -i --to-stdout ./usr/bin/berth /usr/bin/berth usr/bin/berth <"$work/rpm.cpio" >"$work/rpm-berth" 2>/dev/null || true
+  [ -s "$work/rpm-berth" ] || fail "no /usr/bin/berth in $(basename "$rpm")"
+  rpm_sha=$(sha256_stdin <"$work/rpm-berth")
+  rm -f "$work/rpm.cpio" "$work/rpm-berth"
+  package_binary_matches rpm "$rpm" "$rpm_sha"
+  echo "rpm binary: ok (/usr/bin/berth is the archive's berth)"
+else
+  if command -v rpm2cpio >/dev/null 2>&1; then missing=cpio; else missing=rpm2cpio; fi
+  not_checked "rpm binary" "$missing"
 fi
 
 # --- install.sh against a local stand-in for GitHub Releases -------------------
