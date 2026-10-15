@@ -1,7 +1,7 @@
 name: Set up Go with a cache of its own
 description: >
   actions/setup-go, with its cache replaced by one keyed by this job's name.
-  setup-go's own key names only the platform, the Go version and go.sum, so
+  setup-go's own key names only the platform, the Go version and go.mod, so
   every Linux job shares one entry, and whichever finishes first saves it for
   all of them: the release-snapshot job's builds, without the race detector or
   cgo, were restored into the jobs that need both. With a key per job, each
@@ -9,7 +9,7 @@ description: >
 runs:
   using: composite
   steps:
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@v7
       with:
         go-version-file: go.mod
         cache: false
@@ -22,7 +22,7 @@ runs:
         # staticcheck keeps its own cache beside Go's, in the user cache directory.
         echo "staticcheck=$(dirname "$(go env GOCACHE)")/staticcheck" >> "$GITHUB_OUTPUT"
 
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       with:
         path: |
           ${{ steps.paths.outputs.gocache }}
