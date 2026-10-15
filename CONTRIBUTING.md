@@ -235,7 +235,21 @@ packaging/verify-snapshot.sh dist
 
 `--skip=sign` is needed because signing wants the release job's OIDC token.
 Change the GoReleaser version in `go.yml` and `release.yml` together; the
-actions in `release.yml` are pinned by commit, so bump those on purpose.
+actions in `release.yml` are pinned by commit, and Dependabot
+(`.github/dependabot.yml`) moves each pin together with its `# vX.Y.Z` comment.
+It opens a weekly pull request for minor and patch updates, a separate one for
+each major update, and its own security updates.
+
+The `release-signing` group (cosign-installer, goreleaser-action and attest)
+only runs on a release tag, so no pull request's CI exercises it. Before
+merging an update to it, check by hand:
+
+- `goreleaser release --snapshot --clean --skip=sign` still passes;
+- the new installer still takes `cosign-release:` and can still install
+  `v3.0.6` (read its `action.yml` at the new commit and its release notes).
+
+`cosign-release:` is an input, not an action, so Dependabot leaves it alone;
+raise it by hand (`docs/design/release.md`).
 
 ## Commit messages
 
