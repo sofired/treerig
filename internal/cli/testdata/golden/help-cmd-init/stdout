@@ -1,8 +1,8 @@
 Write a starter treerig.toml at the root of the Git repository you run it in,
 naming the Compose file found there (compose.yaml if none), with a commented-out
-service and hooks to fill in. It refuses to replace an existing treerig.toml. Run
-`treerig config validate` afterwards. It reads no treerig.toml, so --config is
-refused.
+service and hooks to fill in. It refuses to replace an existing treerig.toml.
+Run `treerig config validate` afterwards. It reads no treerig.toml, so --config
+is refused.
 
 Usage:
   treerig init [flags]

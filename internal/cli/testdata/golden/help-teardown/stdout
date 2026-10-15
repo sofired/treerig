@@ -1,15 +1,15 @@
-The pinned teardown binary is the build of treerig that `worktree remove` is meant
-to run in place of whichever build you invoke, so that code from a branch does
-not run during a removal. These commands install the pin and check it. `worktree
-remove` does not run the pinned binary yet.
+The pinned teardown binary is the build of treerig that `worktree remove` is
+meant to run in place of whichever build you invoke, so that code from a branch
+does not run during a removal. These commands install the pin and check it.
+`worktree remove` does not run the pinned binary yet.
 
 Usage:
   treerig teardown [flags]
   treerig teardown [command]
 
 Available Commands:
-  pin         pin a treerig release, or a treerig binary you have verified, as the
-              teardown binary
+  pin         pin a treerig release, or a treerig binary you have verified, as
+              the teardown binary
   status      check the teardown pin and its stored binary
 
 Flags:

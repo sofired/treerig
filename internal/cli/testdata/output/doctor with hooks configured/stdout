@@ -4,7 +4,7 @@ Prerequisites
   fail  Docker Compose  could not read a version from ""
 
 Registry
-  ok    treerig root     FIXTURE/control
+  ok    treerig root   FIXTURE/control
   ok    control home   FIXTURE/control
   ok    router state   FIXTURE/control/router
   ok    registrations  1 readable
@@ -16,7 +16,7 @@ Router
   skip  router  needs Docker
 
 This checkout
-  ok    treerig.toml         FIXTURE/checkout/treerig.toml
+  ok    treerig.toml       FIXTURE/checkout/treerig.toml
   ok    this worktree      registered as feature-login.acme.localhost
   skip  api port           none allocated yet; 'treerig up' allocates one
   skip  mail port          none allocated yet; 'treerig up' allocates one

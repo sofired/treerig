@@ -351,8 +351,8 @@ func TestRouteTargets(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []routeTarget{
-			{claim: "treerig.localhost", host: "treerig.localhost", path: "/", targetPort: 30500},
 			{claim: "main.acme.localhost/api", host: "main.acme.localhost", path: "/api", targetPort: 30501},
+			{claim: "treerig.localhost", host: "treerig.localhost", path: "/", targetPort: 30500},
 			{claim: "web.main.acme.localhost", host: "web.main.acme.localhost", path: "/", targetPort: 30501},
 		}
 		if len(got) != len(want) {

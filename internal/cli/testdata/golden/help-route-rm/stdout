@@ -1,6 +1,6 @@
 Remove a host route of this worktree: its route file, then its entry in the
-registration. Needs a registered worktree: run `treerig up` first. `treerig route
-ls` lists the names.
+registration. Needs a registered worktree: run `treerig up` first. `treerig
+route ls` lists the names.
 
 Usage:
   treerig route rm <name> [flags]

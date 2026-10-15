@@ -1,28 +1,28 @@
 Install a treerig binary as the teardown pin, by downloading a release (`pin
 --release X.Y.Z` or `pin --latest`) or from a file (`pin --file PATH --sha256
 HEX --release LABEL`). With --release X.Y.Z, or --latest for the newest release
-that is not a pre-release, treerig downloads that release from GitHub, has cosign
-(3.0.0 or newer, found on your PATH) verify the release's checksums.txt against
-the release workflow's signature, checks the archive for this platform against
-it, and pins the `treerig` inside. Nothing is pinned until you approve the plan.
-With --file PATH, treerig pins a local binary you have verified yourself: you give
-its sha256, and this approves exactly the bytes you hold. Take the digest of the
-binary itself (for a download, extract `treerig` from the archive you verified,
-then run `sha256sum treerig`); it is a meaningful check only when it comes from a
-second trusted source, such as your own build. The file is read once, those
-bytes are hashed and compared with it, and the same bytes are stored in the
-control home. With --file, no signature is checked and cosign is not run;
---release is then a label for the pin. Nothing is run from the pinned binary.
-There is one pin per control home, and pinning again replaces it, or adds this
-platform to it when it is the same release. The command shows what it will pin
-and asks you to type a phrase, unless you pass --yes.
+that is not a pre-release, treerig downloads that release from GitHub, has
+cosign (3.0.0 or newer, found on your PATH) verify the release's checksums.txt
+against the release workflow's signature, checks the archive for this platform
+against it, and pins the `treerig` inside. Nothing is pinned until you approve
+the plan. With --file PATH, treerig pins a local binary you have verified
+yourself: you give its sha256, and this approves exactly the bytes you hold.
+Take the digest of the binary itself (for a download, extract `treerig` from the
+archive you verified, then run `sha256sum treerig`); it is a meaningful check
+only when it comes from a second trusted source, such as your own build. The
+file is read once, those bytes are hashed and compared with it, and the same
+bytes are stored in the control home. With --file, no signature is checked and
+cosign is not run; --release is then a label for the pin. Nothing is run from
+the pinned binary. There is one pin per control home, and pinning again replaces
+it, or adds this platform to it when it is the same release. The command shows
+what it will pin and asks you to type a phrase, unless you pass --yes.
 
 Usage:
   treerig teardown pin (--release X.Y.Z | --latest | --file PATH) [flags]
 
 Flags:
-      --file string      pin this treerig binary instead of downloading a release;
-                         needs --sha256 and --release
+      --file string      pin this treerig binary instead of downloading a
+                         release; needs --sha256 and --release
   -h, --help             help for pin
       --latest           download the newest release that is not a pre-release
       --release string   the release to download and verify, such as 1.2.3 or

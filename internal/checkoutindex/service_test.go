@@ -364,7 +364,7 @@ func TestServiceRefresh(t *testing.T) {
 		// ps` call lands first in the transcript is no longer guaranteed.
 		got := filterArgs(docker.Calls())
 		sort.Strings(got)
-		want := []string{"label=dev.treerig.managed=true", "label=dev.custom.managed=true"}
+		want := []string{"label=dev.custom.managed=true", "label=dev.treerig.managed=true"}
 		if !slices.Equal(got, want) {
 			t.Fatalf("filters = %v, want %v", got, want)
 		}
@@ -390,7 +390,7 @@ func TestServiceRefresh(t *testing.T) {
 
 			got := filterArgs(docker.Calls())
 			sort.Strings(got)
-			want := []string{"label=dev.treerig.managed=true", "label=dev.custom.managed=true"}
+			want := []string{"label=dev.custom.managed=true", "label=dev.treerig.managed=true"}
 			if !slices.Equal(got, want) {
 				t.Fatalf("quarantined=%v: filters = %v, want %v", quarantined, got, want)
 			}
@@ -437,7 +437,7 @@ func TestServiceRefresh(t *testing.T) {
 		}
 		got := filterArgs(docker.Calls())
 		sort.Strings(got)
-		want := []string{"label=dev.treerig.managed=true", "label=dev.custom.managed=true"}
+		want := []string{"label=dev.custom.managed=true", "label=dev.treerig.managed=true"}
 		if !slices.Equal(got, want) {
 			t.Fatalf("filters = %v, want %v", got, want)
 		}

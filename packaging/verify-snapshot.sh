@@ -78,10 +78,10 @@ echo "artifacts: ok (5 tar.gz, 2 deb, 2 rpm, 2 apk, checksums.txt)"
 want_archive="LICENSE
 NOTICE
 README.md
-treerig
 completions/_treerig
 completions/treerig.bash
-completions/treerig.fish"
+completions/treerig.fish
+treerig"
 for os in linux darwin; do
   for arch in amd64 arm64; do
     got=$(tar tzf "$dist/treerig_${version}_${os}_${arch}.tar.gz" | LC_ALL=C sort)

@@ -4,8 +4,8 @@ environment and the bundle directory as its first argument. The directory is
 created, or must be empty if it exists; without one the bundle goes to a
 timestamped directory under the worktree's home, which worktree remove deletes
 along with it. The path is reported on stderr when the hook succeeds. The hook's
-exit code becomes treerig backup's, and the worktree's lock is held while it runs.
-docs/hooks.md has the details.
+exit code becomes treerig backup's, and the worktree's lock is held while it
+runs. docs/hooks.md has the details.
 
 Usage:
   treerig backup [dir] [flags]
