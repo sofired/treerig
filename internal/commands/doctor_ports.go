@@ -7,14 +7,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // loopbackPortChecks are `doctor`'s lines about a registered worktree's

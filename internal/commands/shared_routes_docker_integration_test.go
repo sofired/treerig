@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
 )
 
 func TestSharedWebUIThroughTheProxyOnARealDaemon(t *testing.T) {

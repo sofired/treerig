@@ -1,5 +1,5 @@
 // Package shape is a small validator that reproduces zod 4's parsing
-// behaviour and English messages for the subset berth's own config, registry
+// behaviour and English messages for the subset treerig's own config, registry
 // records, index cards and Compose JSON need: typed objects with defaults,
 // `.strict()` unrecognized-key detection, and a superRefine-style hook for
 // checks that span more than one field.
@@ -17,7 +17,7 @@
 // everything else (a regex, a length limit, a custom refinement) is not.
 //
 // The package has no dependencies beyond the standard library, so it can be
-// reused wherever berth's Go build wants zod-shaped validation without zod.
+// reused wherever treerig's Go build wants zod-shaped validation without zod.
 package shape
 
 import "strconv"

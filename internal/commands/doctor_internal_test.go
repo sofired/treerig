@@ -27,19 +27,19 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/settings"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/settings"
 )
 
 /* -------------------------------------------------------------- fakes ---- */
@@ -276,7 +276,7 @@ func testOpts(t *testing.T, overrides func(*doctorOptions)) doctorOptions {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
 	opts := doctorOptions{
-		CommandName: "berth", ControlHome: filepath.Join(base, "control"),
+		CommandName: "treerig", ControlHome: filepath.Join(base, "control"),
 		Home: home, RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(base, "user-home"),
 		RouterPort: settings.PortResolution{Port: 80, Source: settings.PortDefault, SettingsPath: layout.SettingsPathFrom(home)},
 		Runner:     newDoctorRunner(nil), Logger: logger.Silent{},
@@ -437,10 +437,10 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 func (f *checkoutFixture) opts() doctorOptions {
 	home := filepath.Join(f.base, "home")
 	return doctorOptions{
-		CommandName: "berth", ControlHome: f.controlHome, Home: home,
+		CommandName: "treerig", ControlHome: f.controlHome, Home: home,
 		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(f.base, "user-home"),
 		Runner: f.runner, Logger: logger.Silent{},
-		Router: newFakeRouterSource(), Checkout: checkoutIsLoaded(f.loaded), Invocation: "berth doctor",
+		Router: newFakeRouterSource(), Checkout: checkoutIsLoaded(f.loaded), Invocation: "treerig doctor",
 	}
 }
 
@@ -542,14 +542,14 @@ func TestRegistryChecksInternal(t *testing.T) {
 	}
 
 	t.Run("says there is nothing yet, or how many records read cleanly", func(t *testing.T) {
-		got := registryChecks(scan(nil), "berth")
+		got := registryChecks(scan(nil), "treerig")
 		want := []Check{{ID: "registry.registrations", Status: StatusOK, Subject: "registrations", Detail: "none yet"}}
 		if len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
 		got = registryChecks(scan(func(s *registry.RegistryScan) {
 			s.Records = []registry.RegisteredWorktree{testWorktree("a", "acme.localhost"), testWorktree("b", "acme.localhost")}
-		}), "berth")
+		}), "treerig")
 		if len(got) != 1 || got[0] != (Check{ID: "registry.registrations", Status: StatusOK, Subject: "registrations", Detail: "2 readable"}) {
 			t.Fatalf("got %+v", got)
 		}
@@ -558,7 +558,7 @@ func TestRegistryChecksInternal(t *testing.T) {
 	t.Run("fails each unreadable record with its reason", func(t *testing.T) {
 		got := registryChecks(scan(func(s *registry.RegistryScan) {
 			s.Problems = []registry.RegistryProblem{{File: "/x.json", Reason: "Registry record is not valid JSON: /x.json"}}
-		}), "berth")
+		}), "treerig")
 		if got[1] != (Check{ID: "registry.unreadable-record", Instance: "x.json", Status: StatusFail, Subject: "unreadable record", Detail: "Registry record is not valid JSON: /x.json"}) {
 			t.Fatalf("got %+v", got[1])
 		}
@@ -588,9 +588,9 @@ func TestRegistryChecksInternal(t *testing.T) {
 		got := registryChecks(scan(func(s *registry.RegistryScan) {
 			s.Records = claimants
 			s.Conflicts = registry.HostnameConflicts{"shared.acme.localhost": claimants}
-		}), "berth")
+		}), "treerig")
 		start := len("registered to 12 worktrees (")
-		end := len(got[1].Detail) - len("); requests for it may reach any of them that is running. Remove all but one with 'berth worktree remove <uuid>'.")
+		end := len(got[1].Detail) - len("); requests for it may reach any of them that is running. Remove all but one with 'treerig worktree remove <uuid>'.")
 		listed := got[1].Detail[start:end]
 		if n := utf8.RuneCountInString(listed); n != 200 {
 			t.Fatalf("listed = %q (%d runes), want 200", listed, n)
@@ -601,9 +601,9 @@ func TestRegistryChecksInternal(t *testing.T) {
 	})
 
 	t.Run("fails a registration that sits on the index's own hostname, and only that one", func(t *testing.T) {
-		squatter := registry.RegisteredWorktree{RepositoryID: randomTestUUID(), WorktreeID: randomTestUUID(), Slug: "berth", Domain: "localhost"}
-		namesake := registry.RegisteredWorktree{RepositoryID: randomTestUUID(), WorktreeID: randomTestUUID(), Slug: "berth", Domain: "acme.localhost"}
-		got := registryChecks(scan(func(s *registry.RegistryScan) { s.Records = []registry.RegisteredWorktree{squatter, namesake} }), "berth")
+		squatter := registry.RegisteredWorktree{RepositoryID: randomTestUUID(), WorktreeID: randomTestUUID(), Slug: "treerig", Domain: "localhost"}
+		namesake := registry.RegisteredWorktree{RepositoryID: randomTestUUID(), WorktreeID: randomTestUUID(), Slug: "treerig", Domain: "acme.localhost"}
+		got := registryChecks(scan(func(s *registry.RegistryScan) { s.Records = []registry.RegisteredWorktree{squatter, namesake} }), "treerig")
 		var fails []Check
 		for _, c := range got {
 			if c.Status == StatusFail {
@@ -680,34 +680,34 @@ func TestRouterChecksInternal(t *testing.T) {
 
 	t.Run("says nothing about ownership when nothing is running", func(t *testing.T) {
 		fake := &fakeRouterSource{owner: router.Ownership{Running: false}}
-		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.treerig", "treerig")
 		if err != nil || got != nil {
 			t.Fatalf("got %+v, %v", got, err)
 		}
 	})
 
-	t.Run("reports this berth root as the running router's own owner", func(t *testing.T) {
-		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/dev/.berth"}}
-		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
-		want := &Check{ID: "router.owner", Status: StatusOK, Subject: "router owner", Detail: "this berth root (/home/dev/.berth)"}
+	t.Run("reports this treerig root as the running router's own owner", func(t *testing.T) {
+		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/dev/.treerig"}}
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.treerig", "treerig")
+		want := &Check{ID: "router.owner", Status: StatusOK, Subject: "router owner", Detail: "this treerig root (/home/dev/.treerig)"}
 		if err != nil || got == nil || *got != *want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
 	})
 
-	t.Run("fails a router that belongs to a different berth root", func(t *testing.T) {
-		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/other/.berth"}}
-		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
-		want := &Check{ID: "router.owner", Status: StatusFail, Subject: "router owner", Detail: "a different berth root (/home/other/.berth); this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
+	t.Run("fails a router that belongs to a different treerig root", func(t *testing.T) {
+		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: true, Home: "/home/other/.treerig"}}
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.treerig", "treerig")
+		want := &Check{ID: "router.owner", Status: StatusFail, Subject: "router owner", Detail: "a different treerig root (/home/other/.treerig); this one's 'treerig up' or 'treerig router up' refuses it until 'treerig router down' hands it over"}
 		if err != nil || got == nil || *got != *want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
 	})
 
-	t.Run("fails a running router that carries no berth-root label, the same as one belonging to another root", func(t *testing.T) {
+	t.Run("fails a running router that carries no treerig-root label, the same as one belonging to another root", func(t *testing.T) {
 		fake := &fakeRouterSource{owner: router.Ownership{Running: true, Labelled: false}}
-		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth")
-		want := &Check{ID: "router.owner", Status: StatusFail, Subject: "router owner", Detail: "not owned by this berth root; this one's 'berth up' or 'berth router up' refuses it until 'berth router down' hands it over"}
+		got, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.treerig", "treerig")
+		want := &Check{ID: "router.owner", Status: StatusFail, Subject: "router owner", Detail: "not owned by this treerig root; this one's 'treerig up' or 'treerig router up' refuses it until 'treerig router down' hands it over"}
 		if err != nil || got == nil || *got != *want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -715,7 +715,7 @@ func TestRouterChecksInternal(t *testing.T) {
 
 	t.Run("propagates a failure to ask who owns the router", func(t *testing.T) {
 		fake := &fakeRouterSource{ownerErr: errors.New("boom")}
-		if _, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.berth", "berth"); err == nil || err.Error() != "boom" {
+		if _, err := routerOwnerCheck(context.Background(), fake, "/home/dev/.treerig", "treerig"); err == nil || err.Error() != "boom" {
 			t.Fatalf("got %v", err)
 		}
 	})
@@ -961,7 +961,7 @@ func TestDoctorSections(t *testing.T) {
 				t.Fatalf("prerequisites = %v, want %v", gotPrereq, wantPrereq)
 			}
 		}
-		// Registry[0] is "berth root" (#80); the control-home check follows it.
+		// Registry[0] is "treerig root" (#80); the control-home check follows it.
 		if !contains(section(sections, "Registry")[1].Detail, "not created yet") {
 			t.Fatalf("registry[1] = %+v", section(sections, "Registry")[1])
 		}
@@ -971,7 +971,7 @@ func TestDoctorSections(t *testing.T) {
 			t.Fatalf("router = %v", gotRouter)
 		}
 		checkout := section(sections, "This checkout")
-		if len(checkout) != 1 || checkout[0].Status != StatusSkip || checkout[0].Subject != "berth.toml" {
+		if len(checkout) != 1 || checkout[0].Status != StatusSkip || checkout[0].Subject != "treerig.toml" {
 			t.Fatalf("this checkout = %+v", checkout)
 		}
 		if code := doctorExitCode(sections); code != 0 {
@@ -1007,11 +1007,11 @@ func TestDoctorSections(t *testing.T) {
 		}
 	})
 
-	// #82: doctor's own read-only report of which berth root started the
+	// #82: doctor's own read-only report of which treerig root started the
 	// running router, right after the router status line.
-	t.Run("fails the running router's own owner when it belongs to a different berth root", func(t *testing.T) {
+	t.Run("fails the running router's own owner when it belongs to a different treerig root", func(t *testing.T) {
 		fakeRouter := newFakeRouterSource()
-		fakeRouter.owner = router.Ownership{Running: true, Labelled: true, Home: "/home/other/.berth"}
+		fakeRouter.owner = router.Ownership{Running: true, Labelled: true, Home: "/home/other/.treerig"}
 		opts := testOpts(t, func(o *doctorOptions) { o.Router = fakeRouter })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
@@ -1027,7 +1027,7 @@ func TestDoctorSections(t *testing.T) {
 				t.Fatalf("router = %v, want %v", gotRouter, wantRouter)
 			}
 		}
-		if !contains(section(sections, "Router")[1].Detail, "/home/other/.berth") {
+		if !contains(section(sections, "Router")[1].Detail, "/home/other/.treerig") {
 			t.Fatalf("router[1] = %+v", section(sections, "Router")[1])
 		}
 		if code := doctorExitCode(sections); code != 1 {
@@ -1186,7 +1186,7 @@ func TestDoctorSections(t *testing.T) {
 		t.Skip("doctor drops the Node.js engines check entirely")
 	})
 
-	t.Run("refuses a control home berth did not create, and reads registry problems from it", func(t *testing.T) {
+	t.Run("refuses a control home treerig did not create, and reads registry problems from it", func(t *testing.T) {
 		controlHome := t.TempDir()
 		if err := os.WriteFile(filepath.Join(controlHome, "someone-elses.txt"), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -1196,7 +1196,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Registry[0] is "berth root" (#80), always ok; the control-home
+		// Registry[0] is "treerig root" (#80), always ok; the control-home
 		// check itself is [1].
 		got := section(sections, "Registry")[1]
 		if got.Status != StatusFail || got.Subject != "control home" || !contains(got.Detail, "Refusing to use") {
@@ -1223,7 +1223,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok berth root", "ok control home", "ok router state", "ok registrations", "fail unreadable record"}
+		want := []string{"ok treerig root", "ok control home", "ok router state", "ok registrations", "fail unreadable record"}
 		gotStatuses := statuses(sections, "Registry")
 		if len(gotStatuses) != len(want) {
 			t.Fatalf("registry = %v", gotStatuses)
@@ -1245,7 +1245,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Registry[0] is "berth root" (#80), always ok; the control-home
+		// Registry[0] is "treerig root" (#80), always ok; the control-home
 		// check itself is [1].
 		got := section(sections, "Registry")[1]
 		// The os package formats this underlying error in its own words
@@ -1258,13 +1258,13 @@ func TestDoctorSections(t *testing.T) {
 	t.Run("reports a router it could not describe, and one whose status call throws, without losing the rest", func(t *testing.T) {
 		opts := testOpts(t, func(o *doctorOptions) {
 			o.Router = nil
-			o.RouterErr = fmt.Errorf(`BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "x".`)
+			o.RouterErr = fmt.Errorf(`TREERIG_ROUTER_PORT must be a port number between 1 and 65535, not "x".`)
 		})
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []Check{{ID: "router.container", Status: StatusFail, Subject: "router", Detail: `BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "x".`}}
+		want := []Check{{ID: "router.container", Status: StatusFail, Subject: "router", Detail: `TREERIG_ROUTER_PORT must be a port number between 1 and 65535, not "x".`}}
 		if got := section(sections, "Router"); len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v", got)
 		}
@@ -1331,11 +1331,11 @@ func TestDoctorSections(t *testing.T) {
 	t.Run("fails two fragments that claim the same rule", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "mail",
-			router.NewFragmentDocument("berth-aaa-mail", "Host(`mail.main.acme.localhost`)", 8080)); err != nil {
+			router.NewFragmentDocument("treerig-aaa-mail", "Host(`mail.main.acme.localhost`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		if err := router.WriteFragment(state, doctorRepoB, doctorWorktreeB, "api",
-			router.NewFragmentDocument("berth-bbb-api", "Host(`mail.main.acme.localhost`)", 8080)); err != nil {
+			router.NewFragmentDocument("treerig-bbb-api", "Host(`mail.main.acme.localhost`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1403,7 +1403,7 @@ func TestDoctorSections(t *testing.T) {
 	t.Run("counts route files when no rule is shared", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", 8080)); err != nil {
+			router.NewFragmentDocument("treerig-aaa-api", "Host(`a`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1422,11 +1422,11 @@ func TestDoctorSections(t *testing.T) {
 	t.Run("pluralizes route files in the clean-routes count", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", 8080)); err != nil {
+			router.NewFragmentDocument("treerig-aaa-api", "Host(`a`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web",
-			router.NewFragmentDocument("berth-aaa-web", "Host(`b`)", 8081)); err != nil {
+			router.NewFragmentDocument("treerig-aaa-web", "Host(`b`)", 8081)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1445,7 +1445,7 @@ func TestDoctorSections(t *testing.T) {
 	t.Run("reports a route file whose worktree has no registration as unmatched, without removing anything", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: t.TempDir()}
 		if err := router.WriteFragment(state, routeRepo, routeWorktree, "api",
-			router.NewFragmentDocument("berth-aaa-api", "Host(`a`)", 8080)); err != nil {
+			router.NewFragmentDocument("treerig-aaa-api", "Host(`a`)", 8080)); err != nil {
 			t.Fatal(err)
 		}
 		opts := testOpts(t, func(o *doctorOptions) { o.RouterState = state })
@@ -1474,12 +1474,12 @@ func TestDoctorSections(t *testing.T) {
 	})
 
 	t.Run("fails a config file that does not load", func(t *testing.T) {
-		opts := testOpts(t, func(o *doctorOptions) { o.Checkout = checkoutUnloadable(errors.New("berth.toml: bad")) })
+		opts := testOpts(t, func(o *doctorOptions) { o.Checkout = checkoutUnloadable(errors.New("treerig.toml: bad")) })
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []Check{{ID: "checkout.config", Status: StatusFail, Subject: "berth.toml", Detail: "berth.toml: bad"}}
+		want := []Check{{ID: "checkout.config", Status: StatusFail, Subject: "treerig.toml", Detail: "treerig.toml: bad"}}
 		if got := section(sections, "This checkout"); len(got) != 1 || got[0] != want[0] {
 			t.Fatalf("got %+v", got)
 		}
@@ -1501,12 +1501,12 @@ func repeatString(s string, n int) string {
 /* ------------------------------------------------------ doctor in a checkout ---- */
 
 func TestDoctorInACheckoutSections(t *testing.T) {
-	// #19: doctor answers "would up work?", so its berth.toml line fails on
+	// #19: doctor answers "would up work?", so its treerig.toml line fails on
 	// the same control character in
 	// a [service.index] label or purpose that `up` and `config validate`
 	// refuse, with the exact message `config validate` itself would print
 	// — not a warning, since `up` against this same file refuses outright.
-	t.Run("fails the berth.toml check when a service index label or purpose carries a control character", func(t *testing.T) {
+	t.Run("fails the treerig.toml check when a service index label or purpose carries a control character", func(t *testing.T) {
 		f := newCheckoutFixture(t, "")
 		f.loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb"}
 		sections, err := doctorSections(context.Background(), f.opts())
@@ -1533,7 +1533,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		// The resolution check runs whether or not the worktree is
 		// registered — that's the whole point of #105 — so it appears
 		// before the registration-gated "skip" the run itself still gives.
-		want := []string{"ok berth.toml", "skip this worktree", "ok verify hook file", "skip verify hook"}
+		want := []string{"ok treerig.toml", "skip this worktree", "ok verify hook file", "skip verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -1546,7 +1546,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, want)
 			}
 		}
-		if checks[3].Detail != "needs a registered worktree; run 'berth up' first" {
+		if checks[3].Detail != "needs a registered worktree; run 'treerig up' first" {
 			t.Fatalf("detail = %q", checks[3].Detail)
 		}
 	})
@@ -1800,7 +1800,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		f := newCheckoutFixture(t, "./verify")
 		f.register("feature-login")
 		opts := f.opts()
-		// #28: verify's own BERTH_URL/BERTH_SERVICE_URL_API need a resolved
+		// #28: verify's own TREERIG_URL/TREERIG_SERVICE_URL_API need a resolved
 		// router port; f.opts()'s own zero value is fine for every other
 		// check here, so it is set only on this local copy.
 		opts.RouterPort = settings.PortResolution{Port: 80}
@@ -1811,7 +1811,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		checks := section(sections, "This checkout")
 		// One line for the resolution check ("verify hook file"), one for
 		// the run ("verify hook") — distinct subjects (see hookResolutionChecks).
-		want := []string{"ok berth.toml", "ok this worktree", "skip api port", "ok verify hook file", "ok verify hook"}
+		want := []string{"ok treerig.toml", "ok this worktree", "skip api port", "ok verify hook file", "ok verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -1845,10 +1845,10 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		// #28: the fixture's one declared service ("api", no subdomain or
 		// path — newCheckoutFixture) claims the host root, so verify sees
-		// it as both BERTH_URL and BERTH_SERVICE_URL_API.
+		// it as both TREERIG_URL and TREERIG_SERVICE_URL_API.
 		wantEnv := map[string]string{
-			"BERTH_URL":             "http://feature-login.acme.localhost",
-			"BERTH_SERVICE_URL_API": "http://feature-login.acme.localhost",
+			"TREERIG_URL":             "http://feature-login.acme.localhost",
+			"TREERIG_SERVICE_URL_API": "http://feature-login.acme.localhost",
 		}
 		for name, value := range wantEnv {
 			found := false
@@ -1902,7 +1902,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		checks := section(sections, "This checkout")
-		want := []string{"ok berth.toml", "ok this worktree", "skip api port", "ok verify hook file", "fail verify hook"}
+		want := []string{"ok treerig.toml", "ok this worktree", "skip api port", "ok verify hook file", "fail verify hook"}
 		got := make([]string, len(checks))
 		for i, c := range checks {
 			got[i] = string(c.Status) + " " + c.Subject
@@ -1989,7 +1989,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		f.register("feature-login")
 		realRegistry := registry.New(registry.Options{
 			ControlHome: f.controlHome, Root: f.root, Domain: fixtureDomain, LabelNamespace: brand.LabelNamespace,
-			Runner: f.runner, Logger: logger.Silent{}, CommandName: "berth",
+			Runner: f.runner, Logger: logger.Silent{}, CommandName: "treerig",
 			UserHome: filepath.Join(f.base, "user-home"),
 		})
 		opts := f.opts()
@@ -2005,7 +2005,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok berth.toml", "ok this worktree", "fail missing checkouts", "skip api port", "ok verify hook file", "ok verify hook"}
+		want := []string{"ok treerig.toml", "ok this worktree", "fail missing checkouts", "skip api port", "ok verify hook file", "ok verify hook"}
 		checks := section(sections, "This checkout")
 		got := make([]string, len(checks))
 		for i, c := range checks {
@@ -2064,7 +2064,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal("expected a warning")
 		}
 		want := Check{ID: "checkout.missing", Instance: registered.WorktreeID, Status: StatusWarn, Subject: "feature-gone.acme.localhost", Detail: fmt.Sprintf(
-			"registered, but Git no longer lists its checkout. Remove what it left with 'berth worktree remove %s'.", registered.WorktreeID)}
+			"registered, but Git no longer lists its checkout. Remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)}
 		if *warning != want {
 			t.Fatalf("got %+v, want %+v", *warning, want)
 		}
@@ -2075,7 +2075,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 
 func TestFindCheckoutInternal(t *testing.T) {
 	// The search walks up to the filesystem root, so these assume no
-	// berth.toml above the system's temporary directory — as the CLI tests do.
+	// treerig.toml above the system's temporary directory — as the CLI tests do.
 	t.Run("finds nothing where there is no config, and loads the nearest one otherwise", func(t *testing.T) {
 		empty := t.TempDir()
 		got, err := findCheckout("", empty)
@@ -2192,7 +2192,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 	silentUnreleased := func(t *testing.T, scope lock.Scope, deadPID int) {
 		t.Helper()
 		lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Release(); err != nil {
@@ -2218,8 +2218,8 @@ func TestDoctorLocksInternal(t *testing.T) {
 		controlHome := t.TempDir()
 		registerLocksWorktree(t, controlHome, "main")
 		operation, _ := lock.WorktreeScopes(controlHome, testRepository, testWorktreeID, "main", procid.Markers{})
-		holder := lock.New(operation, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "berth up"})
-		if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+		holder := lock.New(operation, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "treerig up"})
+		if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer holder.Release()
@@ -2292,7 +2292,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 		if len(got) != 1 || got[0].Status != StatusOK || got[0].Subject != "registry" {
 			t.Fatalf("got %+v", got)
 		}
-		wantHint := "run 'berth worktree unlock --registry --holder-unverifiable' once you have made sure its holder is gone"
+		wantHint := "run 'treerig worktree unlock --registry --holder-unverifiable' once you have made sure its holder is gone"
 		if !contains(got[0].Detail, wantHint) {
 			t.Fatalf("detail = %q, want to contain %q", got[0].Detail, wantHint)
 		}
@@ -2305,7 +2305,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 		controlHome := t.TempDir()
 		routerScope := lock.Scope{
 			Target: filepath.Join(t.TempDir(), "router-lock"), Description: "shared router",
-			Markers: procid.Markers{Project: "berth-router"},
+			Markers: procid.Markers{Project: "treerig-router"},
 		}
 		silentUnreleased(t, routerScope, deadTestPID)
 		opts := testOpts(t, func(o *doctorOptions) { o.ControlHome = controlHome; o.RouterLockScope = &routerScope })
@@ -2317,7 +2317,7 @@ func TestDoctorLocksInternal(t *testing.T) {
 		if len(got) != 1 || got[0].Status != StatusOK || got[0].Subject != "router" {
 			t.Fatalf("got %+v", got)
 		}
-		wantHint := "run 'berth worktree unlock --router --holder-unverifiable' once you have made sure its holder, and everything it started, is gone"
+		wantHint := "run 'treerig worktree unlock --router --holder-unverifiable' once you have made sure its holder, and everything it started, is gone"
 		if !contains(got[0].Detail, wantHint) {
 			t.Fatalf("detail = %q, want to contain %q", got[0].Detail, wantHint)
 		}
@@ -2395,7 +2395,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		}
 		return checks[len(checks)-1]
 	}
-	fromFile := settings.PortResolution{Port: 8080, Source: settings.PortFile, SettingsPath: "/berth/settings.toml"}
+	fromFile := settings.PortResolution{Port: 8080, Source: settings.PortFile, SettingsPath: "/treerig/settings.toml"}
 
 	t.Run("reports the resolved router port and where it came from", func(t *testing.T) {
 		fake := newFakeRouterSource()
@@ -2405,7 +2405,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
+		want := Check{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: "port 8080 from /treerig/settings.toml"}
 		if got := last(t, sections); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2416,13 +2416,13 @@ func TestDoctorRouterPort(t *testing.T) {
 		fake.published = 80
 		opts := testOpts(t, func(o *doctorOptions) {
 			o.Router = fake
-			o.RouterPort = settings.PortResolution{Port: 8080, Source: settings.PortEnv, SettingsPath: "/berth/settings.toml"}
+			o.RouterPort = settings.PortResolution{Port: 8080, Source: settings.PortEnv, SettingsPath: "/treerig/settings.toml"}
 		})
 		sections, err := doctorSections(context.Background(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{ID: "router.port", Status: StatusWarn, Subject: "router port", Detail: "port 8080 from BERTH_ROUTER_PORT (overriding /berth/settings.toml), but the running router serves 80; the next 'berth up' or 'berth router up' moves it, and URLs already open keep the old port until then"}
+		want := Check{ID: "router.port", Status: StatusWarn, Subject: "router port", Detail: "port 8080 from TREERIG_ROUTER_PORT (overriding /treerig/settings.toml), but the running router serves 80; the next 'treerig up' or 'treerig router up' moves it, and URLs already open keep the old port until then"}
 		if got := last(t, sections); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2439,7 +2439,7 @@ func TestDoctorRouterPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := Check{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: "port 8080 from /berth/settings.toml"}
+		want := Check{ID: "router.port", Status: StatusOK, Subject: "router port", Detail: "port 8080 from /treerig/settings.toml"}
 		if got := last(t, sections); got != want {
 			t.Fatalf("got %+v, want %+v", got, want)
 		}
@@ -2473,7 +2473,7 @@ var documentedDoctorIDs = []string{
 	"prerequisites.git",
 	"prerequisites.docker.engine",
 	"prerequisites.docker.compose",
-	"registry.berth-root",
+	"registry.treerig-root",
 	"registry.control-home",
 	"registry.router-state",
 	"registry.registrations",
@@ -2594,8 +2594,8 @@ func TestDoctorInstancesAreDurable(t *testing.T) {
 				t.Fatal(err)
 			}
 			operation, _ := lock.WorktreeScopes(controlHome, repo, worktreeID, slug, procid.Markers{})
-			holder := lock.New(operation, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "berth up"})
-			if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+			holder := lock.New(operation, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "treerig up"})
+			if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 				t.Fatal(err)
 			}
 			var once sync.Once
@@ -2715,7 +2715,7 @@ func TestRecordInstance(t *testing.T) {
 }
 
 // TestRuleClaim pins the route-conflict instance: what a rule claims, as a
-// host and path, and a rule berth did not write as itself.
+// host and path, and a rule treerig did not write as itself.
 func TestRuleClaim(t *testing.T) {
 	for rule, want := range map[string]string{
 		"Host(`auth.feature-x.acme.localhost`)":                       "auth.feature-x.acme.localhost",

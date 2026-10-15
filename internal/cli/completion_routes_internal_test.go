@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sofired/berth/internal/commands"
+	"github.com/sofired/treerig/internal/commands"
 )
 
 func TestRouteNameCompletions(t *testing.T) {

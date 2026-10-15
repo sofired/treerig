@@ -1,1 +1,1 @@
-[berth] ERROR: Missing a source to pin: pass --release X.Y.Z or --latest to download and verify a release, or --file with --sha256 and --release to pin a binary you have verified.
+[treerig] ERROR: Missing a source to pin: pass --release X.Y.Z or --latest to download and verify a release, or --file with --sha256 and --release to pin a binary you have verified.

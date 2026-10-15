@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // quoteOneLine is JSON.stringify(oneLine(value)): quoted like the command

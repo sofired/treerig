@@ -4,7 +4,7 @@
     "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
     "slug": "feature-login",
     "domain": "acme.localhost",
-    "labelNamespace": "dev.berth",
+    "labelNamespace": "dev.treerig",
     "host": "feature-login.acme.localhost",
     "state": "ready",
     "root": "FIXTURE/checkout",

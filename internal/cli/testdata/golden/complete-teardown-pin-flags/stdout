@@ -1,6 +1,6 @@
---config	path to berth.toml (default: nearest above cwd)
+--config	path to treerig.toml (default: nearest above cwd)
 --version	output the version number
---file	pin this berth binary instead of downloading a release; needs --sha256 and --release
+--file	pin this treerig binary instead of downloading a release; needs --sha256 and --release
 --help	help for pin
 --latest	download the newest release that is not a pre-release
 --release	the release to download and verify, such as 1.2.3 or 0.1.0-rc.1 (no leading v); with --file, a label for the pin instead

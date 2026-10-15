@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // Destructive operations ask the user to type an exact phrase, so a stray `y`

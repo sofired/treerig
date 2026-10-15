@@ -1,1 +1,1 @@
-[berth] ERROR: unknown shorthand flag: 'a' in -auto-approve. Pass the command's own arguments after "--", as in: berth run plan -- -auto-approve
+[treerig] ERROR: unknown shorthand flag: 'a' in -auto-approve. Pass the command's own arguments after "--", as in: treerig run plan -- -auto-approve

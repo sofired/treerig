@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
 )
 
 // init turns off cobra's alphabetical sorting of subcommands, a
@@ -54,7 +54,7 @@ func (p *program) exit(code int) { *p.exitCode = code }
 // usageArgs adapts a cobra.PositionalArgs validator so a failure it reports
 // is treated the way every other parse-time mistake in this tree is: a
 // clierr.Error, which the top-level report() prints as "[name] ERROR: ...",
-// exit 1, with no BERTH_DEBUG hint — rather than the crash report() takes
+// exit 1, with no TREERIG_DEBUG hint — rather than the crash report() takes
 // anything else reaching it to be.
 func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
@@ -323,7 +323,7 @@ func runArgs(cmd *cobra.Command, args []string) error {
 }
 
 // runSuggestion is the spelling that passes rest to the command name:
-// "berth run plan -- extra more", each argument holding whitespace (or
+// "treerig run plan -- extra more", each argument holding whitespace (or
 // nothing) in double quotes.
 func runSuggestion(path, name string, rest []string) string {
 	words := []string{path, name, "--"}
@@ -338,7 +338,7 @@ func runSuggestion(path, name string, rest []string) string {
 
 // runFlagError is `run`'s flag-parse error handler: flagError's message, and
 // for an unknown flag, where the mistake almost always was leaving out "--"
-// (`berth run plan -auto-approve`), the spelling that passes it on.
+// (`treerig run plan -auto-approve`), the spelling that passes it on.
 func runFlagError(cmd *cobra.Command, err error) error {
 	base := flagError(cmd, err)
 	msg := err.Error()
@@ -554,9 +554,9 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Use:   "run [name] [-- args...]",
 		Short: fmt.Sprintf("run one of the project's named commands from %s [commands]", brand.ConfigFile),
 		Long: fmt.Sprintf("Run one of the commands %s declares under [commands], in this registered worktree, "+
-			"with the worktree's BERTH_* environment and BERTH_COMMAND naming it. Everything after -- is passed to the command. "+
+			"with the worktree's TREERIG_* environment and TREERIG_COMMAND naming it. Everything after -- is passed to the command. "+
 			"It runs on the terminal, so it can prompt and answer Ctrl-C itself, and its output is this command's own; "+
-			"its exit code becomes berth run's. Unless it sets lock = false, it holds the worktree's lock while it runs. "+
+			"its exit code becomes treerig run's. Unless it sets lock = false, it holds the worktree's lock while it runs. "+
 			"docs/hooks.md has the details.", brand.ConfigFile),
 		Args: runArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -576,11 +576,11 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Use:   "backup [dir]",
 		Short: "run the backup hook, writing a bundle into a directory",
 		Long: fmt.Sprintf("Run the backup hook %s declares under [hooks], in this worktree, which must be registered and have a running service, "+
-			"with the worktree's BERTH_* environment and the bundle directory as its first argument. "+
+			"with the worktree's TREERIG_* environment and the bundle directory as its first argument. "+
 			"The directory is created, or must be empty if it exists; without one the bundle goes to a timestamped "+
 			"directory under the worktree's home, which worktree remove deletes along with it. "+
 			"The path is reported on stderr when the hook succeeds. "+
-			"The hook's exit code becomes berth backup's, and the worktree's lock is held while it runs. "+
+			"The hook's exit code becomes treerig backup's, and the worktree's lock is held while it runs. "+
 			"docs/hooks.md has the details.", brand.ConfigFile),
 		Args: maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -598,9 +598,9 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Use:   "restore <dir>",
 		Short: "run the restore hook on a bundle directory",
 		Long: fmt.Sprintf("Run the restore hook %s declares under [hooks], in this worktree, which must be registered and have a running service, "+
-			"with the worktree's BERTH_* environment and a bundle directory as its first argument. "+
+			"with the worktree's TREERIG_* environment and a bundle directory as its first argument. "+
 			"The directory must already exist and is never created; a bundle that a backup did not finish is refused. "+
-			"The hook's exit code becomes berth restore's, and the worktree's lock is held while it runs. "+
+			"The hook's exit code becomes treerig restore's, and the worktree's lock is held while it runs. "+
 			"docs/hooks.md has the details.", brand.ConfigFile),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -967,8 +967,8 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 
 	teardownGroup := &cobra.Command{
 		Use:   "teardown",
-		Short: "pin and check the trusted berth build for worktree removal",
-		Long: "The pinned teardown binary is the build of berth that `worktree remove` is meant to run in place of whichever build you invoke, " +
+		Short: "pin and check the trusted treerig build for worktree removal",
+		Long: "The pinned teardown binary is the build of treerig that `worktree remove` is meant to run in place of whichever build you invoke, " +
 			"so that code from a branch does not run during a removal. These commands install the pin and check it. " +
 			"`worktree remove` does not run the pinned binary yet.",
 		Args: usageArgs(unknownSubcommand),
@@ -978,13 +978,13 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	var pinLatest, pinYes bool
 	pin := &cobra.Command{
 		Use:   "pin (--release X.Y.Z | --latest | --file PATH)",
-		Short: "pin a berth release, or a berth binary you have verified, as the teardown binary",
-		Long: "Install a berth binary as the teardown pin, by downloading a release (`pin --release X.Y.Z` or `pin --latest`) or from a file (`pin --file PATH --sha256 HEX --release LABEL`). " +
-			"With --release X.Y.Z, or --latest for the newest release that is not a pre-release, berth downloads that release from GitHub, " +
+		Short: "pin a treerig release, or a treerig binary you have verified, as the teardown binary",
+		Long: "Install a treerig binary as the teardown pin, by downloading a release (`pin --release X.Y.Z` or `pin --latest`) or from a file (`pin --file PATH --sha256 HEX --release LABEL`). " +
+			"With --release X.Y.Z, or --latest for the newest release that is not a pre-release, treerig downloads that release from GitHub, " +
 			"has cosign (3.0.0 or newer, found on your PATH) verify the release's checksums.txt against the release workflow's signature, " +
-			"checks the archive for this platform against it, and pins the `berth` inside. Nothing is pinned until you approve the plan. " +
-			"With --file PATH, berth pins a local binary you have verified yourself: you give its sha256, and this approves exactly the bytes you hold. " +
-			"Take the digest of the binary itself (for a download, extract `berth` from the archive you verified, then run `sha256sum berth`); " +
+			"checks the archive for this platform against it, and pins the `treerig` inside. Nothing is pinned until you approve the plan. " +
+			"With --file PATH, treerig pins a local binary you have verified yourself: you give its sha256, and this approves exactly the bytes you hold. " +
+			"Take the digest of the binary itself (for a download, extract `treerig` from the archive you verified, then run `sha256sum treerig`); " +
 			"it is a meaningful check only when it comes from a second trusted source, such as your own build. " +
 			"The file is read once, those bytes are hashed and compared with it, and the same bytes are stored in the control home. " +
 			"With --file, no signature is checked and cosign is not run; --release is then a label for the pin. " +
@@ -1000,7 +1000,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			return commands.TeardownPin(cmd.Context(), env, commands.TeardownPinOptions{File: pinFile, SHA256: pinSHA256, Release: pinRelease, Latest: pinLatest, Yes: pinYes})
 		},
 	}
-	pin.Flags().StringVar(&pinFile, "file", "", "pin this berth binary instead of downloading a release; needs --sha256 and --release")
+	pin.Flags().StringVar(&pinFile, "file", "", "pin this treerig binary instead of downloading a release; needs --sha256 and --release")
 	pin.Flags().StringVar(&pinSHA256, "sha256", "", "with --file: the sha256 of that file itself, from a source you trust")
 	pin.Flags().StringVar(&pinRelease, "release", "", "the release to download and verify, such as 1.2.3 or 0.1.0-rc.1 (no leading v); with --file, a label for the pin instead")
 	pin.Flags().BoolVar(&pinLatest, "latest", false, "download the newest release that is not a pre-release")

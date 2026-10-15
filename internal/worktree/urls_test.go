@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // str returns a pointer to s, for populating *string config fields inline.
@@ -14,7 +14,7 @@ func str(s string) *string { return &s }
 // mixedServices is a root service (no subdomain, no path), a
 // subdomain-only service, and a subdomain-plus-path service — the same
 // shapes commands.TestWorktreeURLs covers, plus a hyphenated name to
-// exercise the BERTH_SERVICE_URL_<NAME> mapping.
+// exercise the TREERIG_SERVICE_URL_<NAME> mapping.
 func mixedServices() []config.Service {
 	return []config.Service{
 		{Name: "api"},
@@ -83,7 +83,7 @@ func TestRootRoute(t *testing.T) {
 }
 
 func TestServiceURLVariables(t *testing.T) {
-	t.Run("BERTH_URL for the root route plus BERTH_SERVICE_URL_<NAME> for every routed service, name upper-cased with hyphens turned to underscores", func(t *testing.T) {
+	t.Run("TREERIG_URL for the root route plus TREERIG_SERVICE_URL_<NAME> for every routed service, name upper-cased with hyphens turned to underscores", func(t *testing.T) {
 		routes := worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 8443)
 		got := pairsToMap(worktree.ServiceURLVariables(routes))
 		want := map[string]string{
@@ -120,7 +120,7 @@ func TestServiceURLVariables(t *testing.T) {
 		}
 	})
 
-	t.Run("BERTH_SERVICE_PORT_<NAME> for every service with an allocated port, named as BERTH_SERVICE_URL_<NAME> is (#119)", func(t *testing.T) {
+	t.Run("TREERIG_SERVICE_PORT_<NAME> for every service with an allocated port, named as TREERIG_SERVICE_URL_<NAME> is (#119)", func(t *testing.T) {
 		routes := worktree.WithPorts(worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 8443),
 			map[string]int{"api": 20001, "mail-relay": 20002})
 		got := pairsToMap(worktree.ServiceURLVariables(routes))
@@ -193,14 +193,14 @@ func TestSharedAddrVariables(t *testing.T) {
 		}
 	})
 
-	t.Run("none for no addresses, and Variables adds the BERTH_ prefix", func(t *testing.T) {
+	t.Run("none for no addresses, and Variables adds the TREERIG_ prefix", func(t *testing.T) {
 		if got := worktree.SharedAddrVariables(nil); len(got) != 0 {
 			t.Fatalf("got %v", got)
 		}
-		if got := worktree.Variables(worktree.SharedAddrVariables(addrs[:1])); got[0] != "BERTH_SHARED_ADDR_MAILPIT_1025=127.0.0.1:30001" {
+		if got := worktree.Variables(worktree.SharedAddrVariables(addrs[:1])); got[0] != "TREERIG_SHARED_ADDR_MAILPIT_1025=127.0.0.1:30001" {
 			t.Fatalf("got %v", got)
 		}
-		if !worktree.IsSharedAddrVariable("BERTH_SHARED_ADDR_X_1") || worktree.IsSharedAddrVariable("BERTH_SERVICE_URL_X") {
+		if !worktree.IsSharedAddrVariable("TREERIG_SHARED_ADDR_X_1") || worktree.IsSharedAddrVariable("TREERIG_SERVICE_URL_X") {
 			t.Fatal("IsSharedAddrVariable is wrong")
 		}
 	})
@@ -216,14 +216,14 @@ func TestSharedURLVariables(t *testing.T) {
 		}
 	})
 
-	t.Run("one variable per routed UI, named as BERTH_SERVICE_URL_<NAME> is", func(t *testing.T) {
+	t.Run("one variable per routed UI, named as TREERIG_SERVICE_URL_<NAME> is", func(t *testing.T) {
 		got := worktree.Variables(worktree.SharedURLVariables([]worktree.SharedURL{
 			worktree.NewSharedURL("mailpit", "acme.localhost", 80),
 			worktree.NewSharedURL("object-store", "acme.localhost", 80),
 		}))
 		want := []string{
-			"BERTH_SHARED_URL_MAILPIT=http://mailpit.shared.acme.localhost",
-			"BERTH_SHARED_URL_OBJECT_STORE=http://object-store.shared.acme.localhost",
+			"TREERIG_SHARED_URL_MAILPIT=http://mailpit.shared.acme.localhost",
+			"TREERIG_SHARED_URL_OBJECT_STORE=http://object-store.shared.acme.localhost",
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
@@ -234,7 +234,7 @@ func TestSharedURLVariables(t *testing.T) {
 		if got := worktree.SharedURLVariables(nil); len(got) != 0 {
 			t.Fatalf("got %v", got)
 		}
-		if !worktree.IsSharedURLVariable("BERTH_SHARED_URL_MAILPIT") || worktree.IsSharedURLVariable("BERTH_SHARED_ADDR_MAILPIT_8025") {
+		if !worktree.IsSharedURLVariable("TREERIG_SHARED_URL_MAILPIT") || worktree.IsSharedURLVariable("TREERIG_SHARED_ADDR_MAILPIT_8025") {
 			t.Fatal("IsSharedURLVariable is wrong")
 		}
 	})

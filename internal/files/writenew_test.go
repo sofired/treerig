@@ -10,15 +10,15 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // TestWriteNew pins WriteNew: it creates, never replaces, and leaves nothing behind.
 func TestWriteNew(t *testing.T) {
 	t.Run("creates the file with the exact mode and leaves nothing else", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		dest := filepath.Join(dir, "berth.toml")
+		dest := filepath.Join(dir, "treerig.toml")
 		if err := files.WriteNew(dest, []byte("hello\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -38,7 +38,7 @@ func TestWriteNew(t *testing.T) {
 		previous := syscall.Umask(0o077)
 		defer syscall.Umask(previous)
 		dir := registrytest.TempDir(t)
-		dest := filepath.Join(dir, "berth.toml")
+		dest := filepath.Join(dir, "treerig.toml")
 		if err := files.WriteNew(dest, []byte("x\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +53,7 @@ func TestWriteNew(t *testing.T) {
 
 	t.Run("refuses an existing file and leaves it untouched", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		dest := filepath.Join(dir, "berth.toml")
+		dest := filepath.Join(dir, "treerig.toml")
 		if err := os.WriteFile(dest, []byte("mine\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -71,7 +71,7 @@ func TestWriteNew(t *testing.T) {
 
 	t.Run("refuses a dangling symlink and does not write through it", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		dest := filepath.Join(dir, "berth.toml")
+		dest := filepath.Join(dir, "treerig.toml")
 		target := filepath.Join(dir, "elsewhere")
 		if err := os.Symlink(target, dest); err != nil {
 			t.Fatal(err)
@@ -85,7 +85,7 @@ func TestWriteNew(t *testing.T) {
 	})
 
 	t.Run("names the destination, not a temp path, when its directory is missing", func(t *testing.T) {
-		dest := filepath.Join(registrytest.TempDir(t), "missing", "berth.toml")
+		dest := filepath.Join(registrytest.TempDir(t), "missing", "treerig.toml")
 		err := files.WriteNew(dest, []byte("x"), 0o644)
 		if !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), dest) || strings.Contains(err.Error(), ".tmp") {
 			t.Errorf("err = %v, want not-exist naming %s", err, dest)
@@ -94,7 +94,7 @@ func TestWriteNew(t *testing.T) {
 
 	t.Run("removes the file it created when the write fails part way", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		dest := filepath.Join(dir, "berth.toml")
+		dest := filepath.Join(dir, "treerig.toml")
 		boom := errors.New("disk full")
 		err := files.CreateNewForTest(dest, 0o644, func(handle *os.File) error {
 			if _, err := handle.Write([]byte("partial")); err != nil {
@@ -116,7 +116,7 @@ func TestWriteNew(t *testing.T) {
 
 	t.Run("lets exactly one of many racing writers win, with complete contents", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		dest := filepath.Join(dir, "berth.toml")
+		dest := filepath.Join(dir, "treerig.toml")
 		const writers = 16
 		results := make([]error, writers)
 		var wg sync.WaitGroup

@@ -4,7 +4,7 @@ package router
 // repository. It serves one loopback port and routes by hostname to
 // loopback targets (stack.go). Nothing here is per-project, which is why its
 // settings come from the environment and settings.toml rather than from
-// berth.toml.
+// treerig.toml.
 //
 // Locking is not this package's job: the caller acquires the router's
 // lock.Scope through lifecycle.Hold (taken alone) before calling Ensure,
@@ -23,15 +23,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // Docker-call timeouts (#14): containerID and inspect are quick
@@ -157,18 +157,18 @@ type Options struct {
 	CommandName string
 	// Page returns the placeholder index page; defaults to defaultPlaceholderPage.
 	// SettingsPath names the settings file (#79) in the message a router
-	// that fails to start prints, beside BERTH_ROUTER_PORT; "" names it
+	// that fails to start prints, beside TREERIG_ROUTER_PORT; "" names it
 	// generically, as brand.SettingsFile.
 	SettingsPath string
 	Page         PlaceholderPage
 	// Timeouts overrides this router's per-call docker timeouts (#14).
 	Timeouts Timeouts
-	// Home is the berth root (BERTH_HOME) this Router's state was resolved
+	// Home is the treerig root (TREERIG_HOME) this Router's state was resolved
 	// from — stamped on both containers as RouterHomeLabel and checked by
-	// Ensure before it ever touches a router another berth root started
+	// Ensure before it ever touches a router another treerig root started
 	// (#82). "" (never set, a test mostly) matches only another Router
 	// that also left it unset, so nothing here changes for a caller that
-	// does not know its own berth root.
+	// does not know its own treerig root.
 	Home string
 	// ControlHome is the control home whose registrations the router reads,
 	// without the registry lock, to keep its own ports clear of theirs and
@@ -663,7 +663,7 @@ func (r *Router) checkProtocol(read routerRead) error {
 }
 
 // Ownership is what the running router's own container says about which
-// berth root's Ensure most recently started or recreated it (#82).
+// treerig root's Ensure most recently started or recreated it (#82).
 type Ownership struct {
 	// Running is false when the router container does not exist, or exists
 	// but is not running; Labelled and Home are then meaningless — a router
@@ -673,10 +673,10 @@ type Ownership struct {
 	// RouterHomeLabel key at all. A container that cannot be inspected is an
 	// error from Owner, never an unlabelled router. Home is "" in that case;
 	// checkOwnership treats an unlabelled router as foreign, exactly as it
-	// treats one labelled for a different berth root.
+	// treats one labelled for a different treerig root.
 	Labelled bool
-	// Home is the berth root RouterHomeLabel recorded on the running
-	// container, when Labelled — including "", a caller with no berth root
+	// Home is the treerig root RouterHomeLabel recorded on the running
+	// container, when Labelled — including "", a caller with no treerig root
 	// to give (a test's own router, mainly).
 	Home string
 }
@@ -701,7 +701,7 @@ func ownershipOf(read routerRead) (Ownership, error) {
 	if read.inspected == nil {
 		// Unparseable or unreadable: not "no label" but "no answer", and an
 		// owner that cannot be read is not one to treat as foreign or as
-		// this berth root's own, so a transient inspect failure never turns
+		// this treerig root's own, so a transient inspect failure never turns
 		// a foreign router into a takeable one.
 		return Ownership{}, clierr.New("The shared router exists but could not be inspected.")
 	}
@@ -714,7 +714,7 @@ func ownershipOf(read routerRead) (Ownership, error) {
 		return Ownership{}, nil
 	}
 	// The key's mere presence is what "labelled" means: Stack always writes
-	// it, empty or not (a caller with no berth root to give — a test's own
+	// it, empty or not (a caller with no treerig root to give — a test's own
 	// router, mainly — gets an empty value, which still matches an equally
 	// homeless r.home). Only a missing key is truly unlabelled.
 	home, present := read.inspected.Config.Labels[RouterHomeLabel]
@@ -724,14 +724,14 @@ func ownershipOf(read routerRead) (Ownership, error) {
 	return Ownership{Running: true, Labelled: true, Home: home}, nil
 }
 
-// checkOwnership refuses to touch a running router that is not this berth
-// root's own (#82): two berth roots each hold their own router lock over
+// checkOwnership refuses to touch a running router that is not this treerig
+// root's own (#82): two treerig roots each hold their own router lock over
 // their own state but drive the same machine-wide container, so a second
 // root's Ensure would otherwise force-recreate whatever the first had just
 // started, with no warning at all (see docs/design/locks.md). A router
 // carrying no ownership label at all is treated exactly like one labelled
-// for a different berth root — this berth did not start it, so it is not
-// this berth's to recreate.
+// for a different treerig root — this treerig did not start it, so it is not
+// this treerig's to recreate.
 func (r *Router) checkOwnership(read routerRead) error {
 	owner, err := ownershipOf(read)
 	if err != nil {
@@ -742,14 +742,14 @@ func (r *Router) checkOwnership(read routerRead) error {
 	}
 	if !owner.Labelled {
 		return clierr.Newf(
-			"The shared router is not owned by this berth root. Hand it to this one: stop it with '%s router down', then run this again.",
+			"The shared router is not owned by this treerig root. Hand it to this one: stop it with '%s router down', then run this again.",
 			r.commandNameOr())
 	}
 	if owner.Home == r.home {
 		return nil
 	}
 	return clierr.Newf(
-		"The shared router belongs to a different berth root (%s). Hand it to this one: stop it with '%s router down', then run this again.",
+		"The shared router belongs to a different treerig root (%s). Hand it to this one: stop it with '%s router down', then run this again.",
 		owner.Home, r.commandNameOr())
 }
 
@@ -760,7 +760,7 @@ func (r *Router) checkOwnership(read routerRead) error {
 // secureState runs first: a symlinked state directory must be refused
 // before anything — this call included — ever touches whatever it points
 // to. checkOwnership and checkProtocol run next, before anything else
-// touches the router: a router belonging to a different berth root, or
+// touches the router: a router belonging to a different treerig root, or
 // speaking a protocol this build does not share, is refused outright rather
 // than force-recreated (#82). Then the mode is detected, the index and ping
 // ports are allocated if they are not yet, and the ports the router needs
@@ -1289,7 +1289,7 @@ func StatusReport(status RouterStatus) Report {
 }
 
 // Down stops the router. It acts on the Compose project by name alone, so
-// the router is removable from a berth root that never wrote a stack file —
+// the router is removable from a treerig root that never wrote a stack file —
 // the one a refusal tells the user to run this from. --remove-orphans stays
 // because it still catches one-off `compose run` containers of the project.
 func (r *Router) Down(ctx context.Context) error {

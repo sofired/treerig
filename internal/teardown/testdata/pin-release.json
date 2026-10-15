@@ -1,8 +1,8 @@
 {
   "version": 1,
   "release": "1.2.3",
-  "source": "https://github.com/sofired/berth/releases/download/v1.2.3/",
-  "signer": "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3",
+  "source": "https://github.com/sofired/treerig/releases/download/v1.2.3/",
+  "signer": "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3",
   "checksums_sha256": "d3beb16ca27a9fc332b55f526e1c8da6db0b2f58d50c9d27d59e15e23a4e35a8",
   "pinned_at": "2026-10-14T12:00:00Z",
   "platforms": {

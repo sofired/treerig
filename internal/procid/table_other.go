@@ -6,7 +6,7 @@ import (
 	"errors"
 	"runtime"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // UnsupportedTable refuses rather than guesses, on every platform this tool

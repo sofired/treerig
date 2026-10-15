@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // (parseContainerInventory and buildSnapshot are in snapshot_test.go.)
@@ -49,10 +49,10 @@ func renderTestSnapshot() IndexSnapshot {
 	return IndexSnapshot{Entries: []IndexEntry{renderTestEntry()}, GeneratedAt: "2026-09-21T12:00:00.000Z", DockerReachable: true}
 }
 
-const renderTestURL = "http://berth.localhost"
+const renderTestURL = "http://treerig.localhost"
 
 const dockerNoticeHTML = "Docker could not be asked about containers, so no service below has been checked. " +
-	"Rows show Unknown unless Git reports the checkout gone. Run <code>berth index</code> again once it answers."
+	"Rows show Unknown unless Git reports the checkout gone. Run <code>treerig index</code> again once it answers."
 
 // pinHomeDir fixes what compactPath's production call sites (renderRow,
 // formatIndexRow) resolve as the current user's home, for the rest of the
@@ -75,7 +75,7 @@ func TestRendering(t *testing.T) {
 	// untouched here regardless of the real machine's actual home
 	// directory; the dedicated "compacts paths under the home directory
 	// only" test below exercises the tilde branch itself.
-	pinHomeDir(t, "/home/berth-test")
+	pinHomeDir(t, "/home/treerig-test")
 
 	t.Run("renders a link for available services, a disabled span otherwise, and escapes everything", func(t *testing.T) {
 		html := RenderIndexHTML(renderTestSnapshot())
@@ -97,19 +97,19 @@ func TestRendering(t *testing.T) {
 
 	t.Run("says so when nothing is indexed, and points at the missing-checkout remedy", func(t *testing.T) {
 		empty := IndexSnapshot{GeneratedAt: "now", DockerReachable: true}
-		if !strings.Contains(RenderIndexHTML(empty), "No checkouts have been indexed yet. Run <code>berth up</code> in a worktree.") {
+		if !strings.Contains(RenderIndexHTML(empty), "No checkouts have been indexed yet. Run <code>treerig up</code> in a worktree.") {
 			t.Error("missing empty-state HTML")
 		}
-		if !strings.Contains(FormatIndexText(empty, renderTestURL), "No checkouts have been indexed yet. Run `berth up` in a worktree.") {
+		if !strings.Contains(FormatIndexText(empty, renderTestURL), "No checkouts have been indexed yet. Run `treerig up` in a worktree.") {
 			t.Error("missing empty-state text")
 		}
 		gone := renderTestEntry()
 		gone.Status = StatusMissing
 		goneSnapshot := IndexSnapshot{Entries: []IndexEntry{gone}, GeneratedAt: "now", DockerReachable: true}
-		if !strings.Contains(RenderIndexHTML(goneSnapshot), "berth worktree remove feature-a") {
+		if !strings.Contains(RenderIndexHTML(goneSnapshot), "treerig worktree remove feature-a") {
 			t.Error("missing remove guidance in HTML")
 		}
-		if !strings.Contains(FormatIndexText(goneSnapshot, renderTestURL), "    gone      berth worktree remove feature-a") {
+		if !strings.Contains(FormatIndexText(goneSnapshot, renderTestURL), "    gone      treerig worktree remove feature-a") {
 			t.Error("missing remove guidance in text")
 		}
 	})
@@ -117,7 +117,7 @@ func TestRendering(t *testing.T) {
 	t.Run("formats the text twin with the index URL, each purpose, the legend, and state markers", func(t *testing.T) {
 		got := strings.Split(FormatIndexText(renderTestSnapshot(), renderTestURL), "\n")
 		want := []string{
-			"Checkout index  http://berth.localhost",
+			"Checkout index  http://treerig.localhost",
 			"Updated         2026-09-21T12:00:00.000Z",
 			"",
 			"Running: every service answers. Partial: some do. Stopped: none do. Missing:",
@@ -560,7 +560,7 @@ func TestRendering(t *testing.T) {
 		start := strings.Index(html, `<p class="notice">`)
 		end := strings.Index(html[start:], "</p>") + start
 		notice := html[start:end]
-		if !strings.Contains(notice, "<code>berth index</code>") {
+		if !strings.Contains(notice, "<code>treerig index</code>") {
 			t.Error("missing the one legitimate code span")
 		}
 		if got := countMatches(notice, regexp.MustCompile(`<code>`)); got != 1 {
@@ -668,7 +668,7 @@ func TestRendering(t *testing.T) {
 		goneEntry := renderTestEntry()
 		goneEntry.Slug, goneEntry.Status = long, StatusMissing
 		gone := IndexSnapshot{Entries: []IndexEntry{goneEntry}, GeneratedAt: renderTestSnapshot().GeneratedAt, DockerReachable: true}
-		if !strings.Contains(FormatIndexText(gone, renderTestURL), "    gone      berth worktree remove "+long) {
+		if !strings.Contains(FormatIndexText(gone, renderTestURL), "    gone      treerig worktree remove "+long) {
 			t.Error("remove command should stay on one line")
 		}
 	})

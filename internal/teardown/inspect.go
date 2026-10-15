@@ -10,9 +10,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // FilePin is the pin `teardown pin --file` writes: a file pin of the absolute,

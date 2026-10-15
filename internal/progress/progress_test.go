@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/progress"
+	"github.com/sofired/treerig/internal/progress"
 )
 
 // recordingLogger sends every Info message to a channel, so a test can block

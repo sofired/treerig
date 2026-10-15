@@ -10,14 +10,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // DefaultWaitTimeoutSeconds is how long `up --wait` waits for health before failing.
@@ -512,7 +512,7 @@ func (c *Compose) withSharedUse(labels *jsonKV, uses []string) *jsonKV {
 	return stamped
 }
 
-// refuseUnpublishable refuses a routed service berth cannot publish one
+// refuseUnpublishable refuses a routed service treerig cannot publish one
 // loopback port for (docs/design/routing.md, decision 12): a service in the
 // host's network namespace or another service's has no port of its own to
 // publish, and several replicas cannot share one.
@@ -667,7 +667,7 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 }
 
 // refuseNewerFormats refuses to start a worktree that owns a container,
-// network or image a newer berth stamped. Up calls it once the override is
+// network or image a newer treerig stamped. Up calls it once the override is
 // ready and before `compose up`: the override this build writes carries its own
 // format label, which Compose sees as a changed configuration and answers by
 // recreating what it finds, and `--build` re-tags the worktree's service

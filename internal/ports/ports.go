@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // Probe answers whether a loopback port is free to publish on. The allocator
@@ -61,7 +61,7 @@ func (LoopbackProbe) Free(ctx context.Context, port int) bool {
 	return false
 }
 
-// DialProbe is the Probe for a port berth does not allocate but must find
+// DialProbe is the Probe for a port treerig does not allocate but must find
 // free before it starts something on it (the router's own, which may be
 // below 1024): it only dials 127.0.0.1:port, because a bind to a privileged
 // port fails for an unprivileged user whether or not anything holds it. A
@@ -82,7 +82,7 @@ func (DialProbe) Free(ctx context.Context, port int) bool {
 }
 
 // LookupHint is how to find the process holding port, for the operating
-// system goos names (runtime.GOOS, passed in from cmd/berth's Env): `ss` on
+// system goos names (runtime.GOOS, passed in from cmd/treerig's Env): `ss` on
 // Linux, `lsof` elsewhere. On Docker Desktop and OrbStack these name the VM
 // backend rather than a container; `docker ps` is the way there.
 func LookupHint(goos string, port int) string {
@@ -141,7 +141,7 @@ func Pick(ctx context.Context, r layout.PortRange, probe Probe, taken map[int]bo
 }
 
 // ListenerProbe says whether something accepts connections on a loopback
-// address. A host route's target (#6) is a process berth did not start, so
+// address. A host route's target (#6) is a process treerig did not start, so
 // `route add` and `doctor` ask it which loopback addresses the process
 // listens on; a test supplies its own answers and binds nothing.
 type ListenerProbe interface {

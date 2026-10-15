@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // Store is the read side of one repository's registrations: one JSON record

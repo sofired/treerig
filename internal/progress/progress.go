@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // heartbeat is how often a long phase says it is still going.

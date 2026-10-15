@@ -1,1 +1,1 @@
-[berth] ERROR: Refusing to use the control home FIXTURE/control: it is format 3, written by a newer berth, and this build reads format 2. Upgrade berth, then run this again.
+[treerig] ERROR: Refusing to use the control home FIXTURE/control: it is format 3, written by a newer treerig, and this build reads format 2. Upgrade treerig, then run this again.

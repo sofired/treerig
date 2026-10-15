@@ -1,7 +1,7 @@
---config	path to berth.toml (default: nearest above cwd)
+--config	path to treerig.toml (default: nearest above cwd)
 --version	output the version number
 --help	help for down
---label-namespace	supply the Docker label namespace when there is no usable berth.toml to say it
+--label-namespace	supply the Docker label namespace when there is no usable treerig.toml to say it
 --volumes	also delete the data volumes and release the pinned ports
 --yes	skip the confirmation phrase
 :4

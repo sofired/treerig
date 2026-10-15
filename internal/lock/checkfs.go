@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // CheckFS refuses a directory on a filesystem where flock cannot be trusted:
@@ -16,8 +16,8 @@ import (
 // the environment variable a person can actually point elsewhere to move
 // dir — Scope.HomeEnvVar, brand.ControlHomeEnv for a control-home-rooted
 // lock or brand.HomeEnv for the router's (#80): naming the wrong one would
-// send someone moving BERTH_HOME nowhere useful for a dir that only
-// BERTH_CONTROL_HOME actually governs, or vice versa.
+// send someone moving TREERIG_HOME nowhere useful for a dir that only
+// TREERIG_CONTROL_HOME actually governs, or vice versa.
 func CheckFS(dir, homeEnvVar string) error {
 	if name, refused := unsupportedFSType(dir); refused {
 		return clierr.Newf(

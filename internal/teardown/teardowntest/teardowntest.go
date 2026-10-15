@@ -13,7 +13,7 @@ import (
 
 // Executable is a header-only executable for platform ("linux_amd64", …), with
 // extra appended so tests can make distinct files for one platform. It panics
-// on a platform berth does not build.
+// on a platform treerig does not build.
 func Executable(platform string, extra string) []byte {
 	goos, goarch, _ := strings.Cut(platform, "_")
 	switch goos {

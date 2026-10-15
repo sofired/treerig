@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/router"
 )
 
 func TestRouterServiceStatusAndDown(t *testing.T) {

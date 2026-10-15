@@ -27,12 +27,12 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // uuidPattern is zod's `.uuid()` with no version pinned: any RFC 9562/4122
@@ -174,10 +174,10 @@ func IdentityMarkerContents(id string) string {
 }
 
 // parseIdentityMarker reads the UUID out of the marker file's text. A format
-// above the one this build writes is a checkout a newer berth marked, refused
+// above the one this build writes is a checkout a newer treerig marked, refused
 // with the upgrade instruction before anything else is looked at, since its
 // layout is not this build's to judge. A marker with no format line, an
-// unknown one, or anything else but the UUID after it, is not one berth wrote:
+// unknown one, or anything else but the UUID after it, is not one treerig wrote:
 // it is invalid, like any other garbage in the marker's place.
 func parseIdentityMarker(file, text string) (string, error) {
 	first, rest, _ := strings.Cut(strings.TrimSuffix(text, "\n"), "\n")

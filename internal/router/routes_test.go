@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // registeredWith is a registration holding port for service.

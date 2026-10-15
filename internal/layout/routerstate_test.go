@@ -18,22 +18,22 @@ func TestRouterStateDir(t *testing.T) {
 		}
 	}
 
-	t.Run("lives under the berth root, alongside the control home", func(t *testing.T) {
+	t.Run("lives under the treerig root, alongside the control home", func(t *testing.T) {
 		got, err := RouterStateDir(getenv(map[string]string{"HOME": "/home/dev"}))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		want := filepath.Join("/home/dev", ".berth", "router")
+		want := filepath.Join("/home/dev", ".treerig", "router")
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("follows BERTH_HOME, not BERTH_CONTROL_HOME", func(t *testing.T) {
+	t.Run("follows TREERIG_HOME, not TREERIG_CONTROL_HOME", func(t *testing.T) {
 		got, err := RouterStateDir(getenv(map[string]string{
-			"HOME":               "/home/dev",
-			"BERTH_HOME":         "/custom/home",
-			"BERTH_CONTROL_HOME": "/elsewhere/control",
+			"HOME":                 "/home/dev",
+			"TREERIG_HOME":         "/custom/home",
+			"TREERIG_CONTROL_HOME": "/elsewhere/control",
 		}))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // updateGoldens rewrites the stack fixtures from the current output.
@@ -39,13 +39,13 @@ func marshalIndented(v any) (string, error) {
 }
 
 // goldenOptions are the options a golden is built from: fixed paths, ports
-// and berth root, so the fixture pins the document's shape and not where one
+// and treerig root, so the fixture pins the document's shape and not where one
 // machine keeps its router state.
 func goldenOptions(mode router.Mode, port int) router.StackOptions {
 	return router.StackOptions{
 		Mode: mode, Port: port, IndexPort: 21000, PingPort: 21001,
-		DynamicDir: "/home/dev/.berth/router/dynamic", IndexDir: "/home/dev/.berth/router/index",
-		LabelNamespace: "dev.berth", Home: "/home/dev/.berth",
+		DynamicDir: "/home/dev/.treerig/router/dynamic", IndexDir: "/home/dev/.treerig/router/index",
+		LabelNamespace: "dev.treerig", Home: "/home/dev/.treerig",
 	}
 }
 

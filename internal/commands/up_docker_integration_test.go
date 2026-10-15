@@ -26,14 +26,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 const walkCompose = `services:
@@ -47,7 +47,7 @@ volumes:
   data: {}
 `
 
-// walkToml is berth.toml for walkCompose: one service, on the index, with
+// walkToml is treerig.toml for walkCompose: one service, on the index, with
 // hooks that record every stage they run. %s takes the run's own label namespace.
 const walkToml = `[project]
 name = "walk"
@@ -74,8 +74,8 @@ var walkRouterRange = layout.PortRange{Low: 30850, High: 30899}
 type walk struct {
 	base, checkout, controlHome, namespace, log string
 	port                                        int
-	// portFromSettings makes the getenv leave BERTH_ROUTER_PORT unset, so
-	// the port must come from settings.toml under the berth root (#79).
+	// portFromSettings makes the getenv leave TREERIG_ROUTER_PORT unset, so
+	// the port must come from settings.toml under the treerig root (#79).
 	portFromSettings bool
 	env              *commands.Env
 	svc              *router.Router
@@ -96,7 +96,7 @@ func randomSuffix(t *testing.T) string {
 // on a real daemon: a fresh control home, a randomised label namespace and
 // project name under namePrefix so it runs beside a developer's real router
 // and worktrees without colliding, tomlBody (its own %q takes the
-// namespace) and compose written as the checkout's own berth.toml and
+// namespace) and compose written as the checkout's own treerig.toml and
 // compose.yaml, a Git repository on branch, and a cleanup that removes
 // everything the test's namespace ends up owning. Callers that need more
 // than the checkout itself — newWalk's own hooks script — add it to the
@@ -108,9 +108,9 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	base := registrytest.TempDir(t)
 	w := &walk{
 		base: base, checkout: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
-		namespace: "dev.berth-test-" + namePrefix + "-" + id, log: filepath.Join(base, "hooks.log"), port: freePort(t),
+		namespace: "dev.treerig-test-" + namePrefix + "-" + id, log: filepath.Join(base, "hooks.log"), port: freePort(t),
 	}
-	project := "berth-router-test-" + namePrefix + "-" + id
+	project := "treerig-router-test-" + namePrefix + "-" + id
 	t.Cleanup(func() {
 		// The router project comes down first, so nothing of it is left
 		// when the label sweep below runs.
@@ -139,24 +139,24 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	if err := os.MkdirAll(w.checkout, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(w.checkout, "berth.toml"), fmt.Sprintf(tomlBody, w.namespace), 0o644)
+	writeFile(t, filepath.Join(w.checkout, "treerig.toml"), fmt.Sprintf(tomlBody, w.namespace), 0o644)
 	writeFile(t, filepath.Join(w.checkout, "compose.yaml"), compose, 0o644)
 	gitIn(t, w.checkout, "init", "--initial-branch="+branch, ".")
 	gitIn(t, w.checkout, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-m", "initial")
 
 	getenv := func(key string) (string, bool) {
 		switch key {
-		// BERTH_CONTROL_HOME, not BERTH_HOME: this world's fixtures (see
+		// TREERIG_CONTROL_HOME, not TREERIG_HOME: this world's fixtures (see
 		// layout.WorktreeLayout(w.controlHome, ...) below) are written
 		// directly at w.controlHome, so it must resolve as the control home
 		// itself rather than have "control-home" derived underneath it
 		// (#80). The router still resolves under HOME below, isolated from
 		// this machine's real one; this walk brings up its own.
-		case "BERTH_CONTROL_HOME":
+		case "TREERIG_CONTROL_HOME":
 			return w.controlHome, true
 		case "HOME":
 			return filepath.Join(base, "home"), true
-		case "BERTH_ROUTER_PORT":
+		case "TREERIG_ROUTER_PORT":
 			if w.portFromSettings {
 				return "", false
 			}
@@ -171,23 +171,23 @@ func newWalkFixture(t *testing.T, namePrefix, branch, tomlBody, compose string) 
 	}
 	w.state = state
 	w.env = &commands.Env{
-		CommandName: "berth", Invocation: "berth up", Logger: logger.Silent{}, Getenv: getenv,
+		CommandName: "treerig", Invocation: "treerig up", Logger: logger.Silent{}, Getenv: getenv,
 		Environ: os.Environ(), Cwd: w.checkout, Runner: osrun.New(), OS: runtime.GOOS,
 	}
-	// Home is the berth root the getenv above resolves (HOME/.berth), so the
+	// Home is the treerig root the getenv above resolves (HOME/.treerig), so the
 	// router this walk starts is labelled as this walk's own (#82) — what
 	// doctor, resolving the same root, then reports as its owner.
 	home, err := layout.ResolveHome(getenv, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A scratch berth root takes its loopback ports from the test range, never
+	// A scratch treerig root takes its loopback ports from the test range, never
 	// the default one a developer's own worktrees use (#119).
 	registrytest.WriteScratchSettings(t, home, "")
 	w.svc, err = router.New(router.Options{
 		State: state, Port: w.port, Runner: w.env.Runner, Logger: logger.Silent{},
 		ProjectName: project, LabelNamespace: w.namespace, Environ: os.Environ(),
-		CommandName: "berth", Home: home, ControlHome: w.controlHome,
+		CommandName: "treerig", Home: home, ControlHome: w.controlHome,
 		Registrations: commands.Registrations(w.controlHome), SharedRegistrations: commands.SharedRegistrations(w.controlHome), PortRange: walkRouterRange,
 		ClientOS: runtime.GOOS,
 	})
@@ -205,7 +205,7 @@ func newWalk(t *testing.T) *walk {
 	if err := os.MkdirAll(filepath.Join(w.checkout, "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(w.checkout, "hooks", "record"), fmt.Sprintf("#!/bin/sh\necho \"$BERTH_STAGE\" >> %q\n", w.log), 0o755)
+	writeFile(t, filepath.Join(w.checkout, "hooks", "record"), fmt.Sprintf("#!/bin/sh\necho \"$TREERIG_STAGE\" >> %q\n", w.log), 0o755)
 	return w
 }
 
@@ -326,7 +326,7 @@ func (w *walk) downAndRemove(t *testing.T, result *commands.UpResult, host strin
 	}
 	w.requireNoRouteFiles(t, registration.WorktreeID)
 	paths := layout.WorktreeLayout(w.controlHome, registration.RepositoryID, registration.WorktreeID)
-	for _, path := range []string{paths.Home, paths.RecordPath, filepath.Join(w.checkout, ".git", "berth", "worktree-id")} {
+	for _, path := range []string{paths.Home, paths.RecordPath, filepath.Join(w.checkout, ".git", "treerig", "worktree-id")} {
 		if found, _ := files.PathExists(path); found {
 			t.Fatalf("%s survived worktree remove", path)
 		}
@@ -415,7 +415,7 @@ func TestUpDownRemoveOnARealDaemon(t *testing.T) {
 }
 
 // TestUpUsesTheSettingsFilePortOnARealDaemon is #79 against a real daemon:
-// with the router's port set only in settings.toml under the berth root,
+// with the router's port set only in settings.toml under the treerig root,
 // every command resolves that port — the context `up` builds, the URLs it
 // prints and the index page it refreshes all carry it, and nothing falls
 // back to 80. The walk's own router already listens on that port (it is
@@ -424,11 +424,11 @@ func TestUpDownRemoveOnARealDaemon(t *testing.T) {
 func TestUpUsesTheSettingsFilePortOnARealDaemon(t *testing.T) {
 	w := newWalk(t)
 	w.portFromSettings = true
-	if _, set := w.env.Getenv("BERTH_ROUTER_PORT"); set {
-		t.Fatal("BERTH_ROUTER_PORT must be unset for this test to prove anything")
+	if _, set := w.env.Getenv("TREERIG_ROUTER_PORT"); set {
+		t.Fatal("TREERIG_ROUTER_PORT must be unset for this test to prove anything")
 	}
 	home, _ := w.env.Getenv("HOME")
-	root := filepath.Join(home, ".berth")
+	root := filepath.Join(home, ".treerig")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}

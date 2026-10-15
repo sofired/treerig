@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 func TestStop(t *testing.T) {

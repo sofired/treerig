@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // WorktreeInitialization is where a registered worktree's environment stands.
@@ -73,7 +73,7 @@ type EnsuredRegistration struct {
 type RegistryProblem struct {
 	File   string
 	Reason string
-	// Newer is true when the file was written by a newer berth than this
+	// Newer is true when the file was written by a newer treerig than this
 	// build (Reason then says to upgrade): it is intact, only unreadable
 	// here, so a caller must not advise moving it aside.
 	Newer bool

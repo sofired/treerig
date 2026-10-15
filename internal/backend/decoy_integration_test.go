@@ -12,32 +12,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run/osrun"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run/osrun"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // Decoys on a real daemon: resources that carry some of a worktree's labels
 // but cannot be proven its own. Removal must refuse every one before it
 // touches anything, and must not even see one labelled under another namespace.
 
-const decoyNamespace = "dev.berth-test-decoy"
+const decoyNamespace = "dev.treerig-test-decoy"
 
 // requireDocker skips the test when no Docker daemon is reachable, unless
-// BERTH_TEST_REQUIRE_DOCKER=1 says the suite must fail loudly instead.
-// BERTH_TEST_SKIP_DOCKER=1 skips it even when a daemon is reachable, so CI
+// TREERIG_TEST_REQUIRE_DOCKER=1 says the suite must fail loudly instead.
+// TREERIG_TEST_SKIP_DOCKER=1 skips it even when a daemon is reachable, so CI
 // can leave every Docker test to its own job.
 func requireDocker(t *testing.T) {
 	t.Helper()
-	if os.Getenv("BERTH_TEST_SKIP_DOCKER") == "1" {
-		t.Skip("Docker tests are skipped (BERTH_TEST_SKIP_DOCKER=1)")
+	if os.Getenv("TREERIG_TEST_SKIP_DOCKER") == "1" {
+		t.Skip("Docker tests are skipped (TREERIG_TEST_SKIP_DOCKER=1)")
 	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		if os.Getenv("BERTH_TEST_REQUIRE_DOCKER") == "1" {
-			t.Fatalf("docker is required (BERTH_TEST_REQUIRE_DOCKER=1) but unavailable: %v", err)
+		if os.Getenv("TREERIG_TEST_REQUIRE_DOCKER") == "1" {
+			t.Fatalf("docker is required (TREERIG_TEST_REQUIRE_DOCKER=1) but unavailable: %v", err)
 		}
 		t.Skip("docker is not available")
 	}
@@ -92,12 +92,12 @@ func TestDecoysOnARealDaemon(t *testing.T) {
 		}
 	}
 	runtime := NewCompose(Options{
-		ComposeFile: "/nonexistent/compose.yaml", ProjectRoot: "/nonexistent", ConfigFile: "/nonexistent/berth.toml",
+		ComposeFile: "/nonexistent/compose.yaml", ProjectRoot: "/nonexistent", ConfigFile: "/nonexistent/treerig.toml",
 		ProjectName: "decoy", Domain: "decoy.localhost", ControlHome: t.TempDir(),
 		LabelNamespace: decoyNamespace, Runner: osrun.New(), Logger: logger.Silent{}, Environ: os.Environ(),
 	})
 	volume := func(t *testing.T, labels map[string]string) string {
-		name := "berth-decoy-" + uuid(t)[:8]
+		name := "treerig-decoy-" + uuid(t)[:8]
 		dockerRun(t, append(append([]string{"volume", "create"}, labelArgs(labels)...), name)...)
 		t.Cleanup(func() { _ = exec.Command("docker", "volume", "rm", "--force", name).Run() })
 		return name
@@ -136,8 +136,8 @@ func TestDecoysOnARealDaemon(t *testing.T) {
 		labels[brand.FormatLabel(decoyNamespace)] = "2"
 		id := container(t, labels)
 		_, err := runtime.Inventory(ctx, ref)
-		if err == nil || !strings.Contains(err.Error(), "Refusing to touch the container "+id[:12]+": it is format 2, written by a newer berth") ||
-			!strings.Contains(err.Error(), "Upgrade berth") {
+		if err == nil || !strings.Contains(err.Error(), "Refusing to touch the container "+id[:12]+": it is format 2, written by a newer treerig") ||
+			!strings.Contains(err.Error(), "Upgrade treerig") {
 			t.Fatalf("inventory = %v", err)
 		}
 		if out, _ := exec.Command("docker", "inspect", id).CombinedOutput(); strings.Contains(string(out), "No such object") {
@@ -160,7 +160,7 @@ func TestDecoysOnARealDaemon(t *testing.T) {
 		labels := ownership()
 		labels[brand.FormatLabel(decoyNamespace)] = "2"
 		base := container(t, ownership())
-		name := "berth-decoy-image-" + uuid(t)[:8]
+		name := "treerig-decoy-image-" + uuid(t)[:8]
 		args := []string{"commit"}
 		for label, value := range labels {
 			args = append(args, "--change", "LABEL "+label+"="+value)

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // writeSharedRecordFor plants a shared-service record routing mailpit's web
@@ -50,7 +50,7 @@ func TestSharedRoutesInDoctor(t *testing.T) {
 		if err := router.WriteSharedFragment(state, routeRepo, "mailpit", "acme.localhost", 30777); err != nil {
 			t.Fatal(err)
 		}
-		checks, err := routeChecks(state, registrytest.TempDir(t), "berth")
+		checks, err := routeChecks(state, registrytest.TempDir(t), "treerig")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,7 +70,7 @@ func TestSharedRoutesInDoctor(t *testing.T) {
 		if err := router.WriteSharedFragment(state, routeRepo, "mailpit", "acme.localhost", 30777); err != nil {
 			t.Fatal(err)
 		}
-		checks, err := routeChecks(state, registrytest.TempDir(t), "berth")
+		checks, err := routeChecks(state, registrytest.TempDir(t), "treerig")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,9 +87,9 @@ func TestSharedRoutesInDoctor(t *testing.T) {
 		controlHome := registrytest.TempDir(t)
 		registrytest.ClaimControlHome(t, controlHome)
 		writeSharedRecordFor(t, controlHome, routeRepo, 30777)
-		got, err := orphanedRoutesChecks(state, controlHome, "berth")
+		got, err := orphanedRoutesChecks(state, controlHome, "treerig")
 		want := Check{ID: "router.orphaned-routes", Status: StatusWarn, Subject: "routes",
-			Detail: "1 route file disagrees with its registration or shared-service record (shared service mailpit: points at port 30501, but its record says 30777); the next 'berth up' or 'berth router up' repairs it"}
+			Detail: "1 route file disagrees with its registration or shared-service record (shared service mailpit: points at port 30501, but its record says 30777); the next 'treerig up' or 'treerig router up' repairs it"}
 		if err != nil || len(got) != 1 || got[0] != want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -100,7 +100,7 @@ func TestSharedRoutesInDoctor(t *testing.T) {
 		if err := router.WriteSharedFragment(state, routeRepo, "mailpit", "acme.localhost", 30501); err != nil {
 			t.Fatal(err)
 		}
-		got, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "berth")
+		got, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "treerig")
 		if err != nil || len(got) != 1 || got[0].Instance != "other-home" || got[0].Status != StatusOK ||
 			!strings.Contains(got[0].Detail, filepath.Base(router.SharedFragmentPath(state, routeRepo, "mailpit"))) ||
 			!strings.Contains(got[0].Detail, "no registration or shared-service record of this control home") ||

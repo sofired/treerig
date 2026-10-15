@@ -14,15 +14,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run/fakerun"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // symlinkedCommandContext builds a minimal CommandContext whose router state
@@ -46,10 +46,10 @@ func symlinkedCommandContext(t *testing.T, target string) (*CommandContext, *log
 	}
 	log := &logger.Recording{}
 	reg := registry.New(registry.Options{
-		ControlHome: controlHome, Root: t.TempDir(), Runner: &fakerun.Runner{}, Logger: log, CommandName: "berth",
+		ControlHome: controlHome, Root: t.TempDir(), Runner: &fakerun.Runner{}, Logger: log, CommandName: "treerig",
 	})
 	return &CommandContext{
-		CommandName: "berth", Invocation: "berth", Logger: log, Runner: &fakerun.Runner{},
+		CommandName: "treerig", Invocation: "treerig", Logger: log, Runner: &fakerun.Runner{},
 		ControlHome: controlHome, RouterPort: 80, RouterState: routerState, Registry: reg,
 	}, log
 }
@@ -90,12 +90,12 @@ func TestRouterLockScope(t *testing.T) {
 	state := layout.RouterLayout{LockPath: filepath.Join(t.TempDir(), "router", "lock")}
 
 	t.Run("names the scope and its project marker explicitly", func(t *testing.T) {
-		scope := routerLockScope(state, "berth-router-explicit")
+		scope := routerLockScope(state, "treerig-router-explicit")
 		if scope.Description != "shared router" {
 			t.Errorf("Description = %q, want %q", scope.Description, "shared router")
 		}
-		if scope.Markers.Project != "berth-router-explicit" {
-			t.Errorf("Markers.Project = %q, want %q", scope.Markers.Project, "berth-router-explicit")
+		if scope.Markers.Project != "treerig-router-explicit" {
+			t.Errorf("Markers.Project = %q, want %q", scope.Markers.Project, "treerig-router-explicit")
 		}
 		if scope.Markers.WorktreeID != "" {
 			t.Errorf("Markers.WorktreeID = %q, want empty: the router is not a worktree", scope.Markers.WorktreeID)
@@ -110,7 +110,7 @@ func TestRouterLockScope(t *testing.T) {
 	})
 
 	t.Run("targets state's own lock file, named for whichever variable governs the router's state directory", func(t *testing.T) {
-		scope := routerLockScope(state, "berth-router")
+		scope := routerLockScope(state, "treerig-router")
 		if filepath.Base(scope.Target) != "lock" {
 			t.Errorf("Target = %q, want a file named lock", scope.Target)
 		}
@@ -234,12 +234,12 @@ func TestRefreshIndexJSON(t *testing.T) {
 	git.Add(checkout, "main", filepath.Join(base, "common"))
 	log := &logger.Recording{}
 	env := &Env{
-		CommandName: "berth", Invocation: "berth index", Logger: log, Runner: runner, Cwd: checkout,
+		CommandName: "treerig", Invocation: "treerig index", Logger: log, Runner: runner, Cwd: checkout,
 		Getenv: func(key string) (string, bool) {
 			switch key {
 			case "HOME":
 				return base, true
-			case "BERTH_CONTROL_HOME":
+			case "TREERIG_CONTROL_HOME":
 				return controlHome, true
 			}
 			return "", false

@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // testRef and testSource build a fixed hook environment: PROJECT acme,
@@ -25,7 +25,7 @@ var (
 	testRef = worktree.Ref{RepositoryID: "repo-a", WorktreeID: "wt-1", Slug: "feature-login"}
 	testSrc = worktree.EnvironmentSource{
 		ProjectName: "acme", Domain: "acme.localhost", ControlHome: "/control",
-		ConfigFile: "/work/acme/berth.toml", ProjectRoot: "/work/acme",
+		ConfigFile: "/work/acme/treerig.toml", ProjectRoot: "/work/acme",
 	}
 )
 
@@ -93,10 +93,10 @@ func TestRunHook(t *testing.T) {
 			t.Fatalf("got dir %q", call.Dir)
 		}
 		want := map[string]string{
-			"BERTH_STAGE": "prepare", "BERTH_SLUG": "feature-login",
-			"BERTH_HOST":          "feature-login.acme.localhost",
-			"BERTH_WORKTREE_HOME": "/control/repositories/repo-a/instances/wt-1",
-			"BERTH_ROOT":          "/work/acme",
+			"TREERIG_STAGE": "prepare", "TREERIG_SLUG": "feature-login",
+			"TREERIG_HOST":          "feature-login.acme.localhost",
+			"TREERIG_WORKTREE_HOME": "/control/repositories/repo-a/instances/wt-1",
+			"TREERIG_ROOT":          "/work/acme",
 		}
 		for k, v := range want {
 			if !containsEnv(call.Env, k, v) {
@@ -119,7 +119,7 @@ func TestRunHook(t *testing.T) {
 			}
 			env := runner.Calls()[0].Env
 			for k, v := range map[string]string{
-				"COMPOSE_PROJECT_NAME": project, "BERTH_COMPOSE_PROJECT": project, "COMPOSE_FILE": "/work/acme/docker/stack.yaml",
+				"COMPOSE_PROJECT_NAME": project, "TREERIG_COMPOSE_PROJECT": project, "COMPOSE_FILE": "/work/acme/docker/stack.yaml",
 			} {
 				if !containsEnv(env, k, v) {
 					t.Errorf("%s: want %s=%s in %v", stage, k, v, env)
@@ -133,23 +133,23 @@ func TestRunHook(t *testing.T) {
 		}
 	})
 
-	t.Run("passes BERTH_URL for the root route and BERTH_SERVICE_URL_<NAME> for every routed service (#28)", func(t *testing.T) {
+	t.Run("passes TREERIG_URL for the root route and TREERIG_SERVICE_URL_<NAME> for every routed service (#28)", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
 		hctx.Routes = worktree.Routes([]config.Service{
 			{Name: "api"},
 			{Name: "mail-relay", Subdomain: "mail"},
 		}, hctx.Ref.Slug, hctx.Source.Domain, 8443)
-		// A calling worktree's own variables, as a hook that runs berth on
+		// A calling worktree's own variables, as a hook that runs treerig on
 		// this worktree would pass them down.
-		hctx.Environ = []string{"BERTH_URL=http://other.acme.localhost", "BERTH_SERVICE_URL_OTHER=http://other.acme.localhost"}
+		hctx.Environ = []string{"TREERIG_URL=http://other.acme.localhost", "TREERIG_SERVICE_URL_OTHER=http://other.acme.localhost"}
 		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		want := map[string]string{
-			"BERTH_URL":                    "http://feature-login.acme.localhost:8443",
-			"BERTH_SERVICE_URL_API":        "http://feature-login.acme.localhost:8443",
-			"BERTH_SERVICE_URL_MAIL_RELAY": "http://mail.feature-login.acme.localhost:8443",
+			"TREERIG_URL":                    "http://feature-login.acme.localhost:8443",
+			"TREERIG_SERVICE_URL_API":        "http://feature-login.acme.localhost:8443",
+			"TREERIG_SERVICE_URL_MAIL_RELAY": "http://mail.feature-login.acme.localhost:8443",
 		}
 		env := runner.Calls()[0].Env
 		for k, v := range want {
@@ -158,63 +158,63 @@ func TestRunHook(t *testing.T) {
 			}
 		}
 		for _, entry := range env {
-			if strings.HasPrefix(entry, "BERTH_SERVICE_URL_OTHER=") {
+			if strings.HasPrefix(entry, "TREERIG_SERVICE_URL_OTHER=") {
 				t.Fatalf("inherited %s leaked into env %v", entry, env)
 			}
 		}
 	})
 
-	t.Run("passes neither BERTH_URL nor any BERTH_SERVICE_URL_ variable when no routes were given, even inherited ones", func(t *testing.T) {
+	t.Run("passes neither TREERIG_URL nor any TREERIG_SERVICE_URL_ variable when no routes were given, even inherited ones", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
-		hctx.Environ = []string{"BERTH_URL=http://other.acme.localhost", "BERTH_SERVICE_URL_OTHER=http://other.acme.localhost"}
+		hctx.Environ = []string{"TREERIG_URL=http://other.acme.localhost", "TREERIG_SERVICE_URL_OTHER=http://other.acme.localhost"}
 		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		for _, entry := range runner.Calls()[0].Env {
 			name, _, _ := strings.Cut(entry, "=")
-			if name == "BERTH_URL" || strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+			if name == "TREERIG_URL" || strings.HasPrefix(name, "TREERIG_SERVICE_URL_") {
 				t.Fatalf("unexpected %s in env %v", name, runner.Calls()[0].Env)
 			}
 		}
 	})
 
-	t.Run("passes BERTH_SHARED_ADDR_<NAME>_<PORT> for every pinned shared address, and drops inherited ones", func(t *testing.T) {
+	t.Run("passes TREERIG_SHARED_ADDR_<NAME>_<PORT> for every pinned shared address, and drops inherited ones", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
 		hctx.Shared = []worktree.SharedAddr{
 			{Name: "mailpit", Port: 1025, Addr: "127.0.0.1:30001"},
 			{Name: "mail-relay", Port: 8025, Addr: "127.0.0.1:30002"},
 		}
-		hctx.Environ = []string{"BERTH_SHARED_ADDR_OLD_25=127.0.0.1:1"}
+		hctx.Environ = []string{"TREERIG_SHARED_ADDR_OLD_25=127.0.0.1:1"}
 		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		env := runner.Calls()[0].Env
 		for k, v := range map[string]string{
-			"BERTH_SHARED_ADDR_MAILPIT_1025":    "127.0.0.1:30001",
-			"BERTH_SHARED_ADDR_MAIL_RELAY_8025": "127.0.0.1:30002",
+			"TREERIG_SHARED_ADDR_MAILPIT_1025":    "127.0.0.1:30001",
+			"TREERIG_SHARED_ADDR_MAIL_RELAY_8025": "127.0.0.1:30002",
 		} {
 			if !containsEnv(env, k, v) {
 				t.Fatalf("expected %s=%s in env %v", k, v, env)
 			}
 		}
 		for _, entry := range env {
-			if strings.HasPrefix(entry, "BERTH_SHARED_ADDR_OLD_") {
+			if strings.HasPrefix(entry, "TREERIG_SHARED_ADDR_OLD_") {
 				t.Fatalf("inherited %s leaked into env %v", entry, env)
 			}
 		}
 	})
 
-	t.Run("passes no BERTH_SHARED_ADDR_ variable when there are no shared addresses, even inherited ones", func(t *testing.T) {
+	t.Run("passes no TREERIG_SHARED_ADDR_ variable when there are no shared addresses, even inherited ones", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
-		hctx.Environ = []string{"BERTH_SHARED_ADDR_OLD_25=127.0.0.1:1"}
+		hctx.Environ = []string{"TREERIG_SHARED_ADDR_OLD_25=127.0.0.1:1"}
 		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		for _, entry := range runner.Calls()[0].Env {
-			if strings.HasPrefix(entry, "BERTH_SHARED_ADDR_") {
+			if strings.HasPrefix(entry, "TREERIG_SHARED_ADDR_") {
 				t.Fatalf("unexpected %s", entry)
 			}
 		}
@@ -223,12 +223,12 @@ func TestRunHook(t *testing.T) {
 	t.Run("passes the user's control-home override through untouched, so a hook can call the tool", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./run.sh")})
-		hctx.Environ = []string{"BERTH_HOME=/custom/control-home"}
+		hctx.Environ = []string{"TREERIG_HOME=/custom/control-home"}
 		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if !containsEnv(runner.Calls()[0].Env, "BERTH_HOME", "/custom/control-home") {
-			t.Fatalf("expected BERTH_HOME to pass through, got %v", runner.Calls()[0].Env)
+		if !containsEnv(runner.Calls()[0].Env, "TREERIG_HOME", "/custom/control-home") {
+			t.Fatalf("expected TREERIG_HOME to pass through, got %v", runner.Calls()[0].Env)
 		}
 	})
 

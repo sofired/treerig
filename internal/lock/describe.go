@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 type heldContextKey struct{}

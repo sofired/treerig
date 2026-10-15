@@ -2,11 +2,11 @@
   "pinned": true,
   "ok": true,
   "release": "my-build",
-  "source": "file:BASE/bin/berth-local",
+  "source": "file:BASE/bin/treerig-local",
   "pinnedAt": "TIMESTAMP",
   "platform": "PLATFORM",
   "binary": {
-    "path": "BASE/berth-home/control-home/teardown/DIGEST",
+    "path": "BASE/treerig-home/control-home/teardown/DIGEST",
     "sha256": "DIGEST",
     "state": "ok"
   },

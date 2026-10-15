@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 // testOptions is a fast, deterministic Options for locking tests: a fake
@@ -41,7 +41,7 @@ func TestLockAcquireRelease(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		ctx, err := lk.Acquire(context.Background(), "berth up")
+		ctx, err := lk.Acquire(context.Background(), "treerig up")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +52,7 @@ func TestLockAcquireRelease(t *testing.T) {
 		if err != nil || rec == nil {
 			t.Fatalf("record = %+v, err = %v", rec, err)
 		}
-		if rec.PID != os.Getpid() || rec.Command != "berth up" || rec.ReleasedAt != nil {
+		if rec.PID != os.Getpid() || rec.Command != "treerig up" || rec.ReleasedAt != nil {
 			t.Fatalf("got %+v", rec)
 		}
 		if err := lk.Release(); err != nil {
@@ -110,7 +110,7 @@ func TestLockAcquireRelease(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree busy"}
 		holder := New(scope, testOptions(t))
-		if _, err := holder.Acquire(context.Background(), "berth up api"); err != nil {
+		if _, err := holder.Acquire(context.Background(), "treerig up api"); err != nil {
 			t.Fatal(err)
 		}
 		defer holder.Release()
@@ -128,7 +128,7 @@ func TestLockAcquireRelease(t *testing.T) {
 		if !strings.Contains(err.Error(), "Another process holds the worktree busy lock") {
 			t.Fatalf("got %q", err)
 		}
-		if !strings.Contains(err.Error(), `"berth up api"`) {
+		if !strings.Contains(err.Error(), `"treerig up api"`) {
 			t.Fatalf("expected the holder's command in %q", err)
 		}
 		// A caller that may skip a busy lock tells this refusal from a
@@ -266,7 +266,7 @@ func TestCheckFS(t *testing.T) {
 		}
 		scope := Scope{Target: target, Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatalf("expected the lock to be acquired despite its directory being new, got %v", err)
 		}
 		defer lk.Release()
@@ -290,7 +290,7 @@ func TestDescribe(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
 		holder := New(scope, testOptions(t))
-		if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer holder.Release()
@@ -299,7 +299,7 @@ func TestDescribe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if desc.State != Held || desc.Record == nil || desc.Record.Command != "berth up" {
+		if desc.State != Held || desc.Record == nil || desc.Record.Command != "treerig up" {
 			t.Fatalf("got %+v", desc)
 		}
 		// Held is untouched by the probe: this process can still acquire again once released.

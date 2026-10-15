@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // Shared-service state (docs/design/routing.md, decision 19): one record per
@@ -46,7 +46,7 @@ type SharedRecord struct {
 	Ports map[int]int
 	// Routed is the container port of the web UI the proxy routes to, one of
 	// Ports' keys; 0 when the service has none. It lives in the record, not
-	// only in berth.toml, so route repair, `doctor` and the checkout index
+	// only in treerig.toml, so route repair, `doctor` and the checkout index
 	// can judge a route file from the record alone, as they judge a
 	// worktree's from its registration.
 	Routed int
@@ -175,7 +175,7 @@ func (s *Store) readSharedRecord(file string) (*SharedRecord, error) {
 		return nil, clierr.Newf("Shared-service record is not named by a service name: %s", file)
 	}
 	// Regular files only, as for a registration: a symlink is a record
-	// berth cannot vouch for, so it is reported and never followed.
+	// treerig cannot vouch for, so it is reported and never followed.
 	info, err := os.Lstat(file)
 	if err != nil {
 		return nil, err

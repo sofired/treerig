@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/run"
 	"golang.org/x/sys/unix"
 )
 

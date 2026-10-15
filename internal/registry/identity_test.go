@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
 )
 
 type identityFixture struct {
@@ -78,7 +78,7 @@ func TestIdentityServiceInspect(t *testing.T) {
 
 	t.Run("rejects a symlinked identity-marker parent before creating markers", func(t *testing.T) {
 		f := newIdentityFixture(t, "feature/three")
-		markerDirectory := filepath.Join(f.common, "worktrees", "worktree", "berth")
+		markerDirectory := filepath.Join(f.common, "worktrees", "worktree", "treerig")
 		outside := filepath.Join(f.base, "outside-markers")
 		if err := os.MkdirAll(outside, 0o700); err != nil {
 			t.Fatalf("mkdir outside: %v", err)
@@ -185,7 +185,7 @@ func TestIdentityServiceRemoveWorktreeMarker(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Ensure: %v", err)
 		}
-		marker := filepath.Join(identity.GitDir, "berth", "worktree-id")
+		marker := filepath.Join(identity.GitDir, "treerig", "worktree-id")
 		if err := os.WriteFile(marker, []byte(registry.IdentityMarkerContents("2b41d9d4-ed88-49c1-be9c-5439bdf6a431")), 0o600); err != nil {
 			t.Fatalf("overwrite marker: %v", err)
 		}

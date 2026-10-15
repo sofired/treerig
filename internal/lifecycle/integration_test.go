@@ -18,11 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 func TestSignalDuringHeldAction(t *testing.T) {
@@ -37,7 +37,7 @@ func TestSignalDuringHeldAction(t *testing.T) {
 
 	actionDone := make(chan error, 1)
 	go func() {
-		err := l.Hold(l.Context(), Env{Logger: logger.Silent{}, Runner: runner, Invocation: "berth up"},
+		err := l.Hold(l.Context(), Env{Logger: logger.Silent{}, Runner: runner, Invocation: "treerig up"},
 			Requests{Operation: &op},
 			func(ctx context.Context) error {
 				result, err := runner.Run(ctx, run.Spec{Command: "sh", Args: []string{"-c", `: > "$0"; exec sleep 30`, ready}, AllowFailure: true})

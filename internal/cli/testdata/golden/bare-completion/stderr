@@ -1,8 +1,8 @@
 print a shell completion script
 
 Usage:
-  berth completion [flags]
-  berth completion [command]
+  treerig completion [flags]
+  treerig completion [command]
 
 Available Commands:
   bash        print the completion script for bash
@@ -14,7 +14,7 @@ Flags:
   -h, --help   help for completion
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number
 
-Use "berth completion [command] --help" for more information about a command.
+Use "treerig completion [command] --help" for more information about a command.

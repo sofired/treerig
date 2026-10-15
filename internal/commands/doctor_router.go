@@ -21,10 +21,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // routeProbeBudget is how long one route gets to start answering. Traefik's
@@ -87,13 +87,13 @@ type routeTarget struct {
 	// targetPort is the loopback port the route file sends to; 0 when it
 	// names none.
 	targetPort int
-	// hostRoute marks a host route (#6): its target is a process berth does
+	// hostRoute marks a host route (#6): its target is a process treerig does
 	// not run, so a target that is down is the normal state, not a warning.
 	hostRoute bool
 }
 
 // routeTargets are the routes the proxy is expected to serve: the index and
-// every route file, services', host routes' and shared services' included, sorted by claim. A rule berth did not write is not
+// every route file, services', host routes' and shared services' included, sorted by claim. A rule treerig did not write is not
 // probed.
 func routeTargets(state layout.RouterLayout) ([]routeTarget, error) {
 	fragments, err := router.ListFragments(state)
@@ -337,9 +337,9 @@ func routerProtocolProblem(status *router.RouterStatus) (router.Problem, bool) {
 }
 
 // routerModeCheck reports the mode the router runs in, from its container's
-// label, against the mode this build would start it in. A daemon berth
+// label, against the mode this build would start it in. A daemon treerig
 // refuses (remote, rootless, unrecognized) is a failure whether or not a
-// router is running: nothing berth starts can work there. status is nil when
+// router is running: nothing treerig starts can work there. status is nil when
 // Compose did not answer or its status could not be read, which says nothing
 // about whether a router runs. A [router] mode override is named, and a
 // warning when detection alone would pick another mode.
@@ -406,7 +406,7 @@ func orUnknown(mode router.Mode) string {
 // is not running (a failure: `up` would refuse) and while it is running but
 // unhealthy (a warning: the ports may be why). A healthy router holds its own
 // ports, so nothing is checked. status is nil when Compose did not answer,
-// which skips the check. A daemon berth refuses is the mode check's to
+// which skips the check. A daemon treerig refuses is the mode check's to
 // report, not this one's.
 func routerPortsCheck(ctx context.Context, opts doctorOptions, status *router.RouterStatus) (*Check, error) {
 	if status == nil || (status.Running && len(status.Problems) == 0) {

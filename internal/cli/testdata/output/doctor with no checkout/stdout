@@ -15,4 +15,4 @@ Router
   skip  router  needs Docker
 
 This checkout
-  skip  berth.toml  none in FIXTURE or above; run 'berth doctor' in a checkout to check it and its verify hook
+  skip  treerig.toml  none in FIXTURE or above; run 'treerig doctor' in a checkout to check it and its verify hook

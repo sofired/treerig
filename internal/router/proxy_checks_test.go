@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // desktopInfo is what `docker info --format '{{json .}}'` prints on Docker Desktop.
@@ -353,7 +353,7 @@ func TestCheckPorts(t *testing.T) {
 		}
 	})
 
-	t.Run("reports a daemon berth refuses", func(t *testing.T) {
+	t.Run("reports a daemon treerig refuses", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		w.Fake.info = rootlessInfo
 		if _, err := w.Router.CheckPorts(ctx); err == nil {

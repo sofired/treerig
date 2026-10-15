@@ -1,5 +1,5 @@
 Teardown pin: release my-build (PLATFORM)
-  source  file:BASE/bin/berth-local
+  source  file:BASE/bin/treerig-local
   signer  none (digest supplied by you)
-  binary  BASE/berth-home/control-home/teardown/DIGEST sha256 671bf4eed8c3b3a2f75a9c40ccbfe5f2e078e894fb85d63bfd98dc5ab232933c, pinned DIGEST
+  binary  BASE/treerig-home/control-home/teardown/DIGEST sha256 671bf4eed8c3b3a2f75a9c40ccbfe5f2e078e894fb85d63bfd98dc5ab232933c, pinned DIGEST
   pinned  TIMESTAMP

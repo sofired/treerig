@@ -3,10 +3,10 @@ package router
 // Dynamic-configuration route files: what routes a worktree's services.
 // Traefik's file provider is wired on the router's own command line
 // (RouterCommand), watching DynamicConfigMount, which is state.DynamicDir
-// bind-mounted read-only into the router container. berth itself, not
+// bind-mounted read-only into the router container. treerig itself, not
 // Traefik and not Docker, writes and removes one file per routed service.
 //
-// Every file targets http://berth-loopback:<port> (LoopbackAlias), so the
+// Every file targets http://treerig-loopback:<port> (LoopbackAlias), so the
 // files never depend on the proxy's mode. A file's name decides what owns
 // it, and a sweep only ever touches the names it understands:
 //
@@ -32,9 +32,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // fragmentUUID is a lenient UUID shape check for a fragment filename's

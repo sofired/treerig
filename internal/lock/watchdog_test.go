@@ -17,13 +17,13 @@ func TestWatchdog(t *testing.T) {
 		opts := testOptions(t)
 		opts.Watchdog = 20 * time.Millisecond
 		lk := New(scope, opts)
-		ctx, err := lk.Acquire(context.Background(), "berth up")
+		ctx, err := lk.Acquire(context.Background(), "treerig up")
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		// Berth itself never unlinks a lock target; this simulates something
-		// outside berth doing so, which #22 says must cancel in-flight work.
+		// Treerig itself never unlinks a lock target; this simulates something
+		// outside treerig doing so, which #22 says must cancel in-flight work.
 		if err := os.Remove(target); err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestWatchdog(t *testing.T) {
 		opts := testOptions(t)
 		opts.Watchdog = 20 * time.Millisecond
 		lk := New(scope, opts)
-		ctx, err := lk.Acquire(context.Background(), "berth up")
+		ctx, err := lk.Acquire(context.Background(), "treerig up")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +83,7 @@ func TestWatchdog(t *testing.T) {
 		opts := testOptions(t)
 		opts.Watchdog = 20 * time.Millisecond
 		lk := New(scope, opts)
-		ctx, err := lk.Acquire(context.Background(), "berth up")
+		ctx, err := lk.Acquire(context.Background(), "treerig up")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,7 +106,7 @@ func TestWatchdog(t *testing.T) {
 		opts := testOptions(t)
 		opts.Watchdog = -1 // disabled: nothing here catches the swap before Release does
 		lk := New(scope, opts)
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 

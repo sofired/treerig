@@ -1,1 +1,1 @@
-[berth] ERROR: feature-login.acme.localhost records its resources as labelled under dev.berth, not dev.wrong. Drop --label-namespace, or pass the recorded one.
+[treerig] ERROR: feature-login.acme.localhost records its resources as labelled under dev.treerig, not dev.wrong. Drop --label-namespace, or pass the recorded one.

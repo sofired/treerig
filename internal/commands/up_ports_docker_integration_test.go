@@ -6,7 +6,7 @@ package commands_test
 // published on its own 127.0.0.1 port, the port survives a restart, a port
 // another program holds makes `up` refuse and --reallocate-port moves it, and
 // `worktree remove` releases the worktree's ports. Every port comes from the
-// test range (the walk fixture writes it to the scratch berth root), never the
+// test range (the walk fixture writes it to the scratch treerig root), never the
 // default one a developer's own worktrees use.
 
 import (
@@ -23,10 +23,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // loopbackGet is a GET straight to 127.0.0.1:port, bypassing the router.
@@ -112,7 +112,7 @@ func TestLoopbackPortsOnARealDaemon(t *testing.T) {
 
 	t.Run("a second up leaves the override and the container alone", func(t *testing.T) {
 		before := w.owned(t, result.Registration.WorktreeID, "ps", "-q")
-		override := filepath.Join(layout.WorktreeLayout(w.controlHome, result.Registration.RepositoryID, result.Registration.WorktreeID).Home, "berth.override.yaml")
+		override := filepath.Join(layout.WorktreeLayout(w.controlHome, result.Registration.RepositoryID, result.Registration.WorktreeID).Home, "treerig.override.yaml")
 		first, err := os.ReadFile(override)
 		if err != nil {
 			t.Fatal(err)
@@ -185,7 +185,7 @@ func TestTwoWorktreesOfOneStackOnARealDaemon(t *testing.T) {
 	// A second checkout of the same repository, with the same files.
 	second := filepath.Join(first.base, "checkout2")
 	gitIn(t, first.checkout, "worktree", "add", "-b", "feature/two", second)
-	for _, name := range []string{"berth.toml", "compose.yaml"} {
+	for _, name := range []string{"treerig.toml", "compose.yaml"} {
 		data, err := os.ReadFile(filepath.Join(first.checkout, name))
 		if err != nil {
 			t.Fatal(err)

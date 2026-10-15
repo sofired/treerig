@@ -14,19 +14,19 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // testProject and testNS are the default router's own Compose project name
 // and label namespace (router.DefaultName and brand.LabelNamespace), spelled
 // out literally so a fixture can build them without importing brand.
 const (
-	testProject = "berth-router"
-	testNS      = "dev.berth"
+	testProject = "treerig-router"
+	testNS      = "dev.treerig"
 )
 
 // Index and ping ports a seeded state file holds in these tests. They sit

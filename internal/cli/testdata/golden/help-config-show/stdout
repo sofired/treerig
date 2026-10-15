@@ -1,11 +1,11 @@
 print the resolved configuration as JSON
 
 Usage:
-  berth config show [flags]
+  treerig config show [flags]
 
 Flags:
   -h, --help   help for show
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

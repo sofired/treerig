@@ -1,10 +1,10 @@
-// Package hooks is the other half of the public contract berth's own
+// Package hooks is the other half of the public contract treerig's own
 // documented hook protocol describes: hooks are ordinary executables, the
 // tool never learns what they do, and everything a hook needs to know
 // arrives as environment variables — its exit code is its only answer back.
 package hooks
 
-import "github.com/sofired/berth/internal/config"
+import "github.com/sofired/treerig/internal/config"
 
 // LifecycleOrder is the order stages run in: seed never runs unless prepare
 // exited zero. The lifecycle stops at the first failure and reports which

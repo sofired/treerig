@@ -15,12 +15,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // DefinitionVersion prefixes the definition hash label, "v1:<sha256>", so a
@@ -28,7 +28,7 @@ import (
 const DefinitionVersion = "v1"
 
 // Definition is the shared Compose file as Compose resolves it, before
-// berth's override (docs/design/routing.md, decision 16): what the stack is
+// treerig's override (docs/design/routing.md, decision 16): what the stack is
 // asked to run, from which a service's definition hash comes.
 type Definition struct {
 	// services holds each service's entry from `compose config`, decoded
@@ -182,13 +182,13 @@ func referenced(entries map[string]map[string]any) (volumes, networks, configs, 
 // Hash is the definition label value for service: "v1:" and the sha256 of
 // the canonical JSON of the service, everything it needs (Closure), and the
 // top-level volumes, networks, configs and secrets those use. The entries
-// come from `compose config` before berth's override, so the published ports
+// come from `compose config` before treerig's override, so the published ports
 // are not in it, and are interpolated with the shared environment only and no
 // .env file; other inherited variables may still affect them. Canonical
 // means object keys in sorted order (encoding/json's rule for a map),
 // numbers as Compose printed them, and no HTML escaping. A Compose upgrade
 // can change what `compose config` prints for the same file, which shows as
-// a differing definition once; `berth shared up --recreate <name>` brings
+// a differing definition once; `treerig shared up --recreate <name>` brings
 // the label up to date.
 // An undefined service or a value that JSON cannot encode returns an error.
 func (d Definition) Hash(service string) (string, error) {
@@ -232,19 +232,19 @@ func (d Definition) Hash(service string) (string, error) {
 // environment is what the shared file is interpolated with and Compose runs
 // under: the inherited environment, and the variables that mean the same in
 // every worktree — the project's name, the repository, and the Compose
-// project. Per-worktree BERTH_* variables such as BERTH_ROOT and
-// BERTH_WORKTREE_ID are removed. BERTH_HOME, BERTH_CONTROL_HOME and other
+// project. Per-worktree TREERIG_* variables such as TREERIG_ROOT and
+// TREERIG_WORKTREE_ID are removed. TREERIG_HOME, TREERIG_CONTROL_HOME and other
 // inherited variables allowed by docker.ComposeEnvironment can still affect
 // interpolation.
 func (s *Stack) environment() []string {
 	extra := []string{
 		"COMPOSE_PROJECT_NAME=" + s.Project(),
-		"BERTH_PROJECT=" + s.o.ProjectName,
-		"BERTH_REPOSITORY_ID=" + s.o.RepositoryID,
+		"TREERIG_PROJECT=" + s.o.ProjectName,
+		"TREERIG_REPOSITORY_ID=" + s.o.RepositoryID,
 	}
-	// A process started from a hook inherits that worktree's BERTH_*
+	// A process started from a hook inherits that worktree's TREERIG_*
 	// variables; they would make the same file read differently from there.
-	// BERTH_HOME and BERTH_CONTROL_HOME are the user's own and stay.
+	// TREERIG_HOME and TREERIG_CONTROL_HOME are the user's own and stay.
 	var inherited []string
 	for _, entry := range s.o.Environ {
 		name, _, _ := strings.Cut(entry, "=")
@@ -291,12 +291,12 @@ func (s *Stack) composeArgsIn(projectDirectory string, args []string, withFiles 
 // from (a relative bind source that climbs out of the checkout, ${PWD}) is
 // refused as well, so every checkout computes the same hash or none starts it.
 // Non-empty ports entries on Declared services and their dependencies are
-// also refused; berth publishes their ports itself. Missing configuration,
+// also refused; treerig publishes their ports itself. Missing configuration,
 // Compose execution failures and invalid JSON are returned as errors.
 func (s *Stack) ReadDefinition(ctx context.Context) (Definition, error) {
 	file := s.o.ComposeFile
 	if file == "" {
-		return Definition{}, clierr.New("No shared Compose file is configured; this is a bug in berth, please report it.")
+		return Definition{}, clierr.New("No shared Compose file is configured; this is a bug in treerig, please report it.")
 	}
 	result, err := docker.Run(ctx, s.o.Runner, s.composeArgs([]string{"config", "--format", "json"}, file),
 		run.Spec{Env: s.environment(), AllowFailure: true, Timeout: probeTimeout})
@@ -596,9 +596,9 @@ func decodeDefinition(stdout, file string) (Definition, error) {
 // "Configuration"): one that depends on the checkout that started it — a
 // service with build:, a bind mount whose source is inside a worktree, a
 // config or secret read from one — and one that publishes a port of its own.
-// The ports a shared service publishes are the ones berth.toml declares, on
+// The ports a shared service publishes are the ones treerig.toml declares, on
 // 127.0.0.1 and pinned; a `ports:` entry in the file would publish another,
-// outside berth's allocation. declared are the services berth.toml names;
+// outside treerig's allocation. declared are the services treerig.toml names;
 // the port check covers them and what they need. The build and path checks
 // cover every service, config and secret in the definition.
 func (d Definition) refuseUnsuitable(file string, roots, declared []string) error {

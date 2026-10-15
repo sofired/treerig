@@ -47,7 +47,7 @@ var (
 // Unicode 17 that Node 24's ICU carries.
 // internal/text/testdata/collation-corpus.json is the differential,
 // hand-maintained fixture that checks the two still agree on the strings
-// berth actually sorts — see collationFixture in collate_test.go.
+// treerig actually sorts — see collationFixture in collate_test.go.
 func Collate(a, b string) int {
 	enCollatorOnce.Do(func() { enCollatorVal = collate.New(language.English) })
 	enCollateMu.Lock()

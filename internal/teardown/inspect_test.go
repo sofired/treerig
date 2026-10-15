@@ -7,18 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 func TestFilePin(t *testing.T) {
 	digest := binstore.Hash([]byte("x"))
-	got := teardown.FilePin("/home/me/berth", "my-build", "linux_amd64", digest, time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC))
+	got := teardown.FilePin("/home/me/treerig", "my-build", "linux_amd64", digest, time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC))
 	got.Version = 1
 	if err := got.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !got.IsFile() || got.Source != "file:/home/me/berth" || got.PinnedAt != "2026-10-14T12:00:00Z" || got.Platforms["linux_amd64"].BinarySHA256 != digest {
+	if !got.IsFile() || got.Source != "file:/home/me/treerig" || got.PinnedAt != "2026-10-14T12:00:00Z" || got.Platforms["linux_amd64"].BinarySHA256 != digest {
 		t.Fatalf("pin = %+v", got)
 	}
 }

@@ -6,8 +6,8 @@
 package worktree
 
 import (
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // Ref identifies a worktree to a backend.
@@ -56,14 +56,14 @@ type EnvironmentSource struct {
 	ProjectRoot string
 }
 
-// ComposeProjectKey is the Environment key (BERTH_COMPOSE_PROJECT) that
+// ComposeProjectKey is the Environment key (TREERIG_COMPOSE_PROJECT) that
 // carries the worktree's Compose project name; the hook runner reads it back
 // to set Compose's own COMPOSE_PROJECT_NAME from the same value.
 const ComposeProjectKey = "COMPOSE_PROJECT"
 
 // Environment is what a worktree looks like from outside the tool. Hooks
 // receive it plus a stage; the Compose file receives exactly this, so
-// ${BERTH_WORKTREE_HOME} means the same thing in a bind mount as in a seed
+// ${TREERIG_WORKTREE_HOME} means the same thing in a bind mount as in a seed
 // script. One builder, so hooks and the Compose file never disagree.
 //
 // The keys are in a fixed order: PROJECT, REPOSITORY_ID, WORKTREE_ID, SLUG,
@@ -77,8 +77,8 @@ func Environment(source EnvironmentSource, ref Ref) [][2]string {
 		{"WORKTREE_ID", ref.WorktreeID},
 		{"SLUG", ref.Slug},
 		{"HOST", layout.WorktreeHost(ref.Slug, source.Domain)},
-		// Deliberately not HOME: BERTH_HOME (the berth root) and
-		// BERTH_CONTROL_HOME (the control-home override, #80) are the
+		// Deliberately not HOME: TREERIG_HOME (the treerig root) and
+		// TREERIG_CONTROL_HOME (the control-home override, #80) are the
 		// user's own, and must pass through to hooks untouched.
 		{"WORKTREE_HOME", layout.WorktreeLayout(source.ControlHome, ref.RepositoryID, ref.WorktreeID).Home},
 		{"CONFIG", source.ConfigFile},
@@ -87,7 +87,7 @@ func Environment(source EnvironmentSource, ref Ref) [][2]string {
 	}
 }
 
-// Variables prefixes each key with BERTH_, the storage-contract name rather
+// Variables prefixes each key with TREERIG_, the storage-contract name rather
 // than the invoked CLI name, so hook scripts keep working however the binary
 // is called.
 func Variables(environment [][2]string) []string {

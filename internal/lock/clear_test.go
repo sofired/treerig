@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 // clearOptions returns ClearOptions wired to a fake process table that
@@ -65,7 +65,7 @@ func TestClear(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Release(); err != nil {
@@ -85,9 +85,9 @@ func TestClear(t *testing.T) {
 
 	t.Run("does not scan for survivors when every lock is already released", func(t *testing.T) {
 		dir := t.TempDir()
-		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main", Markers: procid.Markers{Project: "berth-released"}}
+		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main", Markers: procid.Markers{Project: "treerig-released"}}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Release(); err != nil {
@@ -98,7 +98,7 @@ func TestClear(t *testing.T) {
 		// still running, and other users' processes hidden.
 		opts := clearOptions(t)
 		table := opts.Table.(*fakeTable)
-		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"berth-released"}}}, OthersHidden: true}}
+		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"treerig-released"}}}, OthersHidden: true}}
 
 		result, err := Clear(context.Background(), []Scope{scope}, opts)
 		if err != nil {
@@ -120,9 +120,9 @@ func TestClear(t *testing.T) {
 	// than the jargon "marked". Real time (judgeDelay's rescan): about a second.
 	t.Run("refuses a process it started still running, without claiming it belongs to a worktree", func(t *testing.T) {
 		dir := t.TempDir()
-		scope := Scope{Target: filepath.Join(dir, "router"), Description: "shared router", Markers: procid.Markers{Project: "berth-router"}}
+		scope := Scope{Target: filepath.Join(dir, "router"), Description: "shared router", Markers: procid.Markers{Project: "treerig-router"}}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil {
@@ -131,7 +131,7 @@ func TestClear(t *testing.T) {
 
 		opts := clearOptions(t)
 		table := opts.Table.(*fakeTable)
-		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"berth-router"}}}}}
+		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"treerig-router"}}}}}
 
 		_, err := Clear(context.Background(), []Scope{scope}, opts)
 		want := "Not clearing any lock: a process it started is still running"
@@ -147,7 +147,7 @@ func TestClear(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer lk.Release()
@@ -160,9 +160,9 @@ func TestClear(t *testing.T) {
 
 	t.Run("clears a lock whose holder is judged gone, and marks its record released", func(t *testing.T) {
 		dir := t.TempDir()
-		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main", Markers: procid.Markers{Project: "berth-abc"}}
+		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main", Markers: procid.Markers{Project: "treerig-abc"}}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil { // leaves the record unreleased, as a killed holder would
@@ -186,7 +186,7 @@ func TestClear(t *testing.T) {
 
 		// The flock itself is free again: another acquirer does not wait.
 		again := New(scope, testOptions(t))
-		if _, err := again.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := again.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatalf("expected the flock to be free after Clear: %v", err)
 		}
 		_ = again.Release()
@@ -201,7 +201,7 @@ func TestClear(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "registry"), Description: "global worktree registry"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil {
@@ -229,7 +229,7 @@ func TestClear(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil {
@@ -265,7 +265,7 @@ func TestClear(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{Target: filepath.Join(dir, "worktree"), Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil {
@@ -296,7 +296,7 @@ func TestClear(t *testing.T) {
 
 		for _, scope := range []Scope{goneScope, operationScope} {
 			lk := New(scope, testOptions(t))
-			if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 				t.Fatal(err)
 			}
 			if err := lk.Abandon(); err != nil {
@@ -339,7 +339,7 @@ func TestClear(t *testing.T) {
 
 		for _, scope := range []Scope{goneScope, unverifiableScope} {
 			lk := New(scope, testOptions(t))
-			if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 				t.Fatal(err)
 			}
 			if err := lk.Abandon(); err != nil {
@@ -379,7 +379,7 @@ func TestClear(t *testing.T) {
 
 		for _, scope := range []Scope{firstScope, secondScope} {
 			lk := New(scope, testOptions(t))
-			if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 				t.Fatal(err)
 			}
 			if err := lk.Abandon(); err != nil {
@@ -420,7 +420,7 @@ func TestClear(t *testing.T) {
 		opts := clearOptions(t)
 		table := opts.Table.(*fakeTable)
 		lk := New(scope, Options{Table: table, Watchdog: -1})
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil {
@@ -447,10 +447,10 @@ func TestClear(t *testing.T) {
 		dir := t.TempDir()
 		scope := Scope{
 			Target: filepath.Join(dir, "worktree"), Description: "worktree main",
-			Markers: procid.Markers{Project: "berth-cancel"},
+			Markers: procid.Markers{Project: "treerig-cancel"},
 		}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil {
@@ -461,7 +461,7 @@ func TestClear(t *testing.T) {
 		table := opts.Table.(*fakeTable)
 		// A survivor on the first scan is what makes scanSurvivorsAcross
 		// take its own second look, exactly like judgeForClear's above.
-		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"berth-cancel"}}}}}
+		table.scans = []procid.Scan{{Procs: []procid.Proc{{PID: 4242, Args: []string{"treerig-cancel"}}}}}
 
 		ctx, cancel := context.WithCancelCause(context.Background())
 		cancel(&clierr.Cancelled{Signal: syscall.SIGINT})

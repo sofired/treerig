@@ -1,1 +1,1 @@
-[berth] ERROR: Refusing to use the teardown pin BASE/berth-home/control-home/teardown/pin.json: it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again.
+[treerig] ERROR: Refusing to use the teardown pin BASE/treerig-home/control-home/teardown/pin.json: it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again.

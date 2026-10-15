@@ -5,13 +5,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // ServiceRoute is one declared service's routed URL — the shared building
-// block for `berth urls` (commands.WorktreeURLs wraps Routes), hooks
-// and `berth run`'s commands (ServiceURLVariables). Subdomain and Path travel with it only so RootRoute can tell a route
+// block for `treerig urls` (commands.WorktreeURLs wraps Routes), hooks
+// and `treerig run`'s commands (ServiceURLVariables). Subdomain and Path travel with it only so RootRoute can tell a route
 // claiming the host root outright from one that merely shares that host
 // under a path or a different subdomain.
 type ServiceRoute struct {
@@ -19,7 +19,7 @@ type ServiceRoute struct {
 	Subdomain string
 	Path      *string
 	URL       string
-	// Port is the loopback port berth allocated to the service (#119), 0
+	// Port is the loopback port treerig allocated to the service (#119), 0
 	// when none has been. Routes never sets it; WithPorts does.
 	Port int
 }
@@ -27,7 +27,7 @@ type ServiceRoute struct {
 // Routes is the URL each of services will answer on, in config order: the
 // host is <slug>.<domain>, prefixed by a service's own subdomain when it
 // declares one and suffixed by its path when it declares one, with the
-// router's port folded in exactly as `berth urls` folds it in — omitted
+// router's port folded in exactly as `treerig urls` folds it in — omitted
 // when it is the default HTTP port, 80.
 func Routes(services []config.Service, slug, domain string, port int) []ServiceRoute {
 	host := layout.WorktreeHost(slug, domain)
@@ -79,12 +79,12 @@ func RootRoute(routes []ServiceRoute) *ServiceRoute {
 	return nil
 }
 
-// ServiceURLVariables is the extra environment a hook — and a `berth run`
-// command (#94) — receives on top of Environment: BERTH_URL for the
+// ServiceURLVariables is the extra environment a hook — and a `treerig run`
+// command (#94) — receives on top of Environment: TREERIG_URL for the
 // worktree's root route (RootRoute), omitted rather than empty when routes
-// has none, BERTH_SERVICE_URL_<NAME> for every routed service, its name
+// has none, TREERIG_SERVICE_URL_<NAME> for every routed service, its name
 // upper-cased with each hyphen turned into an underscore, and
-// BERTH_SERVICE_PORT_<NAME> (same name mapping) for every routed service
+// TREERIG_SERVICE_PORT_<NAME> (same name mapping) for every routed service
 // that has an allocated loopback port (#119): the port on 127.0.0.1 that
 // bypasses the router, for tools that must reach the service directly.
 //
@@ -113,12 +113,12 @@ func ServiceURLVariables(routes []ServiceRoute) [][2]string {
 	return pairs
 }
 
-// serviceEnvName is the token BERTH_SERVICE_URL_ uses for a Compose service
+// serviceEnvName is the token TREERIG_SERVICE_URL_ uses for a Compose service
 // name: upper-cased, with each hyphen turned into an underscore. A
 // service's name is restricted, by config's own schema, to lower-case
 // letters, digits and hyphens — an alphabet with no underscore of its own —
 // so this mapping is injective: two distinct valid names can never collide
-// on the same BERTH_SERVICE_URL_<NAME>.
+// on the same TREERIG_SERVICE_URL_<NAME>.
 func serviceEnvName(service string) string {
 	return strings.ToUpper(strings.ReplaceAll(service, "-", "_"))
 }

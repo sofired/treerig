@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // sharedChecks are the Shared services section's checks with this id.
@@ -86,7 +86,7 @@ func TestDoctorSharedServices(t *testing.T) {
 			t.Errorf("unhealthy: %+v", check)
 		}
 		w.Docker.SetStatus(id, "exited")
-		if check := only(t, sharedChecks(t, tc, "shared.service")); check.Status != commands.StatusWarn || !strings.Contains(check.Detail, "stopped") || !strings.Contains(check.Detail, "berth shared up") {
+		if check := only(t, sharedChecks(t, tc, "shared.service")); check.Status != commands.StatusWarn || !strings.Contains(check.Detail, "stopped") || !strings.Contains(check.Detail, "treerig shared up") {
 			t.Errorf("stopped: %+v", check)
 		}
 		if err := w.sharedDown(tc, commands.SharedDownOptions{}); err != nil {
@@ -104,7 +104,7 @@ func TestDoctorSharedServices(t *testing.T) {
 		w.Docker.SetSharedService("mailpit", mailpitDefinition("axllent/mailpit:v2"))
 		check := only(t, sharedChecks(t, tc, "shared.service"))
 		if check.Status != commands.StatusWarn || !strings.Contains(check.Detail, "different definition than this worktree's (started by feature-login.acme.localhost)") ||
-			!strings.Contains(check.Detail, "berth shared up --recreate mailpit") {
+			!strings.Contains(check.Detail, "treerig shared up --recreate mailpit") {
 			t.Errorf("check = %+v", check)
 		}
 	})
@@ -118,7 +118,7 @@ func TestDoctorSharedServices(t *testing.T) {
 		}
 		check := only(t, sharedChecks(t, tc, "shared.connection"))
 		if check.Status != commands.StatusWarn || !strings.Contains(check.Detail, "up but not connected: api (network ") ||
-			!strings.Contains(check.Detail, "berth up' or 'berth shared up' repairs it") {
+			!strings.Contains(check.Detail, "treerig up' or 'treerig shared up' repairs it") {
 			t.Errorf("check = %+v", check)
 		}
 	})
@@ -175,7 +175,7 @@ func TestDoctorSharedServices(t *testing.T) {
 				held = &check
 			}
 		}
-		if held == nil || held.Status != commands.StatusWarn || !strings.Contains(held.Detail, "berth shared up --reallocate-port mailpit:1025") {
+		if held == nil || held.Status != commands.StatusWarn || !strings.Contains(held.Detail, "treerig shared up --reallocate-port mailpit:1025") {
 			t.Fatalf("check = %+v", held)
 		}
 	})
@@ -304,8 +304,8 @@ func TestDoctorLocksShowsTheSharedLock(t *testing.T) {
 		}
 	}
 
-	holder := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "berth up"})
-	if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+	holder := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "treerig up"})
+	if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 		t.Fatal(err)
 	}
 	defer holder.Release()

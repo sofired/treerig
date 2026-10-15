@@ -30,7 +30,7 @@ func CheckExecutable(data []byte, platform string) error {
 	case "darwin":
 		return checkMachO(data, goarch)
 	}
-	return fmt.Errorf("%s is not a platform berth builds", platform)
+	return fmt.Errorf("%s is not a platform treerig builds", platform)
 }
 
 // checkELF requires an executable ELF file for goarch.
@@ -42,7 +42,7 @@ func checkELF(data []byte, goarch string) error {
 	defer func() { _ = file.Close() }()
 	want, ok := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[goarch]
 	if !ok {
-		return fmt.Errorf("%s is not an architecture berth builds", goarch)
+		return fmt.Errorf("%s is not an architecture treerig builds", goarch)
 	}
 	if file.Type != elf.ET_EXEC && file.Type != elf.ET_DYN {
 		return fmt.Errorf("an ELF file of type %s, not an executable", file.Type)
@@ -57,7 +57,7 @@ func checkELF(data []byte, goarch string) error {
 func checkMachO(data []byte, goarch string) error {
 	want, ok := map[string]macho.Cpu{"amd64": macho.CpuAmd64, "arm64": macho.CpuArm64}[goarch]
 	if !ok {
-		return fmt.Errorf("%s is not an architecture berth builds", goarch)
+		return fmt.Errorf("%s is not an architecture treerig builds", goarch)
 	}
 	if fat, err := macho.NewFatFile(bytes.NewReader(data)); err == nil {
 		defer func() { _ = fat.Close() }()

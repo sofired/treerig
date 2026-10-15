@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // Host routes (docs/design/routing.md, decision 11): a route from the
@@ -186,7 +186,7 @@ func (r HostRoute) Same(other HostRoute) bool {
 // controlHome: a worktree's routed service or a repository's shared service.
 // It is "" when nothing does. A record that cannot be read refuses the call,
 // as an allocation does, since it may hold the port. Host routes are not
-// holders: they name a port a process listens on, which berth did not pin.
+// holders: they name a port a process listens on, which treerig did not pin.
 func PortHolder(controlHome string, port int) (string, error) {
 	scan, err := ScanRegistrations(controlHome)
 	if err != nil {

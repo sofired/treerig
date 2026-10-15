@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // rtlOverride is U+202E, the right-to-left override: config show must escape
@@ -30,7 +30,7 @@ import (
 // reads unambiguously in a diff instead of as an invisible control byte.
 const rtlOverride = rune(0x202e)
 
-// streamsConfig is a minimal, valid berth.toml: one service, no hooks.
+// streamsConfig is a minimal, valid treerig.toml: one service, no hooks.
 const streamsConfig = `
 [project]
 name = "acme"
@@ -47,36 +47,36 @@ type invocation struct {
 	Code           int
 }
 
-// berthOptions adjusts one run of runBerth from its defaults: the real PATH,
-// no BERTH_DEBUG, no extra environment.
-type berthOptions struct {
+// treerigOptions adjusts one run of runTreerig from its defaults: the real PATH,
+// no TREERIG_DEBUG, no extra environment.
+type treerigOptions struct {
 	// path overrides PATH; empty keeps the real one, as Node's own child
 	// process would inherit it.
 	path string
-	// debug sets BERTH_DEBUG=1.
+	// debug sets TREERIG_DEBUG=1.
 	debug bool
-	// env sets or overrides further variables, applied after BERTH_HOME,
+	// env sets or overrides further variables, applied after TREERIG_HOME,
 	// PATH and HOME so a case can override any of them too.
 	env map[string]string
 }
 
-// runBerth runs binary with args in cwd, giving it BERTH_HOME under cwd and
+// runTreerig runs binary with args in cwd, giving it TREERIG_HOME under cwd and
 // HOME set to cwd — never this process's own environment, so no run here
 // can touch a real developer's registered worktrees or router — and reports
 // its stdout, stderr and exit code.
-func runBerth(t *testing.T, binary, cwd string, args []string, opts berthOptions) invocation {
+func runTreerig(t *testing.T, binary, cwd string, args []string, opts treerigOptions) invocation {
 	t.Helper()
 	path := opts.path
 	if path == "" {
 		path = os.Getenv("PATH")
 	}
 	env := []string{
-		"BERTH_HOME=" + filepath.Join(cwd, "control-home"),
+		"TREERIG_HOME=" + filepath.Join(cwd, "control-home"),
 		"PATH=" + path,
 		"HOME=" + cwd,
 	}
 	if opts.debug {
-		env = append(env, "BERTH_DEBUG=1")
+		env = append(env, "TREERIG_DEBUG=1")
 	}
 	for key, value := range opts.env {
 		env = append(env, key+"="+value)
@@ -97,7 +97,7 @@ func runBerth(t *testing.T, binary, cwd string, args []string, opts berthOptions
 	return invocation{Stdout: stdout.String(), Stderr: stderr.String(), Code: code}
 }
 
-// writeStreamsProject lays out a fresh directory with the given berth.toml
+// writeStreamsProject lays out a fresh directory with the given treerig.toml
 // content and a minimal compose.yaml (one "api" service backed by busybox).
 func writeStreamsProject(t *testing.T, config string) string {
 	t.Helper()
@@ -105,7 +105,7 @@ func writeStreamsProject(t *testing.T, config string) string {
 	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  api:\n    image: busybox:1.37.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "berth.toml"), []byte(config), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "treerig.toml"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -148,7 +148,7 @@ func TestStreamsContract(t *testing.T) {
 	t.Run("puts a validator report on stdout and keeps stderr empty", func(t *testing.T) {
 		cwd := writeStreamsProject(t, streamsConfig)
 
-		result := runBerth(t, binary, cwd, []string{"config", "validate"}, berthOptions{})
+		result := runTreerig(t, binary, cwd, []string{"config", "validate"}, treerigOptions{})
 
 		if result.Code != 0 {
 			t.Fatalf("exit code = %d, want 0\nstderr=%q", result.Code, result.Stderr)
@@ -156,8 +156,8 @@ func TestStreamsContract(t *testing.T) {
 		if result.Stderr != "" {
 			t.Errorf("stderr = %q, want empty", result.Stderr)
 		}
-		if !strings.Contains(result.Stdout, "berth.toml is valid.") {
-			t.Errorf("stdout = %q, want it to contain %q", result.Stdout, "berth.toml is valid.")
+		if !strings.Contains(result.Stdout, "treerig.toml is valid.") {
+			t.Errorf("stdout = %q, want it to contain %q", result.Stdout, "treerig.toml is valid.")
 		}
 		if !strings.Contains(result.Stdout, "project acme · domain acme.localhost · 1 service(s) · 0 hook(s)") {
 			t.Errorf("stdout = %q, missing the summary line", result.Stdout)
@@ -173,7 +173,7 @@ verify  = "./verify.sh"
 backup  = "./backup.sh"
 `)
 
-		result := runBerth(t, binary, cwd, []string{"config", "validate"}, berthOptions{})
+		result := runTreerig(t, binary, cwd, []string{"config", "validate"}, treerigOptions{})
 
 		if !strings.Contains(result.Stdout, "1 service(s) · 4 hook(s)") {
 			t.Errorf("stdout = %q, want the 4-hook(s) count", result.Stdout)
@@ -187,7 +187,7 @@ backup  = "./backup.sh"
 			`label   = "`+wantLabel+"\"\n"+
 			`purpose = "surface"`+"\n")
 
-		result := runBerth(t, binary, cwd, []string{"config", "show"}, berthOptions{})
+		result := runTreerig(t, binary, cwd, []string{"config", "show"}, treerigOptions{})
 
 		if result.Stderr != "" {
 			t.Errorf("stderr = %q, want empty", result.Stderr)
@@ -215,9 +215,9 @@ backup  = "./backup.sh"
 	})
 
 	t.Run("keeps a failure, and what it names, off stdout", func(t *testing.T) {
-		cwd := registrytest.TempDir(t) // no berth.toml anywhere above this directory
+		cwd := registrytest.TempDir(t) // no treerig.toml anywhere above this directory
 
-		result := runBerth(t, binary, cwd, []string{"config", "validate"}, berthOptions{})
+		result := runTreerig(t, binary, cwd, []string{"config", "validate"}, treerigOptions{})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
@@ -225,14 +225,14 @@ backup  = "./backup.sh"
 		if result.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", result.Stdout)
 		}
-		if !strings.Contains(result.Stderr, "No berth.toml found") {
-			t.Errorf("stderr = %q, want it to contain %q", result.Stderr, "No berth.toml found")
+		if !strings.Contains(result.Stderr, "No treerig.toml found") {
+			t.Errorf("stderr = %q, want it to contain %q", result.Stderr, "No treerig.toml found")
 		}
-		if !strings.Contains(result.Stderr, "berth.example.toml") {
-			t.Errorf("stderr = %q, want it to point at berth.example.toml", result.Stderr)
+		if !strings.Contains(result.Stderr, "treerig.example.toml") {
+			t.Errorf("stderr = %q, want it to point at treerig.example.toml", result.Stderr)
 		}
-		if !strings.Contains(result.Stderr, "Run 'berth init' at the root of the repository") {
-			t.Errorf("stderr = %q, want it to suggest berth init", result.Stderr)
+		if !strings.Contains(result.Stderr, "Run 'treerig init' at the root of the repository") {
+			t.Errorf("stderr = %q, want it to suggest treerig init", result.Stderr)
 		}
 	})
 
@@ -247,7 +247,7 @@ backup  = "./backup.sh"
 			t.Fatal(err)
 		}
 
-		result := runBerth(t, binary, sub, []string{"init"}, berthOptions{})
+		result := runTreerig(t, binary, sub, []string{"init"}, treerigOptions{})
 
 		if result.Code != 0 {
 			t.Fatalf("exit code = %d, want 0\nstderr=%q", result.Code, result.Stderr)
@@ -255,39 +255,39 @@ backup  = "./backup.sh"
 		if result.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", result.Stdout)
 		}
-		if !strings.Contains(result.Stderr, "Wrote "+filepath.Join(repo, "berth.toml")+".") {
+		if !strings.Contains(result.Stderr, "Wrote "+filepath.Join(repo, "treerig.toml")+".") {
 			t.Errorf("stderr = %q, want it to name the file written at the repository root", result.Stderr)
 		}
 		if strings.Contains(result.Stderr, "WARNING") {
 			t.Errorf("stderr = %q, want no warning: the Compose file was found", result.Stderr)
 		}
-		written, err := os.ReadFile(filepath.Join(repo, "berth.toml"))
+		written, err := os.ReadFile(filepath.Join(repo, "treerig.toml"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(string(written), "\nfile = \"docker-compose.yml\"\n") {
-			t.Errorf("berth.toml does not name the Compose file found:\n%s", written)
+			t.Errorf("treerig.toml does not name the Compose file found:\n%s", written)
 		}
 
-		validated := runBerth(t, binary, sub, []string{"config", "validate"}, berthOptions{})
+		validated := runTreerig(t, binary, sub, []string{"config", "validate"}, treerigOptions{})
 
 		if validated.Code != 0 || validated.Stderr != "" {
 			t.Fatalf("config validate: exit %d, stderr=%q; want 0 and empty", validated.Code, validated.Stderr)
 		}
-		if !strings.Contains(validated.Stdout, "berth.toml is valid.") {
-			t.Errorf("stdout = %q, want it to say berth.toml is valid", validated.Stdout)
+		if !strings.Contains(validated.Stdout, "treerig.toml is valid.") {
+			t.Errorf("stdout = %q, want it to say treerig.toml is valid", validated.Stdout)
 		}
 	})
 
-	t.Run("init refuses to overwrite a berth.toml, writing nothing to stdout", func(t *testing.T) {
+	t.Run("init refuses to overwrite a treerig.toml, writing nothing to stdout", func(t *testing.T) {
 		repo := registrytest.TempDir(t)
 		gitInitCommit(t, repo)
-		existing := filepath.Join(repo, "berth.toml")
+		existing := filepath.Join(repo, "treerig.toml")
 		if err := os.WriteFile(existing, []byte("# mine\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
-		result := runBerth(t, binary, repo, []string{"init"}, berthOptions{})
+		result := runTreerig(t, binary, repo, []string{"init"}, treerigOptions{})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
@@ -295,11 +295,11 @@ backup  = "./backup.sh"
 		if result.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", result.Stdout)
 		}
-		if !strings.Contains(result.Stderr, "[berth] ERROR: "+existing+" already exists; not overwriting it.") {
+		if !strings.Contains(result.Stderr, "[treerig] ERROR: "+existing+" already exists; not overwriting it.") {
 			t.Errorf("stderr = %q, want the refusal", result.Stderr)
 		}
 		if got, _ := os.ReadFile(existing); string(got) != "# mine\n" {
-			t.Errorf("berth.toml = %q, want it untouched", got)
+			t.Errorf("treerig.toml = %q, want it untouched", got)
 		}
 	})
 
@@ -308,25 +308,25 @@ backup  = "./backup.sh"
 		gitInitCommit(t, here)
 		gitInitCommit(t, other)
 
-		result := runBerth(t, binary, here, []string{"init"}, berthOptions{
+		result := runTreerig(t, binary, here, []string{"init"}, treerigOptions{
 			env: map[string]string{"GIT_DIR": filepath.Join(other, ".git"), "GIT_WORK_TREE": other},
 		})
 
 		if result.Code != 0 {
 			t.Fatalf("exit code = %d, want 0\nstderr=%q", result.Code, result.Stderr)
 		}
-		if _, err := os.Stat(filepath.Join(here, "berth.toml")); err != nil {
-			t.Errorf("no berth.toml at this checkout's root: %v", err)
+		if _, err := os.Stat(filepath.Join(here, "treerig.toml")); err != nil {
+			t.Errorf("no treerig.toml at this checkout's root: %v", err)
 		}
-		if _, err := os.Stat(filepath.Join(other, "berth.toml")); err == nil {
-			t.Error("wrote berth.toml into the repository GIT_DIR named")
+		if _, err := os.Stat(filepath.Join(other, "treerig.toml")); err == nil {
+			t.Error("wrote treerig.toml into the repository GIT_DIR named")
 		}
 	})
 
 	t.Run("init tells you to install Git, exiting 127, when there is none on PATH", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
 
-		result := runBerth(t, binary, dir, []string{"init"}, berthOptions{path: emptyPATHDir(t)})
+		result := runTreerig(t, binary, dir, []string{"init"}, treerigOptions{path: emptyPATHDir(t)})
 
 		if result.Code != 127 {
 			t.Errorf("exit code = %d, want 127", result.Code)
@@ -334,7 +334,7 @@ backup  = "./backup.sh"
 		if result.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", result.Stdout)
 		}
-		if !strings.Contains(result.Stderr, "[berth] ERROR: Git was not found on PATH. Install Git, then run 'berth init' again.") {
+		if !strings.Contains(result.Stderr, "[treerig] ERROR: Git was not found on PATH. Install Git, then run 'treerig init' again.") {
 			t.Errorf("stderr = %q, want the install hint", result.Stderr)
 		}
 	})
@@ -342,7 +342,7 @@ backup  = "./backup.sh"
 	t.Run("init refuses outside a git repository, writing nothing to stdout", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
 
-		result := runBerth(t, binary, dir, []string{"init"}, berthOptions{})
+		result := runTreerig(t, binary, dir, []string{"init"}, treerigOptions{})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
@@ -350,21 +350,21 @@ backup  = "./backup.sh"
 		if result.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", result.Stdout)
 		}
-		if !strings.Contains(result.Stderr, "[berth] ERROR: "+dir+" is not inside a Git checkout (fatal: not a git repository") {
+		if !strings.Contains(result.Stderr, "[treerig] ERROR: "+dir+" is not inside a Git checkout (fatal: not a git repository") {
 			t.Errorf("stderr = %q, want the refusal", result.Stderr)
 		}
-		if _, err := os.Stat(filepath.Join(dir, "berth.toml")); err == nil {
-			t.Error("wrote a berth.toml outside a repository")
+		if _, err := os.Stat(filepath.Join(dir, "treerig.toml")); err == nil {
+			t.Error("wrote a treerig.toml outside a repository")
 		}
 	})
 
 	t.Run("filters the stack trace it prints when asked for one", func(t *testing.T) {
 		cwd := writeStreamsProject(t, streamsConfig)
-		// The path is echoed back in the failure, and with BERTH_DEBUG=1 it is
+		// The path is echoed back in the failure, and with TREERIG_DEBUG=1 it is
 		// echoed again inside the stack trace, printed outside the logger.
 		hostile := filepath.Join(cwd, "missing\x1b[2K.toml")
 
-		result := runBerth(t, binary, cwd, []string{"--config", hostile, "config", "validate"}, berthOptions{debug: true})
+		result := runTreerig(t, binary, cwd, []string{"--config", hostile, "config", "validate"}, treerigOptions{debug: true})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
@@ -384,7 +384,7 @@ backup  = "./backup.sh"
 		cwd := writeStreamsProject(t, streamsConfig)
 		empty := emptyPATHDir(t) // neither git nor docker can be found
 
-		result := runBerth(t, binary, cwd, []string{"doctor"}, berthOptions{path: empty})
+		result := runTreerig(t, binary, cwd, []string{"doctor"}, treerigOptions{path: empty})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
@@ -401,10 +401,10 @@ backup  = "./backup.sh"
 		if !strings.Contains(result.Stdout, "This checkout") {
 			t.Errorf("stdout = %q, want the This checkout section", result.Stdout)
 		}
-		if strings.Contains(result.Stdout, "[berth]") {
+		if strings.Contains(result.Stdout, "[treerig]") {
 			t.Errorf("stdout = %q, must not carry the logger's own prefix", result.Stdout)
 		}
-		if !regexp.MustCompile(`(?m)^\[berth\] ERROR: \d+ check\(s\) failed\.$`).MatchString(result.Stderr) {
+		if !regexp.MustCompile(`(?m)^\[treerig\] ERROR: \d+ check\(s\) failed\.$`).MatchString(result.Stderr) {
 			t.Errorf("stderr = %q, want the failure summary", result.Stderr)
 		}
 	})
@@ -428,11 +428,11 @@ backup  = "./backup.sh"
 			t.Fatal(err)
 		}
 
-		// The fake engine is a Linux one, which berth on any other client OS
-		// cannot place, so the router mode is set in runBerth's berth root.
+		// The fake engine is a Linux one, which treerig on any other client OS
+		// cannot place, so the router mode is set in runTreerig's treerig root.
 		registrytest.WriteScratchSettings(t, filepath.Join(cwd, "control-home"), "[router]\nmode = \"host\"\n")
 
-		result := runBerth(t, binary, cwd, []string{"doctor"}, berthOptions{path: bin})
+		result := runTreerig(t, binary, cwd, []string{"doctor"}, treerigOptions{path: bin})
 
 		if result.Code != 0 {
 			t.Errorf("exit code = %d, want 0\nstdout=%q\nstderr=%q", result.Code, result.Stdout, result.Stderr)
@@ -443,7 +443,7 @@ backup  = "./backup.sh"
 		if !regexp.MustCompile(`(?m)^ {2}ok {4}router +not running`).MatchString(result.Stdout) {
 			t.Errorf("stdout = %q, want an ok router check", result.Stdout)
 		}
-		if !regexp.MustCompile(`(?m)^\[berth\] No checks failed \(1 skipped\)\.$`).MatchString(result.Stderr) {
+		if !regexp.MustCompile(`(?m)^\[treerig\] No checks failed \(1 skipped\)\.$`).MatchString(result.Stderr) {
 			t.Errorf("stderr = %q, want the no-failures notice", result.Stderr)
 		}
 		if strings.Contains(result.Stderr, "ERROR") {
@@ -454,12 +454,12 @@ backup  = "./backup.sh"
 	t.Run("reports a router port it cannot use as a failed check, and still reports the rest", func(t *testing.T) {
 		cwd := writeStreamsProject(t, streamsConfig)
 
-		result := runBerth(t, binary, cwd, []string{"doctor"}, berthOptions{env: map[string]string{"BERTH_ROUTER_PORT": "eighty"}})
+		result := runTreerig(t, binary, cwd, []string{"doctor"}, treerigOptions{env: map[string]string{"TREERIG_ROUTER_PORT": "eighty"}})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
 		}
-		if !regexp.MustCompile(`(?m)^ {2}fail {2}router +BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "eighty"\.$`).MatchString(result.Stdout) {
+		if !regexp.MustCompile(`(?m)^ {2}fail {2}router +TREERIG_ROUTER_PORT must be a port number between 1 and 65535, not "eighty"\.$`).MatchString(result.Stdout) {
 			t.Errorf("stdout = %q, want the failed router-port check", result.Stdout)
 		}
 		if !strings.Contains(result.Stdout, "This checkout") {
@@ -471,18 +471,18 @@ backup  = "./backup.sh"
 		cwd := writeStreamsProject(t, streamsConfig)
 		gitInitCommit(t, cwd)
 
-		neverUp := runBerth(t, binary, cwd, []string{"worktree", "unlock"}, berthOptions{})
+		neverUp := runTreerig(t, binary, cwd, []string{"worktree", "unlock"}, treerigOptions{})
 		if neverUp.Code != 1 {
 			t.Errorf("exit code = %d, want 1", neverUp.Code)
 		}
 		if neverUp.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", neverUp.Stdout)
 		}
-		if !strings.Contains(neverUp.Stderr, "This checkout has never been brought up, so it holds no lock. Name another with 'berth worktree unlock <slug|uuid>'.") {
+		if !strings.Contains(neverUp.Stderr, "This checkout has never been brought up, so it holds no lock. Name another with 'treerig worktree unlock <slug|uuid>'.") {
 			t.Errorf("stderr = %q, want the never-up refusal", neverUp.Stderr)
 		}
 
-		unknown := runBerth(t, binary, cwd, []string{"worktree", "unlock", "nobody"}, berthOptions{})
+		unknown := runTreerig(t, binary, cwd, []string{"worktree", "unlock", "nobody"}, treerigOptions{})
 		if unknown.Code != 1 {
 			t.Errorf("exit code = %d, want 1", unknown.Code)
 		}
@@ -498,7 +498,7 @@ backup  = "./backup.sh"
 		cwd := writeStreamsProject(t, streamsConfig)
 		gitInitCommit(t, cwd)
 
-		result := runBerth(t, binary, cwd, []string{"status"}, berthOptions{})
+		result := runTreerig(t, binary, cwd, []string{"status"}, treerigOptions{})
 
 		if result.Code != 0 {
 			t.Errorf("exit code = %d, want 0", result.Code)
@@ -515,7 +515,7 @@ backup  = "./backup.sh"
 		cwd := writeStreamsProject(t, streamsConfig)
 		gitInitCommit(t, cwd)
 
-		result := runBerth(t, binary, cwd, []string{"worktree", "list", "--json"}, berthOptions{})
+		result := runTreerig(t, binary, cwd, []string{"worktree", "list", "--json"}, treerigOptions{})
 
 		if result.Code != 0 {
 			t.Errorf("exit code = %d, want 0", result.Code)
@@ -545,7 +545,7 @@ backup  = "./backup.sh"
 			t.Fatal(err)
 		}
 
-		result := runBerth(t, binary, cwd, []string{"up", "api"}, berthOptions{path: onlyGit})
+		result := runTreerig(t, binary, cwd, []string{"up", "api"}, treerigOptions{path: onlyGit})
 
 		if result.Code == 0 {
 			t.Errorf("exit code = 0, want a failure")
@@ -553,7 +553,7 @@ backup  = "./backup.sh"
 		if result.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", result.Stdout)
 		}
-		if !regexp.MustCompile(`(?im)^\[berth\] ERROR: .*docker`).MatchString(result.Stderr) {
+		if !regexp.MustCompile(`(?im)^\[treerig\] ERROR: .*docker`).MatchString(result.Stderr) {
 			t.Errorf("stderr = %q, want it to name docker", result.Stderr)
 		}
 	})
@@ -562,7 +562,7 @@ backup  = "./backup.sh"
 		cwd := writeStreamsProject(t, streamsConfig)
 		empty := emptyPATHDir(t) // no docker to be found, which is what an unreachable router looks like from here
 
-		result := runBerth(t, binary, cwd, []string{"router", "status"}, berthOptions{path: empty})
+		result := runTreerig(t, binary, cwd, []string{"router", "status"}, treerigOptions{path: empty})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
@@ -586,17 +586,17 @@ backup  = "./backup.sh"
 			t.Fatal(err)
 		}
 
-		// Through runBerth, not a hand-built exec.Command: HOME and
-		// BERTH_HOME must stay scoped to cwd here too, or this run reaches
+		// Through runTreerig, not a hand-built exec.Command: HOME and
+		// TREERIG_HOME must stay scoped to cwd here too, or this run reaches
 		// past its own fixture into whatever this machine's real developer
 		// has registered.
-		named := runBerth(t, link, cwd, []string{"--help"}, berthOptions{})
+		named := runTreerig(t, link, cwd, []string{"--help"}, treerigOptions{})
 		if !strings.Contains(named.Stdout, "Usage:\n  duke [flags]\n  duke [command]") {
 			t.Errorf("stdout = %q, want the symlinked name in the usage line", named.Stdout)
 		}
 
-		byPath := runBerth(t, binary, cwd, []string{"--help"}, berthOptions{})
-		if !strings.Contains(byPath.Stdout, "Usage:\n  berth [flags]\n  berth [command]") {
+		byPath := runTreerig(t, binary, cwd, []string{"--help"}, treerigOptions{})
+		if !strings.Contains(byPath.Stdout, "Usage:\n  treerig [flags]\n  treerig [command]") {
 			t.Errorf("stdout = %q, want the product name in the usage line", byPath.Stdout)
 		}
 	})

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/teardown"
-	"github.com/sofired/berth/internal/teardown/teardowntest"
+	"github.com/sofired/treerig/internal/teardown"
+	"github.com/sofired/treerig/internal/teardown/teardowntest"
 )
 
 func TestCheckExecutable(t *testing.T) {
@@ -32,7 +32,7 @@ func TestCheckExecutable(t *testing.T) {
 		{"a Mach-O that is not an executable", teardowntest.MachO(macho.CpuArm64, macho.TypeDylib), "darwin_arm64", "a Mach-O file of type Dylib, not an executable"},
 		{"a fat Mach-O without the architecture", teardowntest.Fat(teardowntest.MachO(macho.CpuArm64, macho.TypeExec)), "darwin_amd64", "a fat Mach-O file with no executable for CpuAmd64"},
 		{"a truncated ELF", teardowntest.ELF(elf.EM_X86_64, elf.ET_EXEC)[:20], "linux_amd64", "not an ELF file"},
-		{"an unknown platform", teardowntest.ELF(elf.EM_X86_64, elf.ET_EXEC), "freebsd_amd64", "freebsd_amd64 is not a platform berth builds"},
+		{"an unknown platform", teardowntest.ELF(elf.EM_X86_64, elf.ET_EXEC), "freebsd_amd64", "freebsd_amd64 is not a platform treerig builds"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := teardown.CheckExecutable(tc.data, tc.platform)

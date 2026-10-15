@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 // binaryOf is the digest of content, as a pin records it.
@@ -137,7 +137,7 @@ func TestUpdate(t *testing.T) {
 	t.Run("another source with the same release and checksums merges: the checksums are what was verified", func(t *testing.T) {
 		existing := releasePin("1.2.3", "c", map[string]string{"linux_amd64": "b"})
 		incoming := releasePin("1.2.3", "c", map[string]string{"darwin_arm64": "m"})
-		incoming.Source = "https://mirror.example/berth/releases/download/v1.2.3/"
+		incoming.Source = "https://mirror.example/treerig/releases/download/v1.2.3/"
 		if got := teardown.Update(existing, true, incoming); got.Kind != teardown.Merged {
 			t.Errorf("Kind = %v", got.Kind)
 		}

@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // applyCommand is a locked command with the default kill-after, as a bare
-// string in berth.toml would give.
+// string in treerig.toml would give.
 func applyCommand(line string) config.Command {
 	return config.Command{Command: line, Lock: true, KillAfter: config.DefaultCommandKillAfter}
 }
@@ -70,45 +70,45 @@ func TestRunCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("sets BERTH_COMMAND and the worktree's variables, and never BERTH_STAGE, inherited or not", func(t *testing.T) {
+	t.Run("sets TREERIG_COMMAND and the worktree's variables, and never TREERIG_STAGE, inherited or not", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{})
-		// As inside a hook of another worktree that runs `berth run`.
-		hctx.Environ = []string{"PATH=/usr/bin", "BERTH_STAGE=prepare", "BERTH_COMMAND=stale"}
+		// As inside a hook of another worktree that runs `treerig run`.
+		hctx.Environ = []string{"PATH=/usr/bin", "TREERIG_STAGE=prepare", "TREERIG_COMMAND=stale"}
 		if err := hooks.RunCommand(ctx, "apply", applyCommand("./apply.sh"), nil, hctx); err != nil {
 			t.Fatal(err)
 		}
 		env := runner.Calls()[0].Env
 		for k, v := range map[string]string{
-			"BERTH_COMMAND": "apply", "BERTH_SLUG": "feature-login", "BERTH_WORKTREE_ID": "wt-1",
-			"BERTH_HOST": "feature-login.acme.localhost", "BERTH_ROOT": "/work/acme", "PATH": "/usr/bin",
+			"TREERIG_COMMAND": "apply", "TREERIG_SLUG": "feature-login", "TREERIG_WORKTREE_ID": "wt-1",
+			"TREERIG_HOST": "feature-login.acme.localhost", "TREERIG_ROOT": "/work/acme", "PATH": "/usr/bin",
 		} {
 			if !containsEnv(env, k, v) {
 				t.Errorf("want %s=%s in %v", k, v, env)
 			}
 		}
 		for _, entry := range env {
-			if strings.HasPrefix(entry, "BERTH_STAGE=") {
-				t.Errorf("BERTH_STAGE reached the command: %v", env)
+			if strings.HasPrefix(entry, "TREERIG_STAGE=") {
+				t.Errorf("TREERIG_STAGE reached the command: %v", env)
 			}
 		}
 	})
 
-	t.Run("hands the command BERTH_URL and BERTH_SERVICE_URL_<NAME> like a hook (#28)", func(t *testing.T) {
+	t.Run("hands the command TREERIG_URL and TREERIG_SERVICE_URL_<NAME> like a hook (#28)", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{})
 		hctx.Routes = worktree.Routes([]config.Service{{Name: "api"}, {Name: "mail-relay", Subdomain: "mail"}}, hctx.Ref.Slug, hctx.Source.Domain, 8443)
-		hctx.Environ = []string{"BERTH_SERVICE_URL_OTHER=http://other"}
+		hctx.Environ = []string{"TREERIG_SERVICE_URL_OTHER=http://other"}
 		if err := hooks.RunCommand(ctx, "apply", applyCommand("./apply.sh"), nil, hctx); err != nil {
 			t.Fatal(err)
 		}
 		env := runner.Calls()[0].Env
-		if !containsEnv(env, "BERTH_URL", "http://feature-login.acme.localhost:8443") ||
-			!containsEnv(env, "BERTH_SERVICE_URL_MAIL_RELAY", "http://mail.feature-login.acme.localhost:8443") {
+		if !containsEnv(env, "TREERIG_URL", "http://feature-login.acme.localhost:8443") ||
+			!containsEnv(env, "TREERIG_SERVICE_URL_MAIL_RELAY", "http://mail.feature-login.acme.localhost:8443") {
 			t.Errorf("env = %v", env)
 		}
 		for _, entry := range env {
-			if strings.HasPrefix(entry, "BERTH_SERVICE_URL_OTHER=") {
+			if strings.HasPrefix(entry, "TREERIG_SERVICE_URL_OTHER=") {
 				t.Errorf("inherited %s leaked", entry)
 			}
 		}
@@ -121,25 +121,25 @@ func TestRunCommand(t *testing.T) {
 		if err := hooks.RunCommand(ctx, "apply", applyCommand("./apply.sh"), nil, hctx); err != nil {
 			t.Fatal(err)
 		}
-		if env := runner.Calls()[0].Env; !containsEnv(env, "BERTH_SHARED_ADDR_MAILPIT_1025", "127.0.0.1:30001") {
+		if env := runner.Calls()[0].Env; !containsEnv(env, "TREERIG_SHARED_ADDR_MAILPIT_1025", "127.0.0.1:30001") {
 			t.Errorf("env = %v", env)
 		}
 	})
 
-	t.Run("a hook never sees BERTH_COMMAND, even inherited from a command that ran berth", func(t *testing.T) {
+	t.Run("a hook never sees TREERIG_COMMAND, even inherited from a command that ran treerig", func(t *testing.T) {
 		runner := recordingRunner(nil)
 		hctx := newContext(runner, config.Hooks{Prepare: str("./prepare.sh")})
-		hctx.Environ = []string{"BERTH_COMMAND=apply"}
+		hctx.Environ = []string{"TREERIG_COMMAND=apply"}
 		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		env := runner.Calls()[0].Env
-		if !containsEnv(env, "BERTH_STAGE", "prepare") {
+		if !containsEnv(env, "TREERIG_STAGE", "prepare") {
 			t.Errorf("env = %v", env)
 		}
 		for _, entry := range env {
-			if strings.HasPrefix(entry, "BERTH_COMMAND=") {
-				t.Errorf("BERTH_COMMAND reached a hook: %v", env)
+			if strings.HasPrefix(entry, "TREERIG_COMMAND=") {
+				t.Errorf("TREERIG_COMMAND reached a hook: %v", env)
 			}
 		}
 	})

@@ -27,19 +27,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/osrun"
 	"golang.org/x/sys/unix"
 )
 
-// upConfig is a berth.toml with a port on each service: commandstest.Docker's
+// upConfig is a treerig.toml with a port on each service: commandstest.Docker's
 // `compose config` declares no ports, and a routed service with neither is
 // refused before anything starts.
 const upConfig = `
@@ -115,19 +115,19 @@ func newUpWorld(t *testing.T) *upWorld {
 	}
 	gitIn(t, w.root, "init", "--initial-branch=feature/login", ".")
 	gitIn(t, w.root, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-m", "initial")
-	writeFile(t, filepath.Join(w.root, "berth.toml"), upConfig, 0o644)
+	writeFile(t, filepath.Join(w.root, "treerig.toml"), upConfig, 0o644)
 	writeFile(t, filepath.Join(w.root, "compose.yaml"), "services: {}\n", 0o644)
 	// Records what it saw; fails prepare with exit 7 while the fail file
 	// exists; proves WORKTREE_HOME is writable. A stage named in
-	// $BERTH_TEST_HANG_STAGE writes its pid and waits, in a grandchild, so
+	// $TREERIG_TEST_HANG_STAGE writes its pid and waits, in a grandchild, so
 	// only a group kill stops it.
 	writeFile(t, w.hook(), strings.Join([]string{
 		"#!/bin/sh",
-		fmt.Sprintf(`echo "$BERTH_STAGE $BERTH_SLUG $BERTH_HOST $BERTH_PROJECT $BERTH_URL $BERTH_SERVICE_URL_API $BERTH_SERVICE_URL_MAIL $(pwd)" >> %q`, w.log),
-		`touch "$BERTH_WORKTREE_HOME/touched-by-$BERTH_STAGE" || exit 9`,
-		fmt.Sprintf(`if [ "$BERTH_STAGE" = prepare ] && [ -e %q ]; then exit 7; fi`, w.failFile),
+		fmt.Sprintf(`echo "$TREERIG_STAGE $TREERIG_SLUG $TREERIG_HOST $TREERIG_PROJECT $TREERIG_URL $TREERIG_SERVICE_URL_API $TREERIG_SERVICE_URL_MAIL $(pwd)" >> %q`, w.log),
+		`touch "$TREERIG_WORKTREE_HOME/touched-by-$TREERIG_STAGE" || exit 9`,
+		fmt.Sprintf(`if [ "$TREERIG_STAGE" = prepare ] && [ -e %q ]; then exit 7; fi`, w.failFile),
 		fmt.Sprintf(`if [ -e %q ]; then sh -c 'echo $$ > "$0"; exec sleep 60' %q & wait; fi`,
-			filepath.Join(base, "hang-$BERTH_STAGE"), filepath.Join(base, "hung.pid")),
+			filepath.Join(base, "hang-$TREERIG_STAGE"), filepath.Join(base, "hung.pid")),
 		"exit 0",
 		"",
 	}, "\n"), 0o755)
@@ -156,14 +156,14 @@ func (w *upWorld) context(t *testing.T, runner *fakeDockerRunner) (*commands.Com
 	log := &logger.Recording{}
 	getenv := func(key string) (string, bool) {
 		switch key {
-		// BERTH_CONTROL_HOME, not BERTH_HOME: this world's fixtures (see
+		// TREERIG_CONTROL_HOME, not TREERIG_HOME: this world's fixtures (see
 		// layout.WorktreeLayout(w.controlHome, ...) below) are written
 		// directly at w.controlHome, so it must resolve as the control home
 		// itself rather than have "control-home" derived underneath it (#80).
-		case "BERTH_CONTROL_HOME":
+		case "TREERIG_CONTROL_HOME":
 			return w.controlHome, true
 		// The router is fake in this world (commandstest.NewFakeRouter), but
-		// Context still resolves layout.RouterState; BERTH_HOME left unset
+		// Context still resolves layout.RouterState; TREERIG_HOME left unset
 		// isolates it under this test's own HOME instead of the machine's.
 		case "HOME":
 			return filepath.Join(w.base, "home"), true
@@ -177,7 +177,7 @@ func (w *upWorld) context(t *testing.T, runner *fakeDockerRunner) (*commands.Com
 	}
 	registrytest.WriteScratchSettings(t, root, "")
 	cctx, err := commands.Context(&commands.Env{
-		CommandName: "berth", Invocation: "berth up", Logger: log, Getenv: getenv,
+		CommandName: "treerig", Invocation: "treerig up", Logger: log, Getenv: getenv,
 		Environ: os.Environ(), Cwd: w.root, Runner: runner,
 	})
 	if err != nil {
@@ -332,8 +332,8 @@ func TestUpEndToEnd(t *testing.T) {
 		if want := []string{"api   http://feature-login.acme.localhost", "mail  http://mail.feature-login.acme.localhost/inbox"}; !slices.Equal(log.Printed, want) {
 			t.Fatalf("printed = %q, want %q", log.Printed, want)
 		}
-		// Hooks saw the contract: stage, slug, host, project, BERTH_URL and
-		// BERTH_SERVICE_URL_<NAME> for its own root and mail services (#28),
+		// Hooks saw the contract: stage, slug, host, project, TREERIG_URL and
+		// TREERIG_SERVICE_URL_<NAME> for its own root and mail services (#28),
 		// and the project root as cwd.
 		urlLine := "http://feature-login.acme.localhost http://feature-login.acme.localhost http://mail.feature-login.acme.localhost/inbox"
 		if want := []string{

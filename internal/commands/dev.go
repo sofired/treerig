@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // Dev is `dev` (#5): the CommandContext, the real shared router, and the
@@ -43,8 +43,8 @@ func Dev(ctx context.Context, env *Env) error {
 // It never returns nil: the session ends by Ctrl-C (see followLogs), by the
 // follower ending on its own, or by an error of `up`'s. Whether the follower
 // ends when the worktree's containers go varies (see
-// backend.Compose.Logs): where it keeps waiting, `berth down` leaves the
-// session idle, and `berth up` from another terminal may make it show the new
+// backend.Compose.Logs): where it keeps waiting, `treerig down` leaves the
+// session idle, and `treerig up` from another terminal may make it show the new
 // containers' logs.
 func DevWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, index Index) error {
 	_, err := UpWithContext(ctx, cctx, routerSvc, index, UpOptions{
@@ -65,7 +65,7 @@ var containerPoll = 5 * time.Second
 
 // sessionEnded is what a development session says when the user ended it,
 // the same for every way there is: Ctrl-C at the terminal, or a signal sent to
-// berth itself. It adds that the services keep running, and how to stop them,
+// treerig itself. It adds that the services keep running, and how to stop them,
 // unless the last look found none.
 func sessionEnded(cctx *CommandContext, host string, sig syscall.Signal, noContainers bool) string {
 	message := fmt.Sprintf("The development session of %s ended (%s).", host, clierr.SignalName(sig))
@@ -79,10 +79,10 @@ func sessionEnded(cctx *CommandContext, host string, sig syscall.Signal, noConta
 // It runs with only the development-session lock held.
 //
 // A Ctrl-C at a terminal goes to the follower's own foreground process
-// group, not to berth, so it arrives here as the follower ending by SIGINT
+// group, not to treerig, so it arrives here as the follower ending by SIGINT
 // (or exiting 130, as Compose does when it handles the interrupt itself):
 // that is the session ending as asked, reported with sessionEnded's notice
-// and exit status 130. A SIGINT, SIGTERM or SIGHUP that reaches berth itself
+// and exit status 130. A SIGINT, SIGTERM or SIGHUP that reaches treerig itself
 // (a kill, or a Ctrl-C with no terminal) cancels ctx: the runner stops the
 // follower's process group first, the same notice is printed, and the error
 // returned is the cancellation, which ends the process by that signal, exit

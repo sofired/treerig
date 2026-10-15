@@ -8,7 +8,7 @@ import (
 
 // composeConfigCorpusCase is one entry of the hand-maintained
 // testdata/compose-config-corpus.json (its origin is in git history): a
-// `docker compose config --format json` document, plus whether berth's own
+// `docker compose config --format json` document, plus whether treerig's own
 // schema validation accepts it or the exact refusal message it gives.
 type composeConfigCorpusCase struct {
 	Name   string          `json:"name"`
@@ -17,7 +17,7 @@ type composeConfigCorpusCase struct {
 	Error  string          `json:"error"`
 }
 
-// TestComposeConfigCorpus checks decodeOrderedComposeModel — berth's own
+// TestComposeConfigCorpus checks decodeOrderedComposeModel — treerig's own
 // schema validation for a `docker compose config` document — against every
 // fixture in testdata/compose-config-corpus.json: a malformed nested shape
 // (a non-object build, a wrongly typed expose or ports entry, an external

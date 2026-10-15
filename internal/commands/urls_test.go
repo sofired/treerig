@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/registry"
 )
 
 // serviceConfig is a config with an indexed service, a subdomain-only
@@ -114,7 +114,7 @@ func TestUrlsCommand(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected an error")
 		}
-		if err.Error() != "This worktree is not registered. Run 'berth up' first." {
+		if err.Error() != "This worktree is not registered. Run 'treerig up' first." {
 			t.Fatalf("unexpected message: %q", err.Error())
 		}
 		scan, err := registry.ScanRegistrations(w.ControlHome)
@@ -141,7 +141,7 @@ func TestUrlsCommand(t *testing.T) {
 		}
 		found := false
 		for _, line := range cctx.Logger.Lines {
-			if line == "warn: No [service.<name>] tables in berth.toml; nothing is routed." {
+			if line == "warn: No [service.<name>] tables in treerig.toml; nothing is routed." {
 				found = true
 			}
 		}

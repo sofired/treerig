@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // TestOverrideCorpus drives this package's own overrideDocument against a
@@ -62,7 +62,7 @@ func TestOverrideCorpus(t *testing.T) {
 
 			rt := NewCompose(Options{
 				ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-				ConfigFile: "/work/acme/berth.toml", ProjectName: "acme",
+				ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme",
 				ControlHome: "/control", Domain: domain, LabelNamespace: labelNamespace,
 				Routes: routes, Logger: logger.Silent{},
 			})

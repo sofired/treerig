@@ -6,25 +6,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
 )
 
 // nestedRefusal is the exact message a verb gives when it would wait on the
 // lock its own caller — host's own hooks or commands — already holds.
 func nestedRefusal(host string) string {
 	return fmt.Sprintf(
-		"This berth invocation runs inside %s's own hooks or commands, which may hold its lock, so it would wait on itself. "+
+		"This treerig invocation runs inside %s's own hooks or commands, which may hold its lock, so it would wait on itself. "+
 			"A hook or command can change other worktrees, but not its own.", host)
 }
 
-// inside sets BERTH_WORKTREE_ID in tc's environment, as a hook of that
+// inside sets TREERIG_WORKTREE_ID in tc's environment, as a hook of that
 // worktree would see it.
 func inside(tc *commandstest.TestContext, worktreeID string) {
-	tc.Environ = append(tc.Environ, "PATH=/usr/bin", "BERTH_WORKTREE_ID="+worktreeID)
+	tc.Environ = append(tc.Environ, "PATH=/usr/bin", "TREERIG_WORKTREE_ID="+worktreeID)
 }
 
 // requireNestedRefusal fails t unless err is exactly the nested-invocation
@@ -70,7 +70,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		}
 	})
 
-	t.Run("down proceeds with no BERTH_WORKTREE_ID at all", func(t *testing.T) {
+	t.Run("down proceeds with no TREERIG_WORKTREE_ID at all", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		tc := w.Context("", acme, nil)
@@ -90,7 +90,7 @@ func TestNestedWorktreeLock(t *testing.T) {
 		inside(tc, ref.WorktreeID)
 		before := len(w.Docker.Calls())
 
-		_, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "berth"}, commands.RemoveOptions{})
+		_, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "treerig"}, commands.RemoveOptions{})
 		requireNestedRefusal(t, err, layout.WorktreeHost("feature-login", acme))
 		if calls := w.Docker.Calls()[before:]; len(calls) != 0 {
 			t.Fatalf("Docker was called after the refusal: %v", calls)

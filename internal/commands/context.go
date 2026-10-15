@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/settings"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/settings"
 )
 
 // CommandContext is everything a verb needs, assembled once per invocation
@@ -38,18 +38,18 @@ type CommandContext struct {
 	// runs in the project root instead.
 	Cwd         string
 	ControlHome string
-	// UserHome is the checked berth root's own companion value from
+	// UserHome is the checked treerig root's own companion value from
 	// checkedHome (home.go): the caller's resolved home directory, handed
 	// to files.SecureWorktreeDirectories ahead of every write under
 	// ControlHome (up.go), the same way registry.Options.UserHome carries
 	// it to the registry's own writes (#80).
 	UserHome string
-	// RouterPort is BERTH_ROUTER_PORT, then settings.toml's [router] port
-	// under the checked berth root, then 80 (settings.ResolveRouterPort,
+	// RouterPort is TREERIG_ROUTER_PORT, then settings.toml's [router] port
+	// under the checked treerig root, then 80 (settings.ResolveRouterPort,
 	// #79) — the port `urls` prints routed services on. It is the same
 	// value a running RouterService would report as its own `port`,
 	// without needing one built.
-	// Home is the berth root (BERTH_HOME) this context resolved and checked
+	// Home is the treerig root (TREERIG_HOME) this context resolved and checked
 	// once; `up` hands it to the router it starts, as the root that owns it
 	// (#82).
 	Home       string
@@ -74,7 +74,7 @@ type CommandContext struct {
 	OS string
 	// RouterState is the shared router's own on-disk layout — where its
 	// lock and its index page live (neither is under ControlHome: the
-	// router's state is machine-wide, per berth root — see
+	// router's state is machine-wide, per treerig root — see
 	// internal/layout's RouterStateDir comment). Resolved once here so
 	// newCheckoutIndex needs no Getenv of its own.
 	RouterState layout.RouterLayout
@@ -118,7 +118,7 @@ func (c *CommandContext) Runtime(namespace string) *backend.Compose {
 }
 
 // Context builds a CommandContext: it loads the config (env.ConfigPath, or
-// the nearest berth.toml above env.Cwd), resolves the control home, and
+// the nearest treerig.toml above env.Cwd), resolves the control home, and
 // builds this checkout's worktree registry over it.
 func Context(env *Env) (*CommandContext, error) {
 	var loaded *config.Loaded
@@ -135,7 +135,7 @@ func Context(env *Env) (*CommandContext, error) {
 }
 
 // ContextWithoutConfig is Context for a verb that works from labels and
-// records alone and must still run where there is no usable berth.toml — a
+// records alone and must still run where there is no usable treerig.toml — a
 // checkout of an old branch, or a file with a mistake in it: `shared down`
 // has to be able to clean up from anywhere. It loads the config when there is
 // a usable one, and warns and goes on without it when the file is there but

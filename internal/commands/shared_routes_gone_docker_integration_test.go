@@ -3,7 +3,7 @@
 package commands_test
 
 // A real-daemon case of a shared service's routed web UI (#123): a
-// container removed behind berth's back, whose route file must be reported
+// container removed behind treerig's back, whose route file must be reported
 // and then removed by `shared down`.
 
 import (
@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/router"
 )
 
 func TestGoneSharedContainerKeepsA502RouteUntilSharedDownOnARealDaemon(t *testing.T) {

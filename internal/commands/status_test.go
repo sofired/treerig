@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // What `status` puts on stdout, and what it refuses to put there: the service
@@ -86,7 +86,7 @@ func TestWorktreeStatus(t *testing.T) {
 			t.Fatalf("statuses = %v, err = %v", statuses, err)
 		}
 		lines, printed := tc.Logger.Snapshot()
-		if len(printed) != 0 || !slices.Contains(lines, "info: Not registered — run 'berth up' to create this worktree's environment.") {
+		if len(printed) != 0 || !slices.Contains(lines, "info: Not registered — run 'treerig up' to create this worktree's environment.") {
 			t.Fatalf("lines = %q, printed = %q", lines, printed)
 		}
 		scan, err := registry.ScanRegistrations(w.ControlHome)
@@ -128,7 +128,7 @@ func TestWorktreeDown(t *testing.T) {
 	t.Run("asks for an up first when the worktree is not registered", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		err := commands.DownWithContext(ctx, w.Context("", acme, nil).CommandContext)
-		if err == nil || !regexp.MustCompile(regexp.QuoteMeta("This worktree is not registered. Run 'berth up' first.")).MatchString(err.Error()) {
+		if err == nil || !regexp.MustCompile(regexp.QuoteMeta("This worktree is not registered. Run 'treerig up' first.")).MatchString(err.Error()) {
 			t.Fatalf("err = %v", err)
 		}
 		scan, err := registry.ScanRegistrations(w.ControlHome)
@@ -226,7 +226,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		return tc, got.Services, nil
 	}
 
-	t.Run("reports a state Docker names that berth does not as unknown, with Docker's word as the detail", func(t *testing.T) {
+	t.Run("reports a state Docker names that treerig does not as unknown, with Docker's word as the detail", func(t *testing.T) {
 		_, services, err := runStatusJSON(t, []string{"api"}, func(run.Spec) (run.Result, bool) {
 			return run.Result{Stdout: `{"Service":"api","State":"weird","Health":""}`}, true
 		})
@@ -284,7 +284,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		if got := strings.Join(printed, "\n"); got != "{\n  \"registered\": false,\n  \"services\": []\n}" {
 			t.Fatalf("stdout = %q", got)
 		}
-		if !slices.Contains(lines, "info: Not registered — run 'berth up' to create this worktree's environment.") {
+		if !slices.Contains(lines, "info: Not registered — run 'treerig up' to create this worktree's environment.") {
 			t.Fatalf("lines = %q", lines)
 		}
 	})

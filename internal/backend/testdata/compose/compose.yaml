@@ -1,5 +1,5 @@
 # Fixture for the real-Docker tests. Two tiny HTTP servers, one built image,
-# one named volume, and environment references that prove the BERTH_* injection.
+# one named volume, and environment references that prove the TREERIG_* injection.
 # `init: true` everywhere: busybox as PID 1 ignores SIGTERM, so without an init
 # every stop waits out Docker's 10 s grace period.
 services:
@@ -9,9 +9,9 @@ services:
     command: ["sh", "-c", "mkdir -p /www && echo 'hello from api' > /www/index.html && exec httpd -f -p 8080 -h /www"]
     expose: ["8080"]
     environment:
-      SLUG: ${BERTH_SLUG}
-      HOST: ${BERTH_HOST}
-      WORKTREE_HOME: ${BERTH_WORKTREE_HOME}
+      SLUG: ${TREERIG_SLUG}
+      HOST: ${TREERIG_HOST}
+      WORKTREE_HOME: ${TREERIG_WORKTREE_HOME}
     volumes:
       - data:/data
   worker:

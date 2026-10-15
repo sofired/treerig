@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // hostServer is a listener on the host, outside Docker, answering every
@@ -193,7 +193,7 @@ func TestHostRouteAnswersAtTheWorktreeHostnameOnARealDaemon(t *testing.T) {
 	}
 }
 
-// The proxy in host mode maps berth-loopback to ::1 as well, so a listener on
+// The proxy in host mode maps treerig-loopback to ::1 as well, so a listener on
 // ::1 alone answers through it (docs/design/routing.md, Open items); doctor
 // still tells the person to bind 127.0.0.1, for Docker Desktop and OrbStack.
 func TestHostRouteToAnIPv6OnlyListenerOnARealDaemon(t *testing.T) {

@@ -35,7 +35,7 @@ func (w *recordingWriter) all() []string {
 func TestConsoleStreamRouting(t *testing.T) {
 	t.Run("Output and Raw go to stdout and stderr respectively, and nowhere else", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		c := NewConsole("berth", &stdout, &stderr)
+		c := NewConsole("treerig", &stdout, &stderr)
 
 		c.Output(`{"project":"acme"}`)
 		if got, want := stdout.String(), "{\"project\":\"acme\"}\n"; got != want {
@@ -57,7 +57,7 @@ func TestConsoleStreamRouting(t *testing.T) {
 
 	t.Run("Info, Warn and Error go to stderr only", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		c := NewConsole("berth", &stdout, &stderr)
+		c := NewConsole("treerig", &stdout, &stderr)
 
 		c.Info("Waiting for the shared router lock.")
 		c.Warn("Could not refresh the checkout index.")
@@ -66,9 +66,9 @@ func TestConsoleStreamRouting(t *testing.T) {
 		if stdout.Len() != 0 {
 			t.Errorf("Info/Warn/Error wrote to stdout: %q", stdout.String())
 		}
-		want := "[berth] Waiting for the shared router lock.\n" +
-			"[berth] WARNING: Could not refresh the checkout index.\n" +
-			"[berth] ERROR: Docker is not available.\n"
+		want := "[treerig] Waiting for the shared router lock.\n" +
+			"[treerig] WARNING: Could not refresh the checkout index.\n" +
+			"[treerig] ERROR: Docker is not available.\n"
 		if got := stderr.String(); got != want {
 			t.Errorf("stderr = %q, want %q", got, want)
 		}
@@ -86,10 +86,10 @@ func TestConsolePrefixes(t *testing.T) {
 
 	t.Run("Warn and Error add their own label after the prefix", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		c := NewConsole("berth", &stdout, &stderr)
+		c := NewConsole("treerig", &stdout, &stderr)
 		c.Warn("a")
 		c.Error("b")
-		want := "[berth] WARNING: a\n[berth] ERROR: b\n"
+		want := "[treerig] WARNING: a\n[treerig] ERROR: b\n"
 		if got := stderr.String(); got != want {
 			t.Errorf("stderr = %q, want %q", got, want)
 		}
@@ -104,12 +104,12 @@ func TestConsolePrefixes(t *testing.T) {
 func TestConsoleLineSafety(t *testing.T) {
 	t.Run("neutralizes escape sequences and directional overrides from borrowed text", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		c := NewConsole("berth", &stdout, &stderr)
+		c := NewConsole("treerig", &stdout, &stderr)
 		c.Warn("fatal: \u001b[2Knot a git repository")
 		c.Error("held by \u202eevil")
 
-		want := "[berth] WARNING: fatal: �[2Knot a git repository\n" +
-			"[berth] ERROR: held by �evil\n"
+		want := "[treerig] WARNING: fatal: �[2Knot a git repository\n" +
+			"[treerig] ERROR: held by �evil\n"
 		if got := stderr.String(); got != want {
 			t.Errorf("stderr = %q, want %q", got, want)
 		}
@@ -117,7 +117,7 @@ func TestConsoleLineSafety(t *testing.T) {
 
 	t.Run("leaves Output exactly as composed, unfiltered", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		c := NewConsole("berth", &stdout, &stderr)
+		c := NewConsole("treerig", &stdout, &stderr)
 		c.Output("{\"branch\":\"feature/\u202ex\"}")
 		if got, want := stdout.String(), "{\"branch\":\"feature/\u202ex\"}\n"; got != want {
 			t.Errorf("stdout = %q, want %q", got, want)
@@ -126,10 +126,10 @@ func TestConsoleLineSafety(t *testing.T) {
 
 	t.Run("keeps a message that is several lines several lines, indenting continuations", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		c := NewConsole("berth", &stdout, &stderr)
-		c.Error("berth.toml is not valid:\n  project.name: required\n  compose.file: \u001b[2Kmissing")
+		c := NewConsole("treerig", &stdout, &stderr)
+		c.Error("treerig.toml is not valid:\n  project.name: required\n  compose.file: \u001b[2Kmissing")
 
-		want := "[berth] ERROR: berth.toml is not valid:\n" +
+		want := "[treerig] ERROR: treerig.toml is not valid:\n" +
 			"    project.name: required\n" +
 			"    compose.file: �[2Kmissing\n"
 		if got := stderr.String(); got != want {
@@ -139,9 +139,9 @@ func TestConsoleLineSafety(t *testing.T) {
 
 	t.Run("will not let borrowed text forge a line of its own", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		NewConsole("berth", &stdout, &stderr).Error("docker said:\n[berth] ERROR: everything is fine")
+		NewConsole("treerig", &stdout, &stderr).Error("docker said:\n[treerig] ERROR: everything is fine")
 
-		want := "[berth] ERROR: docker said:\n  [berth] ERROR: everything is fine\n"
+		want := "[treerig] ERROR: docker said:\n  [treerig] ERROR: everything is fine\n"
 		if got := stderr.String(); got != want {
 			t.Errorf("stderr = %q, want %q", got, want)
 		}
@@ -150,9 +150,9 @@ func TestConsoleLineSafety(t *testing.T) {
 	t.Run("will not let a separator that is not a newline forge a line either", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		// U+2028 is a line terminator no newline split sees.
-		NewConsole("berth", &stdout, &stderr).Error("docker said: [berth] ERROR: everything is fine")
+		NewConsole("treerig", &stdout, &stderr).Error("docker said: [treerig] ERROR: everything is fine")
 
-		want := "[berth] ERROR: docker said:�[berth] ERROR: everything is fine\n"
+		want := "[treerig] ERROR: docker said:�[treerig] ERROR: everything is fine\n"
 		if got := stderr.String(); got != want {
 			t.Errorf("stderr = %q, want %q", got, want)
 		}
@@ -163,7 +163,7 @@ func TestConsoleLineSafety(t *testing.T) {
 
 	t.Run("Raw filters per line without adding a prefix or indent", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		NewConsole("berth", &stdout, &stderr).Raw("panic: boom\n\u001b[2Kgoroutine 1 [running]:\nmain.go:1")
+		NewConsole("treerig", &stdout, &stderr).Raw("panic: boom\n\u001b[2Kgoroutine 1 [running]:\nmain.go:1")
 
 		want := "panic: boom\n�[2Kgoroutine 1 [running]:\nmain.go:1\n"
 		if got := stderr.String(); got != want {
@@ -191,7 +191,7 @@ func TestConsoleOneWritePerMessage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout := &recordingWriter{}
 			stderr := &recordingWriter{}
-			c := NewConsole("berth", stdout, stderr)
+			c := NewConsole("treerig", stdout, stderr)
 			tc.call(c)
 
 			writes := append(stdout.all(), stderr.all()...)
@@ -206,7 +206,7 @@ func TestConsoleConcurrentWrites(t *testing.T) {
 	t.Run("interleaved goroutines never split or merge a message", func(t *testing.T) {
 		stdout := &recordingWriter{}
 		stderr := &recordingWriter{}
-		c := NewConsole("berth", stdout, stderr)
+		c := NewConsole("treerig", stdout, stderr)
 
 		const n = 50
 		var wg sync.WaitGroup
@@ -224,7 +224,7 @@ func TestConsoleConcurrentWrites(t *testing.T) {
 		wg.Wait()
 
 		for _, w := range stderr.all() {
-			if w != "[berth] concurrent info\n" {
+			if w != "[treerig] concurrent info\n" {
 				t.Fatalf("stderr write corrupted: %q", w)
 			}
 		}

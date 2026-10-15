@@ -11,9 +11,9 @@ import (
 var Platforms = []string{"linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"}
 
 // ArchiveName is the platform archive of release, as docs/design/release.md
-// names it: berth_X.Y.Z_<os>_<arch>.tar.gz.
+// names it: treerig_X.Y.Z_<os>_<arch>.tar.gz.
 func ArchiveName(release, platform string) string {
-	return "berth_" + release + "_" + platform + ".tar.gz"
+	return "treerig_" + release + "_" + platform + ".tar.gz"
 }
 
 // checksumLine is one line of checksums.txt: a lowercase sha256, two spaces

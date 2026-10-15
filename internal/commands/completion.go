@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
 )
 
 // RegisteredWorktreeCandidate is one registered worktree, as shell

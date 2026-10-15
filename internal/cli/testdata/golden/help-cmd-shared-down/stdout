@@ -1,20 +1,20 @@
 Stop and remove the named shared services' containers, or all of them, found by
-their labels from any checkout of the repository: no berth.toml is needed. Their
+their labels from any checkout of the repository: no treerig.toml is needed. Their
 data and pinned ports are kept; --volumes deletes the data and releases the
 ports, and asks you to confirm, as `worktree remove` does. It does not ask
 whether worktrees are using them.
 
 Usage:
-  berth shared down [name...] [flags]
+  treerig shared down [name...] [flags]
 
 Flags:
   -h, --help                     help for down
       --label-namespace string   supply the Docker label namespace when there is
-                                 no usable berth.toml to say it
+                                 no usable treerig.toml to say it
       --volumes                  also delete the data volumes and release the
                                  pinned ports
       --yes                      skip the confirmation phrase
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

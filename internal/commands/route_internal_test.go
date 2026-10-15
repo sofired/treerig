@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 func TestTakeBackHostRouteSurvivesACancelledCaller(t *testing.T) {
@@ -21,7 +21,7 @@ func TestTakeBackHostRouteSurvivesACancelledCaller(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	cctx := &CommandContext{Logger: &logger.Recording{}, Invocation: "berth route add", UserHome: registrytest.TempDir(t)}
+	cctx := &CommandContext{Logger: &logger.Recording{}, Invocation: "treerig route add", UserHome: registrytest.TempDir(t)}
 	store := registry.NewStore(controlHome, repo)
 
 	// The caller's context is already cancelled, as it is when a command was

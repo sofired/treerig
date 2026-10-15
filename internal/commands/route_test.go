@@ -18,18 +18,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // fakeListeners answers a host route's listener probe from a fixed table of
@@ -250,15 +250,15 @@ func TestRouteAdd(t *testing.T) {
 			pattern string
 		}{
 			{"a service's name", nil, commands.RouteAddOptions{Name: "api", Port: 5173, Subdomain: "app"},
-				`api is a service in berth\.toml; a host route needs a name of its own\.`},
+				`api is a service in treerig\.toml; a host route needs a name of its own\.`},
 			{"a shared service's name", func(rw *routeWorld) {
 				rw.tc.Loaded.Config.Shared = &config.Shared{File: "shared.yaml", Service: []config.SharedService{{Name: "mailpit"}}}
 			}, commands.RouteAddOptions{Name: "mailpit", Port: 5173, Subdomain: "app"},
-				`mailpit is a shared service in berth\.toml; a host route needs a name of its own`},
+				`mailpit is a shared service in treerig\.toml; a host route needs a name of its own`},
 			{"another host route's name", func(rw *routeWorld) {
 				rw.mustAdd(t, commands.RouteAddOptions{Name: "web", Port: 5173, Subdomain: "app"})
 			}, commands.RouteAddOptions{Name: "web", Port: 5174, Subdomain: "other"},
-				`There is already a host route called web\. Remove it with 'berth route rm web' first\.`},
+				`There is already a host route called web\. Remove it with 'treerig route rm web' first\.`},
 			{"the host root a service answers at", nil, commands.RouteAddOptions{Name: "web", Port: 5173},
 				`Service api already answers at http://feature-login\.acme\.localhost\.`},
 			{"a service's subdomain", nil, commands.RouteAddOptions{Name: "web", Port: 5173, Subdomain: "mail"},
@@ -326,7 +326,7 @@ func TestRouteAdd(t *testing.T) {
 	t.Run("needs a registered worktree", func(t *testing.T) {
 		pw := newPortsWorld(t)
 		err := commands.RouteAddWithContext(context.Background(), pw.tc.CommandContext, nil, commands.RouteAddOptions{Name: "web", Port: 5173, Subdomain: "app"})
-		requireRefusal(t, err, `This worktree is not registered\. Run 'berth up' first\.`)
+		requireRefusal(t, err, `This worktree is not registered\. Run 'treerig up' first\.`)
 		if entries, _ := os.ReadDir(pw.RouterState.DynamicDir); len(entries) != 0 {
 			t.Fatalf("route files written for an unregistered worktree: %v", entries)
 		}
@@ -495,7 +495,7 @@ func TestRouteRm(t *testing.T) {
 		if err := router.WriteFragment(rw.RouterState, rw.ref.RepositoryID, rw.ref.WorktreeID, "api", router.NewFragmentDocument("x", "Host(`x`)", 30010)); err != nil {
 			t.Fatal(err)
 		}
-		requireRefusal(t, commands.RouteRmWithContext(ctx, rw.tc.CommandContext, "api"), `There is no host route called "api"\. 'berth route ls' lists them\.`)
+		requireRefusal(t, commands.RouteRmWithContext(ctx, rw.tc.CommandContext, "api"), `There is no host route called "api"\. 'treerig route ls' lists them\.`)
 		if !hasFile(serviceFile) {
 			t.Fatal("a service's route file was removed")
 		}
@@ -689,9 +689,9 @@ func TestHostRoutesAcrossTheLifecycle(t *testing.T) {
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if !containsEnv(hookEnv, "BERTH_SERVICE_URL_WEB", "http://app.feature-login.acme.localhost") ||
-			!containsEnv(hookEnv, "BERTH_SERVICE_PORT_WEB", "5173") ||
-			!containsEnv(hookEnv, "BERTH_SERVICE_URL_MAIL", "http://mail.feature-login.acme.localhost") {
+		if !containsEnv(hookEnv, "TREERIG_SERVICE_URL_WEB", "http://app.feature-login.acme.localhost") ||
+			!containsEnv(hookEnv, "TREERIG_SERVICE_PORT_WEB", "5173") ||
+			!containsEnv(hookEnv, "TREERIG_SERVICE_URL_MAIL", "http://mail.feature-login.acme.localhost") {
 			t.Errorf("hook env = %v", hookEnv)
 		}
 	})
@@ -745,7 +745,7 @@ func TestHostRoutesAcrossTheLifecycle(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Chmod(rw.RouterState.DynamicDir, 0o755) })
 		before := rw.Docker.Count("rm ")
-		_, err := commands.RemoveWithContext(ctx, rw.tc.CommandContext, &commands.Env{CommandName: "berth"}, approved(commands.RemoveOptions{}))
+		_, err := commands.RemoveWithContext(ctx, rw.tc.CommandContext, &commands.Env{CommandName: "treerig"}, approved(commands.RemoveOptions{}))
 		requireRefusal(t, err, `Could not remove this worktree's host route files`)
 		if found, _ := rw.tc.Registry.Store(rw.ref.RepositoryID).Find(rw.ref.WorktreeID); found == nil || len(found.HostRoutes) != 1 {
 			t.Fatalf("the record did not survive: %+v", found)
@@ -768,7 +768,7 @@ func TestHostRoutesAcrossTheLifecycle(t *testing.T) {
 		if err := router.WriteHostFragment(rw.RouterState, rw.ref.RepositoryID, rw.ref.WorktreeID, "forgotten", router.HostFragmentDocument(rw.ref.RepositoryID, rw.ref.WorktreeID, "forgotten", "Host(`y`)", 2)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := commands.RemoveWithContext(ctx, rw.tc.CommandContext, &commands.Env{CommandName: "berth"}, approved(commands.RemoveOptions{})); err != nil {
+		if _, err := commands.RemoveWithContext(ctx, rw.tc.CommandContext, &commands.Env{CommandName: "treerig"}, approved(commands.RemoveOptions{})); err != nil {
 			t.Fatal(err)
 		}
 		if hasFile(rw.file("web")) || hasFile(rw.file("forgotten")) {
@@ -850,7 +850,7 @@ func TestHostRoutesAcrossTheLifecycle(t *testing.T) {
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if !containsEnv(env, "BERTH_SERVICE_URL_WEB", "http://app.feature-login.acme.localhost") || !containsEnv(env, "BERTH_SERVICE_PORT_WEB", "5173") {
+		if !containsEnv(env, "TREERIG_SERVICE_URL_WEB", "http://app.feature-login.acme.localhost") || !containsEnv(env, "TREERIG_SERVICE_PORT_WEB", "5173") {
 			t.Errorf("env = %v", env)
 		}
 	})
@@ -916,7 +916,7 @@ func TestUpRefusesWhatClashesWithAHostRoute(t *testing.T) {
 		rw.tc.Loaded.Config.Service = append(rw.tc.Loaded.Config.Service, config.Service{Name: "web", Subdomain: "elsewhere"})
 		before := len(rw.Docker.Calls())
 		_, err := rw.up(t, commands.UpOptions{})
-		requireRefusal(t, err, `Service web has the name of a host route of this worktree\. Remove the route with 'berth route rm web', or rename the service\.`)
+		requireRefusal(t, err, `Service web has the name of a host route of this worktree\. Remove the route with 'treerig route rm web', or rename the service\.`)
 		if calls := rw.Docker.Calls()[before:]; len(calls) != 0 {
 			t.Fatalf("Docker was called after the refusal: %v", calls)
 		}
@@ -926,7 +926,7 @@ func TestUpRefusesWhatClashesWithAHostRoute(t *testing.T) {
 		rw := hostRouteWorld(t)
 		rw.tc.Loaded.Config.Service = append(rw.tc.Loaded.Config.Service, config.Service{Name: "docs", Subdomain: "app"})
 		_, err := rw.up(t, commands.UpOptions{})
-		requireRefusal(t, err, `Service docs answers where the host route web does, so both would claim one hostname\. Remove the route with 'berth route rm web', or change the service's subdomain or path\.`)
+		requireRefusal(t, err, `Service docs answers where the host route web does, so both would claim one hostname\. Remove the route with 'treerig route rm web', or change the service's subdomain or path\.`)
 	})
 
 	t.Run("under the operation lock too: a route added after the early check is still refused", func(t *testing.T) {
@@ -964,7 +964,7 @@ func TestSharedServiceNamesAndHostRoutes(t *testing.T) {
 		ensures := w.router.Ensures()
 
 		_, err = w.up(t, tc)
-		requireRefusal(t, err, `Shared service mailpit has the name of a host route of this worktree, so the alias containers reach it by would mean two things\. Remove the route with 'berth route rm mailpit', or rename the shared service\.`)
+		requireRefusal(t, err, `Shared service mailpit has the name of a host route of this worktree, so the alias containers reach it by would mean two things\. Remove the route with 'treerig route rm mailpit', or rename the shared service\.`)
 		if calls := w.Docker.Calls()[before:]; len(calls) != 0 {
 			t.Fatalf("Docker was called after the refusal: %v", calls)
 		}
@@ -994,7 +994,7 @@ func TestSharedServiceNamesAndHostRoutes(t *testing.T) {
 		tc := w.context("")
 		w.mustUp(t, tc)
 		err := commands.RouteAddWithContext(context.Background(), tc.CommandContext, nil, commands.RouteAddOptions{Name: "mailpit", Port: 9999, Subdomain: "mail2"})
-		requireRefusal(t, err, `mailpit is a shared service in berth\.toml`)
+		requireRefusal(t, err, `mailpit is a shared service in treerig\.toml`)
 	})
 }
 

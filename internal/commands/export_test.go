@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // DisconnectSharedForTest exposes disconnectShared to the black-box tests.
@@ -33,7 +33,7 @@ func SharedDoctorForTest(ctx context.Context, cctx *CommandContext) ([]Check, er
 
 // LockChecksForTest is the Locks section of `doctor` for a control home.
 func LockChecksForTest(controlHome string) ([]Check, error) {
-	return lockChecks(controlHome, nil, "berth")
+	return lockChecks(controlHome, nil, "treerig")
 }
 
 // sharedResource is a container, network or volume of the shared stack by

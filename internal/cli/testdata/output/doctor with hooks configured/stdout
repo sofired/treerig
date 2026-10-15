@@ -4,7 +4,7 @@ Prerequisites
   fail  Docker Compose  could not read a version from ""
 
 Registry
-  ok    berth root     FIXTURE/control
+  ok    treerig root     FIXTURE/control
   ok    control home   FIXTURE/control
   ok    router state   FIXTURE/control/router
   ok    registrations  1 readable
@@ -16,10 +16,10 @@ Router
   skip  router  needs Docker
 
 This checkout
-  ok    berth.toml         FIXTURE/checkout/berth.toml
+  ok    treerig.toml         FIXTURE/checkout/treerig.toml
   ok    this worktree      registered as feature-login.acme.localhost
-  skip  api port           none allocated yet; 'berth up' allocates one
-  skip  mail port          none allocated yet; 'berth up' allocates one
+  skip  api port           none allocated yet; 'treerig up' allocates one
+  skip  mail port          none allocated yet; 'treerig up' allocates one
   ok    prepare hook file  resolves to FIXTURE/checkout/hooks/prepare
   fail  seed hook file     would not start (exit 127): `FIXTURE/checkout/hooks/seed` does not exist — or the interpreter on its #! line is missing, as when the file has CRLF line endings (ENOENT).
   skip  verify hook        none configured

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // TestRunningPort is Router.RunningPort (#79): the loopback port the running

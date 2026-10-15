@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 // fixture reads a file from testdata.
@@ -104,7 +104,7 @@ func TestReadPin(t *testing.T) {
 					t.Fatalf("found = %v, err = %v", found, err)
 				}
 				want := "Refusing to use the teardown pin " + l.PinPath + ": it is format " + tc.version +
-					", written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+					", written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
 				if err.Error() != want {
 					t.Errorf("got  %q\nwant %q", err, want)
 				}
@@ -172,11 +172,11 @@ func TestReadPin(t *testing.T) {
 			"a release that is no version": {valid, func(m map[string]any) { m["release"] = "my-build" }},
 			"a leading-zero release": {valid, func(m map[string]any) {
 				m["release"] = "01.2.3"
-				m["source"] = "https://github.com/sofired/berth/releases/download/v01.2.3/"
+				m["source"] = "https://github.com/sofired/treerig/releases/download/v01.2.3/"
 			}},
 			"a release the pattern allows and SemVer does not": {valid, func(m map[string]any) {
 				m["release"] = "1.2.3-01"
-				m["source"] = "https://github.com/sofired/berth/releases/download/v1.2.3-01/"
+				m["source"] = "https://github.com/sofired/treerig/releases/download/v1.2.3-01/"
 			}},
 			"an empty binary_sha256": {valid, func(m map[string]any) {
 				m["platforms"].(map[string]any)["linux_arm64"].(map[string]any)["binary_sha256"] = ""
@@ -189,15 +189,15 @@ func TestReadPin(t *testing.T) {
 			"a file label with a space":                  {file, func(m map[string]any) { m["release"] = "my build" }},
 			"a file label starting with a dot":           {file, func(m map[string]any) { m["release"] = ".build" }},
 			"a source for another release": {valid, func(m map[string]any) {
-				m["source"] = "https://github.com/sofired/berth/releases/download/v9.9.9/"
+				m["source"] = "https://github.com/sofired/treerig/releases/download/v9.9.9/"
 			}},
-			"an http source":                      {valid, func(m map[string]any) { m["source"] = "http://github.com/sofired/berth/releases/download/v1.2.3/" }},
-			"a source without the trailing slash": {valid, func(m map[string]any) { m["source"] = "https://github.com/sofired/berth/releases/download/v1.2.3" }},
+			"an http source":                      {valid, func(m map[string]any) { m["source"] = "http://github.com/sofired/treerig/releases/download/v1.2.3/" }},
+			"a source without the trailing slash": {valid, func(m map[string]any) { m["source"] = "https://github.com/sofired/treerig/releases/download/v1.2.3" }},
 			"a source with a query":               {valid, func(m map[string]any) { m["source"] = "https://github.com/x/releases/download/v1.2.3/?a=b" }},
 			"a source with a user":                {valid, func(m map[string]any) { m["source"] = "https://u@github.com/x/releases/download/v1.2.3/" }},
 			"a source with no host":               {valid, func(m map[string]any) { m["source"] = "https:///releases/download/v1.2.3/" }},
-			"a relative file source":              {file, func(m map[string]any) { m["source"] = "file:berth" }},
-			"an uncleaned file source":            {file, func(m map[string]any) { m["source"] = "file:/home/me/../me/berth" }},
+			"a relative file source":              {file, func(m map[string]any) { m["source"] = "file:treerig" }},
+			"an uncleaned file source":            {file, func(m map[string]any) { m["source"] = "file:/home/me/../me/treerig" }},
 			"a file pin with a signer":            {file, func(m map[string]any) { m["signer"] = "someone" }},
 			"a file pin with checksums":           {file, func(m map[string]any) { m["checksums_sha256"] = sum("x") }},
 			"a file pin with an archive digest": {file, func(m map[string]any) {

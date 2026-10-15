@@ -18,16 +18,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/teardown"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/teardown"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // downloadTimeout is how long one command's downloads and cosign runs share.
@@ -70,7 +70,7 @@ func teardownPinRelease(ctx context.Context, env *Env, options TeardownPinOption
 		version, err := releasefetch.Latest(fetchCtx, fetcher, options.Source)
 		switch {
 		case errors.Is(err, releasefetch.ErrNoStableRelease):
-			return clierr.Newf("Refusing to pin the latest release: sofired/berth has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `%s teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/berth/releases.", env.CommandName)
+			return clierr.Newf("Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `%s teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/treerig/releases.", env.CommandName)
 		case err != nil:
 			return failure(subject, err)
 		}
@@ -94,7 +94,7 @@ func teardownPinRelease(ctx context.Context, env *Env, options TeardownPinOption
 		return cosignRefusal(env, release, err)
 	}
 
-	// cosign's HOME, TUF_ROOT and TMPDIR are berth's own, under the control
+	// cosign's HOME, TUF_ROOT and TMPDIR are treerig's own, under the control
 	// home: the one thing written there before the plan is approved, and a
 	// cache, not the pin. They are made only once cosign has been found,
 	// contained and versioned, so a refusal that ran nothing leaves nothing.
@@ -136,12 +136,12 @@ func teardownPinRelease(ctx context.Context, env *Env, options TeardownPinOption
 		return clierr.Newf("Refusing to pin %s: %s has sha256 %s, but the verified checksums.txt lists %s. Nothing was pinned.",
 			text.Printable(release), archiveName, found, digests[platform])
 	}
-	binary, err := releasefetch.ExtractBerth(archive, releasefetch.DefaultLimits)
+	binary, err := releasefetch.ExtractTreerig(archive, releasefetch.DefaultLimits)
 	if err != nil {
 		return clierr.Newf("Refusing to pin %s: the archive %s %s. Nothing was pinned.", text.Printable(release), archiveName, err)
 	}
 	if err := teardown.CheckExecutable(binary, platform); err != nil {
-		return clierr.Newf("Refusing to pin %s: the berth in %s is not a %s executable (%s). Nothing was pinned.", text.Printable(release), archiveName, platform, err)
+		return clierr.Newf("Refusing to pin %s: the treerig in %s is not a %s executable (%s). Nothing was pinned.", text.Printable(release), archiveName, platform, err)
 	}
 	cancel() // the prompt is not part of the download
 
@@ -258,8 +258,8 @@ func cosignRefusal(env *Env, release string, err error) error {
 			what = fmt.Sprintf("%s does not qualify (%s)", text.Printable(version.Path), text.Printable(version.Found))
 		case version.Path != "":
 			// The version call itself failed: most often a version-manager shim
-			// (asdf, mise), which needs the HOME and variables berth withholds.
-			what = fmt.Sprintf("%s does not qualify (%s; a version-manager shim such as asdf or mise needs an environment berth withholds, so install a cosign binary on PATH)", text.Printable(version.Path), text.Printable(version.Found))
+			// (asdf, mise), which needs the HOME and variables treerig withholds.
+			what = fmt.Sprintf("%s does not qualify (%s; a version-manager shim such as asdf or mise needs an environment treerig withholds, so install a cosign binary on PATH)", text.Printable(version.Path), text.Printable(version.Found))
 		case version.Found != "cosign is not on PATH":
 			what = fmt.Sprintf("no usable cosign was found (%s)", text.Printable(version.Found))
 		}
@@ -419,7 +419,7 @@ func commonDirOfLinkedWorktree(dir string) (string, error) {
 // listedWorktrees are the working directories the repository's
 // common/worktrees/*/gitdir files name (each holds the path of that
 // worktree's .git file), and how many entries could not be read. No git is
-// run; it covers worktrees that were never registered with berth.
+// run; it covers worktrees that were never registered with treerig.
 func listedWorktrees(common string) (roots []string, unreadable int) {
 	entries, err := os.ReadDir(filepath.Join(common, "worktrees"))
 	if errors.Is(err, fs.ErrNotExist) {

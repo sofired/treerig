@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 const (
@@ -26,7 +26,7 @@ func mapGetenv(values map[string]string) layout.Getenv {
 }
 
 func TestHomeResolution(t *testing.T) {
-	t.Run("prefers an explicit override, then BERTH_HOME, then the default", func(t *testing.T) {
+	t.Run("prefers an explicit override, then TREERIG_HOME, then the default", func(t *testing.T) {
 		withEnv := mapGetenv(map[string]string{brand.HomeEnv: "/env/home"})
 
 		got, err := layout.ResolveHome(withEnv, "/explicit")
@@ -50,7 +50,7 @@ func TestHomeResolution(t *testing.T) {
 }
 
 func TestControlHomeResolution(t *testing.T) {
-	t.Run("prefers an explicit override, then BERTH_CONTROL_HOME, then <berth root>/control-home", func(t *testing.T) {
+	t.Run("prefers an explicit override, then TREERIG_CONTROL_HOME, then <treerig root>/control-home", func(t *testing.T) {
 		withEnv := mapGetenv(map[string]string{brand.ControlHomeEnv: "/env/control"})
 
 		got, err := layout.ResolveControlHome(withEnv, "/explicit")
@@ -81,7 +81,7 @@ func TestControlHomeResolution(t *testing.T) {
 		}
 	})
 
-	t.Run("an empty BERTH_CONTROL_HOME resolves to the current directory, like Node's path.resolve('')", func(t *testing.T) {
+	t.Run("an empty TREERIG_CONTROL_HOME resolves to the current directory, like Node's path.resolve('')", func(t *testing.T) {
 		withEnv := mapGetenv(map[string]string{brand.ControlHomeEnv: "", brand.HomeEnv: "/should/not/matter"})
 
 		got, err := layout.ResolveControlHome(withEnv, "")
@@ -202,7 +202,7 @@ func TestSharedLayout(t *testing.T) {
 		}
 		// Pinned: a change here strands every running shared service, so it
 		// is a migration. sha256("shared:" + repository), first 24 hex.
-		if want := "berth-shared-" + "c2bb8b3b64ebd849cac0bd0c"; name != want {
+		if want := "treerig-shared-" + "c2bb8b3b64ebd849cac0bd0c"; name != want {
 			t.Fatalf("SharedProjectName = %q, want %q", name, want)
 		}
 	})
@@ -221,7 +221,7 @@ func TestSharedLayout(t *testing.T) {
 		for got, want := range map[string]string{
 			l.Dir:                   filepath.Join("/control", "repositories", repository, "shared"),
 			l.RecordPath("mailpit"): filepath.Join("/control", "repositories", repository, "shared", "mailpit.json"),
-			l.OverridePath:          filepath.Join("/control", "repositories", repository, "shared", "berth.override.yaml"),
+			l.OverridePath:          filepath.Join("/control", "repositories", repository, "shared", "treerig.override.yaml"),
 			l.LockDir:               filepath.Join("/control", "locks", "shared"),
 			l.LockPath:              filepath.Join("/control", "locks", "shared", repository),
 		} {

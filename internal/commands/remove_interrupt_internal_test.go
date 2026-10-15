@@ -5,15 +5,15 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 func TestInterruptNotice(t *testing.T) {
 	sigint := &clierr.Cancelled{Signal: syscall.SIGINT}
 	sighup := &clierr.Cancelled{Signal: syscall.SIGHUP}
 	volume := []worktree.OwnedResource{{Kind: "volume", ID: "v1"}}
-	both := nextSteps{finish: "berth worktree remove", restart: "berth up"}
+	both := nextSteps{finish: "treerig worktree remove", restart: "treerig up"}
 	const host = "feature-login.acme.localhost"
 	const prefix = "Interrupted (SIGINT) while removing " + host + ". "
 
@@ -30,25 +30,25 @@ func TestInterruptNotice(t *testing.T) {
 			name: "resources and the home directory, with both next steps", marked: true, cause: sigint, err: sigint,
 			result: &RemoveResult{Resources: volume, Home: true}, next: both,
 			want: prefix + "Removed so far (at least): 1 volume, home directory. It is still registered, now pending: " +
-				"'berth worktree remove' finishes the removal, 'berth up' starts it again and runs the seed hook again.",
+				"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again.",
 		},
 		{
 			name: "the home directory alone", marked: true, cause: sigint, err: sigint,
 			result: &RemoveResult{Home: true}, next: both,
 			want: prefix + "Removed so far (at least): home directory. It is still registered, now pending: " +
-				"'berth worktree remove' finishes the removal, 'berth up' starts it again and runs the seed hook again.",
+				"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again.",
 		},
 		{
 			name: "nothing confirmed, and no up for another worktree", marked: true, cause: sigint, err: sigint,
-			result: &RemoveResult{}, next: nextSteps{finish: "berth worktree remove other"},
+			result: &RemoveResult{}, next: nextSteps{finish: "treerig worktree remove other"},
 			want: prefix + "Removed so far: nothing confirmed yet. It is still registered, now pending: " +
-				"'berth worktree remove other' finishes the removal.",
+				"'treerig worktree remove other' finishes the removal.",
 		},
 		{
 			name: "the signal named is the cause's, not the error's", marked: true, cause: sighup, err: sigint,
 			result: &RemoveResult{}, next: both,
 			want: "Interrupted (SIGHUP) while removing " + host + ". Removed so far: nothing confirmed yet. It is still registered, now pending: " +
-				"'berth worktree remove' finishes the removal, 'berth up' starts it again and runs the seed hook again.",
+				"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again.",
 		},
 		{name: "the registration was never marked pending", marked: false, cause: sigint, err: sigint, result: &RemoveResult{}, next: both},
 		{name: "the registration is already gone", marked: true, cause: sigint, err: sigint, result: &RemoveResult{Registration: true}, next: both},
@@ -81,15 +81,15 @@ func TestRemoveNextSteps(t *testing.T) {
 		here    bool
 		want    nextSteps
 	}{
-		{"this checkout", RemoveOptions{}, true, nextSteps{finish: "berth worktree remove", restart: "berth up"}},
-		{"by slug, elsewhere", RemoveOptions{Identifier: "feature-login"}, false, nextSteps{finish: "berth worktree remove feature-login"}},
+		{"this checkout", RemoveOptions{}, true, nextSteps{finish: "treerig worktree remove", restart: "treerig up"}},
+		{"by slug, elsewhere", RemoveOptions{Identifier: "feature-login"}, false, nextSteps{finish: "treerig worktree remove feature-login"}},
 		{"by slug in a domain", RemoveOptions{Identifier: "feature-login", Domain: "acme.localhost"}, false,
-			nextSteps{finish: "berth worktree remove feature-login --domain acme.localhost"}},
+			nextSteps{finish: "treerig worktree remove feature-login --domain acme.localhost"}},
 		{"with a label namespace", RemoveOptions{Identifier: "feature-login", LabelNamespace: "dev.acme"}, false,
-			nextSteps{finish: "berth worktree remove feature-login --label-namespace dev.acme"}},
+			nextSteps{finish: "treerig worktree remove feature-login --label-namespace dev.acme"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := removeNextSteps("berth", tc.options, tc.here); got != tc.want {
+			if got := removeNextSteps("treerig", tc.options, tc.here); got != tc.want {
 				t.Fatalf("removeNextSteps = %+v, want %+v", got, tc.want)
 			}
 		})

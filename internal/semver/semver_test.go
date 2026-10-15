@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/semver"
+	"github.com/sofired/treerig/internal/semver"
 )
 
 // mustParse parses s or fails the test.

@@ -6,7 +6,7 @@ package router_test
 // the ports it needs checked before it starts, sharing across control homes
 // (#12, #13), ownership (#82), lock contention and timeouts (#14). Every
 // fixture uses a unique Compose project, label namespace, router port and
-// scratch berth root, and cleans up after itself, so it can run beside a
+// scratch treerig root, and cleans up after itself, so it can run beside a
 // developer's real router and beside another Docker suite on the same
 // daemon. Ports for the checkout index and the host-mode ping come from a
 // range of their own inside the test range, never the default one. Tests
@@ -32,13 +32,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 // routerTestRange is where these tests' router allocates the index and ping
@@ -57,18 +57,18 @@ func freePortForTest(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-// requireDocker skips t (or fails it, under BERTH_TEST_REQUIRE_DOCKER=1)
-// when no Docker daemon is reachable. BERTH_TEST_SKIP_DOCKER=1 skips it even
+// requireDocker skips t (or fails it, under TREERIG_TEST_REQUIRE_DOCKER=1)
+// when no Docker daemon is reachable. TREERIG_TEST_SKIP_DOCKER=1 skips it even
 // when a daemon is reachable, so CI can leave every Docker test to its own
 // job.
 func requireDocker(t *testing.T) {
 	t.Helper()
-	if os.Getenv("BERTH_TEST_SKIP_DOCKER") == "1" {
-		t.Skip("Docker tests are skipped (BERTH_TEST_SKIP_DOCKER=1)")
+	if os.Getenv("TREERIG_TEST_SKIP_DOCKER") == "1" {
+		t.Skip("Docker tests are skipped (TREERIG_TEST_SKIP_DOCKER=1)")
 	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		if os.Getenv("BERTH_TEST_REQUIRE_DOCKER") == "1" {
-			t.Fatalf("docker is required (BERTH_TEST_REQUIRE_DOCKER=1) but unavailable: %v", err)
+		if os.Getenv("TREERIG_TEST_REQUIRE_DOCKER") == "1" {
+			t.Fatalf("docker is required (TREERIG_TEST_REQUIRE_DOCKER=1) but unavailable: %v", err)
 		}
 		t.Skip("docker is not available")
 	}
@@ -177,7 +177,7 @@ func routeAnswers(t *testing.T, port int, host string, want liveAnswer) {
 		func(a liveAnswer) bool { return a.Status == want.Status && strings.Contains(a.Body, want.Body) })
 }
 
-// liveRouter is one real router: its own project, label namespace, scratch berth
+// liveRouter is one real router: its own project, label namespace, scratch treerig
 // root and Docker cleanup.
 type liveRouter struct {
 	t           *testing.T
@@ -187,7 +187,7 @@ type liveRouter struct {
 	state       layout.RouterLayout
 }
 
-// newLiveRouter is a scratch berth root and a project of its own, with a cleanup
+// newLiveRouter is a scratch treerig root and a project of its own, with a cleanup
 // that removes the project's containers and default network.
 func newLiveRouter(t *testing.T) *liveRouter {
 	t.Helper()
@@ -195,7 +195,7 @@ func newLiveRouter(t *testing.T) *liveRouter {
 	id := suffix(t)
 	home := registrytest.TempDir(t)
 	w := &liveRouter{
-		t: t, project: testProjectPrefix + id, ns: "dev.berth-test-router-" + id,
+		t: t, project: testProjectPrefix + id, ns: "dev.treerig-test-router-" + id,
 		home: home, controlHome: filepath.Join(home, "control-home"), state: layout.RouterStateFrom(home),
 	}
 	sweepOnce.Do(sweepAbandonedRouters)
@@ -210,7 +210,7 @@ func newLiveRouter(t *testing.T) *liveRouter {
 }
 
 // testProjectPrefix is the Compose project name prefix every router test uses.
-const testProjectPrefix = "berth-router-test-"
+const testProjectPrefix = "treerig-router-test-"
 
 // composeProjectLabel is the label Compose stamps on everything of a project.
 const composeProjectLabel = "com.docker.compose.project"
@@ -268,7 +268,7 @@ func (w *liveRouter) router(port int, mode string, configure func(*router.Option
 	options := router.Options{
 		State: w.state, Port: port, Runner: osrun.New(), Logger: rec,
 		ProjectName: w.project, LabelNamespace: w.ns, Environ: os.Environ(),
-		CommandName: "berth", Home: w.home, ControlHome: w.controlHome,
+		CommandName: "treerig", Home: w.home, ControlHome: w.controlHome,
 		PortRange: routerTestRange, ModeOverride: mode, ClientOS: runtime.GOOS,
 	}
 	if configure != nil {
@@ -494,7 +494,7 @@ func TestSharedRouterInHostModeOnARealDaemon(t *testing.T) {
 		w.writeRoute("v4", "v4.invalid.localhost", v4)
 		routeAnswers(t, port, "v4.invalid.localhost", liveAnswer{http.StatusOK, "from v4"})
 
-		// berth-loopback maps to ::1 as well, so a listener bound only there is reached.
+		// treerig-loopback maps to ::1 as well, so a listener bound only there is reached.
 		v6 := hostServer(t, "tcp6", "[::1]:0", "from v6\n")
 		w.writeRoute("v6", "v6.invalid.localhost", v6)
 		routeAnswers(t, port, "v6.invalid.localhost", liveAnswer{http.StatusOK, "from v6"})
@@ -683,7 +683,7 @@ func TestEnsureChecksPortsBeforeStarting(t *testing.T) {
 
 	t.Run("names the container publishing the router port", func(t *testing.T) {
 		held := freePortForTest(t)
-		name := "berth-router-test-holder-" + suffix(t)
+		name := "treerig-router-test-holder-" + suffix(t)
 		t.Cleanup(func() { _ = exec.Command("docker", "rm", "--force", name).Run() })
 		dockerOutput(t, "run", "--detach", "--name", name, "--publish", fmt.Sprintf("127.0.0.1:%d:80", held),
 			"busybox:1.37.0", "sh", "-c", "exec httpd -f -p 80")
@@ -752,7 +752,7 @@ func TestRouterRefusesARunningRouterOfAnotherLayout(t *testing.T) {
 	svc, _ := w.router(freePortForTest(t), "", nil)
 	err := svc.Ensure(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "router down") {
-		t.Fatalf("Ensure = %v, want a refusal telling the user to run 'berth router down' first", err)
+		t.Fatalf("Ensure = %v, want a refusal telling the user to run 'treerig router down' first", err)
 	}
 	if after := w.containerID("router"); after != before {
 		t.Fatalf("the refusal touched the router: %q then %q", before, after)
@@ -763,8 +763,8 @@ func TestRouterRefusesARunningRouterOfAnotherLayout(t *testing.T) {
 }
 
 // TestTwoControlHomesShareOneRouter is #12/#13/#80: the router's state lives
-// under the berth root (BERTH_HOME), outside every control home, so two
-// control homes under the same berth root resolve to the same state
+// under the treerig root (TREERIG_HOME), outside every control home, so two
+// control homes under the same treerig root resolve to the same state
 // directory and share one router; the second `ensure` from what is, in
 // production, a different control home's process must not recreate anything.
 func TestTwoControlHomesShareOneRouter(t *testing.T) {
@@ -789,18 +789,18 @@ func TestTwoControlHomesShareOneRouter(t *testing.T) {
 	}
 }
 
-// TestTwoBerthRootsRouterUpRefuses is #82: two different berth roots each
+// TestTwoTreerigRootsRouterUpRefuses is #82: two different treerig roots each
 // resolve their own, separate router state, but the router container itself
 // is still one per Docker daemon (its Compose project name is fixed
-// regardless of berth root). The second berth root's Ensure refuses, naming
+// regardless of treerig root). The second treerig root's Ensure refuses, naming
 // the first, and leaves the first's own running container exactly as it was
 // — then 'router down' followed by the new root's own 'router up' hands it
 // over cleanly.
-func TestTwoBerthRootsRouterUpRefuses(t *testing.T) {
+func TestTwoTreerigRootsRouterUpRefuses(t *testing.T) {
 	requireNativeLinuxEngine(t)
 	first := newLiveRouter(t)
 	port := freePortForTest(t)
-	// A second berth root: its own state and home label, the same project.
+	// A second treerig root: its own state and home label, the same project.
 	home2 := registrytest.TempDir(t)
 	second := &liveRouter{t: t, project: first.project, ns: first.ns, home: home2, controlHome: filepath.Join(home2, "control-home"), state: layout.RouterStateFrom(home2)}
 
@@ -813,13 +813,13 @@ func TestTwoBerthRootsRouterUpRefuses(t *testing.T) {
 
 	two, _ := second.router(port, "", nil)
 	err := two.Ensure(ctx)
-	want := fmt.Sprintf("The shared router belongs to a different berth root (%s).", first.home)
+	want := fmt.Sprintf("The shared router belongs to a different treerig root (%s).", first.home)
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("got %v, want a refusal containing %q", err, want)
 	}
 	after := first.containerID("router")
 	if before != after {
-		t.Fatalf("expected the second berth root's refusal to leave the first's router untouched, got %q then %q", before, after)
+		t.Fatalf("expected the second treerig root's refusal to leave the first's router untouched, got %q then %q", before, after)
 	}
 	if label := first.inspect(after).Config.Labels[router.RouterHomeLabel]; label != first.home {
 		t.Fatalf("router-home label = %q, want %q", label, first.home)
@@ -832,7 +832,7 @@ func TestTwoBerthRootsRouterUpRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := two.Ensure(ctx); err != nil {
-		t.Fatalf("expected the second berth root's up to adopt cleanly once the first's is stopped: %v", err)
+		t.Fatalf("expected the second treerig root's up to adopt cleanly once the first's is stopped: %v", err)
 	}
 	if label := first.inspect(first.containerID("router")).Config.Labels[router.RouterHomeLabel]; label != home2 {
 		t.Fatalf("router-home label after takeover = %q, want %q", label, home2)
@@ -840,7 +840,7 @@ func TestTwoBerthRootsRouterUpRefuses(t *testing.T) {
 }
 
 // TestRouterUpRefusesARouterWithoutAnOwnerLabel stages a router container
-// this berth did not start: its project and service are the router's, but it
+// this treerig did not start: its project and service are the router's, but it
 // carries no owner label at all.
 func TestRouterUpRefusesARouterWithoutAnOwnerLabel(t *testing.T) {
 	w := newLiveRouter(t)
@@ -858,7 +858,7 @@ func TestRouterUpRefusesARouterWithoutAnOwnerLabel(t *testing.T) {
 
 	svc, _ := w.router(freePortForTest(t), "", nil)
 	err := svc.Ensure(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "The shared router is not owned by this berth root.") {
+	if err == nil || !strings.Contains(err.Error(), "The shared router is not owned by this treerig root.") {
 		t.Fatalf("got %v, want a refusal of a router without an owner label", err)
 	}
 	if after := w.containerID("router"); after != before {
@@ -994,7 +994,7 @@ func TestRouterUpTimesOutOnAHungDocker(t *testing.T) {
 	home := registrytest.TempDir(t)
 	svc, err := router.New(router.Options{
 		State: layout.RouterStateFrom(home), Port: freePortForTest(t), Runner: osrun.New(), Logger: logger.Silent{},
-		ProjectName: "berth-router-test-" + id, ControlHome: filepath.Join(home, "control-home"),
+		ProjectName: "treerig-router-test-" + id, ControlHome: filepath.Join(home, "control-home"),
 		Environ:  []string{"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")},
 		Timeouts: router.Timeouts{Probe: 300 * time.Millisecond, Start: 300 * time.Millisecond},
 	})

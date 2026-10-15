@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // corpusCase is one entry of the hand-maintained testdata/config-corpus.json

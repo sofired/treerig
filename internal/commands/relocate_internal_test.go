@@ -17,20 +17,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
-// fakeEnv is a relocateAndReexec fixture: a temp berth root and a separate
+// fakeEnv is a relocateAndReexec fixture: a temp treerig root and a separate
 // temp home directory (so checkedHome's own AssertSafeHome check has a
-// userHome that neither equals nor contains the berth root, #80), a temp
+// userHome that neither equals nor contains the treerig root, #80), a temp
 // "running binary" file with known content, and a recording logger.
 type fakeEnv struct {
 	env *Env
-	// controlHome is the value wired as BERTH_HOME — the berth root (#80),
+	// controlHome is the value wired as TREERIG_HOME — the treerig root (#80),
 	// not the control home itself, which nests one level under it at
 	// <controlHome>/control-home; use the controlLayout method to derive
 	// it the same way relocateAndReexec does.
@@ -42,8 +42,8 @@ type fakeEnv struct {
 // newFakeEnv writes content to a file standing in for the running binary,
 // under its own directory (never controlHome, so the "still in a checkout"
 // case is the default) and wires an Env whose Executable reports it, HOME
-// resolves to a home directory of its own, and BERTH_HOME resolves to a
-// berth root of its own.
+// resolves to a home directory of its own, and TREERIG_HOME resolves to a
+// treerig root of its own.
 func newFakeEnv(t *testing.T, content string) *fakeEnv {
 	t.Helper()
 	base := registrytest.TempDir(t)
@@ -51,23 +51,23 @@ func newFakeEnv(t *testing.T, content string) *fakeEnv {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	berthRoot := filepath.Join(base, "berth-root")
+	treerigRoot := filepath.Join(base, "treerig-root")
 	checkout := filepath.Join(base, "checkout")
 	if err := os.MkdirAll(checkout, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(checkout, "berth")
+	binary := filepath.Join(checkout, "treerig")
 	if err := os.WriteFile(binary, []byte(content), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	log := &logger.Recording{}
-	f := &fakeEnv{controlHome: berthRoot, binary: binary, log: log}
+	f := &fakeEnv{controlHome: treerigRoot, binary: binary, log: log}
 	f.env = &Env{
 		Logger: log,
 		Getenv: func(key string) (string, bool) {
 			switch key {
-			case "BERTH_HOME":
-				return berthRoot, true
+			case "TREERIG_HOME":
+				return treerigRoot, true
 			case "HOME":
 				return home, true
 			}
@@ -80,7 +80,7 @@ func newFakeEnv(t *testing.T, content string) *fakeEnv {
 	return f
 }
 
-// controlLayout derives the real control home nested under f's own berth
+// controlLayout derives the real control home nested under f's own treerig
 // root (layout.ControlHomeFrom) and its layout, the same way
 // relocateAndReexec itself does via checkedHome — so a test that needs to
 // predict or seed a path under the store computes it the identical way,
@@ -138,7 +138,7 @@ func TestRelocateAndReexec(t *testing.T) {
 	})
 
 	t.Run("installs a copy outside the checkout and hands it to Exec with argv and env unchanged", func(t *testing.T) {
-		f := newFakeEnv(t, "a berth build")
+		f := newFakeEnv(t, "a treerig build")
 		var gotArgv0 string
 		var gotArgv, gotEnvv []string
 		called := false
@@ -154,7 +154,7 @@ func TestRelocateAndReexec(t *testing.T) {
 			t.Fatalf("Exec was not called")
 		}
 		control := f.controlLayout(t)
-		wantPath, err := binstore.Install(control.BinDir, []byte("a berth build"), 0o700, time.Now())
+		wantPath, err := binstore.Install(control.BinDir, []byte("a treerig build"), 0o700, time.Now())
 		if err != nil {
 			t.Fatalf("binstore.Install: %v", err)
 		}
@@ -174,7 +174,7 @@ func TestRelocateAndReexec(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading installed copy: %v", err)
 		}
-		if string(got) != "a berth build" {
+		if string(got) != "a treerig build" {
 			t.Fatalf("installed copy content = %q", got)
 		}
 	})
@@ -244,13 +244,13 @@ func TestRelocateAndReexec(t *testing.T) {
 
 	t.Run("falls back to the running binary, warning, when the control home cannot be resolved", func(t *testing.T) {
 		f := newFakeEnv(t, "irrelevant")
-		// checkedHome refuses the filesystem root as BERTH_HOME on every OS,
+		// checkedHome refuses the filesystem root as TREERIG_HOME on every OS,
 		// before anything touches the filesystem, so relocation can't
 		// resolve a control home. HOME stays the fixture's own scratch
 		// directory, so the refusal is about "/" and nothing else.
 		previous := f.env.Getenv
 		f.env.Getenv = func(key string) (string, bool) {
-			if key == "BERTH_HOME" {
+			if key == "TREERIG_HOME" {
 				return "/", true
 			}
 			return previous(key)
@@ -267,10 +267,10 @@ func TestRelocateAndReexec(t *testing.T) {
 
 	t.Run("falls back to the running binary, warning, when the control home cannot be secured", func(t *testing.T) {
 		f := newFakeEnv(t, "irrelevant")
-		// The berth root's own parent (the fixture's base) already exists;
-		// putting a plain file exactly where the berth root belongs makes
+		// The treerig root's own parent (the fixture's base) already exists;
+		// putting a plain file exactly where the treerig root belongs makes
 		// establishControlHome's own os.MkdirAll — one level under it, at
-		// <berth root>/control-home — fail, since a path cannot be
+		// <treerig root>/control-home — fail, since a path cannot be
 		// created through a non-directory component.
 		if err := os.WriteFile(f.controlHome, []byte("not a directory"), 0o600); err != nil {
 			t.Fatal(err)

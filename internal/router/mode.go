@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // Mode is how the proxy container is attached to the network.
@@ -104,7 +104,7 @@ func isDesktopOrOrbStack(engine Engine) bool {
 
 // vmEngineNames are the lower-cased `docker info` Names (or Name prefixes
 // followed by a dash, as in lima-rancher-desktop) of the
-// Linux-VM engines berth does not recognise: Colima, Lima and Rancher
+// Linux-VM engines treerig does not recognise: Colima, Lima and Rancher
 // Desktop. Their host network is the VM's, whichever OS the client runs on.
 // A Linux client reaching a VM engine through a forwarded socket or an SSH
 // tunnel under another name cannot be told apart from a native engine and
@@ -147,12 +147,12 @@ func isVMEngine(engine Engine) bool {
 func DetectMode(engine Engine, override, settingsFile string) (Mode, error) {
 	if !isLocalEndpoint(engine.Endpoint) {
 		return "", clierr.Newf(
-			"berth routes through a proxy that reaches your services on this machine's loopback, so it needs a Docker daemon on this machine, "+
+			"treerig routes through a proxy that reaches your services on this machine's loopback, so it needs a Docker daemon on this machine, "+
 				"but Docker is at %s. Use a local Docker socket (unset DOCKER_HOST or switch `docker context`). "+
 				"An ssh:// or tcp:// host is remote.", engine.Endpoint)
 	}
 	if engine.OSType != "linux" {
-		return "", clierr.Newf("Docker reports OSType %q; berth needs a Linux engine. Switch Docker to Linux containers.", engine.OSType)
+		return "", clierr.Newf("Docker reports OSType %q; treerig needs a Linux engine. Switch Docker to Linux containers.", engine.OSType)
 	}
 	if slices.Contains(engine.SecurityOptions, "name=rootless") {
 		return "", clierr.New(
@@ -178,7 +178,7 @@ func DetectMode(engine Engine, override, settingsFile string) (Mode, error) {
 		options = host + ", " + bridge
 	}
 	return "", clierr.Newf(
-		"Could not tell how the proxy should reach this machine's loopback: Docker is %q (host %q) and berth is running on %s. "+
+		"Could not tell how the proxy should reach this machine's loopback: Docker is %q (host %q) and treerig is running on %s. "+
 			"Set [router] mode in %s: %s.",
 		engine.OperatingSystem, engine.Name, engine.ClientOS, settingsFile, options)
 }

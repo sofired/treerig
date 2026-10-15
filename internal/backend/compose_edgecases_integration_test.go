@@ -19,12 +19,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run/osrun"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run/osrun"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // copyFile copies src to dst, creating dst's parent directories, so a test
@@ -58,8 +58,8 @@ func scratchComposeFixture(t *testing.T, fixture string) string {
 // subtests need it, against composeFile under projectRoot.
 func newEdgeCaseRuntime(composeFile, projectRoot, controlHome string) *Compose {
 	return NewCompose(Options{
-		ComposeFile: composeFile, ProjectRoot: projectRoot, ConfigFile: filepath.Join(projectRoot, "berth.toml"),
-		ProjectName: "berth-test", Domain: "test.localhost", ControlHome: controlHome,
+		ComposeFile: composeFile, ProjectRoot: projectRoot, ConfigFile: filepath.Join(projectRoot, "treerig.toml"),
+		ProjectName: "treerig-test", Domain: "test.localhost", ControlHome: controlHome,
 		LabelNamespace: composeNamespace, Runner: osrun.New(), Logger: logger.Silent{},
 		WaitTimeoutSeconds: intPtr(60), Environ: os.Environ(),
 	})

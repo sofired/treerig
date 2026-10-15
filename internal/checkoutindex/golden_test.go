@@ -24,7 +24,7 @@ func TestIndexGolden(t *testing.T) {
 	// and this test should not depend on what that happens to be wherever it
 	// runs (a runner with HOME=/ would otherwise compact every root to
 	// "~/work/…" and fail every fixture that carries one).
-	pinHomeDir(t, "/home/berth-test")
+	pinHomeDir(t, "/home/treerig-test")
 
 	data, err := os.ReadFile("testdata/index-golden.json")
 	if err != nil {

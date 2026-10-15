@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
-// PortRange is an inclusive range of TCP ports berth allocates loopback ports
+// PortRange is an inclusive range of TCP ports treerig allocates loopback ports
 // from (#119). Its bounds are ports a process may bind without privilege.
 type PortRange struct {
 	Low, High int

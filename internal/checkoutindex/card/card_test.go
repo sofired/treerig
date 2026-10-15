@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 const validCard = `{
@@ -20,7 +20,7 @@ const validCard = `{
   "host": "feature-login.acme.localhost",
   "root": "/repo/worktree",
   "branch": "feature/login",
-  "labelNamespace": "dev.berth",
+  "labelNamespace": "dev.treerig",
   "services": [
     {"name": "api", "url": "http://feature-login.acme.localhost", "label": "API", "purpose": "REST surface"}
   ],
@@ -70,7 +70,7 @@ func TestReadIndexCardAt(t *testing.T) {
 		if got == nil {
 			t.Fatalf("expected a card")
 		}
-		if got.Project != "acme" || got.Slug != "feature-login" || got.LabelNamespace != "dev.berth" {
+		if got.Project != "acme" || got.Slug != "feature-login" || got.LabelNamespace != "dev.treerig" {
 			t.Fatalf("unexpected card: %+v", got)
 		}
 		if len(got.Services) != 1 || got.Services[0].Name != "api" || got.Services[0].URL != "http://feature-login.acme.localhost" {
@@ -194,8 +194,8 @@ func TestRecordedLabelNamespace(t *testing.T) {
 		writeCard(t, wt.Home, validCard)
 
 		got := card.RecordedLabelNamespace(controlHome, card.Registration{RepositoryID: repositoryID, WorktreeID: worktreeID})
-		if got == nil || *got != "dev.berth" {
-			t.Fatalf("expected dev.berth from the card, got %v", got)
+		if got == nil || *got != "dev.treerig" {
+			t.Fatalf("expected dev.treerig from the card, got %v", got)
 		}
 	})
 
@@ -205,8 +205,8 @@ func TestRecordedLabelNamespace(t *testing.T) {
 		writeCard(t, wt.QuarantinePath, validCard)
 
 		got := card.RecordedLabelNamespace(controlHome, card.Registration{RepositoryID: repositoryID, WorktreeID: worktreeID})
-		if got == nil || *got != "dev.berth" {
-			t.Fatalf("expected dev.berth from the quarantined card, got %v", got)
+		if got == nil || *got != "dev.treerig" {
+			t.Fatalf("expected dev.treerig from the quarantined card, got %v", got)
 		}
 	})
 
@@ -219,8 +219,8 @@ func TestRecordedLabelNamespace(t *testing.T) {
 		writeCard(t, wt.Home, broken)
 
 		got := card.RecordedLabelNamespace(controlHome, card.Registration{RepositoryID: repositoryID, WorktreeID: worktreeID})
-		if got == nil || *got != "dev.berth" {
-			t.Fatalf("expected dev.berth despite the broken card, got %v", got)
+		if got == nil || *got != "dev.treerig" {
+			t.Fatalf("expected dev.treerig despite the broken card, got %v", got)
 		}
 		if full := mustReadIndexCard(t, controlHome, repositoryID, worktreeID); full != nil {
 			t.Fatalf("expected the full card read to still refuse it, got %+v", full)
@@ -250,7 +250,7 @@ func TestWriteIndexCard(t *testing.T) {
 		return card.IndexCard{
 			Project: "acme", Domain: "acme.localhost", Slug: "feature-login",
 			Host: "feature-login.acme.localhost", Root: "/repo/worktree", Branch: "feature/login",
-			LabelNamespace: "dev.berth",
+			LabelNamespace: "dev.treerig",
 			Services: []card.IndexService{
 				{Name: "api", URL: "http://feature-login.acme.localhost", Label: "API", Purpose: "REST surface"},
 			},
@@ -376,7 +376,7 @@ func TestCardBoundsSharedByReadAndWrite(t *testing.T) {
 		return card.IndexCard{
 			Project: "acme", Domain: "acme.localhost", Slug: "feature-login",
 			Host: "feature-login.acme.localhost", Root: "/repo/worktree", Branch: "feature/login",
-			LabelNamespace: "dev.berth", UpdatedAt: "2026-01-01T00:00:00.000Z",
+			LabelNamespace: "dev.treerig", UpdatedAt: "2026-01-01T00:00:00.000Z",
 		}
 	}
 

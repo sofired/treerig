@@ -11,9 +11,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // weHoldForeground reports whether this process's own process group is
@@ -36,7 +36,7 @@ func foregroundGroupIs(fd, pgid int) bool {
 }
 
 // reclaimFrom takes fd 0's foreground back for ourPgid unless another live
-// group holds it. Once the shell has resumed berth in the background (`bg`
+// group holds it. Once the shell has resumed treerig in the background (`bg`
 // after a Ctrl-Z), the terminal belongs to the shell, and setForeground,
 // which ignores SIGTTOU, would otherwise take it from the shell. The
 // terminal is still taken back from pid's own group, or from a group that no
@@ -99,7 +99,7 @@ func setForeground(fd, pgid int) error {
 // stopSelf suspends this whole process with SIGSTOP, which — unlike
 // SIGTSTP — can never be caught, blocked or ignored, and returns once
 // something outside this process (typically the real shell that launched
-// berth, answering the user's own `fg`) resumes it with SIGCONT. This is
+// treerig, answering the user's own `fg`) resumes it with SIGCONT. This is
 // how job control expects a foreground process to answer its own child's
 // Ctrl-Z: by actually stopping, the way any other job would. No signal
 // package call is involved on this path either way.
@@ -108,10 +108,10 @@ func stopSelf() {
 }
 
 // forwardSignal is the signal Run sends a still-running child when its own
-// context ends: for an interactive child, the one berth itself received —
+// context ends: for an interactive child, the one treerig itself received —
 // SIGINT stays SIGINT — so a shell answers it the way it would under a real
 // terminal. Anything else (a hook, Docker, a timeout, an output overflow)
-// keeps the plain SIGTERM contract regardless of what stopped berth.
+// keeps the plain SIGTERM contract regardless of what stopped treerig.
 func forwardSignal(cause error, interactive bool) syscall.Signal {
 	if interactive {
 		var cancelled *clierr.Cancelled
@@ -122,9 +122,9 @@ func forwardSignal(cause error, interactive bool) syscall.Signal {
 	return syscall.SIGTERM
 }
 
-// forwardToChild sends an interactive child's group the signal berth
+// forwardToChild sends an interactive child's group the signal treerig
 // received (forwardSignal), then SIGCONT: a child stopped by SIGTTIN or
-// SIGTSTP (berth backgrounded on a terminal, say) would otherwise sit on the
+// SIGTSTP (treerig backgrounded on a terminal, say) would otherwise sit on the
 // pending signal until its kill-after ran out.
 func forwardToChild(pid int, cause error) {
 	signalChild(pid, forwardSignal(cause, true))
@@ -193,11 +193,11 @@ func watchForeground(pid int) <-chan foregroundEvent {
 // straight through Ctrl-Z. ourPgid is this process's own process group,
 // reclaimed as fd 0's foreground on every path out while the child's group
 // still holds it (reclaimFrom). A stop hands the
-// terminal back to berth and stops this whole process with it, the way a
+// terminal back to treerig and stops this whole process with it, the way a
 // real shell answers Ctrl-Z on a job it started; the resume (SIGCONT from
 // outside, typically the real shell answering `fg`) hands the terminal back
 // to pid's own group and continues it. Cancelling runCtx forwards the
-// signal berth received to pid's group once, escalating to SIGKILL after
+// signal treerig received to pid's group once, escalating to SIGKILL after
 // killAfter the way the rest of this Runner already does for every child.
 // killed reports that a second SIGINT or SIGTERM cut that grace short with
 // SIGKILL to the group, which the caller's drain then need not treat as a
@@ -231,8 +231,8 @@ func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time
 			case waitStopped(ev.status):
 				// A stop reported after the run was cancelled (the child's
 				// own SIGTERM handler stopping itself, say) is shutdown, not
-				// job control: berth's own signal is already being
-				// answered, and stopping berth now would leave it and the
+				// job control: treerig's own signal is already being
+				// answered, and stopping treerig now would leave it and the
 				// lock stuck until someone typed fg. Resume the child's group
 				// so it can finish and skip the terminal dance.
 				if runCtx.Err() != nil {
@@ -241,12 +241,12 @@ func runForegroundChild(runCtx context.Context, pid, ourPgid int, killAfter time
 				}
 				reclaimFrom(pid, ourPgid)
 				stopSelf()
-				// Resumed. After `fg`, berth holds the terminal again and
+				// Resumed. After `fg`, treerig holds the terminal again and
 				// hands it back to the child's own group (its pgid equals
 				// pid, since it led its own group). After `bg`, the shell
 				// keeps it, and the child just continues in the
 				// background: a read from the terminal stops it again, and
-				// berth with it, until the next `fg`.
+				// treerig with it, until the next `fg`.
 				if weHoldForeground(0) {
 					_ = setForeground(0, pid)
 				}
@@ -299,7 +299,7 @@ const drainGrace = 5 * time.Second
 // default killAfter, the same bound Quiesce uses, and always quiesceBudget
 // once a second signal has already SIGKILLed the group) with an error
 // naming the command and pgid — since an interactive child's descendants
-// must never outlive the call that started them, whether or not berth
+// must never outlive the call that started them, whether or not treerig
 // itself was ever signalled. A second Ctrl-C or SIGTERM, read off ctx via
 // run.Repeated so this package never calls signal.Notify itself, abandons
 // that wait early instead of running out the full budget, with its own,

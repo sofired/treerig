@@ -108,10 +108,10 @@ type Table interface {
 }
 
 // Marked returns the processes started for a worktree: its Compose project
-// name as a whole argv token, or BERTH_WORKTREE_ID=<wt> / COMPOSE_PROJECT_NAME=<p>
+// name as a whole argv token, or TREERIG_WORKTREE_ID=<wt> / COMPOSE_PROJECT_NAME=<p>
 // in its environment.
 func Marked(procs []Proc, m Markers) []Proc {
-	wantWorktree := "BERTH_WORKTREE_ID=" + m.WorktreeID
+	wantWorktree := "TREERIG_WORKTREE_ID=" + m.WorktreeID
 	wantProject := "COMPOSE_PROJECT_NAME=" + m.Project
 	var found []Proc
 	for _, p := range procs {

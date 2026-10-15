@@ -20,7 +20,7 @@ func TestRecordFormat(t *testing.T) {
 		t.Helper()
 		scope := Scope{Target: filepath.Join(t.TempDir(), "worktree"), Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Abandon(); err != nil {
@@ -36,7 +36,7 @@ func TestRecordFormat(t *testing.T) {
 	t.Run("writes version 1 into every record", func(t *testing.T) {
 		scope := Scope{Target: filepath.Join(t.TempDir(), "worktree"), Description: "worktree main"}
 		lk := New(scope, testOptions(t))
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer lk.Release()
@@ -57,19 +57,19 @@ func TestRecordFormat(t *testing.T) {
 			t.Fatalf("record = %+v, %v", rec, err)
 		}
 		verdict := mustJudge(t, rec, self, newFakeTable(self))
-		want := "its holder record is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again"
+		want := "its holder record is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again"
 		if verdict.Kind != Unverifiable || verdict.Reason != want {
 			t.Fatalf("verdict = %+v", verdict)
 		}
-		if got := HolderLabel(rec); got != "a holder recorded in format 2 by a newer berth" {
+		if got := HolderLabel(rec); got != "a holder recorded in format 2 by a newer treerig" {
 			t.Fatalf("HolderLabel = %q", got)
 		}
 	})
 
-	t.Run("refuses to take a lock whose unreleased record a newer berth wrote, naming the versions", func(t *testing.T) {
+	t.Run("refuses to take a lock whose unreleased record a newer treerig wrote, naming the versions", func(t *testing.T) {
 		scope := holderOf(t, newer)
-		_, err := New(scope, testOptions(t)).Acquire(context.Background(), "berth up")
-		want := "Not taking the worktree main lock: its holder record is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+		_, err := New(scope, testOptions(t)).Acquire(context.Background(), "treerig up")
+		want := "Not taking the worktree main lock: its holder record is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
 		if err == nil || err.Error() != want {
 			t.Fatalf("got %v\nwant %s", err, want)
 		}
@@ -77,8 +77,8 @@ func TestRecordFormat(t *testing.T) {
 
 	t.Run("refuses a lock whose newer record says it was released, since this build cannot read the release", func(t *testing.T) {
 		scope := holderOf(t, `{"version":2,"releasedAt":"2026-10-14T10:00:00Z","pid":4242}`)
-		_, err := New(scope, testOptions(t)).Acquire(context.Background(), "berth up")
-		if err == nil || !strings.Contains(err.Error(), "its holder record is format 2, written by a newer berth") {
+		_, err := New(scope, testOptions(t)).Acquire(context.Background(), "treerig up")
+		if err == nil || !strings.Contains(err.Error(), "its holder record is format 2, written by a newer treerig") {
 			t.Fatalf("got %v", err)
 		}
 	})
@@ -87,7 +87,7 @@ func TestRecordFormat(t *testing.T) {
 		scope := holderOf(t, newer)
 		opts := clearOptions(t)
 		_, err := Clear(context.Background(), []Scope{scope}, opts)
-		if err == nil || !strings.Contains(err.Error(), "written by a newer berth") || !strings.Contains(err.Error(), "--holder-unverifiable") {
+		if err == nil || !strings.Contains(err.Error(), "written by a newer treerig") || !strings.Contains(err.Error(), "--holder-unverifiable") {
 			t.Fatalf("got %v", err)
 		}
 		opts.AllowUnverifiable = true
@@ -96,14 +96,14 @@ func TestRecordFormat(t *testing.T) {
 			!strings.Contains(result.Scopes[0].Unverified[0], "format 2") {
 			t.Fatalf("result = %+v, %v", result, err)
 		}
-		if _, err := New(scope, testOptions(t)).Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := New(scope, testOptions(t)).Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatalf("the lock is still refused after Clear: %v", err)
 		}
 	})
 
 	for name, raw := range map[string]string{
-		"no version":   `{"pid":4242,"host":"laptop","command":"berth up","file":{"dev":1,"ino":2}}`,
-		"version 0":    `{"version":0,"pid":4242,"host":"laptop","command":"berth up"}`,
+		"no version":   `{"pid":4242,"host":"laptop","command":"treerig up","file":{"dev":1,"ino":2}}`,
+		"version 0":    `{"version":0,"pid":4242,"host":"laptop","command":"treerig up"}`,
 		"a string":     `{"version":"2","pid":4242,"host":"laptop"}`,
 		"a fractional": `{"version":1.5,"pid":4242,"host":"laptop"}`,
 	} {

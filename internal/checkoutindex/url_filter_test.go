@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/registry"
 )
 
 // TestBuildSnapshotURLFilterGolden checks serviceBelongsToHost against
@@ -46,7 +46,7 @@ func TestBuildSnapshotURLFilterGolden(t *testing.T) {
 				Cards: map[string]card.IndexCard{
 					EntryKey(record.RepositoryID, record.WorktreeID): {
 						Project: "acme", Domain: record.Domain, Slug: record.Slug, Host: fixture.Host,
-						Root: "/work/feature-a", Branch: "feature/a", LabelNamespace: "dev.berth",
+						Root: "/work/feature-a", Branch: "feature/a", LabelNamespace: "dev.treerig",
 						Services:  []card.IndexService{{Name: "svc", URL: c.URL, Label: "Service", Purpose: ""}},
 						UpdatedAt: "2026-01-01T00:00:00.000Z",
 					},

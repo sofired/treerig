@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
+	"github.com/sofired/treerig/internal/commands"
 )
 
 func TestRenameOnARealDaemon(t *testing.T) {

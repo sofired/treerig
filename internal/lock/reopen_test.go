@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // TestWaiterReopensAReplacedTarget is scenario 13 from the design doc: a
 // waiter's open file description outlives the path it was opened for if
-// something outside berth replaces the target while a lock is contended.
-// Berth itself never unlinks a lock file, but Acquire must still never end
+// something outside treerig replaces the target while a lock is contended.
+// Treerig itself never unlinks a lock file, but Acquire must still never end
 // up "holding" a detached, unlinked inode — it must notice and reopen.
 func TestWaiterReopensAReplacedTarget(t *testing.T) {
 	dir := t.TempDir()

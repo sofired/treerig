@@ -11,17 +11,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 const (
@@ -207,7 +207,7 @@ func TestReadDefinitionRefusals(t *testing.T) {
 		runner := &fakerun.Runner{Handler: f.docker.Handle}
 		stack := shared.New(shared.Options{
 			RepositoryID: repository, LabelNamespace: ns, ControlHome: f.control, ComposeFile: "/work/compose.shared.yaml",
-			ProjectName: "acme", Runner: runner, Environ: []string{"PATH=/bin", "BERTH_WORKTREE_ID=leak", "COMPOSE_FILE=other.yaml"},
+			ProjectName: "acme", Runner: runner, Environ: []string{"PATH=/bin", "TREERIG_WORKTREE_ID=leak", "COMPOSE_FILE=other.yaml"},
 		})
 		if _, err := stack.ReadDefinition(context.Background()); err != nil {
 			t.Fatal(err)
@@ -217,12 +217,12 @@ func TestReadDefinitionRefusals(t *testing.T) {
 			t.Fatalf("calls = %v", runner.Argv())
 		}
 		env := strings.Join(calls[0].Env, "\n")
-		for _, want := range []string{"COMPOSE_PROJECT_NAME=" + project, "BERTH_PROJECT=acme", "BERTH_REPOSITORY_ID=" + repository, "PATH=/bin"} {
+		for _, want := range []string{"COMPOSE_PROJECT_NAME=" + project, "TREERIG_PROJECT=acme", "TREERIG_REPOSITORY_ID=" + repository, "PATH=/bin"} {
 			if !strings.Contains(env, want) {
 				t.Errorf("environment lacks %s", want)
 			}
 		}
-		for _, banned := range []string{"BERTH_WORKTREE_ID", "BERTH_ROOT", "COMPOSE_FILE"} {
+		for _, banned := range []string{"TREERIG_WORKTREE_ID", "TREERIG_ROOT", "COMPOSE_FILE"} {
 			if strings.Contains(env, banned+"=") {
 				t.Errorf("environment carries %s", banned)
 			}
@@ -310,7 +310,7 @@ func TestUp(t *testing.T) {
 				up = call
 			}
 		}
-		for _, want := range []string{"--project-name " + project, "--no-recreate", "--wait", "--detach", "-f ", "berth.override.yaml"} {
+		for _, want := range []string{"--project-name " + project, "--no-recreate", "--wait", "--detach", "-f ", "treerig.override.yaml"} {
 			if !strings.Contains(up, want) {
 				t.Errorf("%q lacks %q", up, want)
 			}
@@ -617,10 +617,10 @@ func TestOwnershipAndRemoval(t *testing.T) {
 				if err == nil || !strings.HasPrefix(err.Error(), want) {
 					t.Fatalf("%s, %s: err = %v", name, kind, err)
 				}
-				if name == "a newer format" && !strings.HasSuffix(err.Error(), ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again.") {
+				if name == "a newer format" && !strings.HasSuffix(err.Error(), ": it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again.") {
 					t.Errorf("%s: err = %v", kind, err)
 				}
-				if name != "a newer format" && !strings.HasSuffix(err.Error(), "its dev.berth.format label is missing or not recognised, so berth cannot prove it belongs to this repository's shared services. "+
+				if name != "a newer format" && !strings.HasSuffix(err.Error(), "its dev.treerig.format label is missing or not recognised, so treerig cannot prove it belongs to this repository's shared services. "+
 					"After checking that nothing needs it, remove it with `docker "+kind+" rm "+id+"`.") {
 					t.Errorf("%s, %s: err = %v", name, kind, err)
 				}
@@ -642,7 +642,7 @@ func TestOwnershipAndRemoval(t *testing.T) {
 				Definition: definition, Services: []string{"mailpit"}, DefinedBy: worktreeA,
 				Published: map[string]map[int]int{"mailpit": {1025: 30001, 8025: 30002}},
 			})
-			want := "Refusing to touch the " + kind + " " + id + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			want := "Refusing to touch the " + kind + " " + id + ": it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
 			if err == nil || err.Error() != want {
 				t.Fatalf("%s: err = %v\nwant %s", kind, err, want)
 			}
@@ -883,7 +883,7 @@ func TestPortsInTheSharedFileAreRefused(t *testing.T) {
 		entry["ports"] = []any{map[string]any{"target": 8025, "published": "8025", "host_ip": "127.0.0.1"}}
 		f.docker.SetSharedService("mailpit", entry)
 		_, err := f.stack.ReadDefinition(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "mailpit") || !strings.Contains(err.Error(), "has ports:") || !strings.Contains(err.Error(), "[shared.service.mailpit] in berth.toml") ||
+		if err == nil || !strings.Contains(err.Error(), "mailpit") || !strings.Contains(err.Error(), "has ports:") || !strings.Contains(err.Error(), "[shared.service.mailpit] in treerig.toml") ||
 			!strings.Contains(err.Error(), "127.0.0.1") {
 			t.Fatalf("err = %v", err)
 		}

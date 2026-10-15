@@ -1,5 +1,5 @@
 {
-  "url": "http://berth.localhost",
+  "url": "http://treerig.localhost",
   "generatedAt": "TIMESTAMP",
   "dockerReachable": true,
   "cardReadFailures": 0,

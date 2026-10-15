@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 // fileMode is path's permission bits.

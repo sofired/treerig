@@ -1,11 +1,11 @@
 Shared services run once per repository, in a Compose project of their own, and
 are connected to each worktree whose services use them: declare them under
-[shared] in berth.toml. `berth up` starts the ones a worktree uses; these
+[shared] in treerig.toml. `treerig up` starts the ones a worktree uses; these
 commands start, replace, stop and inspect them yourself.
 
 Usage:
-  berth shared [flags]
-  berth shared [command]
+  treerig shared [flags]
+  treerig shared [command]
 
 Available Commands:
   up          start shared services, and reconnect every worktree that uses them
@@ -18,7 +18,7 @@ Flags:
   -h, --help   help for shared
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number
 
-Use "berth shared [command] --help" for more information about a command.
+Use "treerig shared [command] --help" for more information about a command.

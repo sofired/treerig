@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // TestDecodeDefinition covers the forms of Compose's JSON that the stateful
@@ -158,7 +158,7 @@ func TestClosureFollowsEverythingAServiceNeeds(t *testing.T) {
 func TestAHashThatCannotBeComputedFailsTheStartAndWritesNothing(t *testing.T) {
 	bad := Definition{services: map[string]map[string]any{"a": {"image": "i", "broken": make(chan int)}}}
 	control := registrytest.TempDir(t)
-	stack := &Stack{o: Options{LabelNamespace: "dev.berth", RepositoryID: "repo", ControlHome: control}}
+	stack := &Stack{o: Options{LabelNamespace: "dev.treerig", RepositoryID: "repo", ControlHome: control}}
 
 	if _, err := stack.overrideDocument(bad, nil, ""); err == nil {
 		t.Fatal("overrideDocument printed a label for a hash it could not compute")

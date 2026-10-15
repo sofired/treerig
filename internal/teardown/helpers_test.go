@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 // fixedTime is the pinned_at every test pin carries.
@@ -45,8 +45,8 @@ func releasePin(release, checksums string, binaries map[string]string) teardown.
 	pin := teardown.Pin{
 		Version:         1,
 		Release:         release,
-		Source:          "https://github.com/sofired/berth/releases/download/v" + release + "/",
-		Signer:          "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v" + release,
+		Source:          "https://github.com/sofired/treerig/releases/download/v" + release + "/",
+		Signer:          "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v" + release,
 		ChecksumsSHA256: sum(checksums),
 		PinnedAt:        fixedTime,
 		Platforms:       map[string]teardown.Platform{},
@@ -66,7 +66,7 @@ func filePin(label, content string) teardown.Pin {
 	return teardown.Pin{
 		Version:   1,
 		Release:   label,
-		Source:    "file:/home/me/berth",
+		Source:    "file:/home/me/treerig",
 		PinnedAt:  fixedTime,
 		Platforms: map[string]teardown.Platform{"linux_amd64": {BinarySHA256: binstore.Hash([]byte(content))}},
 	}

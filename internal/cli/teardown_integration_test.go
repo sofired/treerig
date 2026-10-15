@@ -23,8 +23,8 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run/ptytest"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run/ptytest"
 )
 
 // fileSHA256 is the hex sha256 of the file at path.
@@ -38,8 +38,8 @@ func fileSHA256(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// scratchTeardownRoot is a scratch directory to run berth in, with the
-// berth root's settings written the way every scratch root here has them.
+// scratchTeardownRoot is a scratch directory to run treerig in, with the
+// treerig root's settings written the way every scratch root here has them.
 func scratchTeardownRoot(t *testing.T) string {
 	t.Helper()
 	dir := registrytest.TempDir(t)
@@ -52,8 +52,8 @@ func buildVersioned(t *testing.T, version string) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	binary := filepath.Join(registrytest.TempDir(t), "berth")
-	build := exec.Command("go", "build", "-ldflags", "-X github.com/sofired/berth/internal/brand.Version="+version, "-o", binary, "./cmd/berth")
+	binary := filepath.Join(registrytest.TempDir(t), "treerig")
+	build := exec.Command("go", "build", "-ldflags", "-X github.com/sofired/treerig/internal/brand.Version="+version, "-o", binary, "./cmd/treerig")
 	build.Dir = root
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, output)
@@ -67,8 +67,8 @@ func TestTeardownPinAndStatus(t *testing.T) {
 
 	t.Run("pins the running binary, leaves stdout empty, and status finds it intact and the running build to be the pin", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		pinned := runBerth(t, binary, dir, []string{"teardown", "pin", "--file", binary, "--sha256", digest, "--release", "my-build", "--yes"}, berthOptions{})
-		if pinned.Code != 0 || pinned.Stdout != "" || !strings.HasPrefix(pinned.Stderr, "[berth] Pinned the teardown binary: release my-build (") {
+		pinned := runTreerig(t, binary, dir, []string{"teardown", "pin", "--file", binary, "--sha256", digest, "--release", "my-build", "--yes"}, treerigOptions{})
+		if pinned.Code != 0 || pinned.Stdout != "" || !strings.HasPrefix(pinned.Stderr, "[treerig] Pinned the teardown binary: release my-build (") {
 			t.Fatalf("pin = %+v", pinned)
 		}
 		teardownDir := filepath.Join(dir, "control-home", "control-home", "teardown")
@@ -83,11 +83,11 @@ func TestTeardownPinAndStatus(t *testing.T) {
 			}
 		}
 
-		status := runBerth(t, binary, dir, []string{"teardown", "status"}, berthOptions{})
+		status := runTreerig(t, binary, dir, []string{"teardown", "status"}, treerigOptions{})
 		if status.Code != 0 || status.Stderr != "" || !strings.Contains(status.Stdout, "  binary  "+stored+" sha256 "+digest+" ok\n") {
 			t.Fatalf("status = %+v", status)
 		}
-		report := runBerth(t, binary, dir, []string{"teardown", "status", "--json"}, berthOptions{})
+		report := runTreerig(t, binary, dir, []string{"teardown", "status", "--json"}, treerigOptions{})
 		var parsed struct {
 			Pinned  bool `json:"pinned"`
 			OK      bool `json:"ok"`
@@ -102,12 +102,12 @@ func TestTeardownPinAndStatus(t *testing.T) {
 
 	t.Run("with no pin: status says so on stderr and exits 1, and --json prints {pinned: false} first", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		want := "[berth] ERROR: No teardown binary is pinned. Pin one with `berth teardown pin --release X.Y.Z`.\n"
-		text := runBerth(t, binary, dir, []string{"teardown", "status"}, berthOptions{})
+		want := "[treerig] ERROR: No teardown binary is pinned. Pin one with `treerig teardown pin --release X.Y.Z`.\n"
+		text := runTreerig(t, binary, dir, []string{"teardown", "status"}, treerigOptions{})
 		if text.Code != 1 || text.Stdout != "" || text.Stderr != want {
 			t.Fatalf("status = %+v", text)
 		}
-		asJSON := runBerth(t, binary, dir, []string{"teardown", "status", "--json"}, berthOptions{})
+		asJSON := runTreerig(t, binary, dir, []string{"teardown", "status", "--json"}, treerigOptions{})
 		if asJSON.Code != 1 || asJSON.Stdout != "{\n  \"pinned\": false\n}\n" || asJSON.Stderr != want {
 			t.Fatalf("status --json = %+v", asJSON)
 		}
@@ -115,8 +115,8 @@ func TestTeardownPinAndStatus(t *testing.T) {
 
 	t.Run("without a terminal it refuses to ask, names the phrase, and pins nothing", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		result := runBerth(t, binary, dir, []string{"teardown", "pin", "--file", binary, "--sha256", digest, "--release", "my-build"}, berthOptions{})
-		if result.Code != 1 || result.Stdout != "" || result.Stderr != "[berth] ERROR: Interactive confirmation required: \"pin teardown binary\".\n" {
+		result := runTreerig(t, binary, dir, []string{"teardown", "pin", "--file", binary, "--sha256", digest, "--release", "my-build"}, treerigOptions{})
+		if result.Code != 1 || result.Stdout != "" || result.Stderr != "[treerig] ERROR: Interactive confirmation required: \"pin teardown binary\".\n" {
 			t.Fatalf("pin = %+v", result)
 		}
 		if _, err := os.Lstat(filepath.Join(dir, "control-home", "control-home", "teardown")); !os.IsNotExist(err) {
@@ -127,8 +127,8 @@ func TestTeardownPinAndStatus(t *testing.T) {
 	t.Run("refuses a digest that is not the file's, and pins nothing", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
 		wrong := strings.Repeat("0", 64)
-		result := runBerth(t, binary, dir, []string{"teardown", "pin", "--file", binary, "--sha256", wrong, "--release", "my-build", "--yes"}, berthOptions{})
-		want := "[berth] ERROR: Refusing to pin my-build: " + binary + " has sha256 " + digest + ", not the " + wrong + " you supplied. Nothing was pinned. Check that you are pinning the file you verified and that --sha256 is its digest.\n"
+		result := runTreerig(t, binary, dir, []string{"teardown", "pin", "--file", binary, "--sha256", wrong, "--release", "my-build", "--yes"}, treerigOptions{})
+		want := "[treerig] ERROR: Refusing to pin my-build: " + binary + " has sha256 " + digest + ", not the " + wrong + " you supplied. Nothing was pinned. Check that you are pinning the file you verified and that --sha256 is its digest.\n"
 		if result.Code != 1 || result.Stdout != "" || result.Stderr != want {
 			t.Fatalf("pin = %+v", result)
 		}
@@ -149,7 +149,7 @@ func TestTeardownPinAndStatus(t *testing.T) {
 			dir := scratchTeardownRoot(t)
 			cmd := exec.Command(binary, "teardown", "pin", "--file", binary, "--sha256", digest, "--release", "my-build")
 			cmd.Dir = dir
-			cmd.Env = []string{"BERTH_HOME=" + filepath.Join(dir, "control-home"), "PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+			cmd.Env = []string{"TREERIG_HOME=" + filepath.Join(dir, "control-home"), "PATH=" + os.Getenv("PATH"), "HOME=" + dir}
 			ptmx, err := pty.Start(cmd)
 			if err != nil {
 				t.Fatal(err)
@@ -187,27 +187,27 @@ func TestTeardownPinAndStatus(t *testing.T) {
 	t.Run("a file pin labelled like a version never drives the newer-build hint", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
 		newer := buildVersioned(t, "9.9.9")
-		pinned := runBerth(t, newer, dir, []string{"teardown", "pin", "--file", binary, "--sha256", digest, "--release", "1.0.0", "--yes"}, berthOptions{})
+		pinned := runTreerig(t, newer, dir, []string{"teardown", "pin", "--file", binary, "--sha256", digest, "--release", "1.0.0", "--yes"}, treerigOptions{})
 		if pinned.Code != 0 {
 			t.Fatalf("pin = %+v", pinned)
 		}
-		status := runBerth(t, newer, dir, []string{"teardown", "status"}, berthOptions{})
+		status := runTreerig(t, newer, dir, []string{"teardown", "status"}, treerigOptions{})
 		if status.Code != 0 || status.Stderr != "" {
 			t.Fatalf("status = %+v", status)
 		}
-		report := runBerth(t, newer, dir, []string{"teardown", "status", "--json"}, berthOptions{})
+		report := runTreerig(t, newer, dir, []string{"teardown", "status", "--json"}, treerigOptions{})
 		if report.Code != 0 || report.Stderr != "" || !strings.Contains(report.Stdout, "\"newerThanPin\": false") || !strings.Contains(report.Stdout, "\"isPin\": false") {
 			t.Fatalf("status --json = %+v", report)
 		}
 	})
 
-	t.Run("refuses a digest-matching file that is not a berth executable for this machine", func(t *testing.T) {
+	t.Run("refuses a digest-matching file that is not a treerig executable for this machine", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
 		empty := filepath.Join(dir, "empty")
 		if err := os.WriteFile(empty, nil, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		result := runBerth(t, binary, dir, []string{"teardown", "pin", "--file", empty, "--sha256", fileSHA256(t, empty), "--release", "x", "--yes"}, berthOptions{})
+		result := runTreerig(t, binary, dir, []string{"teardown", "pin", "--file", empty, "--sha256", fileSHA256(t, empty), "--release", "x", "--yes"}, treerigOptions{})
 		if result.Code != 1 || result.Stdout != "" || !strings.Contains(result.Stderr, "is not a "+runtime.GOOS+"_"+runtime.GOARCH+" executable (the file is empty). Nothing was pinned.") {
 			t.Fatalf("pin = %+v", result)
 		}
@@ -233,11 +233,11 @@ func TestTeardownPinDownloadsThroughTheProxyTheEnvironmentNames(t *testing.T) {
 	}))
 	defer proxy.Close()
 
-	result := runBerth(t, binary, dir, []string{"teardown", "pin", "--release", "1.2.3", "--yes"}, berthOptions{
+	result := runTreerig(t, binary, dir, []string{"teardown", "pin", "--release", "1.2.3", "--yes"}, treerigOptions{
 		path: tools + ":" + os.Getenv("PATH"),
 		env:  map[string]string{"HTTPS_PROXY": proxy.URL, "https_proxy": proxy.URL, "NO_PROXY": "", "no_proxy": ""},
 	})
-	if result.Code != 1 || result.Stdout != "" || !strings.Contains(result.Stderr, "[berth] Downloading https://github.com/sofired/berth/releases/download/v1.2.3/checksums.txt…\n[berth] ERROR: Refusing to pin 1.2.3: ") || !strings.HasSuffix(result.Stderr, " Nothing was pinned. Check your network connection and HTTPS_PROXY settings, then run it again.\n") {
+	if result.Code != 1 || result.Stdout != "" || !strings.Contains(result.Stderr, "[treerig] Downloading https://github.com/sofired/treerig/releases/download/v1.2.3/checksums.txt…\n[treerig] ERROR: Refusing to pin 1.2.3: ") || !strings.HasSuffix(result.Stderr, " Nothing was pinned. Check your network connection and HTTPS_PROXY settings, then run it again.\n") {
 		t.Fatalf("pin = %+v", result)
 	}
 	mu.Lock()

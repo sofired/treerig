@@ -19,20 +19,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 // The helper's environment: where to run, where to say it is ready, what to
 // wait for, where to report.
 const (
-	helperMode   = "BERTH_TEST_SHARED_UP_HELPER"
-	helperCwd    = "BERTH_TEST_HELPER_CWD"
-	helperGo     = "BERTH_TEST_HELPER_GO"
-	helperReady  = "BERTH_TEST_HELPER_READY"
-	helperReport = "BERTH_TEST_HELPER_REPORT"
+	helperMode   = "TREERIG_TEST_SHARED_UP_HELPER"
+	helperCwd    = "TREERIG_TEST_HELPER_CWD"
+	helperGo     = "TREERIG_TEST_HELPER_GO"
+	helperReady  = "TREERIG_TEST_HELPER_READY"
+	helperReport = "TREERIG_TEST_HELPER_REPORT"
 )
 
 // TestMain runs the suite, or, when the helper variable is set, one `up`.
@@ -67,7 +67,7 @@ func runUpHelper() int {
 	}
 	log := &logger.Recording{}
 	env := &commands.Env{
-		CommandName: "berth", Invocation: "berth up", Logger: log, Environ: os.Environ(),
+		CommandName: "treerig", Invocation: "treerig up", Logger: log, Environ: os.Environ(),
 		Getenv: os.LookupEnv, Cwd: os.Getenv(helperCwd), Runner: osrun.New(),
 	}
 	cctx, err := commands.Context(env)
@@ -84,13 +84,13 @@ func runUpHelper() int {
 	return code
 }
 
-// helperEnvironment is this process's environment without any BERTH_ variable
+// helperEnvironment is this process's environment without any TREERIG_ variable
 // or HOME of the person running the suite, plus extra: the helper must see
-// the scratch berth root and nothing of a real one.
+// the scratch treerig root and nothing of a real one.
 func helperEnvironment(extra ...string) []string {
 	var environment []string
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "BERTH_") && !strings.HasPrefix(entry, "HOME=") {
+		if !strings.HasPrefix(entry, "TREERIG_") && !strings.HasPrefix(entry, "HOME=") {
 			environment = append(environment, entry)
 		}
 	}
@@ -113,10 +113,10 @@ func TestConcurrentFirstUpsStartOneSharedServiceAcrossProcesses(t *testing.T) {
 		readyFiles = append(readyFiles, ready)
 		cmd := exec.Command(os.Args[0], "-test.run=^$")
 		home, _ := w.env.Getenv("HOME")
-		router, _ := w.env.Getenv("BERTH_ROUTER_PORT")
+		router, _ := w.env.Getenv("TREERIG_ROUTER_PORT")
 		cmd.Env = helperEnvironment(
 			helperMode+"=1", helperCwd+"="+checkout, helperGo+"="+goFile, helperReady+"="+ready, helperReport+"="+report,
-			"BERTH_CONTROL_HOME="+w.controlHome, "HOME="+home, "BERTH_ROUTER_PORT="+router)
+			"TREERIG_CONTROL_HOME="+w.controlHome, "HOME="+home, "TREERIG_ROUTER_PORT="+router)
 		output := &strings.Builder{}
 		cmd.Stdout, cmd.Stderr = output, output
 		if err := cmd.Start(); err != nil {

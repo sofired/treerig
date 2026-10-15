@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // UnavailableError is Docker unable to do what was asked of it — not

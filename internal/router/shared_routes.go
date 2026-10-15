@@ -33,8 +33,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // sharedFragmentPrefix starts every shared route file's name.

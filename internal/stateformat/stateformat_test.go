@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // TestVersions pins the format version each store writes today
@@ -109,8 +109,8 @@ func TestLabelAndLine(t *testing.T) {
 
 func TestNewer(t *testing.T) {
 	t.Run("names the store, the version found and the version supported, and says to upgrade", func(t *testing.T) {
-		err := stateformat.Newer("use", "the router state /home/me/.berth/router/state.json", "3", 1)
-		want := "Refusing to use the router state /home/me/.berth/router/state.json: it is format 3, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+		err := stateformat.Newer("use", "the router state /home/me/.treerig/router/state.json", "3", 1)
+		want := "Refusing to use the router state /home/me/.treerig/router/state.json: it is format 3, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
 		if err.Error() != want {
 			t.Errorf("got  %q\nwant %q", err.Error(), want)
 		}
@@ -123,7 +123,7 @@ func TestNewer(t *testing.T) {
 		}
 	})
 
-	t.Run("is recognisable as a newer berth's state, which no other refusal is", func(t *testing.T) {
+	t.Run("is recognisable as a newer treerig's state, which no other refusal is", func(t *testing.T) {
 		if !errors.Is(stateformat.Newer("use", "x", "2", 1), stateformat.ErrNewer) {
 			t.Error("Newer does not wrap ErrNewer")
 		}

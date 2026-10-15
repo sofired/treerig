@@ -6,15 +6,15 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // Loopback ports (#119, docs/design/routing.md decisions 3-6 and 12): every
@@ -50,7 +50,7 @@ func (c *CommandContext) listeners() ports.ListenerProbe {
 	return c.Listeners
 }
 
-// routedServiceNames are the services berth.toml routes, in file order.
+// routedServiceNames are the services treerig.toml routes, in file order.
 func routedServiceNames(services []config.Service) []string {
 	names := make([]string, len(services))
 	for i, service := range services {
@@ -140,7 +140,7 @@ func inspectPort(ctx context.Context, probe ports.Probe, lister publisherLister,
 		case publisher.Own:
 			state.Own = append(state.Own, publisher)
 		case publisher.Managed:
-			state.Others = append(state.Others, fmt.Sprintf("container %s (belongs to another berth worktree)", publisher.Name))
+			state.Others = append(state.Others, fmt.Sprintf("container %s (belongs to another treerig worktree)", publisher.Name))
 		default:
 			state.Others = append(state.Others, "container "+publisher.Name)
 		}
@@ -263,7 +263,7 @@ func explainStartFailure(ctx context.Context, cctx *CommandContext, lister publi
 }
 
 // validateReallocation refuses a --reallocate-port that names something
-// berth.toml does not route.
+// treerig.toml does not route.
 func validateReallocation(services []config.Service, requested []string) error {
 	routed := routedServiceNames(services)
 	for _, name := range requested {
@@ -281,7 +281,7 @@ func validateReallocation(services []config.Service, requested []string) error {
 // allocatePorts makes every routed service's port true in the registration:
 // it refuses to move a port this worktree's own container still holds, then
 // allocates whatever is missing or was asked to move, and says what moved.
-// It releases nothing: a service dropped from berth.toml keeps its port until
+// It releases nothing: a service dropped from treerig.toml keeps its port until
 // releaseDroppedPorts, after a full `compose up` has removed its container.
 // Called inside `up`'s mutation, so the operation lock is held and the
 // registry lock is taken by SyncPorts alone.
@@ -338,7 +338,7 @@ func allocatePorts(ctx context.Context, cctx *CommandContext, lister publisherLi
 	return result.Ports, nil
 }
 
-// releaseDroppedPorts releases the port of every service berth.toml no longer
+// releaseDroppedPorts releases the port of every service treerig.toml no longer
 // routes, once `compose up` has succeeded for all services: its
 // --remove-orphans has then removed the dropped service's container, so
 // nothing of the old owner can still hold the port (docs/design/routing.md,

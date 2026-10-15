@@ -9,18 +9,18 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // routerLockScope is the one place in this build that builds the shared
 // router's lock scope, always from an already-resolved layout.RouterLayout
 // (a caller's own state, itself only ever reached through resolveRouterState
-// in home.go, which applies files.AssertSafeHome to BERTH_HOME first) —
+// in home.go, which applies files.AssertSafeHome to TREERIG_HOME first) —
 // never re-derived from a raw Getenv, so there is no second, unchecked path
 // to the router's lock target (#80). Every caller that takes the router's
 // lock (routerHold, unlock.go's router branch, and doctor.go's own report of

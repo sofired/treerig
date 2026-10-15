@@ -3,10 +3,10 @@ Like a [service.<name>] table, the route takes a --subdomain and a --path, and
 gets the hostname a service with that name and those fields would get. The name
 must not be a service's or another host route's, and the route must not
 duplicate one; adding a route identical to a recorded one writes its route file
-again. Needs a registered worktree: run `berth up` first.
+again. Needs a registered worktree: run `treerig up` first.
 
 Usage:
-  berth route add <name> --port <port> [flags]
+  treerig route add <name> --port <port> [flags]
 
 Flags:
   -h, --help               help for add
@@ -18,5 +18,5 @@ Flags:
                            the host itself
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

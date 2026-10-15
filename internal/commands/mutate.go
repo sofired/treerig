@@ -3,15 +3,15 @@ package commands
 import (
 	"context"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/progress"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/progress"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // mutate runs one mutation of one worktree. The worktree lock is held
@@ -93,7 +93,7 @@ func (c *CommandContext) refuseOwnWorktreeLock(worktreeID, host string) error {
 	return nil
 }
 
-// insideWorktree reports whether BERTH_WORKTREE_ID in this process's
+// insideWorktree reports whether TREERIG_WORKTREE_ID in this process's
 // environment names worktreeID, as it does inside that worktree's hooks.
 func (c *CommandContext) insideWorktree(worktreeID string) bool {
 	env, ok := c.environWorktreeID()

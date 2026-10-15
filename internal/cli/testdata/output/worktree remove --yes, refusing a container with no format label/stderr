@@ -1,1 +1,1 @@
-[berth] ERROR: Refusing to touch the container c1 (service api): its dev.berth.format label is missing or not recognised, so berth cannot prove it is this worktree's. After checking that nothing needs it, remove it with `docker container rm c1`.
+[treerig] ERROR: Refusing to touch the container c1 (service api): its dev.treerig.format label is missing or not recognised, so treerig cannot prove it is this worktree's. After checking that nothing needs it, remove it with `docker container rm c1`.

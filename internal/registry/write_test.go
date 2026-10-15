@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
 )
 
-// claimedHome is a control home berth created, as up leaves one: writes refuse any other.
+// claimedHome is a control home treerig created, as up leaves one: writes refuse any other.
 func claimedHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -32,9 +32,9 @@ func claimedHome(t *testing.T) string {
 // home-family checks never actually trigger from it — it only needs to be
 // non-empty (#80: an empty userHome resolves as the current directory,
 // exactly the ambiguity a real userHome always avoids).
-var testUserHome = filepath.Join(os.TempDir(), "berth-test-user-home-does-not-exist")
+var testUserHome = filepath.Join(os.TempDir(), "treerig-test-user-home-does-not-exist")
 
-var testWriter = registry.Writer{Logger: logger.Silent{}, Invocation: "berth worktree remove", UserHome: testUserHome}
+var testWriter = registry.Writer{Logger: logger.Silent{}, Invocation: "treerig worktree remove", UserHome: testUserHome}
 
 // requireRegistryFree proves the registry lock was released: another holder takes it at once.
 func requireRegistryFree(t *testing.T, controlHome string) {

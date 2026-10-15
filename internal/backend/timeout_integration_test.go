@@ -20,14 +20,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run/osrun"
 	"golang.org/x/sys/unix"
 )
 
@@ -49,7 +49,7 @@ func TestInventoryTimesOutOnAHungDocker(t *testing.T) {
 	controlHome := registrytest.TempDir(t)
 	rt := NewCompose(Options{
 		ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-		ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+		ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 		ControlHome: controlHome, LabelNamespace: ns, Runner: osrun.New(), Logger: logger.Silent{},
 		// Well short of osrun's own default kill grace, so this test does
 		// not wait long, and well short of the 10s ceiling below it is
@@ -89,7 +89,7 @@ func TestBoundedCallUnderTheWorktreeLockTimesOutAndReleasesIt(t *testing.T) {
 	runner := osrun.New()
 	rt := NewCompose(Options{
 		ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-		ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+		ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 		ControlHome: controlHome, LabelNamespace: ns, Runner: runner, Logger: logger.Silent{},
 		Timeouts: Timeouts{Probe: 300 * time.Millisecond},
 	})

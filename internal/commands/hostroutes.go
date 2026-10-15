@@ -10,14 +10,14 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // hostRouteRule is the Traefik rule of a host route: the worktree's hostname,
@@ -100,14 +100,14 @@ func (r worktreeRoutes) URLs() []ServiceURL {
 	return slices.Concat(r.ServiceURLs(), host)
 }
 
-// refuseHostRouteClashes refuses a berth.toml that declares something a host
+// refuseHostRouteClashes refuses a treerig.toml that declares something a host
 // route of this worktree already is: a shared service named like one
 // (docs/design/routing.md, decision 15: the alias containers reach it by would
-// mean two things), a [service.<name>] with its name (two BERTH_SERVICE_URL
+// mean two things), a [service.<name>] with its name (two TREERIG_SERVICE_URL
 // variables, two Traefik routers), or a [service.<name>] answering at the
 // route's subdomain and path (two routers with one rule). `route add` refuses
 // the other direction. config cannot check any of this, since host routes live
-// in the registration and not in berth.toml, so `up` and `shared up` do.
+// in the registration and not in treerig.toml, so `up` and `shared up` do.
 func refuseHostRouteClashes(commandName string, cfg config.Config, routes []registry.HostRoute) error {
 	for _, route := range routes {
 		for _, service := range cfg.Service {
@@ -137,7 +137,7 @@ func refuseHostRouteClashes(commandName string, cfg config.Config, routes []regi
 // listenerAdvice is the warning for a host route whose port answers on ::1
 // and not on 127.0.0.1, or "" when the router reaches it anyway. mode is the
 // proxy's mode and known says whether it could be read: in host mode the
-// proxy maps berth-loopback to ::1 as well, which reaches such a listener
+// proxy maps treerig-loopback to ::1 as well, which reaches such a listener
 // (docs/design/routing.md, Open items); on Docker Desktop and OrbStack the
 // engine's host-gateway is IPv4 only.
 func listenerAdvice(port int, mode router.Mode, known bool) string {

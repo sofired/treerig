@@ -1,12 +1,12 @@
 A host route sends a hostname of this worktree to a process running on the host
 (a dev server, an API run from the IDE), through the same router as its
-services. The process must listen on 127.0.0.1. `berth up` and `berth down`
-leave host routes alone; `berth worktree remove` removes them. The route
-commands need a registered worktree: run `berth up` first.
+services. The process must listen on 127.0.0.1. `treerig up` and `treerig down`
+leave host routes alone; `treerig worktree remove` removes them. The route
+commands need a registered worktree: run `treerig up` first.
 
 Usage:
-  berth route [flags]
-  berth route [command]
+  treerig route [flags]
+  treerig route [command]
 
 Available Commands:
   add         route this worktree's hostname, or a subdomain or path of it, to a
@@ -18,7 +18,7 @@ Flags:
   -h, --help   help for route
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number
 
-Use "berth route [command] --help" for more information about a command.
+Use "treerig route [command] --help" for more information about a command.

@@ -179,7 +179,7 @@ func TestPlanIndexUpdate(t *testing.T) {
 	t.Run("calls a page with no fingerprints foreign, rather than reloading for a shell it never read", func(t *testing.T) {
 		rendered := RenderIndexHTML(IndexSnapshot{GeneratedAt: "2026-09-21T12:30:00.000Z", DockerReachable: true})
 		current := "2026-09-21T12:00:00.000Z"
-		// An older berth wrote this: without both fingerprints there is
+		// An older treerig wrote this: without both fingerprints there is
 		// nothing to compare, and a plan would drive a reload keyed on
 		// nothing.
 		noShell := stripAttr(rendered, ` data-shell="[^"]+"`)

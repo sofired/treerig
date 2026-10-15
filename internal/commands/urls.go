@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // ServiceURL is one routed service's URL.
@@ -17,7 +17,7 @@ type ServiceURL struct {
 	URL     string
 	Label   *string
 	Purpose *string
-	// Port is the loopback port berth allocated to the service (#119), 0
+	// Port is the loopback port treerig allocated to the service (#119), 0
 	// when none has been. URL is unchanged by it: still the hostname URL
 	// through the router.
 	Port int
@@ -54,14 +54,14 @@ func urlsReport(list []ServiceURL) []URLReportEntry {
 
 // WorktreeURLs is pure: the URL each routed service will answer on, in
 // config order. It wraps worktree.Routes, the same route builder hooks use
-// for BERTH_URL and BERTH_SERVICE_URL_<NAME> (#28).
+// for TREERIG_URL and TREERIG_SERVICE_URL_<NAME> (#28).
 func WorktreeURLs(cfg config.Config, slug, domain string, port int) []ServiceURL {
 	return urlsFromRoutes(cfg.Service, worktree.Routes(cfg.Service, slug, domain, port))
 }
 
 // urlsFromRoutes pairs routes with each service's [service.<name>.index] metadata,
 // aligned one-to-one and in order since worktree.Routes never filters or
-// reorders — a caller that already has both (up.go, so `berth urls` and the
+// reorders — a caller that already has both (up.go, so `treerig urls` and the
 // hooks it runs derive from the one worktree.Routes call) skips computing
 // routes twice.
 func urlsFromRoutes(services []config.Service, routes []worktree.ServiceRoute) []ServiceURL {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // LinuxTable reads /proc itself; root is overridden in tests.

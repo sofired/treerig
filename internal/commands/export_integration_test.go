@@ -5,9 +5,9 @@ package commands
 import (
 	"context"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/settings"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/settings"
 )
 
 // SharedRouter is the Router Up builds, over svc instead of the default
@@ -40,9 +40,9 @@ func BestEffortIndex(cctx *CommandContext) Index { return bestEffortIndex{cctx} 
 // the real-daemon tests read a router of their own name, port and state,
 // never a developer's real one, the same seam SharedRouter gives `up`.
 // Sharing doctorOptionsFor with buildDoctorOptions means this seam can't
-// drift from what `doctor` itself builds. checkedHome resolves the berth
+// drift from what `doctor` itself builds. checkedHome resolves the treerig
 // root from env.Getenv itself, exactly once, the same way Doctor does —
-// env's own BERTH_CONTROL_HOME (or BERTH_HOME) is what points this at the
+// env's own TREERIG_CONTROL_HOME (or TREERIG_HOME) is what points this at the
 // caller's own control home, so no separate controlHome parameter is needed.
 func DoctorSections(ctx context.Context, env *Env, svc *router.Router, state layout.RouterLayout) ([]Section, error) {
 	home, userHome, err := checkedHome(env.Getenv)

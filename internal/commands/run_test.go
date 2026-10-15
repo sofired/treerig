@@ -8,18 +8,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // runWorld is a registered worktree of a project with the given commands, a
@@ -36,7 +36,7 @@ type runWorld struct {
 	during func(ctx context.Context, spec run.Spec) (run.Result, error)
 }
 
-// newRunWorld registers a worktree whose berth.toml declares commands.
+// newRunWorld registers a worktree whose treerig.toml declares commands.
 func newRunWorld(t *testing.T, cmds config.Commands) *runWorld {
 	t.Helper()
 	w := commandstest.New(t, "feature/login", acme)
@@ -89,7 +89,7 @@ func TestRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	t.Run("runs the named command interactively with the arguments after -- appended, and BERTH_COMMAND", func(t *testing.T) {
+	t.Run("runs the named command interactively with the arguments after -- appended, and TREERIG_COMMAND", func(t *testing.T) {
 		rw := newRunWorld(t, twoCommands())
 		before := len(rw.Docker.Calls())
 
@@ -112,8 +112,8 @@ func TestRun(t *testing.T) {
 			t.Errorf("Dir = %q, want %q", spec.Dir, rw.Root)
 		}
 		want := map[string]string{
-			"BERTH_COMMAND": "apply", "BERTH_WORKTREE_ID": rw.ref.WorktreeID, "BERTH_SLUG": "feature-login",
-			"BERTH_HOST": layout.WorktreeHost("feature-login", acme),
+			"TREERIG_COMMAND": "apply", "TREERIG_WORKTREE_ID": rw.ref.WorktreeID, "TREERIG_SLUG": "feature-login",
+			"TREERIG_HOST": layout.WorktreeHost("feature-login", acme),
 			// A command's `docker compose exec` reaches this worktree's containers.
 			"COMPOSE_PROJECT_NAME": layout.ComposeProjectName(rw.ref.RepositoryID, rw.ref.WorktreeID),
 		}
@@ -134,8 +134,8 @@ func TestRun(t *testing.T) {
 			t.Fatal(err)
 		}
 		env := rw.started()[0].Env
-		if !containsEnv(env, "BERTH_URL", "http://feature-login.acme.localhost:8080") ||
-			!containsEnv(env, "BERTH_SERVICE_URL_MAIL", "http://mail.feature-login.acme.localhost:8080") {
+		if !containsEnv(env, "TREERIG_URL", "http://feature-login.acme.localhost:8080") ||
+			!containsEnv(env, "TREERIG_SERVICE_URL_MAIL", "http://mail.feature-login.acme.localhost:8080") {
 			t.Errorf("env = %v", env)
 		}
 	})
@@ -173,7 +173,7 @@ func TestRun(t *testing.T) {
 	t.Run("without a name, lists the configured commands in file order", func(t *testing.T) {
 		rw := newRunWorld(t, twoCommands())
 		err := commands.RunWithContext(ctx, rw.tc.CommandContext, commands.RunOptions{})
-		want := "No command given: berth.toml defines plan, apply."
+		want := "No command given: treerig.toml defines plan, apply."
 		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -185,20 +185,20 @@ func TestRun(t *testing.T) {
 	t.Run("an unknown name lists the configured commands", func(t *testing.T) {
 		rw := newRunWorld(t, twoCommands())
 		err := commands.RunWithContext(ctx, rw.tc.CommandContext, commands.RunOptions{Name: "nope"})
-		want := `No command "nope": berth.toml defines plan, apply.`
+		want := `No command "nope": treerig.toml defines plan, apply.`
 		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
 	})
 
-	t.Run("says so when berth.toml has no [commands]", func(t *testing.T) {
+	t.Run("says so when treerig.toml has no [commands]", func(t *testing.T) {
 		rw := newRunWorld(t, nil)
 		for _, tc := range []struct {
 			opts commands.RunOptions
 			want string
 		}{
-			{commands.RunOptions{}, "No command given: berth.toml has no [commands]."},
-			{commands.RunOptions{Name: "nope"}, `No command "nope": berth.toml has no [commands].`},
+			{commands.RunOptions{}, "No command given: treerig.toml has no [commands]."},
+			{commands.RunOptions{Name: "nope"}, `No command "nope": treerig.toml has no [commands].`},
 		} {
 			err := commands.RunWithContext(ctx, rw.tc.CommandContext, tc.opts)
 			if err == nil || err.Error() != tc.want || clierr.Code(err) != 1 {
@@ -221,7 +221,7 @@ func TestRun(t *testing.T) {
 		}
 
 		err := commands.RunWithContext(ctx, tc.CommandContext, commands.RunOptions{Name: "plan"})
-		want := "This worktree is not registered. Run 'berth up' first."
+		want := "This worktree is not registered. Run 'treerig up' first."
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -243,8 +243,8 @@ func TestRun(t *testing.T) {
 		if heldErr == nil {
 			t.Fatal("the operation lock was free while the command ran")
 		}
-		if !strings.Contains(heldErr.Error(), `"berth run apply"`) || strings.Contains(heldErr.Error(), "hunter2") {
-			t.Errorf("a waiter is told %q, want it to name `berth run apply` and no argument", heldErr)
+		if !strings.Contains(heldErr.Error(), `"treerig run apply"`) || strings.Contains(heldErr.Error(), "hunter2") {
+			t.Errorf("a waiter is told %q, want it to name `treerig run apply` and no argument", heldErr)
 		}
 
 		lk := rw.operationLock()
@@ -277,7 +277,7 @@ func TestRun(t *testing.T) {
 	t.Run("refuses, starting nothing, when the worktree was removed while it waited for the lock", func(t *testing.T) {
 		rw := newRunWorld(t, twoCommands())
 		holder := rw.operationLock()
-		if _, err := holder.Acquire(ctx, "berth worktree remove"); err != nil {
+		if _, err := holder.Acquire(ctx, "treerig worktree remove"); err != nil {
 			t.Fatal(err)
 		}
 		released := false
@@ -304,14 +304,14 @@ func TestRun(t *testing.T) {
 			}
 			lines, _ := log.Snapshot()
 			for _, line := range lines {
-				if strings.Contains(line, "berth worktree remove") {
+				if strings.Contains(line, "treerig worktree remove") {
 					waiting = true
 				}
 			}
 		}
 
 		if _, err := rw.tc.Registry.Store(rw.ref.RepositoryID).Remove(ctx, rw.ref.WorktreeID, rw.ref.Slug,
-			registry.Writer{Logger: logger.Silent{}, Invocation: "berth worktree remove", UserHome: rw.tc.UserHome}); err != nil {
+			registry.Writer{Logger: logger.Silent{}, Invocation: "treerig worktree remove", UserHome: rw.tc.UserHome}); err != nil {
 			t.Fatalf("remove: %v", err)
 		}
 		released = true
@@ -320,7 +320,7 @@ func TestRun(t *testing.T) {
 		}
 
 		err := <-done
-		want := "feature-login.acme.localhost was removed while 'berth run apply' was waiting for its lock; run 'berth up' first."
+		want := "feature-login.acme.localhost was removed while 'treerig run apply' was waiting for its lock; run 'treerig up' first."
 		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want %q", err, want)
 		}

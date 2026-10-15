@@ -4,15 +4,15 @@ package commands
 // layout.ResolveHome, layout.ResolveControlHome or layout.RouterState
 // directly.
 //
-// It resolves the berth root (BERTH_HOME) and the caller's own home
+// It resolves the treerig root (TREERIG_HOME) and the caller's own home
 // directory exactly once per command, and applies files.AssertSafeHome to
-// the berth root before returning either. A command that needs more than
+// the treerig root before returning either. A command that needs more than
 // one thing derived from it — the control home, the router's state, or
 // (via userHome) files.AssertAdoptableControlHome's own check — calls this
 // once and derives every one of them from its two return values (via
 // layout.ControlHomeFrom, layout.RouterStateFrom, or by handing userHome to
 // whatever Secure*Directories call comes next), rather than re-resolving or
-// re-checking BERTH_HOME per value: "checked" and "used" can never drift
+// re-checking TREERIG_HOME per value: "checked" and "used" can never drift
 // apart (#80, review round 2 item 8; round 3 item 1 made this true of every
 // caller that needs more than one derived value, not just of
 // resolveControlHome/resolveRouterState individually).
@@ -24,12 +24,12 @@ package commands
 // state directory without it.
 
 import (
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
-// checkedHome resolves the berth root (BERTH_HOME), refusing it when it is
+// checkedHome resolves the treerig root (TREERIG_HOME), refusing it when it is
 // unsafe to derive anything from (files.AssertSafeHome), and the caller's
 // own home directory (userHome, layout.HomeDir(getenv)) — resolved here,
 // once, and handed to AssertSafeHome directly and to every later
@@ -77,9 +77,9 @@ var resolveUserHome = layout.HomeDir
 // answers "" with no error.
 var errEmptyUserHome = clierr.New("Could not determine your home directory; set HOME.")
 
-// resolveControlHome is layout.ResolveControlHome with the berth-root safety
+// resolveControlHome is layout.ResolveControlHome with the treerig-root safety
 // check applied first, for a caller that needs only the control home itself
-// (not userHome, and not the router's state) from one checked berth root.
+// (not userHome, and not the router's state) from one checked treerig root.
 func resolveControlHome(getenv layout.Getenv) (string, error) {
 	home, _, err := checkedHome(getenv)
 	if err != nil {
@@ -88,9 +88,9 @@ func resolveControlHome(getenv layout.Getenv) (string, error) {
 	return layout.ControlHomeFrom(home, getenv, "")
 }
 
-// resolveRouterState is layout.RouterState with the berth-root safety check
+// resolveRouterState is layout.RouterState with the treerig-root safety check
 // applied first, for a caller that needs only the router's own layout from
-// one checked berth root.
+// one checked treerig root.
 func resolveRouterState(getenv layout.Getenv) (layout.RouterLayout, error) {
 	home, _, err := checkedHome(getenv)
 	if err != nil {

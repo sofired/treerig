@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // strPtr is &s, for a route's optional path.

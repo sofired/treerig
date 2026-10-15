@@ -8,20 +8,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/registry"
 )
 
-// TestDoctorReportsNewerFormats covers where doctor reports state a newer berth
+// TestDoctorReportsNewerFormats covers where doctor reports state a newer treerig
 // wrote (docs/design/state.md): each store's own check fails, carrying the
 // exact refusal every other command gives, so the line says what to do.
 func TestDoctorReportsNewerFormats(t *testing.T) {
-	const upgrade = ", written by a newer berth, and this build reads format "
+	const upgrade = ", written by a newer treerig, and this build reads format "
 
-	t.Run("fails the control home check for a marker a newer berth wrote", func(t *testing.T) {
+	t.Run("fails the control home check for a marker a newer treerig wrote", func(t *testing.T) {
 		opts := testOpts(t, nil)
 		if err := os.MkdirAll(opts.ControlHome, 0o700); err != nil {
 			t.Fatal(err)
@@ -34,11 +34,11 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := section(sections, "Registry")[1]
-		want := "Refusing to use the control home " + opts.ControlHome + ": it is format 3" + upgrade + "2. Upgrade berth, then run this again."
+		want := "Refusing to use the control home " + opts.ControlHome + ": it is format 3" + upgrade + "2. Upgrade treerig, then run this again."
 		if got.Status != StatusFail || got.Subject != "control home" || got.Detail != want {
 			t.Fatalf("got %+v\nwant detail %s", got, want)
 		}
-		// The records under a home berth refuses are not read, so they are not "none yet".
+		// The records under a home treerig refuses are not read, so they are not "none yet".
 		var registrations Check
 		for _, check := range section(sections, "Registry") {
 			if check.ID == "registry.registrations" {
@@ -67,7 +67,7 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 		}
 	})
 
-	t.Run("fails the router state check for a state file a newer berth wrote", func(t *testing.T) {
+	t.Run("fails the router state check for a state file a newer treerig wrote", func(t *testing.T) {
 		var state layout.RouterLayout
 		opts := testOpts(t, func(o *doctorOptions) {
 			state = layout.RouterStateFrom(o.Home)
@@ -89,7 +89,7 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 				found = &check
 			}
 		}
-		want := "Refusing to use the router state " + state.StateFile + ": it is format 2" + upgrade + "1. Upgrade berth, then run this again."
+		want := "Refusing to use the router state " + state.StateFile + ": it is format 2" + upgrade + "1. Upgrade treerig, then run this again."
 		if found == nil || found.Status != StatusFail || found.Detail != want {
 			t.Fatalf("got %+v\nwant detail %s", found, want)
 		}
@@ -108,7 +108,7 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 		}
 	})
 
-	t.Run("fails a registration a newer berth wrote as an unreadable record, with the upgrade instruction", func(t *testing.T) {
+	t.Run("fails a registration a newer treerig wrote as an unreadable record, with the upgrade instruction", func(t *testing.T) {
 		opts := testOpts(t, nil)
 		if err := os.MkdirAll(opts.ControlHome, 0o700); err != nil {
 			t.Fatal(err)
@@ -136,13 +136,13 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 			}
 		}
 		if found == nil || found.Status != StatusFail || !strings.HasPrefix(found.Detail, "Refusing to use the registration "+file+": it is format 2") ||
-			!strings.HasSuffix(found.Detail, "Upgrade berth, then run this again.") {
+			!strings.HasSuffix(found.Detail, "Upgrade treerig, then run this again.") {
 			t.Fatalf("got %+v", found)
 		}
 	})
 
-	t.Run("does not tell the user to move a shared-service record a newer berth wrote aside", func(t *testing.T) {
-		newer := registry.RegistryProblem{File: "x.json", Reason: "Refusing to use the shared-service record x.json: it is format 2" + upgrade + "1. Upgrade berth, then run this again.", Newer: true}
+	t.Run("does not tell the user to move a shared-service record a newer treerig wrote aside", func(t *testing.T) {
+		newer := registry.RegistryProblem{File: "x.json", Reason: "Refusing to use the shared-service record x.json: it is format 2" + upgrade + "1. Upgrade treerig, then run this again.", Newer: true}
 		if got := unreadableRecordDetail(newer); got != newer.Reason {
 			t.Errorf("got %q", got)
 		}
@@ -152,7 +152,7 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 		}
 	})
 
-	t.Run("warns, and does not promise recovery, for a lock whose unreleased record a newer berth wrote", func(t *testing.T) {
+	t.Run("warns, and does not promise recovery, for a lock whose unreleased record a newer treerig wrote", func(t *testing.T) {
 		scope := lock.Scope{Target: filepath.Join(t.TempDir(), "worktree"), Description: "worktree main"}
 		if err := os.WriteFile(scope.Target, nil, 0o600); err != nil {
 			t.Fatal(err)
@@ -161,7 +161,7 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 			t.Fatal(err)
 		}
 		check, ok := lockCheck("locks.test", "test lock", scope, "")
-		want := "unreleased, and its holder record is format 2" + upgrade + "1. Upgrade berth, then run this again"
+		want := "unreleased, and its holder record is format 2" + upgrade + "1. Upgrade treerig, then run this again"
 		if !ok || check.Status != StatusWarn || check.Detail != want {
 			t.Fatalf("got %+v, %v\nwant detail %s", check, ok, want)
 		}
@@ -195,10 +195,10 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 		}
 	})
 
-	t.Run("warns for a lock still held whose record a newer berth wrote, instead of reporting it ok", func(t *testing.T) {
+	t.Run("warns for a lock still held whose record a newer treerig wrote, instead of reporting it ok", func(t *testing.T) {
 		scope := lock.Scope{Target: filepath.Join(t.TempDir(), "worktree"), Description: "worktree main"}
 		held := lock.New(scope, lock.Options{Watchdog: -1})
-		if _, err := held.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := held.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer held.Release()
@@ -206,7 +206,7 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 			t.Fatal(err)
 		}
 		check, ok := lockCheck("locks.test", "test lock", scope, "")
-		want := "held, and its holder record is format 2" + upgrade + "1. Upgrade berth, then run this again"
+		want := "held, and its holder record is format 2" + upgrade + "1. Upgrade treerig, then run this again"
 		if !ok || check.Status != StatusWarn || check.Detail != want {
 			t.Fatalf("got %+v, %v\nwant detail %s", check, ok, want)
 		}

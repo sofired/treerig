@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // SharedAddr is one pinned address of a shared service (docs/design/routing.md,
@@ -23,14 +23,14 @@ type SharedAddr struct {
 }
 
 // SharedAddrPrefix starts every variable SharedAddrVariables builds, without
-// BERTH_ itself (Variables adds it).
+// TREERIG_ itself (Variables adds it).
 const SharedAddrPrefix = "SHARED_ADDR_"
 
 // SharedAddrVariables returns name/value pairs for the repository's shared
-// services, without the BERTH_ prefix. Variables adds that prefix to produce
-// the environment a hook or a `berth run` command receives:
-// BERTH_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port> for every declared
-// container port that has a pinned one. <NAME> maps as BERTH_SERVICE_URL_<NAME>
+// services, without the TREERIG_ prefix. Variables adds that prefix to produce
+// the environment a hook or a `treerig run` command receives:
+// TREERIG_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port> for every declared
+// container port that has a pinned one. <NAME> maps as TREERIG_SERVICE_URL_<NAME>
 // does (upper-cased, each hyphen an underscore), and the trailing number
 // keeps it unambiguous: a name has no underscore and a port is digits, so no
 // two (name, port) pairs share a variable. Deliberately not injected into
@@ -44,7 +44,7 @@ func SharedAddrVariables(addrs []SharedAddr) [][2]string {
 	return pairs
 }
 
-// IsSharedAddrVariable reports whether name starts with BERTH_SHARED_ADDR_,
+// IsSharedAddrVariable reports whether name starts with TREERIG_SHARED_ADDR_,
 // so inherited shared addresses are dropped before this worktree's own are
 // set. It does not validate the service name or port suffix.
 func IsSharedAddrVariable(name string) bool {
@@ -62,7 +62,7 @@ type SharedURL struct {
 }
 
 // SharedURLPrefix starts every variable SharedURLVariables builds, without
-// BERTH_ itself (Variables adds it).
+// TREERIG_ itself (Variables adds it).
 const SharedURLPrefix = "SHARED_URL_"
 
 // NewSharedURL is the URL of the web UI of the shared service name under
@@ -76,10 +76,10 @@ func NewSharedURL(name, domain string, port int) SharedURL {
 	return SharedURL{Name: name, URL: "http://" + layout.SharedHost(name, domain) + suffix}
 }
 
-// SharedURLVariables is the extra environment a hook or a `berth run`
+// SharedURLVariables is the extra environment a hook or a `treerig run`
 // command receives for the routed web UIs of the repository's shared
-// services: BERTH_SHARED_URL_<NAME>=<url>, <NAME> mapped as for
-// BERTH_SERVICE_URL_<NAME>. Like SharedAddrVariables it is deliberately kept
+// services: TREERIG_SHARED_URL_<NAME>=<url>, <NAME> mapped as for
+// TREERIG_SERVICE_URL_<NAME>. Like SharedAddrVariables it is deliberately kept
 // out of the environment Compose receives (#28).
 func SharedURLVariables(urls []SharedURL) [][2]string {
 	pairs := make([][2]string, 0, len(urls))

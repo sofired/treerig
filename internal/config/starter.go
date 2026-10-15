@@ -41,15 +41,15 @@ func StarterName(directory string) string {
 	return name
 }
 
-// Starter is the berth.toml `init` writes: a minimal working file for the
+// Starter is the treerig.toml `init` writes: a minimal working file for the
 // project called name, whose Compose file is composeFile (relative to the
 // file), with the two things most projects add next, a routed service and
 // hooks, left as commented-out examples.
 //
 // It is valid TOML 1.0 and parses as written when name is valid (use
 // StarterName); its first line is the same Taplo `#:schema` directive
-// berth.example.toml starts with, built from SchemaID. Its comments are kept
-// to lines that are also in berth.example.toml, plus a few starter-only
+// treerig.example.toml starts with, built from SchemaID. Its comments are kept
+// to lines that are also in treerig.example.toml, plus a few starter-only
 // lines, so what it says cannot drift from the annotated reference: the JSON
 // Schema the directive points at carries each field's rules as hover text.
 // starter_test.go holds every comment line to that, and the commented-out
@@ -65,17 +65,17 @@ func Starter(name, composeFile string) []byte {
 }
 
 // starterTemplate is Starter's text. Every comment line is either copied
-// verbatim from berth.example.toml (a prose comment, or a line of its TOML
+// verbatim from treerig.example.toml (a prose comment, or a line of its TOML
 // with "# " in front) or listed in starter_test.go's starterOnly.
 const starterTemplate = `#:schema {{schema}}
-# berth.toml — commit this at the root of your repository.
+# treerig.toml — commit this at the root of your repository.
 #
 # The line above points TOML editors (Even Better TOML/Taplo, or any editor
-# that takes a JSON Schema for TOML) at berth's JSON Schema, for completion,
+# that takes a JSON Schema for TOML) at treerig's JSON Schema, for completion,
 # hover text and unknown-key warnings.
 # Unknown keys are rejected so a typo cannot silently disable a feature.
 #
-# The annotated reference, with every option, is berth.example.toml:
+# The annotated reference, with every option, is treerig.example.toml:
 #   {{example-url}}
 
 [project]

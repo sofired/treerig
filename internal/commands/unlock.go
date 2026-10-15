@@ -10,14 +10,14 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // The one way a dead holder's worktree lock is cleared, built on the flock
@@ -99,7 +99,7 @@ func Unlock(ctx context.Context, env *Env, options UnlockOptions) error {
 	}
 	if options.Shared {
 		// Recovery works from labels and records, so a missing or broken
-		// berth.toml must not stand in its way.
+		// treerig.toml must not stand in its way.
 		cctx, err := ContextWithoutConfig(env)
 		if err != nil {
 			return err
@@ -397,7 +397,7 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 
 	if env, ok := cctx.environWorktreeID(); ok && env == target.worktreeID {
 		return nil, clierr.New(
-			"This command is running inside the worktree's own environment (BERTH_WORKTREE_ID is set, as in its hooks), " +
+			"This command is running inside the worktree's own environment (TREERIG_WORKTREE_ID is set, as in its hooks), " +
 				"so it cannot tell its own processes from the holder's. Run it from an ordinary shell.")
 	}
 
@@ -478,11 +478,11 @@ func wrapPartialClearFailure(cleared []ClearedLock, err error) error {
 		strings.Join(descriptions, " and the ")), err)
 }
 
-// environWorktreeID is BERTH_WORKTREE_ID from cctx's own process environment.
+// environWorktreeID is TREERIG_WORKTREE_ID from cctx's own process environment.
 func (c *CommandContext) environWorktreeID() (string, bool) {
 	for _, entry := range c.Environ {
 		name, value, ok := strings.Cut(entry, "=")
-		if ok && name == "BERTH_WORKTREE_ID" {
+		if ok && name == "TREERIG_WORKTREE_ID" {
 			return value, true
 		}
 	}

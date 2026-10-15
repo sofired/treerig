@@ -1,1 +1,1 @@
-ps --all --filter label=dev.berth.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.berth.repository-uuid"}}	{{.Label "dev.berth.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.berth.shared"}}
+ps --all --filter label=dev.treerig.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.treerig.repository-uuid"}}	{{.Label "dev.treerig.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.treerig.shared"}}

@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/run"
 )
 
-// Container is the part of `docker container inspect` berth reads. It is
+// Container is the part of `docker container inspect` treerig reads. It is
 // decoded from the JSON document rather than a --format template, so one
 // inspect answers everything and the shape is Docker's documented one.
 type Container struct {
@@ -53,7 +53,7 @@ type PortBinding struct {
 	HostPort string
 }
 
-// Network is the part of `docker network inspect` berth reads.
+// Network is the part of `docker network inspect` treerig reads.
 type Network struct {
 	ID     string
 	Name   string
@@ -160,7 +160,7 @@ func InspectContainer(ctx context.Context, runner run.Runner, id string, timeout
 	return container, true, nil
 }
 
-// Volume is the part of `docker volume inspect` berth reads.
+// Volume is the part of `docker volume inspect` treerig reads.
 type Volume struct {
 	Name   string
 	Labels map[string]string

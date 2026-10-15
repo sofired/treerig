@@ -10,9 +10,9 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 func TestConcurrentWriters(t *testing.T) {

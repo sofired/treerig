@@ -25,9 +25,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // routesCompose is two tiny HTTP servers, so `up` has a second service to
@@ -45,7 +45,7 @@ const routesCompose = `services:
     expose: ["9090"]
 `
 
-// routesToml is berth.toml for routesCompose: api at the worktree host
+// routesToml is treerig.toml for routesCompose: api at the worktree host
 // itself, worker on the "jobs" subdomain under it. %s takes the run's own
 // label namespace.
 const routesToml = `[project]
@@ -137,7 +137,7 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 		!strings.Contains(status[0].Detail, fmt.Sprintf("running on 127.0.0.1:%d, host mode", w.port)) {
 		t.Fatalf("router status before the impostor = %+v", status)
 	}
-	if owner := byID("router.owner"); len(owner) != 1 || owner[0].Status != commands.StatusOK || !strings.HasPrefix(owner[0].Detail, "this berth root (") {
+	if owner := byID("router.owner"); len(owner) != 1 || owner[0].Status != commands.StatusOK || !strings.HasPrefix(owner[0].Detail, "this treerig root (") {
 		t.Fatalf("router owner before the impostor = %+v", owner)
 	}
 	if mode := byID("router.mode"); len(mode) != 1 || mode[0].Status != commands.StatusOK || !strings.Contains(mode[0].Detail, "host mode") {
@@ -163,7 +163,7 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 			t.Fatalf("no passing probe for %s in %+v", claim, probes)
 		}
 	}
-	if port := byID("router.port"); len(port) != 1 || port[0].Status != commands.StatusOK || !strings.Contains(port[0].Detail, fmt.Sprintf("port %d from BERTH_ROUTER_PORT", w.port)) {
+	if port := byID("router.port"); len(port) != 1 || port[0].Status != commands.StatusOK || !strings.Contains(port[0].Detail, fmt.Sprintf("port %d from TREERIG_ROUTER_PORT", w.port)) {
 		t.Fatalf("router port before the impostor = %+v", port)
 	}
 

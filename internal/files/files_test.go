@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // fileMode is the permission bits of a file or directory, for asserting on modes.
@@ -212,7 +212,7 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		// One generic directory name is not evidence: a code folder with `repositories/` is not ours.
 		code := filepath.Join(t.TempDir(), "code")
 		requireNoError(t, os.MkdirAll(filepath.Join(code, "repositories", "acme"), 0o700))
-		requireErrorContains(t, files.SecureControlDirectories(layout.ControlLayout(code), t.TempDir()), "not empty (repositories) and was not created by berth")
+		requireErrorContains(t, files.SecureControlDirectories(layout.ControlLayout(code), t.TempDir()), "not empty (repositories) and was not created by treerig")
 
 		theirs := filepath.Join(t.TempDir(), "documents")
 		// A mode neither empty nor this tool's own 0o700: the assertion below
@@ -223,8 +223,8 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		resolvedTheirs, err := filepath.EvalSymlinks(theirs)
 		requireNoError(t, err)
 		err = files.SecureControlDirectories(layout.ControlLayout(theirs), t.TempDir())
-		requireErrorContains(t, err, "Refusing to use "+resolvedTheirs+" as the control home: it is not empty (thesis.txt) and was not created by berth. "+
-			"Move it aside, or set BERTH_CONTROL_HOME to an empty directory, or to one berth created earlier (it leaves a .berth-control-home marker file).")
+		requireErrorContains(t, err, "Refusing to use "+resolvedTheirs+" as the control home: it is not empty (thesis.txt) and was not created by treerig. "+
+			"Move it aside, or set TREERIG_CONTROL_HOME to an empty directory, or to one treerig created earlier (it leaves a .treerig-control-home marker file).")
 		if mode := fileMode(t, theirs); mode == 0o700 {
 			t.Fatalf("expected theirs not to be chmod'd to 0700")
 		}
@@ -239,28 +239,28 @@ func TestSecureDirectoryCreation(t *testing.T) {
 		home, err := os.UserHomeDir()
 		requireNoError(t, err)
 		requireErrorContains(t, files.AssertAdoptableControlHome(home, home),
-			"it is your home directory. Set BERTH_CONTROL_HOME to an empty directory, or to one berth created earlier (it leaves a .berth-control-home marker file).")
+			"it is your home directory. Set TREERIG_CONTROL_HOME to an empty directory, or to one treerig created earlier (it leaves a .treerig-control-home marker file).")
 		requireErrorContains(t, files.AssertAdoptableControlHome(filepath.Dir(home), home), "it contains your home directory")
 		requireErrorContains(t, files.AssertAdoptableControlHome("/", home), "it is the filesystem root")
 		// A directory *under* the home is of course fine, even before it exists.
-		requireNoError(t, files.AssertAdoptableControlHome(filepath.Join(home, ".berth-does-not-exist-test"), home))
+		requireNoError(t, files.AssertAdoptableControlHome(filepath.Join(home, ".treerig-does-not-exist-test"), home))
 	})
 
-	t.Run("AssertSafeHome refuses the home directory, anything above it, and the filesystem root, pointing at BERTH_HOME", func(t *testing.T) {
+	t.Run("AssertSafeHome refuses the home directory, anything above it, and the filesystem root, pointing at TREERIG_HOME", func(t *testing.T) {
 		home, err := os.UserHomeDir()
 		requireNoError(t, err)
 		requireErrorContains(t, files.AssertSafeHome(home, home),
-			"it is your home directory. Point BERTH_HOME elsewhere.")
+			"it is your home directory. Point TREERIG_HOME elsewhere.")
 		requireErrorContains(t, files.AssertSafeHome(filepath.Dir(home), home), "it contains your home directory")
 		requireErrorContains(t, files.AssertSafeHome("/", home), "it is the filesystem root")
 		// A directory *under* the home is of course fine, even before it exists.
-		requireNoError(t, files.AssertSafeHome(filepath.Join(home, ".berth-home-does-not-exist-test"), home))
+		requireNoError(t, files.AssertSafeHome(filepath.Join(home, ".treerig-home-does-not-exist-test"), home))
 	})
 
 	// Review round 4, item 2: an empty userHome must be refused outright by
 	// both assertions, not left to reach filepath.Rel deep inside — which
 	// would fail with "Rel: can't make . relative to …", naming neither
-	// BERTH_HOME nor BERTH_CONTROL_HOME. commands.checkedHome already
+	// TREERIG_HOME nor TREERIG_CONTROL_HOME. commands.checkedHome already
 	// refuses this before either assertion is ever reached in production;
 	// this pins the same refusal for any caller that reaches them some
 	// other way.
@@ -282,7 +282,7 @@ func TestSecureDirectoryCreation(t *testing.T) {
 			}
 		}
 		// The router's own directories are not created here: they live under
-		// the berth root instead (internal/router, #12, #13, #80), not under
+		// the treerig root instead (internal/router, #12, #13, #80), not under
 		// any control home. layout.Control no longer even names this path.
 		routerDir := filepath.Join(controlHome, "router")
 		exists, err := files.PathExists(routerDir)

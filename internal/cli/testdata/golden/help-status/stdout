@@ -1,12 +1,12 @@
 show service status for this worktree
 
 Usage:
-  berth status [flags]
+  treerig status [flags]
 
 Flags:
   -h, --help   help for status
       --json   machine-readable output
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

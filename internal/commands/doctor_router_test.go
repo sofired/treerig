@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // Identifiers shaped like the ones the registry writes, which its strict
@@ -61,7 +61,7 @@ func routerStateWithRoutes(t *testing.T, rules map[string]string) layout.RouterL
 	}
 	for service, rule := range rules {
 		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, service,
-			router.NewFragmentDocument("berth-aaa-"+service, rule, 30501)); err != nil {
+			router.NewFragmentDocument("treerig-aaa-"+service, rule, 30501)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -340,7 +340,7 @@ func TestRouteProbeCheck(t *testing.T) {
 }
 
 func TestRouteTargets(t *testing.T) {
-	t.Run("lists the index and every route file by claim, with host, path and target port, skipping rules berth did not write", func(t *testing.T) {
+	t.Run("lists the index and every route file by claim, with host, path and target port, skipping rules treerig did not write", func(t *testing.T) {
 		state := routerStateWithRoutes(t, map[string]string{
 			"web": "Host(`web.main.acme.localhost`)",
 			"api": "Host(`main.acme.localhost`) && PathPrefix(`/api`)",
@@ -351,7 +351,7 @@ func TestRouteTargets(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []routeTarget{
-			{claim: "berth.localhost", host: "berth.localhost", path: "/", targetPort: 30500},
+			{claim: "treerig.localhost", host: "treerig.localhost", path: "/", targetPort: 30500},
 			{claim: "main.acme.localhost/api", host: "main.acme.localhost", path: "/api", targetPort: 30501},
 			{claim: "web.main.acme.localhost", host: "web.main.acme.localhost", path: "/", targetPort: 30501},
 		}
@@ -370,7 +370,7 @@ func TestRouteTargets(t *testing.T) {
 		if err := router.WriteIndexFragment(state, 30500); err != nil {
 			t.Fatal(err)
 		}
-		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web", router.NewFragmentDocument("berth-aaa-web", "Host(`web.main.acme.localhost`)", 30501)); err != nil {
+		if err := router.WriteFragment(state, doctorRepoA, doctorWorktreeA, "web", router.NewFragmentDocument("treerig-aaa-web", "Host(`web.main.acme.localhost`)", 30501)); err != nil {
 			t.Fatal(err)
 		}
 		if err := router.WriteHostFragment(state, repo, wt, "dev", router.HostFragmentDocument(repo, wt, "dev", "Host(`app.main.acme.localhost`)", 5173)); err != nil {
@@ -401,7 +401,7 @@ func TestRouteTargets(t *testing.T) {
 func TestRouterModeCheck(t *testing.T) {
 	check := func(fake *fakeRouterSource, status *router.RouterStatus) Check {
 		t.Helper()
-		got, err := routerModeCheck(context.Background(), doctorOptions{CommandName: "berth", Router: fake}, status)
+		got, err := routerModeCheck(context.Background(), doctorOptions{CommandName: "treerig", Router: fake}, status)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -428,7 +428,7 @@ func TestRouterModeCheck(t *testing.T) {
 	t.Run("warns when the running mode differs, naming how it is fixed", func(t *testing.T) {
 		got := check(newFakeRouterSource(), running(router.ModeBridge))
 		if got.Status != StatusWarn || !strings.Contains(got.Detail, "running in bridge mode") ||
-			!strings.Contains(got.Detail, "would use host mode") || !strings.Contains(got.Detail, "'berth up'") {
+			!strings.Contains(got.Detail, "would use host mode") || !strings.Contains(got.Detail, "'treerig up'") {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -470,9 +470,9 @@ func TestRouterModeCheck(t *testing.T) {
 	})
 	t.Run("reports a protocol mismatch with its advice and never says the next up recreates it", func(t *testing.T) {
 		status := running(router.ModeHost)
-		status.Problems = []router.Problem{{Code: "router.protocol", Message: "The running shared router has a different layout from this version's. Run 'berth router down' first, then run this again."}}
+		status.Problems = []router.Problem{{Code: "router.protocol", Message: "The running shared router has a different layout from this version's. Run 'treerig router down' first, then run this again."}}
 		got := check(newFakeRouterSource(), status)
-		if got.Status != StatusWarn || !strings.Contains(got.Detail, "Run 'berth router down' first") || strings.Contains(got.Detail, "recreates") {
+		if got.Status != StatusWarn || !strings.Contains(got.Detail, "Run 'treerig router down' first") || strings.Contains(got.Detail, "recreates") {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -666,14 +666,14 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 	file := func(t *testing.T, state layout.RouterLayout, repo, service string, port int) {
 		t.Helper()
 		if err := router.WriteFragment(state, repo, routeWorktree, service,
-			router.NewFragmentDocument("berth-aaa-"+service, "Host(`"+service+"`)", port)); err != nil {
+			router.NewFragmentDocument("treerig-aaa-"+service, "Host(`"+service+"`)", port)); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	t.Run("says nothing when every route file agrees with its registration", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: registrytest.TempDir(t)}
-		got, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "berth")
+		got, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "treerig")
 		if len(got) != 0 || err != nil {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -683,9 +683,9 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 		file(t, state, routeRepo, "api", 30501)
 		controlHome := registrytest.TempDir(t)
 		record(t, controlHome, routeRepo, map[string]int{"api": 30777})
-		got, err := orphanedRoutesChecks(state, controlHome, "berth")
+		got, err := orphanedRoutesChecks(state, controlHome, "treerig")
 		want := Check{ID: "router.orphaned-routes", Status: StatusWarn, Subject: "routes",
-			Detail: "1 route file disagrees with its registration (api: points at port 30501, but its registration records 30777); the next 'berth up' or 'berth router up' repairs it"}
+			Detail: "1 route file disagrees with its registration (api: points at port 30501, but its registration records 30777); the next 'treerig up' or 'treerig router up' repairs it"}
 		if err != nil || len(got) != 1 || got[0] != want {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -696,7 +696,7 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 		file(t, state, routeRepo, "web", 30501)
 		controlHome := registrytest.TempDir(t)
 		record(t, controlHome, routeRepo, nil)
-		got, err := orphanedRoutesChecks(state, controlHome, "berth")
+		got, err := orphanedRoutesChecks(state, controlHome, "treerig")
 		if err != nil || len(got) != 1 || !strings.HasPrefix(got[0].Detail, "2 route files disagree with the registrations (") {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -704,7 +704,7 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 	t.Run("reports a file of a repository this control home does not know as a notice, instance other-home", func(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: registrytest.TempDir(t)}
 		file(t, state, "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "api", 30501)
-		got, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "berth")
+		got, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "treerig")
 		if err != nil || len(got) != 1 {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -721,7 +721,7 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(controlHome, "repositories", routeRepo), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		got, err := orphanedRoutesChecks(state, controlHome, "berth")
+		got, err := orphanedRoutesChecks(state, controlHome, "treerig")
 		if err != nil || len(got) != 1 {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -733,7 +733,7 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 		state := layout.RouterLayout{DynamicDir: registrytest.TempDir(t)}
 		other := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 		file(t, state, other, "api", 30501)
-		single, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "berth")
+		single, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "treerig")
 		if err != nil || len(single) != 1 {
 			t.Fatalf("got %+v, %v", single, err)
 		}
@@ -743,7 +743,7 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 			}
 		}
 		file(t, state, other, "web", 30502)
-		plural, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "berth")
+		plural, err := orphanedRoutesChecks(state, registrytest.TempDir(t), "treerig")
 		if err != nil || len(plural) != 1 {
 			t.Fatalf("got %+v, %v", plural, err)
 		}
@@ -759,7 +759,7 @@ func TestOrphanedRoutesChecks(t *testing.T) {
 		file(t, state, "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "web", 30501)
 		controlHome := registrytest.TempDir(t)
 		record(t, controlHome, routeRepo, map[string]int{"api": 30777})
-		got, err := orphanedRoutesChecks(state, controlHome, "berth")
+		got, err := orphanedRoutesChecks(state, controlHome, "treerig")
 		if err != nil || len(got) != 2 || got[0].Instance != "" || got[1].Instance != "other-home" {
 			t.Fatalf("got %+v, %v", got, err)
 		}
@@ -800,7 +800,7 @@ func TestRouterSectionProbes(t *testing.T) {
 		if asked.Load() != 2 {
 			t.Fatalf("asked %d routes, want 2 (the index and web)", asked.Load())
 		}
-		if checks[5].Instance != "berth.localhost" || checks[6].Instance != "web.main.acme.localhost" {
+		if checks[5].Instance != "treerig.localhost" || checks[6].Instance != "web.main.acme.localhost" {
 			t.Fatalf("probe instances = %q, %q", checks[5].Instance, checks[6].Instance)
 		}
 	})

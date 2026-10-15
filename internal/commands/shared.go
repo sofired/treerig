@@ -7,18 +7,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
-// `berth shared up|down|status` (docs/design/routing.md, decision 21).
+// `treerig shared up|down|status` (docs/design/routing.md, decision 21).
 // `up` starts what a worktree's services use on its own; these are the
 // explicit verbs: repair and replace, stop, and look.
 
@@ -44,7 +44,7 @@ func SharedUp(ctx context.Context, env *Env, options SharedUpOptions) error {
 	// service has one, or one it depends on does (selectionNeedsRouter).
 	// building it reads settings.toml's range and mode, which a service with
 	// nothing to route must not fail on. From the context's own resolution of
-	// the berth root and port, as Up's is, so the router `shared up` ensures
+	// the treerig root and port, as Up's is, so the router `shared up` ensures
 	// and the URL it reports never read settings.toml separately. A selection
 	// that is wrong is reported by SharedUpWithContext.
 	var routerSvc Router
@@ -257,7 +257,7 @@ type SharedStatusAddr struct {
 
 // sharedStatuses reads every declared shared service's state from Docker and
 // the records. One bad thing does not fail the report: a container in a state
-// berth does not know is an entry with state unknown, an unreadable record
+// treerig does not know is an entry with state unknown, an unreadable record
 // leaves its addresses out with a warning, and a shared file that cannot be
 // read makes every definition unknown with a warning. Docker listing or
 // inspection errors and connection-check errors still fail the report;
@@ -485,11 +485,11 @@ type SharedDownOptions struct {
 	// Yes skips the confirmation phrase.
 	Yes bool
 	// LabelNamespace names the Docker label namespace when there is no usable
-	// berth.toml to say it.
+	// treerig.toml to say it.
 	LabelNamespace string
 }
 
-// SharedDown is `shared down`. It needs no berth.toml: it finds the
+// SharedDown is `shared down`. It needs no treerig.toml: it finds the
 // repository's shared resources by their labels, from any checkout of it.
 func SharedDown(ctx context.Context, env *Env, options SharedDownOptions) error {
 	cctx, err := ContextWithoutConfig(env)

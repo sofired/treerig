@@ -13,10 +13,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // envGetenv adapts a process env slice ("KEY=VALUE" entries, as cmd.Env
@@ -38,7 +38,7 @@ func envGetenv(env []string) func(string) (string, bool) {
 }
 
 // isoTimestampPattern matches an ISO-8601 instant to the millisecond, the
-// shape berth prints for IndexSnapshot.GeneratedAt — the one thing that
+// shape treerig prints for IndexSnapshot.GeneratedAt — the one thing that
 // legitimately differs between two runs, since each reads the real clock at
 // the moment it runs. Nothing else in the output or the page it writes takes
 // this shape (every fixture UUID and host is fixed), so this is narrow by
@@ -162,20 +162,20 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(f.checkout, "berth.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n[service.mail]\nsubdomain = \"mail\"\n", 0o644)
+	write(filepath.Join(f.checkout, "treerig.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n[service.mail]\nsubdomain = \"mail\"\n", 0o644)
 	git := exec.Command("git", "init", "--initial-branch=feature/login", ".")
 	git.Dir = f.checkout
 	if output, err := git.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)
 	}
-	write(filepath.Join(f.checkout, ".git", "berth", "repository-id"), registry.IdentityMarkerContents(fixtureRepo), 0o600)
-	write(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), registry.IdentityMarkerContents(fixtureWt), 0o600)
+	write(filepath.Join(f.checkout, ".git", "treerig", "repository-id"), registry.IdentityMarkerContents(fixtureRepo), 0o600)
+	write(filepath.Join(f.checkout, ".git", "treerig", "worktree-id"), registry.IdentityMarkerContents(fixtureWt), 0o600)
 	paths := layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt)
 	// This build's own marker format: files.AssertAdoptableControlHome only
 	// cares that the marker exists, not its exact bytes, but this is what a
 	// real control home actually has.
-	write(filepath.Join(f.controlHome, ".berth-control-home"), files.ControlHomeFormat, 0o600)
-	// BERTH_HOME is the control home in this fixture: the scratch root's own
+	write(filepath.Join(f.controlHome, ".treerig-control-home"), files.ControlHomeFormat, 0o600)
+	// TREERIG_HOME is the control home in this fixture: the scratch root's own
 	// port range lives beside the marker, so no run takes the default one (#119).
 	registrytest.WriteScratchSettings(t, f.controlHome, "")
 	write(paths.RecordPath, `{
@@ -184,7 +184,7 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
   "worktreeId": "`+fixtureWt+`",
   "slug": "feature-login",
   "domain": "acme.localhost",
-  "labelNamespace": "dev.berth",
+  "labelNamespace": "dev.treerig",
   "initialization": "complete"
 }
 `, 0o600)
@@ -202,12 +202,12 @@ state="`+f.state+`"
 echo "$*" >> "$state/argv"
 case " $* " in
   *" compose "*" config "*) echo '{"name":"x","services":{"api":{"image":"busybox"},"mail":{"image":"busybox"}}}'; exit 0 ;;
-  *" --project-name berth-router "*" ps "*" --quiet "*) echo routerc1; exit 0 ;;
+  *" --project-name treerig-router "*" ps "*" --quiet "*) echo routerc1; exit 0 ;;
   *" compose "*" ps "*) [ -e "$state/c1" ] && echo '{"Service":"api","State":"running","Health":""}'; exit 0 ;;
   *" compose "*" down "*) rm -f "$state/c1"; exit 0 ;;
   *" --filter "*)
     case "$1" in
-      ps) case " $* " in *"label=dev.berth.managed=true --format"*|*"label=dev.berth.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;;
+      ps) case " $* " in *"label=dev.treerig.managed=true --format"*|*"label=dev.treerig.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;;
       volume) [ -e "$state/v1" ] && echo v1 ;;
     esac
     exit 0 ;;
@@ -256,7 +256,7 @@ func filterDockerCalls(calls []string, substr string) []string {
 }
 
 // runIn executes command in dir — the fixture's own checkout for every case
-// but doctor's "no checkout" one, which needs a directory with no berth.toml
+// but doctor's "no checkout" one, which needs a directory with no treerig.toml
 // above it; f.base (this fixture's own root, holding only checkout/, bin/,
 // state/ and control/) is that — and reports what it did. checkIndexPage
 // additionally reads the checkout index page HOME's router state directory
@@ -270,11 +270,11 @@ func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIn
 	cmd.Dir = dir
 	cmd.Env = []string{
 		"HOME=" + f.base,
-		// BERTH_CONTROL_HOME points directly at the control home (#80);
-		// BERTH_HOME is also set to it, which moves the router's own state
+		// TREERIG_CONTROL_HOME points directly at the control home (#80);
+		// TREERIG_HOME is also set to it, which moves the router's own state
 		// under f.controlHome/router too — readIndexPage below relies on
 		// that.
-		"BERTH_HOME=" + f.controlHome, "BERTH_CONTROL_HOME=" + f.controlHome,
+		"TREERIG_HOME=" + f.controlHome, "TREERIG_CONTROL_HOME=" + f.controlHome,
 		"PATH=" + f.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 	}
@@ -315,7 +315,7 @@ func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIn
 
 // readIndexPage reads the checkout index page this fixture's last run
 // wrote, resolved through layout.RouterState the same way runIn's own env
-// does (HOME=f.base, BERTH_HOME=f.controlHome). Each call to run() rebuilds
+// does (HOME=f.base, TREERIG_HOME=f.controlHome). Each call to run() rebuilds
 // the fixture from scratch first (see newOutputFixture), so "" means the
 // case under test never wrote one.
 func (f outputFixture) readIndexPage(t *testing.T) []byte {
@@ -324,7 +324,7 @@ func (f outputFixture) readIndexPage(t *testing.T) []byte {
 		switch key {
 		case "HOME":
 			return f.base, true
-		case "BERTH_HOME":
+		case "TREERIG_HOME":
 			return f.controlHome, true
 		}
 		return "", false
@@ -369,7 +369,7 @@ func TestOutputGoldens(t *testing.T) {
 		decoy bool
 		// outsideCheckout runs from the fixture's own base instead of its
 		// checkout — doctor's "no checkout" case needs a directory with no
-		// berth.toml above it.
+		// treerig.toml above it.
 		outsideCheckout bool
 		// excludeStdoutLines drops any stdout line containing one of these
 		// substrings from both the golden and the live run before
@@ -430,7 +430,7 @@ func TestOutputGoldens(t *testing.T) {
 		{name: "worktree unlock with nothing held", args: []string{"worktree", "unlock"}},
 		// doctor: every other line (Prerequisites' Git/Docker checks,
 		// Registry, Locks, Router, This checkout) is byte-identical once the
-		// Node.js, berth root and router state lines are excluded — the
+		// Node.js, treerig root and router state lines are excluded — the
 		// last two postdate the golden recording (#80) — removing the
 		// Node.js line does not even shift the Prerequisites column width,
 		// since "Docker Compose" is still the longest subject either way.
@@ -443,13 +443,13 @@ func TestOutputGoldens(t *testing.T) {
 		{
 			name: "doctor with no checkout", args: []string{"doctor"}, outsideCheckout: true,
 			excludeStdoutLines: []string{
-				"Node.js", "berth root", "router state",
+				"Node.js", "treerig root", "router state",
 			},
 			unorderedDocker: true,
 		},
 		// #105: hookResolutionChecks' own "This checkout" lines — recorded
 		// against the current build, so unlike "doctor with no checkout"
-		// above it needs no Node.js/berth-root/router-state exclusions.
+		// above it needs no Node.js/treerig-root/router-state exclusions.
 		// prepare resolves (a real, executable "./hooks/prepare" with a "#!"
 		// line); seed does not (configured as "./hooks/seed", never written,
 		// so it predicts the runner's own 127); verify stays unconfigured,
@@ -469,7 +469,7 @@ func TestOutputGoldens(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(hooksDir, "prepare"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				tomlPath := filepath.Join(f.checkout, "berth.toml")
+				tomlPath := filepath.Join(f.checkout, "treerig.toml")
 				contents, err := os.ReadFile(tomlPath)
 				if err != nil {
 					t.Fatal(err)
@@ -481,14 +481,14 @@ func TestOutputGoldens(t *testing.T) {
 			},
 		},
 		// #29: a state refusal's exact text, end to end. The first is a control
-		// home whose marker a newer berth wrote; the second a container whose
-		// format label is a newer berth's. Both name the store, the format found,
+		// home whose marker a newer treerig wrote; the second a container whose
+		// format label is a newer treerig's. Both name the store, the format found,
 		// the format this build reads, and say to upgrade.
 		{
-			name: "worktree unlock --registry, control home from a newer berth", args: []string{"worktree", "unlock", "--registry"},
+			name: "worktree unlock --registry, control home from a newer treerig", args: []string{"worktree", "unlock", "--registry"},
 			setup: func(t *testing.T, f outputFixture) {
 				t.Helper()
-				if err := os.WriteFile(filepath.Join(f.controlHome, ".berth-control-home"), []byte("format 3\n"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.controlHome, ".treerig-control-home"), []byte("format 3\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -497,7 +497,7 @@ func TestOutputGoldens(t *testing.T) {
 			name: "status, an identity marker with no format line", args: []string{"status"},
 			setup: func(t *testing.T, f outputFixture) {
 				t.Helper()
-				if err := os.WriteFile(filepath.Join(f.checkout, ".git", "berth", "worktree-id"), []byte(fixtureWt+"\n"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.checkout, ".git", "treerig", "worktree-id"), []byte(fixtureWt+"\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			},

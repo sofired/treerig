@@ -6,14 +6,14 @@ import (
 	"io/fs"
 	"testing"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
-// BERTH_DEBUG prints the chain of causes, one "type: message" line each, in
+// TREERIG_DEBUG prints the chain of causes, one "type: message" line each, in
 // place of a stack trace.
 func TestErrorChain(t *testing.T) {
-	t.Run("adds nothing for one of berth's own errors with no cause", func(t *testing.T) {
-		if got := errorChain(clierr.New("No berth.toml here.")); got != "" {
+	t.Run("adds nothing for one of treerig's own errors with no cause", func(t *testing.T) {
+		if got := errorChain(clierr.New("No treerig.toml here.")); got != "" {
 			t.Fatalf("got %q, want nothing", got)
 		}
 	})

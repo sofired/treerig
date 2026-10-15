@@ -1,1 +1,1 @@
-[berth] ERROR: No teardown binary is pinned. Pin one with `berth teardown pin --release X.Y.Z`.
+[treerig] ERROR: No teardown binary is pinned. Pin one with `treerig teardown pin --release X.Y.Z`.

@@ -1,4 +1,4 @@
-// Package lock is berth's only synchronization primitive: flock(2) on the
+// Package lock is treerig's only synchronization primitive: flock(2) on the
 // lock target file itself, held by an open file description. The kernel
 // frees it the moment its holder dies — even by SIGKILL — and leaves
 // nothing stale, and it survives setsid, fork and exec for a child that
@@ -18,9 +18,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 // Options configures one Lock. Every field but Timeout has a sensible
@@ -40,7 +40,7 @@ type Options struct {
 	NoticeInterval time.Duration
 	// Watchdog is how often Lost is checked; zero defaults to 5 s. Negative disables it.
 	Watchdog time.Duration
-	// Holder is how this process was invoked ("berth up", say), recorded for whoever waits on it.
+	// Holder is how this process was invoked ("treerig up", say), recorded for whoever waits on it.
 	Holder string
 	Logger logger.Logger
 	// Table identifies and inspects processes; nil defaults to procid.Platform().
@@ -199,7 +199,7 @@ func (l *Lock) Acquire(ctx context.Context, command string) (context.Context, er
 				return ctx, serr
 			}
 			if !match {
-				// Berth never unlinks lock files, so this is a very tight
+				// Treerig never unlinks lock files, so this is a very tight
 				// race with something else replacing the path; reopen and retry.
 				file.Close()
 				if now := l.opts.Clock(); !now.Before(deadline) {

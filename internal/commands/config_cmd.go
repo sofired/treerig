@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/text"
 )
 
-// load reads --config if given, else the nearest berth.toml above env.Cwd.
+// load reads --config if given, else the nearest treerig.toml above env.Cwd.
 func load(env *Env) (*config.Loaded, error) {
 	if env.ConfigPath != "" {
 		return config.Load(env.ConfigPath)

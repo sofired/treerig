@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // completionContext is what every read in this file runs with: cobra never
@@ -22,7 +22,7 @@ import (
 func completionContext() context.Context { return context.Background() }
 
 // noCompletions is what every completion function in this file answers on
-// any read failure — a registry it cannot resolve, a berth.toml it cannot
+// any read failure — a registry it cannot resolve, a treerig.toml it cannot
 // find — the same ShellCompDirectiveNoFileComp, no candidates, addCompletion's
 // own default already answers for a command that declares nothing else:
 // shell completion must never fail loudly, so an error and "nothing to
@@ -172,7 +172,7 @@ func domainCompletionFunc(p *program) func(cmd *cobra.Command, args []string, to
 }
 
 // serviceCompletionDescription is one declared service's own completion
-// description, from berth.toml alone: its [service.<name>.index] label when
+// description, from treerig.toml alone: its [service.<name>.index] label when
 // the config gave it one, otherwise the shape of its own route — its
 // subdomain, its path, or "host root" for neither — so a completion
 // candidate still says something useful without ever reading the registry.
@@ -196,7 +196,7 @@ func serviceCompletionDescription(svc config.Service) string {
 }
 
 // serviceCompletionFunc is `up`'s own ValidArgsFunction: the service names
-// this worktree's own berth.toml declares (Config.Service, loaded directly
+// this worktree's own treerig.toml declares (Config.Service, loaded directly
 // with internal/config's own loader — a service name is a config-file
 // question, nothing a CommandContext's registry or control home has any
 // part in), each described by serviceCompletionDescription, minus whichever
@@ -224,9 +224,9 @@ func serviceCompletionFunc(p *program) func(cmd *cobra.Command, args []string, t
 }
 
 // sharedCompletionFunc is `shared up`'s and `shared down`'s own
-// ValidArgsFunction: the shared service names this worktree's berth.toml
+// ValidArgsFunction: the shared service names this worktree's treerig.toml
 // declares (Config.Shared), in file order and each described by the services
-// that use it, minus whichever the command line already named. A berth.toml
+// that use it, minus whichever the command line already named. A treerig.toml
 // that cannot be loaded completes nothing, which is also what `shared down`
 // has to offer when it runs without one.
 func sharedCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
@@ -257,7 +257,7 @@ func sharedCompletionFunc(p *program) func(cmd *cobra.Command, args []string, to
 // routeNameCompletionFunc is `route rm`'s own ValidArgsFunction: the host
 // route names this registered worktree holds, in name order, each described by
 // the port it targets. Offered while no name is given. A checkout that is not
-// registered, or whose berth.toml cannot be loaded, completes nothing.
+// registered, or whose treerig.toml cannot be loaded, completes nothing.
 func routeNameCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		if len(args) > 0 {
@@ -286,7 +286,7 @@ func routeNameCompletions(routes []commands.HostRouteName, toComplete string) ([
 	return withPrefix(comps, toComplete), cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
 }
 
-// completionConfig loads the berth.toml cmd's own --config, or the nearest
+// completionConfig loads the treerig.toml cmd's own --config, or the nearest
 // one above the working directory, names: a config-file question, nothing a
 // CommandContext's registry or control home has any part in. Any failure is
 // returned for the caller to turn into noCompletions().
@@ -302,12 +302,12 @@ func completionConfig(p *program, cmd *cobra.Command) (*config.Loaded, error) {
 }
 
 // commandCompletionFunc is `run`'s own ValidArgsFunction: the command names
-// this worktree's berth.toml declares under [commands], in file order, each
+// this worktree's treerig.toml declares under [commands], in file order, each
 // described by its command line (one line, clamped). Only the name is
 // completed: nothing is offered once one is given, and so nothing after
 // "plan --", where the arguments are the command's own. (Cobra appends a
 // "--" of its own when it parses a completion request, so ArgsLenAtDash
-// cannot tell a user's "--" apart here.) A berth.toml that cannot be loaded
+// cannot tell a user's "--" apart here.) A treerig.toml that cannot be loaded
 // completes nothing.
 func commandCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {

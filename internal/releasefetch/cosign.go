@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/semver"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/semver"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // The cosign contract (docs/design/teardown.md, "Verification").
@@ -25,7 +25,7 @@ const (
 	// Issuer is the OIDC issuer the release workflow's certificate carries.
 	Issuer = "https://token.actions.githubusercontent.com"
 	// identityBase is the release workflow at a tag, without the tag.
-	identityBase = "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v"
+	identityBase = "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v"
 	// VersionTimeout and VerifyTimeout bound the two cosign runs.
 	VersionTimeout = 10 * time.Second
 	VerifyTimeout  = 60 * time.Second
@@ -33,8 +33,8 @@ const (
 	MaxStderr = 2048
 )
 
-// allowedVariables are the only variables of berth's own environment that
-// cosign is given, besides the ones berth sets itself (Dirs). cosign binds
+// allowedVariables are the only variables of treerig's own environment that
+// cosign is given, besides the ones treerig sets itself (Dirs). cosign binds
 // every flag to a COSIGN_<FLAG> variable (COSIGN_TRUSTED_ROOT picks the trust
 // root, COSIGN_INSECURE_IGNORE_TLOG=true switches the log check off) and reads
 // the SIGSTORE_* settings, so what a checkout's .envrc could set cannot be
@@ -175,7 +175,7 @@ func classify(stderr string) VerifyKind {
 	return FailUnknown
 }
 
-// Dirs are the berth-owned directories cosign runs in, supplied by the
+// Dirs are the treerig-owned directories cosign runs in, supplied by the
 // caller (this package reads no environment and chooses no directory). All
 // three exist, are private to the user and are under the control home, so no
 // .envrc can choose where cosign keeps its trust root or its scratch files.
@@ -248,7 +248,7 @@ func absolutePath(path, cwd string) string {
 }
 
 // Locate resolves cosign once, refuses one inside roots, and checks that it is
-// MinCosign or newer. environ is berth's own environment, of which cosign
+// MinCosign or newer. environ is treerig's own environment, of which cosign
 // receives only the allowlist (CosignEnv); its PATH is the one searched, a
 // relative entry against cwd. The PATH-resolved path is made absolute and is
 // what runs; its canonical form, with symlinks resolved, is what the roots are
@@ -285,7 +285,7 @@ func Locate(ctx context.Context, runner run.Runner, environ []string, cwd string
 
 // inside reports whether path is root or below it. Paths are compared as
 // paths (filepath.Rel), never as strings, so a sibling that shares a prefix
-// (berth.foo beside berth) is not inside. Each ancestor of path is also
+// (treerig.foo beside treerig) is not inside. Each ancestor of path is also
 // compared with root through os.SameFile, which sees through the
 // case-insensitive volumes of macOS (and costs one stat per ancestor).
 func inside(root, path string) bool {

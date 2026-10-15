@@ -6,7 +6,7 @@
       "command": [
         "--entrypoints.web.address=127.0.0.1:80",
         "--entrypoints.traefik.address=127.0.0.1:21001",
-        "--providers.file.directory=/etc/berth/dynamic",
+        "--providers.file.directory=/etc/treerig/dynamic",
         "--providers.file.watch=true",
         "--api.dashboard=false",
         "--ping=true",
@@ -14,8 +14,8 @@
       ],
       "network_mode": "host",
       "extra_hosts": [
-        "berth-loopback:127.0.0.1",
-        "berth-loopback:::1"
+        "treerig-loopback:127.0.0.1",
+        "treerig-loopback:::1"
       ],
       "read_only": true,
       "cap_drop": [
@@ -33,8 +33,8 @@
       "volumes": [
         {
           "type": "bind",
-          "source": "/home/dev/.berth/router/dynamic",
-          "target": "/etc/berth/dynamic",
+          "source": "/home/dev/.treerig/router/dynamic",
+          "target": "/etc/treerig/dynamic",
           "read_only": true
         }
       ],
@@ -52,11 +52,11 @@
         "retries": 30
       },
       "labels": {
-        "dev.berth.component": "router",
-        "dev.berth.router-protocol": "6",
-        "dev.berth.router-home": "/home/dev/.berth",
-        "dev.berth.router-mode": "host",
-        "dev.berth.router-port": "80"
+        "dev.treerig.component": "router",
+        "dev.treerig.router-protocol": "6",
+        "dev.treerig.router-home": "/home/dev/.treerig",
+        "dev.treerig.router-mode": "host",
+        "dev.treerig.router-port": "80"
       }
     },
     "index": {
@@ -84,7 +84,7 @@
       "volumes": [
         {
           "type": "bind",
-          "source": "/home/dev/.berth/router/index",
+          "source": "/home/dev/.treerig/router/index",
           "target": "/srv/index",
           "read_only": true
         }
@@ -101,9 +101,9 @@
         "retries": 30
       },
       "labels": {
-        "dev.berth.component": "index",
-        "dev.berth.router-protocol": "6",
-        "dev.berth.router-home": "/home/dev/.berth"
+        "dev.treerig.component": "index",
+        "dev.treerig.router-protocol": "6",
+        "dev.treerig.router-home": "/home/dev/.treerig"
       }
     }
   }

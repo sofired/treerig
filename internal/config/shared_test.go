@@ -108,7 +108,7 @@ used-by = ["web"]
 	})
 
 	t.Run("refuses the shared file being the Compose file however each is written", func(t *testing.T) {
-		_, err := Parse([]byte(minimalTOML+"[shared]\nfile = \"/etc/berth/docker/compose.yaml\"\n[shared.service.mailpit]\n"), "/etc/berth/berth.toml")
+		_, err := Parse([]byte(minimalTOML+"[shared]\nfile = \"/etc/treerig/docker/compose.yaml\"\n[shared.service.mailpit]\n"), "/etc/treerig/treerig.toml")
 		requireErrorContains(t, err, "shared.file: must not be the [compose] file")
 		_, err = Parse([]byte(minimalTOML+"[shared]\nfile = \"docker/../docker/compose.yaml\"\n[shared.service.mailpit]\n"), "test.toml")
 		requireErrorContains(t, err, "shared.file: must not be the [compose] file")

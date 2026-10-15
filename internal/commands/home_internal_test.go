@@ -10,7 +10,7 @@ package commands
 import (
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // fixedGetenv is a layout.Getenv backed by a fixed map.

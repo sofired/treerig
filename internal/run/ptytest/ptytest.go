@@ -113,7 +113,7 @@ func WaitFile(t *testing.T, path string) string {
 // event — exited, ended by a signal, or merely stopped — the same call
 // runForegroundChild makes for an interactive child, and delivers it on the
 // returned channel. The test plays the role of the real shell that would
-// otherwise be doing this for berth itself. Wait4 has no timeout of its
+// otherwise be doing this for treerig itself. Wait4 has no timeout of its
 // own, so every caller bounds its own wait externally; a goroutine left
 // blocked in it past a failed assertion is the same trade the rest of this
 // package's tests already make (see osrun_test.go's own "skips the
@@ -150,12 +150,12 @@ func WaitHelperEvent(t *testing.T, pid int) unix.WaitStatus {
 }
 
 // WaitForegroundHandoff polls the pty's foreground process group (TIOCGPGRP
-// on the master) until it is something other than helperPid — berth's own
+// on the master) until it is something other than helperPid — treerig's own
 // group — and returns that value, understood to be the interactive child's
 // own pgid. It is a direct assertion that the handoff itself happened, kept
 // separate from SendTerminalSignal's write-retries: those exist for a host
 // timing race in delivering a signal to an already-correct foreground group
-// (see SendTerminalSignal's own doc), not to paper over berth being slow,
+// (see SendTerminalSignal's own doc), not to paper over treerig being slow,
 // or wrong, about making that group the foreground in the first place —
 // that must fail loudly and promptly, here, rather than be absorbed by a
 // handful of retried writes.
@@ -168,7 +168,7 @@ func WaitForegroundHandoff(t *testing.T, ptmx *os.File, helperPid int) int {
 		}
 		if time.Now().After(deadline) {
 			fg, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP)
-			t.Fatalf("terminal foreground pgid never left berth's own group %d (last saw %d, err=%v)", helperPid, fg, err)
+			t.Fatalf("terminal foreground pgid never left treerig's own group %d (last saw %d, err=%v)", helperPid, fg, err)
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
@@ -182,14 +182,14 @@ func WaitForegroundHandoff(t *testing.T, ptmx *os.File, helperPid int) int {
 // The retry is load-bearing, not defensive filler: on this host, a byte
 // written this way can be lost if it lands in the narrow window right
 // after the foreground child's own fork+exec of what it runs next — this
-// reproduces identically with no berth code involved at all (a bare
+// reproduces identically with no treerig code involved at all (a bare
 // pty.Start(exec.Command("sh", "-c", "echo ready; cat")), Ctrl-C written
 // the instant "ready" is read, loses the byte on a clean host too;
-// https://github.com/sofired/berth/issues/104). It is a characteristic of
+// https://github.com/sofired/treerig/issues/104). It is a characteristic of
 // this kernel/shell/scheduling combination reacting to a signal-generating
-// byte sent immediately after the previous command's own fork, not a berth
+// byte sent immediately after the previous command's own fork, not a treerig
 // defect — a human pressing Ctrl-C or Ctrl-Z is never this fast, and once
-// the signal is actually delivered, berth's own handling of it (proven by
+// the signal is actually delivered, treerig's own handling of it (proven by
 // the rest of this file) is correct. Retrying the write is how a real
 // terminal emulator's own user would "solve" the same race by construction
 // (they cannot type faster than this).
@@ -203,14 +203,14 @@ func WaitForegroundHandoff(t *testing.T, ptmx *os.File, helperPid int) int {
 // observed ceiling across repeated runs was about 1.12 s. Nothing to do
 // with host contention or load; the race detector's own bookkeeping on
 // process exit. WaitForegroundHandoff, above, is what actually keeps this
-// loud rather than silently generous: a slow or wrong handoff in berth's
+// loud rather than silently generous: a slow or wrong handoff in treerig's
 // own code fails there, promptly, before this retry ever runs.
 //
 // A write is repeated only while the child's group still holds the
-// terminal. Once berth has taken it back, the child has already had the
-// signal, and a further byte would go to berth's own group instead: under
-// -race berth takes about a second to exit, so a byte written in that
-// window used to interrupt berth itself, killing it with SIGINT on macOS.
+// terminal. Once treerig has taken it back, the child has already had the
+// signal, and a further byte would go to treerig's own group instead: under
+// -race treerig takes about a second to exit, so a byte written in that
+// window used to interrupt treerig itself, killing it with SIGINT on macOS.
 // From then on this only waits for the helper's own event.
 func SendTerminalSignal(t *testing.T, ptmx *os.File, helperPid int, b byte) unix.WaitStatus {
 	t.Helper()
@@ -241,13 +241,13 @@ func SendTerminalSignal(t *testing.T, ptmx *os.File, helperPid int, b byte) unix
 }
 
 // ChildHoldsTerminal reports whether the pty's foreground process group is
-// still some live group other than berth's own (helperPid): the interactive
+// still some live group other than treerig's own (helperPid): the interactive
 // child's. No group at all, an error, or a group nobody is left in means no
 // one holds it any more, which also means the child's group has gone. The
 // last matters on macOS, which does not report 0 for a terminal whose
 // foreground group has emptied but a placeholder (NO_PID, 100000) that names
 // no group: taken at face value, it would have the caller keep typing at a
-// terminal berth is about to take back.
+// terminal treerig is about to take back.
 func ChildHoldsTerminal(ptmx *os.File, helperPid int) bool {
 	return liveForeground(int(ptmx.Fd()), helperPid) != 0
 }

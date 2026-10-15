@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 )
 
-// hostState is a router layout over a scratch berth root, with nothing
+// hostState is a router layout over a scratch treerig root, with nothing
 // created: WriteHostFragment must be able to start from that.
 func hostState(t *testing.T) layout.RouterLayout {
 	t.Helper()
@@ -50,7 +50,7 @@ func TestHostFragmentFiles(t *testing.T) {
 		}
 	})
 
-	t.Run("writes a document routing the rule to berth-loopback at the port, at 0644, creating the directory", func(t *testing.T) {
+	t.Run("writes a document routing the rule to treerig-loopback at the port, at 0644, creating the directory", func(t *testing.T) {
 		state := hostState(t)
 		fragment := writeHost(t, state, fragRepoA, fragWtA, "web", "Host(`feature.acme.localhost`)", 5173)
 		info, err := os.Stat(fragment.Path)
@@ -69,7 +69,7 @@ func TestHostFragmentFiles(t *testing.T) {
 		if !ok || entry.Rule != "Host(`feature.acme.localhost`)" || entry.Service != name || doc.TargetPort() != 5173 {
 			t.Fatalf("document = %+v", doc)
 		}
-		if got := doc.HTTP.Services[name].LoadBalancer.Servers[0].URL; got != "http://berth-loopback:5173" {
+		if got := doc.HTTP.Services[name].LoadBalancer.Servers[0].URL; got != "http://treerig-loopback:5173" {
 			t.Errorf("target = %q", got)
 		}
 	})

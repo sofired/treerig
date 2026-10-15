@@ -9,13 +9,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // ConflictError is `compose up` losing a race to create the stack's
@@ -74,7 +74,7 @@ type UpRequest struct {
 
 // Up starts the requested services with the caller's definition: it writes
 // the override and runs `compose up --detach --wait`. Services it only starts
-// get --no-recreate, which matters: berth never lets Compose recreate a
+// get --no-recreate, which matters: treerig never lets Compose recreate a
 // container that is running (decision 16), so a dependency already up, or a
 // sibling whose definition drifted, is left as it is. Services in Recreate
 // get --force-recreate --no-deps, one call for them all: Compose recreates
@@ -97,7 +97,7 @@ func (s *Stack) Up(ctx context.Context, request UpRequest) error {
 	}
 	// Before the override is written or Compose runs: Compose recreates a
 	// container or network whose labels differ from this build's override,
-	// including one a newer berth stamped (docs/design/state.md).
+	// including one a newer treerig stamped (docs/design/state.md).
 	newer, err := docker.FindNewerFormats(ctx, s.o.Runner, s.ownership(), brand.FormatLabel(s.o.LabelNamespace), stateformat.DockerLabel, false, probeTimeout)
 	if err != nil {
 		return err
@@ -197,7 +197,7 @@ func (s *Stack) Reap(ctx context.Context, resource Resource) error {
 			return err
 		}
 		if resource.Anonymous {
-			// An anonymous volume carries none of berth's labels; Docker marks
+			// An anonymous volume carries none of treerig's labels; Docker marks
 			// it, and the container that mounted it was proven the stack's.
 			if _, anonymous := volume.Labels[anonymousVolumeLabel]; !anonymous {
 				return clierr.Newf("Refusing to touch volume %s: it is not an anonymous volume.", resource.ID)

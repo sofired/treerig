@@ -3,7 +3,7 @@ package commands_test
 import (
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
+	"github.com/sofired/treerig/internal/commands"
 )
 
 // TestFormatTable pins the exact column alignment against literal expected

@@ -12,17 +12,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // sharedFilePath is the shared Compose file, resolved against the config's
@@ -107,7 +107,7 @@ func sharedWorktreeRoots(ctx context.Context, cctx *CommandContext, repositoryID
 
 // sharedNeeded are the shared services a worktree starts: those with at least
 // one used-by service, in file order. A service nothing uses is started only
-// by `berth shared up`.
+// by `treerig shared up`.
 func sharedNeeded(cfg config.Config) []config.SharedService {
 	var needed []config.SharedService
 	for _, service := range cfg.SharedServices() {

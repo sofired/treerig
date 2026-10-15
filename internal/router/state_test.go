@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 )
 
 func TestReadState(t *testing.T) {

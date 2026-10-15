@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // recordMaxBytes: a record is one short line; anything larger is not ours and is not read.
@@ -41,13 +41,13 @@ type Record struct {
 	StartTicks *uint64    `json:"startTicks,omitempty"`
 	StartUs    *int64     `json:"startUs,omitempty"`
 
-	// newer is the version, as written, of a record a newer berth wrote:
+	// newer is the version, as written, of a record a newer treerig wrote:
 	// everything else in it is unread, since its shape is not this build's to
 	// interpret. Never serialised.
 	newer string
 }
 
-// NewerFormat is the version, as written, of a record a newer berth wrote,
+// NewerFormat is the version, as written, of a record a newer treerig wrote,
 // or "" for one this build can read. Such a record names no holder this build
 // can identify (see judgeHolder).
 func (r *Record) NewerFormat() string { return r.newer }
@@ -80,7 +80,7 @@ func readRecord(path string) (*Record, error) {
 		}
 		return nil, err
 	}
-	// The version is judged before the rest of the shape: a newer berth's
+	// The version is judged before the rest of the shape: a newer treerig's
 	// record is a holder this build cannot identify, which judgeHolder refuses
 	// to take over, not a file nobody wrote. A record with no version, or one
 	// this build never wrote, is no record at all.

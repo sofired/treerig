@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // OS is the process-level surface Lifecycle needs, injectable so tests never
@@ -112,7 +112,7 @@ func (l *Lifecycle) Context() context.Context { return l.ctx }
 func (l *Lifecycle) Repeated() <-chan struct{} { return l.repeated }
 
 // Start begins listening for SIGINT, SIGTERM and SIGHUP — the last being
-// what a closed terminal sends, which `berth run` must forward to its child
+// what a closed terminal sends, which `treerig run` must forward to its child
 // and wait out like the other two — skipping any of them this process
 // already had ignored at startup: Notifying an ignored signal would make it
 // stop being ignored, which is never this tool's call to make (a process

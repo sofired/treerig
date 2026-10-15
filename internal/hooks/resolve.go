@@ -1,8 +1,8 @@
 package hooks
 
 import (
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // Resolution is what resolving one configured hook's command found: the
@@ -46,7 +46,7 @@ func ResolveHook(hooksCfg config.Hooks, stage config.HookStage, root string, env
 
 // ResolveCommand is ResolveHook for one of the project's named commands
 // (#94): the same splitting, path resolution and prediction, so `doctor`'s
-// verdict on a command can never drift from what `berth run` finds. An
+// verdict on a command can never drift from what `treerig run` finds. An
 // empty command line resolves to the same clierr error RunCommand itself
 // refuses it with.
 func ResolveCommand(name string, command config.Command, root string, env []string) (Resolution, error) {

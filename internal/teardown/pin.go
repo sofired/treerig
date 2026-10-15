@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/semver"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/semver"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // Pin is the contents of teardown/pin.json. The field order is the order on
@@ -55,7 +55,7 @@ type Platform struct {
 	// ArchiveSHA256 is the verified archive's hash. Empty for a file pin,
 	// which has no archive.
 	ArchiveSHA256 string `json:"archive_sha256"`
-	// BinarySHA256 is the hash of the extracted berth, the runtime trust
+	// BinarySHA256 is the hash of the extracted treerig, the runtime trust
 	// anchor and the name of its file in the teardown directory. Present only
 	// for platforms installed on this machine.
 	BinarySHA256 string `json:"binary_sha256,omitempty"`
@@ -213,7 +213,7 @@ func (p Pin) validatePlatforms() error {
 	binaries := 0
 	for key, platform := range p.Platforms {
 		if !platformPattern.MatchString(key) {
-			return fmt.Errorf("platform %q is not one berth builds", key)
+			return fmt.Errorf("platform %q is not one treerig builds", key)
 		}
 		if p.IsFile() {
 			if platform.ArchiveSHA256 != "" {

@@ -1,12 +1,12 @@
 print this worktree's routed URLs
 
 Usage:
-  berth urls [flags]
+  treerig urls [flags]
 
 Flags:
   -h, --help   help for urls
       --json   machine-readable output
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

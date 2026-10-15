@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // scratch returns a fresh directory for a test's spawned commands to run in.
@@ -41,7 +41,7 @@ func withPath(t *testing.T, dir string) {
 func TestRunnerStartFailures(t *testing.T) {
 	t.Run("says a missing executable could not be started", func(t *testing.T) {
 		withPath(t, scratch(t))
-		_, err := New().Run(context.Background(), run.Spec{Command: "berth-definitely-missing-tool"})
+		_, err := New().Run(context.Background(), run.Spec{Command: "treerig-definitely-missing-tool"})
 		se, ok := err.(*run.StartError)
 		if !ok {
 			t.Fatalf("got %T: %v", err, err)
@@ -49,7 +49,7 @@ func TestRunnerStartFailures(t *testing.T) {
 		if se.ExitCode != 127 || se.Code != "ENOENT" {
 			t.Fatalf("got %+v", se)
 		}
-		if err.Error() != "`berth-definitely-missing-tool` could not be started: it is not on PATH (ENOENT)." {
+		if err.Error() != "`treerig-definitely-missing-tool` could not be started: it is not on PATH (ENOENT)." {
 			t.Fatalf("got %q", err.Error())
 		}
 	})
@@ -76,11 +76,11 @@ func TestRunnerStartFailures(t *testing.T) {
 
 	t.Run("says a bare name found on PATH without its execute bit is not executable, not missing", func(t *testing.T) {
 		dir := scratch(t)
-		if err := os.WriteFile(filepath.Join(dir, "berth-noexec-tool"), []byte("#!/bin/sh\necho hi\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "treerig-noexec-tool"), []byte("#!/bin/sh\necho hi\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		withPath(t, dir)
-		_, err := New().Run(context.Background(), run.Spec{Command: "berth-noexec-tool"})
+		_, err := New().Run(context.Background(), run.Spec{Command: "treerig-noexec-tool"})
 		se, ok := err.(*run.StartError)
 		if !ok {
 			t.Fatalf("got %T: %v", err, err)
@@ -107,7 +107,7 @@ func TestRunnerStartFailures(t *testing.T) {
 	})
 
 	t.Run("blames a working directory that is a file the same way", func(t *testing.T) {
-		file := filepath.Join(scratch(t), "berth.toml")
+		file := filepath.Join(scratch(t), "treerig.toml")
 		if err := os.WriteFile(file, nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -336,10 +336,10 @@ func TestRunnerOutputOverflow(t *testing.T) {
 
 func TestRunnerEnv(t *testing.T) {
 	t.Run("passes a supplied environment through verbatim instead of merging this process in", func(t *testing.T) {
-		os.Setenv("BERTH_TEST_LEAK", "from-the-parent")
-		defer os.Unsetenv("BERTH_TEST_LEAK")
+		os.Setenv("TREERIG_TEST_LEAK", "from-the-parent")
+		defer os.Unsetenv("TREERIG_TEST_LEAK")
 
-		script := "[ -z \"${BERTH_TEST_LEAK+x}\" ] && echo false || echo true"
+		script := "[ -z \"${TREERIG_TEST_LEAK+x}\" ] && echo false || echo true"
 		verbatim, err := New().Run(context.Background(), run.Spec{
 			Command: "sh", Args: []string{"-c", script}, Env: []string{"PATH=" + os.Getenv("PATH")},
 		})
@@ -494,7 +494,7 @@ func TestInheritLocks(t *testing.T) {
 	dir := scratch(t)
 	scope := lock.Scope{Target: filepath.Join(dir, "op"), Description: "worktree main"}
 	lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-	ctx, err := lk.Acquire(context.Background(), "berth up")
+	ctx, err := lk.Acquire(context.Background(), "treerig up")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +527,7 @@ func TestInheritLocks(t *testing.T) {
 
 	// An interactive child never inherits them, even when asked: Interactive
 	// wins, since its group is drained before Run returns and the lock must
-	// not outlive that. The child's own streams are berth's, so it reports
+	// not outlive that. The child's own streams are treerig's, so it reports
 	// through a file.
 	t.Run("Interactive wins: an interactive child gets no lock descriptor even with InheritLocks", func(t *testing.T) {
 		marker := filepath.Join(dir, "interactive-fd3")

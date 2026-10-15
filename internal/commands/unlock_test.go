@@ -8,16 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // mutateRecord rewrites a lock's sidecar holder record in place.
@@ -72,7 +72,7 @@ func killDeadHolder(t *testing.T, controlHome string, ref worktree.Ref) {
 	operation, development := lock.WorktreeScopes(controlHome, ref.RepositoryID, ref.WorktreeID, ref.Slug, markers)
 	for _, scope := range []lock.Scope{operation, development} {
 		lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatalf("acquire %s: %v", scope.Description, err)
 		}
 		if err := lk.Release(); err != nil {
@@ -125,7 +125,7 @@ func TestWorktreeUnlock(t *testing.T) {
 		markers := procid.Markers{Project: layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID), WorktreeID: ref.WorktreeID}
 		operation, _ := lock.WorktreeScopes(w.ControlHome, ref.RepositoryID, ref.WorktreeID, ref.Slug, markers)
 		holder := lock.New(operation, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer holder.Release()
@@ -159,7 +159,7 @@ func TestWorktreeUnlock(t *testing.T) {
 		operation, development := lock.WorktreeScopes(w.ControlHome, ref.RepositoryID, ref.WorktreeID, ref.Slug, procid.Markers{})
 		for _, scope := range []lock.Scope{operation, development} {
 			lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-			if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 				t.Fatalf("acquire %s after unlock: %v", scope.Description, err)
 			}
 			_ = lk.Release()
@@ -280,10 +280,10 @@ func TestWorktreeUnlock(t *testing.T) {
 
 // establishControlHome leaves controlHome exactly as `up` (via
 // commandstest.World.Register) or any other real mutation would before ever
-// touching the registry lock: with its `.berth-control-home` marker, so
+// touching the registry lock: with its `.treerig-control-home` marker, so
 // UnlockGlobal's own guard (finding 1 of round 2 of the four-role review of
 // #21, `lstatExists` then `files.SecureControlDirectories`) recognises it
-// as berth's own rather than a foreign directory nothing created.
+// as treerig's own rather than a foreign directory nothing created.
 func establishControlHome(t *testing.T, controlHome string) {
 	t.Helper()
 	if err := files.SecureControlDirectories(layout.ControlLayout(controlHome), registrytest.TempDir(t)); err != nil {
@@ -298,7 +298,7 @@ func establishControlHome(t *testing.T, controlHome string) {
 func killDeadHolderScope(t *testing.T, scope lock.Scope) {
 	t.Helper()
 	lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-	if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+	if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 		t.Fatalf("acquire %s: %v", scope.Description, err)
 	}
 	if err := lk.Release(); err != nil {
@@ -314,7 +314,7 @@ func killDeadHolderScope(t *testing.T, scope lock.Scope) {
 // holder's identity checks judge exactly as they would on this machine),
 // with Scan scripted instead of ever reading this machine's real process
 // table. Without this, TestUnlockGlobal's router case would scan the real
-// host for a "berth-router" argv token — flaky on a dev machine with a live
+// host for a "treerig-router" argv token — flaky on a dev machine with a live
 // router (finding 2, four-role review of #21) — and could never exercise
 // the refusal branch a live survivor takes.
 type fakeScanTable struct {
@@ -332,9 +332,9 @@ func (f *fakeScanTable) Scan() (procid.Scan, error) {
 
 // globalUnlockEnv builds a *commands.Env for UnlockGlobal, which reads Env
 // directly and needs no project config (see Unlock's own doc comment): a
-// fresh, fake HOME per test, so the registry lock (under BERTH_CONTROL_HOME,
+// fresh, fake HOME per test, so the registry lock (under TREERIG_CONTROL_HOME,
 // set directly to controlHome per #80) and the router lock (under
-// HOME/.berth/router, via layout.RouterState) both land in this test's own
+// HOME/.treerig/router, via layout.RouterState) both land in this test's own
 // temp directory rather than a real one. table is a *fakeScanTable wrapping
 // procid.Platform(), returned so a test can script what a survivor scan finds.
 func globalUnlockEnv(t *testing.T) (env *commands.Env, controlHome string, table *fakeScanTable) {
@@ -343,14 +343,14 @@ func globalUnlockEnv(t *testing.T) (env *commands.Env, controlHome string, table
 	controlHome = filepath.Join(home, "control")
 	table = &fakeScanTable{Table: procid.Platform()}
 	return &commands.Env{
-		CommandName: "berth", Invocation: "berth worktree unlock",
+		CommandName: "treerig", Invocation: "treerig worktree unlock",
 		Logger: &logger.Recording{},
 		Table:  table,
 		Getenv: func(key string) (string, bool) {
 			switch key {
 			case "HOME":
 				return home, true
-			case "BERTH_CONTROL_HOME":
+			case "TREERIG_CONTROL_HOME":
 				return controlHome, true
 			}
 			return "", false
@@ -415,7 +415,7 @@ func TestUnlockGlobal(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		routerScope := lock.Scope{Target: state.LockPath, Description: "shared router", Markers: procid.Markers{Project: "berth-router"}}
+		routerScope := lock.Scope{Target: state.LockPath, Description: "shared router", Markers: procid.Markers{Project: "treerig-router"}}
 		if err := os.MkdirAll(filepath.Dir(routerScope.Target), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -442,12 +442,12 @@ func TestUnlockGlobal(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		routerScope := lock.Scope{Target: state.LockPath, Description: "shared router", Markers: procid.Markers{Project: "berth-router"}}
+		routerScope := lock.Scope{Target: state.LockPath, Description: "shared router", Markers: procid.Markers{Project: "treerig-router"}}
 		if err := os.MkdirAll(filepath.Dir(routerScope.Target), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		killDeadHolderScope(t, routerScope)
-		table.scan = procid.Scan{Procs: []procid.Proc{{PID: 4242, Args: []string{"berth-router"}}}}
+		table.scan = procid.Scan{Procs: []procid.Proc{{PID: 4242, Args: []string{"treerig-router"}}}}
 
 		result, err := commands.UnlockGlobal(ctx, env, commands.UnlockOptions{Router: true})
 		wantErr(t, err, `a process it started is still running`)
@@ -485,7 +485,7 @@ func TestUnlockGlobal(t *testing.T) {
 		establishControlHome(t, controlHome)
 		registryScope := lock.RegistryScope(controlHome)
 		lk := lock.New(registryScope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := lk.Acquire(ctx, "berth up"); err != nil {
+		if _, err := lk.Acquire(ctx, "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer lk.Release()
@@ -504,12 +504,12 @@ func TestUnlockGlobal(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		routerScope := lock.Scope{Target: state.LockPath, Description: "shared router", Markers: procid.Markers{Project: "berth-router"}}
+		routerScope := lock.Scope{Target: state.LockPath, Description: "shared router", Markers: procid.Markers{Project: "treerig-router"}}
 		if err := os.MkdirAll(filepath.Dir(routerScope.Target), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		lk := lock.New(routerScope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := lk.Acquire(ctx, "berth router up"); err != nil {
+		if _, err := lk.Acquire(ctx, "treerig router up"); err != nil {
 			t.Fatal(err)
 		}
 		defer lk.Release()

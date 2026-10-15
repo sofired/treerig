@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 // init wires newRunner to the real osrun.Runner, so production commands run

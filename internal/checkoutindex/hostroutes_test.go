@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/registry"
 )
 
 // testRepoID is testRepo as a variable, for the *string a snapshot input takes.

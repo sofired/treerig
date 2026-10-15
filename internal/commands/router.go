@@ -1,7 +1,7 @@
 package commands
 
 // The router verbs. One Traefik stack per Docker daemon, its state and
-// lock per berth root (#80), so — unlike every other verb in this package —
+// lock per treerig root (#80), so — unlike every other verb in this package —
 // it needs no project config file: it is built straight from Env, never
 // through Context.
 //
@@ -20,22 +20,22 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sofired/berth/internal/checkoutindex"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/settings"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/checkoutindex"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/settings"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // unrouteWorktree removes ref's route files before the worktree's own
 // teardown, so no hostname keeps routing to ports the worktree is about to
 // give up. Called unconditionally by both DownWithContext and
 // RemoveWithContext — even for a worktree that was never routed at all, or
-// one the running process has no berth.toml for at all (`worktree remove`
+// one the running process has no treerig.toml for at all (`worktree remove`
 // can target a different worktree than the one it runs from) — because
 // removing nothing is success.
 //
@@ -57,7 +57,7 @@ type controlHomeRegistrations struct{ controlHome string }
 
 // Lookup reads repositoryID's record of worktreeID afresh. A repository
 // with no directory in this control home is UnknownRepository: the router's
-// state is per berth root while registries are per control home, so a route
+// state is per treerig root while registries are per control home, so a route
 // file naming it may belong to another control home.
 func (c controlHomeRegistrations) Lookup(repositoryID, worktreeID string) (router.Registration, error) {
 	if _, err := os.Stat(layout.RepositoryLayout(c.controlHome, repositoryID).RepositoryDir); err != nil {
@@ -98,11 +98,11 @@ func (c controlHomeRegistrations) LookupShared(repositoryID, name string) (route
 }
 
 // newRouterService builds the shared router directly from env, resolving
-// and checking BERTH_HOME itself — for a caller (RouterStatus, RouterDown)
+// and checking TREERIG_HOME itself — for a caller (RouterStatus, RouterDown)
 // that needs nothing else derived from it. RouterUp and Doctor, which also
-// need the control home from the very same berth root, resolve it once via
+// need the control home from the very same treerig root, resolve it once via
 // checkedHome and call routerServiceFrom directly instead, so neither path
-// resolves BERTH_HOME twice (#80, review round 3 item 1).
+// resolves TREERIG_HOME twice (#80, review round 3 item 1).
 func newRouterService(env *Env) (*router.Router, layout.RouterLayout, settings.PortResolution, error) {
 	home, _, err := checkedHome(env.Getenv)
 	if err != nil {
@@ -111,9 +111,9 @@ func newRouterService(env *Env) (*router.Router, layout.RouterLayout, settings.P
 	return routerServiceFrom(env, home)
 }
 
-// routerServiceFrom is newRouterService given the berth root already
-// checked. The port is settings.ResolveRouterPort's (#79): BERTH_ROUTER_PORT,
-// then settings.toml under that same berth root, then 80 — returned with
+// routerServiceFrom is newRouterService given the treerig root already
+// checked. The port is settings.ResolveRouterPort's (#79): TREERIG_ROUTER_PORT,
+// then settings.toml under that same treerig root, then 80 — returned with
 // where it came from, for `router status` and `doctor` to say.
 func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayout, settings.PortResolution, error) {
 	state := layout.RouterStateFrom(home)
@@ -128,11 +128,11 @@ func routerServiceFrom(env *Env, home string) (*router.Router, layout.RouterLayo
 	return svc, state, resolved, nil
 }
 
-// routerServiceWith is the shared router built from a berth root, its
+// routerServiceWith is the shared router built from a treerig root, its
 // state and a port resolution already made — Context's own, for `up`, so
-// one command never resolves BERTH_HOME or reads the router port twice
+// one command never resolves TREERIG_HOME or reads the router port twice
 // (#80, #79). The control home, the allocation range and the mode override
-// come from the same berth root.
+// come from the same treerig root.
 func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolved settings.PortResolution) (*router.Router, error) {
 	controlHome, err := layout.ControlHomeFrom(home, env.Getenv, "")
 	if err != nil {
@@ -156,7 +156,7 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 		Invocation:   env.Invocation,
 		CommandName:  env.CommandName,
 		SettingsPath: resolved.SettingsPath,
-		// Home is the berth root the caller already checked (checkedHome),
+		// Home is the treerig root the caller already checked (checkedHome),
 		// stamped on the router's own containers so a later Ensure — from
 		// this root or another one — can tell them apart (#82).
 		Home:                home,
@@ -172,8 +172,8 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 }
 
 // routerServiceForDown is the shared router as `router down` needs it: its
-// state and berth root, but not its port. Down acts by project name alone,
-// so it neither reads settings.toml nor validates BERTH_ROUTER_PORT — a
+// state and treerig root, but not its port. Down acts by project name alone,
+// so it neither reads settings.toml nor validates TREERIG_ROUTER_PORT — a
 // malformed setting must never keep the router from being stopped (found
 // in review of #79); the default port stands in, unused.
 func routerServiceForDown(env *Env) (*router.Router, error) {

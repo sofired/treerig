@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/shape"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/shape"
 )
 
 // The committed configuration file. This is half of the public contract —
@@ -95,8 +95,8 @@ func utf16Len(s string) int {
 }
 
 // SchemaID is the $id of the published JSON Schema: where the copy
-// committed as schema/berth.schema.json is served from. It tracks main.
-const SchemaID = "https://raw.githubusercontent.com/sofired/berth/main/schema/berth.schema.json"
+// committed as schema/treerig.schema.json is served from. It tracks main.
+const SchemaID = "https://raw.githubusercontent.com/sofired/treerig/main/schema/treerig.schema.json"
 
 // nameKey is the key schema of a table of named entries: a name of
 // lower-case letters, digits and hyphens, at most dnsLabelMax characters.
@@ -172,11 +172,11 @@ func sharedPortSchema() *shape.NumberSchema {
 func sharedServiceSchema() *shape.ObjectSchema {
 	return shape.Object(
 		shape.F("port", sharedPortSchema().Optional().
-			Describe("Container port of the service's web UI, published on a pinned loopback port and routed at <name>.shared.<domain> (BERTH_SHARED_URL_<NAME> is its URL; BERTH_SHARED_ADDR_<NAME>_<PORT> names the pinned address). Omit if the service has no web UI.")),
+			Describe("Container port of the service's web UI, published on a pinned loopback port and routed at <name>.shared.<domain> (TREERIG_SHARED_URL_<NAME> is its URL; TREERIG_SHARED_ADDR_<NAME>_<PORT> names the pinned address). Omit if the service has no web UI.")),
 		shape.F("ports", shape.Array(sharedPortSchema().Describe("A container TCP port, 1 to 65535.")).
 			Max(maxSharedPorts, fmt.Sprintf("at most %d ports per shared service, port and ports together", maxSharedPorts)).
 			Default([]any{}).
-			Describe("Container ports published on pinned loopback ports, for processes on the host (an IDE-run app, `berth run`): BERTH_SHARED_ADDR_<NAME>_<PORT> names each address. Containers reach the service at <name>:<port> instead. At most 16 with port.")),
+			Describe("Container ports published on pinned loopback ports, for processes on the host (an IDE-run app, `treerig run`): TREERIG_SHARED_ADDR_<NAME>_<PORT> names each address. Containers reach the service at <name>:<port> instead. At most 16 with port.")),
 		shape.F("used-by", shape.Array(nameKey("A service of the worktree's Compose file")).
 			Default([]any{}).
 			Describe("Services of the worktree's Compose file that use this shared service. A worktree whose Compose file has any of them starts the shared service, and the shared service joins the networks they are on, answering to its name as an alias.")),
@@ -205,7 +205,7 @@ func hookTimeoutSchema(stage string) *shape.StringSchema {
 		Refine(func(value string) bool { _, ok := parseHookTimeout(value); return ok },
 			"must be a duration greater than zero and at most 24h, such as 30s, 10m or 1h30m").
 		Optional().
-		Describe("How long the " + stage + " hook may run before berth stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.")
+		Describe("How long the " + stage + " hook may run before treerig stops it, with its whole process group, and fails the command: a duration such as 30s, 10m or 1h30m, greater than zero and at most 24h. Unset means no limit.")
 }
 
 // hookTimeoutsSchema is the [hooks.timeout] table: one optional limit per
@@ -228,14 +228,14 @@ func hooksSchema() *shape.ObjectSchema {
 		shape.F("seed", shape.String().Min(1).Optional().
 			Describe("Command that seeds data. Runs only the first time the worktree comes up, and only after prepare exits zero.")),
 		shape.F("verify", shape.String().Min(1).Optional().
-			Describe("Command `berth doctor` runs for a registered worktree; exit zero means healthy. Its output goes to stderr.")),
+			Describe("Command `treerig doctor` runs for a registered worktree; exit zero means healthy. Its output goes to stderr.")),
 		shape.F("backup", shape.String().Min(1).Optional().
-			Describe("Command `berth backup` runs, with the bundle directory as its first argument. It writes the worktree's data into that directory.")),
+			Describe("Command `treerig backup` runs, with the bundle directory as its first argument. It writes the worktree's data into that directory.")),
 		shape.F("restore", shape.String().Min(1).Optional().
-			Describe("Command `berth restore` runs, with an existing bundle directory as its first argument. It loads what backup wrote.")),
+			Describe("Command `treerig restore` runs, with an existing bundle directory as its first argument. It loads what backup wrote.")),
 		shape.F("timeout", hookTimeoutsSchema()),
 	).Strict().Default(shape.NewObj()).
-		Describe("Commands berth runs at points in a worktree's life. Each is resolved relative to this file when it starts with \".\" or contains \"/\", and looked up on PATH otherwise. See docs/hooks.md.")
+		Describe("Commands treerig runs at points in a worktree's life. Each is resolved relative to this file when it starts with \".\" or contains \"/\", and looked up on PATH otherwise. See docs/hooks.md.")
 }
 
 // durationPattern is the spelling of a duration in the config (a [commands]
@@ -297,7 +297,7 @@ func commandsSchema() *shape.RecordSchema {
 		shape.String().Min(1).Describe("The command line on its own, with the default options."),
 		table,
 	).Describe("A command line, or a table with the command line and its options."), "commands", "commands", 0, "").
-		Describe("Named commands for `berth run <name> [-- args...]`: on-demand work that is not part of coming up. Each key is a name of lower-case letters, digits and hyphens.")
+		Describe("Named commands for `treerig run <name> [-- args...]`: on-demand work that is not part of coming up. Each key is a name of lower-case letters, digits and hyphens.")
 }
 
 // rootSchema is the whole config file. root is the directory holding the file
@@ -341,7 +341,7 @@ func rootSchema(root string) *shape.ObjectSchema {
 	).Strict().SuperRefine(routeCollisionCheck).SuperRefine(func(value *shape.Obj, addIssue func(path []string, message string)) {
 		sharedChecks(value, root, addIssue)
 	}).
-		Describe("berth.toml: the committed configuration of a project. Unknown keys are rejected, so a typo cannot silently disable a feature.")
+		Describe("treerig.toml: the committed configuration of a project. Unknown keys are rejected, so a typo cannot silently disable a feature.")
 }
 
 // routeCollisionCheck is a cross-table check of rootSchema: no two services
@@ -538,7 +538,7 @@ func stringField(o *shape.Obj, key string) (string, bool) {
 
 // SchemaJSON is the JSON Schema (draft-07) of the configuration file's
 // input shape, generated from the same schema definitions Parse validates
-// with. schema/berth.schema.json is a committed copy; a test fails when the
+// with. schema/treerig.schema.json is a committed copy; a test fails when the
 // two differ.
 func SchemaJSON() []byte {
 	return shape.JSONSchema(rootSchema(""), SchemaID, brand.ConfigFile)
