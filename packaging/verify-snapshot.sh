@@ -222,7 +222,11 @@ if [ "$os" = linux ] && command -v rpm2cpio >/dev/null 2>&1 && command -v cpio >
   case "$arch" in amd64) rpm_arch=x86_64 ;; *) rpm_arch=aarch64 ;; esac
   rpm=$(find "$dist" -maxdepth 1 -name "*.${rpm_arch}.rpm")
   [ -f "$rpm" ] || fail "expected one .rpm for $rpm_arch in $dist"
-  rpm2cpio "$rpm" >"$work/rpm.cpio" || fail "rpm2cpio could not read $(basename "$rpm")"
+  # Ubuntu's rpm2cpio (rpm 4.18) can exit 1, silently, after writing the whole
+  # payload of a GoReleaser rpm, so its status is not the test: an empty or cut
+  # payload is caught below, by the missing file or the hash.
+  rpm2cpio "$rpm" >"$work/rpm.cpio" || true
+  [ -s "$work/rpm.cpio" ] || fail "rpm2cpio could not read $(basename "$rpm")"
   # rpm2cpio spells the member ./usr/bin/berth or /usr/bin/berth, by its version.
   cpio -i --to-stdout ./usr/bin/berth /usr/bin/berth usr/bin/berth <"$work/rpm.cpio" >"$work/rpm-berth" 2>/dev/null || true
   [ -s "$work/rpm-berth" ] || fail "no /usr/bin/berth in $(basename "$rpm")"

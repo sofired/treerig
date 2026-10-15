@@ -176,7 +176,7 @@ jobs:
           test -n "$version"
           log="$RUNNER_TEMP/pin-tests.log"
           BERTH_SNAPSHOT_DIST="$PWD/dist" BERTH_SNAPSHOT_VERSION="$version" \
-            go test -v -race -count=1 -run 'TestTeardownPinSnapshot|TestTeardownPinWithRealCosign' ./internal/commands/ 2>&1 | tee "$log"
+            go test -v -race -count=1 -run '^(TestTeardownPinSnapshot|TestTeardownPinSnapshotTampering|TestTeardownPinWithRealCosign|TestTeardownPinWithRealCosignAndNoTrustRoot)$' ./internal/commands/ 2>&1 | tee "$log"
           for name in TestTeardownPinSnapshot TestTeardownPinSnapshotTampering TestTeardownPinWithRealCosign TestTeardownPinWithRealCosignAndNoTrustRoot; do
             grep -q -- "^--- PASS: $name " "$log" || { echo "::error::$name did not report PASS"; exit 1; }
           done
