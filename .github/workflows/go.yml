@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-26.04, macos-latest]
     steps:
       - uses: actions/checkout@v7
 
@@ -70,8 +70,8 @@ jobs:
   # list of packages, so a Docker test added anywhere is picked up; the tests
   # that don't need Docker run again here, which costs a few seconds.
   docker:
-    name: docker ubuntu-latest
-    runs-on: ubuntu-latest
+    name: docker ubuntu-26.04
+    runs-on: ubuntu-26.04
     # -timeout 20m stops a hung package; 50m leaves room for one in each leg,
     # plus setup. Measured 2026-10: about 14m for the whole job.
     timeout-minutes: 50
@@ -110,7 +110,7 @@ jobs:
   # pin --release) with a throwaway key.
   release-snapshot:
     name: release snapshot
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
