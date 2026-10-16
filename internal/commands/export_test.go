@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/sofired/treerig/internal/releasefetch"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/shared"
 	"github.com/sofired/treerig/internal/worktree"
@@ -77,3 +78,14 @@ func SetMaxTeardownBinaryForTest(n int64) (restore func()) {
 	maxTeardownBinary = n
 	return func() { maxTeardownBinary = previous }
 }
+
+// SetReleaseLimitsForTest replaces the bounds `teardown pin --release` puts on
+// an archive's expansion, and returns a func that restores them.
+func SetReleaseLimitsForTest(limits releasefetch.Limits) (restore func()) {
+	previous := releaseLimits
+	releaseLimits = limits
+	return func() { releaseLimits = previous }
+}
+
+// ReleaseLimitsForTest reports the bounds `teardown pin --release` uses now.
+func ReleaseLimitsForTest() releasefetch.Limits { return releaseLimits }

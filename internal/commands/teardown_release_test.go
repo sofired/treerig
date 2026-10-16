@@ -434,17 +434,24 @@ func TestTeardownPinRelease(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a decompression bomb with the real bound", func(t *testing.T) {
-		if testing.Short() {
-			t.Skip("expands 500 MiB")
+	t.Run("uses the documented extraction bounds by default", func(t *testing.T) {
+		if got := commands.ReleaseLimitsForTest(); got != releasefetch.DefaultLimits || got.Expanded != 500<<20 || got.Binary != 200<<20 {
+			t.Fatalf("limits = %+v", got)
 		}
+	})
+
+	t.Run("refuses a decompression bomb past the bound", func(t *testing.T) {
+		// The production bound is 500 MiB (the subtest above pins it); a
+		// small one proves the same refusal without expanding half a gigabyte,
+		// which takes over a minute under the race detector.
+		defer commands.SetReleaseLimitsForTest(releasefetch.Limits{Expanded: 1 << 20, Binary: releasefetch.DefaultLimits.Binary})()
 		f := newReleaseFixture(t, "1.2.3")
 		name := releasefetch.ArchiveName("1.2.3", "linux_amd64")
 		f.publish(releasetest.Archive(
-			releasetest.Entry{Name: "padding", Body: make([]byte, 501<<20)},
+			releasetest.Entry{Name: "padding", Body: make([]byte, 2<<20)},
 			releasetest.Entry{Name: "treerig", Body: teardowntest.Executable("linux_amd64", "")},
 		))
-		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: the archive "+name+" expands to more than 500 MiB. Nothing was pinned.")
+		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: the archive "+name+" expands to more than 1 MiB. Nothing was pinned.")
 		f.wantNothingPinned(t)
 	})
 
