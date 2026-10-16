@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // TestFormatLabelOwnership covers the format label on a worktree's Docker
@@ -56,7 +56,7 @@ func TestFormatLabelOwnership(t *testing.T) {
 			fake.labels[kind.id][format] = "2"
 			rt, _ := newRuntime(t, fake)
 			_, err := rt.Inventory(ctx, ref)
-			want := "Refusing to touch the " + kind.noun + " " + kind.id + kind.service + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			want := "Refusing to touch the " + kind.noun + " " + kind.id + kind.service + ": it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
 			if err == nil || err.Error() != want || fake.removals() {
 				t.Fatalf("%s: err = %v", kind.noun, err)
 			}
@@ -74,7 +74,7 @@ func TestFormatLabelOwnership(t *testing.T) {
 			rt, _ := newRuntime(t, fake)
 			_, err := rt.Inventory(ctx, ref)
 			want := "Refusing to touch the container c2 (service worker): its " + format +
-				" label is missing or not recognised, so berth cannot prove it is this worktree's. After checking that nothing needs it, remove it with `docker container rm c2`."
+				" label is missing or not recognised, so treerig cannot prove it is this worktree's. After checking that nothing needs it, remove it with `docker container rm c2`."
 			if err == nil || err.Error() != want || fake.removals() {
 				t.Fatalf("label %q: err = %v", missing, err)
 			}
@@ -159,7 +159,7 @@ func TestProveNetworkFormat(t *testing.T) {
 		labels := owned()
 		labels[format] = "2"
 		proof := prove(t, labels)
-		want := "it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again"
+		want := "it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again"
 		if proof.Owned || proof.Reason != want {
 			t.Fatalf("proof = %+v", proof)
 		}
@@ -169,7 +169,7 @@ func TestProveNetworkFormat(t *testing.T) {
 		labels := owned()
 		delete(labels, format)
 		proof := prove(t, labels)
-		want := "its " + format + " label is missing or not recognised, so berth cannot prove it is this worktree's"
+		want := "its " + format + " label is missing or not recognised, so treerig cannot prove it is this worktree's"
 		if proof.Owned || proof.Reason != want {
 			t.Fatalf("proof = %+v", proof)
 		}
@@ -178,7 +178,7 @@ func TestProveNetworkFormat(t *testing.T) {
 
 // TestComposeNeverPrompts pins why a label Compose sees as changed cannot
 // leave `up` or `down` waiting on a question: Compose asks "Recreate (data will
-// be lost)?" about a volume whose labels differ, and berth never runs it where
+// be lost)?" about a volume whose labels differ, and treerig never runs it where
 // that question could be read or answered. Neither verb is Interactive, which
 // is the only mode that hands the child this process's terminal (a nil Input
 // gives the child /dev/null), and neither passes --yes.
@@ -246,7 +246,7 @@ func (l listingRunner) Run(ctx context.Context, spec run.Spec) (run.Result, erro
 
 // TestUpRefusesNewerResources covers the check made before `compose up`:
 // Compose recreates a container or network whose labels differ from the
-// override, so a resource a newer berth stamped has to be refused first, with
+// override, so a resource a newer treerig stamped has to be refused first, with
 // two listings and no inspect (docs/design/state.md).
 func TestUpRefusesNewerResources(t *testing.T) {
 	ctx := context.Background()
@@ -261,7 +261,7 @@ func TestUpRefusesNewerResources(t *testing.T) {
 			if kind.arg == "image" {
 				id = "0123456789ab"
 			}
-			want := "Refusing to touch the " + kind.noun + " " + id + ": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			want := "Refusing to touch the " + kind.noun + " " + id + ": it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
 			if err == nil || err.Error() != want {
 				t.Fatalf("err = %v\nwant %s", err, want)
 			}
@@ -271,7 +271,7 @@ func TestUpRefusesNewerResources(t *testing.T) {
 		})
 	}
 
-	t.Run("refuses an image a newer berth built, so an older build cannot re-tag over it", func(t *testing.T) {
+	t.Run("refuses an image a newer treerig built, so an older build cannot re-tag over it", func(t *testing.T) {
 		// Covered by the table above; this pins that the image is inspected
 		// once, all together, and only because one was listed.
 		fake := newFake()

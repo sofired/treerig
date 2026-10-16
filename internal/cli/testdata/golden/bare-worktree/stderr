@@ -1,8 +1,8 @@
 manage registered worktrees
 
 Usage:
-  berth worktree [flags]
-  berth worktree [command]
+  treerig worktree [flags]
+  treerig worktree [command]
 
 Available Commands:
   list        list registered worktrees
@@ -17,7 +17,7 @@ Flags:
   -h, --help   help for worktree
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number
 
-Use "berth worktree [command] --help" for more information about a command.
+Use "treerig worktree [command] --help" for more information about a command.

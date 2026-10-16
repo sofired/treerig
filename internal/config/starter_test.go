@@ -37,21 +37,21 @@ func uncommentExamples(starter string) string {
 func squeeze(line string) string { return strings.Join(strings.Fields(line), " ") }
 
 // starterOnly are the comment lines the starter may carry that
-// berth.example.toml does not: the pointer to the example, and the notes that
+// treerig.example.toml does not: the pointer to the example, and the notes that
 // are about the starter itself. Keep it short; every line here is a place the
 // starter can say something the reference does not.
 var starterOnly = map[string]bool{
-	"# hover text and unknown-key warnings.":                               true,
-	"# The annotated reference, with every option, is berth.example.toml:": true,
-	"#   " + exampleFileURL:                                                true,
-	"# Placeholder: rename api to a service from your Compose file.":       true,
+	"# hover text and unknown-key warnings.":                                 true,
+	"# The annotated reference, with every option, is treerig.example.toml:": true,
+	"#   " + exampleFileURL:                                                  true,
+	"# Placeholder: rename api to a service from your Compose file.":         true,
 }
 
 // TestStarter pins the file `init` writes to the schema and the example it
 // is derived from.
 func TestStarter(t *testing.T) {
 	starter := string(Starter("acme", "docker/compose.yaml"))
-	file := filepath.Join(t.TempDir(), "berth.toml")
+	file := filepath.Join(t.TempDir(), "treerig.toml")
 
 	t.Run("parses and passes the start checks as written", func(t *testing.T) {
 		cfg, err := Parse([]byte(starter), file)
@@ -76,7 +76,7 @@ func TestStarter(t *testing.T) {
 	})
 
 	t.Run("opens with the same schema directive as the example", func(t *testing.T) {
-		example, err := os.ReadFile(filepath.Join("..", "..", "berth.example.toml"))
+		example, err := os.ReadFile(filepath.Join("..", "..", "treerig.example.toml"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +111,7 @@ func TestStarter(t *testing.T) {
 	})
 
 	t.Run("says nothing the example does not, bar a short list", func(t *testing.T) {
-		example, err := os.ReadFile(filepath.Join("..", "..", "berth.example.toml"))
+		example, err := os.ReadFile(filepath.Join("..", "..", "treerig.example.toml"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +135,7 @@ func TestStarter(t *testing.T) {
 			if exampleLines[line] || (strings.HasPrefix(line, "# ") && exampleFields[squeeze(strings.TrimPrefix(line, "# "))]) || starterOnly[line] {
 				continue
 			}
-			t.Errorf("comment line %q is not in berth.example.toml (commented out or not) or in starterOnly", line)
+			t.Errorf("comment line %q is not in treerig.example.toml (commented out or not) or in starterOnly", line)
 		}
 		if seen == 0 {
 			t.Fatal("found no comment line; the scan is broken")
@@ -165,7 +165,7 @@ func TestStarterName(t *testing.T) {
 	for _, tc := range []struct{ dir, want string }{
 		{"acme", "acme"},
 		{"My_App 2", "my-app-2"},
-		{"berth.feat-init", "berth-feat-init"},
+		{"treerig.feat-init", "treerig-feat-init"},
 		{"--leading--and--trailing--", "leading-and-trailing"},
 		{"Ünïcode-café", "n-code-caf"},
 		{"日本語", "my-project"},
@@ -179,7 +179,7 @@ func TestStarterName(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("StarterName(%q) = %q, want %q", tc.dir, got, tc.want)
 			}
-			if _, err := Parse(Starter(got, "compose.yaml"), filepath.Join(t.TempDir(), "berth.toml")); err != nil {
+			if _, err := Parse(Starter(got, "compose.yaml"), filepath.Join(t.TempDir(), "treerig.toml")); err != nil {
 				t.Errorf("a starter named %q does not parse: %v", got, err)
 			}
 		})

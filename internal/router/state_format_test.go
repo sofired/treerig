@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // TestRouterStateFormat covers the version in router/state.json
@@ -29,14 +29,14 @@ func TestRouterStateFormat(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a state file a newer berth wrote, naming the file and both versions, and leaves it alone", func(t *testing.T) {
+	t.Run("refuses a state file a newer treerig wrote, naming the file and both versions, and leaves it alone", func(t *testing.T) {
 		const newer = `{"version":2,"ports":{"index":30500},"indexPort":"not read by this build"}`
 		w := newWorld(t, 80, "")
 		if err := os.WriteFile(w.State.StateFile, []byte(newer), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		want := "Refusing to use the router state " + w.State.StateFile +
-			": it is format 2, written by a newer berth, and this build reads format 1. Upgrade berth, then run this again."
+			": it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
 
 		if _, _, err := router.ReadState(w.State); err == nil || err.Error() != want {
 			t.Fatalf("ReadState: got %v\nwant %s", err, want)

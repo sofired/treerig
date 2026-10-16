@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 var vtControl = regexp.MustCompile("\x1b\\[[0-9;]*m")

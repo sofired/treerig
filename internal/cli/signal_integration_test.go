@@ -19,22 +19,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run/osrun"
 	"golang.org/x/sys/unix"
 )
 
-// catchTerminationSignals is for every test that signals a berth binary
+// catchTerminationSignals is for every test that signals a treerig binary
 // (#140). It makes the binaries the test starts see the default action of
-// SIGINT, SIGTERM and SIGHUP. A signal ignored when berth starts stays
+// SIGINT, SIGTERM and SIGHUP. A signal ignored when treerig starts stays
 // ignored (lifecycle.Start leaves it alone, as a nohup'd process expects),
 // and the test may itself be running under nohup, whose ignored SIGHUP every
 // child inherits. A caught signal is reset to its default across exec, so
-// catching them here hands berth the defaults whatever this process was
+// catching them here hands treerig the defaults whatever this process was
 // started with. The channel exists only as Notify's destination and is
 // deliberately never read. While the helper is active a real Ctrl-C or
 // SIGTERM sent to `go test` is swallowed, until the test's cleanup stops
@@ -58,15 +58,15 @@ func freeTCPPort(t *testing.T) int {
 // stopped with its whole process group, and it must leave the worktree lock
 // released rather than held or abandoned.
 
-// buildBinary compiles cmd/berth to a temporary path and returns it, so
+// buildBinary compiles cmd/treerig to a temporary path and returns it, so
 // these tests exercise the real process (its signal handling and exit
 // behaviour) rather than calling cli.Main in-process.
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	binary := filepath.Join(t.TempDir(), "berth")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/berth")
+	binary := filepath.Join(t.TempDir(), "treerig")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/treerig")
 	build.Dir = root
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, output)
@@ -99,7 +99,7 @@ func fakeDocker(t *testing.T, bin, state string, repositoryID, worktreeID string
 state=%q
 case " $* " in
   *" compose "*" down "*) %s ;;
-  *" --filter "*) case "$1" in ps) case " $* " in *"label=dev.berth.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;; esac; exit 0 ;;
+  *" --filter "*) case "$1" in ps) case " $* " in *"label=dev.treerig.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;; esac; exit 0 ;;
   *" --format "*) printf 'true\t%s\t%s\t%s\tapi\t1\n'; exit 0 ;;
   *" rm "*) %s ;;
 esac
@@ -178,7 +178,7 @@ func TestInterruptedMutation(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if err := os.WriteFile(filepath.Join(checkout, "berth.toml"), []byte("[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(checkout, "treerig.toml"), []byte("[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 				git := exec.Command("git", "init", "--initial-branch=feature/login", ".")
@@ -196,7 +196,7 @@ func TestInterruptedMutation(t *testing.T) {
 					t.Fatal(err)
 				}
 				record, _ := json.Marshal(map[string]any{"version": 1, "repositoryId": identity.RepositoryID, "worktreeId": identity.WorktreeID,
-					"slug": "feature-login", "domain": "acme.localhost", "labelNamespace": "dev.berth", "initialization": "complete"})
+					"slug": "feature-login", "domain": "acme.localhost", "labelNamespace": "dev.treerig", "initialization": "complete"})
 				if err := os.WriteFile(paths.RecordPath, append(record, '\n'), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -206,16 +206,16 @@ func TestInterruptedMutation(t *testing.T) {
 				// page, which live in the shared router's state directory:
 				// isolate it the way internal/commands' own newWalk fixture
 				// does, or this real binary writes to the machine's real one.
-				// The router's own state now lives under BERTH_HOME alone
+				// The router's own state now lives under TREERIG_HOME alone
 				// (#80) — HOME and XDG_STATE_HOME no longer matter to it —
-				// so BERTH_HOME=controlHome is what isolates it below, the
+				// so TREERIG_HOME=controlHome is what isolates it below, the
 				// same override the spawned binary itself gets.
 				routerPort := freeTCPPort(t)
 				getenv := func(key string) (string, bool) {
 					switch key {
-					case "BERTH_HOME", "BERTH_CONTROL_HOME":
+					case "TREERIG_HOME", "TREERIG_CONTROL_HOME":
 						return controlHome, true
-					case "BERTH_ROUTER_PORT":
+					case "TREERIG_ROUTER_PORT":
 						return strconv.Itoa(routerPort), true
 					}
 					return "", false
@@ -224,22 +224,22 @@ func TestInterruptedMutation(t *testing.T) {
 
 				cmd := exec.Command(binary, verb...)
 				cmd.Dir = checkout
-				// BERTH_CONTROL_HOME (#80), not just BERTH_HOME, points the
+				// TREERIG_CONTROL_HOME (#80), not just TREERIG_HOME, points the
 				// binary straight at the fixture written above
-				// (layout.WorktreeLayout(controlHome, ...)); BERTH_HOME is
+				// (layout.WorktreeLayout(controlHome, ...)); TREERIG_HOME is
 				// left set too, so the router's own state (best-effort
 				// index refresh) still lands under this test's own temp
 				// directory rather than this machine's real one.
 				cmd.Env = append(os.Environ(),
-					"BERTH_HOME="+controlHome, "BERTH_CONTROL_HOME="+controlHome,
-					"BERTH_ROUTER_PORT="+strconv.Itoa(routerPort),
+					"TREERIG_HOME="+controlHome, "TREERIG_CONTROL_HOME="+controlHome,
+					"TREERIG_ROUTER_PORT="+strconv.Itoa(routerPort),
 					"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 				var stderr strings.Builder
 				cmd.Stderr = &stderr
 				if err := cmd.Start(); err != nil {
 					t.Fatal(err)
 				}
-				// Before waiting on anything: a berth that never gets as far as
+				// Before waiting on anything: a treerig that never gets as far as
 				// starting docker is not left running either.
 				t.Cleanup(func() {
 					_ = cmd.Process.Kill()
@@ -291,7 +291,7 @@ func TestInterruptedMutation(t *testing.T) {
 				// one before it left nothing to say.
 				notice := "Interrupted (" + clierr.SignalName(sig) + ") while removing feature-login.acme.localhost. " +
 					"Removed so far: nothing confirmed yet. It is still registered, now pending: " +
-					"'berth worktree remove' finishes the removal, 'berth up' starts it again and runs the seed hook again."
+					"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again."
 				if at == hangInReap {
 					if !strings.Contains(stderr.String(), notice+"\n") {
 						t.Fatalf("stderr lacks the interruption notice %q:\n%s", notice, stderr.String())

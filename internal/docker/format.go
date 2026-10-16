@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
-// NewerResource is a Docker resource whose format label says a newer berth
+// NewerResource is a Docker resource whose format label says a newer treerig
 // stamped it.
 type NewerResource struct {
 	// Kind is "container", "network" or "image".
@@ -25,8 +25,8 @@ type NewerResource struct {
 // (label filters, without the "label=" prefix), and the images too when
 // images is true, and returns those whose format label (the full name, label)
 // is newer than supported. It is the cheap check made before `compose up`,
-// which would otherwise recreate a container or network a newer berth owns, or
-// re-tag over an image it built, before berth could refuse: one `docker ps`
+// which would otherwise recreate a container or network a newer treerig owns, or
+// re-tag over an image it built, before treerig could refuse: one `docker ps`
 // and one `docker network ls`, each printing only the ID and that label, and
 // for images one `docker image ls -q` plus, only when it finds any, a single
 // `docker image inspect` of all of them. Resources with a missing or

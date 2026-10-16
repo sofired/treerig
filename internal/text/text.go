@@ -1,4 +1,4 @@
-// Package text makes borrowed strings safe to print and gives berth's own
+// Package text makes borrowed strings safe to print and gives treerig's own
 // output a few JavaScript string semantics it depends on for its column
 // widths and escaping.
 //
@@ -134,7 +134,7 @@ func EscapeNonASCII(value string) string {
 }
 
 // JSLen is JavaScript's String.prototype.length: UTF-16 code units, which is
-// what every table berth prints pads its columns by.
+// what every table treerig prints pads its columns by.
 func JSLen(value string) int {
 	n := 0
 	for _, r := range value {

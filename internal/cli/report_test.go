@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // report prints a clierr.Wrap's message, then its cause on its own "caused
@@ -25,7 +25,7 @@ func TestReportDoesNotDuplicateTheCause(t *testing.T) {
 	err := clierr.Wrap("Already cleared the development lock before this failed. Run this again to clear the rest.", cause)
 
 	var stdout, stderr bytes.Buffer
-	console := logger.NewConsole("berth", &stdout, &stderr)
+	console := logger.NewConsole("treerig", &stdout, &stderr)
 	report(console, func(string) (string, bool) { return "", false }, err)
 
 	got := stderr.String()
@@ -47,20 +47,20 @@ func TestReportDoesNotDuplicateTheCause(t *testing.T) {
 func TestReportPrintsALockTimeoutOnce(t *testing.T) {
 	scope := lock.Scope{Target: filepath.Join(t.TempDir(), "busy"), Description: "worktree busy"}
 	holder := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-	if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+	if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 		t.Fatal(err)
 	}
 	defer holder.Release()
 	delay := time.Hour
 	waiter := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Timeout: 60 * time.Millisecond, Retry: 20 * time.Millisecond, NoticeDelay: &delay})
-	_, err := waiter.Acquire(context.Background(), "berth down")
+	_, err := waiter.Acquire(context.Background(), "treerig down")
 	var busy *lock.BusyError
 	if !errors.As(err, &busy) {
 		t.Fatalf("err = %T %v, want a *lock.BusyError", err, err)
 	}
 
 	var stdout, stderr bytes.Buffer
-	report(logger.NewConsole("berth", &stdout, &stderr), func(string) (string, bool) { return "", false }, err)
+	report(logger.NewConsole("treerig", &stdout, &stderr), func(string) (string, bool) { return "", false }, err)
 	got := stderr.String()
 	if n := strings.Count(got, "Another process holds the worktree busy lock"); n != 1 {
 		t.Fatalf("the refusal appears %d times, want once:\n%s", n, got)
@@ -82,7 +82,7 @@ func TestReportPrintsWhatAWrappedErrorSuppressed(t *testing.T) {
 	err := fmt.Errorf("while running: %w", inner)
 
 	var stdout, stderr bytes.Buffer
-	report(logger.NewConsole("berth", &stdout, &stderr), func(string) (string, bool) { return "", false }, err)
+	report(logger.NewConsole("treerig", &stdout, &stderr), func(string) (string, bool) { return "", false }, err)
 	got := stderr.String()
 	if !strings.Contains(got, "also: could not release the lock") {
 		t.Fatalf("the suppressed error behind a wrapper was dropped:\n%s", got)
@@ -96,7 +96,7 @@ func TestReportPrintsAnEndedSessionAsANotice(t *testing.T) {
 	noEnv := func(string) (string, bool) { return "", false }
 
 	var stdout, stderr bytes.Buffer
-	report(logger.NewConsole("berth", &stdout, &stderr), noEnv, clierr.Ended("The development session ended.", 130))
+	report(logger.NewConsole("treerig", &stdout, &stderr), noEnv, clierr.Ended("The development session ended.", 130))
 	if got := stderr.String(); strings.Contains(got, "ERROR") || !strings.Contains(got, "The development session ended.") {
 		t.Fatalf("stderr = %q, want the message as a notice, not an ERROR", got)
 	}
@@ -104,7 +104,7 @@ func TestReportPrintsAnEndedSessionAsANotice(t *testing.T) {
 	stderr.Reset()
 	ended := clierr.Ended("The development session ended.", 130)
 	ended.Suppressed = []error{errors.New("could not release the lock")}
-	report(logger.NewConsole("berth", &stdout, &stderr), noEnv, ended)
+	report(logger.NewConsole("treerig", &stdout, &stderr), noEnv, ended)
 	if got := stderr.String(); !strings.Contains(got, "ERROR") || !strings.Contains(got, "could not release the lock") {
 		t.Fatalf("stderr = %q, want an error that also names the release failure", got)
 	}
@@ -112,7 +112,7 @@ func TestReportPrintsAnEndedSessionAsANotice(t *testing.T) {
 	stderr.Reset()
 	caused := clierr.Ended("The development session ended.", 130)
 	caused.Cause = errors.New("the lock was lost")
-	report(logger.NewConsole("berth", &stdout, &stderr), noEnv, caused)
+	report(logger.NewConsole("treerig", &stdout, &stderr), noEnv, caused)
 	if got := stderr.String(); !strings.Contains(got, "ERROR") || !strings.Contains(got, "caused by: the lock was lost") {
 		t.Fatalf("stderr = %q, want an error that names its cause", got)
 	}

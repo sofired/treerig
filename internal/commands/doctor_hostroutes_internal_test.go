@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 )
 
 const (
@@ -66,7 +66,7 @@ func TestHostRouteChecks(t *testing.T) {
 		return state
 	}
 	options := func(state layout.RouterLayout, listeners answersOn, source doctorRouterSource) doctorOptions {
-		return doctorOptions{CommandName: "berth", RouterState: state, Listeners: listeners, Router: source, DockerAnswered: true}
+		return doctorOptions{CommandName: "treerig", RouterState: state, Listeners: listeners, Router: source, DockerAnswered: true}
 	}
 	single := func(t *testing.T, checks []Check) Check {
 		t.Helper()
@@ -135,7 +135,7 @@ func TestHostRouteChecks(t *testing.T) {
 			t.Fatalf("checks = %+v", checks)
 		}
 		file := checks[0]
-		want := "its route file is missing from " + state.DynamicDir + ", so the router does not route it. Run 'berth route add web0 --port 5173 --subdomain app0' again with the same fields to write it ('berth route ls --json' lists them)."
+		want := "its route file is missing from " + state.DynamicDir + ", so the router does not route it. Run 'treerig route add web0 --port 5173 --subdomain app0' again with the same fields to write it ('treerig route ls --json' lists them)."
 		if file.Status != StatusWarn || file.ID != "checkout.host-route-files" || file.Instance != "web0" || file.Detail != want {
 			t.Fatalf("file check = %+v", file)
 		}
@@ -238,7 +238,7 @@ func TestDoctorReportsHostRouteFiles(t *testing.T) {
 	write("web", "Host(`feature-a.acme.localhost`)", 5174)
 	write("gone", "Host(`gone.feature-a.acme.localhost`)", 1)
 
-	checks, err := orphanedRoutesChecks(state, controlHome, "berth")
+	checks, err := orphanedRoutesChecks(state, controlHome, "treerig")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestDoctorReportsHostRouteFiles(t *testing.T) {
 		"2 route files disagree with the registrations",
 		"web (host route): routes Host(`feature-a.acme.localhost`) to port 5174, but its registration records Host(`feature-a.acme.localhost`) to port 5173",
 		"gone (host route): its registration records no such host route",
-		"the next 'berth up' or 'berth router up' repairs them",
+		"the next 'treerig up' or 'treerig router up' repairs them",
 	} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail lacks %q:\n%s", want, detail)
@@ -282,7 +282,7 @@ func TestRouteChecksSeesHostRouteConflicts(t *testing.T) {
 	if err := router.WriteFragment(state, hostRepo, otherWt, "api", router.NewFragmentDocument("p-api", rule, 30011)); err != nil {
 		t.Fatal(err)
 	}
-	checks, err := routeChecks(state, controlHome, "berth")
+	checks, err := routeChecks(state, controlHome, "treerig")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestRouteChecksSeesAHostRouteAndASharedServiceClaimingOneRule(t *testing.T)
 	if err := router.WriteHostFragment(state, hostRepo, hostWt, "web", router.HostFragmentDocument(hostRepo, hostWt, "web", rule, 5173)); err != nil {
 		t.Fatal(err)
 	}
-	checks, err := routeChecks(state, controlHome, "berth")
+	checks, err := routeChecks(state, controlHome, "treerig")
 	if err != nil {
 		t.Fatal(err)
 	}

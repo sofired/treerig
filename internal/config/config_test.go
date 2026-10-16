@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // See corpus_test.go for the larger byte-for-byte fixture comparison
@@ -344,7 +344,7 @@ func TestStartIssues(t *testing.T) {
 		if err == nil {
 			t.Fatal("CheckStart: expected an error")
 		}
-		want := "test.toml is not a valid berth.toml:\n  service.api.index.label: must not contain control characters"
+		want := "test.toml is not a valid treerig.toml:\n  service.api.index.label: must not contain control characters"
 		if got := err.Error(); got != want {
 			t.Errorf("CheckStart error = %q, want %q", got, want)
 		}
@@ -355,7 +355,7 @@ func TestStartIssues(t *testing.T) {
 			"[service.api]\n[service.api.index]\nlabel = \"a\tb\"\npurpose = \"c\td\"\n"+
 			"[service.mail]\nsubdomain = \"mail\"\n[service.mail.index]\nlabel = \"e\tf\"\n")
 		err := CheckStart(&Loaded{Config: cfg, File: "test.toml"})
-		want := "test.toml is not a valid berth.toml:\n" +
+		want := "test.toml is not a valid treerig.toml:\n" +
 			"  service.api.index.label: must not contain control characters\n" +
 			"  service.api.index.purpose: must not contain control characters\n" +
 			"  service.mail.index.label: must not contain control characters"
@@ -372,7 +372,7 @@ func TestConfigDiscovery(t *testing.T) {
 		if err := os.MkdirAll(nested, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		file := filepath.Join(root, "berth.toml")
+		file := filepath.Join(root, "treerig.toml")
 		if err := os.WriteFile(file, []byte(minimalTOML), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -403,8 +403,8 @@ func TestConfigDiscovery(t *testing.T) {
 		if !clierr.Expected(err) {
 			t.Errorf("LoadNearest error is not a CliError-equivalent: %v", err)
 		}
-		requireErrorContains(t, err, "No berth.toml found")
-		requireErrorContains(t, err, "Run 'berth init' at the root of the repository you want to manage to write one")
+		requireErrorContains(t, err, "No treerig.toml found")
+		requireErrorContains(t, err, "Run 'treerig init' at the root of the repository you want to manage to write one")
 	})
 
 	// Points at the file's permanent home on GitHub rather than a source
@@ -417,8 +417,8 @@ func TestConfigDiscovery(t *testing.T) {
 		if err == nil {
 			t.Fatal("LoadNearest: expected an error, got none")
 		}
-		requireErrorContains(t, err, "the annotated version, berth.example.toml, is at "+
-			"https://github.com/sofired/berth/blob/main/berth.example.toml.")
+		requireErrorContains(t, err, "the annotated version, treerig.example.toml, is at "+
+			"https://github.com/sofired/treerig/blob/main/treerig.example.toml.")
 	})
 }
 

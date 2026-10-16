@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // devCompose is walkCompose plus a `restart: always` service that exits every
@@ -71,7 +71,7 @@ func devSessionAfterDown(t *testing.T, compose string) {
 	if err := os.MkdirAll(filepath.Join(w.checkout, "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(w.checkout, "hooks", "record"), fmt.Sprintf("#!/bin/sh\necho \"$BERTH_STAGE\" >> %q\n", w.log), 0o755)
+	writeFile(t, filepath.Join(w.checkout, "hooks", "record"), fmt.Sprintf("#!/bin/sh\necho \"$TREERIG_STAGE\" >> %q\n", w.log), 0o755)
 	const host = "feature-walk.walk.localhost"
 	cctx := w.context(t)
 	ctx, cancel := context.WithCancelCause(context.Background())

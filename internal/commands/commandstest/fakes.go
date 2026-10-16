@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/sofired/berth/internal/commands"
+	"github.com/sofired/treerig/internal/commands"
 )
 
 var (

@@ -136,7 +136,7 @@ jobs:
 
       # Provenance for every archive and package, from the checksums
       # GoReleaser just published: `gh attestation verify <file> --repo
-      # sofired/berth` checks any of them.
+      # sofired/treerig` checks any of them.
       - name: Attest build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -179,7 +179,7 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
-            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the tap update. Open a PR bumping Formula/berth.rb in the tap by hand for this release, so the tap's CI still builds its bottles."
+            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the tap update. Open a PR bumping Formula/treerig.rb in the tap by hand for this release, so the tap's CI still builds its bottles."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -206,7 +206,7 @@ jobs:
             echo "refusing to update the tap: '$version' is not a MAJOR.MINOR.PATCH version" >&2
             exit 1
           fi
-          archive="berth-${version}.tar.gz"
+          archive="treerig-${version}.tar.gz"
           url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${archive}"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir "$RUNNER_TEMP"
           sha=$(awk -v f="$archive" '$2 == f { print $1; exit }' "$RUNNER_TEMP/checksums.txt")
@@ -220,13 +220,13 @@ jobs:
             echo "sha256=$sha"
           } >> "$GITHUB_OUTPUT"
 
-      # This repository, for packaging/homebrew/berth.rb: the formula's first
+      # This repository, for packaging/homebrew/treerig.rb: the formula's first
       # appearance in the tap is a copy of it.
-      - name: Check out berth
+      - name: Check out treerig
         if: steps.gate.outputs.enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: berth
+          path: treerig
           persist-credentials: false
 
       # actions/checkout keeps the token in a credentials file under RUNNER_TEMP
@@ -241,7 +241,7 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
 
-      - name: Update Formula/berth.rb on a branch
+      - name: Update Formula/treerig.rb on a branch
         id: bump
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -250,11 +250,11 @@ jobs:
           F_VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          formula="tap/Formula/berth.rb"
+          formula="tap/Formula/treerig.rb"
           # Retry-safe: an earlier run of this job may already have pushed the
           # branch (and opened the PR) before a later step failed. Build on that
           # branch rather than on main, so the push below fast-forwards.
-          branch="berth-${F_VERSION}"
+          branch="treerig-${F_VERSION}"
           reused=false
           cd tap
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
@@ -269,19 +269,19 @@ jobs:
           # The tap has no formula yet: start from this repository's. The PR
           # below is still where a person reads it before it ships.
           if [ ! -f "$formula" ]; then
-            echo "::notice::the tap has no $formula; starting from packaging/homebrew/berth.rb."
+            echo "::notice::the tap has no $formula; starting from packaging/homebrew/treerig.rb."
             mkdir -p tap/Formula
-            cp berth/packaging/homebrew/berth.rb "$formula"
+            cp treerig/packaging/homebrew/treerig.rb "$formula"
           fi
           # Rewrite only the first stable url/sha256 pair. The snapshot build
           # (packaging/verify-snapshot.sh) renders its formula with the same
           # script, so pull requests exercise this step.
-          python3 berth/packaging/homebrew/set-source.py "$formula" "$F_URL" "$F_SHA256"
+          python3 treerig/packaging/homebrew/set-source.py "$formula" "$F_URL" "$F_SHA256"
           # Post-conditions: the new values landed on the first stanza.
           grep -qF "url \"$F_URL\"" "$formula"
           grep -qF "sha256 \"$F_SHA256\"" "$formula"
           cd tap
-          git add Formula/berth.rb
+          git add Formula/treerig.rb
           if git diff --cached --quiet; then
             if [ "$reused" = true ]; then
               echo "::notice::$branch already carries this url/sha256; continuing to its PR."
@@ -293,9 +293,9 @@ jobs:
           else
             # A branch, not main: the tap bottles a formula on its PR CI, and
             # `brew pr-pull` lands the bump together with the bottle block.
-            git -c user.name="berth-release" \
+            git -c user.name="treerig-release" \
                 -c user.email="actions@users.noreply.github.com" \
-                commit -m "berth ${F_VERSION}"
+                commit -m "treerig ${F_VERSION}"
           fi
           git push origin "HEAD:refs/heads/${branch}"
           echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -318,15 +318,15 @@ jobs:
           set -euo pipefail
           cd tap
           head_sha=$(git rev-parse HEAD)
-          branch="berth-${F_VERSION}"
+          branch="treerig-${F_VERSION}"
           # Whether this bump is already published is decided by the tap's main,
           # not by PR state: brew pr-pull lands by cherry-pick, so a *successful*
           # publish leaves the PR either merged (fast-forward) or closed by the
           # tap's publish workflow. Check main for this version first; only if it
           # is absent do we (re)drive a PR.
           git fetch -q origin main
-          if git show origin/main:Formula/berth.rb 2>/dev/null | grep -qF "url \"$F_URL\""; then
-            echo "::notice::the tap's main already carries berth ${F_VERSION}; bottles are published. Nothing to do."
+          if git show origin/main:Formula/treerig.rb 2>/dev/null | grep -qF "url \"$F_URL\""; then
+            echo "::notice::the tap's main already carries treerig ${F_VERSION}; bottles are published. Nothing to do."
             exit 0
           fi
           # Not on main yet. Find this branch's PR in the tap. Only one whose head
@@ -349,8 +349,8 @@ jobs:
               # (which cannot be reopened): open a fresh PR from the branch.
               pr_url=$(gh pr create --repo "$TAP" --base main \
                 --head "$branch" \
-                --title "berth ${F_VERSION}" \
-                --body "Version bump from the berth ${GITHUB_REF_NAME} release. This PR's checks build the bottles; the brew pr-pull workflow publishes them and lands the bump.")
+                --title "treerig ${F_VERSION}" \
+                --body "Version bump from the treerig ${GITHUB_REF_NAME} release. This PR's checks build the bottles; the brew pr-pull workflow publishes them and lands the bump.")
               echo "::notice::opened ${pr_url}" ;;
           esac
           pr_number="${pr_url##*/}"
@@ -389,6 +389,6 @@ jobs:
             echo "::error::dispatched publish.yml for ${pr_url} but its run never appeared; failing so the tap lock is not released while the publish state is unknown."
             exit 1
           fi
-          echo "::notice::waiting for the tap's publish run ${run_id} for berth ${F_VERSION}..."
+          echo "::notice::waiting for the tap's publish run ${run_id} for treerig ${F_VERSION}..."
           gh run watch "$run_id" --repo "$TAP" --exit-status
-          echo "::notice::berth ${F_VERSION} bottles published from ${pr_url}"
+          echo "::notice::treerig ${F_VERSION} bottles published from ${pr_url}"

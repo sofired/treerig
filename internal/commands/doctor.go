@@ -41,24 +41,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/settings"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/settings"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // gitMinimum is the oldest Git `git worktree list --porcelain -z` needs.
@@ -126,12 +126,12 @@ func recordInstance(file string) string {
 	return path.Join(repository, filepath.Base(file))
 }
 
-// routeClaimPattern is the rule berth writes for a route (backend.RouteRule):
+// routeClaimPattern is the rule treerig writes for a route (backend.RouteRule):
 // a host, and optionally a path prefix.
 var routeClaimPattern = regexp.MustCompile("^Host\\(`([^`]*)`\\)(?: && PathPrefix\\(`([^`]*)`\\))?$")
 
 // ruleClaim is what a routing rule claims in the form users know, "<host>"
-// or "<host><path>". A rule berth did not write is its own claim, verbatim.
+// or "<host><path>". A rule treerig did not write is its own claim, verbatim.
 func ruleClaim(rule string) string {
 	match := routeClaimPattern.FindStringSubmatch(rule)
 	if match == nil {
@@ -359,7 +359,7 @@ func controlHomeCheck(controlHome, userHome string) (Check, error) {
 	if err := files.AssertAdoptableControlHome(controlHome, userHome); err != nil {
 		return Check{}, err
 	}
-	// A control home a newer berth made fails here with the upgrade
+	// A control home a newer treerig made fails here with the upgrade
 	// instruction, the same refusal every other command gives it
 	// (docs/design/state.md).
 	if err := files.AssertControlHomeFormat(controlHome); err != nil {
@@ -419,16 +419,16 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 	return checks
 }
 
-// registrySection is the "Registry" section: the berth root (#80), the
+// registrySection is the "Registry" section: the treerig root (#80), the
 // control home check, the router's own state directory, and registryChecks
 // over a fresh scan of every registration.
 func registrySection(opts doctorOptions) ([]Check, error) {
 	// Neither can fail — both are already-resolved, already-checked paths,
 	// no I/O of their own — so unlike control home and registrations below,
 	// neither needs its own guarded() call; a person who set only
-	// BERTH_CONTROL_HOME can still see where the rest of the berth root
+	// TREERIG_CONTROL_HOME can still see where the rest of the treerig root
 	// lives (the router's own state; a future settings.toml, #79).
-	checks := []Check{{Status: StatusOK, ID: "registry.berth-root", Subject: "berth root", Detail: opts.Home}}
+	checks := []Check{{Status: StatusOK, ID: "registry.treerig-root", Subject: "treerig root", Detail: opts.Home}}
 	controlHomeChecks, err := guarded("registry.control-home", "control home", func() ([]Check, error) {
 		check, err := controlHomeCheck(opts.ControlHome, opts.UserHome)
 		if err != nil {
@@ -442,7 +442,7 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 	checks = append(checks, controlHomeChecks...)
 	routerStateChecks, err := guarded("registry.router-state", "router state", func() ([]Check, error) {
 		// The state file is read, not just named: a file that is unreadable or
-		// written by a newer berth is a failed line carrying the same message
+		// written by a newer treerig is a failed line carrying the same message
 		// every command that needs the router's ports would give.
 		if opts.RouterState.StateFile != "" {
 			if _, _, err := router.ReadState(opts.RouterState); err != nil {
@@ -457,7 +457,7 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 	checks = append(checks, routerStateChecks...)
 	for _, check := range controlHomeChecks {
 		if check.Status == StatusFail {
-			// Nothing under a control home berth refuses is read: a scan would
+			// Nothing under a control home treerig refuses is read: a scan would
 			// answer "none yet" about records it never looked at.
 			return append(checks, Check{Status: StatusSkip, ID: "registry.registrations", Subject: "registrations", Detail: "control home not readable"}), nil
 		}
@@ -659,7 +659,7 @@ func lockChecks(controlHome string, routerLockScope *lock.Scope, commandName str
 // their own fake.
 type doctorRouterSource interface {
 	Status(ctx context.Context) (router.RouterStatus, error)
-	// Owner reports which berth root started the running router (#82); see
+	// Owner reports which treerig root started the running router (#82); see
 	// routerOwnerCheck.
 	Owner(ctx context.Context) (router.Ownership, error)
 	// RunningPort is the loopback port the running router serves, and
@@ -1026,7 +1026,7 @@ func orphanedRoutesChecks(state layout.RouterLayout, controlHome, commandName st
 		checks = append(checks, Check{Status: StatusWarn, ID: "router.orphaned-routes", Subject: "routes", Detail: detail})
 	}
 	// Both unmatched kinds are left alone, because the router's state is per
-	// berth root while registries are per control home. A file of a worktree
+	// treerig root while registries are per control home. A file of a worktree
 	// this home knows the repository of is likely stale (a warning); one of a
 	// repository it does not know is likely another control home's (a notice).
 	if len(stale) > 0 {
@@ -1044,12 +1044,12 @@ func orphanedRoutesChecks(state layout.RouterLayout, controlHome, commandName st
 	return checks, nil
 }
 
-// routerOwnerCheck is doctor's own read-only report of which berth root
+// routerOwnerCheck is doctor's own read-only report of which treerig root
 // started the running router (#82): nil, nil when nothing is running —
 // Status already says so, and there is no owner to report. A running
 // container with no ownership label at all is reported as foreign, exactly
 // like one whose label names another root, matching Router.Ensure's own
-// checkOwnership; one whose label names this berth root is ok.
+// checkOwnership; one whose label names this treerig root is ok.
 func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, commandName string) (*Check, error) {
 	owner, err := svc.Owner(ctx)
 	if err != nil {
@@ -1060,21 +1060,21 @@ func routerOwnerCheck(ctx context.Context, svc doctorRouterSource, home, command
 	}
 	if !owner.Labelled {
 		return &Check{Status: StatusFail, ID: "router.owner", Subject: "router owner", Detail: fmt.Sprintf(
-			"not owned by this berth root; this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
+			"not owned by this treerig root; this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
 			commandName, commandName, commandName)}, nil
 	}
 	if owner.Home == home {
-		return &Check{Status: StatusOK, ID: "router.owner", Subject: "router owner", Detail: "this berth root (" + home + ")"}, nil
+		return &Check{Status: StatusOK, ID: "router.owner", Subject: "router owner", Detail: "this treerig root (" + home + ")"}, nil
 	}
 	return &Check{Status: StatusFail, ID: "router.owner", Subject: "router owner", Detail: fmt.Sprintf(
-		"a different berth root (%s); this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
+		"a different treerig root (%s); this one's '%s up' or '%s router up' refuses it until '%s router down' hands it over",
 		owner.Home, commandName, commandName, commandName)}, nil
 }
 
 // routerSection is the "Router" section: opts.RouterErr's own line if the
 // router could not even be described, and one skip if Docker Engine did not
 // answer. Otherwise it is the router's status, plus routerOwnerCheck's own
-// report of which berth root started it (#82), or a skip when Docker
+// report of which treerig root started it (#82), or a skip when Docker
 // Compose did not answer, since both need Compose. Then the mode the proxy
 // runs in and would run in (needs only the Engine), that it answers on
 // loopback alone, routeChecks (which need no Docker), a probe of each route
@@ -1226,19 +1226,19 @@ type checkoutSource struct {
 	loaded       *config.Loaded
 }
 
-// checkoutNone is a checkoutSource for no berth.toml found searching upward
+// checkoutNone is a checkoutSource for no treerig.toml found searching upward
 // from searchedFrom.
 func checkoutNone(searchedFrom string) checkoutSource {
 	return checkoutSource{kind: "none", searchedFrom: searchedFrom}
 }
 
-// checkoutUnloadable is a checkoutSource for a berth.toml that was found but
+// checkoutUnloadable is a checkoutSource for a treerig.toml that was found but
 // failed to load, carrying the loader's own error.
 func checkoutUnloadable(err error) checkoutSource {
 	return checkoutSource{kind: "unloadable", unloadable: err}
 }
 
-// checkoutIsLoaded is a checkoutSource for a berth.toml that loaded cleanly.
+// checkoutIsLoaded is a checkoutSource for a treerig.toml that loaded cleanly.
 func checkoutIsLoaded(loaded *config.Loaded) checkoutSource {
 	return checkoutSource{kind: "loaded", loaded: loaded}
 }
@@ -1252,7 +1252,7 @@ type checkoutRegistry interface {
 
 // findCheckout is the config the other commands would use here, without
 // failing when there is none. explicit is --config; "" means the nearest
-// berth.toml above cwd.
+// treerig.toml above cwd.
 func findCheckout(explicit, cwd string) (checkoutSource, error) {
 	file := explicit
 	if file == "" {
@@ -1308,7 +1308,7 @@ func checkoutFileCheck(loaded *config.Loaded) Check {
 // for any other failure, a predicted one included (see doctorExitCode).
 //
 // Every [commands] entry follows the hooks, in file order, as
-// "<name> command file" (#94): hooks.ResolveCommand shares `berth run`'s own
+// "<name> command file" (#94): hooks.ResolveCommand shares `treerig run`'s own
 // resolution the same way, and a broken one reads and counts identically.
 //
 // This runs whether or not this worktree is registered: unlike the verify
@@ -1463,11 +1463,11 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 			},
 			Ref: ref, Hooks: loaded.Config.Hooks, Logger: opts.Logger, Runner: opts.Runner, Environ: opts.Environ,
 			ComposeFile: composeFilePath(loaded),
-			// BERTH_URL, BERTH_SERVICE_URL_<NAME> (#28), BERTH_SERVICE_PORT_<NAME> (#119)
+			// TREERIG_URL, TREERIG_SERVICE_URL_<NAME> (#28), TREERIG_SERVICE_PORT_<NAME> (#119)
 			Routes: verifyRoutes,
-			// BERTH_SHARED_ADDR_<NAME>_<PORT>
+			// TREERIG_SHARED_ADDR_<NAME>_<PORT>
 			Shared: sharedAddrsFor(opts.ControlHome, registration.RepositoryID, loaded.Config),
-			// BERTH_SHARED_URL_<NAME>, only with a resolved router port, as above
+			// TREERIG_SHARED_URL_<NAME>, only with a resolved router port, as above
 			SharedURLs: sharedVerifyURLs(opts, registration.RepositoryID, loaded.Config),
 		}, hooks.RunOptions{Output: hooks.Stderr})
 		if hookErr != nil {
@@ -1489,7 +1489,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 }
 
 // thisCheckoutSection is the "This checkout" section: a skip when no
-// berth.toml was found, a failed line naming the load error when one was
+// treerig.toml was found, a failed line naming the load error when one was
 // found but would not load, otherwise checkoutChecks over the loaded config.
 func thisCheckoutSection(ctx context.Context, opts doctorOptions) ([]Check, error) {
 	switch opts.Checkout.kind {
@@ -1604,17 +1604,17 @@ func doctorSummary(sections []Section) doctorSummaryLine {
 type doctorOptions struct {
 	CommandName string
 	ControlHome string
-	// Home is the checked berth root (BERTH_HOME, #80): reported alongside
+	// Home is the checked treerig root (TREERIG_HOME, #80): reported alongside
 	// ControlHome and RouterStateDir in the Registry section, so someone
-	// who set only BERTH_CONTROL_HOME can still see where the rest of it
+	// who set only TREERIG_CONTROL_HOME can still see where the rest of it
 	// (the router's own state, and a future settings.toml, #79) lives.
 	Home string
 	// RouterStateDir is layout.RouterStateFrom(Home).StateDir, reported
 	// even when Router/RouterErr says the router itself could not be
 	// described (a bad port does not change where its state directory is).
 	RouterStateDir string
-	// RouterPort is the router port resolved for this berth root and where
-	// it came from (#79): BERTH_ROUTER_PORT, settings.toml, or the default.
+	// RouterPort is the router port resolved for this treerig root and where
+	// it came from (#79): TREERIG_ROUTER_PORT, settings.toml, or the default.
 	// Reported as its own line, against what the running router publishes.
 	RouterPort settings.PortResolution
 	// UserHome is the caller's own resolved home directory, handed to
@@ -1714,7 +1714,7 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 		{ID: "router", Title: "Router", Checks: routerChecksResult},
 		{ID: "checkout", Title: "This checkout", Checks: checkoutChecksResult},
 	}
-	// Only when berth.toml declares shared services or Docker still holds
+	// Only when treerig.toml declares shared services or Docker still holds
 	// some of this repository's.
 	if len(sharedChecksResult) > 0 {
 		sections = append(sections, Section{ID: "shared", Title: "Shared services", Checks: sharedChecksResult})
@@ -1723,7 +1723,7 @@ func doctorSections(ctx context.Context, opts doctorOptions) ([]Section, error) 
 }
 
 // doctorOptionsFor is doctorOptions built from env and an already-checked
-// berth root (home, userHome — commands.checkedHome), against svc as the
+// treerig root (home, userHome — commands.checkedHome), against svc as the
 // shared router and state as its own resolved layout — or svcErr, why one
 // could not even be described, when svc is nil. buildDoctorOptions calls
 // this with the default shared router routerServiceFrom resolves from
@@ -1778,8 +1778,8 @@ func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state
 }
 
 // buildDoctorOptions is doctorOptions built from a real Env and an
-// already-checked berth root (Doctor's own single checkedHome call):
-// findCheckout is resolved first (env.ConfigPath, or the nearest berth.toml
+// already-checked treerig root (Doctor's own single checkedHome call):
+// findCheckout is resolved first (env.ConfigPath, or the nearest treerig.toml
 // above env.Cwd), then the shared router — or why one could not even be
 // described.
 func buildDoctorOptions(env *Env, home, userHome string) (doctorOptions, error) {

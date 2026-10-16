@@ -1,4 +1,4 @@
-validate	parse and validate berth.toml
+validate	parse and validate treerig.toml
 show	print the resolved configuration as JSON
-schema	print the JSON Schema of berth.toml
+schema	print the JSON Schema of treerig.toml
 :4

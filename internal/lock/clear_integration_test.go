@@ -5,7 +5,7 @@
 // same lock_test package as integration_test.go — not a separate package —
 // so it can reuse that file's helper-process protocol (startHelper,
 // killPID, waitForGone, statFileID and the single TestMain that dispatches by
-// BERTH_LOCK_HELPER_ROLE) instead of duplicating it.
+// TREERIG_LOCK_HELPER_ROLE) instead of duplicating it.
 package lock_test
 
 import (
@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 // startMarkedSurvivor starts a real, long-lived process (`sleep`) carrying
@@ -157,7 +157,7 @@ func TestWorktreeUnlockAgainstRealProcesses(t *testing.T) {
 	t.Run("refuses while a process the holder left behind still runs, and clears once it has gone", func(t *testing.T) {
 		dir := t.TempDir()
 		target := filepath.Join(dir, "worktree")
-		const project = "berth-clear-it-3"
+		const project = "treerig-clear-it-3"
 		cmd, pid := startHelper(t, target, "hold")
 		survivor := startMarkedSurvivor(t, project)
 

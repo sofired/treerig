@@ -5,7 +5,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // RegistryDirectory is where one repository's records live.

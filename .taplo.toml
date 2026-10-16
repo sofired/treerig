@@ -1,16 +1,16 @@
 # Taplo (Even Better TOML) settings for this repository. This rule points
-# berth.toml files in the checkout at the schema next to them, so editing here
+# treerig.toml files in the checkout at the schema next to them, so editing here
 # works offline and picks up a schema change before it reaches main.
 #
-# berth.example.toml is not included: its own #:schema line names the
+# treerig.example.toml is not included: its own #:schema line names the
 # published schema so that a copy works as-is, and Taplo gives that directive
 # priority over any rule here. To check the example against an unpublished
-# schema change, run `taplo lint --schema schema/berth.schema.json
-# berth.example.toml`.
+# schema change, run `taplo lint --schema schema/treerig.schema.json
+# treerig.example.toml`.
 
 [[rule]]
-include = ["**/berth.toml"]
+include = ["**/treerig.toml"]
 exclude = ["**/testdata/**"]
 
 [rule.schema]
-path = "./schema/berth.schema.json"
+path = "./schema/treerig.schema.json"

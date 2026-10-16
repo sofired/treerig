@@ -8,8 +8,8 @@ package backend
 import (
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // routesFixtureRef is the worktree.Ref every test in this file builds its
@@ -22,12 +22,12 @@ var routesFixtureRef = worktree.Ref{
 
 // composeWithRoute is a *Compose configured with one route on service,
 // published on loopback port hostPort (none when zero), under label
-// namespace "dev.berth".
+// namespace "dev.treerig".
 func composeWithRoute(service string, port *int, hostPort int) *Compose {
 	return NewCompose(Options{
 		ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-		ConfigFile: "/work/acme/berth.toml", ProjectName: "acme",
-		ControlHome: "/control", Domain: "acme.localhost", LabelNamespace: "dev.berth",
+		ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme",
+		ControlHome: "/control", Domain: "acme.localhost", LabelNamespace: "dev.treerig",
 		Routes: []RouteSpec{{Service: service, Port: port, HostPort: hostPort}},
 	})
 }
@@ -119,7 +119,7 @@ func TestOverrideRouteShape(t *testing.T) {
 		webEntry := outServices.(*jsonKV).values["web"].(*jsonKV)
 		labelsValue, _ := webEntry.get("labels")
 		for _, key := range labelsValue.(*jsonKV).keys {
-			if key == "traefik.enable" || key == "dev.berth.router" {
+			if key == "traefik.enable" || key == "dev.treerig.router" {
 				t.Fatalf("service carries a routing label %q; want ownership labels only", key)
 			}
 		}

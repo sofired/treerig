@@ -1,4 +1,4 @@
---config	path to berth.toml (default: nearest above cwd)
+--config	path to treerig.toml (default: nearest above cwd)
 --version	output the version number
 --help	help for init
 :4

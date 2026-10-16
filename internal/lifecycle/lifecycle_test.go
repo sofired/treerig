@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // waitFor polls condition until it is true, failing the test if it never

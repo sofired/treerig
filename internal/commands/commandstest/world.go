@@ -3,7 +3,7 @@
 // filesystem control home.
 //
 // World.Context builds a commands.CommandContext directly from a hand-built
-// config.Config rather than loading a berth.toml, so a test states its
+// config.Config rather than loading a treerig.toml, so a test states its
 // config in Go. There is no Dispose: New uses a t.TempDir, which the testing
 // package removes on its own.
 package commandstest
@@ -17,18 +17,18 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // services every test config declares.
@@ -51,7 +51,7 @@ type World struct {
 	UserHome string
 	// RouterState is a fake shared router's own state directory: the
 	// checkout index writes its page and takes its lock under here, never
-	// under ControlHome — the router's state is machine-wide, per berth
+	// under ControlHome — the router's state is machine-wide, per treerig
 	// root, not per control home (see internal/layout's RouterStateDir
 	// comment).
 	RouterState layout.RouterLayout
@@ -75,7 +75,7 @@ type Probe struct {
 	busy map[int]bool
 }
 
-// Occupy marks ports as in use by something outside berth.
+// Occupy marks ports as in use by something outside treerig.
 func (p *Probe) Occupy(ports ...int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -199,13 +199,13 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 		LabelNamespace: cfg.LabelNamespace(),
 		Runner:         w.Runner,
 		Logger:         log,
-		CommandName:    "berth",
+		CommandName:    "treerig",
 		UserHome:       w.UserHome,
 	})
 	tc := &TestContext{
 		CommandContext: &commands.CommandContext{
-			CommandName: "berth",
-			Invocation:  "berth",
+			CommandName: "treerig",
+			Invocation:  "treerig",
 			Logger:      log,
 			Runner:      w.Runner,
 			Loaded:      loaded,
@@ -282,7 +282,7 @@ func (w *World) Register(root, domain, slug, namespace string, services ...strin
 	if root == "" {
 		root = w.Root
 	}
-	// Claimed first, as up claims it: a control home berth did not create is refused.
+	// Claimed first, as up claims it: a control home treerig did not create is refused.
 	if err := files.SecureControlDirectories(layout.ControlLayout(w.ControlHome), w.UserHome); err != nil {
 		w.t.Fatalf("control home: %v", err)
 	}

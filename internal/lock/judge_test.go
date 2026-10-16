@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 var self = procid.Identity{MachineID: "machine-1", BootID: "boot-1", PIDNS: "pid:[1]"}
@@ -16,7 +16,7 @@ var currentFile = FileID{Dev: 1, Ino: 77}
 // currentFile, then applies mutate, if given, to vary it per case.
 func testRecord(mutate func(*Record)) *Record {
 	r := &Record{
-		PID: 4242, Host: "laptop", Command: "berth up",
+		PID: 4242, Host: "laptop", Command: "treerig up",
 		StartedAt: time.Date(2026, 9, 23, 0, 0, 0, 0, time.UTC),
 		File:      currentFile,
 		MachineID: "machine-1", BootID: "boot-1", PIDNS: "pid:[1]",

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // Handler answers one call. Returning a nil error with a Result lets the fake

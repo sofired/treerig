@@ -1,10 +1,10 @@
-// Package layout derives the berth root's and control home's on-disk paths.
+// Package layout derives the treerig root's and control home's on-disk paths.
 // Nothing here touches the filesystem; these are pure path derivations.
 //
-//	<home>/                              BERTH_HOME, the berth root (#80)
+//	<home>/                              TREERIG_HOME, the treerig root (#80)
 //	  settings.toml                     SettingsPath, machine-wide defaults (#79)
 //	  router/                            RouterState, the shared router's own layout (stack file, route files, index page, state.json)
-//	  control-home/                      the control home, unless BERTH_CONTROL_HOME overrides it
+//	  control-home/                      the control home, unless TREERIG_CONTROL_HOME overrides it
 //	    locks/registry                    RegistryLockPath
 //	    locks/worktrees/<repo>/<wt>       worktree operation lock
 //	    locks/worktrees/<repo>/<wt>.dev   development-session lock
@@ -17,11 +17,11 @@
 //	    teardown/cosign/{tuf,tmp}         CosignHome: the HOME, TUF_ROOT and TMPDIR cosign runs with (#85), a derived cache
 //
 // The shared router's own stack file, protocol record, dynamic and index
-// directories, and lock live under the berth root rather than inside the
+// directories, and lock live under the treerig root rather than inside the
 // control home (#12, #13, #80), so every control home on this machine that
-// shares a berth root finds the same router state instead of taking turns
+// shares a treerig root finds the same router state instead of taking turns
 // recreating it. The router container itself is still one per Docker
-// daemon regardless of berth root (RouterLayout), so a different berth root
+// daemon regardless of treerig root (RouterLayout), so a different treerig root
 // does not get its own isolated router — only its own copy of this state.
 package layout
 
@@ -34,8 +34,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // Control is the machine-wide part of the layout.
@@ -90,9 +90,9 @@ type Worktree struct {
 // Getenv reads one environment variable; os.LookupEnv in production.
 type Getenv func(key string) (string, bool)
 
-// ResolveHome is the berth root: the override, else $BERTH_HOME, else
-// ~/.berth, made absolute without resolving symlinks. It holds settings.toml
-// (#79, SettingsPath), router/ (RouterState) and, unless BERTH_CONTROL_HOME
+// ResolveHome is the treerig root: the override, else $TREERIG_HOME, else
+// ~/.treerig, made absolute without resolving symlinks. It holds settings.toml
+// (#79, SettingsPath), router/ (RouterState) and, unless TREERIG_CONTROL_HOME
 // overrides it, the control home (ResolveControlHome) (#80).
 func ResolveHome(getenv Getenv, override string) (string, error) {
 	candidate := override
@@ -107,15 +107,15 @@ func ResolveHome(getenv Getenv, override string) (string, error) {
 		}
 		candidate = filepath.Join(home, brand.DefaultHomeDir)
 	}
-	// An empty BERTH_HOME resolves like Node's path.resolve(''): the cwd.
+	// An empty TREERIG_HOME resolves like Node's path.resolve(''): the cwd.
 	return Resolve(candidate)
 }
 
 // ResolveControlHome is the control home: the override, else
-// $BERTH_CONTROL_HOME, else <berth root>/control-home, made absolute without
-// resolving symlinks. The berth root itself comes from ResolveHome, so an
-// unset BERTH_CONTROL_HOME still honours BERTH_HOME (#80). Resolves the
-// berth root itself for that fallback; a caller that already has one
+// $TREERIG_CONTROL_HOME, else <treerig root>/control-home, made absolute without
+// resolving symlinks. The treerig root itself comes from ResolveHome, so an
+// unset TREERIG_CONTROL_HOME still honours TREERIG_HOME (#80). Resolves the
+// treerig root itself for that fallback; a caller that already has one
 // (typically already checked by files.AssertSafeHome) wants ControlHomeFrom
 // instead, so the two can never resolve it to two different things.
 func ResolveControlHome(getenv Getenv, override string) (string, error) {
@@ -126,8 +126,8 @@ func ResolveControlHome(getenv Getenv, override string) (string, error) {
 	return ControlHomeFrom(home, getenv, override)
 }
 
-// ControlHomeFrom is ResolveControlHome given the berth root already
-// resolved: the override, else $BERTH_CONTROL_HOME, else
+// ControlHomeFrom is ResolveControlHome given the treerig root already
+// resolved: the override, else $TREERIG_CONTROL_HOME, else
 // <home>/control-home, made absolute without resolving symlinks.
 func ControlHomeFrom(home string, getenv Getenv, override string) (string, error) {
 	candidate := override
@@ -138,8 +138,8 @@ func ControlHomeFrom(home string, getenv Getenv, override string) (string, error
 	if candidate == "" && !set {
 		candidate = filepath.Join(home, brand.ControlHomeDirName)
 	}
-	// An empty BERTH_CONTROL_HOME resolves like Node's path.resolve(''): the
-	// cwd, the same convention ResolveHome applies to an empty BERTH_HOME.
+	// An empty TREERIG_CONTROL_HOME resolves like Node's path.resolve(''): the
+	// cwd, the same convention ResolveHome applies to an empty TREERIG_HOME.
 	return Resolve(candidate)
 }
 
@@ -298,11 +298,11 @@ func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 // RouterLayout is the shared router's on-disk layout, outside the control
 // home (#12, #13, #80): the stack file, the two directories the router
 // bind-mounts, and the router lock's own target file. This layout is per
-// berth root, so every control home under the same berth root reads and
+// treerig root, so every control home under the same treerig root reads and
 // writes the same one instead of taking turns recreating it — but the
 // router container itself is not: its Compose project name is fixed
 // (router.ResolveProjectName), so it is one per Docker daemon regardless of
-// berth root. A berth root with its own, different RouterLayout does not
+// treerig root. A treerig root with its own, different RouterLayout does not
 // get its own router; it makes `up` or `router up` from that root recreate
 // the one container against its own state instead, still on the same
 // daemon (#80's own AGENTS.md note).
@@ -321,15 +321,15 @@ type RouterLayout struct {
 }
 
 // RouterStateDir is the directory the shared router's state and lock live
-// under: `<berth root>/router` (#80). Before #80 this lived outside every
+// under: `<treerig root>/router` (#80). Before #80 this lived outside every
 // control home, keyed off the OS's own per-account state directory
 // (`$XDG_STATE_HOME` or `$HOME/.local/state` on Linux, `Library/Application
 // Support` on macOS); it is simpler now that it is resolved the same way
-// BERTH_HOME resolves a control home. A different BERTH_HOME still reads
+// TREERIG_HOME resolves a control home. A different TREERIG_HOME still reads
 // and writes a different RouterStateDir — but the router container itself
-// stays one per Docker daemon (see RouterLayout), so a scratch BERTH_HOME
+// stays one per Docker daemon (see RouterLayout), so a scratch TREERIG_HOME
 // used by hand does not get its own isolated router the way it gets its
-// own control home. Resolves the berth root itself; a caller that already
+// own control home. Resolves the treerig root itself; a caller that already
 // has one wants RouterStateDirFrom instead, so the two can never resolve it
 // to two different things.
 func RouterStateDir(getenv Getenv) (string, error) {
@@ -340,10 +340,10 @@ func RouterStateDir(getenv Getenv) (string, error) {
 	return RouterStateDirFrom(home), nil
 }
 
-// RouterStateDirFrom is RouterStateDir given the berth root already resolved.
+// RouterStateDirFrom is RouterStateDir given the treerig root already resolved.
 func RouterStateDirFrom(home string) string { return filepath.Join(home, brand.RouterDirName) }
 
-// RouterState derives the shared router's paths. Resolves the berth root
+// RouterState derives the shared router's paths. Resolves the treerig root
 // itself; a caller that already has one (typically already checked by
 // files.AssertSafeHome) wants RouterStateFrom instead.
 func RouterState(getenv Getenv) (RouterLayout, error) {
@@ -354,7 +354,7 @@ func RouterState(getenv Getenv) (RouterLayout, error) {
 	return RouterStateFrom(home), nil
 }
 
-// RouterStateFrom is RouterState given the berth root already resolved.
+// RouterStateFrom is RouterState given the treerig root already resolved.
 func RouterStateFrom(home string) RouterLayout {
 	dir := RouterStateDirFrom(home)
 	indexDir := filepath.Join(dir, "index")
@@ -370,11 +370,11 @@ func RouterStateFrom(home string) RouterLayout {
 }
 
 // SettingsPath is the machine-wide settings file's path (#79):
-// `<berth root>/settings.toml`. It does not follow BERTH_CONTROL_HOME or any
-// XDG variable, only the berth root itself — unlike RouterState, which
+// `<treerig root>/settings.toml`. It does not follow TREERIG_CONTROL_HOME or any
+// XDG variable, only the treerig root itself — unlike RouterState, which
 // shares that root for a different reason (#80), this file simply has
 // nowhere else to live: it configures values (the router's port) that are
-// resolved before any control home is. Resolves the berth root itself; a
+// resolved before any control home is. Resolves the treerig root itself; a
 // caller that already has one (typically already checked by checkedHome)
 // wants SettingsPathFrom instead.
 func SettingsPath(getenv Getenv) (string, error) {
@@ -385,24 +385,24 @@ func SettingsPath(getenv Getenv) (string, error) {
 	return SettingsPathFrom(home), nil
 }
 
-// SettingsPathFrom is SettingsPath given the berth root already resolved.
+// SettingsPathFrom is SettingsPath given the treerig root already resolved.
 func SettingsPathFrom(home string) string {
 	return filepath.Join(home, brand.SettingsFile)
 }
 
 // ComposeProjectName is stable for the (repository, worktree) pair and cannot
-// collide across repositories: berth-<first 24 hex of sha256("repo:wt")>.
+// collide across repositories: treerig-<first 24 hex of sha256("repo:wt")>.
 func ComposeProjectName(repositoryID, worktreeID string) string {
 	sum := sha256.Sum256([]byte(repositoryID + ":" + worktreeID))
 	return brand.Name + "-" + hex.EncodeToString(sum[:])[:24]
 }
 
 // SharedProjectName is the Compose project of a repository's shared
-// services (docs/design/routing.md, decision 15): berth-shared-<first 24 hex
+// services (docs/design/routing.md, decision 15): treerig-shared-<first 24 hex
 // of sha256("shared:" + repositoryID)>. Derived from the repository ID alone,
 // so it is stable and uses a separate prefix from a worktree's
 // ComposeProjectName. `shared down` can name it from any checkout without a
-// berth.toml. A storage name.
+// treerig.toml. A storage name.
 func SharedProjectName(repositoryID string) string {
 	sum := sha256.Sum256([]byte("shared:" + repositoryID))
 	return brand.SharedProjectPrefix + hex.EncodeToString(sum[:])[:24]
@@ -417,7 +417,7 @@ type Shared struct {
 	// LockDir holds every repository's shared lock; LockPath is this one's.
 	LockDir  string
 	LockPath string
-	// OverridePath is the Compose override berth writes for the shared
+	// OverridePath is the Compose override treerig writes for the shared
 	// project: ownership labels, the definition label and the pinned ports.
 	OverridePath string
 }
@@ -425,7 +425,7 @@ type Shared struct {
 // SharedLayout derives one repository's shared-services paths:
 //
 //	repositories/<repo>/shared/<name>.json   a service's pinned ports
-//	repositories/<repo>/shared/berth.override.yaml
+//	repositories/<repo>/shared/treerig.override.yaml
 //	locks/shared/<repo>                      the shared lock (decision 18)
 func SharedLayout(controlHome, repositoryID string) Shared {
 	repository := RepositoryLayout(controlHome, repositoryID)

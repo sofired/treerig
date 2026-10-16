@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // standaloneMaxAge is how long an entry in the standalone-binary store may
@@ -100,7 +100,7 @@ func relocateAndReexec(ctx context.Context, env *Env) error {
 		return nil
 	}
 	// Through checkedHome, not layout.ResolveControlHome directly (#80): the
-	// berth root gets the same files.AssertSafeHome check every other verb
+	// treerig root gets the same files.AssertSafeHome check every other verb
 	// applies to it, and userHome — refused outright if empty — goes on to
 	// SecureBinDirectory's own files.AssertAdoptableControlHome check, same
 	// as every other control-home directory. Resolved again by Context

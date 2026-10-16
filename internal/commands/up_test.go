@@ -10,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // up runs UpWithContext against tc's CommandContext, the shared entry point
@@ -148,7 +148,7 @@ func TestUpWithContext(t *testing.T) {
 		}
 	})
 
-	t.Run("writes each route file to berth-loopback at the port recorded in the registration", func(t *testing.T) {
+	t.Run("writes each route file to treerig-loopback at the port recorded in the registration", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
@@ -175,7 +175,7 @@ func TestUpWithContext(t *testing.T) {
 				t.Errorf("%s's route file targets port %d, the registration records %d", service, got, port)
 			}
 			for _, server := range doc.HTTP.Services {
-				if want := "http://berth-loopback:" + strconv.Itoa(port); server.LoadBalancer.Servers[0].URL != want {
+				if want := "http://treerig-loopback:" + strconv.Itoa(port); server.LoadBalancer.Servers[0].URL != want {
 					t.Errorf("%s's target = %q, want %q", service, server.LoadBalancer.Servers[0].URL, want)
 				}
 			}
@@ -387,13 +387,13 @@ func TestUpWithContext(t *testing.T) {
 	t.Run("refuses to relabel a worktree that still owns resources under its old namespace", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		ref := w.Register(w.Root, acme, "feature-login", "dev.predecessor", "api", "mail")
-		tc := w.Context("", acme, nil) // config's own namespace defaults to brand.LabelNamespace ("dev.berth")
+		tc := w.Context("", acme, nil) // config's own namespace defaults to brand.LabelNamespace ("dev.treerig")
 		givePorts(tc)
 		router := commandstest.NewFakeRouter(80)
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
-		wantErr(t, err, "labelled under dev\\.predecessor, but berth\\.toml now says dev\\.berth")
+		wantErr(t, err, "labelled under dev\\.predecessor, but treerig\\.toml now says dev\\.treerig")
 		if router.Ensures() != 0 {
 			t.Fatalf("expected the router never to be ensured once relabelling is refused, got %d", router.Ensures())
 		}
@@ -411,14 +411,14 @@ func TestUpWithContext(t *testing.T) {
 			if err != nil || identity == nil {
 				t.Fatalf("inspect: %v, %v", identity, err)
 			}
-			if _, err := tc.Registry.Store(identity.RepositoryID).Remove(context.Background(), identity.WorktreeID, "feature-login", registry.Writer{Logger: tc.Logger, Invocation: "berth", UserHome: tc.UserHome}); err != nil {
+			if _, err := tc.Registry.Store(identity.RepositoryID).Remove(context.Background(), identity.WorktreeID, "feature-login", registry.Writer{Logger: tc.Logger, Invocation: "treerig", UserHome: tc.UserHome}); err != nil {
 				t.Fatalf("remove: %v", err)
 			}
 		})
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
-		wantErr(t, err, "was removed while 'berth up' was waiting for the shared router")
+		wantErr(t, err, "was removed while 'treerig up' was waiting for the shared router")
 	})
 
 	t.Run("refuses when the registration was relabelled while waiting for the router", func(t *testing.T) {
@@ -443,7 +443,7 @@ func TestUpWithContext(t *testing.T) {
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
-		wantErr(t, err, "was re-labelled under dev.other while 'berth up' was waiting for the shared router")
+		wantErr(t, err, "was re-labelled under dev.other while 'treerig up' was waiting for the shared router")
 	})
 
 	t.Run("refuses when the checkout's identity markers changed while waiting for the router", func(t *testing.T) {
@@ -467,7 +467,7 @@ func TestUpWithContext(t *testing.T) {
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
-		wantErr(t, err, "This checkout's berth markers changed or were removed while 'berth up' was waiting for the shared router")
+		wantErr(t, err, "This checkout's treerig markers changed or were removed while 'treerig up' was waiting for the shared router")
 	})
 
 	// #19: the base loader accepts a control character in [service.index]
@@ -484,7 +484,7 @@ func TestUpWithContext(t *testing.T) {
 		index := &commandstest.FakeIndex{}
 
 		_, err := up(t, tc, router, index, commands.UpOptions{})
-		want := tc.Loaded.File + " is not a valid berth.toml:\n  service.api.index.label: must not contain control characters"
+		want := tc.Loaded.File + " is not a valid treerig.toml:\n  service.api.index.label: must not contain control characters"
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}

@@ -14,7 +14,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/sofired/berth/internal/shape"
+	"github.com/sofired/treerig/internal/shape"
 )
 
 // sharedTOML is the [shared] table every shared-service case needs ahead of
@@ -22,18 +22,18 @@ import (
 const sharedTOML = "[shared]\nfile = \"compose.shared.yaml\"\n"
 
 // schemaFile is the committed JSON Schema, relative to this package.
-const schemaFile = "../../schema/berth.schema.json"
+const schemaFile = "../../schema/treerig.schema.json"
 
-// TestSchemaFileIsCurrent fails when schema/berth.schema.json is not what
-// `berth config schema` prints, and says how to bring it back in line.
+// TestSchemaFileIsCurrent fails when schema/treerig.schema.json is not what
+// `treerig config schema` prints, and says how to bring it back in line.
 func TestSchemaFileIsCurrent(t *testing.T) {
 	committed, err := os.ReadFile(schemaFile)
 	if err != nil {
-		t.Fatalf("reading %s: %v\nRegenerate it with: go run ./cmd/berth config schema > schema/berth.schema.json", schemaFile, err)
+		t.Fatalf("reading %s: %v\nRegenerate it with: go run ./cmd/treerig config schema > schema/treerig.schema.json", schemaFile, err)
 	}
 	if generated := SchemaJSON(); !bytes.Equal(committed, generated) {
-		t.Errorf("schema/berth.schema.json differs from the generated schema.\n"+
-			"Regenerate it from the repository root with:\n\n\tgo run ./cmd/berth config schema > schema/berth.schema.json\n\n"+
+		t.Errorf("schema/treerig.schema.json differs from the generated schema.\n"+
+			"Regenerate it from the repository root with:\n\n\tgo run ./cmd/treerig config schema > schema/treerig.schema.json\n\n"+
 			"and review the diff. Committed %d bytes, generated %d bytes.", len(committed), len(generated))
 	}
 }
@@ -52,7 +52,7 @@ func TestSchemaJSON(t *testing.T) {
 		if got := root["$id"]; got != SchemaID {
 			t.Errorf("$id = %v, want %s", got, SchemaID)
 		}
-		if got := root["title"]; got != "berth.toml" {
+		if got := root["title"]; got != "treerig.toml" {
 			t.Errorf("title = %v", got)
 		}
 	})
@@ -155,7 +155,7 @@ func equalStrings(v any, want ...string) bool {
 // TestCodeOnlyChecks pins where validation checks something the published
 // schema cannot state, so adding a Refine or SuperRefine is a visible choice:
 // either restate it with SchemaPattern, or add it here, and to the README's
-// note that berth config validate makes the checks the schema cannot.
+// note that treerig config validate makes the checks the schema cannot.
 func TestCodeOnlyChecks(t *testing.T) {
 	want := []string{
 		"(root)",         // two services claiming the same route
@@ -167,7 +167,7 @@ func TestCodeOnlyChecks(t *testing.T) {
 }
 
 // TestSchemaAgreesWithValidation compiles the committed schema as draft-07,
-// with a JSON Schema library that shares no code with berth, and checks that
+// with a JSON Schema library that shares no code with treerig, and checks that
 // it and Parse reach the same verdict on each document. The cases where the
 // schema is looser are the code-only checks TestCodeOnlyChecks lists, and
 // kill-after's and a hook timeout's range; it is never stricter.
@@ -207,7 +207,7 @@ func TestSchemaAgreesWithValidation(t *testing.T) {
 		return compiled.Validate(instance) == nil
 	}
 
-	example, err := os.ReadFile(filepath.Join("..", "..", "berth.example.toml"))
+	example, err := os.ReadFile(filepath.Join("..", "..", "treerig.example.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}

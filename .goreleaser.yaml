@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 #
-# Builds, packages and publishes a berth release. `goreleaser release --clean`
+# Builds, packages and publishes a treerig release. `goreleaser release --clean`
 # runs on a v* tag (.github/workflows/release.yml); `goreleaser release
 # --snapshot --clean --skip=sign` runs on every pull request and on every push
 # to main (the release-snapshot job in .github/workflows/go.yml) and publishes
@@ -10,20 +10,20 @@
 #
 # Homebrew is not configured here: the tap's formula builds from the source
 # archive below, so its bump is the release workflow's homebrew-tap job, the
-# template is packaging/homebrew/berth.rb, and packaging/verify-snapshot.sh
-# renders a snapshot's formula into dist/berth.rb.
+# template is packaging/homebrew/treerig.rb, and packaging/verify-snapshot.sh
+# renders a snapshot's formula into dist/treerig.rb.
 version: 2
 
-project_name: berth
+project_name: treerig
 
 before:
   hooks:
     - sh packaging/completions.sh
 
 builds:
-  - id: berth
-    main: ./cmd/berth
-    binary: berth
+  - id: treerig
+    main: ./cmd/treerig
+    binary: treerig
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin]
@@ -32,17 +32,17 @@ builds:
       - -trimpath
     # The same ldflags target the version rules in release.yml validate.
     ldflags:
-      - -s -w -X github.com/sofired/berth/internal/brand.Version={{ .Version }}
+      - -s -w -X github.com/sofired/treerig/internal/brand.Version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 # Every file in an archive or package carries the commit's date and root
 # ownership, so two builds of one commit produce the same bytes.
 archives:
-  - id: berth
-    ids: [berth]
+  - id: treerig
+    ids: [treerig]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    # install.sh depends on the file name above and on `berth` sitting at the
+    # install.sh depends on the file name above and on `treerig` sitting at the
     # archive's root (docs/design/release.md).
     wrap_in_directory: false
     builds_info:
@@ -74,14 +74,14 @@ source:
   prefix_template: "{{ .ProjectName }}-{{ .Version }}/"
 
 nfpms:
-  - id: berth
-    ids: [berth]
-    package_name: berth
+  - id: treerig
+    ids: [treerig]
+    package_name: treerig
     # The package's own build time (rpm, deb) and directory dates.
     mtime: "{{ .CommitDate }}"
     file_name_template: "{{ .ConventionalFileName }}"
     vendor: Southern Fired Software, LLC
-    homepage: https://github.com/sofired/berth
+    homepage: https://github.com/sofired/treerig
     maintainer: Southern Fired Software, LLC <packages@sofired.io>
     description: |-
       Give every Git worktree a durable identity, an isolated home, and a routed URL.
@@ -92,36 +92,36 @@ nfpms:
     bindir: /usr/bin
     recommends: [git]
     contents:
-      - src: completions/berth.bash
-        dst: /usr/share/bash-completion/completions/berth
+      - src: completions/treerig.bash
+        dst: /usr/share/bash-completion/completions/treerig
         file_info: &package_info
           owner: root
           group: root
           mode: 0644
           mtime: "{{ .CommitDate }}"
-      - src: completions/_berth
-        dst: /usr/share/zsh/site-functions/_berth
+      - src: completions/_treerig
+        dst: /usr/share/zsh/site-functions/_treerig
         file_info: *package_info
-      - src: completions/berth.fish
-        dst: /usr/share/fish/vendor_completions.d/berth.fish
+      - src: completions/treerig.fish
+        dst: /usr/share/fish/vendor_completions.d/treerig.fish
         file_info: *package_info
       # Debian wants a machine-readable copyright file that points at the
       # system's copy of the license text.
       - src: packaging/debian/copyright
-        dst: /usr/share/doc/berth/copyright
+        dst: /usr/share/doc/treerig/copyright
         packager: deb
         file_info: *package_info
       - src: LICENSE
-        dst: /usr/share/licenses/berth/LICENSE
+        dst: /usr/share/licenses/treerig/LICENSE
         type: license
         packager: rpm
         file_info: *package_info
       - src: LICENSE
-        dst: /usr/share/licenses/berth/LICENSE
+        dst: /usr/share/licenses/treerig/LICENSE
         packager: apk
         file_info: *package_info
       - src: NOTICE
-        dst: /usr/share/doc/berth/NOTICE
+        dst: /usr/share/doc/treerig/NOTICE
         file_info: *package_info
 
 checksum:
@@ -179,4 +179,4 @@ release:
   footer: |
     Verify a download against `checksums.txt`, its Sigstore bundle and the
     build provenance attestation as the
-    [README](https://github.com/sofired/berth#verifying-a-download) describes.
+    [README](https://github.com/sofired/treerig#verifying-a-download) describes.

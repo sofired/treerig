@@ -1,11 +1,11 @@
 package config
 
-import "github.com/sofired/berth/internal/shape"
+import "github.com/sofired/treerig/internal/shape"
 
 // decodeConfig converts a [shape.Obj] that rootSchema has already validated
 // and defaulted into the Config struct. shape works in terms of any, the way
 // zod works in terms of unknown; this is the one place that trusts the
-// schema enough to type-assert it back into berth's own types.
+// schema enough to type-assert it back into treerig's own types.
 func decodeConfig(obj *shape.Obj) Config {
 	var cfg Config
 	if v, ok := obj.Get("project"); ok {

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
 )
 
 // answering is a runner whose every call succeeds (in the run.Runner sense)

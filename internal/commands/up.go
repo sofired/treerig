@@ -6,17 +6,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // Router is what `up` needs from the shared router. Up hands
@@ -85,7 +85,7 @@ func Up(ctx context.Context, env *Env, options UpOptions) error {
 }
 
 // realRouter is the shared router `up` and `dev` start, built from env and
-// from cctx's own resolution of the berth root and port, not a second one
+// from cctx's own resolution of the treerig root and port, not a second one
 // (found in review of #79): the URL table `up` prints and the router it
 // starts must never read settings.toml separately.
 func realRouter(env *Env, cctx *CommandContext) (Router, error) {
@@ -243,7 +243,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 
 	// serviceRoutes (named apart from the mutation closure's own routes,
 	// routeSpecsFromConfig below) feeds both urls, printed below, and the
-	// hooks' own BERTH_URL/BERTH_SERVICE_URL_<NAME> (#28) — computed once.
+	// hooks' own TREERIG_URL/TREERIG_SERVICE_URL_<NAME> (#28) — computed once.
 	serviceRoutes := worktree.Routes(cctx.Loaded.Config.Service, ref.Slug, registration.Domain, routerSvc.Port())
 	urls := urlsFromRoutes(cctx.Loaded.Config.Service, serviceRoutes)
 
@@ -396,7 +396,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		// unconditionally — not only when this worktree currently declares a
 		// [service.<name>] route: a worktree whose last route was dropped
 		// since the last `up` must lose its stale file. Each file targets the
-		// service's loopback port (berth-loopback:<port>), which was
+		// service's loopback port (treerig-loopback:<port>), which was
 		// committed to the registration above, before any file names it
 		// (docs/design/routing.md, decision 9). New files are written before
 		// old ones are removed, and only the ones no longer current are

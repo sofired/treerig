@@ -16,16 +16,16 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // portsWorld is a fresh world whose config routes api and mail on port 8080,
@@ -76,7 +76,7 @@ func (pw *portsWorld) ref(t *testing.T) worktree.Ref {
 func (pw *portsWorld) overrideBytes(t *testing.T) []byte {
 	t.Helper()
 	ref := pw.ref(t)
-	data, err := os.ReadFile(filepath.Join(layout.WorktreeLayout(pw.ControlHome, ref.RepositoryID, ref.WorktreeID).Home, "berth.override.yaml"))
+	data, err := os.ReadFile(filepath.Join(layout.WorktreeLayout(pw.ControlHome, ref.RepositoryID, ref.WorktreeID).Home, "treerig.override.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestUpAllocatesLoopbackPorts(t *testing.T) {
 		}
 	})
 
-	t.Run("gives hooks BERTH_SERVICE_PORT_<NAME> beside the unchanged URL variables", func(t *testing.T) {
+	t.Run("gives hooks TREERIG_SERVICE_PORT_<NAME> beside the unchanged URL variables", func(t *testing.T) {
 		pw := newPortsWorld(t)
 		pw.tc.Loaded.Config.Hooks = config.Hooks{Prepare: ns("./hooks/prepare")}
 		var mu sync.Mutex
@@ -161,12 +161,12 @@ func TestUpAllocatesLoopbackPorts(t *testing.T) {
 		ports := pw.recordPorts(t)
 		mu.Lock()
 		defer mu.Unlock()
-		if !containsEnv(hookEnv, "BERTH_SERVICE_PORT_API", strconv.Itoa(ports["api"])) ||
-			!containsEnv(hookEnv, "BERTH_SERVICE_PORT_MAIL", strconv.Itoa(ports["mail"])) {
+		if !containsEnv(hookEnv, "TREERIG_SERVICE_PORT_API", strconv.Itoa(ports["api"])) ||
+			!containsEnv(hookEnv, "TREERIG_SERVICE_PORT_MAIL", strconv.Itoa(ports["mail"])) {
 			t.Errorf("hook env lacks the ports %v: %v", ports, hookEnv)
 		}
-		if !containsEnv(hookEnv, "BERTH_URL", "http://feature-login.acme.localhost") ||
-			!containsEnv(hookEnv, "BERTH_SERVICE_URL_MAIL", "http://mail.feature-login.acme.localhost") {
+		if !containsEnv(hookEnv, "TREERIG_URL", "http://feature-login.acme.localhost") ||
+			!containsEnv(hookEnv, "TREERIG_SERVICE_URL_MAIL", "http://mail.feature-login.acme.localhost") {
 			t.Errorf("the URL variables changed: %v", hookEnv)
 		}
 	})
@@ -198,7 +198,7 @@ func TestUpAllocatesLoopbackPorts(t *testing.T) {
 		}
 	})
 
-	t.Run("releases the port of a service removed from berth.toml", func(t *testing.T) {
+	t.Run("releases the port of a service removed from treerig.toml", func(t *testing.T) {
 		pw := newPortsWorld(t)
 		if _, err := pw.up(t, commands.UpOptions{}); err != nil {
 			t.Fatal(err)
@@ -283,7 +283,7 @@ func TestUpRefusesAHeldPort(t *testing.T) {
 
 	t.Run("names a container that is not this worktree's, found by its labels", func(t *testing.T) {
 		pw, port := firstUp(t)
-		// Named like this worktree's own containers, but carrying no berth labels.
+		// Named like this worktree's own containers, but carrying no treerig labels.
 		pw.Docker.PublishForeign("acme-api-1", port)
 		pw.Probe.Occupy(port)
 		before := composeUps(pw)
@@ -296,13 +296,13 @@ func TestUpRefusesAHeldPort(t *testing.T) {
 		}
 	})
 
-	t.Run("names another berth worktree's container as such", func(t *testing.T) {
+	t.Run("names another treerig worktree's container as such", func(t *testing.T) {
 		pw, port := firstUp(t)
 		other := worktree.Ref{RepositoryID: "99999999-9999-4999-8999-999999999999", WorktreeID: "88888888-8888-4888-8888-888888888888", Slug: "other"}
 		pw.Docker.PublishManaged(other, brand.LabelNamespace, "other-api-1", port)
 		pw.Probe.Occupy(port)
 		_, err := pw.up(t, commands.UpOptions{})
-		wantErr(t, err, `held by container other-api-1 \(belongs to another berth worktree\)`)
+		wantErr(t, err, `held by container other-api-1 \(belongs to another treerig worktree\)`)
 	})
 
 	t.Run("names another worktree that records the port", func(t *testing.T) {
@@ -460,7 +460,7 @@ func TestUpReallocatePort(t *testing.T) {
 	t.Run("refuses a service that is not routed, before anything else", func(t *testing.T) {
 		pw := newPortsWorld(t)
 		_, err := pw.up(t, commands.UpOptions{ReallocatePorts: []string{"ghost"}})
-		wantErr(t, err, `--reallocate-port ghost: no such routed service\. berth\.toml routes api, mail\.`)
+		wantErr(t, err, `--reallocate-port ghost: no such routed service\. treerig\.toml routes api, mail\.`)
 		if pw.router.Ensures() != 0 {
 			t.Fatal("the router was ensured before the flag was checked")
 		}
@@ -558,22 +558,22 @@ func TestPortReporting(t *testing.T) {
 		}
 	})
 
-	t.Run("run gives a command BERTH_SERVICE_PORT_<NAME> for a service with a port", func(t *testing.T) {
+	t.Run("run gives a command TREERIG_SERVICE_PORT_<NAME> for a service with a port", func(t *testing.T) {
 		rw := newRunWorld(t, twoCommands())
 		rw.SetPorts(rw.ref, map[string]int{"api": 30010})
 		if err := commands.RunWithContext(ctx, rw.tc.CommandContext, commands.RunOptions{Name: "plan"}); err != nil {
 			t.Fatal(err)
 		}
 		env := rw.started()[0].Env
-		if !containsEnv(env, "BERTH_SERVICE_PORT_API", "30010") {
+		if !containsEnv(env, "TREERIG_SERVICE_PORT_API", "30010") {
 			t.Errorf("env = %v", env)
 		}
 		for _, entry := range env {
-			if strings.HasPrefix(entry, "BERTH_SERVICE_PORT_MAIL=") {
+			if strings.HasPrefix(entry, "TREERIG_SERVICE_PORT_MAIL=") {
 				t.Errorf("mail has no port but got %s", entry)
 			}
 		}
-		if !containsEnv(env, "BERTH_SERVICE_URL_API", "http://feature-login.acme.localhost") {
+		if !containsEnv(env, "TREERIG_SERVICE_URL_API", "http://feature-login.acme.localhost") {
 			t.Errorf("env = %v", env)
 		}
 	})

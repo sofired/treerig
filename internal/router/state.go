@@ -5,7 +5,7 @@ package router
 // checkout index is published on its own loopback port, and in host mode the
 // ping entrypoint listens on one. Both are allocated once, from the same
 // range as routed services' ports, under the router lock, and stored in one
-// file under the berth root. Worktree allocation reads the file and treats
+// file under the treerig root. Worktree allocation reads the file and treats
 // both as reserved (registry.PortPlan.Reserved).
 
 import (
@@ -16,12 +16,12 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // stateVersion is the version of the state file's shape.
@@ -62,7 +62,7 @@ func ReadState(state layout.RouterLayout) (State, bool, error) {
 		}
 		return State{}, false, clierr.Newf("Could not read the router state %s: %s", state.StateFile, err)
 	}
-	// A newer berth's file is judged by its version alone: the rest of its
+	// A newer treerig's file is judged by its version alone: the rest of its
 	// shape is not this build's to read, and "remove it" would throw away
 	// ports a newer router still holds.
 	if verdict, found := stateformat.JSON(data, stateVersion); verdict == stateformat.FromNewer {

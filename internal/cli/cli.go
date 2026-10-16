@@ -1,5 +1,5 @@
 // Package cli is the command line: argument parsing, help rendering and
-// error reporting for the berth binary, built on spf13/cobra.
+// error reporting for the treerig binary, built on spf13/cobra.
 package cli
 
 import (
@@ -9,13 +9,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // startLifecycle is the process's one signal handler: the first SIGINT, SIGTERM or
@@ -29,7 +29,7 @@ var startLifecycle = func(log logger.Logger) *lifecycle.Lifecycle {
 	return life
 }
 
-// Main is the CLI's entry point for every caller except cmd/berth's own
+// Main is the CLI's entry point for every caller except cmd/treerig's own
 // main(): parse args, dispatch to the matching verb, and report whatever
 // error it returns through a single top-level catch. args is the full argv
 // with args[0] the program path — the way os.Args is shaped.
@@ -42,15 +42,15 @@ var startLifecycle = func(log logger.Logger) *lifecycle.Lifecycle {
 // `worktree remove` in-process. A go test binary handed a real Exec would
 // replace itself with a copy of itself and re-run with argv `worktree
 // remove --yes` — no -test.run filter — which restarts the whole suite in
-// place rather than the real berth CLI; #7's own fix shipped this bug once
+// place rather than the real treerig CLI; #7's own fix shipped this bug once
 // already; see MainProcess and internal/cli's relocation tests.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv layout.Getenv) int {
 	return runMain(args, stdin, stdout, stderr, getenv, nil, nil, nil)
 }
 
 // MainProcess is Main for the one caller allowed to hand `worktree remove`
-// the primitives that replace this process's image: cmd/berth's own main().
-// Only there is "this process" guaranteed to be a real berth build rather
+// the primitives that replace this process's image: cmd/treerig's own main().
+// Only there is "this process" guaranteed to be a real treerig build rather
 // than a go test binary, or anything else that happens to link this
 // package — the same "only the entry point reads the environment" spirit
 // AGENTS.md asks of everything else this build reads from its process.
@@ -130,7 +130,7 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 
 // report prints an expected failure (clierr.Expected)'s message and, if it
 // hid others, its cause and each suppressed error; anything else
-// additionally hints at BERTH_DEBUG unless it is already set. With debug on,
+// additionally hints at TREERIG_DEBUG unless it is already set. With debug on,
 // the error's cause chain is printed via Logger.Raw either way (see
 // errorChain).
 func report(console *logger.Console, getenv layout.Getenv, err error) {
@@ -163,7 +163,7 @@ func report(console *logger.Console, getenv layout.Getenv, err error) {
 	}
 }
 
-// isDebug is BERTH_DEBUG, trimmed and compared case-insensitively against
+// isDebug is TREERIG_DEBUG, trimmed and compared case-insensitively against
 // four accepted spellings.
 func isDebug(getenv layout.Getenv) bool {
 	raw, _ := getenv(brand.EnvPrefix + "_DEBUG")
@@ -175,7 +175,7 @@ func isDebug(getenv layout.Getenv) bool {
 	}
 }
 
-// errorChain is what BERTH_DEBUG prints in place of a stack trace: err's
+// errorChain is what TREERIG_DEBUG prints in place of a stack trace: err's
 // Unwrap chain, one line per link with its Go type — still filtered the way
 // logger.Console.Raw filters everything else this tool prints. An expected
 // failure with no cause is its message alone, already printed, so it adds

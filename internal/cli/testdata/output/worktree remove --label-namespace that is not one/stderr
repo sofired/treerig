@@ -1,1 +1,1 @@
-[berth] ERROR: --label-namespace must look like a reverse domain, e.g. dev.example, not "Not One".
+[treerig] ERROR: --label-namespace must look like a reverse domain, e.g. dev.example, not "Not One".

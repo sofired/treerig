@@ -8,20 +8,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
-// newerMessage is the refusal a store gives for state a newer berth wrote
+// newerMessage is the refusal a store gives for state a newer treerig wrote
 // (docs/design/state.md), for subject, which is "the ..." plus a path.
 func newerMessage(subject, found string, supported int) string {
-	return "Refusing to use " + subject + ": it is format " + found + ", written by a newer berth, and this build reads format " +
-		string(rune('0'+supported)) + ". Upgrade berth, then run this again."
+	return "Refusing to use " + subject + ": it is format " + found + ", written by a newer treerig, and this build reads format " +
+		string(rune('0'+supported)) + ". Upgrade treerig, then run this again."
 }
 
 // TestIdentityMarkerFormat covers the version in the identity markers: written
 // as a format line before the UUID, a newer one refused with the upgrade
-// instruction, and a marker without the line treated as not one berth wrote.
+// instruction, and a marker without the line treated as not one treerig wrote.
 func TestIdentityMarkerFormat(t *testing.T) {
 	ctx := context.Background()
 	const id = "2b41d9d4-ed88-49c1-be9c-5439bdf6a431"
@@ -34,8 +34,8 @@ func TestIdentityMarkerFormat(t *testing.T) {
 		}
 		pattern := regexp.MustCompile(`^format 1\n[0-9a-f-]{36}\n$`)
 		for path, want := range map[string]string{
-			filepath.Join(identity.GitCommonDir, "berth", "repository-id"): identity.RepositoryID,
-			filepath.Join(identity.GitDir, "berth", "worktree-id"):         identity.WorktreeID,
+			filepath.Join(identity.GitCommonDir, "treerig", "repository-id"): identity.RepositoryID,
+			filepath.Join(identity.GitDir, "treerig", "worktree-id"):         identity.WorktreeID,
 		} {
 			data, err := os.ReadFile(path)
 			if err != nil || !pattern.Match(data) || !strings.HasSuffix(string(data), want+"\n") {
@@ -51,7 +51,7 @@ func TestIdentityMarkerFormat(t *testing.T) {
 	})
 
 	for _, which := range []string{"repository-id", "worktree-id"} {
-		t.Run("refuses a "+which+" marker a newer berth wrote, leaving it as it is", func(t *testing.T) {
+		t.Run("refuses a "+which+" marker a newer treerig wrote, leaving it as it is", func(t *testing.T) {
 			f := newIdentityFixture(t, "feature/newer")
 			identity, err := f.identities.Ensure(ctx, f.root)
 			if err != nil {
@@ -61,7 +61,7 @@ func TestIdentityMarkerFormat(t *testing.T) {
 			if which == "repository-id" {
 				dir = identity.GitCommonDir
 			}
-			marker := filepath.Join(dir, "berth", which)
+			marker := filepath.Join(dir, "treerig", which)
 			// A newer layout is judged by its first line alone.
 			newer := "format 2\n{\"id\": \"" + id + "\"}\n"
 			if err := os.WriteFile(marker, []byte(newer), 0o600); err != nil {
@@ -89,13 +89,13 @@ func TestIdentityMarkerFormat(t *testing.T) {
 		})
 	}
 
-	t.Run("refuses to remove a worktree marker a newer berth wrote", func(t *testing.T) {
+	t.Run("refuses to remove a worktree marker a newer treerig wrote", func(t *testing.T) {
 		f := newIdentityFixture(t, "feature/newer-remove")
 		identity, err := f.identities.Ensure(ctx, f.root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		marker := filepath.Join(identity.GitDir, "berth", "worktree-id")
+		marker := filepath.Join(identity.GitDir, "treerig", "worktree-id")
 		if err := os.WriteFile(marker, []byte("format 9\n"+id+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -124,7 +124,7 @@ func TestIdentityMarkerFormat(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			marker := filepath.Join(identity.GitDir, "berth", "worktree-id")
+			marker := filepath.Join(identity.GitDir, "treerig", "worktree-id")
 			if err := os.WriteFile(marker, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -292,7 +292,7 @@ func TestMovingAnIdentityMarkerAside(t *testing.T) {
 	if err != nil || identity == nil {
 		t.Fatalf("Inspect: %v, %v", identity, err)
 	}
-	marker := filepath.Join(identity.GitDir, "berth", "worktree-id")
+	marker := filepath.Join(identity.GitDir, "treerig", "worktree-id")
 	if err := os.Rename(marker, marker+".aside"); err != nil {
 		t.Fatal(err)
 	}

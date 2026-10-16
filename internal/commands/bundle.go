@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // incompleteMarker is the file `backup` writes into a bundle before its hook
@@ -71,7 +71,7 @@ func Restore(ctx context.Context, env *Env, opts RestoreOptions) error {
 // directory that holds anything is refused, so a second backup can never be
 // mixed into the first. With no directory given it is
 // <worktree home>/backups/<UTC timestamp>: the worktree's home is already the
-// private (0700) place berth keeps that worktree's own state, and a bundle
+// private (0700) place treerig keeps that worktree's own state, and a bundle
 // holds that worktree's data, so it inherits the same protection and needs no
 // location of the user's choosing. The price is that `worktree remove`
 // deletes the home, bundles included; a backup meant to outlive its
@@ -225,7 +225,7 @@ type preparedBundle struct {
 }
 
 // discard undoes a backup that wrote nothing: it removes the marker, and the
-// directory too when berth created it. It reports whether the directory is
+// directory too when treerig created it. It reports whether the directory is
 // clean, that is, whether it held nothing of the hook's; a directory that
 // holds anything keeps its marker.
 func (b preparedBundle) discard() bool {
@@ -249,7 +249,7 @@ func (b preparedBundle) discard() bool {
 }
 
 // prepareBundle resolves the bundle directory the hook is handed and makes it
-// ready for stage. A relative dir is taken from the working directory berth
+// ready for stage. A relative dir is taken from the working directory treerig
 // was run from, not the project root the hook runs in, so the hook receives
 // the directory the user meant. backup creates it (or accepts an empty one);
 // restore requires it to exist already, to be a finished bundle, and says so

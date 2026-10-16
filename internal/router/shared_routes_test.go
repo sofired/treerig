@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // mapSharedRegistrations is a router.SharedRegistrations answering from a
@@ -54,7 +54,7 @@ func TestSharedRouteFiles(t *testing.T) {
 		if router.SharedRouteName(fragRepoA, "mailpit") != name {
 			t.Errorf("SharedRouteName = %s", router.SharedRouteName(fragRepoA, "mailpit"))
 		}
-		for _, want := range []string{name, "Host(`mailpit.shared.acme.localhost`)", "http://berth-loopback:30010"} {
+		for _, want := range []string{name, "Host(`mailpit.shared.acme.localhost`)", "http://treerig-loopback:30010"} {
 			if !strings.Contains(string(data), want) {
 				t.Errorf("file lacks %q:\n%s", want, data)
 			}
@@ -175,7 +175,7 @@ func TestSharedRouteFiles(t *testing.T) {
 			t.Fatalf("RepairSharedRoutes = %+v, %v", repaired, err)
 		}
 		data, _ := os.ReadFile(fragment.Path)
-		if !strings.Contains(string(data), "http://berth-loopback:30020") || strings.Contains(string(data), "30010") ||
+		if !strings.Contains(string(data), "http://treerig-loopback:30020") || strings.Contains(string(data), "30010") ||
 			!strings.Contains(string(data), "Host(`mailpit.shared.acme.localhost`)") {
 			t.Errorf("rewritten file:\n%s", data)
 		}

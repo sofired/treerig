@@ -1,1 +1,1 @@
-[berth] ERROR: "berth route add" takes exactly 1 argument, the route's name, got 2: "web" "api"
+[treerig] ERROR: "treerig route add" takes exactly 1 argument, the route's name, got 2: "web" "api"

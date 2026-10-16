@@ -13,15 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/shared"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/shared"
 )
 
 // sharedUp runs `shared up` in tc.
@@ -31,10 +31,10 @@ func (w *sharedWorld) sharedUp(tc *commandstest.TestContext, options commands.Sh
 
 // sharedDown runs `shared down` in tc with a non-interactive Env.
 func (w *sharedWorld) sharedDown(tc *commandstest.TestContext, options commands.SharedDownOptions) error {
-	return commands.SharedDownWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "berth"}, options)
+	return commands.SharedDownWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "treerig"}, options)
 }
 
-// downgrade is tc with no usable berth.toml, as `shared down` may run.
+// downgrade is tc with no usable treerig.toml, as `shared down` may run.
 func downgrade(tc *commandstest.TestContext) *commandstest.TestContext {
 	bare := *tc.CommandContext
 	bare.Loaded = nil
@@ -71,7 +71,7 @@ func TestSharedUp(t *testing.T) {
 			t.Fatalf("unregistered: %v", err)
 		}
 		w.mustUp(t, tc)
-		if err := w.sharedUp(tc, commands.SharedUpOptions{Names: []string{"nope"}}); err == nil || !strings.Contains(err.Error(), "No shared service called nope. berth.toml declares mailpit.") {
+		if err := w.sharedUp(tc, commands.SharedUpOptions{Names: []string{"nope"}}); err == nil || !strings.Contains(err.Error(), "No shared service called nope. treerig.toml declares mailpit.") {
 			t.Fatalf("unknown name: %v", err)
 		}
 		tc.Loaded.Config.Shared = nil
@@ -116,7 +116,7 @@ func TestSharedUp(t *testing.T) {
 
 		err := w.sharedUp(second, commands.SharedUpOptions{})
 		if err == nil || !strings.Contains(err.Error(), "mailpit is running with a different definition than this worktree's (started by feature-login.acme.localhost)") ||
-			!strings.Contains(err.Error(), "berth shared up --recreate mailpit") {
+			!strings.Contains(err.Error(), "treerig shared up --recreate mailpit") {
 			t.Fatalf("shared up: %v", err)
 		}
 		if w.mailpit(t, first) != id || w.sharedUps(t, first) != 1 {
@@ -267,7 +267,7 @@ func TestRemoveDisconnectsTheStackUnderTheCommandsNamespaceFromTheWorktreesOwnNe
 
 // TestRemoveOfAnotherRepositorysWorktreeFindsItsStackUnderTheRecordedNamespace
 // pins the other half of the namespace split: a worktree of another
-// repository is removed from a checkout whose berth.toml says nothing about
+// repository is removed from a checkout whose treerig.toml says nothing about
 // that repository's stack, so the stack is read under the namespace the
 // target recorded, and each side is still proven by its own labels.
 func TestRemoveOfAnotherRepositorysWorktreeFindsItsStackUnderTheRecordedNamespace(t *testing.T) {
@@ -309,7 +309,7 @@ func TestRemoveOfAnotherRepositorysWorktreeFindsItsStackUnderTheRecordedNamespac
 	}
 	// The hint must not suggest `shared down` here: run from this checkout
 	// it would act on this repository's stack, not the removed one's.
-	if out := lines(here); !strings.Contains(out, "that repository's shared services are still running (mailpit). Run 'berth shared down' from a checkout of that repository") {
+	if out := lines(here); !strings.Contains(out, "that repository's shared services are still running (mailpit). Run 'treerig shared down' from a checkout of that repository") {
 		t.Errorf("no hint naming the other repository's checkout:\n%s", out)
 	}
 }
@@ -328,7 +328,7 @@ func TestReconnectSweepSkipsABusyWorktree(t *testing.T) {
 	markers := procid.Markers{Project: "x", WorktreeID: two.Registration.WorktreeID}
 	op, _ := lock.WorktreeScopes(w.ControlHome, two.Registration.RepositoryID, two.Registration.WorktreeID, two.Registration.Slug, markers)
 	holder := lock.New(op, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-	if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+	if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -376,7 +376,7 @@ func TestSharedPortReallocation(t *testing.T) {
 		before, _ := store.FindShared("mailpit")
 
 		err := w.sharedUp(tc, commands.SharedUpOptions{ReallocatePorts: []string{"mailpit:1025"}})
-		if err == nil || !strings.Contains(err.Error(), "mailpit is running") || !strings.Contains(err.Error(), "berth shared down mailpit") {
+		if err == nil || !strings.Contains(err.Error(), "mailpit is running") || !strings.Contains(err.Error(), "treerig shared down mailpit") {
 			t.Fatalf("shared up: %v", err)
 		}
 		after, _ := store.FindShared("mailpit")
@@ -443,7 +443,7 @@ func TestSharedDown(t *testing.T) {
 		if record, _ := tc.Registry.Store(result.Registration.RepositoryID).FindShared("mailpit"); record == nil || len(record.Ports) != 2 {
 			t.Fatalf("record = %+v", record)
 		}
-		if !strings.Contains(lines(tc), "1 worktree(s) use mailpit, which is no longer running; 'berth up' or 'berth shared up' starts it again.") {
+		if !strings.Contains(lines(tc), "1 worktree(s) use mailpit, which is no longer running; 'treerig up' or 'treerig shared up' starts it again.") {
 			t.Errorf("output:\n%s", lines(tc))
 		}
 		// The worktree's own resources are untouched.
@@ -535,12 +535,12 @@ func TestSharedDown(t *testing.T) {
 		}
 	})
 
-	t.Run("works with no berth.toml at all, finding everything by labels", func(t *testing.T) {
+	t.Run("works with no treerig.toml at all, finding everything by labels", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
 		result := w.mustUp(t, tc)
 		bare := downgrade(tc)
-		if err := commands.SharedDownWithContext(context.Background(), bare.CommandContext, &commands.Env{CommandName: "berth"}, commands.SharedDownOptions{Volumes: true, Yes: true}); err != nil {
+		if err := commands.SharedDownWithContext(context.Background(), bare.CommandContext, &commands.Env{CommandName: "treerig"}, commands.SharedDownOptions{Volumes: true, Yes: true}); err != nil {
 			t.Fatalf("shared down: %v", err)
 		}
 		for kind, ids := range w.sharedResources() {
@@ -553,16 +553,16 @@ func TestSharedDown(t *testing.T) {
 		}
 	})
 
-	t.Run("looks under --label-namespace when there is no berth.toml to say", func(t *testing.T) {
+	t.Run("looks under --label-namespace when there is no treerig.toml to say", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.contextNamespace("", ns("dev.example"))
 		w.mustUp(t, tc)
 		bare := downgrade(tc)
-		env := &commands.Env{CommandName: "berth"}
+		env := &commands.Env{CommandName: "treerig"}
 		if err := commands.SharedDownWithContext(context.Background(), bare.CommandContext, env, commands.SharedDownOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(lines(bare), "No shared services of this repository to stop (Docker label namespace dev.berth)") {
+		if !strings.Contains(lines(bare), "No shared services of this repository to stop (Docker label namespace dev.treerig)") {
 			t.Fatalf("output:\n%s", lines(bare))
 		}
 		if len(w.Docker.Find("container", map[string]string{"dev.example.shared": "true"})) != 1 {
@@ -756,7 +756,7 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		}
 	})
 
-	t.Run("is left out of status --json when berth.toml declares no shared services", func(t *testing.T) {
+	t.Run("is left out of status --json when treerig.toml declares no shared services", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		tc := w.Context("", acme, nil)
@@ -866,7 +866,7 @@ func TestUnlockShared(t *testing.T) {
 	t.Run("refuses a live holder", func(t *testing.T) {
 		_, tc, scope := setup(t)
 		holder := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer holder.Release()
@@ -877,7 +877,7 @@ func TestUnlockShared(t *testing.T) {
 	t.Run("clears the lock of a holder proven gone, through the same Clear checks, and nothing else", func(t *testing.T) {
 		_, tc, scope := setup(t)
 		lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Release(); err != nil {
@@ -903,7 +903,7 @@ func TestUnlockShared(t *testing.T) {
 		}
 		// The shared lock works again.
 		again := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := again.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := again.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatalf("the lock is still stuck: %v", err)
 		}
 		_ = again.Release()
@@ -912,7 +912,7 @@ func TestUnlockShared(t *testing.T) {
 	t.Run("refuses a holder it cannot check without --holder-unverifiable", func(t *testing.T) {
 		_, tc, scope := setup(t)
 		lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		_ = lk.Release()
@@ -930,35 +930,35 @@ func TestUnlockShared(t *testing.T) {
 		}
 	})
 
-	t.Run("runs where berth.toml is broken, since recovery needs only labels and records", func(t *testing.T) {
+	t.Run("runs where treerig.toml is broken, since recovery needs only labels and records", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		file := filepath.Join(dir, "berth.toml")
+		file := filepath.Join(dir, "treerig.toml")
 		if err := os.WriteFile(file, []byte("not = [valid"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		home := registrytest.TempDir(t)
 		getenv := func(key string) (string, bool) {
 			switch key {
-			case "BERTH_HOME":
-				return filepath.Join(home, "berth"), true
+			case "TREERIG_HOME":
+				return filepath.Join(home, "treerig"), true
 			case "HOME":
 				return filepath.Join(home, "user"), true
 			}
 			return "", false
 		}
-		env := &commands.Env{CommandName: "berth", Logger: &logger.Recording{}, Getenv: getenv, Cwd: dir, ConfigPath: file, Runner: noRunner{t}}
+		env := &commands.Env{CommandName: "treerig", Logger: &logger.Recording{}, Getenv: getenv, Cwd: dir, ConfigPath: file, Runner: noRunner{t}}
 		err := commands.Unlock(context.Background(), env, commands.UnlockOptions{Shared: true, Identifier: "nosuch"})
 		wantErr(t, err, `^No worktree is registered as nosuch\.`)
 	})
 
 	t.Run("cannot be combined with --registry or --router", func(t *testing.T) {
-		err := commands.Unlock(context.Background(), &commands.Env{CommandName: "berth"}, commands.UnlockOptions{Shared: true, Registry: true})
+		err := commands.Unlock(context.Background(), &commands.Env{CommandName: "treerig"}, commands.UnlockOptions{Shared: true, Registry: true})
 		wantErr(t, err, `--shared cannot be combined with --registry or --router`)
 	})
 }
 
 func TestRemovingTheLastWorktreeHintsAtSharedDown(t *testing.T) {
-	hint := "its shared services are still running (mailpit). 'berth shared down' stops them"
+	hint := "its shared services are still running (mailpit). 'treerig shared down' stops them"
 	t.Run("when shared services are still running", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
@@ -1029,7 +1029,7 @@ func TestRemovingTheLastWorktreeHintsAtSharedDown(t *testing.T) {
 		otc := other.context("")
 		other.mustUp(t, otc)
 		// The two disconnects before the first reap each list the shared containers; the hint's probe is the third.
-		other.Docker.FailCallAfter("label=dev.berth.shared=true", 2, "Error response from daemon: i/o timeout", 1, -1)
+		other.Docker.FailCallAfter("label=dev.treerig.shared=true", 2, "Error response from daemon: i/o timeout", 1, -1)
 		if _, err := remove(t, otc, approved(commands.RemoveOptions{})); err != nil {
 			t.Fatalf("a failed probe failed the removal: %v", err)
 		}

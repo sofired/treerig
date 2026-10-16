@@ -12,10 +12,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 const (

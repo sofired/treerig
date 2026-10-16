@@ -15,14 +15,14 @@ import (
 	"slices"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // RouteModes reads the proxy's mode, which decides whether a listener on ::1
@@ -179,7 +179,7 @@ func hostRouteURL(cctx *CommandContext, record registry.RegisteredWorktree, rout
 // A name is refused when it is a [service.<name>] table's, a shared service's
 // (decision 15) or another host route's; a place (subdomain and path) when a
 // service or another host route already answers there; a port when it is the
-// router's own or a port berth pinned for a service.
+// router's own or a port treerig pinned for a service.
 func (c *CommandContext) checkNewHostRoute(record registry.RegisteredWorktree, route registry.HostRoute) error {
 	cfg := c.Loaded.Config
 	for _, service := range cfg.Service {

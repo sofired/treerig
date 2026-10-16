@@ -12,7 +12,7 @@ import (
 // toml11Uses reports where src uses TOML 1.1 syntax that TOML 1.0 readers
 // (Taplo, Python's tomllib) reject, one "line N: what" per finding: a line
 // break or a trailing comma inside an inline table, and the \e and \xHH
-// escapes. berth's own parser, BurntSushi/toml, accepts TOML 1.1, so parsing
+// escapes. treerig's own parser, BurntSushi/toml, accepts TOML 1.1, so parsing
 // an example with it cannot tell the two apart; this reads the source.
 //
 // It is a best-effort scanner, not a parser: it knows comments, the four
@@ -117,18 +117,18 @@ func TestToml11Uses(t *testing.T) {
 	}
 }
 
-// TestExamplesAreToml10 holds berth.example.toml and every toml block of the
+// TestExamplesAreToml10 holds treerig.example.toml and every toml block of the
 // README and of docs/, at any depth, to TOML 1.0 syntax, as the README
 // promises, so Taplo and Python's tomllib read them. A block must also parse,
 // unless its fence says ```toml invalid: that is for a block that shows a
 // mistake or elides part of a file, and it still has to keep to 1.0 syntax.
 func TestExamplesAreToml10(t *testing.T) {
 	root := filepath.Join("..", "..")
-	example, err := os.ReadFile(filepath.Join(root, "berth.example.toml"))
+	example, err := os.ReadFile(filepath.Join(root, "treerig.example.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Run("berth.example.toml", func(t *testing.T) {
+	t.Run("treerig.example.toml", func(t *testing.T) {
 		for _, use := range toml11Uses(string(example)) {
 			t.Errorf("uses TOML 1.1 syntax: %s", use)
 		}

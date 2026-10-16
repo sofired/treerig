@@ -110,12 +110,12 @@ func TestParsing(t *testing.T) {
 	})
 
 	t.Run("offers each whole token of a ps scan as both an argument and an environment entry, skipping the excluded", func(t *testing.T) {
-		text := "  10 docker compose --project-name berth-abc up BERTH_WORKTREE_ID=w\n  11 ps -A\n junk\n"
+		text := "  10 docker compose --project-name treerig-abc up TREERIG_WORKTREE_ID=w\n  11 ps -A\n junk\n"
 		scanned := parsePsScan(text, map[int]bool{11: true})
 		want := []Proc{{
 			PID:     10,
-			Args:    []string{"docker", "compose", "--project-name", "berth-abc", "up", "BERTH_WORKTREE_ID=w"},
-			Env:     []string{"docker", "compose", "--project-name", "berth-abc", "up", "BERTH_WORKTREE_ID=w"},
+			Args:    []string{"docker", "compose", "--project-name", "treerig-abc", "up", "TREERIG_WORKTREE_ID=w"},
+			Env:     []string{"docker", "compose", "--project-name", "treerig-abc", "up", "TREERIG_WORKTREE_ID=w"},
 			EnvRead: true,
 		}}
 		if !reflect.DeepEqual(scanned, want) {

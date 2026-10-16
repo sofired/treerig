@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // writeExecutable writes contents to path with mode, failing t on error.
@@ -93,7 +93,7 @@ func TestResolveExecutable(t *testing.T) {
 
 	t.Run("says a bare name found on no PATH entry is missing, 127", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		_, err := run.ResolveExecutable("berth-definitely-missing-tool", []string{"PATH=" + dir})
+		_, err := run.ResolveExecutable("treerig-definitely-missing-tool", []string{"PATH=" + dir})
 		if err == nil || err.ExitCode != 127 || err.Code != "ENOENT" {
 			t.Fatalf("got %+v", err)
 		}

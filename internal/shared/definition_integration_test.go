@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run/osrun"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run/osrun"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // realCheckout writes a shared file with the given volume source and env_file
@@ -22,8 +22,8 @@ import (
 // a command run in it builds, over the real `docker compose`, and the parent.
 func realCheckout(t *testing.T, volume string, log logger.Logger, envFile string) (*shared.Stack, string) {
 	t.Helper()
-	if os.Getenv("BERTH_TEST_SKIP_DOCKER") == "1" {
-		t.Skip("Docker tests are skipped (BERTH_TEST_SKIP_DOCKER=1)")
+	if os.Getenv("TREERIG_TEST_SKIP_DOCKER") == "1" {
+		t.Skip("Docker tests are skipped (TREERIG_TEST_SKIP_DOCKER=1)")
 	}
 	if err := exec.Command("docker", "compose", "version").Run(); err != nil {
 		t.Skipf("docker compose is not available: %v", err)

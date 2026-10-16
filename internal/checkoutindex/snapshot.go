@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // IndexStatus is a row's state, as the legend on the page explains it.

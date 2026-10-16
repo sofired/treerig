@@ -1,6 +1,6 @@
 package lock
 
-import "github.com/sofired/berth/internal/procid"
+import "github.com/sofired/treerig/internal/procid"
 
 // fakeTable is a scripted procid.Table for tests.
 type fakeTable struct {

@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 const ns = brand.LabelNamespace
@@ -239,7 +239,7 @@ func newRuntime(t *testing.T, fake *dockerFake) (*Compose, string) {
 	return NewCompose(Options{
 		ComposeFile:    "/work/acme/docker/compose.yaml",
 		ProjectRoot:    "/work/acme",
-		ConfigFile:     "/work/acme/berth.toml",
+		ConfigFile:     "/work/acme/treerig.toml",
 		ProjectName:    "acme",
 		Domain:         "acme.localhost",
 		ControlHome:    controlHome,
@@ -289,7 +289,7 @@ func TestDownStatus(t *testing.T) {
 			t.Fatal("down read the model")
 		}
 	})
-	t.Run("hands Compose the same BERTH_* vocabulary hooks receive, plus the project name", func(t *testing.T) {
+	t.Run("hands Compose the same TREERIG_* vocabulary hooks receive, plus the project name", func(t *testing.T) {
 		fake := newFake()
 		rt, controlHome := newRuntime(t, fake)
 		ensureHome(t, controlHome)
@@ -298,32 +298,32 @@ func TestDownStatus(t *testing.T) {
 		}
 		got := environ(fake.composeCalls("up")[0])
 		want := map[string]string{
-			"BERTH_PROJECT":        "acme",
-			"BERTH_REPOSITORY_ID":  ref.RepositoryID,
-			"BERTH_WORKTREE_ID":    ref.WorktreeID,
-			"BERTH_SLUG":           "feature-login",
-			"BERTH_HOST":           "feature-login.acme.localhost",
-			"BERTH_WORKTREE_HOME":  layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID).Home,
-			"BERTH_CONFIG":         "/work/acme/berth.toml",
-			"BERTH_ROOT":           "/work/acme",
-			"COMPOSE_PROJECT_NAME": project,
-			"COMPOSE_PROGRESS":     "plain",
+			"TREERIG_PROJECT":       "acme",
+			"TREERIG_REPOSITORY_ID": ref.RepositoryID,
+			"TREERIG_WORKTREE_ID":   ref.WorktreeID,
+			"TREERIG_SLUG":          "feature-login",
+			"TREERIG_HOST":          "feature-login.acme.localhost",
+			"TREERIG_WORKTREE_HOME": layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID).Home,
+			"TREERIG_CONFIG":        "/work/acme/treerig.toml",
+			"TREERIG_ROOT":          "/work/acme",
+			"COMPOSE_PROJECT_NAME":  project,
+			"COMPOSE_PROGRESS":      "plain",
 		}
 		for name, value := range want {
 			if got[name] != value {
 				t.Errorf("%s = %q, want %q", name, got[name], value)
 			}
 		}
-		if _, ok := got["BERTH_STAGE"]; ok {
-			t.Error("BERTH_STAGE reached Compose")
+		if _, ok := got["TREERIG_STAGE"]; ok {
+			t.Error("TREERIG_STAGE reached Compose")
 		}
-		// BERTH_URL and BERTH_SERVICE_URL_<NAME> are hook-only, so a router
+		// TREERIG_URL and TREERIG_SERVICE_URL_<NAME> are hook-only, so a router
 		// port change never recreates a worktree's containers (#28).
-		if _, ok := got["BERTH_URL"]; ok {
-			t.Error("BERTH_URL reached Compose")
+		if _, ok := got["TREERIG_URL"]; ok {
+			t.Error("TREERIG_URL reached Compose")
 		}
 		for name := range got {
-			if strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+			if strings.HasPrefix(name, "TREERIG_SERVICE_URL_") {
 				t.Errorf("%s reached Compose", name)
 			}
 		}
@@ -407,7 +407,7 @@ func TestDownStatus(t *testing.T) {
 	})
 	t.Run("status refuses to report anything absent when the ps output is unreadable, even partially", func(t *testing.T) {
 		for _, output := range []string{
-			"NAME   IMAGE   COMMAND\nberth-x-api-1   busybox   \"sleep\"",
+			"NAME   IMAGE   COMMAND\ntreerig-x-api-1   busybox   \"sleep\"",
 			"{\"Service\":\"api\",\"State\":\"running\"}\n{\"Service\":\"worker\",\"State\":\"runn",
 			`[{"Service":"api","State":"running"},{"nope":true}]`,
 		} {
@@ -712,7 +712,7 @@ func TestComposeTimeouts(t *testing.T) {
 		controlHome := t.TempDir()
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 			ControlHome: controlHome, LabelNamespace: ns, Runner: fake, Logger: logger.Silent{},
 			Timeouts: Timeouts{Probe: 7 * time.Second, Remove: 11 * time.Second},
 		})

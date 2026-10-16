@@ -1,10 +1,10 @@
 // Package settings loads and validates settings.toml (#79): a machine-wide,
-// per-berth-root file that is not committed to any repository, unlike
-// berth.toml (internal/config). It holds defaults that apply before any
+// per-treerig-root file that is not committed to any repository, unlike
+// treerig.toml (internal/config). It holds defaults that apply before any
 // project config is even found — the router's port and the range routed
 // services' loopback ports are allocated from.
 //
-// It is decoded the same strict way berth.toml is: BurntSushi/toml, rebuilt
+// It is decoded the same strict way treerig.toml is: BurntSushi/toml, rebuilt
 // into shape's ordered object (config.DecodeOrderedTOML) and validated
 // against a schema that rejects unknown keys, so a typo or a stray table
 // is reported clearly rather than silently ignored. A missing file is not
@@ -18,10 +18,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/shape"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/shape"
 )
 
 // Settings is a validated settings.toml with defaults applied. The zero
@@ -57,7 +57,7 @@ const (
 )
 
 // rootSchema is settings.toml's whole shape: a [router] table (its port) and
-// a [ports] table (the loopback port range), both strict about unrecognized keys the way berth.toml's
+// a [ports] table (the loopback port range), both strict about unrecognized keys the way treerig.toml's
 // own rootSchema (internal/config/schema.go) is.
 func rootSchema() *shape.ObjectSchema {
 	router := shape.Object(
@@ -83,7 +83,7 @@ func rootSchema() *shape.ObjectSchema {
 // Parse validates contents, reporting problems against file: a syntax error
 // as "<file> is not valid TOML: …", an unknown key or a wrong-typed value as
 // "<file> is not a valid settings.toml:\n  <path>: <message>" — the same two
-// shapes config.Parse reports for berth.toml.
+// shapes config.Parse reports for treerig.toml.
 func Parse(contents []byte, file string) (Settings, error) {
 	obj, err := config.DecodeOrderedTOML(string(contents))
 	if err != nil {
@@ -111,7 +111,7 @@ func Parse(contents []byte, file string) (Settings, error) {
 const settingsFileNoun = "settings.toml"
 
 // decode type-asserts the "router" and "ports" tables out of a validated
-// Obj, the same way config's own decodeConfig does for berth.toml.
+// Obj, the same way config's own decodeConfig does for treerig.toml.
 func decode(obj *shape.Obj) Settings {
 	var s Settings
 	if v, ok := obj.Get("router"); ok {
@@ -136,7 +136,7 @@ func decode(obj *shape.Obj) Settings {
 
 // Load reads and validates the settings file at path. A missing file
 // resolves to the zero value (every default applies) rather than an error:
-// unlike berth.toml, settings.toml is optional.
+// unlike treerig.toml, settings.toml is optional.
 func Load(path string) (Settings, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -155,12 +155,12 @@ func Load(path string) (Settings, error) {
 type PortSource int
 
 const (
-	// PortDefault means neither BERTH_ROUTER_PORT nor the settings file set
+	// PortDefault means neither TREERIG_ROUTER_PORT nor the settings file set
 	// a port: the port is 80.
 	PortDefault PortSource = iota
 	// PortFile means the settings file's [router] port set it.
 	PortFile
-	// PortEnv means BERTH_ROUTER_PORT set it, ahead of the settings file.
+	// PortEnv means TREERIG_ROUTER_PORT set it, ahead of the settings file.
 	PortEnv
 )
 
@@ -200,9 +200,9 @@ func (p PortResolution) Describe() string {
 	}
 }
 
-// ResolveRouterPort resolves the router's port: BERTH_ROUTER_PORT
+// ResolveRouterPort resolves the router's port: TREERIG_ROUTER_PORT
 // (layout.RouterPortEnv), then settings.toml's [router] port under home,
-// then 80. home is the already-checked berth root (commands.checkedHome);
+// then 80. home is the already-checked treerig root (commands.checkedHome);
 // this package touches the filesystem (Load), which is why the precedence
 // is combined here rather than in internal/layout, which stays pure path
 // derivation.
@@ -231,7 +231,7 @@ func ResolveRouterPort(getenv layout.Getenv, home string) (PortResolution, error
 // ResolveRouterMode is settings.toml's [router] mode under home: "host",
 // "bridge", or "" when the file or the key is absent, which means the
 // proxy's mode is detected from `docker info`. home is the already-checked
-// berth root.
+// treerig root.
 func ResolveRouterMode(home string) (string, error) {
 	loaded, err := Load(layout.SettingsPathFrom(home))
 	if err != nil {
@@ -242,7 +242,7 @@ func ResolveRouterMode(home string) (string, error) {
 
 // ResolvePortRange is settings.toml's [ports] range under home, or
 // layout.DefaultPortRange when the file or the key is absent. home is the
-// already-checked berth root (commands.checkedHome). Scratch roots and tests
+// already-checked treerig root (commands.checkedHome). Scratch roots and tests
 // set their own range here so they never collide with a developer's real
 // allocations.
 func ResolvePortRange(home string) (layout.PortRange, error) {

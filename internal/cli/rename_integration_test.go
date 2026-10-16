@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // renameRun runs the fixture's binary with args and returns its streams and exit code.
@@ -71,7 +71,7 @@ func TestWorktreeRenameThroughTheBinary(t *testing.T) {
 		stdout, stderr, code := renameRun(t, f, binary, "worktree", "rename", "login")
 
 		if code != 0 || stdout != "" ||
-			!strings.Contains(stderr, "[berth] Renamed feature-login.acme.localhost to login.acme.localhost. Run 'berth up' to start it there.\n") {
+			!strings.Contains(stderr, "[treerig] Renamed feature-login.acme.localhost to login.acme.localhost. Run 'treerig up' to start it there.\n") {
 			t.Fatalf("rename: exit %d\nstdout: %q\nstderr: %q", code, stdout, stderr)
 		}
 		list, _, _ := renameRun(t, f, binary, "worktree", "list")
@@ -137,10 +137,10 @@ func TestWorktreeRenameThroughTheBinary(t *testing.T) {
 			argv []string
 			want string
 		}{
-			{[]string{"shared"}, `[berth] ERROR: The slug "shared" is reserved: a repository's shared services are routed beneath it.`},
-			{[]string{"Not A Label"}, `[berth] ERROR: The slug "Not A Label" is not a valid hostname label`},
-			{nil, `[berth] ERROR: "berth worktree rename" needs the new slug as its one argument.`},
-			{[]string{"a", "b"}, `[berth] ERROR: "berth worktree rename" takes at most 1 argument, got 2: "a" "b"`},
+			{[]string{"shared"}, `[treerig] ERROR: The slug "shared" is reserved: a repository's shared services are routed beneath it.`},
+			{[]string{"Not A Label"}, `[treerig] ERROR: The slug "Not A Label" is not a valid hostname label`},
+			{nil, `[treerig] ERROR: "treerig worktree rename" needs the new slug as its one argument.`},
+			{[]string{"a", "b"}, `[treerig] ERROR: "treerig worktree rename" takes at most 1 argument, got 2: "a" "b"`},
 		} {
 			stdout, stderr, code := renameRun(t, f, binary, append([]string{"worktree", "rename"}, tc.argv...)...)
 			if code != 1 || stdout != "" || !strings.HasPrefix(stderr, tc.want) {
@@ -154,7 +154,7 @@ func TestWorktreeRenameThroughTheBinary(t *testing.T) {
 
 		_, stderr, code := renameRun(t, f, binary, "worktree", "rename", "login")
 
-		if code != 1 || !strings.HasPrefix(stderr, "[berth] ERROR: This worktree is not registered. Run 'berth up' first.") {
+		if code != 1 || !strings.HasPrefix(stderr, "[treerig] ERROR: This worktree is not registered. Run 'treerig up' first.") {
 			t.Fatalf("exit %d\n%s", code, stderr)
 		}
 	})

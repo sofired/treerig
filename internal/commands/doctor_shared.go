@@ -11,24 +11,24 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // The Shared services section of `doctor` (docs/design/routing.md, "Doctor"):
-// read-only, like the rest of it. It appears only when berth.toml declares
+// read-only, like the rest of it. It appears only when treerig.toml declares
 // shared services or Docker still holds shared resources of this repository.
 
 // sharedSection is the Shared services section's checks; none means the
@@ -120,7 +120,7 @@ func sharedChecks(ctx context.Context, opts doctorOptions, loaded *config.Loaded
 	}
 	for _, problem := range unproven {
 		checks = append(checks, Check{Status: StatusWarn, ID: "shared.orphan", Instance: problem.ID, Subject: "shared container " + problem.ID,
-			Detail: "carries the shared labels and cannot be proven the stack's, so berth will not touch it: " + text.OneLine(problem.Error(), 300)})
+			Detail: "carries the shared labels and cannot be proven the stack's, so treerig will not touch it: " + text.OneLine(problem.Error(), 300)})
 	}
 	definition, definitionErr := d.readDefinition(ctx)
 	if definitionErr != nil {
@@ -343,7 +343,7 @@ func (d *sharedDoctor) routeCheck(service config.SharedService, instance shared.
 // connectionChecks are the `shared.connection` lines: for each running shared
 // service this worktree uses, whether it is attached to the networks of this
 // worktree's running consumers. A consumer that is not connected is "up but
-// not connected", repaired by `berth up` or `berth shared up`.
+// not connected", repaired by `treerig up` or `treerig shared up`.
 func (d *sharedDoctor) connectionChecks(ctx context.Context, registration *registry.WorktreeRegistration, instances map[string]shared.Instance) ([]Check, error) {
 	ref := worktree.Ref{RepositoryID: registration.RepositoryID, WorktreeID: registration.WorktreeID, Slug: registration.Slug}
 	runtime := backend.NewCompose(backend.Options{
@@ -554,7 +554,7 @@ func repositoryNames(records []registry.RegisteredWorktree) map[string]string {
 }
 
 // unreadableRecordDetail is a shared-service record problem's line. A record a
-// newer berth wrote is intact, only unreadable here, so its reason already says
+// newer treerig wrote is intact, only unreadable here, so its reason already says
 // what to do and moving it aside would be wrong; any other is a file nobody
 // vouches for, which may hold a port.
 func unreadableRecordDetail(problem registry.RegistryProblem) string {

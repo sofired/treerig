@@ -37,9 +37,9 @@
       "title": "Registry",
       "checks": [
         {
-          "id": "registry.berth-root",
+          "id": "registry.treerig-root",
           "status": "ok",
-          "subject": "berth root",
+          "subject": "treerig root",
           "detail": "FIXTURE/control"
         },
         {
@@ -93,8 +93,8 @@
         {
           "id": "checkout.config",
           "status": "skip",
-          "subject": "berth.toml",
-          "detail": "none in FIXTURE or above; run 'berth doctor' in a checkout to check it and its verify hook"
+          "subject": "treerig.toml",
+          "detail": "none in FIXTURE or above; run 'treerig doctor' in a checkout to check it and its verify hook"
         }
       ]
     }

@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // IndexCardFile is the card's filename inside a worktree's home.
@@ -332,7 +332,7 @@ func requiredServiceKeysPresent(s rawIndexService) bool {
 // key present, and its bounds satisfied via cardBounds — the read side's
 // half of the schema WriteIndexCard's own cardBounds call enforces on write.
 //
-// A card of any other version, a newer berth's included, is not one this
+// A card of any other version, a newer treerig's included, is not one this
 // build can show, so it reads as no card. The next `up` regenerates a card
 // and none decides anything, so the index leaves it out instead of refusing.
 func parseCardJSON(data []byte) (IndexCard, bool) {

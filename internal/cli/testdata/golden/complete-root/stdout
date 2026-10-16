@@ -1,11 +1,11 @@
-init	write a starter berth.toml at the repository root
+init	write a starter treerig.toml at the repository root
 config	inspect the project configuration
 dev	start this worktree's services, then follow their logs until Ctrl-C
 up	register this worktree, start its services, and run its hooks
 down	stop this worktree's services; data is kept
 status	show service status for this worktree
 urls	print this worktree's routed URLs
-run	run one of the project's named commands from berth.toml [commands]
+run	run one of the project's named commands from treerig.toml [commands]
 backup	run the backup hook, writing a bundle into a directory
 restore	run the restore hook on a bundle directory
 index	refresh the machine-wide checkout index and print it
@@ -14,7 +14,7 @@ router	manage the shared local router
 route	route processes running on the host through this worktree's hostname
 shared	manage the repository's shared services
 worktree	manage registered worktrees
-teardown	pin and check the trusted berth build for worktree removal
+teardown	pin and check the trusted treerig build for worktree removal
 completion	print a shell completion script
 help	display help for command
 :4

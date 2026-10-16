@@ -1,1 +1,1 @@
-[berth] ERROR: "berth run" takes one command name before "--", got 3 arguments: "plan" "extra" "more". Pass the command's own arguments after "--", as in: berth run plan -- extra more -auto-approve
+[treerig] ERROR: "treerig run" takes one command name before "--", got 3 arguments: "plan" "extra" "more". Pass the command's own arguments after "--", as in: treerig run plan -- extra more -auto-approve

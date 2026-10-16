@@ -3,7 +3,7 @@ package teardown
 import (
 	"maps"
 
-	"github.com/sofired/berth/internal/semver"
+	"github.com/sofired/treerig/internal/semver"
 )
 
 // Kind is what an update does to the existing pin.

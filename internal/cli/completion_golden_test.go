@@ -4,7 +4,7 @@ package cli_test
 // domains, `up`'s service names (#98) and `run`'s command names (#94). These share TestGolden's own
 // fixture format and update mechanism (testdata/golden/<name>/{stdout,
 // stderr,exit}, rewritten by `-update`), but need a registry and a
-// berth.toml on disk that the plain, purely-literal goldenCases table
+// treerig.toml on disk that the plain, purely-literal goldenCases table
 // cannot build for itself — see newCompletionFixture below — so they run
 // through their own TestGoldenCompletion instead. Every case's args name
 // the fixture's own --config file explicitly, so none of them depend on
@@ -21,26 +21,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/cli"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/cli"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // completionFixture is one hermetic, read-only world for the completion
-// goldens: a berth.toml with two declared services, and a control home
+// goldens: a treerig.toml with two declared services, and a control home
 // with three registered worktrees across two domains (one with no
 // checkout-index card yet) plus one recoverable-but-unregistered worktree
 // lock.
 type completionFixture struct {
-	// configPath is the fixture's own berth.toml, passed to every case as
+	// configPath is the fixture's own treerig.toml, passed to every case as
 	// --config so none of them depend on this test binary's cwd.
 	configPath string
-	// noCommandsConfigPath is a berth.toml with services but no [commands].
+	// noCommandsConfigPath is a treerig.toml with services but no [commands].
 	noCommandsConfigPath string
-	// controlHome is BERTH_CONTROL_HOME for the populated registry cases.
+	// controlHome is TREERIG_CONTROL_HOME for the populated registry cases.
 	controlHome string
 	// missingControlHome names a control home nothing ever created.
 	missingControlHome string
@@ -81,7 +81,7 @@ const (
 
 // newCompletionFixture builds completionFixture under one fresh, physical
 // temp directory (registrytest.TempDir, so its path survives a comparison
-// on macOS): a berth.toml declaring four services — "api" (no subdomain,
+// on macOS): a treerig.toml declaring four services — "api" (no subdomain,
 // path or label, so it completes as "host root"), "web" (a subdomain),
 // "assets" (a path only) and "docs" (a [service.index] label carrying a
 // raw tab and a raw newline, pinning serviceCompletionDescription's own
@@ -104,7 +104,7 @@ func newCompletionFixture(t *testing.T) completionFixture {
 		t.Fatalf("mkdir checkout: %v", err)
 	}
 	configPath := filepath.Join(checkout, brand.ConfigFile)
-	const berthToml = `[project]
+	const treerigToml = `[project]
 name = "fixture"
 domain = "` + completionAcmeDomain + `"
 
@@ -140,8 +140,8 @@ destroy = "./scripts/keycloak.sh\tdestroy"
 command = "./scripts/keycloak.sh apply --with-an-argument-list-long-enough-to-be-clamped"
 kill-after = "60s"
 `
-	if err := os.WriteFile(configPath, []byte(berthToml), 0o644); err != nil {
-		t.Fatalf("write berth.toml: %v", err)
+	if err := os.WriteFile(configPath, []byte(treerigToml), 0o644); err != nil {
+		t.Fatalf("write treerig.toml: %v", err)
 	}
 
 	bare := filepath.Join(base, "bare")
@@ -159,7 +159,7 @@ file = "compose.yaml"
 [service.api]
 `
 	if err := os.WriteFile(noCommandsConfigPath, []byte(bareToml), 0o644); err != nil {
-		t.Fatalf("write bare berth.toml: %v", err)
+		t.Fatalf("write bare treerig.toml: %v", err)
 	}
 
 	controlHome := filepath.Join(base, "control")
@@ -257,10 +257,10 @@ func writeCompletionOrphanLock(t *testing.T, controlHome, repositoryID, worktree
 	}
 }
 
-// getenvWithControlHome is emptyGetenv with BERTH_CONTROL_HOME overridden:
-// every other lookup (HOME, BERTH_HOME, BERTH_DEBUG) stays exactly as
+// getenvWithControlHome is emptyGetenv with TREERIG_CONTROL_HOME overridden:
+// every other lookup (HOME, TREERIG_HOME, TREERIG_DEBUG) stays exactly as
 // unset as every other golden case in this package sees it, so checkedHome
-// resolves BERTH_HOME the same harmless default way it always does here,
+// resolves TREERIG_HOME the same harmless default way it always does here,
 // and only the control home this completion actually reads is redirected
 // to the fixture.
 func getenvWithControlHome(controlHome string) layout.Getenv {
@@ -273,7 +273,7 @@ func getenvWithControlHome(controlHome string) layout.Getenv {
 }
 
 // completionGoldenCase is one TestGoldenCompletion case: args, and the
-// control home BERTH_CONTROL_HOME should resolve to while cli.Main runs
+// control home TREERIG_CONTROL_HOME should resolve to while cli.Main runs
 // it — completionFixture's populated one unless the case says otherwise.
 type completionGoldenCase struct {
 	name        string
@@ -308,7 +308,7 @@ func TestGoldenCompletion(t *testing.T) {
 			args: []string{"__complete", "shared", "down", "--config", fixture.configPath, ""},
 		},
 		{
-			// A berth.toml without [shared] has nothing to offer.
+			// A treerig.toml without [shared] has nothing to offer.
 			name: "complete-shared-up-none-declared",
 			args: []string{"__complete", "shared", "up", "--config", fixture.noCommandsConfigPath, ""},
 		},
@@ -436,7 +436,7 @@ func TestGoldenCompletion(t *testing.T) {
 
 			dir := filepath.Join("testdata", "golden", tc.name)
 			var stdout, stderr bytes.Buffer
-			args := append([]string{"berth"}, tc.args...)
+			args := append([]string{"treerig"}, tc.args...)
 			code := cli.Main(args, strings.NewReader(""), &stdout, &stderr, getenv)
 
 			if *update {

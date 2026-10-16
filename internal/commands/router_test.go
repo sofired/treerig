@@ -17,13 +17,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
 )
 
 // routerEnvGetenv is a layout.Getenv backed by a fixed map, "ok" following
@@ -59,7 +59,7 @@ type healthyRouterDocker struct {
 	// unhealthy makes the router container report an unhealthy state.
 	unhealthy bool
 	// home is stamped as RouterHomeLabel on every container docFor answers,
-	// so Owner/checkOwnership see this router as owned by whatever berth
+	// so Owner/checkOwnership see this router as owned by whatever treerig
 	// root the test itself resolved, rather than refusing it as foreign.
 	home string
 }
@@ -108,11 +108,11 @@ func (d *healthyRouterDocker) Run(_ context.Context, spec run.Spec) (run.Result,
 // docFor is what `docker inspect` answers for one running service container.
 func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 	labels := map[string]string{
-		"com.docker.compose.project": router.DefaultName,
-		"com.docker.compose.service": service,
-		"dev.berth.component":        service,
-		"dev.berth.router-protocol":  strconv.Itoa(router.Protocol),
-		router.RouterHomeLabel:       d.home,
+		"com.docker.compose.project":  router.DefaultName,
+		"com.docker.compose.service":  service,
+		"dev.treerig.component":       service,
+		"dev.treerig.router-protocol": strconv.Itoa(router.Protocol),
+		router.RouterHomeLabel:        d.home,
 	}
 	health := "healthy"
 	if d.unhealthy && service == router.RouterService {
@@ -130,26 +130,26 @@ func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 	return router.ContainerInspect{Config: router.InspectConfig{Labels: labels}, State: state}
 }
 
-// scratchRouterEnv is an Env over a scratch HOME whose berth root holds a
+// scratchRouterEnv is an Env over a scratch HOME whose treerig root holds a
 // settings.toml with the test port range plus extra, a fake probe that binds
 // nothing, and Linux as the client OS.
 func scratchRouterEnv(t *testing.T, extra string, runner run.Runner) (*commands.Env, layout.RouterLayout, *logger.Recording) {
 	t.Helper()
 	home := registrytest.TempDir(t)
 	controlHome := registrytest.TempDir(t)
-	getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_CONTROL_HOME": controlHome})
-	berthRoot, err := layout.ResolveHome(getenv, "")
+	getenv := routerEnvGetenv(map[string]string{"HOME": home, "TREERIG_CONTROL_HOME": controlHome})
+	treerigRoot, err := layout.ResolveHome(getenv, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	registrytest.WriteScratchSettings(t, berthRoot, extra)
-	state := layout.RouterStateFrom(berthRoot)
+	registrytest.WriteScratchSettings(t, treerigRoot, extra)
+	state := layout.RouterStateFrom(treerigRoot)
 	if docker, ok := runner.(interface{ owned(home string) }); ok {
-		docker.owned(berthRoot)
+		docker.owned(treerigRoot)
 	}
 	rec := &logger.Recording{}
 	env := &commands.Env{
-		CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv, Cwd: registrytest.TempDir(t),
+		CommandName: "treerig", Invocation: "treerig router up", Logger: rec, Getenv: getenv, Cwd: registrytest.TempDir(t),
 		Runner: runner, OS: "linux", PortProbe: registrytest.FreeProbe{},
 	}
 	return env, state, rec
@@ -197,7 +197,7 @@ func TestRouterUp(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{`"127.0.0.1:80:80"`, `berth-loopback:host-gateway`} {
+		for _, want := range []string{`"127.0.0.1:80:80"`, `treerig-loopback:host-gateway`} {
 			if !strings.Contains(string(stack), want) {
 				t.Errorf("expected %s in the bridge-mode stack, got:\n%s", want, stack)
 			}
@@ -248,7 +248,7 @@ func TestRouterUp(t *testing.T) {
 	// every checkout again, not leave the placeholder in place.
 	t.Run("refreshes a missing index page once the router has started, showing every checkout again", func(t *testing.T) {
 		env, state, rec := scratchRouterEnv(t, "", &healthyRouterDocker{})
-		controlHome, _ := env.Getenv("BERTH_CONTROL_HOME")
+		controlHome, _ := env.Getenv("TREERIG_CONTROL_HOME")
 		if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
 			Version: 1, RepositoryID: "11111111-1111-4111-8111-111111111111",
 			WorktreeID: "22222222-2222-4222-8222-222222222221",
@@ -280,16 +280,16 @@ func TestRouterUp(t *testing.T) {
 
 	t.Run("refuses a symlinked state directory before the lock or the stack files ever touch its target", func(t *testing.T) {
 		// Resolved through layout.RouterStateDir itself — production's own
-		// function, fed the very env RouterUp will resolve BERTH_HOME
+		// function, fed the very env RouterUp will resolve TREERIG_HOME
 		// through — so the symlink lands exactly where RouterUp will look,
-		// under the berth root (#80) rather than a hand-built guess.
+		// under the treerig root (#80) rather than a hand-built guess.
 		// RouterUp must refuse before commands.routerHold ever takes the
 		// router lock (which would create <target>/lock and its holder
 		// record) or Ensure's own write() ever writes a stack file into it.
 		target := registrytest.TempDir(t)
 		fakeHome := registrytest.TempDir(t)
-		berthHome := registrytest.TempDir(t)
-		getenv := routerEnvGetenv(map[string]string{"HOME": fakeHome, "BERTH_HOME": berthHome})
+		treerigHome := registrytest.TempDir(t)
+		getenv := routerEnvGetenv(map[string]string{"HOME": fakeHome, "TREERIG_HOME": treerigHome})
 		plantedStateDir, err := layout.RouterStateDir(getenv)
 		if err != nil {
 			t.Fatal(err)
@@ -303,7 +303,7 @@ func TestRouterUp(t *testing.T) {
 
 		rec := &logger.Recording{}
 		env := &commands.Env{
-			CommandName: "berth", Invocation: "berth router up", Logger: rec, Getenv: getenv,
+			CommandName: "treerig", Invocation: "treerig router up", Logger: rec, Getenv: getenv,
 			Runner: &healthyRouterDocker{port: 80},
 		}
 
@@ -338,7 +338,7 @@ func TestRouterStatus(t *testing.T) {
 		fake := &fakerun.Runner{Handler: func(_ context.Context, spec run.Spec) (run.Result, error) {
 			return run.Result{}, &run.StartError{Command: spec.Command, Code: "ENOENT", Detail: "is not on PATH (ENOENT).", ExitCode: 127}
 		}}
-		env := &commands.Env{CommandName: "berth", Logger: rec, Getenv: getenv, Runner: fake}
+		env := &commands.Env{CommandName: "treerig", Logger: rec, Getenv: getenv, Runner: fake}
 
 		failed, err := commands.RouterStatus(context.Background(), env)
 		if err != nil {
@@ -406,7 +406,7 @@ func TestRouterStatusPortLine(t *testing.T) {
 	t.Run("says where the port came from, on stdout with the status line", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		getenv := routerEnvGetenv(map[string]string{"HOME": home})
-		root := filepath.Join(home, ".berth")
+		root := filepath.Join(home, ".treerig")
 		if err := os.MkdirAll(root, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -416,7 +416,7 @@ func TestRouterStatusPortLine(t *testing.T) {
 		rec := &logger.Recording{}
 		// A runner that answers every call with empty success: no container
 		// is listed, so the router reads as reachable but not running.
-		env := &commands.Env{CommandName: "berth", Logger: rec, Getenv: getenv, Runner: &fakerun.Runner{}}
+		env := &commands.Env{CommandName: "treerig", Logger: rec, Getenv: getenv, Runner: &fakerun.Runner{}}
 
 		failed, err := commands.RouterStatus(context.Background(), env)
 		if err != nil {
@@ -441,7 +441,7 @@ func TestRouterDown(t *testing.T) {
 		home := registrytest.TempDir(t)
 		getenv := routerEnvGetenv(map[string]string{"HOME": home})
 		fake := &fakerun.Runner{}
-		env := &commands.Env{CommandName: "berth", Logger: &logger.Recording{}, Getenv: getenv, Runner: fake}
+		env := &commands.Env{CommandName: "treerig", Logger: &logger.Recording{}, Getenv: getenv, Runner: fake}
 
 		if err := commands.RouterDown(context.Background(), env); err != nil {
 			t.Fatalf("RouterDown: %v", err)
@@ -459,16 +459,16 @@ func TestRouterDown(t *testing.T) {
 
 	t.Run("stops the router even when settings.toml is malformed: down needs no port", func(t *testing.T) {
 		home := registrytest.TempDir(t)
-		root := filepath.Join(home, ".berth")
+		root := filepath.Join(home, ".treerig")
 		if err := os.MkdirAll(root, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(root, "settings.toml"), []byte("[router]\nport = \"eighty\"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		getenv := routerEnvGetenv(map[string]string{"HOME": home, "BERTH_ROUTER_PORT": "not-a-port"})
+		getenv := routerEnvGetenv(map[string]string{"HOME": home, "TREERIG_ROUTER_PORT": "not-a-port"})
 		fake := &fakerun.Runner{}
-		env := &commands.Env{CommandName: "berth", Logger: &logger.Recording{}, Getenv: getenv, Runner: fake}
+		env := &commands.Env{CommandName: "treerig", Logger: &logger.Recording{}, Getenv: getenv, Runner: fake}
 
 		if err := commands.RouterDown(context.Background(), env); err != nil {
 			t.Fatalf("RouterDown: %v", err)

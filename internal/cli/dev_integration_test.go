@@ -21,10 +21,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run/ptytest"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run/ptytest"
 )
 
 // developmentLock is the development-session lock of the fixture's one
@@ -32,13 +32,13 @@ import (
 func (f upFixture) developmentLock(t *testing.T) string {
 	t.Helper()
 	read := func(name string) string {
-		return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "berth", name))
+		return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "treerig", name))
 	}
 	return layout.WorktreeLayout(f.controlHome, read("repository-id"), read("worktree-id")).DevelopmentLockPath
 }
 
-// startDev starts `berth dev` in f's checkout and returns once the log
-// follower is running, with the berth process and its stdout and stderr as
+// startDev starts `treerig dev` in f's checkout and returns once the log
+// follower is running, with the treerig process and its stdout and stderr as
 // they go. A cleanup registered on t kills whatever the test left behind,
 // the follower's grandchild included.
 func startDev(t *testing.T, f upFixture, binary string) (cmd *exec.Cmd, stdout, stderr *syncBuffer) {
@@ -87,9 +87,9 @@ func TestDevThroughTheBinary(t *testing.T) {
 
 		waitForOutput(t, stdout, "api-1  | following")
 		for _, line := range []string{
-			"[berth] Starting all services for feature-login.acme.localhost.\n",
-			"[berth] feature-login.acme.localhost is up.\n",
-			"[berth] Following the logs of feature-login.acme.localhost. Press Ctrl-C to end the session.\n",
+			"[treerig] Starting all services for feature-login.acme.localhost.\n",
+			"[treerig] feature-login.acme.localhost is up.\n",
+			"[treerig] Following the logs of feature-login.acme.localhost. Press Ctrl-C to end the session.\n",
 		} {
 			if !strings.Contains(stderr.String(), line) {
 				t.Fatalf("stderr = %q, want it to contain %q", stderr.String(), line)
@@ -104,7 +104,7 @@ func TestDevThroughTheBinary(t *testing.T) {
 		var starts, follows []string
 		for _, call := range f.calls(t) {
 			switch {
-			case strings.HasPrefix(call, "compose ") && strings.Contains(call, " up ") && !strings.Contains(call, "--project-name berth-router "):
+			case strings.HasPrefix(call, "compose ") && strings.Contains(call, " up ") && !strings.Contains(call, "--project-name treerig-router "):
 				starts = append(starts, call)
 			case strings.HasPrefix(call, "compose ") && strings.Contains(call, " logs "):
 				follows = append(follows, call)
@@ -113,7 +113,7 @@ func TestDevThroughTheBinary(t *testing.T) {
 		if len(starts) != 1 {
 			t.Fatalf("worktree starts = %q, want one", starts)
 		}
-		if len(follows) != 1 || !strings.HasSuffix(follows[0], " logs --follow --tail 100") || !strings.Contains(follows[0], "--project-name berth-") {
+		if len(follows) != 1 || !strings.HasSuffix(follows[0], " logs --follow --tail 100") || !strings.Contains(follows[0], "--project-name treerig-") {
 			t.Fatalf("log followers = %q, want one `logs --follow --tail 100` on the worktree's project", follows)
 		}
 		if !lockHeld(t, f.developmentLock(t)) {
@@ -133,13 +133,13 @@ func TestDevThroughTheBinary(t *testing.T) {
 			if code == 0 {
 				t.Fatalf("%v succeeded during a session", args)
 			}
-			for _, want := range []string{"feature-login development session", `"berth dev"`, "End it with Ctrl-C in the terminal running `berth dev`, then retry."} {
+			for _, want := range []string{"feature-login development session", `"treerig dev"`, "End it with Ctrl-C in the terminal running `treerig dev`, then retry."} {
 				if !strings.Contains(stderr, want) {
 					t.Fatalf("%v: stderr = %q, want it to name %q", args, stderr, want)
 				}
 			}
 		}
-		if _, err := os.Stat(filepath.Join(f.checkout, ".git", "berth", "worktree-id")); err != nil {
+		if _, err := os.Stat(filepath.Join(f.checkout, ".git", "treerig", "worktree-id")); err != nil {
 			t.Fatalf("the refused removal took the identity: %v", err)
 		}
 		for _, args := range [][]string{{"up"}, {"down"}} {
@@ -180,8 +180,8 @@ func TestDevThroughTheBinary(t *testing.T) {
 			wantCode int
 			wantText string
 		}{
-			{"7", 7, "The log follower of feature-login.acme.localhost ended on its own (exit 7), so the development session is over; \"berth status\" shows what is running."},
-			{"0", 1, "The log follower of feature-login.acme.localhost ended on its own (exit 0), usually because none of its containers is left running, so the development session is over; \"berth status\" shows what is running."},
+			{"7", 7, "The log follower of feature-login.acme.localhost ended on its own (exit 7), so the development session is over; \"treerig status\" shows what is running."},
+			{"0", 1, "The log follower of feature-login.acme.localhost ended on its own (exit 0), usually because none of its containers is left running, so the development session is over; \"treerig status\" shows what is running."},
 		} {
 			f := newUpFixture(t)
 			if err := os.WriteFile(filepath.Join(f.state, "logs-exit"), []byte(tc.exit), 0o600); err != nil {
@@ -207,7 +207,7 @@ func TestDevThroughTheBinary(t *testing.T) {
 // that signal only once it is gone, with the development lock released.
 func TestDevInterrupted(t *testing.T) {
 	binary := buildBinary(t)
-	// So berth gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
+	// So treerig gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
 	catchTerminationSignals(t)
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
 		t.Run(fmt.Sprintf("dies by %v, with the follower's group gone and both locks released", sig), func(t *testing.T) {
@@ -232,7 +232,7 @@ func TestDevInterrupted(t *testing.T) {
 					t.Fatalf("the follower's group survived: %d is alive", pid)
 				}
 			}
-			notice := fmt.Sprintf("[berth] The development session of feature-login.acme.localhost ended (%s). Its services are still running; \"berth down\" stops them.\n", clierr.SignalName(sig))
+			notice := fmt.Sprintf("[treerig] The development session of feature-login.acme.localhost ended (%s). Its services are still running; \"treerig down\" stops them.\n", clierr.SignalName(sig))
 			if !strings.Contains(stderr.String(), notice) {
 				t.Fatalf("stderr = %q, want the notice %q", stderr.String(), notice)
 			}
@@ -243,13 +243,13 @@ func TestDevInterrupted(t *testing.T) {
 }
 
 // Ctrl-C at a terminal goes to the follower's own foreground group, not to
-// berth: the session ends, with the documented status, and the lock is free.
+// treerig: the session ends, with the documented status, and the lock is free.
 func TestDevOnATerminal(t *testing.T) {
 	binary := buildBinary(t)
 
 	t.Run("Ctrl-C ends the session with exit 130 once the follower's group is gone, and the lock is released", func(t *testing.T) {
 		f := newUpFixture(t)
-		ptmx, pid := startBerthOnTerminal(t, f, binary, "dev")
+		ptmx, pid := startTreerigOnTerminal(t, f, binary, "dev")
 		ptytest.ReadUntil(t, ptmx, "api-1  | following")
 		follower, _ := strconv.Atoi(waitForFile(t, filepath.Join(f.state, "follower.pid")))
 		hung, _ := strconv.Atoi(waitForFile(t, filepath.Join(f.state, "hung.pid")))
@@ -260,9 +260,9 @@ func TestDevOnATerminal(t *testing.T) {
 
 		status := ptytest.SendTerminalSignal(t, ptmx, pid, 0x03) // Ctrl-C
 		if !status.Exited() || status.ExitStatus() != 128+int(syscall.SIGINT) {
-			t.Fatalf("status = %+v, want exit %d\nberth printed: %q", status, 128+int(syscall.SIGINT), ptytest.Transcript(ptmx))
+			t.Fatalf("status = %+v, want exit %d\ntreerig printed: %q", status, 128+int(syscall.SIGINT), ptytest.Transcript(ptmx))
 		}
-		ptytest.ReadUntil(t, ptmx, `[berth] The development session of feature-login.acme.localhost ended (SIGINT). Its services are still running; "berth down" stops them.`)
+		ptytest.ReadUntil(t, ptmx, `[treerig] The development session of feature-login.acme.localhost ended (SIGINT). Its services are still running; "treerig down" stops them.`)
 		if transcript := ptytest.Transcript(ptmx); strings.Contains(transcript, "ERROR") {
 			t.Fatalf("a session the user ended was reported as an error: %q", transcript)
 		}

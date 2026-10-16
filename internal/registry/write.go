@@ -8,13 +8,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // Writer is who is writing: named to whoever waits on a lock.
@@ -320,7 +320,7 @@ func refuseUnreadable(what, consequence string, problems []RegistryProblem) erro
 		allNewer = allNewer && problem.Newer
 		anyNewer = anyNewer || problem.Newer
 	}
-	// A record a newer berth wrote is intact, only unreadable here, and may
+	// A record a newer treerig wrote is intact, only unreadable here, and may
 	// hold what is being allocated: moving it aside would be the wrong advice.
 	// Only files that are damaged or foreign are told to be moved.
 	advice := "Move a file aside once you know what it is: " + consequence

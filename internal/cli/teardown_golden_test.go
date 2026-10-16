@@ -5,7 +5,7 @@ package cli_test
 // in each state. Every fixture under testdata/teardown/<name>/ (stdout,
 // stderr, exit) is hand-maintained in the way golden_test.go describes, and
 // reviewed by hand after a change to either command's output. The cases run in
-// process against a scratch berth root, with the scratch directory, the
+// process against a scratch treerig root, with the scratch directory, the
 // platform and the clock scrubbed from what they print, so the same fixture
 // holds on Linux and macOS.
 //
@@ -18,7 +18,7 @@ package cli_test
 //	status-binary-missing[-json]   the stored binary is gone: the report, then the refusal
 //	status-binary-mismatch[-json]  the stored binary has other bytes
 //	status-foreign[-json]          a pin this build did not write: empty stdout, the foreign text
-//	status-newer[-json]            a pin of a newer format: empty stdout, "Upgrade berth"
+//	status-newer[-json]            a pin of a newer format: empty stdout, "Upgrade treerig"
 
 import (
 	"bytes"
@@ -31,14 +31,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/cli"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/teardown"
-	"github.com/sofired/berth/internal/teardown/teardowntest"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/cli"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/teardown"
+	"github.com/sofired/treerig/internal/teardown/teardowntest"
 )
 
 var (
@@ -49,21 +49,21 @@ var (
 	clockPattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`)
 )
 
-// teardownGolden is a scratch berth root and a local binary to pin.
+// teardownGolden is a scratch treerig root and a local binary to pin.
 type teardownGolden struct {
-	base, home, berthHome, file string
-	content                     []byte
-	digest                      string
+	base, home, treerigHome, file string
+	content                       []byte
+	digest                        string
 }
 
-// newTeardownGolden lays out a scratch root: HOME, a berth root beside it and
+// newTeardownGolden lays out a scratch root: HOME, a treerig root beside it and
 // a local binary.
 func newTeardownGolden(t *testing.T) teardownGolden {
 	t.Helper()
 	base := registrytest.TempDir(t)
 	g := teardownGolden{
-		base: base, home: filepath.Join(base, "home"), berthHome: filepath.Join(base, "berth-home"),
-		file: filepath.Join(base, "bin", "berth-local"), content: teardowntest.Executable(runtimePlatform(), " a berth build to pin"),
+		base: base, home: filepath.Join(base, "home"), treerigHome: filepath.Join(base, "treerig-home"),
+		file: filepath.Join(base, "bin", "treerig-local"), content: teardowntest.Executable(runtimePlatform(), " a treerig build to pin"),
 	}
 	if err := os.MkdirAll(g.home, 0o755); err != nil {
 		t.Fatal(err)
@@ -83,15 +83,15 @@ func (g teardownGolden) getenv(key string) (string, bool) {
 	switch key {
 	case "HOME":
 		return g.home, true
-	case "BERTH_HOME":
-		return g.berthHome, true
+	case "TREERIG_HOME":
+		return g.treerigHome, true
 	}
 	return "", false
 }
 
 // control is the scratch control home's layout.
 func (g teardownGolden) control() layout.Control {
-	return layout.ControlLayout(filepath.Join(g.berthHome, "control-home"))
+	return layout.ControlLayout(filepath.Join(g.treerigHome, "control-home"))
 }
 
 // runtimePlatform is the platform key of the machine running the tests, whose
@@ -112,7 +112,7 @@ func (g teardownGolden) scrub(s string) string {
 func (g teardownGolden) run(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	code = cli.Main(append([]string{"berth"}, args...), strings.NewReader(""), &out, &errOut, g.getenv)
+	code = cli.Main(append([]string{"treerig"}, args...), strings.NewReader(""), &out, &errOut, g.getenv)
 	return g.scrub(out.String()), g.scrub(errOut.String()), code
 }
 
@@ -190,7 +190,7 @@ func TestTeardownPinGolden(t *testing.T) {
 		g := newTeardownGolden(t)
 		var stdout, stderr bytes.Buffer
 		env := &commands.Env{
-			CommandName: "berth", Logger: logger.NewConsole("berth", &stdout, &stderr), Getenv: g.getenv,
+			CommandName: "treerig", Logger: logger.NewConsole("treerig", &stdout, &stderr), Getenv: g.getenv,
 			OS: runtime.GOOS, Arch: runtime.GOARCH, Cwd: g.base,
 			Stdin: strings.NewReader("pin teardown binary\n"), StdinIsTTY: true, Stderr: &stderr,
 		}

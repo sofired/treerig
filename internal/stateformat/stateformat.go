@@ -2,14 +2,14 @@
 // kind of stored state is at, and how a store reacts to a version it does not
 // know (docs/design/state.md).
 //
-// Every store that berth writes and reads back carries a format version: a
+// Every store that treerig writes and reads back carries a format version: a
 // whole number, 1 for every store but the control home, whose marker says
 // "format 2". A store reads a version in one of three ways:
 //
 //   - the version it writes: read on;
-//   - a larger one: written by a newer berth, which this build cannot
+//   - a larger one: written by a newer treerig, which this build cannot
 //     interpret, so it refuses with [Newer] and leaves the state untouched;
-//   - none, or anything else: not state berth wrote, so the store treats it
+//   - none, or anything else: not state treerig wrote, so the store treats it
 //     as malformed or foreign, the way it treats any other unreadable file.
 //
 // There is no migration code here: a change to a store's shape raises its
@@ -25,8 +25,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // The format version each store writes today. Raising one is a change to that
@@ -50,7 +50,7 @@ const (
 	// IndexCard is the version in a worktree's index card.
 	IndexCard = 1
 	// DockerLabel is the value of the format label (brand.FormatLabel) on
-	// every container, network and image berth creates for a worktree or a
+	// every container, network and image treerig creates for a worktree or a
 	// shared stack. Named volumes carry none (docs/design/state.md).
 	DockerLabel = 1
 	// TeardownPin is the version in the teardown pin, teardown/pin.json
@@ -135,16 +135,16 @@ func FormatLine(version int) string { return "format " + strconv.Itoa(version) }
 // what the build declined to do ("use" a store, "touch" a Docker resource),
 // subject names it, with its path or ID; found is the version it declares, as
 // the classifier returned it. The message names the store, the version found
-// and the one supported, and says what to do: upgrade berth. It exits like any
+// and the one supported, and says what to do: upgrade treerig. It exits like any
 // expected failure, and errors.Is(err, ErrNewer) tells it from every other.
 func Newer(verb, subject, found string, supported int) error {
 	return &newerError{refusal: clierr.Newf("Refusing to %s %s: it is %s.", verb, subject, Detail(found, supported))}
 }
 
 // ErrNewer is what errors.Is finds in every error Newer returns, for a caller
-// that must tell a newer berth's state from a damaged file: the advice for the
+// that must tell a newer treerig's state from a damaged file: the advice for the
 // first is to upgrade, never to move it aside.
-var ErrNewer = errors.New("state written by a newer berth")
+var ErrNewer = errors.New("state written by a newer treerig")
 
 // newerError is Newer's error: the plain refusal a user is shown, under a type
 // of its own that also answers errors.Is(ErrNewer). The refusal is not its
@@ -181,7 +181,7 @@ func DescribeResource(kind, id, service string) string {
 	return "the " + kind + " " + id + " (service " + service + ")"
 }
 
-// UnprovenReason is why berth cannot prove a Docker resource is what claim
+// UnprovenReason is why treerig cannot prove a Docker resource is what claim
 // says ("it is this worktree's"): its format label (label, the full name) is
 // missing or not a format number.
 func UnprovenReason(label, claim string) string {

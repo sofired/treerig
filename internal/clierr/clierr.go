@@ -3,7 +3,7 @@
 //
 // Anything reaching the top of the CLI that does not carry an exit status
 // (see [Exiter]) is unexpected: it is reported with a hint to set
-// BERTH_DEBUG, and exits 1.
+// TREERIG_DEBUG, and exits 1.
 package clierr
 
 import (
@@ -100,7 +100,7 @@ func Code(err error) int {
 }
 
 // Expected reports whether err is a failure the user is told about as such,
-// rather than a crash that deserves the BERTH_DEBUG hint.
+// rather than a crash that deserves the TREERIG_DEBUG hint.
 func Expected(err error) bool {
 	var exiter Exiter
 	return errors.As(err, &exiter)

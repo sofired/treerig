@@ -6,12 +6,12 @@ one document on stdout; with no pin, {"pinned": false}; empty stdout with exit 1
 means the pin could not be read.
 
 Usage:
-  berth teardown status [flags]
+  treerig teardown status [flags]
 
 Flags:
   -h, --help   help for status
       --json   machine-readable output
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

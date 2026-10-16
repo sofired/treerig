@@ -7,9 +7,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // Quiescer is the one thing Hold needs from a run.Runner: proof that every
@@ -28,7 +28,7 @@ type Env struct {
 	Logger logger.Logger
 	Runner Quiescer
 	// Invocation names this process to whoever waits on a lock it holds —
-	// the command line as invoked, e.g. "berth up api".
+	// the command line as invoked, e.g. "treerig up api".
 	Invocation string
 }
 
@@ -149,7 +149,7 @@ func (l *Lifecycle) Hold(ctx context.Context, env Env, requests Requests, action
 // returns, as for Hold; then's own error is reported like action's.
 func (l *Lifecycle) HoldThen(ctx context.Context, env Env, requests Requests, action, then func(context.Context) error) error {
 	if requests.Operation == nil || len(requests.ordered()) < 2 {
-		return clierr.New("lifecycle: HoldThen needs the operation lock and a later one to keep; this is a bug in berth, please report it.")
+		return clierr.New("lifecycle: HoldThen needs the operation lock and a later one to keep; this is a bug in treerig, please report it.")
 	}
 	return l.hold(ctx, env, requests, action, then)
 }
@@ -166,12 +166,12 @@ func (l *Lifecycle) HoldThen(ctx context.Context, env Env, requests Requests, ac
 // refused.
 func (l *Lifecycle) Nest(ctx context.Context, env Env, requests Requests, action func(context.Context) error) error {
 	if requests.Operation != nil || requests.Development != nil || requests.Router != nil {
-		return clierr.New("lifecycle: Nest takes only the shared and registry locks, which come after a worktree's; this is a bug in berth, please report it.")
+		return clierr.New("lifecycle: Nest takes only the shared and registry locks, which come after a worktree's; this is a bug in treerig, please report it.")
 	}
 	held := heldRank(ctx)
 	for rank, scope := range map[int]*lock.Scope{rankShared: requests.Shared, rankRegistry: requests.Registry} {
 		if scope != nil && rank <= held {
-			return clierr.New("lifecycle: Nest was asked for a lock that does not come after the ones already held, which would invert the lock order; this is a bug in berth, please report it.")
+			return clierr.New("lifecycle: Nest was asked for a lock that does not come after the ones already held, which would invert the lock order; this is a bug in treerig, please report it.")
 		}
 	}
 	return l.hold(ctx, env, requests, action, nil)

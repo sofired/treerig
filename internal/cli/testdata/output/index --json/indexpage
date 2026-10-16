@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en" data-shell="TsuboCpoOu_k9kIK">
+<html lang="en" data-shell="fL1ojuj4b1SQcns7">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-51j2LldsGuN9Hooxcim3bt4k+vLQdRd0D+CthwvkPSg='; connect-src 'self'; form-action 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-YYMLY+TOMsdLLOBuH14uRnfTcmPWOiHcZYwGSQpcCWY='; connect-src 'self'; form-action 'none'; base-uri 'none'">
   <noscript><meta http-equiv="refresh" content="60"></noscript>
   <title>Checkouts (1)</title>
   <style>
@@ -270,7 +270,7 @@
       // alternate does not reload every fifteen seconds; the in-memory flag
       // covers a browser that refuses to store anything.
       function reloadOnce(shell) {
-        var key = 'berth-shell:' + shell;
+        var key = 'treerig-shell:' + shell;
         try {
           if (sessionStorage.getItem(key)) { marker('Not updating.', 'stale'); return; }
           sessionStorage.setItem(key, '1');
@@ -330,7 +330,7 @@
               failures = 0;
               if (plan.kind === 'unchanged') { marker('', ''); return; }
               if (paused) return;
-              // A newer berth wrote that page: its markup belongs to a
+              // A newer treerig wrote that page: its markup belongs to a
               // stylesheet and a script this tab does not have.
               if (plan.shell !== document.documentElement.getAttribute('data-shell')) {
                 reloadOnce(plan.shell);

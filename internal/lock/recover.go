@@ -9,8 +9,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 // judgeDelay is how long the second look waits, both for a contradiction

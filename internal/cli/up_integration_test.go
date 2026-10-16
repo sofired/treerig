@@ -25,13 +25,13 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/stateformat"
 	"golang.org/x/sys/unix"
 )
 
@@ -48,8 +48,8 @@ state=%q
 echo "$*" >> "$state/calls"
 hang() { sh -c 'echo $$ > "$0/hung.pid"; exec sleep 60' "$state" & wait; exit 0; }
 case " $* " in
-  *" --project-name berth-router "*" up "*) [ -e "$state/hang-router" ] && hang; exit 0 ;;
-  *" --project-name berth-router ps "*)
+  *" --project-name treerig-router "*" up "*) [ -e "$state/hang-router" ] && hang; exit 0 ;;
+  *" --project-name treerig-router ps "*)
     for last; do :; done
     case "$last" in router) echo router-1 ;; index) echo index-1 ;; esac; exit 0 ;;
   *" compose "*" config "*) echo '{"name":"x","services":{"api":{"image":"busybox"},"mail":{"image":"busybox"}}}'; exit 0 ;;
@@ -79,7 +79,7 @@ exit 0
 
 // healthyRouter writes the two inspect documents a running, healthy router
 // would have, one per fake container id: the proxy in host mode serving port,
-// owned by the berth root home, as a router this berth root started is, and
+// owned by the treerig root home, as a router this treerig root started is, and
 // the index beside it.
 func healthyRouter(t *testing.T, state, home string, port int) {
 	t.Helper()
@@ -127,7 +127,7 @@ type upFixture struct {
 	env         []string
 }
 
-// newUpFixture builds a checkout with a berth.toml, a compose file, a hook
+// newUpFixture builds a checkout with a treerig.toml, a compose file, a hook
 // script that records its stage (and can be made to hang on demand) and a
 // fake docker on PATH, plus a healthy fake router, ready for `up` to be run
 // against through the real binary.
@@ -154,14 +154,14 @@ func newUpFixture(t *testing.T) upFixture {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(f.checkout, "berth.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n"+
+	write(filepath.Join(f.checkout, "treerig.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n"+
 		"[service.api]\nport = 8080\n[service.mail]\nsubdomain = \"mail\"\nport = 8080\n"+
 		"[hooks]\nprepare = \"./hooks/record\"\nseed = \"./hooks/record\"\n", 0o644)
 	write(filepath.Join(f.checkout, "compose.yaml"), "services: {}\n", 0o644)
 	// Records its stage; while hang-<stage> exists, writes its grandchild's
 	// pid to hung.pid and waits.
 	write(filepath.Join(f.checkout, "hooks", "record"), fmt.Sprintf(
-		"#!/bin/sh\necho \"$BERTH_STAGE\" >> %q\nif [ -e %q/hang-$BERTH_STAGE ]; then sh -c 'echo $$ > \"$0/hung.pid\"; exec sleep 60' %q & wait; fi\n",
+		"#!/bin/sh\necho \"$TREERIG_STAGE\" >> %q\nif [ -e %q/hang-$TREERIG_STAGE ]; then sh -c 'echo $$ > \"$0/hung.pid\"; exec sleep 60' %q & wait; fi\n",
 		f.log, f.state, f.state), 0o755)
 	write(filepath.Join(bin, "docker"), fmt.Sprintf(upFakeDocker, f.state), 0o755)
 	git := exec.Command("git", "init", "--initial-branch=feature/login", ".")
@@ -171,23 +171,23 @@ func newUpFixture(t *testing.T) upFixture {
 	}
 
 	f.env = append(os.Environ(),
-		// BERTH_HOME still isolates the router's own state under this
+		// TREERIG_HOME still isolates the router's own state under this
 		// test's own temp directory (f.controlHome/router) rather than the
-		// machine's real one; BERTH_CONTROL_HOME (#80) points the binary
+		// machine's real one; TREERIG_CONTROL_HOME (#80) points the binary
 		// straight at f.controlHome for the control home itself, matching
 		// the fixture paths below (layout.WorktreeLayout(f.controlHome, ...)).
-		"BERTH_HOME="+f.controlHome,
-		"BERTH_CONTROL_HOME="+f.controlHome,
+		"TREERIG_HOME="+f.controlHome,
+		"TREERIG_CONTROL_HOME="+f.controlHome,
 		"HOME="+filepath.Join(base, "home"),
-		"BERTH_ROUTER_PORT="+strconv.Itoa(port),
+		"TREERIG_ROUTER_PORT="+strconv.Itoa(port),
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	getenv := envGetenv(f.env)
 	registrytest.RequireIsolatedRouterState(t, getenv)
-	// The berth root is the control home here, so it is claimed before it
-	// holds a settings.toml: berth adopts only a directory it created.
+	// The treerig root is the control home here, so it is claimed before it
+	// holds a settings.toml: treerig adopts only a directory it created.
 	registrytest.ClaimControlHome(t, f.controlHome)
-	// The fake engine is a Linux one, which berth on any other client OS
+	// The fake engine is a Linux one, which treerig on any other client OS
 	// cannot place, so the mode is set: host, as the fake router above runs.
 	registrytest.WriteScratchSettings(t, f.controlHome, "[router]\nmode = \"host\"\n")
 	f.routerState, err = layout.RouterState(getenv)
@@ -203,7 +203,7 @@ func newUpFixture(t *testing.T) upFixture {
 // port that were free when picked, and returns them. It is for fixtures with
 // a fake router only; suites with a real router keep the product's range
 // allocation. Left to itself the router picks both from a hash start that is
-// the same in every berth root (by design: the ports stay stable after a lost
+// the same in every treerig root (by design: the ports stay stable after a lost
 // state file, and there is one router per daemon), so every fixture of every
 // concurrently running test binary probes the very same two ports on each
 // `up`, and one probe's brief bind makes another's port look held by another
@@ -354,8 +354,8 @@ func TestUpThroughTheBinary(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
 		for _, line := range []string{
-			"[berth] Starting api for feature-login.acme.localhost.\n",
-			"[berth] feature-login.acme.localhost is up.\n",
+			"[treerig] Starting api for feature-login.acme.localhost.\n",
+			"[treerig] feature-login.acme.localhost is up.\n",
 		} {
 			if !strings.Contains(stderr.String(), line) {
 				t.Fatalf("stderr = %q, want it to contain %q", stderr.String(), line)
@@ -364,7 +364,7 @@ func TestUpThroughTheBinary(t *testing.T) {
 		var routerUp, worktreeUp []string
 		for _, call := range f.calls(t) {
 			switch {
-			case strings.Contains(call, "--project-name berth-router ") && strings.Contains(call, " up "):
+			case strings.Contains(call, "--project-name treerig-router ") && strings.Contains(call, " up "):
 				routerUp = append(routerUp, call)
 			case strings.HasPrefix(call, "compose ") && strings.Contains(call, " up "):
 				worktreeUp = append(worktreeUp, call)

@@ -11,18 +11,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/releasefetch/releasetest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
-	"github.com/sofired/berth/internal/teardown"
-	"github.com/sofired/berth/internal/teardown/teardowntest"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/releasefetch/releasetest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/teardown"
+	"github.com/sofired/treerig/internal/teardown/teardowntest"
 )
 
 // releaseFixture is a teardownFixture plus a release served over TLS and a
@@ -80,7 +80,7 @@ func (f *releaseFixture) cosignHandler(_ context.Context, spec run.Spec) (run.Re
 			return run.Result{}, err
 		}
 		if !strings.HasSuffix(identity, "@refs/tags/v"+f.signedTag) {
-			return run.Result{ExitCode: 1, Stderr: "Error: none of the expected identities matched what was in the certificate, got subjects [https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v" + f.signedTag + "]\n"}, nil
+			return run.Result{ExitCode: 1, Stderr: "Error: none of the expected identities matched what was in the certificate, got subjects [https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v" + f.signedTag + "]\n"}, nil
 		}
 		if releasetest.Sum(data) != f.signedSum {
 			return run.Result{ExitCode: 1, Stderr: "Error: invalid signature when validating ASN.1 encoded signature\n"}, nil
@@ -140,7 +140,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		binary := f.release.Binaries["linux_amd64"]
 		checksums := f.release.File("checksums.txt")
 		if pin.Release != "1.2.3" || pin.Source != "https://127.0.0.1:"+portOf(f.release.Server.URL)+"/releases/download/v1.2.3/" ||
-			pin.Signer != "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3" ||
+			pin.Signer != "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3" ||
 			pin.ChecksumsSHA256 != releasetest.Sum(checksums) || pin.PinnedAt != "2026-10-14T12:00:00Z" {
 			t.Fatalf("pin = %+v", pin)
 		}
@@ -167,13 +167,13 @@ func TestTeardownPinRelease(t *testing.T) {
 		}
 		want := "info: Downloading " + f.release.Base() + "checksums.txt…\n" +
 			"info: Downloading " + f.release.Base() + "checksums.txt.sigstore.json…\n" +
-			"info: Downloading " + f.release.Base() + "berth_1.2.3_linux_amd64.tar.gz…\n" +
+			"info: Downloading " + f.release.Base() + "treerig_1.2.3_linux_amd64.tar.gz…\n" +
 			"info: Pinned the teardown binary: release 1.2.3 (linux_amd64), stored at " + f.stored(binstore.Hash(binary)) + "."
 		if f.logged() != want {
 			t.Fatalf("log = %q\nwant  %q", f.logged(), want)
 		}
 		// Only this platform's archive is fetched, after the signature was checked.
-		wantRequests := "/releases/download/v1.2.3/checksums.txt,/releases/download/v1.2.3/checksums.txt.sigstore.json,/releases/download/v1.2.3/berth_1.2.3_linux_amd64.tar.gz"
+		wantRequests := "/releases/download/v1.2.3/checksums.txt,/releases/download/v1.2.3/checksums.txt.sigstore.json,/releases/download/v1.2.3/treerig_1.2.3_linux_amd64.tar.gz"
 		if got := strings.Join(f.release.Requests(), ","); got != wantRequests {
 			t.Fatalf("requests = %s\nwant      %s", got, wantRequests)
 		}
@@ -202,7 +202,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		if pin.Platforms["darwin_arm64"].BinarySHA256 != binstore.Hash(f.release.Binaries["darwin_arm64"]) || pin.Platforms["linux_amd64"].BinarySHA256 != "" {
 			t.Fatalf("platforms = %+v", pin.Platforms)
 		}
-		if !strings.HasSuffix(f.release.Requests()[2], "berth_1.2.3_darwin_arm64.tar.gz") {
+		if !strings.HasSuffix(f.release.Requests()[2], "treerig_1.2.3_darwin_arm64.tar.gz") {
 			t.Fatalf("requests = %v", f.release.Requests())
 		}
 	})
@@ -225,7 +225,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		}
 		verify := calls[1]
 		dir := verify.Dir
-		wantArgs := "verify-blob --bundle " + dir + "/checksums.txt.sigstore.json --certificate-identity https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3 --certificate-oidc-issuer https://token.actions.githubusercontent.com " + dir + "/checksums.txt"
+		wantArgs := "verify-blob --bundle " + dir + "/checksums.txt.sigstore.json --certificate-identity https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3 --certificate-oidc-issuer https://token.actions.githubusercontent.com " + dir + "/checksums.txt"
 		if strings.Join(verify.Args, " ") != wantArgs || verify.Timeout != 60*time.Second {
 			t.Fatalf("verify call = %+v", verify)
 		}
@@ -259,7 +259,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		if err := f.pin(options); err != nil {
 			t.Fatal(err)
 		}
-		want := "/releases/latest/download/checksums.txt,/releases/download/v1.2.3/checksums.txt,/releases/download/v1.2.3/checksums.txt.sigstore.json,/releases/download/v1.2.3/berth_1.2.3_linux_amd64.tar.gz"
+		want := "/releases/latest/download/checksums.txt,/releases/download/v1.2.3/checksums.txt,/releases/download/v1.2.3/checksums.txt.sigstore.json,/releases/download/v1.2.3/treerig_1.2.3_linux_amd64.tar.gz"
 		if got := strings.Join(f.release.Requests(), ","); got != want {
 			t.Fatalf("requests = %s\nwant      %s", got, want)
 		}
@@ -297,7 +297,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		options := f.options()
 		options.Release, options.Latest = "", true
-		wantRefusal(t, f.pin(options), "Refusing to pin the latest release: sofired/berth has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `berth teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/berth/releases.")
+		wantRefusal(t, f.pin(options), "Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/treerig/releases.")
 		f.wantNothingPinned(t)
 		if len(f.runner.Calls()) != 0 {
 			t.Fatalf("cosign ran: %v", f.runner.Argv())
@@ -307,7 +307,7 @@ func TestTeardownPinRelease(t *testing.T) {
 	t.Run("refuses a signature for another tag, and writes nothing", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.4")
 		f.signedTag = "1.2.3" // a genuine signature, of the release before
-		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.4: checksums.txt did not verify against the release workflow's signature. cosign said: \"Error: none of the expected identities matched what was in the certificate, got subjects [https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3]\". Do not trust this release. Nothing was pinned.")
+		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.4: checksums.txt did not verify against the release workflow's signature. cosign said: \"Error: none of the expected identities matched what was in the certificate, got subjects [https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3]\". Do not trust this release. Nothing was pinned.")
 		f.wantNothingPinned(t)
 		for _, path := range f.release.Requests() {
 			if strings.HasSuffix(path, ".tar.gz") {
@@ -329,7 +329,7 @@ func TestTeardownPinRelease(t *testing.T) {
 	t.Run("refuses an archive whose digest is not the one in the verified checksums.txt", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		name := releasefetch.ArchiveName("1.2.3", "linux_amd64")
-		tampered := releasetest.Archive(releasetest.Entry{Name: "berth", Body: teardowntest.Executable("linux_amd64", " tampered")})
+		tampered := releasetest.Archive(releasetest.Entry{Name: "treerig", Body: teardowntest.Executable("linux_amd64", " tampered")})
 		listed := releasetest.Sum(f.release.File(name))
 		f.release.Set(name, tampered) // the signed checksums.txt still lists the original
 		err := f.pin(f.options())
@@ -340,7 +340,7 @@ func TestTeardownPinRelease(t *testing.T) {
 	t.Run("refuses when cosign is missing, or older than 3.0.0, or a development build", func(t *testing.T) {
 		missing := newReleaseFixture(t, "1.2.3")
 		missing.env.Environ = []string{"PATH=" + filepath.Join(missing.dir, "nowhere")}
-		wantRefusal(t, missing.pin(missing.options()), "Refusing to pin 1.2.3: cosign 3.0.0 or newer is required to verify it, and cosign is not on PATH. Install cosign, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.")
+		wantRefusal(t, missing.pin(missing.options()), "Refusing to pin 1.2.3: cosign 3.0.0 or newer is required to verify it, and cosign is not on PATH. Install cosign, or verify the download by hand and use `treerig teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.")
 		missing.wantNothingPinned(t)
 		if len(missing.release.Requests()) != 0 {
 			t.Fatalf("a request was made before cosign was found: %v", missing.release.Requests())
@@ -349,7 +349,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		for version, tc := range map[string][2]string{"v2.6.5": {"version v2.6.5", "Upgrade cosign"}, "devel": {"version devel", "Upgrade cosign"}, "": {"it reported no gitVersion", "Install cosign"}, "v3.0.0-rc.1": {"version v3.0.0-rc.1", "Upgrade cosign"}} {
 			old := newReleaseFixture(t, "1.2.3")
 			old.version = version
-			wantRefusal(t, old.pin(old.options()), "Refusing to pin 1.2.3: cosign 3.0.0 or newer is required to verify it, and "+old.cosign+" does not qualify ("+tc[0]+"). "+tc[1]+", or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.")
+			wantRefusal(t, old.pin(old.options()), "Refusing to pin 1.2.3: cosign 3.0.0 or newer is required to verify it, and "+old.cosign+" does not qualify ("+tc[0]+"). "+tc[1]+", or verify the download by hand and use `treerig teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.")
 			old.wantNothingPinned(t)
 		}
 	})
@@ -372,7 +372,7 @@ func TestTeardownPinRelease(t *testing.T) {
 			text   string
 		}{
 			{"checksums.txt.sigstore.json", 404, "was not found (HTTP 404)"},
-			{"berth_1.2.3_linux_amd64.tar.gz", 404, "was not found (HTTP 404)"},
+			{"treerig_1.2.3_linux_amd64.tar.gz", 404, "was not found (HTTP 404)"},
 			{"checksums.txt", 500, "answered HTTP 500"},
 		} {
 			f := newReleaseFixture(t, "1.2.3")
@@ -403,11 +403,11 @@ func TestTeardownPinRelease(t *testing.T) {
 		}{
 			{"checksums.txt", 1<<20 + 1, "1 MiB"},
 			{"checksums.txt.sigstore.json", 1<<20 + 1, "1 MiB"},
-			{"berth_1.2.3_linux_amd64.tar.gz", 100<<20 + 1, "100 MiB"},
+			{"treerig_1.2.3_linux_amd64.tar.gz", 100<<20 + 1, "100 MiB"},
 		} {
 			f := newReleaseFixture(t, "1.2.3")
 			f.release.Set(tc.file, bytes.Repeat([]byte("z"), tc.size))
-			if tc.file != "berth_1.2.3_linux_amd64.tar.gz" {
+			if tc.file != "treerig_1.2.3_linux_amd64.tar.gz" {
 				f.signedSum = releasetest.Sum(f.release.File("checksums.txt"))
 			}
 			wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: "+f.release.Base()+tc.file+" is larger than "+tc.cap+". Nothing was pinned.")
@@ -417,14 +417,14 @@ func TestTeardownPinRelease(t *testing.T) {
 
 	t.Run("refuses a hostile archive of every kind, even one the signed checksums.txt lists", func(t *testing.T) {
 		name := releasefetch.ArchiveName("1.2.3", "linux_amd64")
-		good := releasetest.Entry{Name: "berth", Mode: 0o755, Body: teardowntest.Executable("linux_amd64", " from a hostile archive")}
+		good := releasetest.Entry{Name: "treerig", Mode: 0o755, Body: teardowntest.Executable("linux_amd64", " from a hostile archive")}
 		for reason, entries := range map[string][]releasetest.Entry{
 			"has a link entry":                                       {good, {Name: "x", Type: tar.TypeSymlink, Linkname: "/etc/passwd"}},
-			"has a link entry ":                                      {{Name: "berth", Type: tar.TypeSymlink, Linkname: "/bin/sh"}},
+			"has a link entry ":                                      {{Name: "treerig", Type: tar.TypeSymlink, Linkname: "/bin/sh"}},
 			"has an entry with an absolute name":                     {good, {Name: "/etc/cron.d/x", Body: []byte("x")}},
 			"has an entry with a `..` in its name":                   {good, {Name: "../../.bashrc", Body: []byte("x")}},
-			"has more than one `berth` entry":                        {good, {Name: "./berth", Body: []byte("other")}},
-			"has no `berth` entry at its root":                       {{Name: "LICENSE", Body: []byte("x")}},
+			"has more than one `treerig` entry":                      {good, {Name: "./treerig", Body: []byte("other")}},
+			"has no `treerig` entry at its root":                     {{Name: "LICENSE", Body: []byte("x")}},
 			"has an entry that is not a regular file or a directory": {good, {Name: "dev", Type: tar.TypeChar}},
 		} {
 			f := newReleaseFixture(t, "1.2.3")
@@ -442,17 +442,17 @@ func TestTeardownPinRelease(t *testing.T) {
 		name := releasefetch.ArchiveName("1.2.3", "linux_amd64")
 		f.publish(releasetest.Archive(
 			releasetest.Entry{Name: "padding", Body: make([]byte, 501<<20)},
-			releasetest.Entry{Name: "berth", Body: teardowntest.Executable("linux_amd64", "")},
+			releasetest.Entry{Name: "treerig", Body: teardowntest.Executable("linux_amd64", "")},
 		))
 		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: the archive "+name+" expands to more than 500 MiB. Nothing was pinned.")
 		f.wantNothingPinned(t)
 	})
 
-	t.Run("refuses a berth that is not an executable for this platform", func(t *testing.T) {
+	t.Run("refuses a treerig that is not an executable for this platform", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		name := releasefetch.ArchiveName("1.2.3", "linux_amd64")
-		f.publish(releasetest.Archive(releasetest.Entry{Name: "berth", Body: teardowntest.Executable("linux_arm64", "")}))
-		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: the berth in "+name+" is not a linux_amd64 executable (an ELF file for EM_AARCH64, not EM_X86_64). Nothing was pinned.")
+		f.publish(releasetest.Archive(releasetest.Entry{Name: "treerig", Body: teardowntest.Executable("linux_arm64", "")}))
+		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: the treerig in "+name+" is not a linux_amd64 executable (an ELF file for EM_AARCH64, not EM_X86_64). Nothing was pinned.")
 		f.wantNothingPinned(t)
 	})
 
@@ -461,7 +461,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		short := "" + releasetest.Sum(nil) + "  " + releasefetch.ArchiveName("1.2.3", "linux_amd64") + "\n"
 		f.release.Set("checksums.txt", []byte(short))
 		f.signedSum = releasetest.Sum([]byte(short))
-		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: the verified checksums.txt does not list berth_1.2.3_linux_arm64.tar.gz. Nothing was pinned.")
+		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: the verified checksums.txt does not list treerig_1.2.3_linux_arm64.tar.gz. Nothing was pinned.")
 		f.wantNothingPinned(t)
 	})
 
@@ -471,10 +471,10 @@ func TestTeardownPinRelease(t *testing.T) {
 		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: this process has no way to download a release. Nothing was pinned.")
 	})
 
-	t.Run("refuses a platform berth does not build", func(t *testing.T) {
+	t.Run("refuses a platform treerig does not build", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		f.env.Arch = "riscv64"
-		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: linux_riscv64 is not a platform berth builds (linux and darwin, on amd64 and arm64).")
+		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: linux_riscv64 is not a platform treerig builds (linux and darwin, on amd64 and arm64).")
 	})
 
 	t.Run("a newer or foreign pin refuses before anything is downloaded", func(t *testing.T) {
@@ -486,7 +486,7 @@ func TestTeardownPinRelease(t *testing.T) {
 			t.Fatal(err)
 		}
 		err := f.pin(f.options())
-		if err == nil || !strings.Contains(err.Error(), "Upgrade berth") {
+		if err == nil || !strings.Contains(err.Error(), "Upgrade treerig") {
 			t.Fatalf("err = %v", err)
 		}
 		if err := os.WriteFile(f.control.PinPath, []byte(`{"nonsense": true}`), 0o600); err != nil {
@@ -575,7 +575,7 @@ func TestTeardownPinReleasePlan(t *testing.T) {
 		want := "Pin the teardown binary\n" +
 			"  release   1.2.3  (current pin: none)\n" +
 			"  source    " + f.release.Base() + "\n" +
-			"  signer    https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3  (cosign verified)\n" +
+			"  signer    https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3  (cosign verified)\n" +
 			"  cosign    " + f.cosign + "  (3.0.6)\n" +
 			"  platform  linux_amd64  sha256 " + binary + "\n" +
 			"  `worktree remove` does not run this binary yet.\n\n" +
@@ -733,7 +733,7 @@ func TestTeardownPinReleaseContainment(t *testing.T) {
 		if canonical != path {
 			shown += " (" + canonical + ")"
 		}
-		return "Refusing to pin " + release + ": cosign resolves to " + shown + ", which is inside " + where + ", where branch code could have put it. Install cosign outside any checkout, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned."
+		return "Refusing to pin " + release + ": cosign resolves to " + shown + ", which is inside " + where + ", where branch code could have put it. Install cosign outside any checkout, or verify the download by hand and use `treerig teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned."
 	}
 	canonical := func(t *testing.T, path string) string {
 		t.Helper()
@@ -787,14 +787,14 @@ func TestTeardownPinReleaseContainment(t *testing.T) {
 	t.Run("a cosign beside the checkout, in a directory that shares its name as a prefix, is not inside it", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		parent := filepath.Dir(f.dir)
-		checkout := filepath.Join(parent, "berth")
+		checkout := filepath.Join(parent, "treerig")
 		if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		install(t, f, filepath.Join(parent, "berth.tools"))
+		install(t, f, filepath.Join(parent, "treerig.tools"))
 		f.env.Cwd = checkout
 		if err := f.pin(f.options()); err != nil {
-			t.Fatalf("berth.tools was taken to be inside berth: %v", err)
+			t.Fatalf("treerig.tools was taken to be inside treerig: %v", err)
 		}
 	})
 
@@ -821,7 +821,7 @@ func TestTeardownPinReleaseContainment(t *testing.T) {
 		}
 		if err := card.WriteIndexCard(f.control.ControlHome, repositoryID, worktreeID, card.IndexCard{
 			Project: "p", Domain: "acme.test", Slug: "feature-login", Host: "feature-login.acme.test", Root: worktree, Branch: "main",
-			LabelNamespace: "dev.berth", UpdatedAt: "2026-01-01T00:00:00.000Z",
+			LabelNamespace: "dev.treerig", UpdatedAt: "2026-01-01T00:00:00.000Z",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -857,7 +857,7 @@ func TestTeardownPinReleaseCosignFailures(t *testing.T) {
 		f.runner.Handler = func(_ context.Context, spec run.Spec) (run.Result, error) {
 			return run.Result{ExitCode: 1, Stderr: "asdf: No version is set for command cosign"}, nil
 		}
-		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: cosign 3.0.0 or newer is required to verify it, and "+f.cosign+" does not qualify (`cosign version --json` failed: asdf: No version is set for command cosign; a version-manager shim such as asdf or mise needs an environment berth withholds, so install a cosign binary on PATH). Install cosign, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.")
+		wantRefusal(t, f.pin(f.options()), "Refusing to pin 1.2.3: cosign 3.0.0 or newer is required to verify it, and "+f.cosign+" does not qualify (`cosign version --json` failed: asdf: No version is set for command cosign; a version-manager shim such as asdf or mise needs an environment treerig withholds, so install a cosign binary on PATH). Install cosign, or verify the download by hand and use `treerig teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.")
 		f.wantNothingPinned(t)
 	})
 
@@ -902,7 +902,7 @@ func TestTeardownPinReleaseVerifyFailures(t *testing.T) {
 		}
 	}
 	const initialize = "`cosign initialize`"
-	const fileForm = "`berth teardown pin --file PATH --sha256 HEX --release LABEL`"
+	const fileForm = "`treerig teardown pin --file PATH --sha256 HEX --release LABEL`"
 
 	t.Run("a trust root that could not be loaded may be fixed or bypassed by hand: initialize, or the file form", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
@@ -1042,15 +1042,15 @@ func TestTeardownPinReleaseRootDiscovery(t *testing.T) {
 	t.Run("reads a relative gitdir, as git 2.48 writes with worktree.useRelativePaths, against the entry's directory", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		parent := filepath.Dir(f.dir)
-		repository := filepath.Join(parent, "berth")
-		sibling := filepath.Join(parent, "berth.feat-y")
+		repository := filepath.Join(parent, "treerig")
+		sibling := filepath.Join(parent, "treerig.feat-y")
 		listing := filepath.Join(repository, ".git", "worktrees", "feat-y")
 		for _, dir := range []string{listing, sibling, filepath.Join(repository, ".git")} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if err := os.WriteFile(filepath.Join(listing, "gitdir"), []byte("../../../../berth.feat-y/.git\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(listing, "gitdir"), []byte("../../../../treerig.feat-y/.git\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		path := installAt(t, f, filepath.Join(sibling, "tools"))
@@ -1083,11 +1083,11 @@ func TestTeardownPinReleaseRootDiscovery(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a cosign in a worktree the repository lists but berth never registered", func(t *testing.T) {
+	t.Run("refuses a cosign in a worktree the repository lists but treerig never registered", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		parent := filepath.Dir(f.dir)
-		repository := filepath.Join(parent, "berth")
-		sibling := filepath.Join(parent, "berth.feat-x") // the worktrunk layout: outside the repository
+		repository := filepath.Join(parent, "treerig")
+		sibling := filepath.Join(parent, "treerig.feat-x") // the worktrunk layout: outside the repository
 		listing := filepath.Join(repository, ".git", "worktrees", "feat-x")
 		for _, dir := range []string{listing, sibling} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1114,7 +1114,7 @@ func TestTeardownPinReleaseRootDiscovery(t *testing.T) {
 
 	t.Run("warns when the repository's worktree list exists but cannot be read", func(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
-		repository := filepath.Join(filepath.Dir(f.dir), "berth")
+		repository := filepath.Join(filepath.Dir(f.dir), "treerig")
 		// A file where the worktrees directory should be: it exists, and
 		// reading it as a directory fails (ENOTDIR), even as root.
 		if err := os.MkdirAll(filepath.Join(repository, ".git"), 0o755); err != nil {

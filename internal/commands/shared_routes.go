@@ -12,14 +12,14 @@ import (
 	"os"
 	"slices"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // anyRouted reports whether any of services declares a routed web UI.
@@ -51,11 +51,11 @@ func sharedURLsFor(controlHome, repositoryID string, cfg config.Config, routerPo
 	}
 	records, problems, err := registry.NewStore(controlHome, repositoryID).SharedRecords()
 	if err != nil {
-		log.Warn(fmt.Sprintf("Could not read the shared services' records, so BERTH_SHARED_URL_* is left out: %s", err))
+		log.Warn(fmt.Sprintf("Could not read the shared services' records, so TREERIG_SHARED_URL_* is left out: %s", err))
 		return nil
 	}
 	for _, problem := range problems {
-		log.Warn(fmt.Sprintf("A shared service's record could not be read, so its BERTH_SHARED_URL_* is left out: %s: %s", problem.File, problem.Reason))
+		log.Warn(fmt.Sprintf("A shared service's record could not be read, so its TREERIG_SHARED_URL_* is left out: %s: %s", problem.File, problem.Reason))
 	}
 	byName := make(map[string]registry.SharedRecord, len(records))
 	for _, record := range records {
@@ -76,7 +76,7 @@ func sharedURLsFor(controlHome, repositoryID string, cfg config.Config, routerPo
 // record this control home holds; a service with no record is left alone,
 // since a file without one may be another control home's (decision 9).
 //
-// A running instance whose record does not yet route the port berth.toml
+// A running instance whose record does not yet route the port treerig.toml
 // declares as its web UI adopts it, when the port is already pinned and so
 // already published by the container: the case of a port that was a raw one
 // when the container was created. A port that is not pinned needs the
@@ -107,7 +107,7 @@ func routeShared(ctx context.Context, cctx *CommandContext, repositoryID string,
 			}
 		}
 		if service.Port == nil && record.Routed != 0 {
-			// The declaration was dropped from berth.toml while the container
+			// The declaration was dropped from treerig.toml while the container
 			// keeps running: its record stops routing, and the file goes. The
 			// port stays pinned and published until the next recreate.
 			zero := 0

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // intPtr returns a pointer to a copy of n, for taking the address of a literal.
@@ -25,17 +25,17 @@ func routedRuntime(t *testing.T, fake *dockerFake, routes []RouteSpec) (*Compose
 	controlHome := t.TempDir()
 	rt := NewCompose(Options{
 		ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-		ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+		ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 		ControlHome: controlHome, LabelNamespace: ns, Routes: routes,
 		Runner: fake, Logger: logger.Silent{}, WaitTimeoutSeconds: intPtr(45),
 	})
 	return rt, controlHome
 }
 
-// overridePathFor is the path the runtime writes berth.override.yaml to
+// overridePathFor is the path the runtime writes treerig.override.yaml to
 // under a worktree's home, for tests that read it back directly.
 func overridePathFor(controlHome string) string {
-	return filepath.Join(layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID).Home, "berth.override.yaml")
+	return filepath.Join(layout.WorktreeLayout(controlHome, ref.RepositoryID, ref.WorktreeID).Home, "treerig.override.yaml")
 }
 
 // overrideDoc reads and decodes the override document written to disk.
@@ -100,7 +100,7 @@ func TestComposeUp(t *testing.T) {
 		controlHome := t.TempDir()
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 			ControlHome: controlHome, LabelNamespace: ns,
 			Runner: fake, Logger: logger.Silent{},
 			Environ: []string{"PATH=/bin", "COMPOSE_PROFILES=debug"},
@@ -137,7 +137,7 @@ func TestComposeUp(t *testing.T) {
 		// `compose up debugOnly` would enable its profile and start it unlabelled.
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 			ControlHome: controlHome, LabelNamespace: ns,
 			Runner: fake, Logger: logger.Silent{},
 			Environ: []string{"PATH=/bin"},
@@ -160,7 +160,7 @@ func TestComposeUp(t *testing.T) {
 		controlHome := t.TempDir()
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 			ControlHome: controlHome, LabelNamespace: ns,
 			Runner: fake, Logger: logger.Silent{},
 			Environ: []string{"PATH=/bin", "COMPOSE_PROFILES=debug"},
@@ -208,7 +208,7 @@ func TestComposeUp(t *testing.T) {
 		fake := newFake()
 		rt, controlHome := routedRuntime(t, fake, nil)
 		err := rt.Up(ctx, ref, nil)
-		if err == nil || !strings.Contains(err.Error(), "does not exist. `up` creates it before starting services, so this is a bug in berth") {
+		if err == nil || !strings.Contains(err.Error(), "does not exist. `up` creates it before starting services, so this is a bug in treerig") {
 			t.Fatalf("got %v", err)
 		}
 		if _, statErr := os.Stat(overridePathFor(controlHome)); statErr == nil {
@@ -324,7 +324,7 @@ func TestComposeUp(t *testing.T) {
 		// this is specifically about leaving WaitTimeoutSeconds nil.
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 			ControlHome: controlHome, LabelNamespace: ns,
 			Runner: fake, Logger: logger.Silent{},
 		})
@@ -346,7 +346,7 @@ func TestComposeUp(t *testing.T) {
 		controlHome := t.TempDir()
 		rt := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", Domain: "acme.localhost",
+			ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", Domain: "acme.localhost",
 			ControlHome: controlHome, LabelNamespace: ns,
 			Runner: fake, Logger: logger.Silent{}, WaitTimeoutSeconds: intPtr(0),
 		})

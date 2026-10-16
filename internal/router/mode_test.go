@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // nativeLinux is the engine this project's Linux machine reports: values
@@ -98,7 +98,7 @@ func TestDetectMode(t *testing.T) {
 				e.OperatingSystem, e.Name, e.ClientOS = "Ubuntu 24.04 LTS", "colima", "darwin"
 				e.Endpoint = "unix:///Users/dev/.colima/default/docker.sock"
 			}),
-			refused: "/berth/settings.toml",
+			refused: "/treerig/settings.toml",
 		},
 		{
 			name: "the override host accepts that VM engine",
@@ -127,7 +127,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named colima-foo is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "colima-foo", "linux" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:   "a native host named limassol is not a Lima engine",
@@ -147,7 +147,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named colima under a linux client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "colima", "linux" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine colima under a linux client",
@@ -162,7 +162,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named colima under a darwin client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "colima", "darwin" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine colima under a darwin client",
@@ -177,7 +177,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named lima-default under a linux client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "lima-default", "linux" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine lima-default under a linux client",
@@ -192,7 +192,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named lima-default under a darwin client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "lima-default", "darwin" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine lima-default under a darwin client",
@@ -207,7 +207,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named rancher-desktop under a linux client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "rancher-desktop", "linux" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine rancher-desktop under a linux client",
@@ -222,7 +222,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named rancher-desktop under a darwin client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "rancher-desktop", "darwin" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine rancher-desktop under a darwin client",
@@ -237,7 +237,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named lima-rancher-desktop under a linux client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "lima-rancher-desktop", "linux" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine lima-rancher-desktop under a linux client",
@@ -252,7 +252,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named lima-rancher-desktop under a darwin client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "lima-rancher-desktop", "darwin" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine lima-rancher-desktop under a darwin client",
@@ -267,7 +267,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named Colima under a linux client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "Colima", "linux" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine Colima under a linux client",
@@ -282,7 +282,7 @@ func TestDetectMode(t *testing.T) {
 		{
 			name:    "a VM engine named Colima under a darwin client is refused unless the mode is set",
 			engine:  with(nativeLinux(), func(e *router.Engine) { e.Name, e.ClientOS = "Colima", "darwin" }),
-			refused: "Set [router] mode in /berth/settings.toml",
+			refused: "Set [router] mode in /treerig/settings.toml",
 		},
 		{
 			name:     "the override host accepts the VM engine Colima under a darwin client",
@@ -314,7 +314,7 @@ func TestDetectMode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := router.DetectMode(tc.engine, tc.override, "/berth/settings.toml")
+			got, err := router.DetectMode(tc.engine, tc.override, "/treerig/settings.toml")
 			if tc.refused != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.refused) {
 					t.Fatalf("DetectMode = %q, %v; want a refusal containing %q", got, err, tc.refused)
@@ -367,7 +367,7 @@ func TestDetectModeRefusalWording(t *testing.T) {
 	}
 	message := func(t *testing.T, engine router.Engine) string {
 		t.Helper()
-		_, err := router.DetectMode(engine, "", "/berth/settings.toml")
+		_, err := router.DetectMode(engine, "", "/treerig/settings.toml")
 		if err == nil {
 			t.Fatal("expected a refusal")
 		}

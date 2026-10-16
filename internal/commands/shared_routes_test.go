@@ -9,16 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // sharedRoute is the route file of mailpit in the world's repository, read
@@ -64,13 +64,13 @@ func TestSharedServicesAreRouted(t *testing.T) {
 		for _, want := range []string{
 			`"` + name + `": {`,
 			"Host(`mailpit.shared.acme.localhost`)",
-			"http://berth-loopback:" + itoa(record.Ports[8025]),
+			"http://treerig-loopback:" + itoa(record.Ports[8025]),
 		} {
 			if !strings.Contains(route, want) {
 				t.Errorf("route file lacks %q:\n%s", want, route)
 			}
 		}
-		if strings.Contains(route, "http://berth-loopback:"+itoa(record.Ports[1025])) {
+		if strings.Contains(route, "http://treerig-loopback:"+itoa(record.Ports[1025])) {
 			t.Errorf("the raw port is routed:\n%s", route)
 		}
 	})
@@ -346,7 +346,7 @@ func TestSharedDownRemovesTheRoute(t *testing.T) {
 		}
 	})
 
-	t.Run("works from a checkout with no berth.toml", func(t *testing.T) {
+	t.Run("works from a checkout with no treerig.toml", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
 		w.mustUp(t, tc)
@@ -390,13 +390,13 @@ func TestHooksAndCommandsGetTheSharedURL(t *testing.T) {
 		t.Fatalf("no %s call", suffix)
 		return nil
 	}
-	const want = "BERTH_SHARED_URL_MAILPIT=http://mailpit.shared.acme.localhost"
+	const want = "TREERIG_SHARED_URL_MAILPIT=http://mailpit.shared.acme.localhost"
 	t.Run("up's hooks", func(t *testing.T) {
 		if !slices.Contains(envOf("hooks/prepare"), want) {
 			t.Errorf("%s missing", want)
 		}
 	})
-	t.Run("berth run, with the router's port folded in", func(t *testing.T) {
+	t.Run("treerig run, with the router's port folded in", func(t *testing.T) {
 		tc.CommandContext.RouterPort = 8080
 		if err := commands.RunWithContext(context.Background(), tc.CommandContext, commands.RunOptions{Name: "show"}); err != nil {
 			t.Fatal(err)
@@ -406,14 +406,14 @@ func TestHooksAndCommandsGetTheSharedURL(t *testing.T) {
 		}
 	})
 	t.Run("a variable inherited from another worktree is dropped", func(t *testing.T) {
-		tc.Environ = append(slices.Clone(tc.Environ), "BERTH_SHARED_URL_STALE=http://stale")
+		tc.Environ = append(slices.Clone(tc.Environ), "TREERIG_SHARED_URL_STALE=http://stale")
 		tc.CommandContext.RouterPort = 80
 		if err := commands.RunWithContext(context.Background(), tc.CommandContext, commands.RunOptions{Name: "show"}); err != nil {
 			t.Fatal(err)
 		}
 		calls := w.Runner.Calls()
-		if env := calls[len(calls)-1].Env; slices.Contains(env, "BERTH_SHARED_URL_STALE=http://stale") {
-			t.Error("an inherited BERTH_SHARED_URL_* reached the command")
+		if env := calls[len(calls)-1].Env; slices.Contains(env, "TREERIG_SHARED_URL_STALE=http://stale") {
+			t.Error("an inherited TREERIG_SHARED_URL_* reached the command")
 		}
 	})
 	t.Run("never in the environment Compose gets", func(t *testing.T) {
@@ -422,7 +422,7 @@ func TestHooksAndCommandsGetTheSharedURL(t *testing.T) {
 				continue
 			}
 			for _, entry := range call.Env {
-				if strings.HasPrefix(entry, "BERTH_SHARED_URL_") {
+				if strings.HasPrefix(entry, "TREERIG_SHARED_URL_") {
 					t.Fatalf("docker %v got %s", call.Args, entry)
 				}
 			}
@@ -534,7 +534,7 @@ func TestDoctorSharedRoute(t *testing.T) {
 			t.Fatal(err)
 		}
 		check := only(t, sharedChecks(t, tc, "shared.route"))
-		if check.Status != commands.StatusWarn || !strings.Contains(check.Detail, "has no route file") || !strings.Contains(check.Detail, "'berth shared up' writes it") {
+		if check.Status != commands.StatusWarn || !strings.Contains(check.Detail, "has no route file") || !strings.Contains(check.Detail, "'treerig shared up' writes it") {
 			t.Errorf("route = %+v", check)
 		}
 	})
@@ -610,7 +610,7 @@ func TestSharedDownRemovesARouteLeftByAContainerStoppedAnotherWay(t *testing.T) 
 	w := newSharedWorld(t)
 	tc := w.context("")
 	w.mustUp(t, tc)
-	// Removed behind berth's back: the route file stays, and the hostname would 502.
+	// Removed behind treerig's back: the route file stays, and the hostname would 502.
 	if _, err := w.Docker.Handle(context.Background(), run.Spec{Command: "docker", Args: []string{"rm", "--force", w.mailpit(t, tc)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +663,7 @@ func TestAnUnpinnedPortIsSaidToNeedARecreate(t *testing.T) {
 	port := 8025
 	tc.Loaded.Config.Shared.Service[0].Port = &port
 	w.mustUp(t, tc)
-	if !strings.Contains(lines(tc), "port 8025 is not pinned") || !strings.Contains(lines(tc), "'berth shared up --recreate mailpit'") {
+	if !strings.Contains(lines(tc), "port 8025 is not pinned") || !strings.Contains(lines(tc), "'treerig shared up --recreate mailpit'") {
 		t.Errorf("output:\n%s", lines(tc))
 	}
 }
@@ -762,7 +762,7 @@ func TestSharedDownDoesNotStripARouteThatAppearedWhileItDecided(t *testing.T) {
 	tc := w.context("")
 	w.mustUp(t, tc)
 	repository := w.repository(t, tc)
-	// The container and its network go away behind berth's back: the plan is
+	// The container and its network go away behind treerig's back: the plan is
 	// empty, and only a route file is left.
 	remove := func(args ...string) {
 		if _, err := w.Docker.Handle(context.Background(), run.Spec{Command: "docker", Args: args}); err != nil {

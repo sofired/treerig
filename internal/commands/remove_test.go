@@ -11,15 +11,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 const acme = "acme.localhost"
@@ -36,10 +36,10 @@ func approved(options commands.RemoveOptions) commands.RemoveOptions {
 }
 
 // remove runs RemoveWithContext against tc's CommandContext with a bare
-// "berth" Env, the shared entry point every subtest in this file calls.
+// "treerig" Env, the shared entry point every subtest in this file calls.
 func remove(t *testing.T, tc *commandstest.TestContext, options commands.RemoveOptions) (*commands.RemoveResult, error) {
 	t.Helper()
-	return commands.RemoveWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "berth"}, options)
+	return commands.RemoveWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "treerig"}, options)
 }
 
 // kinds returns resources' Kind values, in order, for asserting what a
@@ -118,7 +118,7 @@ func TestWorktreeRemove(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		ref := w.Register("", acme, "feature-login", "dev.other", "api", "mail")
 		// The config's own namespace defaults to brand.LabelNamespace
-		// ("dev.berth"), distinct from the "dev.other" the worktree was
+		// ("dev.treerig"), distinct from the "dev.other" the worktree was
 		// actually registered and labelled under.
 		tc := w.Context("", acme, nil)
 
@@ -207,7 +207,7 @@ func TestWorktreeRemove(t *testing.T) {
 		wantErr(t, err, regexp.QuoteMeta("Refusing to touch volume "+volume))
 
 		current, _ := tc.Registry.Current(ctx)
-		if current == nil || current.Slug != "feature-login" || current.LabelNamespace == nil || *current.LabelNamespace != "dev.berth" {
+		if current == nil || current.Slug != "feature-login" || current.LabelNamespace == nil || *current.LabelNamespace != "dev.treerig" {
 			t.Fatalf("current = %+v", current)
 		}
 		// Data may already be gone, so the record is pending again: an `up` now would seed, not resume.
@@ -358,7 +358,7 @@ func TestWorktreeRemove(t *testing.T) {
 
 		_, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{}))
 		owner := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
-		wantErr(t, err, `(?s)owned by another user.*chown -R `+owner+` /d.*'berth worktree remove' again`)
+		wantErr(t, err, `(?s)owned by another user.*chown -R `+owner+` /d.*'treerig worktree remove' again`)
 		if current, _ := w.Context("", acme, nil).Registry.Current(ctx); current == nil {
 			t.Fatal("the registration went before the home did")
 		}
@@ -388,7 +388,7 @@ func TestWorktreeRemove(t *testing.T) {
 		w.Docker.Up(oldRef, "dev.oldns", "api")
 
 		_, err = remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{Identifier: identity.WorktreeID}))
-		wantErr(t, err, `(?s)Cannot remove main\.widgets\.localhost from this repository: it belongs to a different one.*--label-namespace \(dev\.berth unless`)
+		wantErr(t, err, `(?s)Cannot remove main\.widgets\.localhost from this repository: it belongs to a different one.*--label-namespace \(dev\.treerig unless`)
 		_, err = remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{Identifier: identity.WorktreeID, LabelNamespace: "not a namespace"}))
 		wantErr(t, err, "--label-namespace must look like a reverse domain")
 
@@ -406,12 +406,12 @@ func TestWorktreeRemove(t *testing.T) {
 		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 
 		_, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{LabelNamespace: "dev.wrong"}))
-		wantErr(t, err, regexp.QuoteMeta("feature-login.acme.localhost records its resources as labelled under dev.berth, not dev.wrong. Drop --label-namespace, or pass the recorded one."))
+		wantErr(t, err, regexp.QuoteMeta("feature-login.acme.localhost records its resources as labelled under dev.treerig, not dev.wrong. Drop --label-namespace, or pass the recorded one."))
 		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 2 {
 			t.Fatalf("owned = %v", left)
 		}
 		// The recorded one, spelled out, is fine.
-		result, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{LabelNamespace: "dev.berth"}))
+		result, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{LabelNamespace: "dev.treerig"}))
 		if err != nil || !result.Registration {
 			t.Fatalf("result = %+v, %v", result, err)
 		}
@@ -437,7 +437,7 @@ func TestWorktreeRemove(t *testing.T) {
 			t.Fatalf("late = %+v", late)
 		}
 		lines, _ := tc.Logger.Snapshot()
-		if !slices.Contains(lines, "info: feature-login.acme.localhost was already removed while 'berth worktree remove' was waiting; nothing left to do.") {
+		if !slices.Contains(lines, "info: feature-login.acme.localhost was already removed while 'treerig worktree remove' was waiting; nothing left to do.") {
 			t.Fatalf("lines = %v", lines)
 		}
 		for _, line := range lines {
@@ -457,7 +457,7 @@ func TestWorktreeRemove(t *testing.T) {
 		})
 
 		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
-		wantErr(t, err, regexp.QuoteMeta("was re-labelled under dev.other while 'berth worktree remove' was waiting; run it again"))
+		wantErr(t, err, regexp.QuoteMeta("was re-labelled under dev.other while 'treerig worktree remove' was waiting; run it again"))
 		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 2 {
 			t.Fatalf("destroyed something: %v", left)
 		}
@@ -475,7 +475,7 @@ func TestWorktreeRemove(t *testing.T) {
 	t.Run("refuses when this worktree was never registered", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		_, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{}))
-		wantErr(t, err, regexp.QuoteMeta("This worktree is not registered; nothing to remove. Name another with 'berth worktree remove <slug|uuid>'."))
+		wantErr(t, err, regexp.QuoteMeta("This worktree is not registered; nothing to remove. Name another with 'treerig worktree remove <slug|uuid>'."))
 	})
 }
 
@@ -502,5 +502,5 @@ func writeRecord(t *testing.T, w *commandstest.World, identity *registry.Worktre
 }
 
 // dockerCall builds a run.Spec for a direct `docker` invocation, standing in
-// for a container the caller removed by hand rather than through berth.
+// for a container the caller removed by hand rather than through treerig.
 func dockerCall(args ...string) run.Spec { return run.Spec{Command: "docker", Args: args} }

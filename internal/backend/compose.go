@@ -25,15 +25,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // Docker-call timeouts (#14): apart from `up`'s own `--wait-timeout` flag
@@ -99,9 +99,9 @@ type Options struct {
 	// ComposeFile is the absolute path to the consumer's Compose file. Its
 	// directory is Compose's project directory, exactly as with `docker compose -f`.
 	ComposeFile string
-	// ProjectRoot is the directory containing the config file; it reaches Compose as BERTH_ROOT.
+	// ProjectRoot is the directory containing the config file; it reaches Compose as TREERIG_ROOT.
 	ProjectRoot string
-	// ConfigFile is the absolute path of the loaded config, handed to Compose as BERTH_CONFIG.
+	// ConfigFile is the absolute path of the loaded config, handed to Compose as TREERIG_CONFIG.
 	ConfigFile     string
 	ProjectName    string
 	Domain         string
@@ -143,7 +143,7 @@ func (c *Compose) project(ref worktree.Ref) string {
 	return layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID)
 }
 
-// environment is the same BERTH_* vocabulary hooks receive, so one name means one thing.
+// environment is the same TREERIG_* vocabulary hooks receive, so one name means one thing.
 func (c *Compose) environment(ref worktree.Ref) []string {
 	source := worktree.EnvironmentSource{
 		ProjectName: c.options.ProjectName, Domain: c.options.Domain, ControlHome: c.options.ControlHome,
@@ -321,7 +321,7 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	for name := range config.Services {
 		names = append(names, name)
 	}
-	// JavaScript's default sort: berth lists service names in this order.
+	// JavaScript's default sort: treerig lists service names in this order.
 	slices.SortFunc(names, text.CompareUTF16)
 	statuses := make([]worktree.ServiceStatus, len(names))
 	for i, name := range names {

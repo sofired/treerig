@@ -1,1 +1,1 @@
-[berth] ERROR: Refusing to use the teardown pin BASE/berth-home/control-home/teardown/pin.json: it is not a pin this build wrote. Delete BASE/berth-home/control-home/teardown/ and pin again.
+[treerig] ERROR: Refusing to use the teardown pin BASE/treerig-home/control-home/teardown/pin.json: it is not a pin this build wrote. Delete BASE/treerig-home/control-home/teardown/ and pin again.

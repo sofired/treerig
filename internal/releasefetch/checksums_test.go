@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/releasefetch"
+	"github.com/sofired/treerig/internal/releasefetch"
 )
 
 // checksumsFor is a checksums.txt listing the four archives of release with
@@ -23,8 +23,8 @@ func TestParseChecksums(t *testing.T) {
 
 	t.Run("returns the digest of each platform's archive and ignores the other assets", func(t *testing.T) {
 		data := checksumsFor("1.2.3", digest,
-			strings.Repeat("e", 64)+"  berth_1.2.3_amd64.deb",
-			strings.Repeat("f", 64)+"  berth-1.2.3.tar.gz",
+			strings.Repeat("e", 64)+"  treerig_1.2.3_amd64.deb",
+			strings.Repeat("f", 64)+"  treerig-1.2.3.tar.gz",
 		)
 		got, err := releasefetch.ParseChecksums([]byte(data), "1.2.3")
 		if err != nil || len(got) != 4 {

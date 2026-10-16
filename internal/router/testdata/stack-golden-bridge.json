@@ -6,7 +6,7 @@
       "command": [
         "--entrypoints.web.address=:80",
         "--entrypoints.traefik.address=127.0.0.1:8082",
-        "--providers.file.directory=/etc/berth/dynamic",
+        "--providers.file.directory=/etc/treerig/dynamic",
         "--providers.file.watch=true",
         "--api.dashboard=false",
         "--ping=true",
@@ -16,7 +16,7 @@
         "127.0.0.1:8080:80"
       ],
       "extra_hosts": [
-        "berth-loopback:host-gateway"
+        "treerig-loopback:host-gateway"
       ],
       "read_only": true,
       "cap_drop": [
@@ -34,8 +34,8 @@
       "volumes": [
         {
           "type": "bind",
-          "source": "/home/dev/.berth/router/dynamic",
-          "target": "/etc/berth/dynamic",
+          "source": "/home/dev/.treerig/router/dynamic",
+          "target": "/etc/treerig/dynamic",
           "read_only": true
         }
       ],
@@ -53,11 +53,11 @@
         "retries": 30
       },
       "labels": {
-        "dev.berth.component": "router",
-        "dev.berth.router-protocol": "6",
-        "dev.berth.router-home": "/home/dev/.berth",
-        "dev.berth.router-mode": "bridge",
-        "dev.berth.router-port": "8080"
+        "dev.treerig.component": "router",
+        "dev.treerig.router-protocol": "6",
+        "dev.treerig.router-home": "/home/dev/.treerig",
+        "dev.treerig.router-mode": "bridge",
+        "dev.treerig.router-port": "8080"
       }
     },
     "index": {
@@ -85,7 +85,7 @@
       "volumes": [
         {
           "type": "bind",
-          "source": "/home/dev/.berth/router/index",
+          "source": "/home/dev/.treerig/router/index",
           "target": "/srv/index",
           "read_only": true
         }
@@ -102,9 +102,9 @@
         "retries": 30
       },
       "labels": {
-        "dev.berth.component": "index",
-        "dev.berth.router-protocol": "6",
-        "dev.berth.router-home": "/home/dev/.berth"
+        "dev.treerig.component": "index",
+        "dev.treerig.router-protocol": "6",
+        "dev.treerig.router-home": "/home/dev/.treerig"
       }
     }
   }

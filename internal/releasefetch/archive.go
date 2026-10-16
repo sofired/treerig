@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // Limits bound extraction.
@@ -17,7 +17,7 @@ type Limits struct {
 	// Expanded is the most the gzip stream may expand to, however many
 	// entries it holds.
 	Expanded int64
-	// Binary is the most the berth entry may be.
+	// Binary is the most the treerig entry may be.
 	Binary int64
 }
 
@@ -63,14 +63,14 @@ func (b *boundedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// ExtractBerth returns the bytes of the one entry of a release archive named
-// `berth` or `./berth`. The archive is read through limits.Expanded. It
+// ExtractTreerig returns the bytes of the one entry of a release archive named
+// `treerig` or `./treerig`. The archive is read through limits.Expanded. It
 // accepts exactly one regular entry of that name, of at most limits.Binary.
-// Other regular entries (the licence, completions/berth) and directories are
+// Other regular entries (the licence, completions/treerig) and directories are
 // skipped and never written anywhere. A link of any kind, an entry of any
-// other type, an absolute name, a name with a `..` element, a second `berth`
+// other type, an absolute name, a name with a `..` element, a second `treerig`
 // or none at all refuses the archive.
-func ExtractBerth(archive []byte, limits Limits) ([]byte, error) {
+func ExtractTreerig(archive []byte, limits Limits) ([]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return nil, refuseArchive("is not a gzip file (%s)", text.OneLine(err.Error(), 200))
@@ -108,29 +108,29 @@ func ExtractBerth(archive []byte, limits Limits) ([]byte, error) {
 		default:
 			return nil, refuseArchive("has an entry that is not a regular file or a directory")
 		}
-		if name != "berth" && name != "./berth" {
+		if name != "treerig" && name != "./treerig" {
 			continue
 		}
 		if found {
-			return nil, refuseArchive("has more than one `berth` entry")
+			return nil, refuseArchive("has more than one `treerig` entry")
 		}
 		found = true
 		if header.Size > limits.Binary {
-			return nil, refuseArchive("holds a `berth` larger than %s", sizeText(limits.Binary))
+			return nil, refuseArchive("holds a `treerig` larger than %s", sizeText(limits.Binary))
 		}
 		binary, err = io.ReadAll(io.LimitReader(tr, limits.Binary+1))
 		if err != nil {
 			if errors.Is(err, errExpanded) {
 				return nil, refuseArchive("expands to more than %s", sizeText(limits.Expanded))
 			}
-			return nil, refuseArchive("has a `berth` entry that cannot be read (%s)", text.OneLine(err.Error(), 200))
+			return nil, refuseArchive("has a `treerig` entry that cannot be read (%s)", text.OneLine(err.Error(), 200))
 		}
 		if int64(len(binary)) > limits.Binary {
-			return nil, refuseArchive("holds a `berth` larger than %s", sizeText(limits.Binary))
+			return nil, refuseArchive("holds a `treerig` larger than %s", sizeText(limits.Binary))
 		}
 	}
 	if !found {
-		return nil, refuseArchive("has no `berth` entry at its root")
+		return nil, refuseArchive("has no `treerig` entry at its root")
 	}
 	return binary, nil
 }

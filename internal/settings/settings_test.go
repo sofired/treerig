@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // mapGetenv adapts a map to layout.Getenv, so a test can fix an environment
@@ -158,7 +158,7 @@ func TestResolveRouterPort(t *testing.T) {
 		}
 	})
 
-	t.Run("prefers BERTH_ROUTER_PORT over the settings file", func(t *testing.T) {
+	t.Run("prefers TREERIG_ROUTER_PORT over the settings file", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		if err := writeFile(layout.SettingsPathFrom(home), "[router]\nport = 8080\n"); err != nil {
 			t.Fatal(err)
@@ -173,14 +173,14 @@ func TestResolveRouterPort(t *testing.T) {
 		}
 	})
 
-	t.Run("reports BERTH_ROUTER_PORT's own error, never reaching the file", func(t *testing.T) {
+	t.Run("reports TREERIG_ROUTER_PORT's own error, never reaching the file", func(t *testing.T) {
 		home := registrytest.TempDir(t)
 		if err := writeFile(layout.SettingsPathFrom(home), "[router]\nport = 8080\n"); err != nil {
 			t.Fatal(err)
 		}
 		env := mapGetenv(map[string]string{layout.RouterPortEnv: "not-a-port"})
 		_, err := ResolveRouterPort(env, home)
-		requireErrorContains(t, err, `BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "not-a-port".`)
+		requireErrorContains(t, err, `TREERIG_ROUTER_PORT must be a port number between 1 and 65535, not "not-a-port".`)
 	})
 
 	t.Run("reports the settings file's own error when it is malformed", func(t *testing.T) {
@@ -201,7 +201,7 @@ func TestPortSourceString(t *testing.T) {
 		}{
 			{PortDefault, "the default"},
 			{PortFile, "the settings file"},
-			{PortEnv, "BERTH_ROUTER_PORT"},
+			{PortEnv, "TREERIG_ROUTER_PORT"},
 		}
 		for _, c := range cases {
 			if got := c.source.String(); got != c.want {
@@ -226,7 +226,7 @@ func TestPortResolutionDescribe(t *testing.T) {
 			in   PortResolution
 			want string
 		}{
-			{"from the environment", PortResolution{Port: 8080, Source: PortEnv, SettingsPath: "/b/settings.toml"}, "port 8080 from BERTH_ROUTER_PORT (overriding /b/settings.toml)"},
+			{"from the environment", PortResolution{Port: 8080, Source: PortEnv, SettingsPath: "/b/settings.toml"}, "port 8080 from TREERIG_ROUTER_PORT (overriding /b/settings.toml)"},
 			{"from the file", PortResolution{Port: 8080, Source: PortFile, SettingsPath: "/b/settings.toml"}, "port 8080 from /b/settings.toml"},
 			{"the default", PortResolution{Port: 80, Source: PortDefault, SettingsPath: "/b/settings.toml"}, "port 80 by default (/b/settings.toml sets none)"},
 		} {

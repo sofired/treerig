@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/releasefetch/releasetest"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/releasefetch/releasetest"
 )
 
 func TestHTTPGet(t *testing.T) {
@@ -175,10 +175,10 @@ func TestLatest(t *testing.T) {
 
 	t.Run("refuses archives of more than one version, and a version that is not a release", func(t *testing.T) {
 		for name, body := range map[string]string{
-			"two versions":  strings.Repeat("a", 64) + "  berth_1.2.3_linux_amd64.tar.gz\n" + strings.Repeat("b", 64) + "  berth_1.2.4_linux_arm64.tar.gz\n",
-			"not a release": strings.Repeat("a", 64) + "  berth_v1.2_linux_amd64.tar.gz\n",
-			"leading zero":  strings.Repeat("a", 64) + "  berth_01.2.3_linux_amd64.tar.gz\n",
-			"no archive":    strings.Repeat("a", 64) + "  berth_1.2.3_amd64.deb\n",
+			"two versions":  strings.Repeat("a", 64) + "  treerig_1.2.3_linux_amd64.tar.gz\n" + strings.Repeat("b", 64) + "  treerig_1.2.4_linux_arm64.tar.gz\n",
+			"not a release": strings.Repeat("a", 64) + "  treerig_v1.2_linux_amd64.tar.gz\n",
+			"leading zero":  strings.Repeat("a", 64) + "  treerig_01.2.3_linux_amd64.tar.gz\n",
+			"no archive":    strings.Repeat("a", 64) + "  treerig_1.2.3_amd64.deb\n",
 			"empty":         "",
 		} {
 			t.Run(name, func(t *testing.T) {
@@ -194,7 +194,7 @@ func TestLatest(t *testing.T) {
 
 	t.Run("accepts a pre-release version in the names", func(t *testing.T) {
 		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte(strings.Repeat("a", 64) + "  berth_0.1.0-rc.1_darwin_arm64.tar.gz\n"))
+			_, _ = w.Write([]byte(strings.Repeat("a", 64) + "  treerig_0.1.0-rc.1_darwin_arm64.tar.gz\n"))
 		}))
 		defer server.Close()
 		got, err := releasefetch.Latest(context.Background(), releasefetch.NewHTTP(server.Client()), releasefetch.Source{Repository: server.URL})
@@ -205,12 +205,12 @@ func TestLatest(t *testing.T) {
 }
 
 func TestSource(t *testing.T) {
-	t.Run("the zero value is the berth repository, and a base ends /releases/download/v<release>/", func(t *testing.T) {
+	t.Run("the zero value is the treerig repository, and a base ends /releases/download/v<release>/", func(t *testing.T) {
 		var s releasefetch.Source
-		if got := s.ReleaseBase("0.1.0-rc.1"); got != "https://github.com/sofired/berth/releases/download/v0.1.0-rc.1/" {
+		if got := s.ReleaseBase("0.1.0-rc.1"); got != "https://github.com/sofired/treerig/releases/download/v0.1.0-rc.1/" {
 			t.Fatalf("ReleaseBase = %q", got)
 		}
-		if got := s.LatestChecksumsURL(); got != "https://github.com/sofired/berth/releases/latest/download/checksums.txt" {
+		if got := s.LatestChecksumsURL(); got != "https://github.com/sofired/treerig/releases/latest/download/checksums.txt" {
 			t.Fatalf("LatestChecksumsURL = %q", got)
 		}
 		if got := (releasefetch.Source{Repository: "https://h:1/"}).ReleaseBase("1.2.3"); got != "https://h:1/releases/download/v1.2.3/" {

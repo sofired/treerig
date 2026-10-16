@@ -31,6 +31,10 @@ carries a format version (`internal/stateformat`, pinned by its tests), and a
 build refuses a newer one; `docs/design/state.md` lists the stores, the
 refusal, and how a migration is added.
 
+The pre-release rename (owner decision, 2026-10-15) changed every storage name
+without a migration because nothing had shipped. From the first tag
+(v0.1.0-rc.1), the migration rule above applies in full.
+
 ## Tests
 
 Unit tests are hermetic: no Docker, no real Git, no network. They mock at
@@ -49,8 +53,8 @@ modes, lock recovery, identity markers — has a dedicated test file. Keep it
 that way.
 
 A Docker suite (a `*_docker_integration_test.go` file) skips itself when no
-daemon answers `docker info`, unless `BERTH_TEST_REQUIRE_DOCKER=1` turns
-that into a failure instead. `BERTH_TEST_SKIP_DOCKER=1` skips it even when a
+daemon answers `docker info`, unless `TREERIG_TEST_REQUIRE_DOCKER=1` turns
+that into a failure instead. `TREERIG_TEST_SKIP_DOCKER=1` skips it even when a
 daemon answers. CI's `go` jobs set the second and its `docker` job the first,
 so the Docker suites run once, in parallel with everything else. The Docker
 suites sweep anything a killed run left behind, without regard to age, so
@@ -239,15 +243,15 @@ packaging/verify-snapshot.sh dist
 
 # The pin flow; cosign 3.0.0 or newer on PATH (the job installs v3.0.6). Run it
 # after the snapshot build, and after any second build, which `--clean` would wipe.
-BERTH_REQUIRE_COSIGN=1 \
-BERTH_SNAPSHOT_DIST="$PWD/dist" \
-BERTH_SNAPSHOT_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)" \
+TREERIG_REQUIRE_COSIGN=1 \
+TREERIG_SNAPSHOT_DIST="$PWD/dist" \
+TREERIG_SNAPSHOT_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)" \
   go test -race -count=1 -run '^(TestTeardownPinSnapshot|TestTeardownPinSnapshotTampering|TestTeardownPinWithRealCosign|TestTeardownPinWithRealCosignAndNoTrustRoot)$' ./internal/commands/
 ```
 
 `--skip=sign` is needed because signing wants the release job's OIDC token.
 
-The job sets `BERTH_REQUIRE_COSIGN=1` and checks the test log, so a missing
+The job sets `TREERIG_REQUIRE_COSIGN=1` and checks the test log, so a missing
 cosign or snapshot fails the step instead of skipping, and so does any skipped
 test. Leave the variable out locally to skip those tests where cosign is absent;
 the tests use a throwaway key and a local server, and make no request to the

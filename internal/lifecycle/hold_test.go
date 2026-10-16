@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // fakeQuiescer is a Runner that counts its calls and returns a fixed error.
@@ -44,7 +44,7 @@ func TestHold(t *testing.T) {
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
 		q := &fakeQuiescer{}
 		var order []string
-		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: q, Invocation: "berth up"},
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: q, Invocation: "treerig up"},
 			Requests{Operation: &op, Development: &dev, Registry: &reg},
 			func(ctx context.Context) error {
 				order = append(order, "action")
@@ -77,7 +77,7 @@ func TestHold(t *testing.T) {
 		router := lock.Scope{Target: filepath.Join(dir, "router"), Description: "shared router"}
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
 		ran := false
-		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth router up"},
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig router up"},
 			Requests{Router: &router},
 			func(ctx context.Context) error { ran = true; return nil })
 		if err != nil {
@@ -103,7 +103,7 @@ func TestHold(t *testing.T) {
 
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
 		ran := false
-		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"},
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig up"},
 			Requests{Operation: &op, Development: &dev},
 			func(ctx context.Context) error { ran = true; return nil })
 		if err == nil {
@@ -128,7 +128,7 @@ func TestHold(t *testing.T) {
 		op, _, _ := testScopes(t)
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
 		actionErr := errors.New("hook failed")
-		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"},
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig up"},
 			Requests{Operation: &op},
 			func(ctx context.Context) error { return actionErr })
 		if !errors.Is(err, actionErr) && err.Error() != actionErr.Error() {
@@ -142,7 +142,7 @@ func TestHold(t *testing.T) {
 		l := NewLifecycle(fakeos, logger.Silent{})
 		rec := &logger.Recording{}
 		q := &fakeQuiescer{err: errors.New("a child is still running")}
-		err := l.Hold(context.Background(), Env{Logger: rec, Runner: q, Invocation: "berth up"},
+		err := l.Hold(context.Background(), Env{Logger: rec, Runner: q, Invocation: "treerig up"},
 			Requests{Operation: &op, Development: &dev},
 			func(ctx context.Context) error { return errors.New("interrupted") })
 		if err == nil {
@@ -179,7 +179,7 @@ func TestHold(t *testing.T) {
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
 		var seenCount int
 		var sameAsOp bool
-		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"},
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig up"},
 			Requests{Operation: &op, Development: &dev},
 			func(ctx context.Context) error {
 				// Checked here, not after Hold returns: Release closes the
@@ -211,7 +211,7 @@ func TestHold(t *testing.T) {
 		l.Start()
 		q := &fakeQuiescer{}
 		var abandoned bool
-		err := l.Hold(l.Context(), Env{Logger: logger.Silent{}, Runner: q, Invocation: "berth up"},
+		err := l.Hold(l.Context(), Env{Logger: logger.Silent{}, Runner: q, Invocation: "treerig up"},
 			Requests{Operation: &op},
 			func(ctx context.Context) error {
 				fos.send(syscall.SIGHUP)
@@ -252,11 +252,11 @@ func TestHold(t *testing.T) {
 
 		op, _, _ := testScopes(t)
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
-		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"},
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig up"},
 			Requests{Operation: &op},
 			func(ctx context.Context) error {
-				// Berth itself never unlinks a lock target; this simulates
-				// something outside berth doing so, the way
+				// Treerig itself never unlinks a lock target; this simulates
+				// something outside treerig doing so, the way
 				// internal/lock/watchdog_test.go's own "cancels the
 				// action's context" case does, but here end to end
 				// through Hold. Written to a temp file in the same
@@ -401,7 +401,7 @@ func TestSharedLock(t *testing.T) {
 	t.Run("nests the shared lock inside a held operation lock and hands both to a child", func(t *testing.T) {
 		op, shared := scope(t, "op"), scope(t, "shared")
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
-		env := Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"}
+		env := Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig up"}
 		var inherited, innerHeld int
 		err := l.Hold(context.Background(), env, Requests{Operation: &op}, func(ctx context.Context) error {
 			if !probe(t, shared) {
@@ -458,7 +458,7 @@ func TestSharedLock(t *testing.T) {
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
 		started := time.Now()
 		ran := false
-		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth shared up"},
+		err := l.Hold(context.Background(), Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig shared up"},
 			Requests{Operation: &op, Timeout: 100 * time.Millisecond, Quiet: true},
 			func(context.Context) error { ran = true; return nil })
 		var busy *lock.BusyError
@@ -479,7 +479,7 @@ func TestNestRefusesAnInversion(t *testing.T) {
 		return lock.Scope{Target: filepath.Join(t.TempDir(), name), Description: name}
 	}
 	l := NewLifecycle(newFakeOS(), logger.Silent{})
-	env := Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "berth up"}
+	env := Env{Logger: logger.Silent{}, Runner: &fakeQuiescer{}, Invocation: "treerig up"}
 
 	t.Run("a registry lock held outside refuses a shared lock inside it", func(t *testing.T) {
 		registry, shared := scope("registry"), scope("shared")
@@ -535,7 +535,7 @@ func held(t *testing.T, scope lock.Scope) bool {
 }
 
 func TestHoldThen(t *testing.T) {
-	env := func(q Quiescer) Env { return Env{Logger: logger.Silent{}, Runner: q, Invocation: "berth dev"} }
+	env := func(q Quiescer) Env { return Env{Logger: logger.Silent{}, Runner: q, Invocation: "treerig dev"} }
 
 	t.Run("gives the operation lock back before the second phase, which keeps the development lock until it ends", func(t *testing.T) {
 		op, dev, _ := testScopes(t)
@@ -744,7 +744,7 @@ func TestHoldThen(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a request that cannot be handed off, as a bug in berth", func(t *testing.T) {
+	t.Run("refuses a request that cannot be handed off, as a bug in treerig", func(t *testing.T) {
 		op, dev, _ := testScopes(t)
 		l := NewLifecycle(newFakeOS(), logger.Silent{})
 		for name, requests := range map[string]Requests{
@@ -755,7 +755,7 @@ func TestHoldThen(t *testing.T) {
 			err := l.HoldThen(context.Background(), env(&fakeQuiescer{}), requests,
 				func(ctx context.Context) error { ran = true; return nil },
 				func(ctx context.Context) error { ran = true; return nil })
-			if err == nil || !strings.Contains(err.Error(), "this is a bug in berth") || ran {
+			if err == nil || !strings.Contains(err.Error(), "this is a bug in treerig") || ran {
 				t.Fatalf("%s: err = %v, ran = %v, want a refusal that ran nothing", name, err, ran)
 			}
 		}

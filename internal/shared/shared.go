@@ -19,13 +19,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // Compose's own labels.
@@ -61,15 +61,15 @@ type Options struct {
 	// needed only to start a service or read its definition; removal and
 	// inspection work from labels alone and leave it empty.
 	ComposeFile string
-	// ProjectName is berth.toml's project name, offered to the shared file's
-	// interpolation as BERTH_PROJECT.
+	// ProjectName is treerig.toml's project name, offered to the shared file's
+	// interpolation as TREERIG_PROJECT.
 	ProjectName string
 	// WorktreeRoots are the checkouts of the repository's worktrees: a bind
 	// mount into one is refused, because the shared service outlives them.
 	WorktreeRoots []string
-	// Declared are the shared services berth.toml declares. The shared file
+	// Declared are the shared services treerig.toml declares. The shared file
 	// may not publish a port of its own on any of them, or on what they
-	// depend on: berth publishes the ports they declare, on 127.0.0.1.
+	// depend on: treerig publishes the ports they declare, on 127.0.0.1.
 	Declared []string
 	// Environ is the environment Compose inherits.
 	Environ []string
@@ -377,7 +377,7 @@ func (s *Stack) Instances(ctx context.Context, names []string) (map[string]Insta
 }
 
 // Statuses is Instances for a report that must not stop at one bad container:
-// a service whose container is in a state berth does not know, or that has
+// a service whose container is in a state treerig does not know, or that has
 // more than one, is Unknown with the reason in Detail, and a container that
 // claims to be the stack's and fails verification comes back as a refusal to
 // report, not as a failure of the whole listing. Docker not answering is
@@ -441,7 +441,7 @@ type Resource struct {
 	// Path is where that container mounts an anonymous volume.
 	Path string
 	// Anonymous marks a volume Docker created for a mount with no source. It
-	// carries none of berth's labels; it is the stack's because a container
+	// carries none of treerig's labels; it is the stack's because a container
 	// proven the stack's mounted it.
 	Anonymous bool
 }
@@ -506,7 +506,7 @@ func (r Resource) String() string {
 // AnonymousVolumes are the volumes Docker created for a mount with no source
 // (`volumes: ["/data"]`) on the given containers, which the caller has
 // proven are the stack's own (Containers or Verified). Such a volume carries
-// none of berth's labels, so the containers that mounted it are the only
+// none of treerig's labels, so the containers that mounted it are the only
 // proof it is the stack's. It is deduplicated, in the order first mounted.
 func (s *Stack) AnonymousVolumes(ctx context.Context, containers []docker.Container) ([]Resource, error) {
 	var found []Resource

@@ -9,14 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // renameWorld is a registered, stopped worktree "feature-login" with a
@@ -113,12 +113,12 @@ func TestWorktreeRename(t *testing.T) {
 		if !exists(t, paths.Home) {
 			t.Fatal("the home went")
 		}
-		// berth deletes no volume: the one `down` kept is still the worktree's own, found by its labels.
+		// treerig deletes no volume: the one `down` kept is still the worktree's own, found by its labels.
 		if owned := rw.Docker.Owned(rw.ref, brand.LabelNamespace); len(owned) != 1 {
 			t.Fatalf("owned after rename = %v, want the one volume", owned)
 		}
 		lines, _ := rw.tc.Logger.Snapshot()
-		if last := lines[len(lines)-1]; last != "info: Renamed feature-login.acme.localhost to login.acme.localhost. Run 'berth up' to start it there." {
+		if last := lines[len(lines)-1]; last != "info: Renamed feature-login.acme.localhost to login.acme.localhost. Run 'treerig up' to start it there." {
 			t.Fatalf("last line = %q", last)
 		}
 	})
@@ -152,7 +152,7 @@ func TestWorktreeRename(t *testing.T) {
 
 		_, err := rw.rename("login")
 
-		wantErr(t, err, `feature-login\.acme\.localhost still has 2 containers, .* Run 'berth down' first`)
+		wantErr(t, err, `feature-login\.acme\.localhost still has 2 containers, .* Run 'treerig down' first`)
 		if got := rw.record(t).Slug; got != "feature-login" {
 			t.Fatalf("slug = %q", got)
 		}
@@ -372,7 +372,7 @@ func TestWorktreeRename(t *testing.T) {
 
 		_, err := rw.rename("login")
 
-		wantErr(t, err, `still has 2 containers, .* Run 'berth down' first`)
+		wantErr(t, err, `still has 2 containers, .* Run 'treerig down' first`)
 		if got := rw.record(t).Slug; got != "feature-login" {
 			t.Fatalf("slug = %q", got)
 		}
@@ -401,7 +401,7 @@ func TestWorktreeRename(t *testing.T) {
 
 		_, err := commands.RenameWithContext(context.Background(), tc.CommandContext, commands.RenameOptions{Slug: "login"})
 
-		wantErr(t, err, `This worktree is not registered\. Run 'berth up' first\.`)
+		wantErr(t, err, `This worktree is not registered\. Run 'treerig up' first\.`)
 	})
 
 	t.Run("refuses inside its own worktree's hooks, before Docker", func(t *testing.T) {

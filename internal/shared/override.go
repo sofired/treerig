@@ -6,14 +6,14 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // LoopbackHost is the host address a shared service's ports are published on.
 const LoopbackHost = "127.0.0.1"
 
-// overrideDocument is the Compose override berth starts the stack with
+// overrideDocument is the Compose override treerig starts the stack with
 // (decision 17): ownership labels on every service, volume and network the
 // shared file creates (and, on all but the volumes, the format label, which
 // says what they mean: docs/design/state.md; a volume is proven by the
@@ -84,7 +84,7 @@ func (s *Stack) overrideDocument(d Definition, published map[string]map[int]int,
 }
 
 // isExternal reports whether a volume or network entry is declared external,
-// which berth neither creates nor labels.
+// which treerig neither creates nor labels.
 func isExternal(entry map[string]any) bool {
 	switch value := entry["external"].(type) {
 	case bool:
@@ -98,7 +98,7 @@ func isExternal(entry map[string]any) bool {
 }
 
 // encodeOverride is the document as indented JSON, which is also valid YAML:
-// Compose reads it as such, and berth needs no YAML emitter.
+// Compose reads it as such, and treerig needs no YAML emitter.
 func encodeOverride(document map[string]any) ([]byte, error) {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)

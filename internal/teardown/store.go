@@ -9,11 +9,11 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 // SweepGrace is how recently a stored binary must have been modified for the

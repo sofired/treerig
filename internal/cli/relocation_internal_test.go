@@ -5,7 +5,7 @@ package cli
 // replacing an in-process test's own image. A go test binary handed a real
 // Exec would relocate itself and exec into the copy with argv
 // `worktree remove --yes` — no -test.run filter — restarting the whole
-// suite in place rather than running the real berth CLI; this is exactly
+// suite in place rather than running the real treerig CLI; this is exactly
 // how #7's first cut leaked Compose projects through an integration test
 // that called Main in-process.
 //
@@ -22,16 +22,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 func TestEnvBuilderRelocationWiring(t *testing.T) {
-	console := logger.NewConsole("berth", io.Discard, io.Discard)
+	console := logger.NewConsole("treerig", io.Discard, io.Discard)
 	getenv := func(string) (string, bool) { return "", false }
-	args := []string{"berth", "worktree", "remove", "--yes"}
+	args := []string{"treerig", "worktree", "remove", "--yes"}
 
 	t.Run("Main's own (nil, nil) builds an Env with no relocation primitives at all", func(t *testing.T) {
-		build := envBuilder("berth", "berth worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, nil, nil, nil)
+		build := envBuilder("treerig", "treerig worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, nil, nil, nil)
 		env, err := build("")
 		if err != nil {
 			t.Fatalf("build(\"\"): %v", err)
@@ -45,7 +45,7 @@ func TestEnvBuilderRelocationWiring(t *testing.T) {
 	})
 
 	t.Run("MainProcess's own (os.Executable, osExec) builds an Env carrying both through", func(t *testing.T) {
-		build := envBuilder("berth", "berth worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, os.Executable, osExec, nil)
+		build := envBuilder("treerig", "treerig worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, os.Executable, osExec, nil)
 		env, err := build("")
 		if err != nil {
 			t.Fatalf("build(\"\"): %v", err)

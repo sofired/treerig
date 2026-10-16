@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
 )
 
 type identity struct {

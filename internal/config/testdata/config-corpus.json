@@ -31,21 +31,21 @@
     "name": "duplicate host root claim",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.web]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.web.subdomain: the host root is already claimed by service \"api\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.web.subdomain: the host root is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
     "name": "duplicate path claim on the host root",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.web]\n[service.api]\npath = \"/api\"\n[service.api2]\npath = \"/api\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.api2.path: the host root at path \"/api\" is already claimed by service \"api\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.api2.path: the host root at path \"/api\" is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
     "name": "duplicate claim on a named subdomain",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nsubdomain = \"app\"\n[service.b]\nsubdomain = \"app\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.b.subdomain: subdomain \"app\" is already claimed by service \"a\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.b.subdomain: subdomain \"app\" is already claimed by service \"a\"",
     "tomlSyntaxError": false
   },
   {
@@ -59,56 +59,56 @@
     "name": "[[service]] rejected, saying services are tables keyed by name",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[[service]]\nname = \"api\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service: Invalid input: expected object, received array (services are tables keyed by name: write [service.<name>], not [[service]])",
+    "want": "test.toml is not a valid treerig.toml:\n  service: Invalid input: expected object, received array (services are tables keyed by name: write [service.<name>], not [[service]])",
     "tomlSyntaxError": false
   },
   {
     "name": "name inside a service table rejected, with a hint at the key",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\nname = \"api\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.api: Unrecognized key: \"name\" (the table's key is the service name: [service.api])",
+    "want": "test.toml is not a valid treerig.toml:\n  service.api: Unrecognized key: \"name\" (the table's key is the service name: [service.api])",
     "tomlSyntaxError": false
   },
   {
     "name": "service name that is not a slug rejected at its key",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.Api]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.Api: must be lower-case letters, digits, and hyphens",
+    "want": "test.toml is not a valid treerig.toml:\n  service.Api: must be lower-case letters, digits, and hyphens",
     "tomlSyntaxError": false
   },
   {
     "name": "a second service on the host root is a route collision",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.web]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.web.subdomain: the host root is already claimed by service \"api\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.web.subdomain: the host root is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
     "name": "path with backtick and Host() injection rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/api`)||Host(`evil\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid treerig.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
     "name": "path with bad percent-escape rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/a%zz\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid treerig.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
     "name": "path with query string rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/search?q=1\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid treerig.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
     "name": "path with dollar sign rejected (Compose would interpolate it)",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\npath = \"/api$HOME\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
+    "want": "test.toml is not a valid treerig.toml:\n  service.s.path: must be a URL path starting with /, without spaces, quotes, backticks, $, ? or #; % must be followed by two hex digits",
     "tomlSyntaxError": false
   },
   {
@@ -129,21 +129,21 @@
     "name": "subdomain starting with a hyphen rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\nsubdomain = \"-mail\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.s.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
+    "want": "test.toml is not a valid treerig.toml:\n  service.s.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
     "tomlSyntaxError": false
   },
   {
     "name": "subdomain ending with a hyphen rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\nsubdomain = \"mail-\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.s.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
+    "want": "test.toml is not a valid treerig.toml:\n  service.s.subdomain: must be lower-case letters, digits, and hyphens, not starting or ending with a hyphen",
     "tomlSyntaxError": false
   },
   {
     "name": "subdomain over 63 characters rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.s]\nsubdomain = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.s.subdomain: must be at most 63 characters",
+    "want": "test.toml is not a valid treerig.toml:\n  service.s.subdomain: must be at most 63 characters",
     "tomlSyntaxError": false
   },
   {
@@ -157,14 +157,14 @@
     "name": "domain label over 63 characters rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.domain: each label must be at most 63 characters",
+    "want": "test.toml is not a valid treerig.toml:\n  project.domain: each label must be at most 63 characters",
     "tomlSyntaxError": false
   },
   {
     "name": "domain over 125 characters rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.ab.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.domain: must be at most 125 characters, so that <subdomain>.<slug>.<domain> fits in a hostname",
+    "want": "test.toml is not a valid treerig.toml:\n  project.domain: must be at most 125 characters, so that <subdomain>.<slug>.<domain> fits in a hostname",
     "tomlSyntaxError": false
   },
   {
@@ -178,63 +178,63 @@
     "name": "domain with underscore rejected as not a valid hostname",
     "toml": "[project]\nname = \"acme\"\ndomain = \"ac_me.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.domain: must be a valid hostname",
+    "want": "test.toml is not a valid treerig.toml:\n  project.domain: must be a valid hostname",
     "tomlSyntaxError": false
   },
   {
     "name": "unknown top-level key rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\nbogus = 1\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  compose: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid treerig.toml:\n  compose: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
     "name": "two unknown top-level keys listed in file order",
     "toml": "zeta = 1\nalpha = 2\n[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  (root): Unrecognized keys: \"zeta\", \"alpha\"",
+    "want": "test.toml is not a valid treerig.toml:\n  (root): Unrecognized keys: \"zeta\", \"alpha\"",
     "tomlSyntaxError": false
   },
   {
     "name": "unknown key under [project] rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\nbogus = 1\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid treerig.toml:\n  project: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
     "name": "unknown key under [compose] rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\nbogus = 1\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  compose: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid treerig.toml:\n  compose: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
     "name": "unknown key on a service table rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\nbogus = 1\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.api: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.api: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
     "name": "unknown key under a service index rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[service.api.index]\nlabel = \"API\"\nextra = 1\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.api.index: Unrecognized key: \"extra\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.api.index: Unrecognized key: \"extra\"",
     "tomlSyntaxError": false
   },
   {
     "name": "unknown keys inside [hooks] rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[hooks]\nprepair = \"./x\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  hooks: Unrecognized key: \"prepair\"",
+    "want": "test.toml is not a valid treerig.toml:\n  hooks: Unrecognized key: \"prepair\"",
     "tomlSyntaxError": false
   },
   {
     "name": "control-home rejected: that path is per-machine, not committed",
     "toml": "[project]\nname = \"acme\"\ncontrol-home = \"~/acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project: Unrecognized key: \"control-home\"",
+    "want": "test.toml is not a valid treerig.toml:\n  project: Unrecognized key: \"control-home\"",
     "tomlSyntaxError": false
   },
   {
@@ -248,21 +248,21 @@
     "name": "label-namespace rejected when it is not a reverse domain",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\nlabel-namespace = \"NotADomain\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.label-namespace: must look like a reverse domain, e.g. dev.example",
+    "want": "test.toml is not a valid treerig.toml:\n  project.label-namespace: must look like a reverse domain, e.g. dev.example",
     "tomlSyntaxError": false
   },
   {
     "name": "port over 65535 rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 70000\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too big: expected number to be <=65535",
+    "want": "test.toml is not a valid treerig.toml:\n  service.a.port: Too big: expected number to be <=65535",
     "tomlSyntaxError": false
   },
   {
     "name": "port of zero rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 0\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too small: expected number to be >=1",
+    "want": "test.toml is not a valid treerig.toml:\n  service.a.port: Too small: expected number to be >=1",
     "tomlSyntaxError": false
   },
   {
@@ -283,7 +283,7 @@
     "name": "fractional port rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 80.5\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Invalid input: expected int, received number",
+    "want": "test.toml is not a valid treerig.toml:\n  service.a.port: Invalid input: expected int, received number",
     "tomlSyntaxError": false
   },
   {
@@ -297,112 +297,112 @@
     "name": "port of 1e20, integral but beyond a safe integer, rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = 1e20\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too big: expected int to be <=9007199254740991\n  service.a.port: Too big: expected number to be <=65535",
+    "want": "test.toml is not a valid treerig.toml:\n  service.a.port: Too big: expected int to be <=9007199254740991\n  service.a.port: Too big: expected number to be <=65535",
     "tomlSyntaxError": false
   },
   {
     "name": "port of -1e20 rejected as below a safe integer and below 1",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = -1e20\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Too small: expected int to be >=-9007199254740991\n  service.a.port: Too small: expected number to be >=1",
+    "want": "test.toml is not a valid treerig.toml:\n  service.a.port: Too small: expected int to be >=-9007199254740991\n  service.a.port: Too small: expected number to be >=1",
     "tomlSyntaxError": false
   },
   {
     "name": "port of inf rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = inf\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Invalid input: expected number, received number",
+    "want": "test.toml is not a valid treerig.toml:\n  service.a.port: Invalid input: expected number, received number",
     "tomlSyntaxError": false
   },
   {
     "name": "port given as a string rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.a]\nport = \"80\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.a.port: Invalid input: expected number, received string",
+    "want": "test.toml is not a valid treerig.toml:\n  service.a.port: Invalid input: expected number, received string",
     "tomlSyntaxError": false
   },
   {
     "name": "missing project.name rejected",
     "toml": "[project]\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: Invalid input: expected string, received undefined",
+    "want": "test.toml is not a valid treerig.toml:\n  project.name: Invalid input: expected string, received undefined",
     "tomlSyntaxError": false
   },
   {
     "name": "missing [project] table rejected",
     "toml": "[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project: Invalid input: expected object, received undefined",
+    "want": "test.toml is not a valid treerig.toml:\n  project: Invalid input: expected object, received undefined",
     "tomlSyntaxError": false
   },
   {
     "name": "missing [compose] table rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  compose: Invalid input: expected object, received undefined",
+    "want": "test.toml is not a valid treerig.toml:\n  compose: Invalid input: expected object, received undefined",
     "tomlSyntaxError": false
   },
   {
     "name": "missing compose.file rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  compose.file: Invalid input: expected string, received undefined",
+    "want": "test.toml is not a valid treerig.toml:\n  compose.file: Invalid input: expected string, received undefined",
     "tomlSyntaxError": false
   },
   {
     "name": "empty compose.file rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  compose.file: Too small: expected string to have >=1 characters",
+    "want": "test.toml is not a valid treerig.toml:\n  compose.file: Too small: expected string to have >=1 characters",
     "tomlSyntaxError": false
   },
   {
     "name": "project.name of the wrong type rejected",
     "toml": "[project]\nname = 5\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: Invalid input: expected string, received number",
+    "want": "test.toml is not a valid treerig.toml:\n  project.name: Invalid input: expected string, received number",
     "tomlSyntaxError": false
   },
   {
     "name": "project.domain of the wrong type rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = 5\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.domain: Invalid input: expected string, received number",
+    "want": "test.toml is not a valid treerig.toml:\n  project.domain: Invalid input: expected string, received number",
     "tomlSyntaxError": false
   },
   {
     "name": "project.name with uppercase or symbols rejected",
     "toml": "[project]\nname = \"Not_A-Slug!\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: must be lower-case letters, digits, and hyphens",
+    "want": "test.toml is not a valid treerig.toml:\n  project.name: must be lower-case letters, digits, and hyphens",
     "tomlSyntaxError": false
   },
   {
     "name": "several issues at once, unrecognized key reported last",
     "toml": "[project]\nname = \"BAD NAME\"\ndomain = 5\n\n[compose]\n\n[service.api]\n\nbogus = true\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  project.domain: Invalid input: expected string, received number\n  compose.file: Invalid input: expected string, received undefined\n  service.api: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid treerig.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  project.domain: Invalid input: expected string, received number\n  compose.file: Invalid input: expected string, received undefined\n  service.api: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
     "name": "a non-fatal issue does not suppress the route-collision check",
     "toml": "[project]\nname = \"BAD NAME\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"x\"\n\n[service.api]\n[service.web]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  service.web.subdomain: the host root is already claimed by service \"api\"",
+    "want": "test.toml is not a valid treerig.toml:\n  project.name: must be lower-case letters, digits, and hyphens\n  service.web.subdomain: the host root is already claimed by service \"api\"",
     "tomlSyntaxError": false
   },
   {
     "name": "a missing required field suppresses the route-collision check",
     "toml": "[project]\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"x\"\n\n[service.api]\n[service.web]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  project.name: Invalid input: expected string, received undefined",
+    "want": "test.toml is not a valid treerig.toml:\n  project.name: Invalid input: expected string, received undefined",
     "tomlSyntaxError": false
   },
   {
     "name": "an unrecognized key on one service suppresses the route-collision check",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.web]\nbogus = 1\n[service.api]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.web: Unrecognized key: \"bogus\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.web: Unrecognized key: \"bogus\"",
     "tomlSyntaxError": false
   },
   {
@@ -416,7 +416,7 @@
     "name": "hooks with an empty string value rejected",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[hooks]\nprepare = \"\"\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  hooks.prepare: Too small: expected string to have >=1 characters",
+    "want": "test.toml is not a valid treerig.toml:\n  hooks.prepare: Too small: expected string to have >=1 characters",
     "tomlSyntaxError": false
   },
   {
@@ -458,14 +458,14 @@
     "name": "unknown keys in an interleaved second service are reported in file order",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\n[service.api]\n[hooks]\nseed = \"./seed.sh\"\n[service.mail]\nzeta = 1\nalpha = 2\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  service.mail: Unrecognized keys: \"zeta\", \"alpha\"",
+    "want": "test.toml is not a valid treerig.toml:\n  service.mail: Unrecognized keys: \"zeta\", \"alpha\"",
     "tomlSyntaxError": false
   },
   {
     "name": "an inline array of service tables",
     "toml": "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n\n[compose]\nfile = \"docker/compose.yaml\"\n\nservice = [{ name = \"api\" }, { name = \"mail\", subdomain = \"mail\" }]\n",
     "ok": false,
-    "want": "test.toml is not a valid berth.toml:\n  compose: Unrecognized key: \"service\"",
+    "want": "test.toml is not a valid treerig.toml:\n  compose: Unrecognized key: \"service\"",
     "tomlSyntaxError": false
   },
   {

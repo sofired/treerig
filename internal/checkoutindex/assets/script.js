@@ -124,7 +124,7 @@
       // alternate does not reload every fifteen seconds; the in-memory flag
       // covers a browser that refuses to store anything.
       function reloadOnce(shell) {
-        var key = 'berth-shell:' + shell;
+        var key = 'treerig-shell:' + shell;
         try {
           if (sessionStorage.getItem(key)) { marker('Not updating.', 'stale'); return; }
           sessionStorage.setItem(key, '1');
@@ -184,7 +184,7 @@
               failures = 0;
               if (plan.kind === 'unchanged') { marker('', ''); return; }
               if (paused) return;
-              // A newer berth wrote that page: its markup belongs to a
+              // A newer treerig wrote that page: its markup belongs to a
               // stylesheet and a script this tab does not have.
               if (plan.shell !== document.documentElement.getAttribute('data-shell')) {
                 reloadOnce(plan.shell);

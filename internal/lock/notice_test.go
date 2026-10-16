@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 // The wording that replaced the heartbeat design's own. Each case gives up
@@ -22,7 +22,7 @@ func TestLockNoticeWording(t *testing.T) {
 		t.Helper()
 		scope := Scope{Target: filepath.Join(t.TempDir(), "worktree"), Description: "worktree busy"}
 		holder := New(scope, testOptions(t))
-		if _, err := holder.Acquire(context.Background(), "berth up api"); err != nil {
+		if _, err := holder.Acquire(context.Background(), "treerig up api"); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = holder.Release() })
@@ -55,15 +55,15 @@ func TestLockNoticeWording(t *testing.T) {
 			wantKill  bool
 			wantRetry string
 		}{
-			{"berth dev", true, false, "End it with Ctrl-C in the terminal running `berth dev`, then retry."},
-			{"berth worktree remove", false, true, "Wait for it to finish, or stop it"},
-			{"berth worktree remove dev", false, true, "Wait for it to finish, or stop it"},
-			{"berth --config dev up", false, true, "Wait for it to finish, or stop it"},
-			{"berth devtool", false, true, "Wait for it to finish, or stop it"},
-			{"berth run -- dev", false, true, "Wait for it to finish, or stop it"},
+			{"treerig dev", true, false, "End it with Ctrl-C in the terminal running `treerig dev`, then retry."},
+			{"treerig worktree remove", false, true, "Wait for it to finish, or stop it"},
+			{"treerig worktree remove dev", false, true, "Wait for it to finish, or stop it"},
+			{"treerig --config dev up", false, true, "Wait for it to finish, or stop it"},
+			{"treerig devtool", false, true, "Wait for it to finish, or stop it"},
+			{"treerig run -- dev", false, true, "Wait for it to finish, or stop it"},
 		} {
 			scope := Scope{Target: filepath.Join(t.TempDir(), "worktree.dev"), Description: "busy development session",
-				EndHint: "End it with Ctrl-C in the terminal running `berth dev`", EndHintWord: "dev"}
+				EndHint: "End it with Ctrl-C in the terminal running `treerig dev`", EndHintWord: "dev"}
 			holderOpts := testOptions(t)
 			holderOpts.Holder = tc.holder
 			holder := New(scope, holderOpts)
@@ -115,7 +115,7 @@ func TestLockNoticeWording(t *testing.T) {
 			opts.Table = newFakeTable(procid.Identity{})
 			opts.Logger = recorded
 			lk := New(Scope{Target: filepath.Join(t.TempDir(), "worktree"), Description: "worktree main"}, opts)
-			if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+			if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 				t.Fatal(err)
 			}
 			_ = lk.Release()

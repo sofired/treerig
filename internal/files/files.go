@@ -35,11 +35,11 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // ControlHomeMarker marks a directory as one the tool created, so it may be
@@ -204,7 +204,7 @@ func lowerFirst(value string) string {
 // treat as a directory it owns outright — the filesystem root, userHome, or
 // anything above userHome — or "" when none of those apply. Shared by
 // AssertAdoptableControlHome (the control home) and AssertSafeHome (the
-// berth root, BERTH_HOME), which each phrase the refusal in their own
+// treerig root, TREERIG_HOME), which each phrase the refusal in their own
 // words. userHome is always the caller's own resolved home directory (in
 // production, layout.HomeDir(getenv) from internal/commands' checkedHome,
 // #80) — this package does not read the environment itself for it, only
@@ -216,8 +216,8 @@ func lowerFirst(value string) string {
 // (filepath.EvalSymlinks("") succeeds as "."), so comparing resolved
 // against it would silently answer a question about the current directory
 // rather than about home — or fail deep inside filepath.Rel with "Rel:
-// can't make . relative to …", naming neither BERTH_HOME nor
-// BERTH_CONTROL_HOME. Any caller that reaches either assertion with an
+// can't make . relative to …", naming neither TREERIG_HOME nor
+// TREERIG_CONTROL_HOME. Any caller that reaches either assertion with an
 // empty userHome by some path other than checkedHome gets the same clear
 // refusal instead.
 func homeRefusalReasonAgainst(resolved, userHome string) (string, error) {
@@ -244,9 +244,9 @@ func homeRefusalReasonAgainst(resolved, userHome string) (string, error) {
 	return "", nil
 }
 
-// AssertSafeHome refuses to use home as the berth root (BERTH_HOME, #80)
+// AssertSafeHome refuses to use home as the treerig root (TREERIG_HOME, #80)
 // when it is the filesystem root, userHome, or anything above userHome. The
-// berth root holds router/ and, unless BERTH_CONTROL_HOME overrides it, the
+// treerig root holds router/ and, unless TREERIG_CONTROL_HOME overrides it, the
 // control home — so accepting any of those would put router state or a
 // control home inside, or in place of, the directory the user actually
 // lives in. userHome is the caller's own resolved home directory (in
@@ -423,7 +423,7 @@ func establishControlHome(controlHome, userHome string) error {
 	}
 	if len(contents) == 0 {
 		// No marker yet, or one another goroutine (or process, for two
-		// berth commands starting at once on a brand new control home)
+		// treerig commands starting at once on a brand new control home)
 		// created but has not yet written: writeMarkerRacingCreators
 		// either wins the create itself, or waits for whichever creator
 		// did and adopts what it wrote — directly rather than through
@@ -442,7 +442,7 @@ func establishControlHome(controlHome, userHome string) error {
 
 // checkControlHomeMarker judges the marker's contents. Exactly this build's
 // own format is accepted. A "format N" with N above it is a control home a
-// newer berth made: refused with the upgrade instruction (stateformat.Newer),
+// newer treerig made: refused with the upgrade instruction (stateformat.Newer),
 // never rewritten. Anything else, a smaller number included, is not a marker
 // this build wrote: it is foreign, refused the same way as a directory that
 // is not a control home at all. Reached both for a marker establishControlHome
@@ -556,7 +556,7 @@ const (
 )
 
 // writeMarkerRacingCreators writes the control home's marker, tolerating
-// another goroutine's — or, for two berth commands starting at once on a
+// another goroutine's — or, for two treerig commands starting at once on a
 // brand new control home, another process's — own concurrent create of the
 // same name, and returns whatever content the marker ends up holding: this
 // call's own write, or a winner's, adopted rather than overwritten.
@@ -760,10 +760,10 @@ func writeMarkerDirect(dir *os.File, marker string, flag int, contents []byte, m
 //
 // As of protocol 4, this no longer includes the shared router's directories
 // or files (RouterDir and everything under it): the router's own state and
-// lock live under the berth root instead, one copy per berth root — not one
+// lock live under the treerig root instead, one copy per treerig root — not one
 // per control home — resolved by layout.RouterState and secured by
 // internal/router (#12, #13, #80); the Traefik stack they describe is
-// itself one per Docker daemon, not per berth root or control home.
+// itself one per Docker daemon, not per treerig root or control home.
 func SecureControlDirectories(l layout.Control, userHome string) error {
 	if err := establishControlHome(l.ControlHome, userHome); err != nil {
 		return err

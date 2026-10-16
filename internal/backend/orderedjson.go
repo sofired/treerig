@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // jsonKV is an ordered JSON object. The override document is built the way

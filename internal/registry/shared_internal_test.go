@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // fillSharedByKind sets every field of value to something non-zero, by its

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sofired/berth/internal/logger"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 const minimalTOML = `
@@ -35,7 +35,7 @@ func testEnv(t *testing.T, configPath, home string) (*Env, *logger.Recording) {
 		return "", false
 	}
 	return &Env{
-		CommandName: "berth",
+		CommandName: "treerig",
 		Logger:      rec,
 		Getenv:      getenv,
 		Cwd:         filepath.Dir(configPath),
@@ -43,12 +43,12 @@ func testEnv(t *testing.T, configPath, home string) (*Env, *logger.Recording) {
 	}, rec
 }
 
-// writeConfig writes toml to a fresh temp directory's berth.toml and returns
+// writeConfig writes toml to a fresh temp directory's treerig.toml and returns
 // its path.
 func writeConfig(t *testing.T, toml string) string {
 	t.Helper()
 	dir := t.TempDir()
-	file := filepath.Join(dir, "berth.toml")
+	file := filepath.Join(dir, "treerig.toml")
 	if err := os.WriteFile(file, []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestConfigValidate(t *testing.T) {
 	if want := "project acme · domain acme.localhost · 0 service(s) · 2 hook(s)"; printed[1] != want {
 		t.Errorf("line 1 = %q, want %q", printed[1], want)
 	}
-	if want := "control home: " + filepath.Join(home, ".berth", "control-home"); printed[2] != want {
+	if want := "control home: " + filepath.Join(home, ".treerig", "control-home"); printed[2] != want {
 		t.Errorf("line 2 = %q, want %q", printed[2], want)
 	}
 }
@@ -97,7 +97,7 @@ func TestConfigValidateRefusesControlCharacters(t *testing.T) {
 	env, rec := testEnv(t, file, t.TempDir())
 
 	err := ConfigValidate(context.Background(), env)
-	want := file + " is not a valid berth.toml:\n  service.api.index.label: must not contain control characters"
+	want := file + " is not a valid treerig.toml:\n  service.api.index.label: must not contain control characters"
 	if err == nil || err.Error() != want {
 		t.Fatalf("ConfigValidate error = %v, want %q", err, want)
 	}

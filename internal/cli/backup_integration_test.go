@@ -20,8 +20,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // bundleWrapperDocker answers `compose ps` for the worktree's project with one
@@ -30,7 +30,7 @@ import (
 const bundleWrapperDocker = `#!/bin/sh
 state=%q
 case " $* " in
-  *" --project-name berth-router "*) exec "$0-fake" "$@" ;;
+  *" --project-name treerig-router "*) exec "$0-fake" "$@" ;;
   *" compose "*" down "*) touch "$state/down"; exec "$0-fake" "$@" ;;
   *" compose "*" up "*) rm -f "$state/down"; exec "$0-fake" "$@" ;;
   *" compose "*" ps "*)
@@ -45,20 +45,20 @@ exec "$0-fake" "$@"
 // exists, and exits with the number in exit-<stage>.
 const bundleHook = `#!/bin/sh
 STATE=%q
-echo "$BERTH_STAGE|$1|$(pwd)|$#" >> "$STATE/bundle.log"
-echo "out:$BERTH_STAGE"
-echo "err:$BERTH_STAGE" >&2
-echo "env|$COMPOSE_PROJECT_NAME|$BERTH_COMPOSE_PROJECT|$COMPOSE_FILE" >> "$STATE/bundle.env"
+echo "$TREERIG_STAGE|$1|$(pwd)|$#" >> "$STATE/bundle.log"
+echo "out:$TREERIG_STAGE"
+echo "err:$TREERIG_STAGE" >&2
+echo "env|$COMPOSE_PROJECT_NAME|$TREERIG_COMPOSE_PROJECT|$COMPOSE_FILE" >> "$STATE/bundle.env"
 [ -d "$1" ] && echo data > "$1/data"
-if [ -e "$STATE/hang-$BERTH_STAGE" ]; then
+if [ -e "$STATE/hang-$TREERIG_STAGE" ]; then
   sh -c 'echo $$ > "$0/hung.pid"; exec sleep 60' "$STATE" &
   wait
 fi
-if [ -e "$STATE/exit-$BERTH_STAGE" ]; then exit "$(cat "$STATE/exit-$BERTH_STAGE")"; fi
+if [ -e "$STATE/exit-$TREERIG_STAGE" ]; then exit "$(cat "$STATE/exit-$TREERIG_STAGE")"; fi
 exit 0
 `
 
-// newBundleFixture is a worktree that has been through `up`, whose berth.toml
+// newBundleFixture is a worktree that has been through `up`, whose treerig.toml
 // declares the backup and restore hooks when hooked, and whose docker reports
 // a running service until `down`.
 func newBundleFixture(t *testing.T, binary string, hooked bool) upFixture {
@@ -75,7 +75,7 @@ func newBundleFixture(t *testing.T, binary string, hooked bool) upFixture {
 		if err := os.WriteFile(filepath.Join(f.checkout, "hooks", "bundle"), []byte(fmt.Sprintf(bundleHook, f.state)), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		toml, err := os.OpenFile(filepath.Join(f.checkout, "berth.toml"), os.O_APPEND|os.O_WRONLY, 0)
+		toml, err := os.OpenFile(filepath.Join(f.checkout, "treerig.toml"), os.O_APPEND|os.O_WRONLY, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func newBundleFixture(t *testing.T, binary string, hooked bool) upFixture {
 // repositoryID is the fixture repository's UUID, from its identity markers.
 func (f upFixture) repositoryID(t *testing.T) string {
 	t.Helper()
-	return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "berth", "repository-id"))
+	return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "treerig", "repository-id"))
 }
 
 // bundleLog is what the hooks recorded, one entry per run.
@@ -174,7 +174,7 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 	t.Run("backup refuses a directory that holds anything, running nothing", func(t *testing.T) {
 		before := len(f.bundleLog(t))
 		_, stderr, code := runFixture(t, f, binary, nil, "backup", filepath.Join(nested, "first"))
-		if want := "[berth] ERROR: " + filepath.Join(nested, "first") + " is not empty; give 'berth backup' a new or empty directory.\n"; stderr != want || code != 1 {
+		if want := "[treerig] ERROR: " + filepath.Join(nested, "first") + " is not empty; give 'treerig backup' a new or empty directory.\n"; stderr != want || code != 1 {
 			t.Fatalf("stderr = %q, code = %d, want %q", stderr, code, want)
 		}
 		if len(f.bundleLog(t)) != before {
@@ -200,8 +200,8 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 			args []string
 			want string
 		}{
-			{[]string{"restore", missing}, "[berth] ERROR: " + missing + " does not exist; restore needs an existing bundle directory.\n"},
-			{[]string{"restore"}, "[berth] ERROR: Restore needs a bundle directory: berth restore <dir>.\n"},
+			{[]string{"restore", missing}, "[treerig] ERROR: " + missing + " does not exist; restore needs an existing bundle directory.\n"},
+			{[]string{"restore"}, "[treerig] ERROR: Restore needs a bundle directory: treerig restore <dir>.\n"},
 		} {
 			stdout, stderr, code := runFixture(t, f, binary, nil, tc.args...)
 			if stdout != "" || stderr != tc.want || code != 1 {
@@ -235,7 +235,7 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, stderr, code := runFixture(t, f, binary, nil, stage, dir)
-			if want := fmt.Sprintf("[berth] ERROR: The %s hook failed (exit %d).\n", stage, status); code != status || !strings.Contains(stderr, want) {
+			if want := fmt.Sprintf("[treerig] ERROR: The %s hook failed (exit %d).\n", stage, status); code != status || !strings.Contains(stderr, want) {
 				t.Errorf("%s: code = %d, stderr = %q, want %d and %q", stage, code, stderr, status, want)
 			}
 			_ = os.Remove(filepath.Join(f.state, "exit-"+stage))
@@ -244,7 +244,7 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 
 	t.Run("refuses inside its own worktree's hooks before taking the lock", func(t *testing.T) {
 		started := time.Now()
-		_, stderr, code := runFixture(t, f, binary, []string{"BERTH_WORKTREE_ID=" + f.worktreeID(t)}, "backup", filepath.Join(nested, "nested"))
+		_, stderr, code := runFixture(t, f, binary, []string{"TREERIG_WORKTREE_ID=" + f.worktreeID(t)}, "backup", filepath.Join(nested, "nested"))
 		if code != 1 || !strings.Contains(stderr, "runs inside feature-login.acme.localhost's own hooks or commands, which may hold its lock") {
 			t.Fatalf("stderr = %q, code = %d", stderr, code)
 		}
@@ -260,7 +260,7 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 		}
 		for _, stage := range []string{"backup", "restore"} {
 			_, stderr, code := runFixture(t, down, binary, nil, stage, down.base)
-			want := "[berth] ERROR: feature-login.acme.localhost has no running service, and the " + stage + " hook needs one. Run 'berth up' first.\n"
+			want := "[treerig] ERROR: feature-login.acme.localhost has no running service, and the " + stage + " hook needs one. Run 'treerig up' first.\n"
 			if stderr != want || code != 1 {
 				t.Errorf("%s: stderr = %q, code = %d, want %q", stage, stderr, code, want)
 			}
@@ -273,7 +273,7 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 	t.Run("refuses a hook that is not configured, and a worktree that is not registered", func(t *testing.T) {
 		bare := newBundleFixture(t, binary, false)
 		_, stderr, code := runFixture(t, bare, binary, nil, "backup", filepath.Join(bare.base, "out"))
-		if want := "[berth] ERROR: No backup hook is configured: add backup under [hooks] in berth.toml.\n"; stderr != want || code != 1 {
+		if want := "[treerig] ERROR: No backup hook is configured: add backup under [hooks] in treerig.toml.\n"; stderr != want || code != 1 {
 			t.Errorf("stderr = %q, code = %d, want %q", stderr, code, want)
 		}
 		if _, err := os.Stat(filepath.Join(bare.base, "out")); err == nil {
@@ -284,7 +284,7 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(fresh.checkout, "hooks", "bundle"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		toml, err := os.OpenFile(filepath.Join(fresh.checkout, "berth.toml"), os.O_APPEND|os.O_WRONLY, 0)
+		toml, err := os.OpenFile(filepath.Join(fresh.checkout, "treerig.toml"), os.O_APPEND|os.O_WRONLY, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -293,17 +293,17 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, stderr, code = runFixture(t, fresh, binary, nil, "backup", filepath.Join(fresh.base, "out"))
-		if want := "[berth] ERROR: This worktree is not registered. Run 'berth up' first.\n"; stderr != want || code != 1 {
+		if want := "[treerig] ERROR: This worktree is not registered. Run 'treerig up' first.\n"; stderr != want || code != 1 {
 			t.Errorf("stderr = %q, code = %d, want %q", stderr, code, want)
 		}
 	})
 }
 
-// A signal reaches the hook's whole process group, berth dies by it, and the
+// A signal reaches the hook's whole process group, treerig dies by it, and the
 // worktree's lock is released.
 func TestBackupSignalsThroughTheBinary(t *testing.T) {
 	binary := buildBinary(t)
-	// So berth gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
+	// So treerig gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
 	catchTerminationSignals(t)
 	for _, stage := range []string{"backup", "restore"} {
 		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
 )
 
 func TestPublishedLoopbackPorts(t *testing.T) {
@@ -156,7 +156,7 @@ func TestPortPublishers(t *testing.T) {
 		fake.resources["ps"] = []string{"own1", "foreign1", "lookalike1"}
 		fake.own("own1", "api", true)
 		fake.labels["own1"]["name"] = "acme-api-1"
-		// Another project's berth container: managed, but a different worktree.
+		// Another project's treerig container: managed, but a different worktree.
 		fake.labels["foreign1"] = map[string]string{
 			ns + ".managed": "true", ns + ".repository-uuid": ref.RepositoryID, ns + ".worktree-uuid": "99999999-9999-4999-8999-999999999999",
 			"name": "other-api-1",

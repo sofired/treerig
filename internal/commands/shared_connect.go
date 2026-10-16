@@ -7,15 +7,15 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // sharedPlan is what a start of shared services is asked to do.
@@ -96,7 +96,7 @@ func ensureShared(ctx context.Context, cctx *CommandContext, repositoryID, names
 	return outcome, err
 }
 
-// sharedFileName is the shared Compose file as berth.toml spells it, for messages.
+// sharedFileName is the shared Compose file as treerig.toml spells it, for messages.
 func sharedFileName(cctx *CommandContext) string {
 	if cctx.Loaded.Config.Shared == nil {
 		return ""
@@ -468,10 +468,10 @@ type sweepResult struct {
 // sweepShared reconnects every worktree whose running containers use one of
 // names, after a shared container was created and has none of their
 // attachments (decision 22). Consumers are found by label, not by loading any
-// berth.toml. It runs only after the shared lock is released: each worktree
+// treerig.toml. It runs only after the shared lock is released: each worktree
 // is one Hold of its operation lock and the shared lock with a short timeout,
 // and a worktree that is busy is skipped with a warning and left to its own
-// next `up`, to `berth shared up` or to `doctor`. skip is a worktree to leave
+// next `up`, to `treerig shared up` or to `doctor`. skip is a worktree to leave
 // out because the caller connects it itself. The stack is read under the
 // sweeping command's namespace and each worktree's containers and networks
 // under the worktree's own.

@@ -2,7 +2,7 @@ remove a worktree's environment: containers, volumes, networks, images, home,
 and registration
 
 Usage:
-  berth worktree remove [identifier] [flags]
+  treerig worktree remove [identifier] [flags]
 
 Flags:
       --domain string            narrow a slug registered under more than one
@@ -14,5 +14,5 @@ Flags:
       --yes                      skip the confirmation phrase
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

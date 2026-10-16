@@ -10,11 +10,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // Docker is a stateful stand-in for the `docker` CLI: it keeps containers,
@@ -185,7 +185,7 @@ func (d *Docker) Publish(ref worktree.Ref, namespace, service, name string, port
 }
 
 // PublishForeign adds a running container that publishes host port and is
-// none of berth's: it carries no ownership labels.
+// none of treerig's: it carries no ownership labels.
 func (d *Docker) PublishForeign(name string, port int) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -195,7 +195,7 @@ func (d *Docker) PublishForeign(name string, port int) string {
 }
 
 // PublishManaged adds a running container that publishes host port and
-// carries berth's ownership labels for some other worktree.
+// carries treerig's ownership labels for some other worktree.
 func (d *Docker) PublishManaged(other worktree.Ref, namespace, name string, port int) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()

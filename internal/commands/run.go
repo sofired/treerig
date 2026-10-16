@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // RunOptions are `run`'s arguments.
@@ -36,7 +36,7 @@ func Run(ctx context.Context, env *Env, opts RunOptions) error {
 //
 // It needs only a registration: it never starts services, since a command
 // against stopped ones fails in its own script with a clearer error than
-// berth could give. The command is looked up before the registration is, so
+// treerig could give. The command is looked up before the registration is, so
 // a bare `run` lists what there is even in a worktree not yet brought up.
 //
 // A command with lock = true (the default) runs under the worktree's
@@ -53,7 +53,7 @@ func Run(ctx context.Context, env *Env, opts RunOptions) error {
 // forwarded and waited out the same way. The lock is trusted, not enforced:
 // see docs/hooks.md.
 //
-// The invocation recorded for the lock's waiters is "berth run <name>",
+// The invocation recorded for the lock's waiters is "treerig run <name>",
 // without the arguments after `--`: they are the command's own business,
 // and may well carry a secret.
 func RunWithContext(ctx context.Context, cctx *CommandContext, opts RunOptions) error {
@@ -110,8 +110,8 @@ func RunWithContext(ctx context.Context, cctx *CommandContext, opts RunOptions) 
 }
 
 // noSuchCommand is the refusal for a missing or unknown command name: one
-// line, `No command "nope": berth.toml defines plan, apply.` (or `has no
-// [commands].`), naming the commands berth.toml defines in file order. name
+// line, `No command "nope": treerig.toml defines plan, apply.` (or `has no
+// [commands].`), naming the commands treerig.toml defines in file order. name
 // is empty when none was given, and the line then says "No command given".
 func noSuchCommand(name string, commands config.Commands) error {
 	what := "No command given"

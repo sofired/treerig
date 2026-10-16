@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/shape"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/shape"
 )
 
-// FindConfigFile walks upward from startDir looking for berth.toml, stopping
+// FindConfigFile walks upward from startDir looking for treerig.toml, stopping
 // at the filesystem root. It reports false rather than failing, so callers
 // can give a command-specific hint.
 func FindConfigFile(startDir string) (string, bool, error) {
@@ -91,9 +91,9 @@ func Load(file string) (*Loaded, error) {
 // exampleFileURL is where the missing-config hint points for the annotated
 // example: a released binary carries no source tree of its own, so the hint
 // names something a binary-only install still has access to.
-const exampleFileURL = "https://github.com/sofired/berth/blob/main/" + brand.ExampleFile
+const exampleFileURL = "https://github.com/sofired/treerig/blob/main/" + brand.ExampleFile
 
-// LoadNearest loads the nearest berth.toml above startDir, or fails with a
+// LoadNearest loads the nearest treerig.toml above startDir, or fails with a
 // hint that names something that exists. The hint names the tool by brand.Name,
 // not by the name it was invoked as: this package is not handed one.
 func LoadNearest(startDir string) (*Loaded, error) {

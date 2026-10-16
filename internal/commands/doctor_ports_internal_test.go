@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // registerWithPorts registers f's checkout and records ports for it.
@@ -70,7 +70,7 @@ func TestDoctorLoopbackPorts(t *testing.T) {
 		f := newCheckoutFixture(t, "")
 		registerWithPorts(t, f, nil)
 		lines := portLines(t, f, f.opts(), "checkout.ports")
-		if len(lines) != 1 || lines[0].Status != StatusSkip || !strings.Contains(lines[0].Detail, "'berth up' allocates one") {
+		if len(lines) != 1 || lines[0].Status != StatusSkip || !strings.Contains(lines[0].Detail, "'treerig up' allocates one") {
 			t.Fatalf("lines = %+v", lines)
 		}
 	})
@@ -113,7 +113,7 @@ func TestDoctorLoopbackPorts(t *testing.T) {
 		lines := portLines(t, f, opts, "checkout.ports")
 		if len(lines) != 1 || lines[0].Status != StatusFail ||
 			!strings.Contains(lines[0].Detail, "is held by container acme-api-1") ||
-			!strings.Contains(lines[0].Detail, "'berth up --reallocate-port api'") {
+			!strings.Contains(lines[0].Detail, "'treerig up --reallocate-port api'") {
 			t.Fatalf("lines = %+v", lines)
 		}
 	})
@@ -203,7 +203,7 @@ func TestRegistryChecksPortConflicts(t *testing.T) {
 	b.Ports = map[string]int{"api": 30011}
 
 	t.Run("fails for a port two worktrees record, once, naming both", func(t *testing.T) {
-		checks := registryChecks(registry.RegistryScan{Records: []registry.RegisteredWorktree{a, b}}, "berth")
+		checks := registryChecks(registry.RegistryScan{Records: []registry.RegisteredWorktree{a, b}}, "treerig")
 		var conflicts []Check
 		for _, check := range checks {
 			if check.ID == "registry.port-conflict" {
@@ -223,7 +223,7 @@ func TestRegistryChecksPortConflicts(t *testing.T) {
 	t.Run("fails for one worktree recording a port for two services", func(t *testing.T) {
 		twice := testWorktree("gamma", "acme.localhost")
 		twice.Ports = map[string]int{"api": 30020, "web": 30020}
-		for _, check := range registryChecks(registry.RegistryScan{Records: []registry.RegisteredWorktree{twice}}, "berth") {
+		for _, check := range registryChecks(registry.RegistryScan{Records: []registry.RegisteredWorktree{twice}}, "treerig") {
 			if check.ID != "registry.port-conflict" {
 				continue
 			}
@@ -241,7 +241,7 @@ func TestRegistryChecksPortConflicts(t *testing.T) {
 	t.Run("says nothing when ports are distinct", func(t *testing.T) {
 		c := testWorktree("delta", "acme.localhost")
 		c.Ports = map[string]int{"api": 30030}
-		for _, check := range registryChecks(registry.RegistryScan{Records: []registry.RegisteredWorktree{a, c}}, "berth") {
+		for _, check := range registryChecks(registry.RegistryScan{Records: []registry.RegisteredWorktree{a, c}}, "treerig") {
 			if check.ID == "registry.port-conflict" {
 				t.Fatalf("unexpected %+v", check)
 			}

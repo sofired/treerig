@@ -6,12 +6,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // SharedUseSpec is one shared service as the worktree's runtime needs to

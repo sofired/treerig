@@ -1,22 +1,22 @@
-The pinned teardown binary is the build of berth that `worktree remove` is meant
-to run in place of whichever build you invoke, so that code from a branch does
-not run during a removal. These commands install the pin and check it. `worktree
-remove` does not run the pinned binary yet.
+The pinned teardown binary is the build of treerig that `worktree remove` is
+meant to run in place of whichever build you invoke, so that code from a branch
+does not run during a removal. These commands install the pin and check it.
+`worktree remove` does not run the pinned binary yet.
 
 Usage:
-  berth teardown [flags]
-  berth teardown [command]
+  treerig teardown [flags]
+  treerig teardown [command]
 
 Available Commands:
-  pin         pin a berth release, or a berth binary you have verified, as the
-              teardown binary
+  pin         pin a treerig release, or a treerig binary you have verified, as
+              the teardown binary
   status      check the teardown pin and its stored binary
 
 Flags:
   -h, --help   help for teardown
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number
 
-Use "berth teardown [command] --help" for more information about a command.
+Use "treerig teardown [command] --help" for more information about a command.

@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 var small = layout.PortRange{Low: 30100, High: 30104}

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/router"
 )
 
 func TestRouterServiceEnsure(t *testing.T) {
@@ -219,13 +219,13 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a router that carries no berth-root label, the same as one belonging to another root", func(t *testing.T) {
+	t.Run("refuses a router that carries no treerig-root label, the same as one belonging to another root", func(t *testing.T) {
 		w := newWorld(t, 80, "")
 		doc := routerDoc(router.ModeHost, 80)
 		delete(doc.Config.Labels, router.RouterHomeLabel)
 		w.Fake.setDoc("router-1", doc)
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "not owned by this berth root") || !strings.Contains(err.Error(), "'duke router down'") {
+		if err == nil || !strings.Contains(err.Error(), "not owned by this treerig root") || !strings.Contains(err.Error(), "'duke router down'") {
 			t.Fatalf("got %v", err)
 		}
 		if len(w.ups()) != 0 {
@@ -233,13 +233,13 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a router that belongs to a different berth root, leaving it untouched", func(t *testing.T) {
-		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "/home/b/.berth" })
+	t.Run("refuses a router that belongs to a different treerig root, leaving it untouched", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "/home/b/.treerig" })
 		doc := routerDoc(router.ModeHost, 80)
-		doc.Config.Labels[router.RouterHomeLabel] = "/home/a/.berth"
+		doc.Config.Labels[router.RouterHomeLabel] = "/home/a/.treerig"
 		w.Fake.setDoc("router-1", doc)
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "belongs to a different berth root (/home/a/.berth)") {
+		if err == nil || !strings.Contains(err.Error(), "belongs to a different treerig root (/home/a/.treerig)") {
 			t.Fatalf("got %v", err)
 		}
 		if len(w.ups()) != 0 {
@@ -247,18 +247,18 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a router whose berth-root label is empty when this one's own home is not", func(t *testing.T) {
-		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "/home/b/.berth" })
+	t.Run("refuses a router whose treerig-root label is empty when this one's own home is not", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "/home/b/.treerig" })
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "belongs to a different berth root ()") {
+		if err == nil || !strings.Contains(err.Error(), "belongs to a different treerig root ()") {
 			t.Fatalf("got %v", err)
 		}
 	})
 
 	t.Run("takes over a stopped router whatever root it belonged to: it serves nobody", func(t *testing.T) {
-		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "/home/b/.berth" })
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "/home/b/.treerig" })
 		doc := routerDoc(router.ModeHost, 80)
-		doc.Config.Labels[router.RouterHomeLabel] = "/home/a/.berth"
+		doc.Config.Labels[router.RouterHomeLabel] = "/home/a/.treerig"
 		doc.State.Status = "exited"
 		w.Fake.setDoc("router-1", doc)
 		if err := w.Router.Ensure(context.Background()); err != nil {
@@ -266,7 +266,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 	})
 
-	t.Run("hands the router to a new berth root: 'router down' then 'router up' adopts it cleanly", func(t *testing.T) {
+	t.Run("hands the router to a new treerig root: 'router down' then 'router up' adopts it cleanly", func(t *testing.T) {
 		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "home-b" })
 		doc := routerDoc(router.ModeHost, 80)
 		doc.Config.Labels[router.RouterHomeLabel] = "home-a"
@@ -353,7 +353,7 @@ func TestEnsureChecksThePortsAreFree(t *testing.T) {
 		err := w.Router.Ensure(context.Background())
 		if err == nil ||
 			!strings.Contains(err.Error(), "127.0.0.1:80 (the router) is held by container other-proxy-1") ||
-			!strings.Contains(err.Error(), "choose another port with BERTH_ROUTER_PORT or [router] port in settings.toml") {
+			!strings.Contains(err.Error(), "choose another port with TREERIG_ROUTER_PORT or [router] port in settings.toml") {
 			t.Fatalf("got %v", err)
 		}
 		if len(w.ups()) != 0 {
@@ -483,7 +483,7 @@ func TestEnsureExplainsAFailedStart(t *testing.T) {
 			t.Fatal("expected the start to fail")
 		}
 		for _, want := range []string{
-			"127.0.0.1:8080 is free, or choose another port with BERTH_ROUTER_PORT",
+			"127.0.0.1:8080 is free, or choose another port with TREERIG_ROUTER_PORT",
 			"port is already allocated",
 			"Last log lines:\nrouter-1  | level=error",
 		} {
@@ -502,11 +502,11 @@ func TestEnsureExplainsAFailedStart(t *testing.T) {
 		}
 	})
 
-	t.Run("names the settings file beside BERTH_ROUTER_PORT, or generically without a path", func(t *testing.T) {
-		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.SettingsPath = "/berth/settings.toml" })
+	t.Run("names the settings file beside TREERIG_ROUTER_PORT, or generically without a path", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.SettingsPath = "/treerig/settings.toml" })
 		w.Fake.upExitCode = 1
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "or [router] port in /berth/settings.toml.") {
+		if err == nil || !strings.Contains(err.Error(), "or [router] port in /treerig/settings.toml.") {
 			t.Fatalf("got %v", err)
 		}
 

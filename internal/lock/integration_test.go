@@ -7,7 +7,7 @@
 // can import something that imports lock back.
 //
 // The test binary re-executes itself as a helper, chosen by
-// BERTH_LOCK_HELPER_ROLE. A top-level helper (one startHelper starts
+// TREERIG_LOCK_HELPER_ROLE. A top-level helper (one startHelper starts
 // directly) reports readiness over an inherited pipe at fd 3; a helper
 // spawned by another helper reports over a ready file instead, since its
 // own fd 3 is often the lock itself. Cleanup kills exact PIDs only — never
@@ -28,31 +28,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/osrun"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/osrun"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 const (
-	roleEnv   = "BERTH_LOCK_HELPER_ROLE"
-	targetEnv = "BERTH_LOCK_HELPER_TARGET"
+	roleEnv   = "TREERIG_LOCK_HELPER_ROLE"
+	targetEnv = "TREERIG_LOCK_HELPER_TARGET"
 	// readyFileEnv is where a non-top-level hop (one that did not get fd 3
 	// as a plain readiness pipe, because fd 3 is the lock it inherited)
 	// reports its own PID once it is ready.
-	readyFileEnv = "BERTH_LOCK_HELPER_READY_FILE"
+	readyFileEnv = "TREERIG_LOCK_HELPER_READY_FILE"
 	// nextReadyFileEnv is the ready-file path this hop hands to whatever it
 	// spawns next.
-	nextReadyFileEnv = "BERTH_LOCK_HELPER_NEXT_READY_FILE"
+	nextReadyFileEnv = "TREERIG_LOCK_HELPER_NEXT_READY_FILE"
 	// grandchildReadyFileEnv is threaded two hops down, from a holder to the
 	// middle process to the grandchild it starts, for the Go-chain scenario.
-	grandchildReadyFileEnv = "BERTH_LOCK_HELPER_GRANDCHILD_READY_FILE"
+	grandchildReadyFileEnv = "TREERIG_LOCK_HELPER_GRANDCHILD_READY_FILE"
 	// markerWorktreeEnv carries the worktree ID a grandchild should present
-	// as BERTH_WORKTREE_ID, so the marker scan can find it.
-	markerWorktreeEnv = "BERTH_LOCK_HELPER_MARKER_WORKTREE"
+	// as TREERIG_WORKTREE_ID, so the marker scan can find it.
+	markerWorktreeEnv = "TREERIG_LOCK_HELPER_MARKER_WORKTREE"
 )
 
 func TestMain(m *testing.M) {
@@ -155,7 +155,7 @@ func reportReadyFD3(pid int) {
 // lock.Inherited(ctx), populated by Hold, hands it the lock's fd, then
 // parks. Hold never returns, so the lock is neither released nor
 // abandoned; only an external SIGKILL ends this process, exactly as a
-// crashed berth would.
+// crashed treerig would.
 func runHolderWithGrandchild(grandchildRole string) int {
 	scope := lock.Scope{Target: os.Getenv(targetEnv), Description: "helper"}
 	if worktreeID := os.Getenv(markerWorktreeEnv); worktreeID != "" {
@@ -194,7 +194,7 @@ func buildChildEnv(role, readyFile, markerWorktreeID string) []string {
 	env := filterEnv(os.Environ(), roleEnv, targetEnv, readyFileEnv, nextReadyFileEnv, grandchildReadyFileEnv, markerWorktreeEnv)
 	env = append(env, roleEnv+"="+role, readyFileEnv+"="+readyFile)
 	if markerWorktreeID != "" {
-		env = append(env, "BERTH_WORKTREE_ID="+markerWorktreeID)
+		env = append(env, "TREERIG_WORKTREE_ID="+markerWorktreeID)
 	}
 	return env
 }

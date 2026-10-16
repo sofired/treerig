@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // parseCommands parses minimalTOML plus tail, failing the test on an error.
@@ -144,7 +144,7 @@ command = "./m.sh"
 
 	t.Run("rejects a value that is neither a string nor a table", func(t *testing.T) {
 		got := commandsError(t, "\n[commands]\nplan = 3\n")
-		want := "test.toml is not a valid berth.toml:\n  commands.plan: Invalid input: expected string or object, received number"
+		want := "test.toml is not a valid treerig.toml:\n  commands.plan: Invalid input: expected string or object, received number"
 		if got != want {
 			t.Fatalf("error = %q, want %q", got, want)
 		}

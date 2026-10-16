@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // TestAtomicWriteConcurrency is a regression test for the fix that gave
@@ -74,7 +74,7 @@ func TestAtomicWriteConcurrency(t *testing.T) {
 // before that fix, one goroutine's temp file, sitting in what should have
 // been an empty directory, could make a concurrent goroutine's own
 // AssertAdoptableControlHome check refuse the directory as "not empty and
-// not created by berth." Reverting that one line (back to
+// not created by treerig." Reverting that one line (back to
 // AtomicWrite(marker, []byte(ControlHomeFormat), 0o600)) reproduces that
 // refusal here.
 func TestConcurrentControlHomeEstablishment(t *testing.T) {

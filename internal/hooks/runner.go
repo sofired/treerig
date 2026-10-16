@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/progress"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/progress"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // OutputMode is where a hook's output is streamed.
@@ -75,7 +75,7 @@ type RunOptions struct {
 
 // kind is which of the two things this package runs a configured command
 // line as: a hook of a lifecycle stage, or one of the project's named
-// commands (#94). They share splitting, resolution, the BERTH_* environment
+// commands (#94). They share splitting, resolution, the TREERIG_* environment
 // and the mapping of an exit to an error; a kind holds only what differs,
 // and the words a failure message uses.
 type kind struct {
@@ -83,19 +83,19 @@ type kind struct {
 	noun, title string
 	// own is the one variable that says which stage or command this is, and
 	// foreign the other kind's, dropped from what the child inherits: a
-	// command that runs `berth up` on another worktree must not hand its
-	// hooks a BERTH_COMMAND, nor a hook that runs a command a BERTH_STAGE.
+	// command that runs `treerig up` on another worktree must not hand its
+	// hooks a TREERIG_COMMAND, nor a hook that runs a command a TREERIG_STAGE.
 	own     string
 	foreign string
 }
 
 var (
-	hookKind    = kind{noun: "hook", title: "Hook", own: "STAGE", foreign: "BERTH_COMMAND"}
-	commandKind = kind{noun: "command", title: "Command", own: "COMMAND", foreign: "BERTH_STAGE"}
+	hookKind    = kind{noun: "hook", title: "Hook", own: "STAGE", foreign: "TREERIG_COMMAND"}
+	commandKind = kind{noun: "command", title: "Command", own: "COMMAND", foreign: "TREERIG_STAGE"}
 )
 
-// environment is the BERTH_* vocabulary Compose receives, plus k's own
-// variable set to name (BERTH_STAGE for a hook, BERTH_COMMAND for a
+// environment is the TREERIG_* vocabulary Compose receives, plus k's own
+// variable set to name (TREERIG_STAGE for a hook, TREERIG_COMMAND for a
 // command), hctx.Routes' URL variables (#28) and hctx.Shared's pinned address
 // variables, laid over the inherited environment — never a replacement of
 // it, so a hook that calls other tools still sees a normal PATH and HOME.
@@ -105,12 +105,12 @@ var (
 // kind's variable, see kind.
 func environment(hctx HookContext, k kind, name string) []string {
 	pairs := append(worktree.Environment(hctx.Source, hctx.Ref), [2]string{k.own, name})
-	// The worktree's own Compose project (BERTH_COMPOSE_PROJECT, derived once
+	// The worktree's own Compose project (TREERIG_COMPOSE_PROJECT, derived once
 	// in worktree.Environment), under Compose's own variable too, so a hook's
 	// `docker compose exec` reaches this worktree's containers and not the
 	// project Compose would name after the directory. COMPOSE_FILE is the
 	// configured file, which Compose otherwise looks for as compose.yaml
-	// beside berth.toml.
+	// beside treerig.toml.
 	var composeVars []string
 	for _, pair := range pairs {
 		if pair[0] == worktree.ComposeProjectKey {
@@ -126,7 +126,7 @@ func environment(hctx HookContext, k kind, name string) []string {
 	inherited := make([]string, 0, len(hctx.Environ))
 	for _, entry := range hctx.Environ {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == "BERTH_URL" || strings.HasPrefix(key, "BERTH_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
+		if key == "TREERIG_URL" || strings.HasPrefix(key, "TREERIG_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
 			continue
 		}
 		inherited = append(inherited, entry)
@@ -316,18 +316,18 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 	return ran, err
 }
 
-// RunCommand runs one of the project's named commands (#94) for `berth run`.
+// RunCommand runs one of the project's named commands (#94) for `treerig run`.
 // It is resolved, split and given its environment exactly as a hook is,
-// with BERTH_COMMAND in place of BERTH_STAGE, and args appended after
+// with TREERIG_COMMAND in place of TREERIG_STAGE, and args appended after
 // whatever the configured line already carries. Unlike a hook it runs
 // interactively (run.Interactive): in its own process group, holding the
-// terminal when berth does, so it can prompt and answer Ctrl-C itself, its
-// own output going straight to berth's own streams. RunCommand prints
+// terminal when treerig does, so it can prompt and answer Ctrl-C itself, its
+// own output going straight to treerig's own streams. RunCommand prints
 // nothing itself: no start line and no heartbeat. Its process group is gone
 // by the time this returns, the moment the lock the caller may hold can be
 // released. hctx.Hooks is not consulted.
 //
-// The spec never sets InheritLocks: a command that outlived berth by
+// The spec never sets InheritLocks: a command that outlived treerig by
 // holding its lock descriptor would be the opposite of "the lock is
 // released once the whole group has exited", and an interactive child's
 // group is drained on return anyway (see run.Spec.InheritLocks).

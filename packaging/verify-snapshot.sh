@@ -2,7 +2,7 @@
 # Checks what `goreleaser release --snapshot --clean --skip=sign` left in
 # dist/: every archive, package and checksum is there and agrees, each archive
 # and the host's .deb hold the files they should, the host's packages carry the
-# archive's binary at /usr/bin/berth, every binary was built the way
+# archive's binary at /usr/bin/treerig, every binary was built the way
 # a release is (no cgo, trimmed paths, the version stamped in), and install.sh
 # installs the host's archive through a local HTTP server standing in for GitHub
 # Releases, with curl and with wget, and refuses an archive whose checksum does
@@ -55,11 +55,11 @@ expect '*.apk' 2
 
 for os in linux darwin; do
   for arch in amd64 arm64; do
-    [ -f "$dist/berth_${version}_${os}_${arch}.tar.gz" ] ||
-      fail "missing archive berth_${version}_${os}_${arch}.tar.gz"
+    [ -f "$dist/treerig_${version}_${os}_${arch}.tar.gz" ] ||
+      fail "missing archive treerig_${version}_${os}_${arch}.tar.gz"
   done
 done
-source_archive="berth-${version}.tar.gz"
+source_archive="treerig-${version}.tar.gz"
 [ -f "$dist/$source_archive" ] || fail "missing source archive $source_archive"
 
 # Every artifact has a line in checksums.txt, and every line is true.
@@ -74,20 +74,20 @@ echo "artifacts: ok (5 tar.gz, 2 deb, 2 rpm, 2 apk, checksums.txt)"
 
 # --- Contents -------------------------------------------------------------------
 
-# Each platform archive holds exactly these, with berth at the root.
+# Each platform archive holds exactly these, with treerig at the root.
 want_archive="LICENSE
 NOTICE
 README.md
-berth
-completions/_berth
-completions/berth.bash
-completions/berth.fish"
+completions/_treerig
+completions/treerig.bash
+completions/treerig.fish
+treerig"
 for os in linux darwin; do
   for arch in amd64 arm64; do
-    got=$(tar tzf "$dist/berth_${version}_${os}_${arch}.tar.gz" | LC_ALL=C sort)
+    got=$(tar tzf "$dist/treerig_${version}_${os}_${arch}.tar.gz" | LC_ALL=C sort)
     [ "$got" = "$want_archive" ] || {
       printf '%s\n' "$got" >&2
-      fail "berth_${version}_${os}_${arch}.tar.gz does not hold exactly: $(printf '%s' "$want_archive" | tr '\n' ' ')"
+      fail "treerig_${version}_${os}_${arch}.tar.gz does not hold exactly: $(printf '%s' "$want_archive" | tr '\n' ' ')"
     }
   done
 done
@@ -95,47 +95,47 @@ echo "archive contents: ok"
 
 # The source archive is the repository at the tag, under one directory.
 source_list=$(tar tzf "$dist/$source_archive")
-for f in go.mod go.sum LICENSE cmd/berth/main.go; do
-  printf '%s\n' "$source_list" | grep -qx "berth-${version}/$f" ||
-    fail "$source_archive has no berth-${version}/$f"
+for f in go.mod go.sum LICENSE cmd/treerig/main.go; do
+  printf '%s\n' "$source_list" | grep -qx "treerig-${version}/$f" ||
+    fail "$source_archive has no treerig-${version}/$f"
 done
-printf '%s\n' "$source_list" | grep -v "^berth-${version}/" | grep -q . &&
-  fail "$source_archive holds files outside berth-${version}/"
+printf '%s\n' "$source_list" | grep -v "^treerig-${version}/" | grep -q . &&
+  fail "$source_archive holds files outside treerig-${version}/"
 echo "source archive: ok"
 
 # The tap formula, rendered the way the release workflow's tap job renders it:
-# packaging/homebrew/berth.rb pointed at this build's source archive, with the
+# packaging/homebrew/treerig.rb pointed at this build's source archive, with the
 # checksum checksums.txt lists for it. It lands in dist/ beside the rest.
 source_sha=$(awk -v f="$source_archive" '$2 == f { print $1; exit }' "$dist/checksums.txt")
 printf '%s' "$source_sha" | grep -Eq '^[0-9a-f]{64}$' ||
   fail "checksums.txt has no sha256 for $source_archive"
-source_url="https://github.com/sofired/berth/releases/download/v${version}/${source_archive}"
-cp "$repo/packaging/homebrew/berth.rb" "$dist/berth.rb"
-python3 "$repo/packaging/homebrew/set-source.py" "$dist/berth.rb" "$source_url" "$source_sha" ||
+source_url="https://github.com/sofired/treerig/releases/download/v${version}/${source_archive}"
+cp "$repo/packaging/homebrew/treerig.rb" "$dist/treerig.rb"
+python3 "$repo/packaging/homebrew/set-source.py" "$dist/treerig.rb" "$source_url" "$source_sha" ||
   fail "could not render the formula"
-grep -qxF "  url \"$source_url\"" "$dist/berth.rb" || fail "berth.rb does not point at $source_url"
-grep -qxF "  sha256 \"$source_sha\"" "$dist/berth.rb" || fail "berth.rb does not carry $source_archive's sha256"
-grep -qF 'head "https://github.com/sofired/berth.git", branch: "main"' "$dist/berth.rb" ||
-  fail "rendering berth.rb changed its head stanza"
+grep -qxF "  url \"$source_url\"" "$dist/treerig.rb" || fail "treerig.rb does not point at $source_url"
+grep -qxF "  sha256 \"$source_sha\"" "$dist/treerig.rb" || fail "treerig.rb does not carry $source_archive's sha256"
+grep -qF 'head "https://github.com/sofired/treerig.git", branch: "main"' "$dist/treerig.rb" ||
+  fail "rendering treerig.rb changed its head stanza"
 # The formula stamps the version through the same -X flag as the release.
-grep -qF -- '-X github.com/sofired/berth/internal/brand.Version=' "$dist/berth.rb" ||
-  fail "berth.rb does not stamp brand.Version"
+grep -qF -- '-X github.com/sofired/treerig/internal/brand.Version=' "$dist/treerig.rb" ||
+  fail "treerig.rb does not stamp brand.Version"
 if command -v ruby >/dev/null 2>&1; then
-  ruby -c "$dist/berth.rb" >/dev/null || fail "berth.rb is not valid Ruby"
-  echo "formula: ok (dist/berth.rb)"
+  ruby -c "$dist/treerig.rb" >/dev/null || fail "treerig.rb is not valid Ruby"
+  echo "formula: ok (dist/treerig.rb)"
 else
-  echo "formula: ok (dist/berth.rb; Ruby syntax not checked, no ruby on this machine)"
+  echo "formula: ok (dist/treerig.rb; Ruby syntax not checked, no ruby on this machine)"
 fi
 
 # Every binary was built without cgo and with trimmed paths, and carries the
 # stamped version.
-for dir in "$dist"/berth_linux_amd64_* "$dist"/berth_linux_arm64_* "$dist"/berth_darwin_amd64_* "$dist"/berth_darwin_arm64_*; do
-  info=$(go version -m "$dir/berth") || fail "go version -m failed on $dir/berth"
-  printf '%s\n' "$info" | grep -q 'CGO_ENABLED=0' || fail "$dir/berth was not built with CGO_ENABLED=0"
-  printf '%s\n' "$info" | grep -q -- '-trimpath=true' || fail "$dir/berth was not built with -trimpath"
+for dir in "$dist"/treerig_linux_amd64_* "$dist"/treerig_linux_arm64_* "$dist"/treerig_darwin_amd64_* "$dist"/treerig_darwin_arm64_*; do
+  info=$(go version -m "$dir/treerig") || fail "go version -m failed on $dir/treerig"
+  printf '%s\n' "$info" | grep -q 'CGO_ENABLED=0' || fail "$dir/treerig was not built with CGO_ENABLED=0"
+  printf '%s\n' "$info" | grep -q -- '-trimpath=true' || fail "$dir/treerig was not built with -trimpath"
   # The -X flag itself is not recorded in the build info, but the string it
   # sets is in the binary.
-  grep -qaF -- "$version" "$dir/berth" || fail "$dir/berth does not carry the version $version"
+  grep -qaF -- "$version" "$dir/treerig" || fail "$dir/treerig does not carry the version $version"
 done
 echo "binaries: ok (CGO_ENABLED=0, -trimpath, version stamped)"
 
@@ -163,12 +163,12 @@ not_checked() {
 # The host's .deb, where dpkg-deb is here to read it.
 if [ "$os" = linux ] && command -v dpkg-deb >/dev/null 2>&1; then
   deb=$(find "$dist" -maxdepth 1 -name "*_${arch}.deb")
-  want_deb="-rwxr-xr-x /usr/bin/berth
--rw-r--r-- /usr/share/bash-completion/completions/berth
--rw-r--r-- /usr/share/doc/berth/NOTICE
--rw-r--r-- /usr/share/doc/berth/copyright
--rw-r--r-- /usr/share/fish/vendor_completions.d/berth.fish
--rw-r--r-- /usr/share/zsh/site-functions/_berth"
+  want_deb="-rwxr-xr-x /usr/bin/treerig
+-rw-r--r-- /usr/share/bash-completion/completions/treerig
+-rw-r--r-- /usr/share/doc/treerig/NOTICE
+-rw-r--r-- /usr/share/doc/treerig/copyright
+-rw-r--r-- /usr/share/fish/vendor_completions.d/treerig.fish
+-rw-r--r-- /usr/share/zsh/site-functions/_treerig"
   got_deb=$(dpkg-deb -c "$deb" | awk '$1 !~ /^d/ { sub(/^\./, "", $6); print $1, $6 }' | LC_ALL=C sort -k2)
   [ "$got_deb" = "$want_deb" ] || {
     printf '%s\n' "$got_deb" >&2
@@ -179,8 +179,8 @@ else
   not_checked "deb contents" dpkg-deb
 fi
 
-# /usr/bin/berth in the host's packages is the release binary: the same bytes as
-# the berth in the host's archive, which is the file the teardown pin records as
+# /usr/bin/treerig in the host's packages is the release binary: the same bytes as
+# the treerig in the host's archive, which is the file the teardown pin records as
 # binary_sha256 (docs/design/teardown.md, "Platforms"). The deb is read with
 # dpkg-deb and the rpm with rpm2cpio and cpio, where each is here.
 sha256_stdin() {
@@ -193,28 +193,28 @@ sha256_stdin() {
 
 # The archive is read into a file first, so a failing tar is a failure here and
 # not an empty hash.
-tar xzf "$dist/berth_${version}_${os}_${arch}.tar.gz" -C "$work" berth ||
-  fail "could not read berth from berth_${version}_${os}_${arch}.tar.gz"
-archive_sha=$(sha256_stdin <"$work/berth")
-rm -f "$work/berth"
-printf '%s' "$archive_sha" | grep -Eq '^[0-9a-f]{64}$' || fail "could not hash the archive's berth"
+tar xzf "$dist/treerig_${version}_${os}_${arch}.tar.gz" -C "$work" treerig ||
+  fail "could not read treerig from treerig_${version}_${os}_${arch}.tar.gz"
+archive_sha=$(sha256_stdin <"$work/treerig")
+rm -f "$work/treerig"
+printf '%s' "$archive_sha" | grep -Eq '^[0-9a-f]{64}$' || fail "could not hash the archive's treerig"
 
 # package_binary_matches <label> <package> <sha>: fail unless <sha>, the hash of
-# the package's /usr/bin/berth, is the archive's.
+# the package's /usr/bin/treerig, is the archive's.
 package_binary_matches() {
-  printf '%s' "$3" | grep -Eq '^[0-9a-f]{64}$' || fail "$1: could not read /usr/bin/berth from $(basename "$2")"
+  printf '%s' "$3" | grep -Eq '^[0-9a-f]{64}$' || fail "$1: could not read /usr/bin/treerig from $(basename "$2")"
   [ "$3" = "$archive_sha" ] ||
-    fail "$1: /usr/bin/berth in $(basename "$2") is not the berth in the ${os}_${arch} archive (sha256 $3, the archive's is $archive_sha)"
+    fail "$1: /usr/bin/treerig in $(basename "$2") is not the treerig in the ${os}_${arch} archive (sha256 $3, the archive's is $archive_sha)"
 }
 
 if [ "$os" = linux ] && command -v dpkg-deb >/dev/null 2>&1; then
   dpkg-deb --fsys-tarfile "$deb" >"$work/deb.tar" || fail "dpkg-deb could not read $(basename "$deb")"
-  tar xOf "$work/deb.tar" ./usr/bin/berth >"$work/deb-berth" 2>/dev/null || true
-  [ -s "$work/deb-berth" ] || fail "no /usr/bin/berth in $(basename "$deb")"
-  deb_sha=$(sha256_stdin <"$work/deb-berth")
-  rm -f "$work/deb.tar" "$work/deb-berth"
+  tar xOf "$work/deb.tar" ./usr/bin/treerig >"$work/deb-treerig" 2>/dev/null || true
+  [ -s "$work/deb-treerig" ] || fail "no /usr/bin/treerig in $(basename "$deb")"
+  deb_sha=$(sha256_stdin <"$work/deb-treerig")
+  rm -f "$work/deb.tar" "$work/deb-treerig"
   package_binary_matches deb "$deb" "$deb_sha"
-  echo "deb binary: ok (/usr/bin/berth is the archive's berth)"
+  echo "deb binary: ok (/usr/bin/treerig is the archive's treerig)"
 else
   not_checked "deb binary" dpkg-deb
 fi
@@ -227,13 +227,13 @@ if [ "$os" = linux ] && command -v rpm2cpio >/dev/null 2>&1 && command -v cpio >
   # payload is caught below, by the missing file or the hash.
   rpm2cpio "$rpm" >"$work/rpm.cpio" || true
   [ -s "$work/rpm.cpio" ] || fail "rpm2cpio could not read $(basename "$rpm")"
-  # rpm2cpio spells the member ./usr/bin/berth or /usr/bin/berth, by its version.
-  cpio -i --to-stdout ./usr/bin/berth /usr/bin/berth usr/bin/berth <"$work/rpm.cpio" >"$work/rpm-berth" 2>/dev/null || true
-  [ -s "$work/rpm-berth" ] || fail "no /usr/bin/berth in $(basename "$rpm")"
-  rpm_sha=$(sha256_stdin <"$work/rpm-berth")
-  rm -f "$work/rpm.cpio" "$work/rpm-berth"
+  # rpm2cpio spells the member ./usr/bin/treerig or /usr/bin/treerig, by its version.
+  cpio -i --to-stdout ./usr/bin/treerig /usr/bin/treerig usr/bin/treerig <"$work/rpm.cpio" >"$work/rpm-treerig" 2>/dev/null || true
+  [ -s "$work/rpm-treerig" ] || fail "no /usr/bin/treerig in $(basename "$rpm")"
+  rpm_sha=$(sha256_stdin <"$work/rpm-treerig")
+  rm -f "$work/rpm.cpio" "$work/rpm-treerig"
   package_binary_matches rpm "$rpm" "$rpm_sha"
-  echo "rpm binary: ok (/usr/bin/berth is the archive's berth)"
+  echo "rpm binary: ok (/usr/bin/treerig is the archive's treerig)"
 else
   if command -v rpm2cpio >/dev/null 2>&1; then missing=cpio; else missing=rpm2cpio; fi
   not_checked "rpm binary" "$missing"
@@ -241,7 +241,7 @@ fi
 
 # --- install.sh against a local stand-in for GitHub Releases -------------------
 
-archive="berth_${version}_${os}_${arch}.tar.gz"
+archive="treerig_${version}_${os}_${arch}.tar.gz"
 
 mkdir -p "$work/good/v$version" "$work/good/latest" "$work/bad/v$version"
 cp "$dist/$archive" "$dist/checksums.txt" "$work/good/v$version/"
@@ -276,14 +276,14 @@ check_install() {
   shift 2
   env "$@" sh "$repo/install.sh" --dir "$dir" >"$work/install.log" 2>&1 ||
     { cat "$work/install.log" >&2; fail "$label: install.sh failed"; }
-  got=$("$dir/berth" --version)
-  [ "$got" = "$version" ] || fail "$label: installed berth reports $got, expected $version"
+  got=$("$dir/treerig" --version)
+  [ "$got" = "$version" ] || fail "$label: installed treerig reports $got, expected $version"
   echo "install.sh ($label): ok"
 }
 
 serve "$work/good"
-check_install "latest, curl or wget" "$work/t1" BERTH_LATEST_URL="$base/latest/checksums.txt" BERTH_BASE_URL="$base"
-check_install "pinned version" "$work/t2" BERTH_VERSION="v$version" BERTH_BASE_URL="$base"
+check_install "latest, curl or wget" "$work/t1" TREERIG_LATEST_URL="$base/latest/checksums.txt" TREERIG_BASE_URL="$base"
+check_install "pinned version" "$work/t2" TREERIG_VERSION="v$version" TREERIG_BASE_URL="$base"
 
 # Without curl, and then without sha256sum: a directory holding only the tools
 # the script needs.
@@ -294,7 +294,7 @@ if command -v wget >/dev/null 2>&1; then
     p=$(command -v "$t" 2>/dev/null || true)
     case "$p" in /*) ln -s "$p" "$work/nocurl/$t" ;; esac
   done
-  check_install "wget, no curl" "$work/t3" PATH="$work/nocurl" BERTH_LATEST_URL="$base/latest/checksums.txt" BERTH_BASE_URL="$base"
+  check_install "wget, no curl" "$work/t3" PATH="$work/nocurl" TREERIG_LATEST_URL="$base/latest/checksums.txt" TREERIG_BASE_URL="$base"
 else
   echo "install.sh (wget, no curl): skipped, no wget on this machine"
 fi
@@ -305,17 +305,17 @@ if command -v shasum >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1; th
     p=$(command -v "$t" 2>/dev/null || true)
     case "$p" in /*) ln -s "$p" "$work/nosha256sum/$t" ;; esac
   done
-  check_install "shasum, no sha256sum" "$work/t4" PATH="$work/nosha256sum" BERTH_VERSION="$version" BERTH_BASE_URL="$base"
+  check_install "shasum, no sha256sum" "$work/t4" PATH="$work/nosha256sum" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
 else
   echo "install.sh (shasum, no sha256sum): skipped, both tools are not here"
 fi
 stop_server
 
 serve "$work/bad"
-if BERTH_VERSION="$version" BERTH_BASE_URL="$base" sh "$repo/install.sh" --dir "$work/t5" >"$work/install.log" 2>&1; then
+if TREERIG_VERSION="$version" TREERIG_BASE_URL="$base" sh "$repo/install.sh" --dir "$work/t5" >"$work/install.log" 2>&1; then
   fail "install.sh installed an archive whose checksum does not match"
 fi
 grep -q 'checksum mismatch' "$work/install.log" || { cat "$work/install.log" >&2; fail "no checksum mismatch message"; }
-[ ! -e "$work/t5/berth" ] || fail "a mismatched archive left a binary behind"
+[ ! -e "$work/t5/treerig" ] || fail "a mismatched archive left a binary behind"
 echo "install.sh (tampered archive): refused"
 stop_server

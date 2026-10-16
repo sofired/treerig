@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // Output says where a child's stdout and stderr go.

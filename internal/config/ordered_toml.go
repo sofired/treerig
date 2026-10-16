@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/sofired/berth/internal/shape"
+	"github.com/sofired/treerig/internal/shape"
 )
 
 // DecodeOrderedTOML parses contents and rebuilds it as a [shape.Obj] tree
@@ -17,7 +17,7 @@ import (
 // pairs the decoded value back up with the key order from its MetaData.
 //
 // Exported so internal/settings can decode settings.toml the same strict
-// way berth.toml is decoded below (Parse), without duplicating this bridge
+// way treerig.toml is decoded below (Parse), without duplicating this bridge
 // between BurntSushi's decoder and shape's own ordered object.
 func DecodeOrderedTOML(contents string) (*shape.Obj, error) {
 	var generic map[string]any

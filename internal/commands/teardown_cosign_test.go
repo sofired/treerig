@@ -8,10 +8,10 @@ package commands_test
 // the fakerun tests, and its identity is first exercised at #147.
 //
 // The tests skip without a cosign 3.0.0 or newer on PATH. With
-// BERTH_REQUIRE_COSIGN=1 (the release-snapshot job) a missing cosign fails
+// TREERIG_REQUIRE_COSIGN=1 (the release-snapshot job) a missing cosign fails
 // instead. The snapshot tests run against a GoReleaser snapshot's dist/ named
-// by BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION, and skip without them,
-// or fail, under BERTH_REQUIRE_COSIGN=1.
+// by TREERIG_SNAPSHOT_DIST and TREERIG_SNAPSHOT_VERSION, and skip without them,
+// or fail, under TREERIG_REQUIRE_COSIGN=1.
 
 import (
 	"bytes"
@@ -24,14 +24,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/releasefetch/releasetest"
-	"github.com/sofired/berth/internal/run/osrun"
-	"github.com/sofired/berth/internal/semver"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/releasefetch/releasetest"
+	"github.com/sofired/treerig/internal/run/osrun"
+	"github.com/sofired/treerig/internal/semver"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 // keyPolicy is the test-only policy: verify-blob against a public key, with the
@@ -53,24 +53,24 @@ type cosignTool struct {
 }
 
 // skipUnlessRequired skips the test with the reason, or fails it when
-// BERTH_REQUIRE_COSIGN=1: the release-snapshot job sets that so that a missing
+// TREERIG_REQUIRE_COSIGN=1: the release-snapshot job sets that so that a missing
 // cosign, or a missing snapshot, cannot pass as a skip.
 func skipUnlessRequired(t *testing.T, format string, args ...any) {
 	t.Helper()
-	if os.Getenv("BERTH_REQUIRE_COSIGN") == "1" {
-		t.Fatalf("BERTH_REQUIRE_COSIGN=1, so this test cannot skip: "+format, args...)
+	if os.Getenv("TREERIG_REQUIRE_COSIGN") == "1" {
+		t.Fatalf("TREERIG_REQUIRE_COSIGN=1, so this test cannot skip: "+format, args...)
 	}
 	t.Skipf(format, args...)
 }
 
 // requireSnapshot returns the GoReleaser snapshot's dist/ and version named by
-// BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION. When they are unset or there
+// TREERIG_SNAPSHOT_DIST and TREERIG_SNAPSHOT_VERSION. When they are unset or there
 // is no checksums.txt there, it hands the test to skipUnlessRequired.
 func requireSnapshot(t *testing.T) (dist, version string) {
 	t.Helper()
-	dist, version = os.Getenv("BERTH_SNAPSHOT_DIST"), os.Getenv("BERTH_SNAPSHOT_VERSION")
+	dist, version = os.Getenv("TREERIG_SNAPSHOT_DIST"), os.Getenv("TREERIG_SNAPSHOT_VERSION")
 	if dist == "" || version == "" {
-		skipUnlessRequired(t, "BERTH_SNAPSHOT_DIST and BERTH_SNAPSHOT_VERSION are not set to a GoReleaser snapshot's dist/ and its version")
+		skipUnlessRequired(t, "TREERIG_SNAPSHOT_DIST and TREERIG_SNAPSHOT_VERSION are not set to a GoReleaser snapshot's dist/ and its version")
 	}
 	if _, err := os.Stat(filepath.Join(dist, "checksums.txt")); err != nil {
 		skipUnlessRequired(t, "no snapshot in %s: %v", dist, err)
@@ -79,7 +79,7 @@ func requireSnapshot(t *testing.T) (dist, version string) {
 }
 
 // requireCosign3 finds a cosign 3.0.0 or newer on PATH, skipping the test
-// when there is none (or failing it, when BERTH_REQUIRE_COSIGN is set).
+// when there is none (or failing it, when TREERIG_REQUIRE_COSIGN is set).
 func requireCosign3(t *testing.T) cosignTool {
 	t.Helper()
 	unavailable := func(format string, args ...any) {
@@ -229,12 +229,12 @@ func TestTeardownPinWithRealCosignAndNoTrustRoot(t *testing.T) {
 	f.useRealCosign(tool)
 	// The production (keyless) policy needs the Sigstore trust root; the proxy
 	// the user's environment names (allowlisted) refuses every connection, and
-	// berth's own cold TUF cache holds nothing. cosign fails to load the trust
+	// treerig's own cold TUF cache holds nothing. cosign fails to load the trust
 	// root, which says nothing about the release.
 	f.env.Environ = append(f.env.Environ, "HTTPS_PROXY=http://127.0.0.1:1", "https_proxy=http://127.0.0.1:1")
 	err := f.pin(f.options())
 	if err == nil || !strings.Contains(err.Error(), "cosign could not load the Sigstore trust root. cosign said: ") ||
-		!strings.Contains(err.Error(), "`cosign initialize`") || !strings.Contains(err.Error(), "`berth teardown pin --file PATH --sha256 HEX --release LABEL`") ||
+		!strings.Contains(err.Error(), "`cosign initialize`") || !strings.Contains(err.Error(), "`treerig teardown pin --file PATH --sha256 HEX --release LABEL`") ||
 		strings.Contains(err.Error(), "Do not trust") {
 		t.Fatalf("err = %v", err)
 	}
@@ -275,10 +275,10 @@ func TestTeardownPinSnapshot(t *testing.T) {
 			t.Fatalf("%s: archive_sha256 %q, checksums.txt lists %q", key, pin.Platforms[key].ArchiveSHA256, digests[key])
 		}
 	}
-	// The host's binary_sha256 is the hash of the berth GoReleaser built.
-	built, err := filepath.Glob(filepath.Join(dist, "berth_"+runtime.GOOS+"_"+runtime.GOARCH+"*", "berth"))
+	// The host's binary_sha256 is the hash of the treerig GoReleaser built.
+	built, err := filepath.Glob(filepath.Join(dist, "treerig_"+runtime.GOOS+"_"+runtime.GOARCH+"*", "treerig"))
 	if err != nil || len(built) != 1 {
-		t.Fatalf("the built berth for %s: %v, %v", platform, built, err)
+		t.Fatalf("the built treerig for %s: %v, %v", platform, built, err)
 	}
 	want, err := binstore.HashFile(built[0])
 	if err != nil {

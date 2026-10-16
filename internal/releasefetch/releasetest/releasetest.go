@@ -21,8 +21,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/teardown/teardowntest"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/teardown/teardowntest"
 )
 
 // Release is one release served by an httptest TLS server.
@@ -31,7 +31,7 @@ type Release struct {
 	Version string
 	// Server serves the release; Client trusts its certificate.
 	Server *httptest.Server
-	// Binaries are the berth bytes in each platform's archive.
+	// Binaries are the treerig bytes in each platform's archive.
 	Binaries map[string][]byte
 
 	mu sync.Mutex
@@ -64,12 +64,12 @@ func New(t testing.TB, version string) *Release {
 		redirects: map[string]string{},
 	}
 	for _, platform := range releasefetch.Platforms {
-		r.Binaries[platform] = teardowntest.Executable(platform, " berth "+version+" for "+platform)
+		r.Binaries[platform] = teardowntest.Executable(platform, " treerig "+version+" for "+platform)
 		r.files[releasefetch.ArchiveName(version, platform)] = Archive(
-			Entry{Name: "berth", Mode: 0o755, Body: r.Binaries[platform]},
+			Entry{Name: "treerig", Mode: 0o755, Body: r.Binaries[platform]},
 			Entry{Name: "LICENSE", Mode: 0o644, Body: []byte("license")},
 			Entry{Name: "completions/", Type: tar.TypeDir, Mode: 0o755},
-			Entry{Name: "completions/berth.bash", Mode: 0o644, Body: []byte("# completions")},
+			Entry{Name: "completions/treerig.bash", Mode: 0o644, Body: []byte("# completions")},
 		)
 	}
 	r.files["checksums.txt.sigstore.json"] = []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`)
@@ -138,8 +138,8 @@ func (r *Release) UpdateChecksums() {
 		lines = append(lines, Sum(r.files[name])+"  "+name)
 	}
 	lines = append(lines,
-		Sum([]byte("deb"))+"  berth_"+r.Version+"_amd64.deb",
-		Sum([]byte("source"))+"  berth-"+r.Version+".tar.gz",
+		Sum([]byte("deb"))+"  treerig_"+r.Version+"_amd64.deb",
+		Sum([]byte("source"))+"  treerig-"+r.Version+".tar.gz",
 	)
 	sort.Strings(lines)
 	r.files["checksums.txt"] = []byte(strings.Join(lines, "\n") + "\n")

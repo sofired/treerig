@@ -10,19 +10,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // bundleWorld is a registered worktree with running services and both bundle
@@ -88,7 +88,7 @@ func TestBackup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	t.Run("runs the backup hook with the new directory as its last argument and BERTH_STAGE=backup", func(t *testing.T) {
+	t.Run("runs the backup hook with the new directory as its last argument and TREERIG_STAGE=backup", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		dir := filepath.Join(bw.tc.Cwd, "out", "bundle")
 
@@ -106,7 +106,7 @@ func TestBackup(t *testing.T) {
 		if spec.Dir != bw.Root {
 			t.Errorf("Dir = %q, want the project root %q", spec.Dir, bw.Root)
 		}
-		for k, v := range map[string]string{"BERTH_STAGE": "backup", "BERTH_WORKTREE_ID": bw.ref.WorktreeID, "BERTH_ROOT": bw.Root} {
+		for k, v := range map[string]string{"TREERIG_STAGE": "backup", "TREERIG_WORKTREE_ID": bw.ref.WorktreeID, "TREERIG_ROOT": bw.Root} {
 			if !containsEnv(spec.Env, k, v) {
 				t.Errorf("want %s=%s in %v", k, v, spec.Env)
 			}
@@ -182,7 +182,7 @@ func TestBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 		for dir, want := range map[string]string{
-			full: full + " is not empty; give 'berth backup' a new or empty directory.",
+			full: full + " is not empty; give 'treerig backup' a new or empty directory.",
 			file: file + " is not a directory.",
 		} {
 			err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: dir})
@@ -199,7 +199,7 @@ func TestBackup(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		bw.tc.Loaded.Config.Hooks.Backup = nil
 		err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: filepath.Join(bw.tc.Cwd, "b")})
-		want := "No backup hook is configured: add backup under [hooks] in berth.toml."
+		want := "No backup hook is configured: add backup under [hooks] in treerig.toml."
 		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -213,7 +213,7 @@ func TestBackup(t *testing.T) {
 		tc := w.Context("", acme, nil)
 		tc.Loaded.Config.Hooks = config.Hooks{Backup: ns("./hooks/backup")}
 		err := commands.BackupWithContext(ctx, tc.CommandContext, commands.BackupOptions{Dir: "x"})
-		want := "This worktree is not registered. Run 'berth up' first."
+		want := "This worktree is not registered. Run 'treerig up' first."
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -223,7 +223,7 @@ func TestBackup(t *testing.T) {
 		bw := newBundleWorld(t)
 		dir := filepath.Join(bw.tc.Cwd, "b")
 		err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: dir})
-		want := "feature-login.acme.localhost has no running service, and the backup hook needs one. Run 'berth up' first."
+		want := "feature-login.acme.localhost has no running service, and the backup hook needs one. Run 'treerig up' first."
 		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -249,7 +249,7 @@ func TestBackup(t *testing.T) {
 			t.Fatalf("err = %v (code %d)", err, clierr.Code(err))
 		}
 		lines, _ := bw.tc.Logger.Snapshot()
-		want := "warn: " + dir + " may hold a partial backup, marked .incomplete; 'berth restore' refuses it. Delete it, or give the next backup another directory."
+		want := "warn: " + dir + " may hold a partial backup, marked .incomplete; 'treerig restore' refuses it. Delete it, or give the next backup another directory."
 		if !containsLine(lines, want) {
 			t.Errorf("logged %q, want %q", lines, want)
 		}
@@ -361,7 +361,7 @@ func TestBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 		lines, _ := bw.tc.Logger.Snapshot()
-		want := "info: That is inside the worktree's home, which 'berth worktree remove' deletes; give 'berth backup' a directory to keep a bundle longer."
+		want := "info: That is inside the worktree's home, which 'treerig worktree remove' deletes; give 'treerig backup' a directory to keep a bundle longer."
 		if !containsLine(lines, want) {
 			t.Errorf("logged %q, want %q", lines, want)
 		}
@@ -422,7 +422,7 @@ func TestBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 		err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: dir})
-		want := dir + " is not empty (it holds a .incomplete marker from an unfinished backup); give 'berth backup' a new or empty directory."
+		want := dir + " is not empty (it holds a .incomplete marker from an unfinished backup); give 'treerig backup' a new or empty directory."
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -450,7 +450,7 @@ func TestBackup(t *testing.T) {
 			return fallback(ctx, spec)
 		}
 		err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: filepath.Join(bw.tc.Cwd, "b")})
-		want := "Could not read the state of feature-login.acme.localhost's services; is the Docker daemon running? 'berth doctor' can explain"
+		want := "Could not read the state of feature-login.acme.localhost's services; is the Docker daemon running? 'treerig doctor' can explain"
 		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -459,7 +459,7 @@ func TestBackup(t *testing.T) {
 	t.Run("gives the hook the domain and ports as they are once the lock is won", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		holder := bw.operationLock()
-		if _, err := holder.Acquire(ctx, "berth up"); err != nil {
+		if _, err := holder.Acquire(ctx, "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		released := false
@@ -482,7 +482,7 @@ func TestBackup(t *testing.T) {
 			}
 			lines, _ := bw.tc.Logger.Snapshot()
 			for _, line := range lines {
-				if strings.Contains(line, "berth up") {
+				if strings.Contains(line, "treerig up") {
 					waiting = true
 				}
 			}
@@ -511,8 +511,8 @@ func TestBackup(t *testing.T) {
 		}
 		env := bw.started()[0].Env
 		for k, v := range map[string]string{
-			"BERTH_HOST": "feature-login.moved.localhost", "BERTH_SERVICE_PORT_API": "31234",
-			"BERTH_SERVICE_URL_API": "http://feature-login.moved.localhost",
+			"TREERIG_HOST": "feature-login.moved.localhost", "TREERIG_SERVICE_PORT_API": "31234",
+			"TREERIG_SERVICE_URL_API": "http://feature-login.moved.localhost",
 		} {
 			if !containsEnv(env, k, v) {
 				t.Errorf("want %s=%s in %v", k, v, env)
@@ -528,7 +528,7 @@ func TestBackup(t *testing.T) {
 		project := layout.ComposeProjectName(bw.ref.RepositoryID, bw.ref.WorktreeID)
 		env := bw.started()[0].Env
 		for k, v := range map[string]string{
-			"COMPOSE_PROJECT_NAME": project, "BERTH_COMPOSE_PROJECT": project,
+			"COMPOSE_PROJECT_NAME": project, "TREERIG_COMPOSE_PROJECT": project,
 			"COMPOSE_FILE": filepath.Join(bw.Root, "compose.yaml"),
 		} {
 			if !containsEnv(env, k, v) {
@@ -581,8 +581,8 @@ func TestBackup(t *testing.T) {
 		if err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: filepath.Join(bw.tc.Cwd, "b")}); err != nil {
 			t.Fatal(err)
 		}
-		if heldErr == nil || !strings.Contains(heldErr.Error(), `"berth backup"`) {
-			t.Errorf("a waiter is told %v, want it to name `berth backup`", heldErr)
+		if heldErr == nil || !strings.Contains(heldErr.Error(), `"treerig backup"`) {
+			t.Errorf("a waiter is told %v, want it to name `treerig backup`", heldErr)
 		}
 		lk := bw.operationLock()
 		if _, err := lk.Acquire(ctx, "probe"); err != nil {
@@ -625,7 +625,7 @@ func TestBackup(t *testing.T) {
 	t.Run("refuses, running nothing, when the worktree was removed while it waited for the lock", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		holder := bw.operationLock()
-		if _, err := holder.Acquire(ctx, "berth worktree remove"); err != nil {
+		if _, err := holder.Acquire(ctx, "treerig worktree remove"); err != nil {
 			t.Fatal(err)
 		}
 		released := false
@@ -648,13 +648,13 @@ func TestBackup(t *testing.T) {
 			}
 			lines, _ := bw.tc.Logger.Snapshot()
 			for _, line := range lines {
-				if strings.Contains(line, "berth worktree remove") {
+				if strings.Contains(line, "treerig worktree remove") {
 					waiting = true
 				}
 			}
 		}
 		if _, err := bw.tc.Registry.Store(bw.ref.RepositoryID).Remove(ctx, bw.ref.WorktreeID, bw.ref.Slug,
-			registry.Writer{Logger: logger.Silent{}, Invocation: "berth worktree remove", UserHome: bw.tc.UserHome}); err != nil {
+			registry.Writer{Logger: logger.Silent{}, Invocation: "treerig worktree remove", UserHome: bw.tc.UserHome}); err != nil {
 			t.Fatalf("remove: %v", err)
 		}
 		released = true
@@ -662,7 +662,7 @@ func TestBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 		err := <-done
-		want := "feature-login.acme.localhost was removed while 'berth backup' was waiting for its lock; run 'berth up' first."
+		want := "feature-login.acme.localhost was removed while 'treerig backup' was waiting for its lock; run 'treerig up' first."
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -676,7 +676,7 @@ func TestRestore(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	t.Run("runs the restore hook with the existing directory as its argument and BERTH_STAGE=restore", func(t *testing.T) {
+	t.Run("runs the restore hook with the existing directory as its argument and TREERIG_STAGE=restore", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		dir := filepath.Join(bw.tc.Cwd, "bundle")
 		if err := os.Mkdir(dir, 0o755); err != nil {
@@ -692,7 +692,7 @@ func TestRestore(t *testing.T) {
 		if len(specs) != 1 || !strings.HasSuffix(specs[0].Command, "/hooks/restore") || strings.Join(specs[0].Args, "|") != dir {
 			t.Fatalf("specs = %+v", specs)
 		}
-		if !containsEnv(specs[0].Env, "BERTH_STAGE", "restore") {
+		if !containsEnv(specs[0].Env, "TREERIG_STAGE", "restore") {
 			t.Errorf("env = %v", specs[0].Env)
 		}
 		lines, _ := bw.tc.Logger.Snapshot()
@@ -779,7 +779,7 @@ func TestRestore(t *testing.T) {
 	t.Run("refuses without a directory", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		err := commands.RestoreWithContext(ctx, bw.tc.CommandContext, commands.RestoreOptions{})
-		want := "Restore needs a bundle directory: berth restore <dir>."
+		want := "Restore needs a bundle directory: treerig restore <dir>."
 		if err == nil || err.Error() != want || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -789,7 +789,7 @@ func TestRestore(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		bw.tc.Loaded.Config.Hooks.Restore = nil
 		err := commands.RestoreWithContext(ctx, bw.tc.CommandContext, commands.RestoreOptions{Dir: bw.tc.Cwd})
-		want := "No restore hook is configured: add restore under [hooks] in berth.toml."
+		want := "No restore hook is configured: add restore under [hooks] in treerig.toml."
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -798,7 +798,7 @@ func TestRestore(t *testing.T) {
 	t.Run("refuses a worktree with no running service", func(t *testing.T) {
 		bw := newBundleWorld(t)
 		err := commands.RestoreWithContext(ctx, bw.tc.CommandContext, commands.RestoreOptions{Dir: bw.tc.Cwd})
-		want := "feature-login.acme.localhost has no running service, and the restore hook needs one. Run 'berth up' first."
+		want := "feature-login.acme.localhost has no running service, and the restore hook needs one. Run 'treerig up' first."
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)
 		}
@@ -815,8 +815,8 @@ func TestRestore(t *testing.T) {
 		if err == nil || err.Error() != "The restore hook failed (exit 4)." || clierr.Code(err) != 4 {
 			t.Fatalf("err = %v (code %d)", err, clierr.Code(err))
 		}
-		if heldErr == nil || !strings.Contains(heldErr.Error(), `"berth restore"`) {
-			t.Errorf("a waiter is told %v, want it to name `berth restore`", heldErr)
+		if heldErr == nil || !strings.Contains(heldErr.Error(), `"treerig restore"`) {
+			t.Errorf("a waiter is told %v, want it to name `treerig restore`", heldErr)
 		}
 	})
 }

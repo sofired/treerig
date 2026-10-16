@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // parseHooks parses minimalTOML plus tail, failing the test on an error, and

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/procid"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/procid"
 )
 
 // Scope identifies one lock target and how to describe it to a person, plus
@@ -27,7 +27,7 @@ type Scope struct {
 	// instead of the generic "wait for it, or stop it": for a lock whose
 	// holder is a long session that never finishes by itself, how to end
 	// that session. It applies only to a holder whose recorded command runs
-	// the verb EndHintWord (its second word, `berth dev`); any other holder
+	// the verb EndHintWord (its second word, `treerig dev`); any other holder
 	// of the same lock, a `worktree remove` that is merely running, or a
 	// verb behind a global flag, gets the generic advice. Left "" for every other scope.
 	EndHint     string

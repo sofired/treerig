@@ -1,0 +1,1 @@
+[treerig] ERROR: Refusing to use the control home FIXTURE/control: it is format 3, written by a newer treerig, and this build reads format 2. Upgrade treerig, then run this again.

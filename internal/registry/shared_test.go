@@ -11,10 +11,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // writeSharedRecord writes a fixture shared-service record by hand, in the
@@ -249,7 +249,7 @@ func TestSyncSharedPorts(t *testing.T) {
 		}
 		var written []string
 		if err := filepath.WalkDir(controlHome, func(path string, entry fs.DirEntry, err error) error {
-			if err == nil && !entry.IsDir() && filepath.Base(path) != ".berth-control-home" {
+			if err == nil && !entry.IsDir() && filepath.Base(path) != ".treerig-control-home" {
 				written = append(written, path)
 			}
 			return err

@@ -15,14 +15,14 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // defaultInventoryTimeout bounds one `docker ps` call: 30s, the same bound
@@ -83,7 +83,7 @@ type Options struct {
 	RouterPort int
 	// IndexFile is where the rendered page is written: the shared router's
 	// own layout.RouterState(...).IndexFile, never anything under a control
-	// home — the router's state is machine-wide, per berth root, not per
+	// home — the router's state is machine-wide, per treerig root, not per
 	// control home (see internal/layout's RouterStateDir comment).
 	// Resolving that path needs an Env's Getenv, which this package does
 	// not depend on, so the caller resolves it once and hands it over.

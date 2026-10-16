@@ -12,7 +12,7 @@ package brand_test
 import (
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/treerig/internal/brand"
 )
 
 func TestCLIName(t *testing.T) {
@@ -48,11 +48,11 @@ func TestCLIName(t *testing.T) {
 func TestSharedStorageNames(t *testing.T) {
 	t.Run("labels under the default namespace", func(t *testing.T) {
 		for name, got := range map[string]string{
-			"dev.berth.shared":             brand.SharedLabel(brand.LabelNamespace),
-			"dev.berth.shared-definition":  brand.SharedDefinitionLabel(brand.LabelNamespace),
-			"dev.berth.shared-defined-by":  brand.SharedDefinedByLabel(brand.LabelNamespace),
-			"dev.berth.shared-use.":        brand.SharedUseLabelPrefix(brand.LabelNamespace),
-			"dev.berth.shared-use.mailpit": brand.SharedUseLabel(brand.LabelNamespace, "mailpit"),
+			"dev.treerig.shared":             brand.SharedLabel(brand.LabelNamespace),
+			"dev.treerig.shared-definition":  brand.SharedDefinitionLabel(brand.LabelNamespace),
+			"dev.treerig.shared-defined-by":  brand.SharedDefinedByLabel(brand.LabelNamespace),
+			"dev.treerig.shared-use.":        brand.SharedUseLabelPrefix(brand.LabelNamespace),
+			"dev.treerig.shared-use.mailpit": brand.SharedUseLabel(brand.LabelNamespace, "mailpit"),
 		} {
 			if got != name {
 				t.Errorf("got %q, want %q", got, name)
@@ -82,18 +82,18 @@ func TestSharedStorageNames(t *testing.T) {
 	})
 
 	t.Run("the project prefix", func(t *testing.T) {
-		if brand.SharedProjectPrefix != "berth-shared-" {
+		if brand.SharedProjectPrefix != "treerig-shared-" {
 			t.Errorf("SharedProjectPrefix = %q", brand.SharedProjectPrefix)
 		}
 	})
 }
 
 // TestFormatLabel pins the label that carries a resource's state format
-// version (docs/design/state.md). Every resource berth creates has it, so
+// version (docs/design/state.md). Every resource treerig creates has it, so
 // changing the name is a migration, not a rename.
 func TestFormatLabel(t *testing.T) {
 	t.Run("the default namespace", func(t *testing.T) {
-		if got := brand.FormatLabel(brand.LabelNamespace); got != "dev.berth.format" {
+		if got := brand.FormatLabel(brand.LabelNamespace); got != "dev.treerig.format" {
 			t.Errorf("FormatLabel = %q", got)
 		}
 	})

@@ -3,8 +3,8 @@ package commandstest
 import (
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // TestUpLabelsLikeUp pins that the fake daemon stamps what a real `up` does:

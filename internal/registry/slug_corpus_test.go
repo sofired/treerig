@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/registry"
 )
 
 // TestBranchSlugMatchesJavaScript checks BranchSlug against

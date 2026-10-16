@@ -1,8 +1,8 @@
 package config
 
 import (
-	"github.com/sofired/berth/internal/shape"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/shape"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // StartIssues is the one rule the base loader (Parse, Load, LoadNearest)
@@ -44,7 +44,7 @@ func StartIssues(cfg Config) []shape.Issue {
 
 // CheckStart runs StartIssues against an already-loaded config and, if it
 // finds any, formats them exactly as a schema issue from Parse itself would
-// be: "<file> is not a valid berth.toml:" plus one indented line per issue —
+// be: "<file> is not a valid treerig.toml:" plus one indented line per issue —
 // the same message the old, schema-level Refine printed. A schema issue
 // itself already stops Load before StartIssues ever gets a chance to run
 // (Parse returns before decodeConfig produces a Config to check), so the

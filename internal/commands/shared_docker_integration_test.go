@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 const sharedWalkToml = `[project]
@@ -72,7 +72,7 @@ type sharedWalk struct {
 	router    *commandstest.FakeRouter
 }
 
-// newSharedWalk is a repository with berth.toml, both Compose files and a
+// newSharedWalk is a repository with treerig.toml, both Compose files and a
 // second worktree carrying the same files.
 func newSharedWalk(t *testing.T) *sharedWalk {
 	t.Helper()
@@ -81,7 +81,7 @@ func newSharedWalk(t *testing.T) *sharedWalk {
 	sw := &sharedWalk{walk: w, router: commandstest.NewFakeRouter(80)}
 	sw.second = filepath.Join(w.base, "checkout2")
 	gitIn(t, w.checkout, "worktree", "add", "-b", "feature/two", sw.second)
-	for _, name := range []string{"berth.toml", "compose.yaml", "compose.shared.yaml"} {
+	for _, name := range []string{"treerig.toml", "compose.yaml", "compose.shared.yaml"} {
 		data, err := os.ReadFile(filepath.Join(w.checkout, name))
 		if err != nil {
 			t.Fatal(err)
@@ -438,7 +438,7 @@ func TestUpWhileAttachedWhenComposeRecreatesTheNetwork(t *testing.T) {
 	// network around an attached container, up succeeds and this test accepts
 	// that too.
 	_, err := commands.UpWithContext(context.Background(), cctx, w.router, &commandstest.FakeIndex{}, commands.UpOptions{})
-	if err != nil && !strings.Contains(err.Error(), "Run 'berth down' and then 'berth up' again") {
+	if err != nil && !strings.Contains(err.Error(), "Run 'treerig down' and then 'treerig up' again") {
 		t.Fatalf("up: %v", err)
 	}
 	t.Logf("up with the network changed while the shared service is attached: %v", err)

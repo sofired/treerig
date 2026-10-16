@@ -12,16 +12,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/shared"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/shared"
 )
 
 // twoServices declares a second shared service, cache, beside mailpit, each
@@ -51,7 +51,7 @@ func (w *sharedWorld) volumesOf() []string {
 func confirming(phrase string, before func()) (*commands.Env, *bytes.Buffer) {
 	question := &bytes.Buffer{}
 	return &commands.Env{
-		CommandName: "berth", StdinIsTTY: true, Stderr: question,
+		CommandName: "treerig", StdinIsTTY: true, Stderr: question,
 		Stdin: &answerReader{answer: phrase + "\n", before: before},
 	}, question
 }
@@ -322,16 +322,16 @@ func TestSharedDownOnARepositoryNeverBroughtUp(t *testing.T) {
 	tc.Loaded.Config.Shared = &config.Shared{File: "compose.shared.yaml", Service: []config.SharedService{{Name: "mailpit", Port: &port, UsedBy: []string{"api"}}}}
 
 	t.Run("prints the empty line and succeeds, the namespace named", func(t *testing.T) {
-		if err := commands.SharedDownWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "berth"}, commands.SharedDownOptions{}); err != nil {
+		if err := commands.SharedDownWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "treerig"}, commands.SharedDownOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(strings.Join(tc.Logger.Lines, "\n"), "No shared services of this repository to stop (Docker label namespace dev.berth).") {
+		if !strings.Contains(strings.Join(tc.Logger.Lines, "\n"), "No shared services of this repository to stop (Docker label namespace dev.treerig).") {
 			t.Fatalf("lines = %v", tc.Logger.Lines)
 		}
 	})
 
 	t.Run("checks --label-namespace first, whatever the repository", func(t *testing.T) {
-		err := commands.SharedDownWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "berth"}, commands.SharedDownOptions{LabelNamespace: "nope"})
+		err := commands.SharedDownWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "treerig"}, commands.SharedDownOptions{LabelNamespace: "nope"})
 		if err == nil || !strings.Contains(err.Error(), "--label-namespace must look like a reverse domain") {
 			t.Fatalf("err = %v", err)
 		}
@@ -369,7 +369,7 @@ func TestSharedUpRepairsBeforeItRefusesADifferingDefinition(t *testing.T) {
 	err := w.sharedUp(second, commands.SharedUpOptions{})
 	if err == nil || !strings.Contains(err.Error(), "Not replacing a running shared service") ||
 		!strings.Contains(err.Error(), "mailpit is running with a different definition than this worktree's (started by feature-login.acme.localhost)") ||
-		!strings.Contains(err.Error(), "'berth shared up --recreate mailpit'") {
+		!strings.Contains(err.Error(), "'treerig shared up --recreate mailpit'") {
 		t.Fatalf("shared up: %v", err)
 	}
 	if got := w.Docker.Aliases(id, network); len(got) != 1 {
@@ -412,7 +412,7 @@ func TestPinnedPortHeldByAHostProcess(t *testing.T) {
 		ups := w.sharedUps(t, tc)
 
 		_, err := w.up(t, tc)
-		want := []string{"Cannot start shared service mailpit", "127.0.0.1:" + itoa(record.Ports[1025]), "container port 1025", "find it with:", "berth shared up --reallocate-port mailpit:1025"}
+		want := []string{"Cannot start shared service mailpit", "127.0.0.1:" + itoa(record.Ports[1025]), "container port 1025", "find it with:", "treerig shared up --reallocate-port mailpit:1025"}
 		for _, part := range want {
 			if err == nil || !strings.Contains(err.Error(), part) {
 				t.Fatalf("up: %v, want %q", err, part)
@@ -551,7 +551,7 @@ func TestStatusUsesTheServiceWordsAndSurvivesOneBadContainer(t *testing.T) {
 		}
 	})
 
-	t.Run("one container in a state berth does not know is an entry with state unknown, and the rest are reported", func(t *testing.T) {
+	t.Run("one container in a state treerig does not know is an entry with state unknown, and the rest are reported", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := twoServices(w, "")
 		w.mustUp(t, tc)
@@ -666,7 +666,7 @@ func TestTheSweepWarnsAndSaysWhatIsLeft(t *testing.T) {
 	markers := procid.Markers{Project: "x", WorktreeID: two.Registration.WorktreeID}
 	op, _ := lock.WorktreeScopes(w.ControlHome, two.Registration.RepositoryID, two.Registration.WorktreeID, two.Registration.Slug, markers)
 	holder := lock.New(op, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-	if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+	if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = holder.Release() })
@@ -683,7 +683,7 @@ func TestTheSweepWarnsAndSaysWhatIsLeft(t *testing.T) {
 	}
 	if len(warns) != 2 ||
 		!strings.Contains(warns[0], "Skipped feature-two.acme.localhost: it is busy.") ||
-		warns[1] != "warn: 1 worktree(s) were skipped and are not connected yet; run 'berth shared up' again when they are idle." {
+		warns[1] != "warn: 1 worktree(s) were skipped and are not connected yet; run 'treerig shared up' again when they are idle." {
 		t.Fatalf("warnings = %q", warns)
 	}
 }
@@ -714,7 +714,7 @@ func TestUnlockSharedHintKeepsTheFlag(t *testing.T) {
 	w := commandstest.New(t, "feature/login", acme)
 	tc := w.Context("", acme, nil)
 	_, err := commands.UnlockSharedWithContext(context.Background(), tc.CommandContext, commands.UnlockOptions{Shared: true})
-	if err == nil || !strings.Contains(err.Error(), "Name another with 'berth worktree unlock --shared <slug|uuid>'.") {
+	if err == nil || !strings.Contains(err.Error(), "Name another with 'treerig worktree unlock --shared <slug|uuid>'.") {
 		t.Fatalf("err = %v", err)
 	}
 	if _, err := commands.UnlockWithContext(context.Background(), tc.CommandContext, commands.UnlockOptions{}); err == nil || strings.Contains(err.Error(), "--shared") {
@@ -728,7 +728,7 @@ func TestDoctorSaysWhereToRunUnlockWhenNothingIsRegistered(t *testing.T) {
 	result := w.mustUp(t, tc)
 	scope := lock.SharedScope(w.ControlHome, result.Registration.RepositoryID)
 	lk := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-	if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+	if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 		t.Fatal(err)
 	}
 	if err := lk.Release(); err != nil {
@@ -766,7 +766,7 @@ func TestADoctorListingFailureIsAFailureLine(t *testing.T) {
 	// on the call count: the shared-labelled listing is the second one the
 	// doctor section makes (statuses first, the orphan scan second), so a new
 	// listing ahead of the orphan scan means changing the 2 below.
-	w.Docker.FailCallAfter("label=dev.berth.shared=true", 2, "Error response from daemon: i/o timeout", 1, -1)
+	w.Docker.FailCallAfter("label=dev.treerig.shared=true", 2, "Error response from daemon: i/o timeout", 1, -1)
 	checks, err := commands.SharedDoctorForTest(context.Background(), tc.CommandContext)
 	if err != nil {
 		t.Fatal(err)
@@ -782,13 +782,13 @@ func TestADoctorListingFailureIsAFailureLine(t *testing.T) {
 
 func TestConfigValidateCountsSharedServices(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "berth.toml")
+	file := filepath.Join(dir, "treerig.toml")
 	toml := "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"c.yaml\"\n[shared]\nfile = \"s.yaml\"\n[shared.service.mailpit]\n[shared.service.db]\n"
 	if err := os.WriteFile(file, []byte(toml), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	log := &logger.Recording{}
-	env := &commands.Env{CommandName: "berth", Logger: log, ConfigPath: file, Getenv: func(k string) (string, bool) {
+	env := &commands.Env{CommandName: "treerig", Logger: log, ConfigPath: file, Getenv: func(k string) (string, bool) {
 		if k == "HOME" {
 			return dir, true
 		}
@@ -841,7 +841,7 @@ func TestAPlainSharedDownWarnsAboutAnonymousVolumes(t *testing.T) {
 	}
 	out := lines(tc)
 	if !strings.Contains(out, "warn: cache's /scratch volume ("+anonymous+") is anonymous") || !strings.Contains(out, "will not be reattached") ||
-		!strings.Contains(out, "'berth shared down --volumes' deletes these now") {
+		!strings.Contains(out, "'treerig shared down --volumes' deletes these now") {
 		t.Fatalf("output:\n%s", out)
 	}
 	// A down that removes nothing anonymous says nothing of the kind.
@@ -859,7 +859,7 @@ func TestAPlainSharedDownWarnsAboutAnonymousVolumes(t *testing.T) {
 // fallbackAfterActiveEndpoints is the whole message `up` ends with when Compose
 // cannot recreate a network a shared container is attached to.
 const fallbackAfterActiveEndpoints = "Compose cannot recreate this worktree's network while a shared service is attached to it. " +
-	"Run 'berth down' and then 'berth up' again; the shared services keep running."
+	"Run 'treerig down' and then 'treerig up' again; the shared services keep running."
 
 func TestUpWhenComposeCannotRecreateAnAttachedNetwork(t *testing.T) {
 	t.Run("disconnects the shared service, runs compose up once and ends with the way out", func(t *testing.T) {
@@ -920,7 +920,7 @@ func TestUpWhenComposeCannotRecreateAnAttachedNetwork(t *testing.T) {
 		disconnects := w.Docker.Count("network disconnect")
 
 		_, err := w.up(t, tc)
-		if err == nil || !strings.Contains(err.Error(), "pull access denied for example/api") || strings.Contains(err.Error(), "berth down") {
+		if err == nil || !strings.Contains(err.Error(), "pull access denied for example/api") || strings.Contains(err.Error(), "treerig down") {
 			t.Fatalf("up: %v", err)
 		}
 		if w.Docker.Count("network disconnect") != disconnects {

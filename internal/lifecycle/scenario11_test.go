@@ -11,7 +11,7 @@ package lifecycle
 // before abandoning and exiting.
 //
 // The test binary re-executes itself as a helper, chosen by
-// BERTH_LIFECYCLE_HELPER_ROLE. Cleanup kills exact PIDs only.
+// TREERIG_LIFECYCLE_HELPER_ROLE. Cleanup kills exact PIDs only.
 
 import (
 	"bytes"
@@ -26,17 +26,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 const (
-	helperRoleEnv        = "BERTH_LIFECYCLE_HELPER_ROLE"
-	helperTargetEnv      = "BERTH_LIFECYCLE_HELPER_TARGET"
-	helperChildReadyEnv  = "BERTH_LIFECYCLE_HELPER_CHILD_READY"
+	helperRoleEnv        = "TREERIG_LIFECYCLE_HELPER_ROLE"
+	helperTargetEnv      = "TREERIG_LIFECYCLE_HELPER_TARGET"
+	helperChildReadyEnv  = "TREERIG_LIFECYCLE_HELPER_CHILD_READY"
 	forcedQuiesceMessage = "forced quiesce failure (test seam)"
 )
 
@@ -71,7 +71,7 @@ func (alwaysFailQuiescer) Quiesce(context.Context) error {
 }
 
 // runScenario11Helper runs this re-executed test binary as one of scenario
-// 11's helper roles, selected by BERTH_LIFECYCLE_HELPER_ROLE, and returns the
+// 11's helper roles, selected by TREERIG_LIFECYCLE_HELPER_ROLE, and returns the
 // process exit code. "not-quiescent" holds the lock through Hold with a
 // Quiescer that always fails and spawns the "child-hold-fd" role, which
 // writes a ready file, then parks holding the inherited lock descriptor open

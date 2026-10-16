@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // ReservedSlug is the slug no worktree is given: the hostnames of a

@@ -1,1 +1,1 @@
-[berth] ERROR: unknown flag: --var. Pass the command's own arguments after "--", as in: berth run plan -- --var
+[treerig] ERROR: unknown flag: --var. Pass the command's own arguments after "--", as in: treerig run plan -- --var

@@ -9,10 +9,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/stateformat"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/stateformat"
 )
 
 func TestControlHomeFormat(t *testing.T) {
@@ -93,7 +93,7 @@ func TestControlHomeFormat(t *testing.T) {
 			t.Fatal(err)
 		}
 		target := filepath.Join(t.TempDir(), "elsewhere")
-		if err := os.WriteFile(target, []byte("not berth's to touch"), 0o600); err != nil {
+		if err := os.WriteFile(target, []byte("not treerig's to touch"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		marker := filepath.Join(home, files.ControlHomeMarker)
@@ -106,7 +106,7 @@ func TestControlHomeFormat(t *testing.T) {
 			t.Fatalf("got %v", err)
 		}
 		data, readErr := os.ReadFile(target)
-		if readErr != nil || string(data) != "not berth's to touch" {
+		if readErr != nil || string(data) != "not treerig's to touch" {
 			t.Fatalf("target = %q, %v", data, readErr)
 		}
 		if info, lstatErr := os.Lstat(marker); lstatErr != nil || info.Mode()&os.ModeSymlink == 0 {
@@ -120,7 +120,7 @@ func TestControlHomeFormat(t *testing.T) {
 			t.Fatal(err)
 		}
 		target := filepath.Join(home, "sibling")
-		if err := os.WriteFile(target, []byte("also not berth's to touch"), 0o600); err != nil {
+		if err := os.WriteFile(target, []byte("also not treerig's to touch"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		marker := filepath.Join(home, files.ControlHomeMarker)
@@ -133,7 +133,7 @@ func TestControlHomeFormat(t *testing.T) {
 			t.Fatalf("got %v", err)
 		}
 		data, readErr := os.ReadFile(target)
-		if readErr != nil || string(data) != "also not berth's to touch" {
+		if readErr != nil || string(data) != "also not treerig's to touch" {
 			t.Fatalf("target = %q, %v", data, readErr)
 		}
 	})
@@ -228,7 +228,7 @@ func TestControlHomeFormatVersion(t *testing.T) {
 			err := files.SecureControlDirectories(layout.ControlLayout(home), t.TempDir())
 			found := strings.TrimSpace(strings.TrimPrefix(marker, "format "))
 			want := "Refusing to use the control home " + layout.ControlLayout(home).ControlHome + ": it is format " + found +
-				", written by a newer berth, and this build reads format 2. Upgrade berth, then run this again."
+				", written by a newer treerig, and this build reads format 2. Upgrade treerig, then run this again."
 			if err == nil || err.Error() != want {
 				t.Fatalf("marker %q: got %v\nwant %s", marker, err, want)
 			}
@@ -238,7 +238,7 @@ func TestControlHomeFormatVersion(t *testing.T) {
 		}
 	})
 
-	t.Run("treats a marker that is not exactly format and a number as foreign, not as a newer berth's", func(t *testing.T) {
+	t.Run("treats a marker that is not exactly format and a number as foreign, not as a newer treerig's", func(t *testing.T) {
 		for _, marker := range []string{"format 3", "format 03\n", "format 3\n\n", "format\n", "3\n", "Format 3\n", "format 3 \n", "garbage\n", "format 1\n", "format 0\n"} {
 			home := filepath.Join(t.TempDir(), "control")
 			if err := os.MkdirAll(home, 0o700); err != nil {
@@ -294,14 +294,14 @@ func TestAssertControlHomeFormat(t *testing.T) {
 
 	t.Run("refuses a newer marker with the upgrade instruction", func(t *testing.T) {
 		err := files.AssertControlHomeFormat(home(t, text("format 3\n")))
-		if err == nil || !strings.Contains(err.Error(), "it is format 3, written by a newer berth, and this build reads format 2. Upgrade berth") {
+		if err == nil || !strings.Contains(err.Error(), "it is format 3, written by a newer treerig, and this build reads format 2. Upgrade treerig") {
 			t.Fatalf("got %v", err)
 		}
 	})
 
 	t.Run("refuses a foreign marker", func(t *testing.T) {
 		err := files.AssertControlHomeFormat(home(t, text("hello\n")))
-		if err == nil || !strings.Contains(err.Error(), "is not berth's own format") {
+		if err == nil || !strings.Contains(err.Error(), "is not treerig's own format") {
 			t.Fatalf("got %v", err)
 		}
 	})

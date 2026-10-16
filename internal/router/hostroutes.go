@@ -11,7 +11,7 @@ package router
 // (ListFragments, RemoveWorktreeFragments, RemoveWorktreeFragmentsExcept,
 // which `up` and `down` run) never match a host route, and the sweeps here
 // never match a service's file. The target is the same
-// http://berth-loopback:<port> a service's file has, so a host route needs
+// http://treerig-loopback:<port> a service's file has, so a host route needs
 // nothing of the proxy's mode.
 
 import (
@@ -22,8 +22,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // hostFragmentPrefix starts the name of every host route file.

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/registry"
 )
 
 // (rendering and planIndexUpdate are in render_test.go.)
@@ -59,7 +59,7 @@ func testCard(record registry.RegisteredWorktree, project string, services ...ca
 		Host:           record.Slug + "." + record.Domain,
 		Root:           "/Users/dev/last-seen/" + record.Slug,
 		Branch:         "branch/" + record.Slug,
-		LabelNamespace: "dev.berth",
+		LabelNamespace: "dev.treerig",
 		Services:       services,
 		UpdatedAt:      "2026-09-21T10:00:00.000Z",
 	}

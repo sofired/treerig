@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // writeScript writes an executable file at path with contents, failing t on error.
@@ -118,7 +118,7 @@ func TestResolveHook(t *testing.T) {
 
 	t.Run("predicts 127 for a bare command on no PATH entry", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		command := "berth-definitely-missing-tool"
+		command := "treerig-definitely-missing-tool"
 		_, ok, err := hooks.ResolveHook(config.Hooks{Restore: &command}, config.Restore, "/root", []string{"PATH=" + dir})
 		if !ok {
 			t.Fatal("expected ok = true")

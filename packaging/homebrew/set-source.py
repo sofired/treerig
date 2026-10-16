@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Point a berth Homebrew formula at a release's source archive.
+"""Point a treerig Homebrew formula at a release's source archive.
 
 Usage: set-source.py <formula> <url> <sha256>
 
 Rewrites the first stable `url` and `sha256` lines of <formula> in place.
-The release workflow's tap job runs it on the tap's Formula/berth.rb, and
-packaging/verify-snapshot.sh runs it on packaging/homebrew/berth.rb to
+The release workflow's tap job runs it on the tap's Formula/treerig.rb, and
+packaging/verify-snapshot.sh runs it on packaging/homebrew/treerig.rb to
 produce the snapshot's formula, so both go through the same code.
 
 The values are literal replacements taken from argv: no sed delimiter

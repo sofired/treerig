@@ -33,7 +33,7 @@ import (
 // these scripts: they come straight from Git, entirely unconstrained, and
 // the index's sort key falls back to the branch before the slug. Collate
 // orders every comparison the checkout index makes, in both RenderIndexHTML
-// (the HTML page) and FormatIndexText (the `berth index` text output), since
+// (the HTML page) and FormatIndexText (the `treerig index` text output), since
 // both read the same sorted entries and call the same sections: row order
 // within a table (by project, then by branch or slug); the project names
 // domainHeading joins into a table's heading; and the tables themselves,
@@ -98,7 +98,7 @@ func loadCollationFixture(t *testing.T) collationFixture {
 // subset with Collate and requires the exact order Node's own
 // localeCompare('en') produced, up to the reordering of ties that reversal
 // itself introduces (see sortMismatches). A failure here means
-// x/text/collate cannot stand in for localeCompare on the strings berth
+// x/text/collate cannot stand in for localeCompare on the strings treerig
 // actually sorts, and the checkout-index renderer must not rely on Collate
 // until that is resolved.
 func TestCollateRealisticSortOrder(t *testing.T) {

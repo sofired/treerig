@@ -21,13 +21,13 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/semver"
-	"github.com/sofired/berth/internal/teardown"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/semver"
+	"github.com/sofired/treerig/internal/teardown"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // teardownPhrase is what `teardown pin` makes the user type.
@@ -60,7 +60,7 @@ type TeardownPinOptions struct {
 	// Source, Policy and DownloadTimeout are for tests, and internal/cli must
 	// never set them: the production values are the zero ones, and a place a
 	// release is downloaded from, or a way of verifying it, that a caller could
-	// choose would defeat the pin. Source says where releases are published (the berth
+	// choose would defeat the pin. Source says where releases are published (the treerig
 	// repository on GitHub), Policy builds the cosign policy for a release
 	// (keyless, with the release workflow's identity), and DownloadTimeout
 	// bounds the fetches and the cosign runs together (10 minutes).
@@ -103,12 +103,12 @@ func teardownControl(env *Env) (control layout.Control, userHome string, err err
 	return layout.ControlLayout(controlHome), userHome, nil
 }
 
-// teardownPlatform is this process's platform key, refused when berth builds
+// teardownPlatform is this process's platform key, refused when treerig builds
 // no teardown binary for it (the pin has four keys and no others).
 func teardownPlatform(env *Env, release string) (string, error) {
 	key := teardown.PlatformKey(env.OS, env.Arch)
 	if !slices.Contains(teardown.ReleasePlatforms, key) {
-		return "", clierr.Newf("Refusing to pin %s: %s is not a platform berth builds (linux and darwin, on amd64 and arm64).", release, text.Printable(key))
+		return "", clierr.Newf("Refusing to pin %s: %s is not a platform treerig builds (linux and darwin, on amd64 and arm64).", release, text.Printable(key))
 	}
 	return key, nil
 }
@@ -200,7 +200,7 @@ func TeardownPin(ctx context.Context, env *Env, options TeardownPinOptions) erro
 	// A digest that matches is the approval, but it must not make an empty
 	// file or a binary for another platform a pin that `status` calls intact.
 	if err := teardown.CheckExecutable(binary, platform); err != nil {
-		return clierr.Newf("Refusing to pin %s: %s is not a %s executable (%s). Nothing was pinned. Pin the berth binary built for this machine.", release, text.Printable(path), platform, err)
+		return clierr.Newf("Refusing to pin %s: %s is not a %s executable (%s). Nothing was pinned. Pin the treerig binary built for this machine.", release, text.Printable(path), platform, err)
 	}
 	return installPin(env, options, binary, release, platform, func(now time.Time) teardown.Pin {
 		return teardown.FilePin(path, release, platform, want, now)
@@ -260,8 +260,8 @@ func installPin(env *Env, options TeardownPinOptions, binary []byte, release, pl
 func readPinFile(path string) ([]byte, error) {
 	// O_NONBLOCK keeps a FIFO from hanging the open; the descriptor is then
 	// the only thing checked, so nothing can be swapped in after the check.
-	// Symlinks are followed: the path is the user's, and an installed berth is
-	// often one (a Homebrew bin/berth, say).
+	// Symlinks are followed: the path is the user's, and an installed treerig is
+	// often one (a Homebrew bin/treerig, say).
 	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, clierr.Newf("Could not read %s: %s.", text.Printable(path), reasonWithoutPath(err))

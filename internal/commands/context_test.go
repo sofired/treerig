@@ -5,21 +5,21 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 func TestContextWithoutConfig(t *testing.T) {
 	// contextFor builds an Env whose working directory is cwd, with a scratch
-	// berth home, and returns the checkout the context's registry answers for.
+	// treerig home, and returns the checkout the context's registry answers for.
 	contextFor := func(t *testing.T, cwd, configPath string) string {
 		t.Helper()
 		home := registrytest.TempDir(t)
 		getenv := func(key string) (string, bool) {
 			switch key {
-			case "BERTH_HOME":
-				return filepath.Join(home, "berth"), true
+			case "TREERIG_HOME":
+				return filepath.Join(home, "treerig"), true
 			case "HOME":
 				return filepath.Join(home, "user"), true
 			}
@@ -27,7 +27,7 @@ func TestContextWithoutConfig(t *testing.T) {
 		}
 		log := &logger.Recording{}
 		env := &commands.Env{
-			CommandName: "berth", Logger: log, Getenv: getenv,
+			CommandName: "treerig", Logger: log, Getenv: getenv,
 			Cwd: cwd, ConfigPath: configPath, Runner: noRunner{t},
 		}
 		cctx, err := commands.ContextWithoutConfig(env)
@@ -41,7 +41,7 @@ func TestContextWithoutConfig(t *testing.T) {
 	}
 	invalid := func(t *testing.T, dir string) string {
 		t.Helper()
-		file := filepath.Join(dir, "berth.toml")
+		file := filepath.Join(dir, "treerig.toml")
 		if err := os.WriteFile(file, []byte("not = [valid"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func TestContextWithoutConfig(t *testing.T) {
 
 	t.Run("an explicit config that does not exist names its own directory, not the working directory's repository", func(t *testing.T) {
 		other, mine := registrytest.TempDir(t), registrytest.TempDir(t)
-		if got := contextFor(t, mine, filepath.Join(other, "berth.toml")); got != other {
+		if got := contextFor(t, mine, filepath.Join(other, "treerig.toml")); got != other {
 			t.Fatalf("root = %s, want %s", got, other)
 		}
 	})

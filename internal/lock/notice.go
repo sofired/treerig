@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // formatDuration is 4s, 12m 30s, 2h 5m, 3d 4h — what a person at a terminal
@@ -161,7 +161,7 @@ func (e *BusyError) As(target any) bool {
 	return false
 }
 
-// isVerb reports whether command, a recorded invocation ("berth dev"), runs
+// isVerb reports whether command, a recorded invocation ("treerig dev"), runs
 // the verb word: its second field, after the program name. An argument that
 // merely equals the verb (a worktree named dev) does not count, nor does a
 // verb placed after a global flag, which gets the generic advice.

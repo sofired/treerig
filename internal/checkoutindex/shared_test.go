@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // sharedRecord is mailpit's record in the test repository: its web UI on
@@ -287,7 +287,7 @@ func TestServiceListsSharedServices(t *testing.T) {
 			t.Fatal(err)
 		}
 		format := docker.calls[0].Args[len(docker.calls[0].Args)-1]
-		if !strings.HasSuffix(format, `{{.Label "dev.berth.shared"}}`) || strings.Count(format, "\t") != 5 {
+		if !strings.HasSuffix(format, `{{.Label "dev.treerig.shared"}}`) || strings.Count(format, "\t") != 5 {
 			t.Errorf("format = %q", format)
 		}
 	})

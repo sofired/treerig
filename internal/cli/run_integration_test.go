@@ -23,8 +23,8 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run/ptytest"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run/ptytest"
 )
 
 // syncBuffer is a strings.Builder that can be read while a child process is
@@ -54,8 +54,8 @@ var runScripts = map[string]string{
 	// Prints its arguments on both streams; exits with its first, if any.
 	"emit": "echo \"out:$*\"\necho \"err:$*\" >&2\nexit \"${1:-0}\"\n",
 	// Says what the command was given.
-	"envdump": "echo \"command=$BERTH_COMMAND\"\necho \"stage=${BERTH_STAGE-unset}\"\necho \"worktree=$BERTH_WORKTREE_ID\"\n" +
-		"echo \"url=$BERTH_URL\"\necho \"api=$BERTH_SERVICE_URL_API\"\necho \"pwd=$(pwd)\"\necho \"argc=$#\"\n",
+	"envdump": "echo \"command=$TREERIG_COMMAND\"\necho \"stage=${TREERIG_STAGE-unset}\"\necho \"worktree=$TREERIG_WORKTREE_ID\"\n" +
+		"echo \"url=$TREERIG_URL\"\necho \"api=$TREERIG_SERVICE_URL_API\"\necho \"pwd=$(pwd)\"\necho \"argc=$#\"\n",
 	"killed": "kill -9 $$\n",
 	// Holds until released, with a grandchild in its group.
 	"hold": "trap 'echo INT > \"$STATE/got\"; exit 0' INT\ntrap 'echo TERM > \"$STATE/got\"; exit 0' TERM\ntrap 'echo HUP > \"$STATE/got\"; exit 0' HUP\n" +
@@ -64,14 +64,14 @@ var runScripts = map[string]string{
 	// Prompts, like `terraform apply` without -auto-approve.
 	"ask": "printf 'Approve? '\nread answer\necho \"got:$answer\"\n[ \"$answer\" = yes ]\n",
 	// A grandchild that ignores SIGINT (as a background job of a non-interactive
-	// shell does), so only berth's drain of the group can stop it. The leader
+	// shell does), so only treerig's drain of the group can stop it. The leader
 	// execs sleep rather than waiting in the shell: a SIGINT during `wait`
 	// makes macOS's /bin/sh (bash 3.2) exit 129 instead of dying by the
 	// signal, while an exec'd sleep dies by SIGINT under every shell.
 	"stubborn": "sleep 60 &\necho $! > \"$STATE/hung.pid\"\necho ready\nexec sleep 60\n",
 }
 
-// newRunFixture is a worktree that has been through `up`, with a berth.toml
+// newRunFixture is a worktree that has been through `up`, with a treerig.toml
 // that also declares the commands above.
 func newRunFixture(t *testing.T, binary string, register bool) upFixture {
 	t.Helper()
@@ -88,7 +88,7 @@ func newRunFixture(t *testing.T, binary string, register bool) upFixture {
 	if err := os.WriteFile(filepath.Join(f.checkout, "cmds", "notexec"), []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	toml, err := os.OpenFile(filepath.Join(f.checkout, "berth.toml"), os.O_APPEND|os.O_WRONLY, 0)
+	toml, err := os.OpenFile(filepath.Join(f.checkout, "treerig.toml"), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ kill-after = "2s"
 // worktreeID is the fixture worktree's UUID, from its identity markers.
 func (f upFixture) worktreeID(t *testing.T) string {
 	t.Helper()
-	return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "berth", "worktree-id"))
+	return registrytest.ReadIdentityMarker(t, filepath.Join(f.checkout, ".git", "treerig", "worktree-id"))
 }
 
 // lockHeld reports whether the lock file at path is flock-held by anyone.
@@ -181,7 +181,7 @@ func TestRunThroughTheBinary(t *testing.T) {
 		if stdout != "out:3\n" || code != 3 {
 			t.Fatalf("stdout = %q, code = %d", stdout, code)
 		}
-		if want := "err:3\n[berth] ERROR: The emit command failed (exit 3).\n"; stderr != want {
+		if want := "err:3\n[treerig] ERROR: The emit command failed (exit 3).\n"; stderr != want {
 			t.Fatalf("stderr = %q, want %q", stderr, want)
 		}
 	})
@@ -192,9 +192,9 @@ func TestRunThroughTheBinary(t *testing.T) {
 			code int
 			want string
 		}{
-			{"missing", 127, "[berth] ERROR: The missing command could not be started: `" + filepath.Join(f.checkout, "cmds", "missing") + "` does not exist"},
-			{"notexec", 126, "[berth] ERROR: The notexec command could not be started: `" + filepath.Join(f.checkout, "cmds", "notexec") + "` is not executable (EACCES)."},
-			{"killed", 137, "[berth] ERROR: The killed command was terminated by SIGKILL."},
+			{"missing", 127, "[treerig] ERROR: The missing command could not be started: `" + filepath.Join(f.checkout, "cmds", "missing") + "` does not exist"},
+			{"notexec", 126, "[treerig] ERROR: The notexec command could not be started: `" + filepath.Join(f.checkout, "cmds", "notexec") + "` is not executable (EACCES)."},
+			{"killed", 137, "[treerig] ERROR: The killed command was terminated by SIGKILL."},
 		} {
 			_, stderr, code := runFixture(t, f, binary, nil, "run", tc.name)
 			if code != tc.code || !strings.Contains(stderr, tc.want) {
@@ -203,8 +203,8 @@ func TestRunThroughTheBinary(t *testing.T) {
 		}
 	})
 
-	t.Run("gives the command the worktree's environment, BERTH_COMMAND, and no BERTH_STAGE even when it inherited one", func(t *testing.T) {
-		stdout, _, code := runFixture(t, f, binary, []string{"BERTH_STAGE=prepare", "BERTH_COMMAND=stale"}, "run", "envdump", "--", "a", "b")
+	t.Run("gives the command the worktree's environment, TREERIG_COMMAND, and no TREERIG_STAGE even when it inherited one", func(t *testing.T) {
+		stdout, _, code := runFixture(t, f, binary, []string{"TREERIG_STAGE=prepare", "TREERIG_COMMAND=stale"}, "run", "envdump", "--", "a", "b")
 		if code != 0 {
 			t.Fatalf("code = %d", code)
 		}
@@ -216,14 +216,14 @@ func TestRunThroughTheBinary(t *testing.T) {
 	})
 
 	t.Run("without a name, or with an unknown one, lists the configured commands on stderr and exits 1", func(t *testing.T) {
-		const defined = "berth.toml defines emit, envdump, missing, notexec, killed, ask, stubborn, hold, holdfree."
+		const defined = "treerig.toml defines emit, envdump, missing, notexec, killed, ask, stubborn, hold, holdfree."
 		for _, tc := range []struct {
 			args []string
 			want string
 		}{
-			{[]string{"run"}, "[berth] ERROR: No command given: " + defined + "\n"},
-			{[]string{"run", "nope"}, "[berth] ERROR: No command \"nope\": " + defined + "\n"},
-			{[]string{"run", "--", "emit"}, "[berth] ERROR: No command given: " + defined + "\n"},
+			{[]string{"run"}, "[treerig] ERROR: No command given: " + defined + "\n"},
+			{[]string{"run", "nope"}, "[treerig] ERROR: No command \"nope\": " + defined + "\n"},
+			{[]string{"run", "--", "emit"}, "[treerig] ERROR: No command given: " + defined + "\n"},
 		} {
 			stdout, stderr, code := runFixture(t, f, binary, nil, tc.args...)
 			if stdout != "" || stderr != tc.want || code != 1 {
@@ -241,7 +241,7 @@ func TestRunThroughTheBinary(t *testing.T) {
 
 	t.Run("refuses a locked command inside its own worktree's environment before taking the lock, and runs nothing", func(t *testing.T) {
 		started := time.Now()
-		stdout, stderr, code := runFixture(t, f, binary, []string{"BERTH_WORKTREE_ID=" + f.worktreeID(t)}, "run", "emit", "--", "3")
+		stdout, stderr, code := runFixture(t, f, binary, []string{"TREERIG_WORKTREE_ID=" + f.worktreeID(t)}, "run", "emit", "--", "3")
 		if stdout != "" || code != 1 || !strings.Contains(stderr, "runs inside feature-login.acme.localhost's own hooks or commands, which may hold its lock") {
 			t.Fatalf("stdout = %q, stderr = %q, code = %d", stdout, stderr, code)
 		}
@@ -251,7 +251,7 @@ func TestRunThroughTheBinary(t *testing.T) {
 	})
 
 	t.Run("runs from another worktree's environment", func(t *testing.T) {
-		_, _, code := runFixture(t, f, binary, []string{"BERTH_WORKTREE_ID=00000000-0000-4000-8000-000000000000"}, "run", "emit")
+		_, _, code := runFixture(t, f, binary, []string{"TREERIG_WORKTREE_ID=00000000-0000-4000-8000-000000000000"}, "run", "emit")
 		if code != 0 {
 			t.Fatalf("code = %d", code)
 		}
@@ -260,14 +260,14 @@ func TestRunThroughTheBinary(t *testing.T) {
 	t.Run("refuses a worktree that is not registered, running nothing", func(t *testing.T) {
 		fresh := newRunFixture(t, binary, false)
 		stdout, stderr, code := runFixture(t, fresh, binary, nil, "run", "emit")
-		if want := "[berth] ERROR: This worktree is not registered. Run 'berth up' first.\n"; stdout != "" || stderr != want || code != 1 {
+		if want := "[treerig] ERROR: This worktree is not registered. Run 'treerig up' first.\n"; stdout != "" || stderr != want || code != 1 {
 			t.Fatalf("stdout = %q, stderr = %q, code = %d", stdout, stderr, code)
 		}
 	})
 }
 
-// startHold starts `berth run <name>` for the fixture's hold script and
-// returns once the command is running, with the berth process and its
+// startHold starts `treerig run <name>` for the fixture's hold script and
+// returns once the command is running, with the treerig process and its
 // stderr as it goes. A cleanup registered on t releases the command and
 // reaps everything it left, whether or not the test got that far.
 func startHold(t *testing.T, f upFixture, binary, name string) (*exec.Cmd, *syncBuffer) {
@@ -282,7 +282,7 @@ func startHold(t *testing.T, f upFixture, binary, name string) (*exec.Cmd, *sync
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	// The command's grandchild outlives a berth killed here, holding its
+	// The command's grandchild outlives a treerig killed here, holding its
 	// stderr pipe open, so it goes first; Wait would otherwise sit out its
 	// whole sleep.
 	t.Cleanup(func() {
@@ -323,7 +323,7 @@ func TestRunLocking(t *testing.T) {
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		if !strings.Contains(stderr.String(), `The holder, "berth run hold" (PID `+strconv.Itoa(hold.Process.Pid)+" on ") {
+		if !strings.Contains(stderr.String(), `The holder, "treerig run hold" (PID `+strconv.Itoa(hold.Process.Pid)+" on ") {
 			t.Fatalf("`up` did not name the command holding the lock: %q", stderr.String())
 		}
 
@@ -362,7 +362,7 @@ func TestRunLocking(t *testing.T) {
 // same whether or not the command took the lock, and with no terminal.
 func TestRunInterrupted(t *testing.T) {
 	binary := buildBinary(t)
-	// So berth gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
+	// So treerig gets the default SIGINT, SIGTERM and SIGHUP action, even under nohup.
 	catchTerminationSignals(t)
 	for _, name := range []string{"hold", "holdfree"} {
 		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
@@ -398,10 +398,10 @@ func TestRunInterrupted(t *testing.T) {
 	}
 }
 
-// startBerthOnTerminal runs `berth run args…` in f's checkout under a real
+// startTreerigOnTerminal runs `treerig run args…` in f's checkout under a real
 // pty, as its session leader, so it is the terminal's foreground job and
 // hands the terminal to the command.
-func startBerthOnTerminal(t *testing.T, f upFixture, binary string, args ...string) (ptmx *os.File, pid int) {
+func startTreerigOnTerminal(t *testing.T, f upFixture, binary string, args ...string) (ptmx *os.File, pid int) {
 	t.Helper()
 	cmd := f.command(binary, args...)
 	ptmx, err := pty.Start(cmd)
@@ -431,7 +431,7 @@ func TestRunOnATerminal(t *testing.T) {
 			wantCode int
 		}{{"yes", 0}, {"no", 1}} {
 			f := newRunFixture(t, binary, true)
-			ptmx, pid := startBerthOnTerminal(t, f, binary, "run", "ask")
+			ptmx, pid := startTreerigOnTerminal(t, f, binary, "run", "ask")
 			ptytest.ReadUntil(t, ptmx, "Approve? ")
 			if !lockHeld(t, f.worktreeLock(t)) {
 				t.Fatal("the worktree lock is free while the command prompts")
@@ -456,7 +456,7 @@ func TestRunOnATerminal(t *testing.T) {
 
 	t.Run("Ctrl-C reaches the command and what it started, and once they are gone the worktree is unlocked", func(t *testing.T) {
 		f := newRunFixture(t, binary, true)
-		ptmx, pid := startBerthOnTerminal(t, f, binary, "run", "stubborn")
+		ptmx, pid := startTreerigOnTerminal(t, f, binary, "run", "stubborn")
 		ptytest.ReadUntil(t, ptmx, "ready")
 		hung, _ := strconv.Atoi(waitForFile(t, filepath.Join(f.state, "hung.pid")))
 		ptytest.WaitForegroundHandoff(t, ptmx, pid)
@@ -465,13 +465,13 @@ func TestRunOnATerminal(t *testing.T) {
 		}
 
 		status := ptytest.SendTerminalSignal(t, ptmx, pid, 0x03) // Ctrl-C
-		// The terminal signalled the command's group, not berth, so berth
+		// The terminal signalled the command's group, not treerig, so treerig
 		// reports how the command ended and exits with 128 plus SIGINT.
 		if !status.Exited() || status.ExitStatus() != 128+int(syscall.SIGINT) {
-			// What berth printed names the cause: "terminated by SIGHUP" is
-			// the command ending that way, anything else with 129 is berth
+			// What treerig printed names the cause: "terminated by SIGHUP" is
+			// the command ending that way, anything else with 129 is treerig
 			// itself having been hung up.
-			t.Fatalf("status = %+v, want exit %d\nberth printed: %q", status, 128+int(syscall.SIGINT), ptytest.Transcript(ptmx))
+			t.Fatalf("status = %+v, want exit %d\ntreerig printed: %q", status, 128+int(syscall.SIGINT), ptytest.Transcript(ptmx))
 		}
 		ptytest.ReadUntil(t, ptmx, "The stubborn command was terminated by SIGINT.")
 		if alive(hung) {

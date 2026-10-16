@@ -5,8 +5,8 @@ package osrun
 // Real terminals, real job control: these tests run an interactive child
 // under a real pty, exactly as issue #104 asks. Since fd 0's terminal-ness
 // and foreground group are properties of *this process*, not something a
-// mock can stand in for, the "berth" side of each scenario is this same
-// test binary, re-executed under BERTH_PTY_HELPER=1 (a package-scoped
+// mock can stand in for, the "treerig" side of each scenario is this same
+// test binary, re-executed under TREERIG_PTY_HELPER=1 (a package-scoped
 // TestMain, the same pattern os/exec's own tests use for a helper process)
 // so it runs with the pty as its own real fd 0 and reports what
 // osrun.New().Run() did to a result file, since the pty's own stream is
@@ -30,22 +30,22 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/ptytest"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/ptytest"
 )
 
-// argSep joins BERTH_PTY_ARGS entries: a unit separator, so an argument
+// argSep joins TREERIG_PTY_ARGS entries: a unit separator, so an argument
 // containing a space or comma still round-trips exactly.
 const argSep = "\x1f"
 
-// TestMain lets this test binary also serve as the "berth" stand-in these
-// tests run under a pty: with BERTH_PTY_HELPER=1 it runs one
+// TestMain lets this test binary also serve as the "treerig" stand-in these
+// tests run under a pty: with TREERIG_PTY_HELPER=1 it runs one
 // osrun.New().Run(Output: Interactive) call and exits, never entering the
 // normal test machinery.
 func TestMain(m *testing.M) {
-	if os.Getenv("BERTH_PTY_HELPER") == "1" {
+	if os.Getenv("TREERIG_PTY_HELPER") == "1" {
 		os.Exit(ptyHelperMain())
 	}
 	os.Exit(m.Run())
@@ -66,10 +66,10 @@ type ptyResult struct {
 	Err        string `json:"err"`
 }
 
-// ptyHelperMain is the whole of the "berth" stand-in: a real Lifecycle,
+// ptyHelperMain is the whole of the "treerig" stand-in: a real Lifecycle,
 // wired the way #104 asks — its Repeated() channel carried on the context
 // via run.WithRepeated, never through a second signal.Notify — running one
-// interactive child, reporting the result to BERTH_PTY_RESULT, and finally
+// interactive child, reporting the result to TREERIG_PTY_RESULT, and finally
 // routing through Lifecycle.Finish exactly as internal/cli's runMain does:
 // a richer error (an abandoned or timed-out process-group drain) printed
 // to this process's own stderr — the pty, same as everything else here —
@@ -77,11 +77,11 @@ type ptyResult struct {
 // the signal that caused it, same as the real CLI.
 func ptyHelperMain() int {
 	var args []string
-	if raw := os.Getenv("BERTH_PTY_ARGS"); raw != "" {
+	if raw := os.Getenv("TREERIG_PTY_ARGS"); raw != "" {
 		args = strings.Split(raw, argSep)
 	}
 	var killAfter time.Duration
-	if raw := os.Getenv("BERTH_PTY_KILLAFTER"); raw != "" {
+	if raw := os.Getenv("TREERIG_PTY_KILLAFTER"); raw != "" {
 		killAfter, _ = time.ParseDuration(raw)
 	}
 
@@ -91,11 +91,11 @@ func ptyHelperMain() int {
 
 	result, runErr := New().Run(ctx, run.Spec{
 		// AllowFailure: an interactive session's own exit code or death by
-		// signal is not berth's failure to report — Failure's "Command
+		// signal is not treerig's failure to report — Failure's "Command
 		// failed (…)" wrapping is for a command whose success or failure
-		// berth itself judges, and every test below reads the child's own
+		// treerig itself judges, and every test below reads the child's own
 		// outcome from Result, not from runErr.
-		Command: os.Getenv("BERTH_PTY_CMD"), Args: args, Output: run.Interactive, KillAfter: killAfter,
+		Command: os.Getenv("TREERIG_PTY_CMD"), Args: args, Output: run.Interactive, KillAfter: killAfter,
 		AllowFailure: true,
 	})
 
@@ -108,31 +108,31 @@ func ptyHelperMain() int {
 	if err != nil {
 		return 1
 	}
-	if err := os.WriteFile(os.Getenv("BERTH_PTY_RESULT"), data, 0o600); err != nil {
+	if err := os.WriteFile(os.Getenv("TREERIG_PTY_RESULT"), data, 0o600); err != nil {
 		return 1
 	}
 
 	return lc.Finish(runErr, func(e error) { fmt.Fprintln(os.Stderr, e.Error()) })
 }
 
-// helperEnv is the environment one BERTH_PTY_HELPER=1 run of this same
+// helperEnv is the environment one TREERIG_PTY_HELPER=1 run of this same
 // binary needs: which command to run interactively, and where to leave its
 // result.
 func helperEnv(resultPath, command string, args []string, killAfter time.Duration) []string {
 	env := append(os.Environ(),
-		"BERTH_PTY_HELPER=1",
-		"BERTH_PTY_RESULT="+resultPath,
-		"BERTH_PTY_CMD="+command,
-		"BERTH_PTY_ARGS="+strings.Join(args, argSep),
+		"TREERIG_PTY_HELPER=1",
+		"TREERIG_PTY_RESULT="+resultPath,
+		"TREERIG_PTY_CMD="+command,
+		"TREERIG_PTY_ARGS="+strings.Join(args, argSep),
 	)
 	if killAfter > 0 {
-		env = append(env, "BERTH_PTY_KILLAFTER="+killAfter.String())
+		env = append(env, "TREERIG_PTY_KILLAFTER="+killAfter.String())
 	}
 	return env
 }
 
 // startPTYHelper launches this test binary, in helper mode, under a fresh
-// pty — the "berth" stand-in for one command run interactively — and
+// pty — the "treerig" stand-in for one command run interactively — and
 // returns the pty's master end, the helper's PID (which, since pty.Start
 // makes it a session and process-group leader of its own, is also its own
 // pgid), and the path its result will land in.
@@ -149,7 +149,7 @@ func startPTYHelper(t *testing.T, command string, args []string, killAfter time.
 	}
 	helperPid = cmd.Process.Pid
 	t.Cleanup(func() { _ = ptmx.Close() })
-	// A helper this test leaves running (a failed assertion, or a berth bug
+	// A helper this test leaves running (a failed assertion, or a treerig bug
 	// that never returns) must not outlive the test: its own process group,
 	// since anything it started as an interactive child leads a group of
 	// its own, distinct from the helper's.
@@ -182,11 +182,11 @@ func TestInteractivePTYCtrlC(t *testing.T) {
 	if report.Signal != int(syscall.SIGINT) {
 		t.Fatalf("child's reported signal = %d, want SIGINT (%d): %+v", report.Signal, syscall.SIGINT, report)
 	}
-	// The shell gets the terminal back: berth's own group — its own pid,
+	// The shell gets the terminal back: treerig's own group — its own pid,
 	// since pty.Start made it lead both its session and its process group —
 	// is fd 0's foreground group again, not left with the now-dead child's.
 	if report.Foreground != helperPid {
-		t.Fatalf("terminal foreground group = %d, want berth's own %d back: %+v", report.Foreground, helperPid, report)
+		t.Fatalf("terminal foreground group = %d, want treerig's own %d back: %+v", report.Foreground, helperPid, report)
 	}
 }
 
@@ -214,11 +214,11 @@ func TestInteractivePTYCtrlZThenFgResumes(t *testing.T) {
 	ptytest.WaitForegroundHandoff(t, ptmx, helperPid)
 
 	status := ptytest.SendTerminalSignal(t, ptmx, helperPid, 0x1a) // Ctrl-Z
-	if !waitStopped(status) {                                      // berth stops itself with SIGSTOP, which Stopped misses on macOS
+	if !waitStopped(status) {                                      // treerig stops itself with SIGSTOP, which Stopped misses on macOS
 		t.Fatalf("helper did not stop when its child did: %+v", status)
 	}
 
-	// The terminal is already berth's own group's again: runForegroundChild
+	// The terminal is already treerig's own group's again: runForegroundChild
 	// reclaims it (setForeground) before stopSelf. This test process is not
 	// itself in the pty's session (it only holds the master end), so unlike
 	// a real outer shell it cannot call tcsetpgrp on this terminal at all —
@@ -298,7 +298,7 @@ func TestInteractivePTYGrandchildIgnoringSIGTERMIsKilledAfterTheTimer(t *testing
 // A lingering grandchild that ignores SIGTERM keeps drainGroup's wait open
 // well past killAfter (a minute away) and Quiesce's own 15 s budget, so two
 // real signals sent to the helper's own pid — not through the pty, the way
-// something outside berth's own terminal session would signal it — land
+// something outside treerig's own terminal session would signal it — land
 // during the drain and abandon it: SIGINT then SIGTERM, distinct signal
 // numbers, since two of the same in quick succession are not guaranteed to
 // arrive as two separate deliveries at all (POSIX signals of one number
@@ -307,7 +307,7 @@ func TestInteractivePTYAbandonedDrainReportsAndExits1(t *testing.T) {
 	dir := t.TempDir()
 	grandchild := filepath.Join(dir, "grandchild")
 	// Records the first SIGTERM it receives and carries on regardless. Under
-	// berth that SIGTERM can only be drainGroup's own opening signal (nothing
+	// treerig that SIGTERM can only be drainGroup's own opening signal (nothing
 	// has signalled the helper yet), so the marker is proof the leader has
 	// been reaped, the helper has left runForegroundChild, and drainGroup is
 	// polling a group that will not clear. The
@@ -553,7 +553,7 @@ func TestInteractiveNonTerminalSecondSignalKillsTheLeader(t *testing.T) {
 }
 
 // A stop reported once the run is cancelled is shutdown, not job control: the
-// child's own SIGTERM handler stops it (as a wrapper script might), and berth
+// child's own SIGTERM handler stops it (as a wrapper script might), and treerig
 // resumes its group rather than stopping itself, which would leave it and
 // its lock stuck until someone typed fg.
 func TestInteractivePTYStopAfterCancelIsResumedNotObeyed(t *testing.T) {

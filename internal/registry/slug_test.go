@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/registry"
+	"github.com/sofired/treerig/internal/registry"
 )
 
 const (

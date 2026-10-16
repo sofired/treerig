@@ -1,11 +1,11 @@
 stop this worktree's services; data is kept
 
 Usage:
-  berth down [flags]
+  treerig down [flags]
 
 Flags:
   -h, --help   help for down
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

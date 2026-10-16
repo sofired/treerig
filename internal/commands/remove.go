@@ -10,16 +10,16 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sofired/berth/internal/backend"
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // The destructive verb. Order matters for crash safety: Docker resources go
@@ -104,7 +104,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	// The shared stack is labelled under its own repository's namespace: the
 	// running command's for a worktree of this repository, whose checkout
 	// this is, and the target's recorded one for a worktree of another, which
-	// this checkout's berth.toml says nothing about.
+	// this checkout's treerig.toml says nothing about.
 	stackNamespace := namespace
 	if local {
 		stackNamespace = cctx.stackNamespace()
@@ -161,7 +161,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		// Unroutes before this worktree's own resources are reaped — see
 		// unrouteWorktree's own comment. Runs regardless of which resource
 		// kinds current (below) turns out to hold, and works even for a
-		// target this process has no berth.toml for at all.
+		// target this process has no treerig.toml for at all.
 		if err := unrouteWorktree(cctx, ref); err != nil {
 			return err
 		}

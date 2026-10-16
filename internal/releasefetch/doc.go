@@ -1,4 +1,4 @@
-// Package releasefetch is what `berth teardown pin --release` and `--latest`
+// Package releasefetch is what `treerig teardown pin --release` and `--latest`
 // need to turn a published release into bytes worth pinning (#85,
 // docs/design/teardown.md): a bounded HTTPS fetcher, the release's URLs,
 // checksums.txt parsing, the cosign policy and its runner, and archive

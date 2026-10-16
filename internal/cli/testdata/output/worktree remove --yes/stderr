@@ -1,4 +1,4 @@
-[berth] Stopping feature-login.acme.localhost.
-[berth] Removing feature-login.acme.localhost.
-[berth] Removed volume v1.
-[berth] Removed feature-login.acme.localhost: 1 container, 1 volume, home directory, registration, identity marker.
+[treerig] Stopping feature-login.acme.localhost.
+[treerig] Removing feature-login.acme.localhost.
+[treerig] Removed volume v1.
+[treerig] Removed feature-login.acme.localhost: 1 container, 1 volume, home directory, registration, identity marker.

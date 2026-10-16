@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/text"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // StatusReport is `status --json`'s document. Registered is false, with no
@@ -16,7 +16,7 @@ type StatusReport struct {
 	Registered bool            `json:"registered"`
 	Host       *string         `json:"host,omitempty"`
 	Services   []StatusService `json:"services"`
-	// Shared is the declared shared services; present only when berth.toml
+	// Shared is the declared shared services; present only when treerig.toml
 	// declares some.
 	Shared []SharedStatusEntry `json:"shared,omitempty"`
 }

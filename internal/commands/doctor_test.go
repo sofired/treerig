@@ -12,28 +12,28 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // doctorGetenv isolates HOME (so router state resolves under a throwaway
-// directory rather than this machine's real one) and BERTH_CONTROL_HOME (so
-// the control home is w's, set directly rather than derived from BERTH_HOME,
+// directory rather than this machine's real one) and TREERIG_CONTROL_HOME (so
+// the control home is w's, set directly rather than derived from TREERIG_HOME,
 // per #80).
 func doctorGetenv(home, controlHome string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		switch key {
 		case "HOME":
 			return home, true
-		case "BERTH_CONTROL_HOME":
+		case "TREERIG_CONTROL_HOME":
 			return controlHome, true
 		}
 		return "", false
@@ -81,7 +81,7 @@ func withDoctorDocker(w *commandstest.World, engineVersion, composeVersion strin
 	w.Runner.Executables["docker"] = true
 }
 
-// writeCheckoutConfig writes a minimal real berth.toml to root — doctor
+// writeCheckoutConfig writes a minimal real treerig.toml to root — doctor
 // reads the checkout's config straight from disk (findConfigFile/config.Load),
 // unlike every other command's tests, which build a commandstest.World's
 // config.Loaded by hand and never touch the file findConfigFile would find.
@@ -106,7 +106,7 @@ func doctorEnv(t *testing.T, w *commandstest.World, cwd string) *commands.Env {
 	t.Helper()
 	home := registrytest.TempDir(t)
 	return &commands.Env{
-		CommandName: "berth", Invocation: "berth doctor", Logger: &logger.Recording{},
+		CommandName: "treerig", Invocation: "treerig doctor", Logger: &logger.Recording{},
 		Getenv: doctorGetenv(home, w.ControlHome), Runner: w.Runner, Cwd: cwd, OS: "linux",
 	}
 }
@@ -215,7 +215,7 @@ func TestDoctor(t *testing.T) {
 		env := doctorEnv(t, w, outside)
 
 		_, report, _ := runDoctor(t, env)
-		want := "none in " + outside + " or above; run 'berth doctor' in a checkout to check it and its verify hook"
+		want := "none in " + outside + " or above; run 'treerig doctor' in a checkout to check it and its verify hook"
 		if !strings.Contains(report, want) {
 			t.Fatalf("report = %s, want to contain %q", report, want)
 		}
@@ -269,8 +269,8 @@ func TestDoctorInACheckout(t *testing.T) {
 		env := doctorEnv(t, w, w.Root)
 
 		_, report, _ := runDoctor(t, env)
-		wantLine(t, report, "skip", "this worktree", "not registered; 'berth up' registers it")
-		wantLine(t, report, "skip", "verify hook", "needs a registered worktree; run 'berth up' first")
+		wantLine(t, report, "skip", "this worktree", "not registered; 'treerig up' registers it")
+		wantLine(t, report, "skip", "verify hook", "needs a registered worktree; run 'treerig up' first")
 	})
 
 	t.Run("says so when no verify hook is configured", func(t *testing.T) {
@@ -296,7 +296,7 @@ func TestDoctorInACheckout(t *testing.T) {
 
 		_, report, _ := runDoctor(t, env)
 		wantLine(t, report, "warn", "feature-gone.acme.localhost",
-			"registered, but Git no longer lists its checkout. Remove what it left with 'berth worktree remove "+ref.WorktreeID+"'.")
+			"registered, but Git no longer lists its checkout. Remove what it left with 'treerig worktree remove "+ref.WorktreeID+"'.")
 	})
 
 	t.Run("runs the verify hook with its output on stderr, and passes when it exits 0", func(t *testing.T) {
@@ -373,24 +373,24 @@ func TestDoctorInACheckout(t *testing.T) {
 		}
 	})
 
-	t.Run("gives the verify hook no BERTH_URL or BERTH_SERVICE_URL_ variable when the router port cannot be resolved (#28)", func(t *testing.T) {
+	t.Run("gives the verify hook no TREERIG_URL or TREERIG_SERVICE_URL_ variable when the router port cannot be resolved (#28)", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
 		writeCheckoutConfig(t, w.Root, acme, "echo verify")
 		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		env := doctorEnv(t, w, w.Root)
 		// Overrides doctorEnv's own Getenv with a malformed
-		// BERTH_ROUTER_PORT, everything else (HOME, BERTH_CONTROL_HOME) unchanged.
+		// TREERIG_ROUTER_PORT, everything else (HOME, TREERIG_CONTROL_HOME) unchanged.
 		base := env.Getenv
 		env.Getenv = func(key string) (string, bool) {
-			if key == "BERTH_ROUTER_PORT" {
+			if key == "TREERIG_ROUTER_PORT" {
 				return "not-a-port", true
 			}
 			return base(key)
 		}
 
 		_, report, _ := runDoctor(t, env)
-		wantLine(t, report, "fail", "router", `BERTH_ROUTER_PORT must be a port number between 1 and 65535, not "not-a-port".`)
+		wantLine(t, report, "fail", "router", `TREERIG_ROUTER_PORT must be a port number between 1 and 65535, not "not-a-port".`)
 		wantLine(t, report, "ok", "verify hook", "echo verify exited 0")
 
 		var hookCall *run.Spec
@@ -405,7 +405,7 @@ func TestDoctorInACheckout(t *testing.T) {
 		}
 		for _, entry := range hookCall.Env {
 			name := strings.SplitN(entry, "=", 2)[0]
-			if name == "BERTH_URL" || strings.HasPrefix(name, "BERTH_SERVICE_URL_") {
+			if name == "TREERIG_URL" || strings.HasPrefix(name, "TREERIG_SERVICE_URL_") {
 				t.Fatalf("unexpected %s in verify hook env %v", name, hookCall.Env)
 			}
 		}
@@ -429,7 +429,7 @@ func TestDoctorLocks(t *testing.T) {
 		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		operation, _ := lock.WorktreeScopes(w.ControlHome, ref.RepositoryID, ref.WorktreeID, "feature-login", procid.Markers{})
 		holder := lock.New(operation, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := holder.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := holder.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		defer holder.Release()
@@ -463,7 +463,7 @@ func TestDoctorLocks(t *testing.T) {
 		withDoctorDocker(w, "24.0.0", "2.24.0")
 		registryScope := lock.RegistryScope(w.ControlHome)
 		lk := lock.New(registryScope, lock.Options{Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := lk.Acquire(context.Background(), "berth up"); err != nil {
+		if _, err := lk.Acquire(context.Background(), "treerig up"); err != nil {
 			t.Fatal(err)
 		}
 		if err := lk.Release(); err != nil {

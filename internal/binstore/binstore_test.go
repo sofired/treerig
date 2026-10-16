@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 )
 
 // TestInstall covers content-addressing: same bytes install once and share
@@ -21,7 +21,7 @@ import (
 func TestInstall(t *testing.T) {
 	t.Run("installs content under its own hash", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		path, err := binstore.Install(dir, []byte("a berth build"), 0o700, time.Now())
+		path, err := binstore.Install(dir, []byte("a treerig build"), 0o700, time.Now())
 		if err != nil {
 			t.Fatalf("Install: %v", err)
 		}
@@ -32,7 +32,7 @@ func TestInstall(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadFile: %v", err)
 		}
-		if string(got) != "a berth build" {
+		if string(got) != "a treerig build" {
 			t.Fatalf("content = %q", got)
 		}
 		info, err := os.Stat(path)
@@ -81,12 +81,12 @@ func TestInstall(t *testing.T) {
 			mode    os.FileMode
 		}{
 			{"different bytes", "something else entirely", 0o700},
-			{"same length, different bytes", "a berth bui1d", 0o700},
-			{"right bytes, wrong permissions", "a berth build", 0o600},
+			{"same length, different bytes", "a treerig bui1d", 0o700},
+			{"right bytes, wrong permissions", "a treerig build", 0o600},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				dir := registrytest.TempDir(t)
-				want := []byte("a berth build")
+				want := []byte("a treerig build")
 				target := binstore.Path(dir, binstore.Hash(want))
 				if err := os.WriteFile(target, []byte(tc.content), tc.mode); err != nil {
 					t.Fatal(err)

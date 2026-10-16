@@ -3,9 +3,9 @@ package registry
 import (
 	"context"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // Migrate moves what is derived from a worktree's slug (route files, the

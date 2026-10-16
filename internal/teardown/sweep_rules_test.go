@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/teardown"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/teardown"
 )
 
 func TestSweepRules(t *testing.T) {

@@ -15,8 +15,8 @@ import (
 func sharedUseCompose() *Compose {
 	return NewCompose(Options{
 		ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-		ConfigFile: "/work/acme/berth.toml", ProjectName: "acme",
-		ControlHome: "/control", Domain: "acme.localhost", LabelNamespace: "dev.berth",
+		ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme",
+		ControlHome: "/control", Domain: "acme.localhost", LabelNamespace: "dev.treerig",
 		SharedUse: map[string][]string{"web": {"objects", "mailpit"}, "worker": {"mailpit"}},
 	})
 }
@@ -57,16 +57,16 @@ func TestOverrideStampsSharedUse(t *testing.T) {
 
 	t.Run("labels each using service with a shared-use label per shared service, besides its ownership", func(t *testing.T) {
 		web := labelsOf(t, document, "web")
-		for _, name := range []string{"dev.berth.managed", "dev.berth.repository-uuid", "dev.berth.worktree-uuid", "dev.berth.format", "dev.berth.shared-use.mailpit", "dev.berth.shared-use.objects"} {
+		for _, name := range []string{"dev.treerig.managed", "dev.treerig.repository-uuid", "dev.treerig.worktree-uuid", "dev.treerig.format", "dev.treerig.shared-use.mailpit", "dev.treerig.shared-use.objects"} {
 			if web[name] == "" {
 				t.Errorf("web lacks %s: %v", name, web)
 			}
 		}
-		if web["dev.berth.shared-use.mailpit"] != "true" {
+		if web["dev.treerig.shared-use.mailpit"] != "true" {
 			t.Errorf("web = %v", web)
 		}
 		worker := labelsOf(t, document, "worker")
-		if worker["dev.berth.shared-use.mailpit"] != "true" || worker["dev.berth.shared-use.objects"] != "" {
+		if worker["dev.treerig.shared-use.mailpit"] != "true" || worker["dev.treerig.shared-use.objects"] != "" {
 			t.Errorf("worker = %v", worker)
 		}
 	})
@@ -98,7 +98,7 @@ func TestOverrideStampsSharedUse(t *testing.T) {
 	t.Run("a worktree that uses no shared service gets the override it always did", func(t *testing.T) {
 		plain := NewCompose(Options{
 			ComposeFile: "/work/acme/docker/compose.yaml", ProjectRoot: "/work/acme",
-			ConfigFile: "/work/acme/berth.toml", ProjectName: "acme", ControlHome: "/control", Domain: "acme.localhost", LabelNamespace: "dev.berth",
+			ConfigFile: "/work/acme/treerig.toml", ProjectName: "acme", ControlHome: "/control", Domain: "acme.localhost", LabelNamespace: "dev.treerig",
 		})
 		document, err := plain.overrideDocument(routesFixtureRef, services, volumes, networks)
 		if err != nil {

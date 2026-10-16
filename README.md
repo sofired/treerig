@@ -1526,7 +1526,7 @@ start.
 | `prerequisites.git` | `prerequisites` | | Git is on PATH and new enough |
 | `prerequisites.docker.engine` | `prerequisites` | | the Docker daemon answers; also the id when Docker could not be probed at all |
 | `prerequisites.docker.compose` | `prerequisites` | | Compose is present and new enough |
-| `registry.berth-root` | `registry` | | the berth root in use |
+| `registry.treerig-root` | `registry` | | the berth root in use |
 | `registry.control-home` | `registry` | | the control home is usable |
 | `registry.router-state` | `registry` | | the router's state directory |
 | `registry.registrations` | `registry` | | how many registrations read cleanly |

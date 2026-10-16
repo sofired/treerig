@@ -8,7 +8,7 @@ package router
 //
 // A file is judged only when this control home holds a record for that exact
 // repository and worktree. A file with no such record is reported, never
-// removed: the router's state is per berth root while registries are per
+// removed: the router's state is per treerig root while registries are per
 // control home, so it may belong to another control home (the same
 // repository used under two of them), and nothing here can tell.
 //
@@ -42,8 +42,8 @@ import (
 	"os"
 	"reflect"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // RegistrationStatus is what a Registrations lookup found.
@@ -56,7 +56,7 @@ const (
 	// Registered means the worktree has a record.
 	Registered
 	// UnknownRepository means the repository has no directory in this
-	// control home. A router state is per berth root while registries are per
+	// control home. A router state is per treerig root while registries are per
 	// control home, so a file naming such a repository may belong to another
 	// control home.
 	UnknownRepository
@@ -229,7 +229,7 @@ func classifyHostFragment(state layout.RouterLayout, registration Registration, 
 	}, nil
 }
 
-// firstRule is the rule of doc's router, "" when it has none; a file berth
+// firstRule is the rule of doc's router, "" when it has none; a file treerig
 // wrote has exactly one.
 func firstRule(doc FragmentDocument) string {
 	for _, entry := range doc.HTTP.Routers {

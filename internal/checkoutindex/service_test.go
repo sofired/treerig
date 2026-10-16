@@ -19,14 +19,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 // fakeRegistry is a checkoutindex.Registry double.
@@ -138,7 +138,7 @@ func writeTestCard(t *testing.T, controlHome string, record registry.RegisteredW
 	if err := card.WriteIndexCard(controlHome, record.RepositoryID, record.WorktreeID, card.IndexCard{
 		Project: "acme", Domain: record.Domain, Slug: record.Slug,
 		Host: fmt.Sprintf("%s.%s", record.Slug, record.Domain), Root: "/last/seen/" + record.Slug,
-		Branch: "branch/" + record.Slug, LabelNamespace: "dev.berth", Services: services,
+		Branch: "branch/" + record.Slug, LabelNamespace: "dev.treerig", Services: services,
 		UpdatedAt: "2026-09-21T10:00:00.000Z",
 	}); err != nil {
 		t.Fatalf("WriteIndexCard: %v", err)
@@ -202,7 +202,7 @@ func TestServiceRefresh(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Refresh: %v", err)
 		}
-		if h.service.URL() != "http://berth.localhost:8080" {
+		if h.service.URL() != "http://treerig.localhost:8080" {
 			t.Fatalf("URL = %q", h.service.URL())
 		}
 		if len(snapshot.Entries) != 2 || snapshot.Entries[0].Status != StatusRunning || snapshot.Entries[1].Status != StatusMissing {
@@ -364,7 +364,7 @@ func TestServiceRefresh(t *testing.T) {
 		// ps` call lands first in the transcript is no longer guaranteed.
 		got := filterArgs(docker.Calls())
 		sort.Strings(got)
-		want := []string{"label=dev.berth.managed=true", "label=dev.custom.managed=true"}
+		want := []string{"label=dev.custom.managed=true", "label=dev.treerig.managed=true"}
 		if !slices.Equal(got, want) {
 			t.Fatalf("filters = %v, want %v", got, want)
 		}
@@ -390,7 +390,7 @@ func TestServiceRefresh(t *testing.T) {
 
 			got := filterArgs(docker.Calls())
 			sort.Strings(got)
-			want := []string{"label=dev.berth.managed=true", "label=dev.custom.managed=true"}
+			want := []string{"label=dev.custom.managed=true", "label=dev.treerig.managed=true"}
 			if !slices.Equal(got, want) {
 				t.Fatalf("quarantined=%v: filters = %v, want %v", quarantined, got, want)
 			}
@@ -437,7 +437,7 @@ func TestServiceRefresh(t *testing.T) {
 		}
 		got := filterArgs(docker.Calls())
 		sort.Strings(got)
-		want := []string{"label=dev.berth.managed=true", "label=dev.custom.managed=true"}
+		want := []string{"label=dev.custom.managed=true", "label=dev.treerig.managed=true"}
 		if !slices.Equal(got, want) {
 			t.Fatalf("filters = %v, want %v", got, want)
 		}
@@ -465,7 +465,7 @@ func TestServiceRefresh(t *testing.T) {
 			t.Fatalf("Refresh: %v", err)
 		}
 		got := filterArgs(docker.Calls())
-		want := []string{"label=dev.berth.managed=true"}
+		want := []string{"label=dev.treerig.managed=true"}
 		if !slices.Equal(got, want) {
 			t.Fatalf("filters = %v, want %v", got, want)
 		}
@@ -787,8 +787,8 @@ func TestServiceCardReadFailureNotice(t *testing.T) {
 	if !strings.Contains(html, "One checkout&#39;s index card could not be read, so its state shows Unknown") {
 		t.Fatalf("HTML page missing the card-read-failure notice:\n%s", html)
 	}
-	if !strings.Contains(html, "<code>berth index</code>") {
-		t.Fatalf("HTML page missing the notice's berth index command span:\n%s", html)
+	if !strings.Contains(html, "<code>treerig index</code>") {
+		t.Fatalf("HTML page missing the notice's treerig index command span:\n%s", html)
 	}
 	// Wrapped for a terminal at 80 columns, so (matching the existing
 	// identityNotice test's own approach) only a short phrase is matched,

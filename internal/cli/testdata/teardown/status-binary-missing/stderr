@@ -1,1 +1,1 @@
-[berth] ERROR: The pinned teardown binary BASE/berth-home/control-home/teardown/DIGEST is missing. Pin it again with `berth teardown pin --release X.Y.Z`.
+[treerig] ERROR: The pinned teardown binary BASE/treerig-home/control-home/teardown/DIGEST is missing. Pin it again with `treerig teardown pin --release X.Y.Z`.

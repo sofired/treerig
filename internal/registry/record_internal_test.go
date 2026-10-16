@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
+	"github.com/sofired/treerig/internal/files"
 )
 
 // fillByKind sets every field of value to something non-zero, by its kind, so

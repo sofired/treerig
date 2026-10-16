@@ -19,12 +19,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // newTestUUID is a random v4 UUID, for reconcileWorld's plant fixtures.
@@ -331,16 +331,16 @@ func TestLabelNamespaceInRecord(t *testing.T) {
 			t.Fatalf("expected no previous host, got %v", *first.PreviousHost)
 		}
 
-		own := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, LabelNamespace: "dev.berth", Runner: f.runner, Logger: f.log, UserHome: filepath.Join(f.base, "user-home")})
+		own := registry.New(registry.Options{ControlHome: f.controlHome, Root: f.root, Domain: acmeDomain, LabelNamespace: "dev.treerig", Runner: f.runner, Logger: f.log, UserHome: filepath.Join(f.base, "user-home")})
 		second, err := own.Ensure(ctx, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if second.Slug != plain.Slug || second.LabelNamespace == nil || *second.LabelNamespace != "dev.berth" {
+		if second.Slug != plain.Slug || second.LabelNamespace == nil || *second.LabelNamespace != "dev.treerig" {
 			t.Fatalf("unexpected second: %+v", second)
 		}
 		list, err := own.List(ctx)
-		if err != nil || len(list) != 1 || list[0].LabelNamespace == nil || *list[0].LabelNamespace != "dev.berth" {
+		if err != nil || len(list) != 1 || list[0].LabelNamespace == nil || *list[0].LabelNamespace != "dev.treerig" {
 			t.Fatalf("unexpected list: %+v, %v", list, err)
 		}
 	})

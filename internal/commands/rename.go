@@ -14,18 +14,18 @@ package commands
 //     record, see moveIndexCard;
 //   - the checkout index page: refreshed afterwards, best effort;
 //   - the hostname the worktree's containers were created with
-//     (BERTH_SLUG and BERTH_HOST reach Compose, so a container carries them):
+//     (TREERIG_SLUG and TREERIG_HOST reach Compose, so a container carries them):
 //     this is why a rename refuses while any container of the worktree
 //     exists, running or stopped, and asks for `down` first.
 //
 // Everything else is keyed by the worktree's IDs, not its slug, and is
-// untouched: the Compose project name (berth-<hash of the two IDs>) and with
+// untouched: the Compose project name (treerig-<hash of the two IDs>) and with
 // it every container, network and volume name, the home directory, the lock
 // files, the pinned loopback ports (kept in the record), and a shared
 // service's connection (made by network ID, under the service's own name).
-// So berth renames and deletes no volume. A Compose file that bakes
-// ${BERTH_SLUG} or ${BERTH_HOST} into a volume name would name a new volume
-// after the rename; berth cannot see inside the file, and the old volume is
+// So treerig renames and deletes no volume. A Compose file that bakes
+// ${TREERIG_SLUG} or ${TREERIG_HOST} into a volume name would name a new volume
+// after the rename; treerig cannot see inside the file, and the old volume is
 // left like any other, owned by the worktree's labels, until `worktree
 // remove` removes it.
 
@@ -33,12 +33,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sofired/berth/internal/checkoutindex/card"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // RenameOptions is `worktree rename`'s input.

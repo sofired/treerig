@@ -9,18 +9,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/shared"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
-// sharedWorld is a world whose berth.toml declares a mailpit shared service
+// sharedWorld is a world whose treerig.toml declares a mailpit shared service
 // that the worktree's api service uses, over a daemon that creates what
 // `compose up` would.
 type sharedWorld struct {
@@ -360,7 +360,7 @@ func TestSharedDefinitionDrift(t *testing.T) {
 		}
 		out := lines(second)
 		if !strings.Contains(out, "Shared service mailpit is running with a different definition than this worktree's (started by feature-login.acme.localhost)") ||
-			!strings.Contains(out, "berth shared up --recreate mailpit") {
+			!strings.Contains(out, "treerig shared up --recreate mailpit") {
 			t.Fatalf("no drift warning in:\n%s", out)
 		}
 		// It is connected all the same.
@@ -811,8 +811,8 @@ func TestHooksAndCommandsGetThePinnedSharedAddresses(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"BERTH_SHARED_ADDR_MAILPIT_1025": "127.0.0.1:" + itoa(record.Ports[1025]),
-		"BERTH_SHARED_ADDR_MAILPIT_8025": "127.0.0.1:" + itoa(record.Ports[8025]),
+		"TREERIG_SHARED_ADDR_MAILPIT_1025": "127.0.0.1:" + itoa(record.Ports[1025]),
+		"TREERIG_SHARED_ADDR_MAILPIT_8025": "127.0.0.1:" + itoa(record.Ports[8025]),
 	}
 	envOf := func(suffix string) []string {
 		for _, call := range w.Runner.Calls() {
@@ -832,7 +832,7 @@ func TestHooksAndCommandsGetThePinnedSharedAddresses(t *testing.T) {
 		}
 	}
 	t.Run("up's hooks", func(t *testing.T) { check(t, envOf("hooks/prepare")) })
-	t.Run("berth run", func(t *testing.T) {
+	t.Run("treerig run", func(t *testing.T) {
 		if err := commands.RunWithContext(context.Background(), tc.CommandContext, commands.RunOptions{Name: "show"}); err != nil {
 			t.Fatal(err)
 		}
@@ -844,7 +844,7 @@ func TestHooksAndCommandsGetThePinnedSharedAddresses(t *testing.T) {
 				continue
 			}
 			for _, entry := range call.Env {
-				if strings.HasPrefix(entry, "BERTH_SHARED_") {
+				if strings.HasPrefix(entry, "TREERIG_SHARED_") {
 					t.Fatalf("docker %v got %s", call.Args, entry)
 				}
 			}

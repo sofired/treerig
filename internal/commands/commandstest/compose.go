@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // This file is the Docker fake's model of the parts of a real daemon the
@@ -20,10 +20,10 @@ import (
 // attached to (which `network connect` and `disconnect` change), `docker
 // inspect` of containers, networks and volumes as JSON, and — once Realistic
 // is on — `compose up` creating what a real one would from the override file
-// berth wrote.
+// treerig wrote.
 
 // Realistic makes `compose up` for a worktree create its containers, volumes
-// and default network from the override berth wrote (labels and all), and
+// and default network from the override treerig wrote (labels and all), and
 // `compose down` remove a network only when nothing is attached to it, as a
 // real daemon does. Without it `compose up` is a no-op, as it always was for
 // the tests that stage their own resources.
@@ -374,7 +374,7 @@ func (d *Docker) containerDocument(id string, labels map[string]string) string {
 }
 
 // overrideFile is the last -f file of a compose call, decoded: the override
-// berth wrote, which is JSON.
+// treerig wrote, which is JSON.
 func overrideFile(args []string) map[string]any {
 	var file string
 	for i, arg := range args {

@@ -1,16 +1,17 @@
-Run one of the commands berth.toml declares under [commands], in this registered
-worktree, with the worktree's BERTH_* environment and BERTH_COMMAND naming it.
-Everything after -- is passed to the command. It runs on the terminal, so it can
-prompt and answer Ctrl-C itself, and its output is this command's own; its exit
-code becomes berth run's. Unless it sets lock = false, it holds the worktree's
-lock while it runs. docs/hooks.md has the details.
+Run one of the commands treerig.toml declares under [commands], in this
+registered worktree, with the worktree's TREERIG_* environment and
+TREERIG_COMMAND naming it. Everything after -- is passed to the command. It runs
+on the terminal, so it can prompt and answer Ctrl-C itself, and its output is
+this command's own; its exit code becomes treerig run's. Unless it sets lock =
+false, it holds the worktree's lock while it runs. docs/hooks.md has the
+details.
 
 Usage:
-  berth run [name] [-- args...] [flags]
+  treerig run [name] [-- args...] [flags]
 
 Flags:
   -h, --help   help for run
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/docker"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // PortPublisher is a running container that publishes a host port.
@@ -23,8 +23,8 @@ type PortPublisher struct {
 	// Own is true when the container carries ref's ownership labels — managed,
 	// repository and worktree — proven by labels, never by its name.
 	Own bool
-	// Managed is true when the container carries berth's managed label at
-	// all, whichever worktree it names: another berth worktree's container.
+	// Managed is true when the container carries treerig's managed label at
+	// all, whichever worktree it names: another treerig worktree's container.
 	Managed bool
 	// Service is the Compose service the container runs, when it has the label.
 	Service string
@@ -136,9 +136,9 @@ type FixedPort struct {
 
 // FixedPublishedPorts are the host ports the consumer's Compose file
 // publishes itself, by service, in the file's own order: ports with a
-// `published` value, which berth neither allocates nor manages. A port
+// `published` value, which treerig neither allocates nor manages. A port
 // with no host port (Docker picks one) is not fixed and is left out. Read
-// from the consumer's file alone, so berth's own loopback publication is
+// from the consumer's file alone, so treerig's own loopback publication is
 // never among them. `doctor` warns when a routed service has any.
 func (c *Compose) FixedPublishedPorts(ctx context.Context, ref worktree.Ref) (map[string][]FixedPort, error) {
 	services, _, _, err := c.readOrderedModel(ctx, ref)
@@ -164,7 +164,7 @@ func (c *Compose) FixedPublishedPorts(ctx context.Context, ref worktree.Ref) (ma
 	return fixed, nil
 }
 
-// CheckPublishable refuses a routed service berth cannot publish a loopback
+// CheckPublishable refuses a routed service treerig cannot publish a loopback
 // port for (network_mode host or service:…, several replicas), reading only
 // the consumer's Compose file. `up` calls it before allocating, so no port
 // is ever recorded for a service that cannot have one.

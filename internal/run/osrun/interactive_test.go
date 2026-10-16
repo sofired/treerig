@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
 )
 
 // TestSetForegroundLeavesAlreadyIgnoredSIGTTOUIgnored proves setForeground
@@ -60,7 +60,7 @@ func TestForwardSignal(t *testing.T) {
 		interactive bool
 		want        syscall.Signal
 	}{
-		{"an interactive child gets the signal berth received", interrupted, true, syscall.SIGINT},
+		{"an interactive child gets the signal treerig received", interrupted, true, syscall.SIGINT},
 		{"even when the cause is wrapped", fmt.Errorf("stopping: %w", interrupted), true, syscall.SIGINT},
 		{"a hangup is forwarded as SIGTERM, which terraform and docker wind down on", &clierr.Cancelled{Signal: syscall.SIGHUP}, true, syscall.SIGTERM},
 		{"a SIGTERM stays SIGTERM", &clierr.Cancelled{Signal: syscall.SIGTERM}, true, syscall.SIGTERM},

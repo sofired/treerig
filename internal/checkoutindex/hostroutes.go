@@ -3,9 +3,9 @@ package checkoutindex
 import (
 	"fmt"
 
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // hostRouteLinks are the links a checkout's host routes (#6) add to its row,

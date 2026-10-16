@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/hooks"
-	"github.com/sofired/berth/internal/run/fakerun"
-	"github.com/sofired/berth/internal/run/osrun"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/hooks"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 // timeouts is a [hooks.timeout] table with the given hooks limited.

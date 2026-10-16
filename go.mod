@@ -1,4 +1,4 @@
-module github.com/sofired/berth
+module github.com/sofired/treerig
 
 go 1.26.0
 

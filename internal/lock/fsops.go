@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/sofired/berth/internal/clierr"
+	"github.com/sofired/treerig/internal/clierr"
 )
 
 // dirOf is the directory a lock target file lives in.
@@ -66,7 +66,7 @@ func fstatID(file *os.File) (FileID, error) {
 }
 
 // sameFile compares fstat(fd) with lstat(path): the same dev and ino, and a
-// link count above zero, so berth never trusts a lock it holds on a target
+// link count above zero, so treerig never trusts a lock it holds on a target
 // that has since been unlinked and replaced with a different file.
 func sameFile(file *os.File, path string) (bool, error) {
 	fid, err := fstatID(file)

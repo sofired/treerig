@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
 )
 
 // WriteScratchSettings writes home's settings.toml with the test port range
 // (PortRange) and any further TOML in extra, creating home if needed. A
-// scratch berth root that runs `up` needs it: without it the run would take
+// scratch treerig root that runs `up` needs it: without it the run would take
 // ports from the default range, which a developer's own worktrees use.
 func WriteScratchSettings(t testing.TB, home, extra string) {
 	t.Helper()
@@ -25,9 +25,9 @@ func WriteScratchSettings(t testing.TB, home, extra string) {
 	}
 }
 
-// ClaimControlHome marks dir as a control home berth created, so a scratch
-// root whose berth root and control home are the same directory may hold a
-// settings.toml beside its records: berth refuses to adopt a non-empty
+// ClaimControlHome marks dir as a control home treerig created, so a scratch
+// root whose treerig root and control home are the same directory may hold a
+// settings.toml beside its records: treerig refuses to adopt a non-empty
 // directory it did not create.
 func ClaimControlHome(t testing.TB, dir string) {
 	t.Helper()
@@ -40,7 +40,7 @@ func ClaimControlHome(t testing.TB, dir string) {
 }
 
 // ReadIdentityMarker is the UUID held by the identity marker at path (the
-// repository-id or worktree-id file under a checkout's .git/berth): the last
+// repository-id or worktree-id file under a checkout's .git/treerig): the last
 // line of its text, after the format line. A test that needs a checkout's IDs
 // reads them through it, which knows the marker is a format line and then the UUID.
 func ReadIdentityMarker(t testing.TB, path string) string {

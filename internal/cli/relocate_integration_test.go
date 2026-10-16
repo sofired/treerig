@@ -16,13 +16,13 @@ import (
 // binary — never cli.Main in-process, which must never exec (see
 // internal/cli's TestEnvBuilderRelocationWiring): `worktree remove`
 // installs a content-addressed copy of the invoked binary under
-// <BERTH_HOME>/control-home/bin (#80's berth-root/control-home split),
+// <TREERIG_HOME>/control-home/bin (#80's treerig-root/control-home split),
 // outside the checkout, before doing anything else, and hands the removal
 // to that copy.
 //
 // No registered worktree is needed to prove this: relocation runs before
 // Context even loads a config, so the simplest failing case — an empty
-// checkout with no berth.toml — already exercises it. What matters is the
+// checkout with no treerig.toml — already exercises it. What matters is the
 // outcome: a byte-identical copy lands outside the checkout, and the
 // command still completes normally, presenting itself under the same name
 // it was invoked as (brand.CLIName reads argv[0], which relocation must
@@ -35,13 +35,13 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 	}
 	// HOME, set explicitly to its own scratch directory rather than left as
 	// whatever this process inherited: files.AssertSafeHome (#80) refuses
-	// BERTH_HOME outright if it equals or contains the user's home
-	// directory, and berthHome below must never be confused for it.
+	// TREERIG_HOME outright if it equals or contains the user's home
+	// directory, and treerigHome below must never be confused for it.
 	home := filepath.Join(base, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	berthHome := filepath.Join(base, "berth-home")
+	treerigHome := filepath.Join(base, "treerig-home")
 	checkout := filepath.Join(base, "checkout")
 	if err := os.MkdirAll(checkout, 0o755); err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 
 	cmd := exec.Command(binary, "worktree", "remove", "--yes")
 	cmd.Dir = checkout
-	cmd.Env = append(os.Environ(), "HOME="+home, "BERTH_HOME="+berthHome)
+	cmd.Env = append(os.Environ(), "HOME="+home, "TREERIG_HOME="+treerigHome)
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()
@@ -60,8 +60,8 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 	if got := exitErr.ExitCode(); got != 1 {
 		t.Fatalf("exit code = %d, want 1\nstdout=%q\nstderr=%q", got, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "[berth] ERROR:") {
-		t.Fatalf("stderr = %q, want the usual [berth] ERROR: prefix (argv[0] presentation must survive relocation)", stderr.String())
+	if !strings.Contains(stderr.String(), "[treerig] ERROR:") {
+		t.Fatalf("stderr = %q, want the usual [treerig] ERROR: prefix (argv[0] presentation must survive relocation)", stderr.String())
 	}
 	// Every fallback warning relocateAndReexec can print ends this way
 	// (internal/commands/relocate.go); its presence would mean relocation
@@ -79,7 +79,7 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 		t.Fatalf("reading the built binary: %v", err)
 	}
 	sum := sha256.Sum256(content)
-	binDir := filepath.Join(berthHome, "control-home", "bin")
+	binDir := filepath.Join(treerigHome, "control-home", "bin")
 	installed := filepath.Join(binDir, hex.EncodeToString(sum[:]))
 
 	info, err := os.Stat(installed)

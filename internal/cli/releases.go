@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sofired/berth/internal/releasefetch"
+	"github.com/sofired/treerig/internal/releasefetch"
 )
 
 // newReleaseClient builds the HTTP client `teardown pin --release` and

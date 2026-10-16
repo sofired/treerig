@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/router"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // documentTargeting decodes a route document whose only backend is url.
@@ -124,8 +124,8 @@ func TestWriteFragment(t *testing.T) {
 			t.Fatalf("servers = %v", lb["servers"])
 		}
 		server, ok := servers[0].(map[string]any)
-		if !ok || server["url"] != "http://berth-loopback:30010" {
-			t.Fatalf("server = %v, want url http://berth-loopback:30010", server)
+		if !ok || server["url"] != "http://treerig-loopback:30010" {
+			t.Fatalf("server = %v, want url http://treerig-loopback:30010", server)
 		}
 	})
 
@@ -334,15 +334,15 @@ func TestIndexFragmentDocument(t *testing.T) {
 		}
 		http := decoded["http"].(map[string]any)
 		services := http["services"].(map[string]any)
-		berthIndex, ok := services["berth-index"].(map[string]any)
+		treerigIndex, ok := services["treerig-index"].(map[string]any)
 		if !ok {
-			t.Fatalf("no berth-index service: %v", services)
+			t.Fatalf("no treerig-index service: %v", services)
 		}
-		server := berthIndex["loadBalancer"].(map[string]any)["servers"].([]any)[0].(map[string]any)
-		if want := "http://berth-loopback:" + strconv.Itoa(30500); server["url"] != want {
+		server := treerigIndex["loadBalancer"].(map[string]any)["servers"].([]any)[0].(map[string]any)
+		if want := "http://treerig-loopback:" + strconv.Itoa(30500); server["url"] != want {
 			t.Fatalf("url = %v, want %v", server["url"], want)
 		}
-		rule := http["routers"].(map[string]any)["berth-index"].(map[string]any)["rule"]
+		rule := http["routers"].(map[string]any)["treerig-index"].(map[string]any)["rule"]
 		if rule != "Host(`"+router.IndexHost+"`)" {
 			t.Fatalf("rule = %v", rule)
 		}
@@ -351,7 +351,7 @@ func TestIndexFragmentDocument(t *testing.T) {
 
 func TestTargets(t *testing.T) {
 	t.Run("names a loopback port through the alias, and reads it back", func(t *testing.T) {
-		if got := router.TargetURL(30010); got != "http://berth-loopback:30010" {
+		if got := router.TargetURL(30010); got != "http://treerig-loopback:30010" {
 			t.Fatalf("TargetURL = %q", got)
 		}
 		doc := router.NewFragmentDocument("n", "Host(`h`)", 30010)
@@ -361,7 +361,7 @@ func TestTargets(t *testing.T) {
 	})
 
 	t.Run("reads no port out of a target that is not the alias", func(t *testing.T) {
-		for _, url := range []string{"http://other-host:30010", "http://berth-loopback:abc", "http://berth-loopback:0", "http://berth-loopback:70000", "http://berth-loopback"} {
+		for _, url := range []string{"http://other-host:30010", "http://treerig-loopback:abc", "http://treerig-loopback:0", "http://treerig-loopback:70000", "http://treerig-loopback"} {
 			doc := documentTargeting(t, url)
 			if got := doc.TargetPort(); got != 0 {
 				t.Errorf("TargetPort(%q) = %d, want 0", url, got)

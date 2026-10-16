@@ -9,10 +9,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/ports"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/ports"
 )
 
 // PortPlan is what SyncPorts makes true of one worktree's ports.
@@ -161,7 +161,7 @@ func takenPorts(controlHome string, reserved []int) (map[int]bool, error) {
 		for _, port := range record.Ports {
 			taken[port] = true
 		}
-		// A host process listens on these, and berth must not hand one out
+		// A host process listens on these, and treerig must not hand one out
 		// to a service while that process is not running.
 		for _, route := range record.HostRoutes {
 			taken[route.Port] = true

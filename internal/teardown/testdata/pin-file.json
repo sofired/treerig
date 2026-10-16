@@ -1,7 +1,7 @@
 {
   "version": 1,
   "release": "my-build",
-  "source": "file:/home/me/berth",
+  "source": "file:/home/me/treerig",
   "signer": "",
   "checksums_sha256": "",
   "pinned_at": "2026-10-14T12:00:00Z",

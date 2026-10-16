@@ -14,21 +14,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/binstore"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/stateformat"
-	"github.com/sofired/berth/internal/teardown"
-	"github.com/sofired/berth/internal/teardown/teardowntest"
+	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/teardown"
+	"github.com/sofired/treerig/internal/teardown/teardowntest"
 )
 
 // teardownTime is the clock every teardown test pins at.
 var teardownTime = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 
-// teardownFixture is a scratch berth root with an Env over it, a recording
+// teardownFixture is a scratch treerig root with an Env over it, a recording
 // logger, a stderr buffer for the confirmation screen and a local binary to
 // pin.
 type teardownFixture struct {
@@ -54,29 +54,29 @@ func newTeardownFixture(t *testing.T) *teardownFixture {
 		stderr:  &strings.Builder{},
 		home:    filepath.Join(base, "home"),
 		dir:     filepath.Join(base, "work"),
-		content: teardowntest.Executable("linux_amd64", " a berth build to pin"),
+		content: teardowntest.Executable("linux_amd64", " a treerig build to pin"),
 	}
-	berthHome := filepath.Join(base, "berth-home")
+	treerigHome := filepath.Join(base, "treerig-home")
 	for _, dir := range []string{f.home, f.dir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	f.control = layout.ControlLayout(filepath.Join(berthHome, "control-home"))
-	f.file = filepath.Join(f.dir, "berth-local")
+	f.control = layout.ControlLayout(filepath.Join(treerigHome, "control-home"))
+	f.file = filepath.Join(f.dir, "treerig-local")
 	if err := os.WriteFile(f.file, f.content, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	f.digest = binstore.Hash(f.content)
 	f.env = &commands.Env{
-		CommandName: "berth",
+		CommandName: "treerig",
 		Logger:      f.log,
 		Getenv: func(key string) (string, bool) {
 			switch key {
 			case "HOME":
 				return f.home, true
-			case "BERTH_HOME":
-				return berthHome, true
+			case "TREERIG_HOME":
+				return treerigHome, true
 			}
 			return "", false
 		},
@@ -144,8 +144,8 @@ func (f *teardownFixture) releasePin(t *testing.T, release, content string) {
 	}
 	pin := teardown.Pin{
 		Release:         release,
-		Source:          "https://github.com/sofired/berth/releases/download/v" + release + "/",
-		Signer:          "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v" + release,
+		Source:          "https://github.com/sofired/treerig/releases/download/v" + release + "/",
+		Signer:          "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v" + release,
 		ChecksumsSHA256: sum("checksums " + release),
 		PinnedAt:        teardown.FormatTime(teardownTime),
 		Platforms:       map[string]teardown.Platform{},
@@ -174,7 +174,7 @@ func wantRefusal(t *testing.T, err error, message string) {
 }
 
 // pinCommand is the command the refusals name.
-const pinCommand = "`berth teardown pin --release X.Y.Z`"
+const pinCommand = "`treerig teardown pin --release X.Y.Z`"
 
 func TestTeardownPinFile(t *testing.T) {
 	t.Run("pins a local binary: stores the same bytes under their hash and writes a file pin for this platform", func(t *testing.T) {
@@ -211,7 +211,7 @@ func TestTeardownPinFile(t *testing.T) {
 	t.Run("resolves a relative --file against the working directory", func(t *testing.T) {
 		f := newTeardownFixture(t)
 		options := f.pinOptions()
-		options.File = "./sub/../berth-local"
+		options.File = "./sub/../treerig-local"
 		if err := f.pin(options); err != nil {
 			t.Fatal(err)
 		}
@@ -338,7 +338,7 @@ func TestTeardownPinFile(t *testing.T) {
 				}
 				options := f.pinOptions()
 				options.SHA256 = binstore.Hash(tc.content)
-				wantRefusal(t, f.pin(options), "Refusing to pin my-build: "+f.file+" is not a linux_amd64 executable ("+tc.reason+"). Nothing was pinned. Pin the berth binary built for this machine.")
+				wantRefusal(t, f.pin(options), "Refusing to pin my-build: "+f.file+" is not a linux_amd64 executable ("+tc.reason+"). Nothing was pinned. Pin the treerig binary built for this machine.")
 				if _, err := os.Lstat(f.control.TeardownDir); !os.IsNotExist(err) {
 					t.Fatalf("teardown directory: %v", err)
 				}
@@ -401,10 +401,10 @@ func TestTeardownPinFile(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses a platform berth does not build", func(t *testing.T) {
+	t.Run("refuses a platform treerig does not build", func(t *testing.T) {
 		f := newTeardownFixture(t)
 		f.env.Arch = "riscv64"
-		wantRefusal(t, f.pin(f.pinOptions()), "Refusing to pin my-build: linux_riscv64 is not a platform berth builds (linux and darwin, on amd64 and arm64).")
+		wantRefusal(t, f.pin(f.pinOptions()), "Refusing to pin my-build: linux_riscv64 is not a platform treerig builds (linux and darwin, on amd64 and arm64).")
 	})
 
 	t.Run("replaces an existing pin, naming the release it replaces in the plan", func(t *testing.T) {
@@ -592,8 +592,8 @@ func TestTeardownStatus(t *testing.T) {
 		}
 		digest := binstore.Hash([]byte("release build"))
 		want := "Teardown pin: release 1.2.3 (linux_amd64)\n" +
-			"  source       https://github.com/sofired/berth/releases/download/v1.2.3/\n" +
-			"  signer       https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3\n" +
+			"  source       https://github.com/sofired/treerig/releases/download/v1.2.3/\n" +
+			"  signer       https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3\n" +
 			"  binary       " + f.stored(digest) + " sha256 " + digest + " ok\n" +
 			"  pinned       2026-10-14T12:00:00Z\n" +
 			"  attestation  not checked"
@@ -802,7 +802,7 @@ func TestTeardownStatus(t *testing.T) {
 		if err := f.status(true, "1.3.0"); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(f.printed(), `"signer": "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3"`) {
+		if !strings.Contains(f.printed(), `"signer": "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3"`) {
 			t.Fatalf("a release pin reports its signer:\n%s", f.printed())
 		}
 		if !strings.Contains(f.printed(), `"newerThanPin": true`) {

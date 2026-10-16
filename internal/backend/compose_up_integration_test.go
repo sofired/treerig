@@ -20,16 +20,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/run/osrun"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run/osrun"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // composeNamespace is per file, so this suite's sweep can never touch
 // another suite's resources.
-const composeNamespace = "dev.berth-test-compose"
+const composeNamespace = "dev.treerig-test-compose"
 
 // composeFixture returns the absolute path to the shared compose.yaml
 // fixture under testdata, failing the test if it is not present in this checkout.
@@ -144,8 +144,8 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 	}
 
 	runtime := NewCompose(Options{
-		ComposeFile: composeFile, ProjectRoot: fixture, ConfigFile: filepath.Join(fixture, "berth.toml"),
-		ProjectName: "berth-test", Domain: "test.localhost", ControlHome: controlHome,
+		ComposeFile: composeFile, ProjectRoot: fixture, ConfigFile: filepath.Join(fixture, "treerig.toml"),
+		ProjectName: "treerig-test", Domain: "test.localhost", ControlHome: controlHome,
 		LabelNamespace: composeNamespace, Runner: osrun.New(), Logger: logger.Silent{},
 		WaitTimeoutSeconds: intPtr(60), Environ: os.Environ(),
 	})
@@ -195,7 +195,7 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 		t.Fatalf("volume labels = %v, want the ownership labels and no %s.format", volumeLabels, composeNamespace)
 	}
 
-	// The consumer's Compose file saw the BERTH_* environment.
+	// The consumer's Compose file saw the TREERIG_* environment.
 	env := dockerFormat(t, "{{ range .Config.Env }}{{ println . }}{{ end }}", "inspect", apiID)
 	for _, want := range []string{
 		"SLUG=feature-subject",

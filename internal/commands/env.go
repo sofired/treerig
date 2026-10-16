@@ -6,14 +6,14 @@ package commands
 import (
 	"io"
 
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/ports"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // Env is everything a verb may take from the process it runs in.
@@ -41,7 +41,7 @@ type Env struct {
 	Arch string
 	// Cwd is the physical working directory.
 	Cwd string
-	// ConfigPath is --config; empty means the nearest berth.toml above Cwd.
+	// ConfigPath is --config; empty means the nearest treerig.toml above Cwd.
 	ConfigPath string
 	Runner     run.Runner
 	// Releases downloads a release for `teardown pin --release` and
@@ -71,7 +71,7 @@ type Env struct {
 	StdinIsTTY  bool
 	StderrIsTTY bool
 	// Executable is this process's own running binary; os.Executable, but
-	// only from cli.MainProcess — cmd/berth's own entry point, the one
+	// only from cli.MainProcess — cmd/treerig's own entry point, the one
 	// caller allowed to let `worktree remove` relocate (#7). cli.Main,
 	// which every in-process test calls, always leaves this nil, and so
 	// does every Env built by hand for a test; nil skips relocation

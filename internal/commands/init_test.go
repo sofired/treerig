@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
 )
 
 // initEnv is an Env for `init` in cwd, whose Git answers --show-toplevel with
@@ -24,7 +24,7 @@ func initEnv(t *testing.T, cwd, toplevel string) (*Env, *logger.Recording, *fake
 		}
 		return run.Result{Stdout: toplevel + "\n"}, nil
 	}}
-	env, rec := testEnv(t, filepath.Join(cwd, "berth.toml"), registrytest.TempDir(t))
+	env, rec := testEnv(t, filepath.Join(cwd, "treerig.toml"), registrytest.TempDir(t))
 	env.ConfigPath = ""
 	env.Cwd = cwd
 	env.Runner = runner
@@ -51,17 +51,17 @@ func TestInit(t *testing.T) {
 		if got := runner.Argv(); len(got) != 1 || got[0] != want {
 			t.Errorf("git calls = %q, want %q", got, want)
 		}
-		if _, err := os.Stat(filepath.Join(sub, "berth.toml")); err == nil {
-			t.Error("wrote berth.toml in the working directory, want the repository root")
+		if _, err := os.Stat(filepath.Join(sub, "treerig.toml")); err == nil {
+			t.Error("wrote treerig.toml in the working directory, want the repository root")
 		}
-		written, err := os.ReadFile(filepath.Join(root, "berth.toml"))
+		written, err := os.ReadFile(filepath.Join(root, "treerig.toml"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(string(written), "#:schema https://raw.githubusercontent.com/sofired/berth/main/schema/berth.schema.json\n") {
+		if !strings.HasPrefix(string(written), "#:schema https://raw.githubusercontent.com/sofired/treerig/main/schema/treerig.schema.json\n") {
 			t.Errorf("starter does not open with the schema directive:\n%s", written)
 		}
-		info, err := os.Stat(filepath.Join(root, "berth.toml"))
+		info, err := os.Stat(filepath.Join(root, "treerig.toml"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,19 +73,19 @@ func TestInit(t *testing.T) {
 		if len(printed) != 0 {
 			t.Errorf("stdout = %q, want nothing", printed)
 		}
-		if len(lines) != 3 || lines[0] != "info: Wrote "+filepath.Join(root, "berth.toml")+"." ||
+		if len(lines) != 3 || lines[0] != "info: Wrote "+filepath.Join(root, "treerig.toml")+"." ||
 			!strings.HasPrefix(lines[1], "warn: No Compose file at "+root) ||
-			lines[2] != "info: Edit berth.toml, then run 'berth config validate'." {
+			lines[2] != "info: Edit treerig.toml, then run 'treerig config validate'." {
 			t.Errorf("notices = %q", lines)
 		}
 
 		// The pinned pair: what init writes, config validate accepts.
-		validate, vrec := testEnv(t, filepath.Join(root, "berth.toml"), registrytest.TempDir(t))
+		validate, vrec := testEnv(t, filepath.Join(root, "treerig.toml"), registrytest.TempDir(t))
 		if err := ConfigValidate(ctx, validate); err != nil {
 			t.Fatalf("ConfigValidate on the starter: %v", err)
 		}
 		_, out := vrec.Snapshot()
-		if len(out) < 2 || !strings.Contains(out[0], "berth.toml is valid.") {
+		if len(out) < 2 || !strings.Contains(out[0], "treerig.toml is valid.") {
 			t.Errorf("validate output = %q", out)
 		}
 		name := filepath.Base(root)
@@ -156,7 +156,7 @@ func TestInit(t *testing.T) {
 				t.Fatalf("%v: Init: %v", tc.present, err)
 			}
 
-			written, _ := os.ReadFile(filepath.Join(root, "berth.toml"))
+			written, _ := os.ReadFile(filepath.Join(root, "treerig.toml"))
 			if !strings.Contains(string(written), "\nfile = \""+tc.want+"\"\n") {
 				t.Errorf("%v: starter's [compose] file is not %s:\n%s", tc.present, tc.want, written)
 			}
@@ -166,7 +166,7 @@ func TestInit(t *testing.T) {
 					t.Errorf("%v: unexpected warning %q", tc.present, line)
 				}
 			}
-			validate, _ := testEnv(t, filepath.Join(root, "berth.toml"), registrytest.TempDir(t))
+			validate, _ := testEnv(t, filepath.Join(root, "treerig.toml"), registrytest.TempDir(t))
 			if err := ConfigValidate(ctx, validate); err != nil {
 				t.Errorf("%v: ConfigValidate: %v", tc.present, err)
 			}
@@ -188,9 +188,9 @@ func TestInit(t *testing.T) {
 		}
 	})
 
-	t.Run("refuses to overwrite an existing berth.toml and leaves it untouched", func(t *testing.T) {
+	t.Run("refuses to overwrite an existing treerig.toml and leaves it untouched", func(t *testing.T) {
 		root := registrytest.TempDir(t)
-		existing := filepath.Join(root, "berth.toml")
+		existing := filepath.Join(root, "treerig.toml")
 		if err := os.WriteFile(existing, []byte("# mine\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -203,14 +203,14 @@ func TestInit(t *testing.T) {
 			t.Fatalf("Init error = %v (code %d), want an expected exit-1 error %q", err, clierr.Code(err), want)
 		}
 		if got, _ := os.ReadFile(existing); string(got) != "# mine\n" {
-			t.Errorf("berth.toml = %q, want it untouched", got)
+			t.Errorf("treerig.toml = %q, want it untouched", got)
 		}
 		if lines, printed := rec.Snapshot(); len(lines)+len(printed) != 0 {
 			t.Errorf("printed %q %q before refusing", lines, printed)
 		}
 		entries, _ := os.ReadDir(root)
 		if len(entries) != 1 {
-			t.Errorf("directory has %v, want only berth.toml", entries)
+			t.Errorf("directory has %v, want only treerig.toml", entries)
 		}
 	})
 
@@ -220,7 +220,7 @@ func TestInit(t *testing.T) {
 
 		err := Init(ctx, env)
 
-		want := dir + " is not inside a Git checkout (fatal: not a git repository (or any of the parent directories): .git). Run 'berth init' at the root of the repository you want to manage."
+		want := dir + " is not inside a Git checkout (fatal: not a git repository (or any of the parent directories): .git). Run 'treerig init' at the root of the repository you want to manage."
 		if err == nil || err.Error() != want || !clierr.Expected(err) {
 			t.Fatalf("Init error = %v, want %q", err, want)
 		}
@@ -232,11 +232,11 @@ func TestInit(t *testing.T) {
 	t.Run("refuses --config, which it has no use for", func(t *testing.T) {
 		root := registrytest.TempDir(t)
 		env, _, runner := initEnv(t, root, root)
-		env.ConfigPath = "/elsewhere/berth.toml"
+		env.ConfigPath = "/elsewhere/treerig.toml"
 
 		err := Init(ctx, env)
 
-		want := "'berth init' writes berth.toml at the root of the Git repository you run it in; it does not take --config."
+		want := "'treerig init' writes treerig.toml at the root of the Git repository you run it in; it does not take --config."
 		if err == nil || err.Error() != want {
 			t.Fatalf("Init error = %v, want %q", err, want)
 		}
@@ -254,7 +254,7 @@ func TestInit(t *testing.T) {
 
 		err := Init(ctx, env)
 
-		want := "Git was not found on PATH. Install Git, then run 'berth init' again."
+		want := "Git was not found on PATH. Install Git, then run 'treerig init' again."
 		if err == nil || err.Error() != want || clierr.Code(err) != 127 {
 			t.Fatalf("Init error = %v (code %d), want %q with code 127", err, clierr.Code(err), want)
 		}
@@ -293,10 +293,10 @@ func TestInit(t *testing.T) {
 			t.Fatalf("Init: %v", err)
 		}
 
-		if _, err := os.Stat(filepath.Join(root, "berth.toml")); err != nil {
-			t.Errorf("berth.toml not written in the path with surrounding spaces: %v", err)
+		if _, err := os.Stat(filepath.Join(root, "treerig.toml")); err != nil {
+			t.Errorf("treerig.toml not written in the path with surrounding spaces: %v", err)
 		}
-		written, _ := os.ReadFile(filepath.Join(root, "berth.toml"))
+		written, _ := os.ReadFile(filepath.Join(root, "treerig.toml"))
 		if !strings.Contains(string(written), "\nname = \"spaced-dir\"\n") {
 			t.Errorf("project name not derived from the directory:\n%s", written)
 		}
@@ -321,7 +321,7 @@ func TestInit(t *testing.T) {
 		if wins != 1 {
 			t.Fatalf("%d inits succeeded, want exactly 1", wins)
 		}
-		validate, _ := testEnv(t, filepath.Join(root, "berth.toml"), registrytest.TempDir(t))
+		validate, _ := testEnv(t, filepath.Join(root, "treerig.toml"), registrytest.TempDir(t))
 		if err := ConfigValidate(ctx, validate); err != nil {
 			t.Errorf("ConfigValidate after the race: %v", err)
 		}

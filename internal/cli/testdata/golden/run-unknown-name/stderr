@@ -1,1 +1,1 @@
-[berth] ERROR: No command "nope": berth.toml defines plan, destroy, apply.
+[treerig] ERROR: No command "nope": treerig.toml defines plan, destroy, apply.

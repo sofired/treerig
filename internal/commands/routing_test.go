@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/router"
-	"github.com/sofired/berth/internal/worktree"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 func TestWorktreeRoutingCleanup(t *testing.T) {
@@ -67,7 +67,7 @@ func TestWorktreeRoutingCleanup(t *testing.T) {
 		}
 		tc := w.Context("", acme, nil)
 
-		if _, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "berth"}, approved(commands.RemoveOptions{})); err != nil {
+		if _, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "treerig"}, approved(commands.RemoveOptions{})); err != nil {
 			t.Fatal(err)
 		}
 
@@ -119,8 +119,8 @@ func TestRoutingNeverTouchesTheRouterContainer(t *testing.T) {
 
 	t.Run("recognizes connects, project flags, label filters and service filters aimed at the router, and no worktree's", func(t *testing.T) {
 		for _, call := range []string{
-			"network connect berth-net abc",
-			"network disconnect berth-net abc",
+			"network connect treerig-net abc",
+			"network disconnect treerig-net abc",
 			"compose --project-name " + router.DefaultName + " ps",
 			"ps --all --filter label=com.docker.compose.project=" + router.DefaultName + " --format {{.ID}}",
 			"ps --filter label=com.docker.compose.service=router --quiet",
@@ -166,7 +166,7 @@ func TestRoutingNeverTouchesTheRouterContainer(t *testing.T) {
 		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		tc := w.Context("", acme, nil)
 
-		if _, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "berth"}, approved(commands.RemoveOptions{})); err != nil {
+		if _, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "treerig"}, approved(commands.RemoveOptions{})); err != nil {
 			t.Fatal(err)
 		}
 		if calls := routerCalls(w); len(calls) != 0 {
@@ -199,7 +199,7 @@ func TestRemoveWithContextNetworkKept(t *testing.T) {
 		w, ref := newKeptNetworkWorld(t)
 		tc := w.Context("", acme, nil)
 
-		result, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "berth"}, approved(commands.RemoveOptions{}))
+		result, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "treerig"}, approved(commands.RemoveOptions{}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,7 +232,7 @@ func TestRemoveWithContextNetworkKept(t *testing.T) {
 		wantWarn := false
 		for _, line := range lines {
 			if strings.HasPrefix(line, "warn:") && strings.Contains(line, "still in use") &&
-				strings.Contains(line, "Run 'berth worktree remove' again") {
+				strings.Contains(line, "Run 'treerig worktree remove' again") {
 				wantWarn = true
 			}
 		}
@@ -244,13 +244,13 @@ func TestRemoveWithContextNetworkKept(t *testing.T) {
 	t.Run("a second remove completes once the network clears", func(t *testing.T) {
 		w, ref := newKeptNetworkWorld(t)
 		tc := w.Context("", acme, nil)
-		if _, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "berth"}, approved(commands.RemoveOptions{})); err != nil {
+		if _, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: "treerig"}, approved(commands.RemoveOptions{})); err != nil {
 			t.Fatal(err)
 		}
 
 		w.Docker.FailNetworkRemove(0, "")
 		tc2 := w.Context("", acme, nil)
-		result, err := commands.RemoveWithContext(ctx, tc2.CommandContext, &commands.Env{CommandName: "berth"}, approved(commands.RemoveOptions{}))
+		result, err := commands.RemoveWithContext(ctx, tc2.CommandContext, &commands.Env{CommandName: "treerig"}, approved(commands.RemoveOptions{}))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -10,25 +10,25 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/files"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // composeFileNames are the file names Docker Compose itself looks for, in
 // its own order of precedence.
 var composeFileNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 
-// Init is `init`: it writes a starter berth.toml at the root of the Git
+// Init is `init`: it writes a starter treerig.toml at the root of the Git
 // checkout it runs in, and refuses to replace one that is already there,
 // including when another `init` creates it between the check and the write.
 // When a Compose file sits at that root, the starter names it in [compose];
 // otherwise it names compose.yaml and a warning says it still has to be
 // created. The services in the Compose file are not read.
 //
-// It reads no berth.toml, so --config has no meaning for it and is refused.
+// It reads no treerig.toml, so --config has no meaning for it and is refused.
 // Its notices go to stderr; it prints nothing on stdout, since there is no
 // report to pipe.
 func Init(ctx context.Context, env *Env) error {

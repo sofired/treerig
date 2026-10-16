@@ -31,7 +31,7 @@ type StringSchema struct {
 // String starts a string schema.
 func String() *StringSchema { return &StringSchema{} }
 
-// Regex requires value to match re, reporting message on failure. berth's own
+// Regex requires value to match re, reporting message on failure. treerig's own
 // schemas always supply their own message — zod's builtin "invalid_string"
 // wording is not reproduced here.
 //

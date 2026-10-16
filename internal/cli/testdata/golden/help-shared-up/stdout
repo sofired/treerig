@@ -6,7 +6,7 @@ keeps its data. This is also how a worktree left unconnected, by a busy lock or
 a daemon restart, is repaired.
 
 Usage:
-  berth shared up [name...] [flags]
+  treerig shared up [name...] [flags]
 
 Flags:
   -h, --help                          help for up
@@ -17,5 +17,5 @@ Flags:
                                       worktree's definition, keeping their data
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number

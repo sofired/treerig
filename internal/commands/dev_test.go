@@ -12,16 +12,16 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/config"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/procid"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // logsProbe wraps a Runner and calls onLogs at the moment a `compose logs`
@@ -236,7 +236,7 @@ func TestDevWithContext(t *testing.T) {
 
 		var failure *clierr.Error
 		if !errors.As(err, &failure) || failure.ExitCode != 130 || !failure.Notice ||
-			failure.Message != `The development session of feature-login.acme.localhost ended (SIGINT). Its services are still running; "berth down" stops them.` {
+			failure.Message != `The development session of feature-login.acme.localhost ended (SIGINT). Its services are still running; "treerig down" stops them.` {
 			t.Fatalf("DevWithContext = %v, want exit 130, a notice naming SIGINT", err)
 		}
 	})
@@ -366,7 +366,7 @@ func TestDevSession(t *testing.T) {
 		}
 	})
 
-	t.Run("says the session ended, naming the signal, when a signal reaches berth while it follows", func(t *testing.T) {
+	t.Run("says the session ended, naming the signal, when a signal reaches treerig while it follows", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
@@ -380,7 +380,7 @@ func TestDevSession(t *testing.T) {
 			t.Fatalf("DevWithContext = %v, want the SIGHUP cancellation, for the process to die by", err)
 		}
 		lines, _ := tc.Logger.Snapshot()
-		want := `The development session of feature-login.acme.localhost ended (SIGHUP). Its services are still running; "berth down" stops them.`
+		want := `The development session of feature-login.acme.localhost ended (SIGHUP). Its services are still running; "treerig down" stops them.`
 		if !strings.Contains(strings.Join(lines, "\n"), want) {
 			t.Fatalf("log lines = %v, want %q", lines, want)
 		}
@@ -407,8 +407,8 @@ func TestDevSession(t *testing.T) {
 	t.Run("says once that no container is left while it follows, and again each time the project empties anew", func(t *testing.T) {
 		restore := commands.SetContainerPollForTest(time.Millisecond)
 		defer restore()
-		const notice = `No container of feature-login.acme.localhost is left, and "berth worktree remove" refuses until the session ends; ` +
-			`Ctrl-C ends the session, or run "berth up" in another terminal to start them again.`
+		const notice = `No container of feature-login.acme.localhost is left, and "treerig worktree remove" refuses until the session ends; ` +
+			`Ctrl-C ends the session, or run "treerig up" in another terminal to start them again.`
 		for name, tc := range map[string]struct {
 			outputs []string
 			want    int
@@ -507,8 +507,8 @@ func TestDevSession(t *testing.T) {
 		}
 		_, development := lock.WorktreeScopes(w.ControlHome, registration.RepositoryID, registration.WorktreeID, registration.Slug,
 			procid.Markers{})
-		session := lock.New(development, lock.Options{Holder: "berth dev", Logger: logger.Silent{}, Watchdog: -1})
-		if _, err := session.Acquire(context.Background(), "berth dev"); err != nil {
+		session := lock.New(development, lock.Options{Holder: "treerig dev", Logger: logger.Silent{}, Watchdog: -1})
+		if _, err := session.Acquire(context.Background(), "treerig dev"); err != nil {
 			t.Fatal(err)
 		}
 		defer session.Release()
@@ -516,7 +516,7 @@ func TestDevSession(t *testing.T) {
 
 		_, err = remove(t, tc, approved(commands.RemoveOptions{}))
 
-		if err == nil || !strings.Contains(err.Error(), "feature-login development session") || !strings.Contains(err.Error(), "End it with Ctrl-C in the terminal running `berth dev`") {
+		if err == nil || !strings.Contains(err.Error(), "feature-login development session") || !strings.Contains(err.Error(), "End it with Ctrl-C in the terminal running `treerig dev`") {
 			t.Fatalf("remove = %v, want a refusal naming the development session and how to end it", err)
 		}
 		for _, call := range w.Docker.Calls()[before:] {

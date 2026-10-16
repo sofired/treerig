@@ -1,8 +1,8 @@
 manage the shared local router
 
 Usage:
-  berth router [flags]
-  berth router [command]
+  treerig router [flags]
+  treerig router [command]
 
 Available Commands:
   up          start the shared router and wait until it is healthy
@@ -14,7 +14,7 @@ Flags:
   -h, --help   help for router
 
 Global Flags:
-      --config string   path to berth.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd)
   -V, --version         output the version number
 
-Use "berth router [command] --help" for more information about a command.
+Use "treerig router [command] --help" for more information about a command.

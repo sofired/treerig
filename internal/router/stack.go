@@ -1,17 +1,17 @@
 // Package router is the shared router: one Traefik proxy container per
 // Docker daemon, used by every worktree of every repository on this
-// machine; its state and lock are per berth root (#80). It builds the
+// machine; its state and lock are per treerig root (#80). It builds the
 // Compose document the proxy runs from constants and implements
 // ensure/status/down against it (docs/design/routing.md).
 //
 // The proxy reaches every target over loopback. Each routed Compose service
 // publishes a pinned port on 127.0.0.1 (#119) and a host process listens on
-// its own; the route files berth writes under DynamicDir name the target as
-// berth-loopback:<port>, an alias the proxy's extra_hosts maps to the host's
+// its own; the route files treerig writes under DynamicDir name the target as
+// treerig-loopback:<port>, an alias the proxy's extra_hosts maps to the host's
 // loopback (host mode) or to the engine's host gateway (bridge mode). No
 // network is shared between worktrees and the proxy has no Docker socket:
 // routes come only from Traefik's file provider, watching the read-only
-// DynamicConfigMount directory, in which berth writes and removes one file
+// DynamicConfigMount directory, in which treerig writes and removes one file
 // per routed service (fragment.go).
 //
 // Everything is pinned by digest, runs read-only, drops every capability
@@ -25,8 +25,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/text"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // Protocol names the generation of the stack's layout this build starts; it
@@ -67,7 +67,7 @@ const (
 	// extra_hosts maps it to the host's loopback (host mode) or to the
 	// engine's host gateway (bridge mode), so route files never depend on
 	// the mode.
-	LoopbackAlias = "berth-loopback"
+	LoopbackAlias = "treerig-loopback"
 	// BridgePingPort is the ping entrypoint's port inside the proxy
 	// container in bridge mode. It is bound to the container's own loopback
 	// and never published, and takes no port from the allocation range.
@@ -104,9 +104,9 @@ type StackOptions struct {
 	// IndexDir is the host directory the index container serves.
 	IndexDir       string
 	LabelNamespace string
-	// Home is the berth root stamped on both containers as RouterHomeLabel
+	// Home is the treerig root stamped on both containers as RouterHomeLabel
 	// (#82); "" stamps an empty value rather than omitting the label, which
-	// is only ever what a caller with no real berth root to give (a test,
+	// is only ever what a caller with no real treerig root to give (a test,
 	// mainly) asks for.
 	Home string
 }
@@ -132,11 +132,11 @@ func RouterLabels(labelNamespace, component string) labelSet {
 }
 
 // RouterHomeLabel names, on both the router's and the index's containers,
-// the berth root (BERTH_HOME) whose Ensure most recently started or
+// the treerig root (TREERIG_HOME) whose Ensure most recently started or
 // recreated them (#82). Router.Owner reads this label back so Ensure can
-// refuse to take over a router another berth root started; doctor reports
+// refuse to take over a router another treerig root started; doctor reports
 // it read-only. Fixed to the brand's own namespace regardless of a
-// project's configured label-namespace override: it identifies the berth
+// project's configured label-namespace override: it identifies the treerig
 // root that owns the router, not any project.
 const RouterHomeLabel = brand.LabelNamespace + ".router-home"
 

@@ -21,7 +21,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sofired/berth/internal/files"
+	"github.com/sofired/treerig/internal/files"
 )
 
 // Hash is content's sha256, hex-encoded — the name an entry is stored under.

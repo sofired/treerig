@@ -1,4 +1,4 @@
-// Package osrun is the operating-system run.Runner: every subprocess berth
+// Package osrun is the operating-system run.Runner: every subprocess treerig
 // spawns for real goes through here — a session per child, and its own
 // SIGTERM-then-SIGKILL timer.
 package osrun
@@ -17,9 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/lock"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/run"
 	"golang.org/x/sys/unix"
 )
 
@@ -155,7 +155,7 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 
 	// Interactive wins over InheritLocks (see run.Spec.InheritLocks): an
 	// interactive child's whole process group is drained before Run returns,
-	// so the lock it could otherwise carry past berth's own exit is never
+	// so the lock it could otherwise carry past treerig's own exit is never
 	// wanted, and a caller that asked for both gets the drain.
 	if spec.InheritLocks && !interactive {
 		cmd.ExtraFiles = lock.Inherited(ctx)
@@ -234,7 +234,7 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	}
 
 	// An interactive child's descendants must never outlive this call,
-	// whether or not berth itself was ever signalled: SIGTERM (then SIGKILL
+	// whether or not treerig itself was ever signalled: SIGTERM (then SIGKILL
 	// after killAfter) whatever the group still holds, and do not return
 	// until it is gone or this wait is itself abandoned. So must those of a
 	// child stopped for its timeout: "timed out and was terminated" is not

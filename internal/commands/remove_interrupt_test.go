@@ -9,13 +9,13 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sofired/berth/internal/brand"
-	"github.com/sofired/berth/internal/clierr"
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/commands/commandstest"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/registry"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // interruptAt wraps a Runner so that the nth Docker call whose arguments
@@ -70,7 +70,7 @@ type interruption struct {
 	onInterrupt func(layout.Worktree)
 	// options are the removal's options; Yes is always set.
 	options commands.RemoveOptions
-	// commandName defaults to "berth".
+	// commandName defaults to "treerig".
 	commandName string
 	// others registers a second worktree, feature-other, in a checkout of its own.
 	others bool
@@ -100,7 +100,7 @@ func (i interruption) remove(t *testing.T) interrupted {
 	tc := w.Context("", acme, nil)
 	name := i.commandName
 	if name == "" {
-		name = "berth"
+		name = "treerig"
 	}
 	tc.CommandName = name
 	sig := i.signal
@@ -148,7 +148,7 @@ func wantNotice(t *testing.T, lines []string, want string) {
 
 func TestWorktreeRemoveInterrupted(t *testing.T) {
 	const host = "feature-login.acme.localhost"
-	const both = "'berth worktree remove' finishes the removal, 'berth up' starts it again and runs the seed hook again."
+	const both = "'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again."
 
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
 		sig := sig
@@ -176,7 +176,7 @@ func TestWorktreeRemoveInterrupted(t *testing.T) {
 	t.Run("counts what compose down took when the signal lands before the first reap", func(t *testing.T) {
 		// The second look for connected shared services is the one just after
 		// the registration is marked pending.
-		out := interruption{match: "label=dev.berth.shared=true", nth: 2, services: []string{"api", "mail"}}.remove(t)
+		out := interruption{match: "label=dev.treerig.shared=true", nth: 2, services: []string{"api", "mail"}}.remove(t)
 		if out.state != registry.Pending {
 			t.Fatalf("initialization = %v, want pending", out.state)
 		}
@@ -209,7 +209,7 @@ func TestWorktreeRemoveInterrupted(t *testing.T) {
 	t.Run("leaves out up when the target is another worktree", func(t *testing.T) {
 		out := interruption{match: " volume rm ", nth: 1, others: true, options: commands.RemoveOptions{Identifier: "feature-other"}}.remove(t)
 		wantNotice(t, out.lines, "Interrupted (SIGINT) while removing feature-other.acme.localhost. Removed so far: nothing confirmed yet. "+
-			"It is still registered, now pending: 'berth worktree remove feature-other' finishes the removal.")
+			"It is still registered, now pending: 'treerig worktree remove feature-other' finishes the removal.")
 	})
 
 	t.Run("keeps the registration and the home", func(t *testing.T) {

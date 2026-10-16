@@ -7,12 +7,12 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sofired/berth/internal/commands"
-	"github.com/sofired/berth/internal/layout"
-	"github.com/sofired/berth/internal/lifecycle"
-	"github.com/sofired/berth/internal/logger"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/run"
+	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/run"
 )
 
 // newRunner builds the runner every leaf action gets as commands.Env.Runner;
@@ -26,7 +26,7 @@ var newRunner func() run.Runner
 // `worktree remove`'s own relocate-and-reexec (#7) hands unchanged to the
 // standalone copy it runs instead. executable and execFn become
 // commands.Env's own Executable and Exec unchanged — nil from Main, so
-// relocation is always skipped there; real from MainProcess, cmd/berth's
+// relocation is always skipped there; real from MainProcess, cmd/treerig's
 // own entry point, the only caller allowed to let a verb replace this
 // process's image. releases becomes commands.Env.Releases the same way: nil
 // from Main, so no in-process test reaches the network.

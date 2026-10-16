@@ -1,4 +1,4 @@
-// Package config loads and validates the committed berth.toml. This is half
+// Package config loads and validates the committed treerig.toml. This is half
 // of the public contract — the other half is the hook protocol — so every
 // field here is a compatibility promise.
 //
@@ -10,10 +10,10 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/sofired/berth/internal/brand"
+	"github.com/sofired/treerig/internal/brand"
 )
 
-// Config is a validated berth.toml with defaults applied.
+// Config is a validated treerig.toml with defaults applied.
 type Config struct {
 	Project Project   `json:"project"`
 	Compose Compose   `json:"compose"`
@@ -163,7 +163,7 @@ func (h Hooks) TimeoutFor(stage HookStage) time.Duration {
 // `config show` states the effective value.
 const DefaultCommandKillAfter = "10s"
 
-// Command is one [commands] entry: what `berth run <name>` runs, and how.
+// Command is one [commands] entry: what `treerig run <name>` runs, and how.
 type Command struct {
 	// Command is split and resolved exactly as a hook is (docs/hooks.md).
 	Command string `json:"command"`
@@ -195,7 +195,7 @@ type NamedCommand struct {
 
 // Commands is the [commands] table in the order the file wrote it. A slice,
 // not a map, because that order is part of the contract: `config show` and
-// the list `berth run` prints both follow it.
+// the list `treerig run` prints both follow it.
 type Commands []NamedCommand
 
 // Get is the command called name.

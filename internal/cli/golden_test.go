@@ -34,7 +34,7 @@ package cli_test
 // goldens list it.
 //
 // Every case here stays within this package's remit — parsing, help,
-// suggestions and the report()/BERTH_DEBUG-hint path — so none of them
+// suggestions and the report()/TREERIG_DEBUG-hint path — so none of them
 // depend on a command's own body. Two specific exceptions are documented at
 // their case below.
 
@@ -47,7 +47,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/berth/internal/cli"
+	"github.com/sofired/treerig/internal/cli"
 )
 
 // update, when passed as -update to `go test`, writes each case's observed
@@ -157,11 +157,11 @@ var goldenCases = []goldenCase{
 	{"complete-config", []string{"__complete", "config", ""}},
 	{"complete-route", []string{"__complete", "route", ""}},
 	{"complete-route-add-flags", []string{"__complete", "route", "add", "--"}},
-	{"complete-route-rm-no-config", []string{"__complete", "route", "rm", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
+	{"complete-route-rm-no-config", []string{"__complete", "route", "rm", "--config", "/nonexistent-treerig-config-x7z.toml", ""}},
 	{"complete-route-rm-name-given", []string{"__complete", "route", "rm", "web", ""}},
 	{"complete-shared", []string{"__complete", "shared", ""}},
 	{"complete-shared-down-flags", []string{"__complete", "shared", "down", "--"}},
-	{"complete-shared-up-no-config", []string{"__complete", "shared", "up", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
+	{"complete-shared-up-no-config", []string{"__complete", "shared", "up", "--config", "/nonexistent-treerig-config-x7z.toml", ""}},
 	{"complete-worktree", []string{"__complete", "worktree", ""}},
 	{"complete-teardown", []string{"__complete", "teardown", ""}},
 	{"complete-teardown-pin-flags", []string{"__complete", "teardown", "pin", "--"}},
@@ -177,7 +177,7 @@ var goldenCases = []goldenCase{
 	{"complete-backup-directories", []string{"__complete", "backup", ""}},
 	{"complete-backup-after-directory", []string{"__complete", "backup", "out", ""}},
 	{"complete-restore-directories", []string{"__complete", "restore", ""}},
-	{"complete-run-config-missing", []string{"__complete", "run", "--config", "/nonexistent-berth-config-x7z.toml", ""}},
+	{"complete-run-config-missing", []string{"__complete", "run", "--config", "/nonexistent-treerig-config-x7z.toml", ""}},
 
 	// --- unknown command, with and without a suggestion ---
 	{"err-unknown-command-far", []string{"nonsense"}},
@@ -196,11 +196,11 @@ var goldenCases = []goldenCase{
 	{"err-route-rm-no-name", []string{"route", "rm"}},
 	{"err-unknown-option-route-add", []string{"route", "add", "web", "--prt", "5173"}},
 	{"err-excess-arguments-route-ls", []string{"route", "ls", "now"}},
-	{"route-ls-missing-file", []string{"route", "ls", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"route-ls-missing-file", []string{"route", "ls", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"err-unknown-command-in-shared", []string{"shared", "dwon"}},
 	{"err-unknown-option-shared-up", []string{"shared", "up", "--recrate"}},
 	{"err-excess-arguments-shared-status", []string{"shared", "status", "now"}},
-	{"shared-up-missing-file", []string{"shared", "up", "--config", "/nonexistent-berth-config-x7z.toml"}},
+	{"shared-up-missing-file", []string{"shared", "up", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"err-unknown-command-in-config-group", []string{"config", "nonexistentSub"}},
 	{"err-unknown-command-in-teardown", []string{"teardown", "pn"}},
 	{"err-unknown-command-near-teardown", []string{"teardwn"}},
@@ -210,16 +210,16 @@ var goldenCases = []goldenCase{
 	{"err-teardown-pin-no-source", []string{"teardown", "pin"}},
 	{"err-teardown-pin-sha256-without-file", []string{"teardown", "pin", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000", "--release", "1.0.0"}},
 	{"err-teardown-pin-release-and-latest", []string{"teardown", "pin", "--release", "1.0.0", "--latest"}},
-	{"err-teardown-pin-latest-with-file", []string{"teardown", "pin", "--latest", "--file", "berth"}},
+	{"err-teardown-pin-latest-with-file", []string{"teardown", "pin", "--latest", "--file", "treerig"}},
 	{"err-teardown-pin-release-not-a-version", []string{"teardown", "pin", "--release", "my-build"}},
 	// --release is the pin's own flag, not the root's -V/--version: a version
 	// reaches the command (which, under Main, has no way to download) rather
-	// than printing berth's version.
+	// than printing treerig's version.
 	{"teardown-pin-release", []string{"teardown", "pin", "--release", "1.0.0"}},
-	{"err-teardown-pin-no-sha256", []string{"teardown", "pin", "--file", "berth"}},
-	{"err-teardown-pin-no-release", []string{"teardown", "pin", "--file", "berth", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000"}},
-	{"err-teardown-pin-bad-sha256", []string{"teardown", "pin", "--file", "berth", "--sha256", "abc", "--release", "x"}},
-	{"err-teardown-pin-bad-release", []string{"teardown", "pin", "--file", "berth", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000", "--release", "a/b"}},
+	{"err-teardown-pin-no-sha256", []string{"teardown", "pin", "--file", "treerig"}},
+	{"err-teardown-pin-no-release", []string{"teardown", "pin", "--file", "treerig", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000"}},
+	{"err-teardown-pin-bad-sha256", []string{"teardown", "pin", "--file", "treerig", "--sha256", "abc", "--release", "x"}},
+	{"err-teardown-pin-bad-release", []string{"teardown", "pin", "--file", "treerig", "--sha256", "0000000000000000000000000000000000000000000000000000000000000000", "--release", "a/b"}},
 	{"err-missing-option-arg-teardown-file", []string{"teardown", "pin", "--file"}},
 
 	// --- unknown option, with and without a suggestion, short and long ---
@@ -272,7 +272,7 @@ var goldenCases = []goldenCase{
 	// argument list, not just before the first subcommand name.
 	{"config-after-subcommand-version", []string{"worktree", "list", "-V"}},
 	{"config-after-subcommand-help", []string{"worktree", "list", "-h"}},
-	{"config-inline-equals", []string{"--config=/nonexistent-berth-config-x7z.toml", "config", "validate"}},
+	{"config-inline-equals", []string{"--config=/nonexistent-treerig-config-x7z.toml", "config", "validate"}},
 	// A required option's value is whatever token follows, even one that
 	// looks like another flag: --config eats "--help" here, leaving a bare
 	// invocation (full help to stderr, exit 1) rather than showing help.
@@ -285,21 +285,21 @@ var goldenCases = []goldenCase{
 	// a temp directory or the test's own cwd), so the output stays
 	// deterministic across machines —
 	// unlike, say, these same commands run with no --config at all, whose
-	// "no berth.toml" message would embed wherever this repository happens
+	// "no treerig.toml" message would embed wherever this repository happens
 	// to be checked out. ---
 	// init refuses --config before it looks at Git or the filesystem, so this
 	// case writes nothing, wherever the tests run. The cases that reach the
-	// write (a fresh repository, an existing berth.toml, no repository) need a
+	// write (a fresh repository, an existing treerig.toml, no repository) need a
 	// directory of their own and live in TestInit and the streams contract.
-	{"init-config-flag", []string{"init", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"config-validate-missing-file", []string{"config", "validate", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"urls-missing-file", []string{"urls", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"backup-missing-file", []string{"backup", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"restore-missing-file", []string{"restore", "somewhere", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"run-missing-file", []string{"run", "plan", "--config", "/nonexistent-berth-config-x7z.toml"}},
-	{"run-missing-file-after-dash", []string{"run", "--config", "/nonexistent-berth-config-x7z.toml", "plan", "--", "--config", "elsewhere"}},
+	{"init-config-flag", []string{"init", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"config-validate-missing-file", []string{"config", "validate", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"urls-missing-file", []string{"urls", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"backup-missing-file", []string{"backup", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"restore-missing-file", []string{"restore", "somewhere", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"run-missing-file", []string{"run", "plan", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"run-missing-file-after-dash", []string{"run", "--config", "/nonexistent-treerig-config-x7z.toml", "plan", "--", "--config", "elsewhere"}},
 }
 
 // TestGolden replays every goldenCases entry against cli.Main and compares
@@ -311,7 +311,7 @@ func TestGolden(t *testing.T) {
 			dir := filepath.Join("testdata", "golden", tc.name)
 
 			var stdout, stderr bytes.Buffer
-			args := append([]string{"berth"}, tc.args...)
+			args := append([]string{"treerig"}, tc.args...)
 			code := cli.Main(args, strings.NewReader(""), &stdout, &stderr, emptyGetenv)
 
 			if *update {
@@ -359,7 +359,7 @@ func writeFixtureFile(t *testing.T, path, content string) {
 }
 
 // emptyGetenv is a controlled, empty environment: nothing this package's
-// own cases read (BERTH_DEBUG, HOME, BERTH_HOME) is ever set.
+// own cases read (TREERIG_DEBUG, HOME, TREERIG_HOME) is ever set.
 func emptyGetenv(string) (string, bool) { return "", false }
 
 // readFixtureFile reads a golden fixture file, failing the test with a hint

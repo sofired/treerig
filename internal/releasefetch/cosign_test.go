@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/berth/internal/registry/registrytest"
-	"github.com/sofired/berth/internal/releasefetch"
-	"github.com/sofired/berth/internal/run"
-	"github.com/sofired/berth/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/releasefetch"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
 )
 
 // cosignFixture is a directory on PATH holding an executable named cosign
@@ -103,7 +103,7 @@ func TestLocate(t *testing.T) {
 		}
 	})
 
-	t.Run("asks for the version in the contract's form, with only the allowlisted environment and berth's own HOME, TUF_ROOT and TMPDIR", func(t *testing.T) {
+	t.Run("asks for the version in the contract's form, with only the allowlisted environment and treerig's own HOME, TUF_ROOT and TMPDIR", func(t *testing.T) {
 		f := newCosignFixture(t, "3.0.6")
 		f.environ = append(f.environ, "LANG=C", "LC_ALL=C", "https_proxy=p", "SSL_CERT_DIR=/c",
 			"SIGSTORE_ROOT_FILE=/evil/root.json", "SIGSTORE_REKOR_PUBLIC_KEY=/evil/rekor.pub", "TUF_ROOT=/evil/tuf", "TMPDIR=/evil",
@@ -142,7 +142,7 @@ func TestLocate(t *testing.T) {
 		}
 	})
 
-	t.Run("a cosign that needs the user's HOME, as an asdf or mise shim does, fails its version call under berth's environment", func(t *testing.T) {
+	t.Run("a cosign that needs the user's HOME, as an asdf or mise shim does, fails its version call under treerig's environment", func(t *testing.T) {
 		f := newCosignFixture(t, "3.0.6")
 		f.runner.Handler = func(_ context.Context, spec run.Spec) (run.Result, error) {
 			for _, entry := range spec.Env {
@@ -243,8 +243,8 @@ func TestLocateContainment(t *testing.T) {
 	t.Run("a sibling that shares a prefix with a root is not inside it", func(t *testing.T) {
 		f := newCosignFixture(t, "3.0.6")
 		parent := registrytest.TempDir(t)
-		root := filepath.Join(parent, "berth")
-		sibling := filepath.Join(parent, "berth.foo")
+		root := filepath.Join(parent, "treerig")
+		sibling := filepath.Join(parent, "treerig.foo")
 		for _, dir := range []string{root, sibling} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
@@ -256,7 +256,7 @@ func TestLocateContainment(t *testing.T) {
 		}
 		f.environ[0] = "PATH=" + sibling
 		if _, err := f.locate(t, releasefetch.Root{Path: canonical(t, root), Where: "this checkout"}); err != nil {
-			t.Fatalf("berth.foo was taken to be inside berth: %v", err)
+			t.Fatalf("treerig.foo was taken to be inside treerig: %v", err)
 		}
 		// And the reverse, so the test sees the difference: inside root itself.
 		if err := os.WriteFile(filepath.Join(root, "cosign"), []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -332,7 +332,7 @@ func TestVerify(t *testing.T) {
 		want := []string{
 			"verify-blob",
 			"--bundle", filepath.Join(dir, "checksums.txt.sigstore.json"),
-			"--certificate-identity", "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3",
+			"--certificate-identity", "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3",
 			"--certificate-oidc-issuer", "https://token.actions.githubusercontent.com",
 			filepath.Join(dir, "checksums.txt"),
 		}
@@ -363,7 +363,7 @@ func TestVerify(t *testing.T) {
 	t.Run("the identity carries the version being pinned, as an exact string", func(t *testing.T) {
 		for _, release := range []string{"1.2.3", "1.2.4", "0.1.0-rc.1", "0.0.0-dev+abc123def456"} {
 			policy := releasefetch.KeylessPolicy{Release: release}
-			want := "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v" + release
+			want := "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v" + release
 			if policy.Signer() != want {
 				t.Fatalf("Signer = %q, want %q", policy.Signer(), want)
 			}
