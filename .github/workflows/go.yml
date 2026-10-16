@@ -68,22 +68,52 @@ jobs:
   # The integration suite against the runner's real Docker daemon, in its own
   # job so it runs in parallel with the rest. It runs the whole suite, not a
   # list of packages, so a Docker test added anywhere is picked up; the tests
-  # that don't need Docker run again here, which costs a few seconds. Its two
-  # legs, with -race and without cgo as released, run as separate jobs, each on
-  # its own runner and Docker daemon, so the job takes as long as the slower
-  # leg rather than both. fail-fast is off so one leg failing still reports the
-  # other.
+  # that don't need Docker run again here, which costs a few seconds.
+  #
+  # The job is a matrix of leg x shard, ten jobs, each on its own runner and
+  # Docker daemon, so it takes as long as the slowest of them. The legs are
+  # -race and no cgo, as released. internal/commands is most of the time, in
+  # serial Docker tests (about 500s of 760s under -race), then internal/router
+  # and internal/cli, so the shards are:
+  #
+  #   commands 1/3, 2/3   slow internal/commands tests named in the script
+  #   commands 3/3        every other test there, selected by -skip of those
+  #                       names, so a new test lands here without an edit
+  #   router + cli        the packages named in the script
+  #   other packages      `go list ./...` minus those and internal/commands,
+  #                       computed at run time, so a new package is picked up
+  #
+  # .github/scripts/commands-shards.sh holds the names and builds each shard's
+  # go test command. Its `check` fails the shard, before any Docker work,
+  # unless every top-level test in internal/commands is selected by exactly one
+  # commands shard and every package is in exactly one shard. The script lives
+  # beside the workflow, not under packaging/, which is release tooling.
+  # Measured 2026-10 on 8 CPUs, seconds of test time per shard, -race / no cgo:
+  # commands 1/3 about 144 / 189, 2/3 about 171 / 189, 3/3 about 182 / 189,
+  # router + cli about 145 / less, other packages about 115 / less. Setup, the
+  # build and the cold image pulls add 1 to 2 minutes to each, and Docker
+  # timings vary 30% between runs. Before sharding, the race leg took 10.6
+  # minutes.
+  #
+  # fail-fast is off so one shard failing still reports the others.
   docker:
-    name: docker ubuntu-latest (${{ matrix.leg }})
+    name: >-
+      docker ubuntu-latest (${{ matrix.leg }},
+      ${{ matrix.shard == 'rest' && 'other packages' || matrix.shard == 'slow' && 'router + cli' || format('commands {0}/3', matrix.shard) }})
     runs-on: ubuntu-latest
-    # -timeout 20m stops a hung package; 35m leaves room for one, the rest of
-    # the leg and setup. Measured 2026-10: about 14m for both legs back to back.
-    timeout-minutes: 35
+    # -timeout 20m stops a hung package. A commands shard is one package, so
+    # 25m leaves room for one hang and setup. The package shards run several
+    # packages, each with its own 20m, so 35m leaves room for one hang and the
+    # rest.
+    timeout-minutes: ${{ (matrix.shard == 'rest' || matrix.shard == 'slow') && 35 || 25 }}
     strategy:
       fail-fast: false
       matrix:
-        # cgo and race go together: -race needs cgo. Each leg keeps its own
-        # build cache, since the two build different objects.
+        leg: [race, no cgo]
+        shard: ['1', '2', '3', slow, rest]
+        # cgo and race go together: -race needs cgo. Each leg and shard keeps
+        # its own build cache, since the legs build different objects and the
+        # shards build different test binaries.
         include:
           - leg: race
             cgo: '1'
@@ -99,7 +129,17 @@ jobs:
 
       - uses: ./.github/actions/setup-go
         with:
-          cache-suffix: ${{ matrix.cache }}
+          cache-suffix: ${{ matrix.cache }}-${{ matrix.shard }}
+
+      # Every top-level test in internal/commands runs in exactly one shard,
+      # and every package in exactly one.
+      # It starts no test, so it needs no Docker. It takes the leg's -race so
+      # that it reuses the packages compiled for the run below.
+      - name: Every commands test and package is in exactly one shard
+        if: matrix.shard != 'rest' && matrix.shard != 'slow'
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: .github/scripts/commands-shards.sh check ${{ matrix.race }}
 
       - name: Integration tests against Docker
         env:
@@ -107,12 +147,13 @@ jobs:
           TREERIG_TEST_REQUIRE_DOCKER: '1'
         # -p 1: one package at a time. The Docker suites pick the router's
         # index and ping ports from a deterministic hash start, so packages
-        # running in parallel collide. -timeout 20m: Go's default of 10m per
-        # package is too tight. internal/commands takes about 5 to 7m under
-        # -race on CI and about 12m on a slower machine, and keeps growing.
-        # A timeout panic skips t.Cleanup and leaks resources.
+        # running in parallel collide. Shards run on separate runners, each
+        # with a daemon of its own, so they don't. -timeout 20m: Go's default
+        # of 10m per package is too tight on a slower machine, where
+        # internal/commands takes about 12m whole. A timeout panic skips
+        # t.Cleanup and leaks resources.
         # matrix.race is a constant from the matrix above, empty on the no-cgo leg.
-        run: go test ${{ matrix.race }} -p 1 -timeout 20m -count=1 -tags integration ./...
+        run: .github/scripts/commands-shards.sh run ${{ matrix.shard }} ${{ matrix.race }} -p 1 -timeout 20m -count=1 -tags integration
 
   # Everything the release builds, minus the publishing and the signing, which
   # need a tag and an OIDC token: GoReleaser's check, then a snapshot of the
@@ -136,7 +177,7 @@ jobs:
       - uses: ./.github/actions/setup-go
 
       - name: ShellCheck
-        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh
+        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh .github/scripts/commands-shards.sh
 
       # Installed once and put on PATH, so the reproducibility step below can
       # run it again; the action alone leaves no goreleaser on PATH.
