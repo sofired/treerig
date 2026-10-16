@@ -1,11 +1,11 @@
 # Release contract
 
-What a berth release publishes, and which of it other things depend on. The
+What a treerig release publishes, and which of it other things depend on. The
 pipeline is `.goreleaser.yaml` (what is built and named) and
 `.github/workflows/release.yml` (who builds it and signs it); CONTRIBUTING.md
 says how to cut one. Everything below is a contract with people and programs
 that cannot be changed with the next release: **renaming `release.yml`,
-changing a file-name template, or moving `berth` inside the archive is a
+changing a file-name template, or moving `treerig` inside the archive is a
 migration, not a refactor.**
 
 ## The assets of release `vX.Y.Z`
@@ -15,21 +15,21 @@ it. All of them are attached to the GitHub Release.
 
 | Asset | Name |
 | --- | --- |
-| Platform archive | `berth_X.Y.Z_<os>_<arch>.tar.gz`, `<os>` `linux` or `darwin`, `<arch>` `amd64` or `arm64` |
-| Source archive | `berth-X.Y.Z.tar.gz`, everything under `berth-X.Y.Z/` |
-| Debian package | `berth_X.Y.Z_<arch>.deb`, `<arch>` `amd64` or `arm64` |
-| RPM package | `berth-X.Y.Z-1.<arch>.rpm`, `<arch>` `x86_64` or `aarch64` |
-| Alpine package | `berth_X.Y.Z_<arch>.apk`, `<arch>` `x86_64` or `aarch64` |
+| Platform archive | `treerig_X.Y.Z_<os>_<arch>.tar.gz`, `<os>` `linux` or `darwin`, `<arch>` `amd64` or `arm64` |
+| Source archive | `treerig-X.Y.Z.tar.gz`, everything under `treerig-X.Y.Z/` |
+| Debian package | `treerig_X.Y.Z_<arch>.deb`, `<arch>` `amd64` or `arm64` |
+| RPM package | `treerig-X.Y.Z-1.<arch>.rpm`, `<arch>` `x86_64` or `aarch64` |
+| Alpine package | `treerig_X.Y.Z_<arch>.apk`, `<arch>` `x86_64` or `aarch64` |
 | Checksums | `checksums.txt`: `<sha256>  <file name>` for every asset above |
 | Signature | `checksums.txt.sigstore.json`: a Sigstore bundle for `checksums.txt` |
 
-A platform archive holds exactly `berth` (at the archive root, mode 0755),
-`LICENSE`, `NOTICE`, `README.md` and `completions/` (`berth.bash`, `_berth`,
-`berth.fish`). The packages install `berth` to `/usr/bin` and the completions
+A platform archive holds exactly `treerig` (at the archive root, mode 0755),
+`LICENSE`, `NOTICE`, `README.md` and `completions/` (`treerig.bash`, `_treerig`,
+`treerig.fish`). The packages install `treerig` to `/usr/bin` and the completions
 where bash, zsh and fish look for them. `packaging/verify-snapshot.sh` asserts
 all of this on every pull request.
 
-A signing or notarization step for the `berth` binary, if one is ever added,
+A signing or notarization step for the `treerig` binary, if one is ever added,
 runs before archiving and checksumming, so every digest describes the signed
 bytes; the teardown pin records those digests.
 
@@ -42,12 +42,12 @@ root ownership, and the pull-request check rebuilds and diffs `checksums.txt`.
 the release workflow at the tag, and its issuer is GitHub's OIDC:
 
 ```
-identity: https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/vX.Y.Z
+identity: https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/vX.Y.Z
 issuer:   https://token.actions.githubusercontent.com
 ```
 
 Every file in `checksums.txt` also has a GitHub build provenance attestation
-from the same workflow (`gh attestation verify <file> --repo sofired/berth`).
+from the same workflow (`gh attestation verify <file> --repo sofired/treerig`).
 The workflow's file name is part of the identity a verifier pins, so a rename
 breaks every verification instruction already published.
 
@@ -67,22 +67,22 @@ files. Nothing the pipeline emits is signed by a package-manager key.
 
 - **`install.sh`** builds the archive name from the platform and version,
   reads `checksums.txt` to find the latest version (from the archive names in
-  it) and the archive's digest, and extracts `berth` from the archive root.
+  it) and the archive's digest, and extracts `treerig` from the archive root.
   It does not check the signature. The script is served from `main`
   (`raw.githubusercontent.com`) or from a tag, so a change to it ships on merge,
   not with a release.
 - **The Homebrew formula** in `sofired/homebrew-tap` builds from the source
   archive; the release workflow takes its digest from `checksums.txt`. The
-  template is `packaging/homebrew/berth.rb`, and
+  template is `packaging/homebrew/treerig.rb`, and
   `packaging/homebrew/set-source.py` points it at a release. The tap job and
-  the snapshot (`dist/berth.rb`) both render it with that script.
+  the snapshot (`dist/treerig.rb`) both render it with that script.
 - **The README's verification steps** pin the identity above.
-- **The teardown pin** (`berth teardown pin`, `docs/design/teardown.md`; #85)
+- **The teardown pin** (`treerig teardown pin`, `docs/design/teardown.md`; #85)
   downloads `checksums.txt`, `checksums.txt.sigstore.json` and the platform
   archive by the names above, verifies `checksums.txt` with `cosign verify-blob`
   against the exact identity above (with the tag's version in it) and issuer,
   and checks the archive against its single line in `checksums.txt`. It takes
-  `berth` from the archive root. The asset names, the archive layout, the
+  `treerig` from the archive root. The asset names, the archive layout, the
   workflow file name and the bundle format (cosign 3 or newer reads it) are
   therefore what it depends on.
 

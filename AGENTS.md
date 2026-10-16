@@ -1,17 +1,17 @@
 # AGENTS.md
 
-Guidance for AI coding agents working on berth. Human contributors should
+Guidance for AI coding agents working on treerig. Human contributors should
 start with [`CONTRIBUTING.md`](CONTRIBUTING.md), which this file builds on;
 where the two disagree, `CONTRIBUTING.md` wins.
 
 ## What this project is
 
-berth gives every Git worktree a durable identity, its own Docker Compose
+treerig gives every Git worktree a durable identity, its own Docker Compose
 project and data directory, and a routed hostname on a shared local router.
 Removing a worktree tears down everything it owned, and only what it can prove
 it owned.
 
-The build lives in `cmd/berth` (the entry point) and `internal/` (everything
+The build lives in `cmd/treerig` (the entry point) and `internal/` (everything
 else).
 
 ## Setup and checks
@@ -44,11 +44,11 @@ printed.
 
 ## Repository map
 
-- `cmd/berth`, `internal/`: the build. One package per concern.
+- `cmd/treerig`, `internal/`: the build. One package per concern.
 - `docs/design/state.md`: which stored state carries a format version, the
   newer-format refusal, and how a migration is added.
 - `docs/design/teardown.md`: the teardown pin, a trusted teardown binary
-  installed and verified by `berth teardown pin`. The removal gate that runs it
+  installed and verified by `treerig teardown pin`. The removal gate that runs it
   is pending (#146).
 - `docs/design/locks.md`, `docs/design/config.md`, `docs/design/release.md`,
   `docs/hooks.md`: design notes (locks; the config file, its JSON Schema and
@@ -82,15 +82,15 @@ break them are not merged.
 - The Docker integration suites remove whatever a killed run left behind.
   Run one of them at a time on a machine.
 - To try a build by hand, give it a scratch home so it doesn't touch the
-  registered worktrees of the person you're working for. `BERTH_HOME` is the
-  berth root — `settings.toml` (#79), the router's own state and lock, and
-  (unless `BERTH_CONTROL_HOME` overrides it) the control home all live under
-  it (#80). A scratch `BERTH_HOME` also moves the router's state and lock,
+  registered worktrees of the person you're working for. `TREERIG_HOME` is the
+  treerig root — `settings.toml` (#79), the router's own state and lock, and
+  (unless `TREERIG_CONTROL_HOME` overrides it) the control home all live under
+  it (#80). A scratch `TREERIG_HOME` also moves the router's state and lock,
   but not the router itself: there is one router container per Docker
   daemon, whichever home starts it. `up` and `router up` refuse to touch a
-  router another berth root started (#82), but `router down` stops it from
+  router another treerig root started (#82), but `router down` stops it from
   anywhere. Ask before starting or stopping it by hand.
-- A scratch `BERTH_HOME` has its own registry, which cannot see the pinned
+- A scratch `TREERIG_HOME` has its own registry, which cannot see the pinned
   loopback ports (#119) of the real worktrees. Before the first `up` there,
   write `[ports]` / `range = "30000-30999"` into its `settings.toml`, so the
   trial never takes a port a real worktree holds.

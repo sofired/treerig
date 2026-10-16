@@ -1,7 +1,7 @@
 # Lock layer and process lifecycle
 
 `internal/lock`, `internal/procid`, `internal/run/osrun`, and `internal/lifecycle`
-implement berth's synchronization and process handling.
+implement treerig's synchronization and process handling.
 
 ## Design
 
@@ -22,12 +22,12 @@ let an exit hook remove the lock directory), and #12 (the router lock was per
 control home): #39 moved the router onto this design, in its own state
 directory rather than any control home, so every control home sharing that
 state directory now waits on the same lock instead of each holding its own.
-As of #80, that state directory is `<BERTH_HOME>/router` — the berth root,
+As of #80, that state directory is `<TREERIG_HOME>/router` — the treerig root,
 not a fixed per-user-account location — so it is shared by every control
-home under the same berth root, not necessarily by every control home on
-the machine; a scratch `BERTH_HOME` used to isolate a control home also
+home under the same treerig root, not necessarily by every control home on
+the machine; a scratch `TREERIG_HOME` used to isolate a control home also
 gets its own copy of the router's lock and state, though not its own router
-container (one per Docker daemon regardless of berth root — see
+container (one per Docker daemon regardless of treerig root — see
 `internal/layout`'s `RouterStateDir`/`RouterLayout` comments, and AGENTS.md's
 "Running things safely").
 
@@ -35,7 +35,7 @@ Docker children inherit the lock: `docker` and `docker compose` get the
 worktree lock's descriptor through `ExtraFiles`, as fd 3. Hooks do not — a
 hook's leftover helper would otherwise keep the worktree locked after a
 successful `up`, so those leftovers are instead caught by the process scan
-after an unclean exit. The same goes for `berth run`'s commands (#94): they
+after an unclean exit. The same goes for `treerig run`'s commands (#94): they
 run interactively, and `Spec.InheritLocks` does not combine with
 `Output: Interactive` — the interactive spec wins and no descriptor is handed
 over, since an interactive child's whole process group is drained before
@@ -46,8 +46,8 @@ and fails the build if anything outside `internal/docker` sets
 
 A control home, or the router's own state directory, on NFS, SMB, FUSE
 (including virtiofs), or 9p is refused; the message names whichever
-environment variable actually governs that directory (`BERTH_CONTROL_HOME`
-for the control home, `BERTH_HOME` for the router's — `Scope.HomeEnvVar`,
+environment variable actually governs that directory (`TREERIG_CONTROL_HOME`
+for the control home, `TREERIG_HOME` for the router's — `Scope.HomeEnvVar`,
 #80) and tells the user to point it at a local directory instead. So is one
 on a cluster filesystem whose locks may be local to one client: Lustre, GPFS,
 CephFS, AFS, Coda, OCFS2, GFS2. There is no Windows support.
@@ -136,30 +136,29 @@ tests skip there.
   `worktree remove` takes the development lock as well, and is refused while
   one is attached.
 - The survivor scan (`procid.Marked`) counts a process as a worktree's own when
-  its environment holds `BERTH_WORKTREE_ID=<wt>` or `COMPOSE_PROJECT_NAME=<p>`.
+  its environment holds `TREERIG_WORKTREE_ID=<wt>` or `COMPOSE_PROJECT_NAME=<p>`.
   Hooks and commands now set `COMPOSE_PROJECT_NAME` (docs/hooks.md), and
-  already carried `BERTH_WORKTREE_ID`, so the set of processes counted is
+  already carried `TREERIG_WORKTREE_ID`, so the set of processes counted is
   unchanged: a hook's children were the worktree's processes before and are
   now marked twice.
 - The router lock's target is `layout.RouterState`'s `LockPath`,
-  `<BERTH_HOME>/router/lock` (#80) — never any control home's own `locks/`,
-  so every control home under the same berth root waits on the same lock
-  (#12, #13). A berth root is not a fixed, per-user-account location the
-  way it was before #80 (previously `$XDG_STATE_HOME/berth/router/lock`, or
-  `$HOME/.local/state/berth/router/lock` when that is unset, on Linux;
-  `$HOME/Library/Application Support/berth/router/lock` on macOS): a
-  different `BERTH_HOME` reads and writes a different lock file entirely,
+  `<TREERIG_HOME>/router/lock` (#80) — never any control home's own `locks/`,
+  so every control home under the same treerig root waits on the same lock
+  (#12, #13). A treerig root is not a fixed, per-user-account location the
+  way it was before #80 (then it sat in the OS's per-account state directory:
+  `$XDG_STATE_HOME` or `$HOME/.local/state` on Linux, `Library/Application
+  Support` on macOS): a different `TREERIG_HOME` reads and writes a different lock file entirely,
   which does *not* exclude the first — yet the router container this lock
-  guards is still one per Docker daemon regardless of berth root (its
-  Compose project name is fixed). Two berth roots' `router up`s therefore
+  guards is still one per Docker daemon regardless of treerig root (its
+  Compose project name is fixed). Two treerig roots' `router up`s therefore
   never wait on each other. What stops the second from recreating the
   first's router out from under it is not the lock but a label (#82): both
-  router containers carry `dev.berth.router-home`, the berth root whose
+  router containers carry `dev.treerig.router-home`, the treerig root whose
   `Ensure` last started them, and `Ensure` refuses — before it reads or
   writes anything — a running router whose label names another root. The
   way out is explicit: `router down`, which is never gated on ownership,
   stops it from any root, and the next root's `router up` starts its own.
-  A router carrying no label is refused the same way, since this berth root
+  A router carrying no label is refused the same way, since this treerig root
   did not start it either; `doctor` reports the owner read-only. What the
   label does not close is the cold
   start: two roots that each find no router running can still both go on
@@ -179,7 +178,7 @@ tests skip there.
   machine-wide lock. There is no network to attach or detach: a route file
   names a loopback port. What spans every worktree runs inside
   `Router.Ensure`, under the router lock: allocating the checkout index's and
-  the ping entrypoint's ports into `<BERTH_HOME>/router/state.json` (below),
+  the ping entrypoint's ports into `<TREERIG_HOME>/router/state.json` (below),
   and repairing route files that disagree with a registration. That repair
   reads registrations without the registry lock and reads a record again
   immediately before it removes or rewrites a file, which narrows the window
@@ -236,7 +235,7 @@ tests skip there.
    `ctx.Done()` ends the wait with the context's own cancellation cause;
    nothing is held then.
 2. Once the flock is taken, compares `fstat(fd)` with `lstat(path)` (same
-   dev and ino). Berth never unlinks lock files itself, so a mismatch is a
+   dev and ino). treerig never unlinks lock files itself, so a mismatch is a
    tight race with something else replacing the path; it reopens and
    retries.
 3. Checks the filesystem once per scope (`CheckFS`): `statfs` refuses NFS,
@@ -309,7 +308,7 @@ tests skip there.
 
 ## `internal/run/osrun`
 
-Implements `run.Runner`: every subprocess berth spawns for real goes through
+Implements `run.Runner`: every subprocess treerig spawns for real goes through
 here — a session per child instead of Execa's process-tree tracking, and
 its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
 
@@ -318,14 +317,14 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
   default) then sends SIGKILL to `-pgid`. `WaitDelay` is about 2 s, so a
   descendant holding the output pipe cannot hang `Wait`.
 - An interactive child always gets `SysProcAttr{Setpgid: true}` — its own
-  process group, never berth's. When its stdin is a terminal and berth
+  process group, never treerig's. When its stdin is a terminal and treerig
   currently holds that terminal's foreground, it also gets `Foreground:
   true` (with `Ctty: 0`), handing it the terminal atomically as part of the
   same fork+exec; otherwise (piped, backgrounded, `ssh` without `-t`, CI) it
   gets the process group alone. Only the foreground case waits with its own
   `runForegroundChild`, a `wait4(pid, WUNTRACED)` loop instead of
   `cmd.Wait()` — the only way to see the child stop. A stop hands the
-  terminal back to berth's own group and stops this whole process with
+  terminal back to treerig's own group and stops this whole process with
   SIGSTOP, the way a real shell answers Ctrl-Z on a job it started; the
   resume (SIGCONT from outside, typically the real shell answering `fg`)
   hands the terminal back to the child's group and `SIGCONT`s it.
@@ -336,7 +335,7 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
   only one foreground interactive child may be mid-flight in this process
   at a time.
 - Once an interactive child's leader is gone, `drainGroup` always runs,
-  whether or not berth itself was ever signalled: SIGTERM to whatever the
+  whether or not treerig itself was ever signalled: SIGTERM to whatever the
   group still holds, SIGKILL after `KillAfter`, bounded at `drainBudget`:
   `quiesceBudget` (about 15 s, the way `Quiesce` bounds its own wait), or
   `KillAfter` plus 5 s when a command's `kill-after` is longer than that
@@ -368,7 +367,7 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
   sets `OutputOverflow`.
 - Output can be captured only, teed to this process's matching stream, or
   teed to stderr for both streams; either way both are captured.
-- `Env == nil` inherits berth's own environment; when `Env` is set, the
+- `Env == nil` inherits treerig's own environment; when `Env` is set, the
   command is looked up on the child's own `PATH`, as Node does.
 - `Which(name)` walks `PATH` for an executable regular file. `Quiesce(ctx)`
   returns once every child this Runner started has been reaped and
@@ -379,7 +378,7 @@ its own SIGTERM-then-SIGKILL timer instead of Execa's `forceKillAfterDelay`.
 One lifecycle for the whole process, started once in `main`.
 
 - `signal.Notify` covers SIGINT, SIGTERM and SIGHUP (a closed terminal, which
-  `berth run` forwards to its command), skipping any signal
+  `treerig run` forwards to its command), skipping any signal
   `signal.Ignored` already reports.
 - The first signal cancels the root context with the cause
   `Interrupted{sig}`. Later SIGINT or SIGTERM signals print one "still
@@ -441,7 +440,7 @@ working in it. Which verbs take it:
 
 `worktree remove` waits the lock's 1 s, then refuses, naming the session's
 holder and telling you to end it with Ctrl-C in the terminal running
-`berth dev`; a second `dev` does the same. (A second `dev` first runs `up`'s
+`treerig dev`; a second `dev` does the same. (A second `dev` first runs `up`'s
 router and shared-service steps and may wait on the operation lock before the
 1 s refusal; it changes nothing of the worktree.) `up`, `down`, `run`,
 `backup` and `restore` work during a session; a `backup` or `restore` of a
@@ -463,12 +462,12 @@ which is already back and marked released.
 
 The follower is run `Interactive` (`internal/run/osrun`), so it is in its own
 process group, nothing is captured, and the runner drains the group before
-`Run` returns, whether berth was signalled or not; that is the "stop the
+`Run` returns, whether treerig was signalled or not; that is the "stop the
 group, then release the lock" the session needs. A SIGINT, SIGTERM or SIGHUP
-that reaches berth cancels the context, the runner forwards it to the group
-(SIGHUP as SIGTERM), a notice names the signal, and berth dies by the signal
+that reaches treerig cancels the context, the runner forwards it to the group
+(SIGHUP as SIGTERM), a notice names the signal, and treerig dies by the signal
 once the lock is released, as in `run`. A Ctrl-C at a terminal goes to the
-follower's foreground group instead, so berth sees the follower end by SIGINT
+follower's foreground group instead, so treerig sees the follower end by SIGINT
 (or exit 130, which is Compose handling the interrupt itself) and ends the
 session itself with exit 130 and the same notice (`clierr.Ended`, printed as
 information, not as an error). Any other end of the follower is the session
@@ -480,7 +479,7 @@ On Compose 5.5.0 it has kept waiting for new containers when a `restart:
 always` service had restarted under it (it depends on where in the restart
 cycle the containers were removed), and otherwise exits 0 once they are gone,
 ending the session with a message; Compose 2.38.2 always exits. A session may
-therefore idle after a `berth down`, and a later `berth up` may show the new
+therefore idle after a `treerig down`, and a later `treerig up` may show the new
 containers' logs. An idle session keeps refusing `worktree remove` until
 Ctrl-C. The real-daemon test, which includes a `restart: always` service,
 accepts either outcome and checks that the lock, the follower and the refusal
@@ -489,7 +488,7 @@ no container is left, saying that `worktree remove` refuses until the session
 ends; it is read-only, bounded by the probe timeout, and joined before the
 session returns. The session-end notice then omits "its services are still
 running", since the last look found none.
-A `kill -9` of berth frees the lock with the process (the follower is not
+A `kill -9` of treerig frees the lock with the process (the follower is not
 given the lock) but leaves the follower running on its own.
 
 **One sanctioned exception to "the router lock is taken alone".** After
@@ -522,7 +521,7 @@ range under the router lock, not the registry lock, and the two locks are
 never nested. `Router.Ensure` reads the registrations without the registry
 lock (every registry writer goes through `files.AtomicJSON`, a temporary file
 then a rename) to keep its pick clear of their ports, and stores both ports
-in one file, `<BERTH_HOME>/router/state.json`, written once and kept. `up`
+in one file, `<TREERIG_HOME>/router/state.json`, written once and kept. `up`
 passes that file's ports as `PortPlan.Reserved`, so `SyncPorts` skips them,
 and `Ensure` runs before the allocation in the same `up`. Within one control
 home a worktree allocation and a first-ever index/ping allocation can still
@@ -569,14 +568,14 @@ again.
 One new scope, `lock.SharedScope(controlHome, repositoryID)`, target
 `<control home>/locks/shared/<repo>`: a single lock for all of a repository's
 shared services, with the shared Compose project's name
-(`berth-shared-<24 hex>`) as its survivor-scan marker. Its timeout is 15
+(`treerig-shared-<24 hex>`) as its survivor-scan marker. Its timeout is 15
 minutes, the longest thing done under it: a `compose up --wait` of five
 minutes, a pull and a recreate. `lifecycle.Requests` gains `Shared`, and the
 order everywhere is operation, development, shared, registry, with the router
 still alone (bar that `dev` refresh). **Nothing takes the shared lock and then a worktree lock.** That
 one rule is what keeps the order acyclic, and it shapes every caller:
 
-- `berth up` starts or reuses the instance under the shared lock *alone*,
+- `treerig up` starts or reuses the instance under the shared lock *alone*,
   before `mutate`, so a worktree's 25-minute operation lock is never held
   waiting on a slow shared start.
 - Connecting a worktree runs inside that worktree's operation lock and takes
@@ -585,7 +584,7 @@ one rule is what keeps the order acyclic, and it shapes every caller:
   a Docker child in order (`lock.AddHeld`), and refuses a request for an
   operation, development or router scope, and records the highest kind
   already held on the action's context so a request that does not come after
-  it (an inversion) is refused as a bug in berth. The operation lock is what excludes this worktree's own
+  it (an inversion) is refused as a bug in treerig. The operation lock is what excludes this worktree's own
   disconnect, so the shared container is never attached to a network that is
   being removed.
 - Disconnecting (`down`, `worktree remove`) needs the operation lock only, so
@@ -597,7 +596,7 @@ one rule is what keeps the order acyclic, and it shapes every caller:
   busy yields a `*lock.BusyError` (a transparent subtype of the `clierr.Error` it
   wraps: same message, printed once, `Suppressed` kept; `errors.As` finds
   either), which the sweep reads by type, not by text: it is skipped with a
-  warning and repaired by its own next `up`, by `berth
+  warning and repaired by its own next `up`, by `treerig
   shared up` (which always sweeps) or found by `doctor`. A sweep run from
   inside a worktree's own hook skips that worktree without waiting, since the
   lock is its caller's.
@@ -624,12 +623,12 @@ is already in use" (verified), which `stack.Up` returns as a
 label again: running means it is theirs to use. A running instance found with
 no local record is reported and its ports are never re-allocated. Docker calls
 under the lock are bounded (30 s for an inspection, a minute for a removal);
-an inspect that fails, or a container state berth does not know, fails the
+an inspect that fails, or a container state treerig does not know, fails the
 command, because a container that cannot be proven absent must not be assumed
 absent: that would start a duplicate or recreate a running instance.
 
 There is no age-based cleanup. The flock frees on death, and the recovery is
-`berth worktree unlock --shared`, which runs the same `lock.ProbeHeld` and
+`treerig worktree unlock --shared`, which runs the same `lock.ProbeHeld` and
 `lock.Clear` checks as a worktree's lock against this scope, scanning for
 processes carrying the shared project's name.
 

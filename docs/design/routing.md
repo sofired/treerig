@@ -1,6 +1,6 @@
 # Routing: pinned loopback ports and a loopback proxy
 
-How berth routes `<service>.<slug>.<domain>` to a worktree's services, and
+How treerig routes `<service>.<slug>.<domain>` to a worktree's services, and
 why. This note is where the spike evidence and the approved decisions live;
 #119 (pinned ports), #120 (the proxy) and #6 (host routes) are implemented
 from it, and #121 (rootless Docker) is a follow-up. Shared services (one
@@ -15,7 +15,7 @@ their control:
 - a stable hostname per worktree and service, `<service>.<slug>.<domain>`,
   and the same for a process running on the host (#6);
 - several worktrees of the same stack running side by side;
-- the checkout index, `urls`, `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>`;
+- the checkout index, `urls`, `TREERIG_URL` and `TREERIG_SERVICE_URL_<NAME>`;
 - a service run once per repository and used by every worktree of it, such as
   an email catcher (shared services, below);
 - working under a default-deny host firewall (ufw) and on macOS.
@@ -40,7 +40,7 @@ The design instead makes every hop a loopback hop:
 browser ──▶ 127.0.0.1:80  proxy container (Traefik)
                               │  file provider: <router state>/dynamic/*.yaml
                               ▼
-                     berth-loopback:<port>
+                     treerig-loopback:<port>
                               │
              ┌────────────────┴───────────────┐
              ▼                                ▼
@@ -73,28 +73,28 @@ services (the owner ruled on the network model, 22, and on raw ports).
 | # | Decision | Why |
 |---|----------|-----|
 | 1 | The proxy's mode comes from `docker info`, not the host OS: **host** network on a native rootful Linux Engine; **bridge** network on Docker Desktop and OrbStack. Rootless, remote daemons and anything unrecognized are refused with a clear message (rootless points at #121). `[router] mode` in `settings.toml` overrides detection: the override replaces only the "unrecognized" refusal and never lifts the remote, rootless or non-Linux-containers refusals. A mode change recreates the proxy through Compose, because its configuration changes. `doctor` and `router status` show the running container's mode, read from a label on it, not the configured one. | The daemon decides what "localhost" means to a container, not the OS the CLI runs on (Docker Desktop for Linux is a VM). Refusing the unknown beats guessing a mode that half-works. |
-| 2 | Route files target the alias `berth-loopback`, which the proxy's `extra_hosts` maps to `127.0.0.1` in host mode and to `host-gateway` in bridge mode. | Route files never depend on the mode, so a mode change never rewrites them. |
+| 2 | Route files target the alias `treerig-loopback`, which the proxy's `extra_hosts` maps to `127.0.0.1` in host mode and to `host-gateway` in bridge mode. | Route files never depend on the mode, so a mode change never rewrites them. |
 | 3 | Ports live in an optional `ports` map on the registration record (record version stays 1; a record without it is valid). Allocation runs under the registry lock: start at a hash of (worktree ID, service), probe forward, skip any port in any registration and any port that fails a loopback bind probe. Default range 20000-29999, configurable in `settings.toml`; tests and scratch roots use a separate range. Both allocators, a worktree's and a shared service's, also skip the index port and the ping port (decisions 7 and 8), which live in router state. One record builder serves every registry writer, so no writer can drop `ports`. A user's own dev server may take an allocated port later; the bind probe at allocation, Docker's clean bind error on `up`, and `--reallocate-port` (decision 4) cover that. | Stable across restarts and reboots; the hash start makes re-allocation after a lost record land on the same port. 20000-29999 sits below Linux's ephemeral range (32768) and macOS's (49152), so the OS does not hand it out. A single builder is the only way to guarantee a writer that does not know about `ports` cannot erase it. |
 | 3a | Registry locks are per control home. Two control homes can allocate the same port at once; this race is accepted, and Docker's bind error on the second `up` catches it. It covers the router's index and ping ports too (decisions 7 and 8): the remedy is `--reallocate-port` on the worktree side, or removing `router/state.json` for the router's. | A machine-wide registry lock is not this design (the same trade `docs/design/locks.md` records for the router). The failure is clean and recoverable (decision 4). |
-| 4 | Stuck port: `berth up --reallocate-port <service>`. It refuses when the port is held by this worktree's own container, proven by its ownership labels, and says the URL changes. | The escape hatch for a port another program took. Ownership proof stops it from moving a port out from under a running container. |
-| 5 | `up` releases the allocation of a service removed from `berth.toml`. Otherwise only `worktree remove` releases allocations, after the worktree's containers are gone (after Reap) and before the record itself is deleted. | A port may not be reused while a container of the old owner could still hold it. Releasing before the record is deleted keeps the allocation reachable if the process dies in between; the step is idempotent. |
-| 6 | `urls`, `BERTH_URL` and `BERTH_SERVICE_URL_<NAME>` stay hostname URLs (a host route's entry in `urls --json` carries `"hostRoute": true`, and its `port` is the one its process listens on). New: `BERTH_SERVICE_PORT_<NAME>` for hooks and `berth run`, and a `port` key in `urls --json` and `status --json` (additive). | Hostnames are the contract users bookmark; the port is for tools that must bypass the proxy. |
-| 7 | The checkout index (busybox) publishes on its own `127.0.0.1` port and is routed like a service. Its port is stored in router state under `BERTH_HOME`, not in any registration, and is allocated once from the same range under the router lock. | One routing path for everything; no shared network for the index either. The index belongs to no worktree, so it has no record to hold a port; router state is where the router's other per-root facts live. |
+| 4 | Stuck port: `treerig up --reallocate-port <service>`. It refuses when the port is held by this worktree's own container, proven by its ownership labels, and says the URL changes. | The escape hatch for a port another program took. Ownership proof stops it from moving a port out from under a running container. |
+| 5 | `up` releases the allocation of a service removed from `treerig.toml`. Otherwise only `worktree remove` releases allocations, after the worktree's containers are gone (after Reap) and before the record itself is deleted. | A port may not be reused while a container of the old owner could still hold it. Releasing before the record is deleted keeps the allocation reachable if the process dies in between; the step is idempotent. |
+| 6 | `urls`, `TREERIG_URL` and `TREERIG_SERVICE_URL_<NAME>` stay hostname URLs (a host route's entry in `urls --json` carries `"hostRoute": true`, and its `port` is the one its process listens on). New: `TREERIG_SERVICE_PORT_<NAME>` for hooks and `treerig run`, and a `port` key in `urls --json` and `status --json` (additive). | Hostnames are the contract users bookmark; the port is for tools that must bypass the proxy. |
+| 7 | The checkout index (busybox) publishes on its own `127.0.0.1` port and is routed like a service. Its port is stored in router state under `TREERIG_HOME`, not in any registration, and is allocated once from the same range under the router lock. | One routing path for everything; no shared network for the index either. The index belongs to no worktree, so it has no record to hold a port; router state is where the router's other per-root facts live. |
 | 8 | Traefik's ping gets a dedicated entrypoint, never `web`. Host mode: `--entrypoints.traefik.address=127.0.0.1:<ping port>` with `--ping.entryPoint=traefik`, and the healthcheck carries the same address flag. The ping port is allocated like the index port (once, from the same range, under the router lock) and stored in router state. Bridge mode: the ping entrypoint listens on a fixed port inside the container, is never published, and takes no port from the range. The index and ping ports share one router-state file. Never Traefik's default `*:8080`. | Ping on `web` would shadow every routed service's own `/ping` on every hostname. `--ping=true` alone opens `*:8080`, a wildcard listener (spike). The healthcheck runs as a separate process and needs its own copy of the entrypoint flags (verified on Linux). |
-| 9 | A route file is judged only when this control home holds a record for that exact repository and worktree. For such a file, a record with no port for its service gets the file removed and a record with another port gets the file rewritten to the recorded one, by `router up`/`Ensure`; `doctor` reports both. A host route file is judged against `hostRoutes` the same way: a file whose record has no route of that name is removed, and a file that is not exactly what the record produces (another port, or another rule after the worktree's hostname changed) is rewritten whole. A recorded host route whose file is missing is reported by `doctor` (`checkout.host-route-files`) and never recreated by repair, which only acts on a file that exists, so it does not bring back a file a `worktree remove` has taken; `berth route add` with the route's own name, port, subdomain and path rewrites the file and changes no record, which is the heal. A repair rewrite that races a `worktree remove` can still put one file back, a residual window service files share; `doctor` reports it as unmatched. A file with no such record is reported by `doctor` (`router.orphaned-routes`) with the count and how to remove it (delete it from the dynamic directory), and never removed, because the router's state is per berth root and it may belong to another control home. It is a warning (instance `unmatched`) when this control home knows the repository but not the worktree, likely stale, and a notice (instance `other-home`, status ok) when it does not know the repository, likely another control home's. `up` commits a port allocation to the registration before it writes the route file. Repair reads registrations without the registry lock (every registry writer goes through `files.AtomicJSON`, a temporary file then a rename) and re-reads a record immediately before acting, which narrows the window against a concurrent `up` or a just-added host route without closing it; the rewrite is eventually consistent with the writer, whose next `up` writes the same port. The router lock and the registry lock are never nested. | Once ports are reused, a stale file would send an old hostname to another worktree's service. |
-| 10 | The name `router`, the router-home ownership check (#82) and the refusal of a router started by a newer berth stay. A running router with the per-worktree-network layout is refused with "run `berth router down` first". `Protocol` is bumped only when Compose cannot recreate a router of the older generation into the new one; a change of mode, port or digest never bumps it. `router status` and `doctor` report a running router at another protocol with the same advice. The labels `dev.berth.router-mode` and `dev.berth.router-port` and the file `router/state.json` are storage names, pinned by tests. | Those are safety properties, independent of the transport. No code converts the old layout. |
-| 11 | Host routes (#6) are stored in the registration record (`hostRoutes`, a list sorted by name of `{name, port, subdomain?, path?}`); route files are derived from it, named `host.<repo>.<wt>.<name>.yaml`; the Traefik router name is `<project>_host_<name>`. A host route may not share a service's name, and two host routes may share a port (different places, one dev server). It takes the same routing fields as a `[service.<name>]` table (`--subdomain` and `--path`, either or both) and gets the hostname a service with that name and those fields would get. `route add` and `doctor` warn on a listener that answers only on `::1` in bridge mode (#120 maps `berth-loopback` to both `127.0.0.1` and `::1` in host mode, so there it is reachable; see Open items); they warn too when the mode cannot be read, since then it may be bridge. `route add`, `route rm` and `worktree remove` change host routes; `up` and `down` leave them alone, and neither writes nor removes a host route file. `route add` refuses a name that is a `[service.<name>]`, a declared `[shared.service.<name>]` or another host route's; a place (subdomain and path) a service or another host route already answers at; the router's own port; and a port berth pinned for a service or a shared service. The allocator treats a host route's port as taken. A shared service, or a `[service.<name>]`, named like an existing host route, or a `[service.<name>]` answering at its place, is refused by `up` and `shared up` before anything starts and again under the operation lock, because host routes live in the record and config validation cannot see them. `router.route-probe` probes host route files too, the only check of the proxy-to-host hop; a host route whose process is stopped (a 502, 503 or 504) is `ok` there, in the words of `checkout.host-routes`, since that is its normal state. The checkout index lists host routes from the record, never from the card, which only counts containers. | The record is the source of truth and route files are a cache, so decision 9's repair covers host routes too. `host.` is a prefix the service-route sweeps and `ListFragments` never match; `_` is outside the service-name alphabet, so the router name cannot collide with a service's. Repository and worktree IDs are UUIDs and service names are `[a-z0-9-]`, so `host.<repo>.<wt>.<name>.yaml` cannot collide with `<repo>.<wt>.<service>.yaml`; a test uses a repository named `host`. The `::1` warning holds in bridge mode: Docker Desktop cannot reach `::1`. In host mode `berth-loopback` maps to `::1` as well, which reaches a `::1`-only listener (verified). The fix is to bind `127.0.0.1`. |
-| 12 | `doctor` warns on a routed service with a fixed published host port. `up` refuses a routed service with `network_mode: host`, `network_mode: service:...`, or replicas above 1. | Berth needs to own the published port. A host-network or shared-namespace service has no port to publish; several replicas cannot share one. |
+| 9 | A route file is judged only when this control home holds a record for that exact repository and worktree. For such a file, a record with no port for its service gets the file removed and a record with another port gets the file rewritten to the recorded one, by `router up`/`Ensure`; `doctor` reports both. A host route file is judged against `hostRoutes` the same way: a file whose record has no route of that name is removed, and a file that is not exactly what the record produces (another port, or another rule after the worktree's hostname changed) is rewritten whole. A recorded host route whose file is missing is reported by `doctor` (`checkout.host-route-files`) and never recreated by repair, which only acts on a file that exists, so it does not bring back a file a `worktree remove` has taken; `treerig route add` with the route's own name, port, subdomain and path rewrites the file and changes no record, which is the heal. A repair rewrite that races a `worktree remove` can still put one file back, a residual window service files share; `doctor` reports it as unmatched. A file with no such record is reported by `doctor` (`router.orphaned-routes`) with the count and how to remove it (delete it from the dynamic directory), and never removed, because the router's state is per treerig root and it may belong to another control home. It is a warning (instance `unmatched`) when this control home knows the repository but not the worktree, likely stale, and a notice (instance `other-home`, status ok) when it does not know the repository, likely another control home's. `up` commits a port allocation to the registration before it writes the route file. Repair reads registrations without the registry lock (every registry writer goes through `files.AtomicJSON`, a temporary file then a rename) and re-reads a record immediately before acting, which narrows the window against a concurrent `up` or a just-added host route without closing it; the rewrite is eventually consistent with the writer, whose next `up` writes the same port. The router lock and the registry lock are never nested. | Once ports are reused, a stale file would send an old hostname to another worktree's service. |
+| 10 | The name `router`, the router-home ownership check (#82) and the refusal of a router started by a newer treerig stay. A running router with the per-worktree-network layout is refused with "run `treerig router down` first". `Protocol` is bumped only when Compose cannot recreate a router of the older generation into the new one; a change of mode, port or digest never bumps it. `router status` and `doctor` report a running router at another protocol with the same advice. The labels `dev.treerig.router-mode` and `dev.treerig.router-port` and the file `router/state.json` are storage names, pinned by tests. | Those are safety properties, independent of the transport. No code converts the old layout. |
+| 11 | Host routes (#6) are stored in the registration record (`hostRoutes`, a list sorted by name of `{name, port, subdomain?, path?}`); route files are derived from it, named `host.<repo>.<wt>.<name>.yaml`; the Traefik router name is `<project>_host_<name>`. A host route may not share a service's name, and two host routes may share a port (different places, one dev server). It takes the same routing fields as a `[service.<name>]` table (`--subdomain` and `--path`, either or both) and gets the hostname a service with that name and those fields would get. `route add` and `doctor` warn on a listener that answers only on `::1` in bridge mode (#120 maps `treerig-loopback` to both `127.0.0.1` and `::1` in host mode, so there it is reachable; see Open items); they warn too when the mode cannot be read, since then it may be bridge. `route add`, `route rm` and `worktree remove` change host routes; `up` and `down` leave them alone, and neither writes nor removes a host route file. `route add` refuses a name that is a `[service.<name>]`, a declared `[shared.service.<name>]` or another host route's; a place (subdomain and path) a service or another host route already answers at; the router's own port; and a port treerig pinned for a service or a shared service. The allocator treats a host route's port as taken. A shared service, or a `[service.<name>]`, named like an existing host route, or a `[service.<name>]` answering at its place, is refused by `up` and `shared up` before anything starts and again under the operation lock, because host routes live in the record and config validation cannot see them. `router.route-probe` probes host route files too, the only check of the proxy-to-host hop; a host route whose process is stopped (a 502, 503 or 504) is `ok` there, in the words of `checkout.host-routes`, since that is its normal state. The checkout index lists host routes from the record, never from the card, which only counts containers. | The record is the source of truth and route files are a cache, so decision 9's repair covers host routes too. `host.` is a prefix the service-route sweeps and `ListFragments` never match; `_` is outside the service-name alphabet, so the router name cannot collide with a service's. Repository and worktree IDs are UUIDs and service names are `[a-z0-9-]`, so `host.<repo>.<wt>.<name>.yaml` cannot collide with `<repo>.<wt>.<service>.yaml`; a test uses a repository named `host`. The `::1` warning holds in bridge mode: Docker Desktop cannot reach `::1`. In host mode `treerig-loopback` maps to `::1` as well, which reaches a `::1`-only listener (verified). The fix is to bind `127.0.0.1`. |
+| 12 | `doctor` warns on a routed service with a fixed published host port. `up` refuses a routed service with `network_mode: host`, `network_mode: service:...`, or replicas above 1. | treerig needs to own the published port. A host-network or shared-namespace service has no port to publish; several replicas cannot share one. |
 | 13 | No Traefik API. `doctor` probes each route over HTTP. A 404 is judged by sending the same request (path and Host) straight to the route file's target on `127.0.0.1:<port>`: the same 404 there is the service's own and the route is fine; a 404 the target does not give means the route is not loaded (a failure), retried for 5-10 s. A 502, 503 or 504, an unreachable target or a router that does not answer is retried at most twice, and the total is capped. The comparison has limits: a service that itself 404s at the probed path makes an unloaded route read OK, and a router 404 with an unreachable target reads as target down (a warning), not as an unloaded route. | The file provider picks changes up after about a 2 s throttle. Without the API, the response itself is the evidence. |
 | 14 | This note lands in its own docs PR before #119. | So the decisions are reviewable apart from code. |
-| 15 | **Model.** A shared service is one instance per repository UUID, defined in a separate Compose file named by `[shared] file` and run as one Compose project per repository, `berth-shared-<24 hex of sha256("shared:" + repositoryID)>`. `[shared.service.<name>]` names a service in that file by its key (an optional routed `port`; optional raw `ports`; `used-by`), keyed like `[service.<name>]` and `[commands.<name>]`. `used-by` lists the worktree services that use it: they make a worktree "need" the service (auto-start) and are the services whose networks it joins (decision 22). A shared name may not equal a service in the worktree's Compose file, a `[service.<name>]` or a host route (the alias would resolve to two things). Host-run shared services (a service running natively outside Docker, used by containers) are out of scope: on Linux with ufw a container cannot reach the host. | A separate file keeps the service out of every worktree's own project (a shared service in the worktree file would start in each of them, and each branch's copy of the file would differ). One project means one ownership label set. Listing consumers puts the opt-in on the shared side, so no `[[service]]` change is needed and non-routed workers can use it. |
-| 16 | **Definition drift.** "First up wins" compares a definition hash, label `dev.berth.shared-definition=v1:<sha256>`, on the running container: the canonical JSON of the entries for that service and every service it transitively names in `depends_on`, from `docker compose config --format json` on the shared file, before berth's override (so published ports are not in it), interpolated with the shared environment only (no per-worktree variables). The shared file must resolve the same from every checkout, so every checkout computes the same hash: berth refuses a file whose resolved values differ with the directory it is read from (a relative path that climbs out of the checkout, `${PWD}`), best effort, and warns when it cannot check (mechanism and limits in the Configuration section below). While the container runs, berth never calls `compose up` for it, so Compose cannot recreate it on its own. A difference is a **warning** on `berth up` (it names the worktree in label `dev.berth.shared-defined-by`, or "a removed worktree", and the remedy) and a **refusal** on `berth shared up` without `--recreate`. Stopped or absent: the caller's definition starts it. `berth shared up --recreate <name>` force-recreates that service only, keeps its volumes and reconnects every consuming worktree (decision 22). The hash is not stored in the record. | A branch bumping an image pin must not block an unrelated feature branch's `up`, but an explicit request that cannot be honoured is a failure. The label is the only truth about what runs; a second copy in a file could disagree with it. Compose's own config hash includes berth's override and is Compose-version specific. |
-| 17 | **Resources and ownership.** Every resource of the shared stack (containers, volumes, the stack's own default network) carries `dev.berth.managed=true`, `dev.berth.repository-uuid=<repo>` and `dev.berth.shared=true`, and **never** `dev.berth.worktree-uuid`. A worktree's `used-by` containers carry `dev.berth.shared-use.<name>=true` besides their worktree labels. Removal (`shared down`, `--volumes`) lists by the shared labels and re-verifies each resource (managed, repository, `shared=true`, project name equals the derived one, no worktree label) before removing it, never through the caller's Compose file. `shared down` removes containers and the default network and **keeps volumes**; only `--volumes` removes them. `worktree remove` and `down` never remove a shared resource: neither lists one, because it has no worktree label, and a decoy test pins that in both directions, including with the shared container attached to the worktree's network. The label keys and the project name are storage names. | Ownership by label, in a scope no worktree shares. Removal that does not need a Compose file works from any worktree, and after the last one is gone. The `shared-use` label lets a sweep find consumers without loading any worktree's `berth.toml`. |
-| 18 | **Locking.** New scope `SharedScope(controlHome, repositoryID)`, target `<control home>/locks/shared/<repo>`, one lock for all of a repository's shared services, timeout 15 min (a `compose up --wait` of 5 min plus a pull and a recreate, as `RouterTimeout` is derived). `lifecycle.Requests` gains `Shared`; order is operation, development, shared, registry, with the router still alone, and **nothing takes the shared lock and then a worktree lock**. (1) `berth up` starts or reuses the instance under the shared lock alone, before `mutate`, so a worktree's 25-minute operation lock is never held waiting on it. (2) Connecting a worktree runs inside that worktree's operation lock and takes the shared lock nested, after it, for the connect only; `lifecycle` needs a way to add a scope to a held set in order. (3) Disconnecting (`down`, `worktree remove`) needs the operation lock only, so removal never waits behind a slow shared start. (4) The reconnect sweep after a shared container is (re)created runs only after the shared lock is released, as one `Hold(Operation, Shared)` per registered worktree with a short timeout (`ReconnectTimeout`, 5 s); a busy worktree is skipped with a notice and left to its own connect step, `berth shared up` or `doctor`. The registry package takes its own short lock inside for a port allocation. The lock is per control home, like the registry's (decision 3a): two control homes on one daemon can both start the stack, and the loser gets "container name ... is already in use" (verified), which berth tolerates by re-inspecting by label; a running instance found without a local record is reported, never re-allocated. Docker calls under it are bounded; if the state of the container cannot be determined, `up` fails rather than assume it is absent. No age-based cleanup: the flock frees on death, and recovery is `berth worktree unlock --shared` through the same `Clear` checks, with the shared project name as the survivor-scan marker. | Two first `up`s serialize and the second reuses the instance. Connect and disconnect for one worktree exclude each other through its operation lock, which is what keeps the shared container from being attached to a network that is being removed. A killed starter frees the lock; the next holder re-inspects by label and `compose up` is idempotent. Failing closed avoids a duplicate or a recreate of a running instance because the daemon was slow. |
-| 19 | **State, ports and routes.** State is `<control home>/repositories/<repo>/shared/<name>.json`: `{version: 1, name, domain, ports: {"<container port>": <host port>}, routed?: <container port>}`, written through `files.AtomicJSON` by one record builder. Every declared port (`port` and each of `ports`, at most 16 per service, TCP) gets a pinned host port from the same allocator, keyed by (repository ID, `shared:<name>:<container port>`); the allocator's skip set reads these records. Each is published on `127.0.0.1:<host port>` by the shared project's override. Ports are kept across `down`, released only by `down --volumes` (after the containers and volumes are gone, before the record is deleted, decision 5), and never by `worktree remove`. The web UI (`port`) is also routed at **`<name>.shared.<domain>`** using the domain recorded at allocation, through the route file `shared.<repo>.<name>.yaml` (router name `<shared project>_shared_<name>`; `shared.` is a prefix the service and host sweeps never match). The record names the routed container port (`routed`, one of `ports`' keys), so repair, `doctor` and the index judge a route file from the record alone; the file is written from the record under the shared lock once the service is up (a running instance too, which repairs a deleted or stale file), and `shared down` removes it before it stops anything. Slug `shared` is reserved by the slug allocator so `<name>.shared.<domain>` cannot be a worktree's host. Decision 9's repair covers shared route files against these records: judged only when this control home holds the record, rewritten when the port differs, removed when the record routes none, and otherwise reported by `doctor` (`router.orphaned-routes`) and never removed. `berth shared up --reallocate-port <name>:<port>` (decision 4) refuses while the container runs (proven by labels). Two repositories that share a domain and a shared name conflict when the second is made routed (`SyncSharedPorts`, under the registry lock, before any port is allocated or anything starts); it is refused, naming the first by the hostname of one of its registered worktrees, or by its repository ID when this control home holds none. Only a record that routes counts, and a record that cannot be read refuses too, since it may be the first. The first's record keeps its domain, so the way out is renaming one service, or `shared down --volumes` in the first repository, which deletes its record and so releases the name. | A record is needed because the container is gone after `down` while its ports must stay pinned. Raw ports are for host processes (an IDE-run app, host routes, `berth run`); containers use `<alias>:<port>` on their network. The hostname must not be a worktree slug: any single label under the domain could be a branch name, so `shared` is the one word reserved. |
-| 20 | **Discovery.** Container side: the alias is the declared name, so `mailpit:1025`; no variable is injected into Compose (that would tie the worktree's Compose environment to shared state, and a changed variable recreates its containers, #28). Host side (hooks, `berth run`): `BERTH_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port>` for every declared port (`<PORT>` is the container port; `<NAME>` maps as in `BERTH_SERVICE_URL_<NAME>`, and the trailing number keeps it unambiguous), and `BERTH_SHARED_URL_<NAME>` for a routed `port`. Built next to `ServiceURLVariables`. `status` and `status --json` (an object) gain a `shared` array: `{name, state, url?, addrs: [{port, addr}], definition: "current"\|"differs"\|"unknown", connected: bool, definedBy?}`. `urls` and `urls --json` (a top-level array, a contract) are unchanged. `doctor` lists shared services; the index lists routed UIs. | The name in `berth.toml` is the contract for containers. Hooks and host processes are on the host, where an in-network alias does not resolve. |
-| 21 | **CLI.** `berth shared up [name...] [--recreate] [--reallocate-port <name>:<port>]`, `shared down [name...] [--volumes]`, `shared status [--json]`. `shared up` on a running instance with the same definition still runs the reconnect sweep (the repair path). `down --volumes` deletes data and prompts as `worktree remove` does. `worktree remove` of a repository's last registered worktree prints one line, best effort with a bounded Docker probe that never fails the remove, if shared services are still running, naming `berth shared down`. `shared down` works from any checkout of the repository and needs no `berth.toml` (label namespace from `--label-namespace`, as `worktree remove`). | Auto-start, explicit stop: the owner's lifecycle needs a stop command, and a way to reclaim data needs one destructive path. |
-| 22 | **Network model: per-worktree connect (Owner ruling).** The shared container joins each consuming worktree's own network with the declared alias, by `docker network connect --alias <name>`. There is no shared network and no external network in any override. All worktrees of a repository share service names, so on one flat network a `used-by` service calling another (`web` to `api`) can resolve to another worktree's container: silent cross-worktree traffic, which the spike confirmed is ambiguous. Every connect and disconnect target is proven by labels first. Connect: after the worktree's `compose up` and before its hooks, for each network a running `used-by` container is on (found by the `shared-use` label) that carries this worktree's ownership labels. Disconnect: `down` before `compose down`, and `worktree remove` before the first Reap, from each network in the verified inventory. Removal reads the stack under the running command's label namespace (its `berth.toml`'s, or the default when it has none) for a worktree of the command's own repository, and under the namespace the target recorded for a worktree of another repository, whose stack this checkout's `berth.toml` says nothing about; either way it proves each network under the removed worktree's own namespace. A stack it cannot find stays attached, so the Reap keeps that network and a later `worktree remove` retries. If the Docker listing or a disconnect itself fails, `down` and `worktree remove` stop with that error before anything is stopped or reaped, rather than leave a network that cannot be removed. Repair: `berth up` and `berth shared up` reconnect idempotently, `doctor` reports a running consumer that is not connected. A network that fails proof is reported and never touched. | This brings back connect and disconnect bookkeeping of the kind the redesign removed from the router. What made the router's version fragile was the host hop and the machine-wide router lock, and neither applies: the traffic is bridge-internal, and every step is under the one worktree's operation lock. Disconnecting before Reap is what stops the attached container from making a worktree's network unremovable. |
+| 15 | **Model.** A shared service is one instance per repository UUID, defined in a separate Compose file named by `[shared] file` and run as one Compose project per repository, `treerig-shared-<24 hex of sha256("shared:" + repositoryID)>`. `[shared.service.<name>]` names a service in that file by its key (an optional routed `port`; optional raw `ports`; `used-by`), keyed like `[service.<name>]` and `[commands.<name>]`. `used-by` lists the worktree services that use it: they make a worktree "need" the service (auto-start) and are the services whose networks it joins (decision 22). A shared name may not equal a service in the worktree's Compose file, a `[service.<name>]` or a host route (the alias would resolve to two things). Host-run shared services (a service running natively outside Docker, used by containers) are out of scope: on Linux with ufw a container cannot reach the host. | A separate file keeps the service out of every worktree's own project (a shared service in the worktree file would start in each of them, and each branch's copy of the file would differ). One project means one ownership label set. Listing consumers puts the opt-in on the shared side, so no `[[service]]` change is needed and non-routed workers can use it. |
+| 16 | **Definition drift.** "First up wins" compares a definition hash, label `dev.treerig.shared-definition=v1:<sha256>`, on the running container: the canonical JSON of the entries for that service and every service it transitively names in `depends_on`, from `docker compose config --format json` on the shared file, before treerig's override (so published ports are not in it), interpolated with the shared environment only (no per-worktree variables). The shared file must resolve the same from every checkout, so every checkout computes the same hash: treerig refuses a file whose resolved values differ with the directory it is read from (a relative path that climbs out of the checkout, `${PWD}`), best effort, and warns when it cannot check (mechanism and limits in the Configuration section below). While the container runs, treerig never calls `compose up` for it, so Compose cannot recreate it on its own. A difference is a **warning** on `treerig up` (it names the worktree in label `dev.treerig.shared-defined-by`, or "a removed worktree", and the remedy) and a **refusal** on `treerig shared up` without `--recreate`. Stopped or absent: the caller's definition starts it. `treerig shared up --recreate <name>` force-recreates that service only, keeps its volumes and reconnects every consuming worktree (decision 22). The hash is not stored in the record. | A branch bumping an image pin must not block an unrelated feature branch's `up`, but an explicit request that cannot be honoured is a failure. The label is the only truth about what runs; a second copy in a file could disagree with it. Compose's own config hash includes treerig's override and is Compose-version specific. |
+| 17 | **Resources and ownership.** Every resource of the shared stack (containers, volumes, the stack's own default network) carries `dev.treerig.managed=true`, `dev.treerig.repository-uuid=<repo>` and `dev.treerig.shared=true`, and **never** `dev.treerig.worktree-uuid`. A worktree's `used-by` containers carry `dev.treerig.shared-use.<name>=true` besides their worktree labels. Removal (`shared down`, `--volumes`) lists by the shared labels and re-verifies each resource (managed, repository, `shared=true`, project name equals the derived one, no worktree label) before removing it, never through the caller's Compose file. `shared down` removes containers and the default network and **keeps volumes**; only `--volumes` removes them. `worktree remove` and `down` never remove a shared resource: neither lists one, because it has no worktree label, and a decoy test pins that in both directions, including with the shared container attached to the worktree's network. The label keys and the project name are storage names. | Ownership by label, in a scope no worktree shares. Removal that does not need a Compose file works from any worktree, and after the last one is gone. The `shared-use` label lets a sweep find consumers without loading any worktree's `treerig.toml`. |
+| 18 | **Locking.** New scope `SharedScope(controlHome, repositoryID)`, target `<control home>/locks/shared/<repo>`, one lock for all of a repository's shared services, timeout 15 min (a `compose up --wait` of 5 min plus a pull and a recreate, as `RouterTimeout` is derived). `lifecycle.Requests` gains `Shared`; order is operation, development, shared, registry, with the router still alone, and **nothing takes the shared lock and then a worktree lock**. (1) `treerig up` starts or reuses the instance under the shared lock alone, before `mutate`, so a worktree's 25-minute operation lock is never held waiting on it. (2) Connecting a worktree runs inside that worktree's operation lock and takes the shared lock nested, after it, for the connect only; `lifecycle` needs a way to add a scope to a held set in order. (3) Disconnecting (`down`, `worktree remove`) needs the operation lock only, so removal never waits behind a slow shared start. (4) The reconnect sweep after a shared container is (re)created runs only after the shared lock is released, as one `Hold(Operation, Shared)` per registered worktree with a short timeout (`ReconnectTimeout`, 5 s); a busy worktree is skipped with a notice and left to its own connect step, `treerig shared up` or `doctor`. The registry package takes its own short lock inside for a port allocation. The lock is per control home, like the registry's (decision 3a): two control homes on one daemon can both start the stack, and the loser gets "container name ... is already in use" (verified), which treerig tolerates by re-inspecting by label; a running instance found without a local record is reported, never re-allocated. Docker calls under it are bounded; if the state of the container cannot be determined, `up` fails rather than assume it is absent. No age-based cleanup: the flock frees on death, and recovery is `treerig worktree unlock --shared` through the same `Clear` checks, with the shared project name as the survivor-scan marker. | Two first `up`s serialize and the second reuses the instance. Connect and disconnect for one worktree exclude each other through its operation lock, which is what keeps the shared container from being attached to a network that is being removed. A killed starter frees the lock; the next holder re-inspects by label and `compose up` is idempotent. Failing closed avoids a duplicate or a recreate of a running instance because the daemon was slow. |
+| 19 | **State, ports and routes.** State is `<control home>/repositories/<repo>/shared/<name>.json`: `{version: 1, name, domain, ports: {"<container port>": <host port>}, routed?: <container port>}`, written through `files.AtomicJSON` by one record builder. Every declared port (`port` and each of `ports`, at most 16 per service, TCP) gets a pinned host port from the same allocator, keyed by (repository ID, `shared:<name>:<container port>`); the allocator's skip set reads these records. Each is published on `127.0.0.1:<host port>` by the shared project's override. Ports are kept across `down`, released only by `down --volumes` (after the containers and volumes are gone, before the record is deleted, decision 5), and never by `worktree remove`. The web UI (`port`) is also routed at **`<name>.shared.<domain>`** using the domain recorded at allocation, through the route file `shared.<repo>.<name>.yaml` (router name `<shared project>_shared_<name>`; `shared.` is a prefix the service and host sweeps never match). The record names the routed container port (`routed`, one of `ports`' keys), so repair, `doctor` and the index judge a route file from the record alone; the file is written from the record under the shared lock once the service is up (a running instance too, which repairs a deleted or stale file), and `shared down` removes it before it stops anything. Slug `shared` is reserved by the slug allocator so `<name>.shared.<domain>` cannot be a worktree's host. Decision 9's repair covers shared route files against these records: judged only when this control home holds the record, rewritten when the port differs, removed when the record routes none, and otherwise reported by `doctor` (`router.orphaned-routes`) and never removed. `treerig shared up --reallocate-port <name>:<port>` (decision 4) refuses while the container runs (proven by labels). Two repositories that share a domain and a shared name conflict when the second is made routed (`SyncSharedPorts`, under the registry lock, before any port is allocated or anything starts); it is refused, naming the first by the hostname of one of its registered worktrees, or by its repository ID when this control home holds none. Only a record that routes counts, and a record that cannot be read refuses too, since it may be the first. The first's record keeps its domain, so the way out is renaming one service, or `shared down --volumes` in the first repository, which deletes its record and so releases the name. | A record is needed because the container is gone after `down` while its ports must stay pinned. Raw ports are for host processes (an IDE-run app, host routes, `treerig run`); containers use `<alias>:<port>` on their network. The hostname must not be a worktree slug: any single label under the domain could be a branch name, so `shared` is the one word reserved. |
+| 20 | **Discovery.** Container side: the alias is the declared name, so `mailpit:1025`; no variable is injected into Compose (that would tie the worktree's Compose environment to shared state, and a changed variable recreates its containers, #28). Host side (hooks, `treerig run`): `TREERIG_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port>` for every declared port (`<PORT>` is the container port; `<NAME>` maps as in `TREERIG_SERVICE_URL_<NAME>`, and the trailing number keeps it unambiguous), and `TREERIG_SHARED_URL_<NAME>` for a routed `port`. Built next to `ServiceURLVariables`. `status` and `status --json` (an object) gain a `shared` array: `{name, state, url?, addrs: [{port, addr}], definition: "current"\|"differs"\|"unknown", connected: bool, definedBy?}`. `urls` and `urls --json` (a top-level array, a contract) are unchanged. `doctor` lists shared services; the index lists routed UIs. | The name in `treerig.toml` is the contract for containers. Hooks and host processes are on the host, where an in-network alias does not resolve. |
+| 21 | **CLI.** `treerig shared up [name...] [--recreate] [--reallocate-port <name>:<port>]`, `shared down [name...] [--volumes]`, `shared status [--json]`. `shared up` on a running instance with the same definition still runs the reconnect sweep (the repair path). `down --volumes` deletes data and prompts as `worktree remove` does. `worktree remove` of a repository's last registered worktree prints one line, best effort with a bounded Docker probe that never fails the remove, if shared services are still running, naming `treerig shared down`. `shared down` works from any checkout of the repository and needs no `treerig.toml` (label namespace from `--label-namespace`, as `worktree remove`). | Auto-start, explicit stop: the owner's lifecycle needs a stop command, and a way to reclaim data needs one destructive path. |
+| 22 | **Network model: per-worktree connect (Owner ruling).** The shared container joins each consuming worktree's own network with the declared alias, by `docker network connect --alias <name>`. There is no shared network and no external network in any override. All worktrees of a repository share service names, so on one flat network a `used-by` service calling another (`web` to `api`) can resolve to another worktree's container: silent cross-worktree traffic, which the spike confirmed is ambiguous. Every connect and disconnect target is proven by labels first. Connect: after the worktree's `compose up` and before its hooks, for each network a running `used-by` container is on (found by the `shared-use` label) that carries this worktree's ownership labels. Disconnect: `down` before `compose down`, and `worktree remove` before the first Reap, from each network in the verified inventory. Removal reads the stack under the running command's label namespace (its `treerig.toml`'s, or the default when it has none) for a worktree of the command's own repository, and under the namespace the target recorded for a worktree of another repository, whose stack this checkout's `treerig.toml` says nothing about; either way it proves each network under the removed worktree's own namespace. A stack it cannot find stays attached, so the Reap keeps that network and a later `worktree remove` retries. If the Docker listing or a disconnect itself fails, `down` and `worktree remove` stop with that error before anything is stopped or reaped, rather than leave a network that cannot be removed. Repair: `treerig up` and `treerig shared up` reconnect idempotently, `doctor` reports a running consumer that is not connected. A network that fails proof is reported and never touched. | This brings back connect and disconnect bookkeeping of the kind the redesign removed from the router. What made the router's version fragile was the host hop and the machine-wide router lock, and neither applies: the traffic is bridge-internal, and every step is under the one worktree's operation lock. Disconnecting before Reap is what stops the attached container from making a worktree's network unremovable. |
 
 ### Proxy container
 
@@ -144,7 +144,7 @@ with Compose reporting only "unhealthy".
 
 Details #120 settled that the decisions above leave open:
 
-- The index and ping ports live in `<BERTH_HOME>/router/state.json`
+- The index and ping ports live in `<TREERIG_HOME>/router/state.json`
   (`{"version": 1, "indexPort": N, "pingPort": M}`), written by `Ensure` under
   the router lock the first time they are needed and kept. A stored port that
   became the router's own port is replaced, and an unusable stored port is
@@ -153,7 +153,7 @@ Details #120 settled that the decisions above leave open:
 - Bridge mode's ping entrypoint listens on `127.0.0.1:8082` inside the
   container (`router.BridgePingPort`), reachable only by the health check.
 - A running router that carries a lower protocol label, or none, is refused
-  with "run `berth router down` first", as one with a higher label is refused
+  with "run `treerig router down` first", as one with a higher label is refused
   with the downgrade advice. The protocol number is 6.
 - The check that a port is free dials a privileged port and binds an
   unprivileged one (a bind to port 80 fails for a non-root user whether or not
@@ -161,7 +161,7 @@ Details #120 settled that the decisions above leave open:
   (published bindings, or the proxy's entrypoint addresses in host mode) is not
   a conflict.
 - Route repair judges a file only when this control home holds a record for
-  its exact repository and worktree. The router's state is per berth root and
+  its exact repository and worktree. The router's state is per treerig root and
   registries are per control home, so a file without such a record may belong
   to another control home (the same repository used under two): `doctor`
   reports it and nothing removes it. A file pointing at a stale port is
@@ -213,7 +213,7 @@ the network model (decision 22) and on raw ports.
 
 ```toml
 [shared]
-file = "compose.shared.yaml"  # relative to berth.toml; its own Compose project
+file = "compose.shared.yaml"  # relative to treerig.toml; its own Compose project
 
 [shared.service.mailpit]      # a service in that file; also the DNS alias
 port = 8025                   # optional: the web UI's container port, routed
@@ -250,17 +250,17 @@ therefore reads the file a second time with `compose config`, from a scratch
 project directory with `PWD` set to it, and refuses the file when any resolved
 value differs, naming the first in sorted key order and its likely cause (a
 relative path, `${PWD}`, or a neutral "path or variable that depends on the checkout" when substituting the scratch
-directory for the real one does not reproduce the second read). The refusal reaches `berth up`
-(which fails when a shared service it uses is refused), `berth shared up` and `doctor`. The check
+directory for the real one does not reproduce the second read). The refusal reaches `treerig up`
+(which fails when a shared service it uses is refused), `treerig shared up` and `doctor`. The check
 checks against the worktree roots, which are the config's directory and the registered worktrees of the
-repository; a read made with no roots (`berth shared status`) is not checked, and neither is a file whose
+repository; a read made with no roots (`treerig shared status`) is not checked, and neither is a file whose
 directory is outside every root. The whole file is
 checked, not only the closure that is hashed. It costs one extra `compose config`,
 and `ensureSharedLocked` runs it inside the shared lock.
 
 The check is best effort, and says when it could not be made. Any failure other
 than a difference (no scratch directory, a failed second read, undecodable
-output) skips it with a `berth` warning on stderr naming Compose's first error
+output) skips it with a `treerig` warning on stderr naming Compose's first error
 line, repeated by each command that reads the file; only a cancelled context
 is returned. The second read fails for an `env_file`, `include` or `extends`
 that climbs out of the file's directory (`../../outside.env`), because the
@@ -302,7 +302,7 @@ one worktree's own operation lock instead of a machine-wide lock.
 
 ### Lifecycle
 
-`berth up`, when the worktree has a `used-by` service that exists in its
+`treerig up`, when the worktree has a `used-by` service that exists in its
 Compose file:
 
 1. Registration and `routerSvc.Ensure`, unchanged.
@@ -317,7 +317,7 @@ Compose file:
    (approved: an unreachable dependency otherwise shows up later as an
    unrelated connection error).
 3. `mutate` (the operation lock) and the worktree's `compose up`. The override
-   stamps `dev.berth.shared-use.<name>=true` on each `used-by` container and
+   stamps `dev.treerig.shared-use.<name>=true` on each `used-by` container and
    changes nothing else: no network, no `networks` key.
 4. Still inside the operation lock, before hooks (`prepare` and `seed` may send
    mail): take the shared lock nested and connect. For each `used-by`
@@ -326,7 +326,7 @@ Compose file:
    label), `docker network connect --alias <name> <network> <shared container
    id>`, skipped when the shared container is already an endpoint. Then hooks.
 
-`berth down` disconnects first, then runs `compose down`: for each
+`treerig down` disconnects first, then runs `compose down`: for each
 worktree-owned network the shared container is on, `docker network disconnect`.
 `worktree remove` does the same from the verified inventory, before the first
 Reap, so removing the worktree's network can never fail on the attached
@@ -338,14 +338,14 @@ the worktree's labels, is never disconnected.
 When a shared container is created (a first start, `--recreate`, or a start
 after `shared down`), every consuming worktree must be reconnected, because
 attachments belong to the container and a new one has none. The reconnect
-sweep finds consumers by label, not by loading any `berth.toml`: running
+sweep finds consumers by label, not by loading any `treerig.toml`: running
 containers with `managed`, this repository's label and
 `shared-use.<name>=true`, grouped by worktree. The sweep never runs while the
 shared lock is held: whoever created the container releases it first. For each
 worktree, one `Hold(Operation, Shared)` with a 5 s timeout runs the same
 connect step as `up`. Busy worktrees are skipped with a notice naming them: a
 busy `up` connects itself at its step 4, and any other holder is repaired by
-the next `berth up` there or `berth shared up`, which always runs the sweep,
+the next `treerig up` there or `treerig shared up`, which always runs the sweep,
 even when the instance is already running with the same definition. A daemon
 restart is handled the same way: Docker is expected to keep a container's
 user-connected networks across a restart, but this is unverified, and `doctor`
@@ -367,7 +367,7 @@ many consuming worktrees were left without a server.
 | | Per-worktree router network (removed) | Shared container connected to a worktree's network |
 |---|---|---|
 | What joins | the shared router, to reach every routed service | one shared service container, by one alias |
-| Network | a dedicated network per worktree, created by its Compose project | the worktree's own network, untouched by berth |
+| Network | a dedicated network per worktree, created by its Compose project | the worktree's own network, untouched by treerig |
 | Traffic | across a bridge, and the proxy needed the host on the way to it | container to container on one bridge, no host hop |
 | Lock | the machine-wide router lock for reconnect and orphan repair | the worktree's operation lock, plus the repository's shared lock nested for a connect only |
 | Removal | `Reap` retried the disconnect, tolerated a kept network, and could fail | disconnect first, from the verified inventory, before any Reap |
@@ -378,11 +378,11 @@ many consuming worktrees were left without a server.
 The proxy reaches the UI at `127.0.0.1:<host port>` like any routed service;
 the shared project publishes it. Raw ports (SMTP) are published the same way,
 each on its own pinned loopback port, for host processes: an IDE-run app,
-`berth run`, and #6 host routes. Containers use `<alias>:<port>` on their
+`treerig run`, and #6 host routes. Containers use `<alias>:<port>` on their
 network and never the pinned port, because a container cannot reach the host's
-loopback under ufw. Hooks and `berth run` get
-`BERTH_SHARED_ADDR_MAILPIT_1025=127.0.0.1:<host port>` and
-`BERTH_SHARED_URL_MAILPIT`.
+loopback under ufw. Hooks and `treerig run` get
+`TREERIG_SHARED_ADDR_MAILPIT_1025=127.0.0.1:<host port>` and
+`TREERIG_SHARED_URL_MAILPIT`.
 
 `status` gains a `shared` group; `shared status` prints, per service: state
 (`running`, `stopped`, `absent`, `unhealthy`), URL and addresses, whether the
@@ -401,8 +401,8 @@ exist for the repository:
 - each service's state, and whether this worktree's definition differs from
   the running one (warning);
 - a running `used-by` container of this worktree whose network does not have
-  the shared container attached: "up but not connected", repaired by `berth
-  up` or `berth shared up`;
+  the shared container attached: "up but not connected", repaired by `treerig
+  up` or `treerig shared up`;
 - the shared container attached to a network of a worktree that is stopped or
   gone, or to a network that does not carry that worktree's labels
   (reported, never touched; `down` and `worktree remove` clean the first kind);
@@ -424,7 +424,7 @@ re-allocation lands on the same ports by the allocator's hash start.
 Where the decisions above leave a choice, this is what the implementation does.
 
 - `used-by` may be empty or absent. A shared service nothing uses is never
-  started by `up`, only by `berth shared up`; it still gets pinned ports.
+  started by `up`, only by `treerig shared up`; it still gets pinned ports.
 - `up` considers every `used-by` service of the Compose file, whether or not
   `up` names it: starting a shared service nothing needs is harmless, and
   failing to start one something needs is not. A `used-by` service that only
@@ -445,7 +445,7 @@ Where the decisions above leave a choice, this is what the implementation does.
   16). Approved by the owner. A differing definition without `--recreate` refuses before
   anything is changed.
 - A shared file may not declare `ports:` (nor any non-loopback publish); the
-  refusal points at `[shared.service.<name>]`, where berth publishes on
+  refusal points at `[shared.service.<name>]`, where treerig publishes on
   127.0.0.1. The worktree slug `shared` is reserved by the slug allocator.
   Approved.
 - The drift hash uses pinned inputs: the file is read with an explicit empty
@@ -474,15 +474,15 @@ Where the decisions above leave a choice, this is what the implementation does.
   wanted to recreate a network a shared container is attached to) and shared
   services are in use, `up` disconnects them (`disconnectShared`, which needs
   only the operation lock it holds) and fails at once, telling the user to run
-  `berth down` and then `berth up`, with Compose's error as the cause. It does
+  `treerig down` and then `treerig up`, with Compose's error as the cause. It does
   not run `compose up` a second time: on the real daemon (Docker 29.7.2,
   Compose 5.5.0) the first attempt has already stopped the worktree's
   containers and half-removed the network, so a second attempt fails with "is
   not connected to the network". The real-daemon test pins this, then follows
   the message (`down`, `up`) and checks the shared service never stopped.
 - A shared definition is hashed from the file read with the inherited
-  environment minus every `BERTH_*` variable except `BERTH_HOME` and
-  `BERTH_CONTROL_HOME`, plus `BERTH_PROJECT`, `BERTH_REPOSITORY_ID` and the
+  environment minus every `TREERIG_*` variable except `TREERIG_HOME` and
+  `TREERIG_CONTROL_HOME`, plus `TREERIG_PROJECT`, `TREERIG_REPOSITORY_ID` and the
   Compose project name, so a process started from a worktree's hook reads the
   same file as one started from a shell. Each service of the file carries the
   hash of its own closure, not only the declared ones.
@@ -510,7 +510,7 @@ Where the decisions above leave a choice, this is what the implementation does.
   when that port is already pinned (it was a raw port when the container was
   created); a port that is not pinned waits for `shared up --recreate`, and
   `up` says so in one line. The converse holds too: a reused container whose
-  `berth.toml` no longer declares `port` stops being routed (the record's
+  `treerig.toml` no longer declares `port` stops being routed (the record's
   `routed` is cleared and the file removed) while its port stays pinned and
   published until the next recreate; the routed port follows the declaration
   of whichever worktree last ran `up` or `shared up`.
@@ -529,7 +529,7 @@ Where the decisions above leave a choice, this is what the implementation does.
   shared lock (the router lock is never nested). `startSharedForUp` needs no
   router handle: `up` has already ensured the router, and the dynamic
   directory is `CommandContext.RouterState`.
-- `BERTH_SHARED_URL_<NAME>` is built next to `BERTH_SHARED_ADDR_<NAME>_<PORT>`,
+- `TREERIG_SHARED_URL_<NAME>` is built next to `TREERIG_SHARED_ADDR_<NAME>_<PORT>`,
   from the records, with the router's port folded in as `urls` folds it in.
   `status` and `shared status` carry it as `url` (omitted for a service with no
   routed port). The verify hook of `doctor` gets it too, when the router's
@@ -544,7 +544,7 @@ Where the decisions above leave a choice, this is what the implementation does.
 Per-worktree connect behaves the same on Docker Desktop and OrbStack as on
 Linux (spike below): aliases, SMTP, raw ports, loss of attachments on recreate
 and their return on reconnect, survival across `docker restart`, and the
-disconnect-before-`compose down` order. One difference is not berth's: OrbStack
+disconnect-before-`compose down` order. One difference is not treerig's: OrbStack
 does not block traffic between separate Docker networks by IP address, so on
 OrbStack any two Compose projects can reach each other by IP whether or not a
 shared service exists. Name resolution stays per network on every engine, and
@@ -558,14 +558,14 @@ container.
 A worktree's slug names its hostname, `<slug>.<domain>`, and nothing else
 that Docker or the disk holds: the Compose project name, the home, the locks
 and the pinned ports derive from the repository and worktree IDs. So a rename
-is a change of hostname and not of resources, and berth renames and deletes no
+is a change of hostname and not of resources, and treerig renames and deletes no
 volume. What carries the hostname is the registry record, the `Host` matchers
 of the worktree's route files, the index card's slug, host and service URLs,
 and the generated index page. The environment Compose gave its containers
-also carries it (`BERTH_SLUG`, `BERTH_HOST`), which is why the verb refuses
+also carries it (`TREERIG_SLUG`, `TREERIG_HOST`), which is why the verb refuses
 while the worktree has any container, found by ownership labels, and asks for
 `down`, which also removes the route files. A Compose file that builds the
-slug into a volume name is beyond what berth can see; the README says what
+slug into a volume name is beyond what treerig can see; the README says what
 that leaves behind.
 
 The route files of Compose services can therefore only be crash leftovers
@@ -604,7 +604,7 @@ Kept:
 - ownership proof by labels before anything is removed, never by name;
 - no age-based lock cleanup; recovery stays explicit and checked;
 - the router-home ownership check (#82) and the refusal of a router started
-  by a newer berth;
+  by a newer treerig;
 - the router lock, and the per-worktree operation lock around a worktree's
   own port allocations and route files.
 
@@ -613,7 +613,7 @@ container to a worktree's network (decision 22), with the ownership rule that
 a shared resource carries no worktree label, so neither removal path can reach
 the other's resources.
 
-Route files are berth's own files in its own directory, not Docker resources;
+Route files are treerig's own files in its own directory, not Docker resources;
 repairing them by registration match (decision 9) is not the removal the
 ownership invariant governs.
 
@@ -648,7 +648,7 @@ macOS, 2026-09-29: macOS 26.5.1 arm64; Docker Desktop 29.7.2 with Compose
 | Question | Result |
 |----------|--------|
 | Bridge proxy publishing `127.0.0.1:80` to a `127.0.0.1`-published container port and to a `127.0.0.1` host process, via `host.docker.internal` | Reaches both, on Desktop and OrbStack |
-| `berth-loopback` alias via `host-gateway` | Works on both |
+| `treerig-loopback` alias via `host-gateway` | Works on both |
 | WebSocket upgrade | Passes on both |
 | Route files added, edited, removed through the bind mount | Picked up in 1-2 s on both |
 | Reachable on the LAN address | No, on both (OrbStack listens on `*:80` but refuses LAN connections; Desktop listens on `127.0.0.1:80`) |
@@ -658,7 +658,7 @@ macOS, 2026-09-29: macOS 26.5.1 arm64; Docker Desktop 29.7.2 with Compose
 | A `--network host` container reaching the Mac's `127.0.0.1` | Works on both |
 
 Consequence: a dev server must bind `127.0.0.1` (or all IPv4 addresses), not
-only `::1`, on Docker Desktop. In Linux host mode `berth-loopback` also maps to
+only `::1`, on Docker Desktop. In Linux host mode `treerig-loopback` also maps to
 `::1`, so a `::1`-only listener works there (see Open items).
 
 Two early stalls (about 45 s on Docker Desktop's first run, and after a proxy
@@ -696,8 +696,8 @@ busybox consumers.
 | `compose up --force-recreate` of the shared project | Attachments are lost and the alias stops resolving; reconnecting restores both, on all three |
 | `docker restart`, stop/start of the shared container | Attachments and aliases survive |
 | Consumer recreated (spec change, or whole-project force-recreate) | The shared container stays attached; the alias still resolves |
-| Adding the `dev.berth.shared-use.<name>` label through the override | Recreates only that consumer; re-running is a no-op |
-| `compose down` of a worktree with the shared container attached | Exits 0 but leaves the network behind ("Resource is still in use"), on all three: berth disconnects first and never trusts the exit code for a leftover network |
+| Adding the `dev.treerig.shared-use.<name>` label through the override | Recreates only that consumer; re-running is a no-op |
+| `compose down` of a worktree with the shared container attached | Exits 0 but leaves the network behind ("Resource is still in use"), on all three: treerig disconnects first and never trusts the exit code for a leftover network |
 | Disconnect first, then `compose down` | Removes the network cleanly; the shared container keeps running |
 | `docker network rm` of an attached network | rc 1, "has active endpoints" |
 | Connect twice | rc 1, "endpoint with name ... already exists in network" (treated as connected; an alias change needs a disconnect first) |
@@ -709,14 +709,14 @@ Verified while implementing #123, Linux, Docker
 
 | Question | Result |
 |----------|--------|
-| `docker compose config --format json` of a service with `depends_on: [db]`, `env_file` and a relative bind mount | `depends_on` is printed as a map (`db: {condition, required}`), `env_file` is inlined into `environment`, a bind `source` is the absolute path, and a named volume's `name` carries the project name. berth reads both `depends_on` forms |
+| `docker compose config --format json` of a service with `depends_on: [db]`, `env_file` and a relative bind mount | `depends_on` is printed as a map (`db: {condition, required}`), `env_file` is inlined into `environment`, a bind `source` is the absolute path, and a named volume's `name` carries the project name. treerig reads both `depends_on` forms |
 | `compose up --no-recreate <svc>` with the running container's definition changed | Leaves the container alone. Without the flag Compose recreates it |
-| `compose up --no-recreate <svc>` with the container stopped | Starts the stopped container with the definition it was created from, not the file's current one, so berth replaces a stopped shared container with `compose up --force-recreate --no-deps <svc>`, which keeps its named and anonymous volumes, to start it from the caller's definition |
+| `compose up --no-recreate <svc>` with the container stopped | Starts the stopped container with the definition it was created from, not the file's current one, so treerig replaces a stopped shared container with `compose up --force-recreate --no-deps <svc>`, which keeps its named and anonymous volumes, to start it from the caller's definition |
 | Two processes' first `up`s of two worktrees at the same moment | The shared lock serialises them: one runs `compose up`, the other finds the container running; both end connected |
 | `docker network disconnect` before `compose down` of a worktree whose network the shared container is on | The worktree's network is removed cleanly and the shared container keeps running |
 | `worktree remove` of a worktree the shared container is attached to | Succeeds, with the shared container, its volume and its pinned ports untouched |
 
-| `up` of an already-up worktree whose network Compose wants to recreate (a changed network label), the shared container attached | Fails: the network removal says "has active endpoints" and the worktree's containers were already stopped. `up` recognises that message when a shared service is in use, disconnects the shared services and stops with the message saying to run `berth down` and then `berth up`; it does not retry, because a second `compose up` cannot succeed here |
+| `up` of an already-up worktree whose network Compose wants to recreate (a changed network label), the shared container attached | Fails: the network removal says "has active endpoints" and the worktree's containers were already stopped. `up` recognises that message when a shared service is in use, disconnects the shared services and stops with the message saying to run `treerig down` and then `treerig up`; it does not retry, because a second `compose up` cannot succeed here |
 | `compose up --force-recreate --no-deps` on a stopped shared container with `volumes: ["/data"]` | The new container mounts the same anonymous volume; a file written before the stop is still there. `shared down --volumes` removes it |
 
 Not verified, to check during implementation:
@@ -729,18 +729,18 @@ Not verified, to check during implementation:
   killed mid-connect.
 - Mailpit checks for its own updates (`/api/v1/info` reports
   `LatestVersion`); whether the shared definition should turn that off is a
-  Mailpit setting, not a berth one.
+  Mailpit setting, not a treerig one.
 
 ## Open items
 
 Resolved while implementing #120 (Linux, 2026-10-10: Ubuntu 24.04, Docker
 29.7.2, Traefik v3.7.9, a native rootful engine, so host mode):
 
-- **The `berth-loopback` alias in host mode.** `extra_hosts` works with
+- **The `treerig-loopback` alias in host mode.** `extra_hosts` works with
   `network_mode: host`: the container's `/etc/hosts` gets `127.0.0.1
-  berth-loopback`.
+  treerig-loopback`.
 - **Mapping it to both `127.0.0.1` and `::1`.** Works. With `extra_hosts:
-  ["berth-loopback:127.0.0.1", "berth-loopback:::1"]` a host process listening
+  ["treerig-loopback:127.0.0.1", "treerig-loopback:::1"]` a host process listening
   only on `[::1]` answers through the proxy (200), as does one on `127.0.0.1`
   only, and a target nothing listens on answers 502. The stack maps both in
   host mode, so a `::1`-only listener is reachable on Linux host mode and the
@@ -798,52 +798,52 @@ tested on Linux.
 
 **Manual Mac check for host routes (#6), Docker Desktop and then OrbStack.**
 
-Run these steps from a checkout of the branch with Docker Desktop running. Use a scratch home and router port 30080, not 80. If a router that another berth root started is already running on this daemon, `up` refuses; stop that router yourself first.
+Run these steps from a checkout of the branch with Docker Desktop running. Use a scratch home and router port 30080, not 80. If a router that another treerig root started is already running on this daemon, `up` refuses; stop that router yourself first.
 
 
 **Setup**
 
-1. Build berth and create the scratch home:
+1. Build treerig and create the scratch home:
 
    ```sh
-   go build -o /tmp/berth-mac ./cmd/berth
-   export BERTH_HOME=$(mktemp -d)
-   printf '[ports]\nrange = "30000-30999"\n[router]\nport = 30080\n' > $BERTH_HOME/settings.toml
+   go build -o /tmp/treerig-mac ./cmd/treerig
+   export TREERIG_HOME=$(mktemp -d)
+   printf '[ports]\nrange = "30000-30999"\n[router]\nport = 30080\n' > $TREERIG_HOME/settings.toml
    (docker ps -a --format '{{.Names}}'; docker network ls --format '{{.Name}}'; docker volume ls -q) | sort > /tmp/mac-before.txt
    ```
 
-2. Make a small git repo with a berth.toml and a one-service compose file. Copying berth.example.toml works. Then:
-   - `cd` into the repo and run `/tmp/berth-mac up`, then `/tmp/berth-mac router status`.
+2. Make a small git repo with a treerig.toml and a one-service compose file. Copying treerig.example.toml works. Then:
+   - `cd` into the repo and run `/tmp/treerig-mac up`, then `/tmp/treerig-mac router status`.
    - Expect: mode `bridge`, port 30080.
 
 
 **Routing to an IPv4 server**
 
 3. In another terminal, start the server: `python3 -m http.server 5173 --bind 127.0.0.1`
-4. Add the route: `/tmp/berth-mac route add web --port 5173 --subdomain app`
+4. Add the route: `/tmp/treerig-mac route add web --port 5173 --subdomain app`
    - Expect: "Routed http://app.<slug>.<domain>:30080/ to 127.0.0.1:5173", with no warning.
 5. Request it: `curl -sS -m 10 -w '\n%{http_code} %{time_total}s\n' <URL>`
    - Expect: 200 and a directory listing. Record the time.
-6. Run `/tmp/berth-mac doctor`.
+6. Run `/tmp/treerig-mac doctor`.
    - Expect: "127.0.0.1:5173 answers" on the web host route, plus a router.route-probe OK line for it.
 7. Stop the server with Ctrl-C, then immediately run `curl -sS -m 30 -w '\n%{http_code} %{time_total}s\n' <URL>`.
    - PASS: a 502 within a few seconds.
    - FAIL, report it: a hang until the 30s limit, or a 504.
-   - Run `/tmp/berth-mac doctor` again. Expect a note that nothing is listening, and a route-probe warning.
+   - Run `/tmp/treerig-mac doctor` again. Expect a note that nothing is listening, and a route-probe warning.
 8. Restart the server on 127.0.0.1 and curl again.
-   - Expect: 200 immediately, with no berth action.
+   - Expect: 200 immediately, with no treerig action.
 
 
 **Other binds**
 
 9. Restart the server on IPv6 only: `python3 -m http.server 5173 --bind ::1`
-   - Run `/tmp/berth-mac route add web2 --port 5173 --subdomain two`.
+   - Run `/tmp/treerig-mac route add web2 --port 5173 --subdomain two`.
      - Expect: a warning that it "answers on ::1 but not on 127.0.0.1".
    - Curl two.<slug>.<domain>:30080.
      - Expect: failure (502). On OrbStack it may succeed; record what you see.
-   - Run `/tmp/berth-mac doctor`.
+   - Run `/tmp/treerig-mac doctor`.
      - Expect: a warning on web2.
-   - Clean up: `/tmp/berth-mac route rm web2`
+   - Clean up: `/tmp/treerig-mac route rm web2`
 10. Bind all interfaces: `python3 -m http.server 5173 --bind 0.0.0.0`
     - Curl the web URL. Expect 200, and note any macOS firewall prompt.
     - Stop the server.
@@ -854,12 +854,12 @@ Run these steps from a checkout of the branch with Docker Desktop running. Use a
 
 **Lifecycle**
 
-12. Run `/tmp/berth-mac route ls` and expect web.
-    - Run `/tmp/berth-mac down`.
+12. Run `/tmp/treerig-mac route ls` and expect web.
+    - Run `/tmp/treerig-mac down`.
     - `route ls` still shows web.
     - The web URL returns 502, and the service URL returns 404.
-    - The file `$BERTH_HOME/router/dynamic/host.*.web.yaml` remains.
-13. Run `/tmp/berth-mac worktree remove`, adding `-y` if it asks.
+    - The file `$TREERIG_HOME/router/dynamic/host.*.web.yaml` remains.
+13. Run `/tmp/treerig-mac worktree remove`, adding `-y` if it asks.
     - The host.*.yaml file is gone.
     - The web URL returns 404.
 
@@ -867,7 +867,7 @@ Run these steps from a checkout of the branch with Docker Desktop running. Use a
 **Cleanup and reporting**
 
 14. Stop the router and compare the daemon state with the snapshot from step 1:
-    - `/tmp/berth-mac router down`
+    - `/tmp/treerig-mac router down`
     - Run the snapshot command from step 1 again, into /tmp/mac-after.txt.
     - `diff /tmp/mac-before.txt /tmp/mac-after.txt` should show nothing.
     - `lsof -nP -iTCP:30080 -sTCP:LISTEN` should be empty.
