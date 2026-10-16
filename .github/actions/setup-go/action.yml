@@ -5,7 +5,16 @@ description: >
   every Linux job shares one entry, and whichever finishes first saves it for
   all of them: the release-snapshot job's builds, without the race detector or
   cgo, were restored into the jobs that need both. With a key per job, each
-  job restores what it built last time.
+  job restores what it built last time. A matrix whose entries build
+  differently on one platform passes cache-suffix, so each entry keeps its own.
+inputs:
+  cache-suffix:
+    description: >
+      Appended to the cache key after the job's name, for matrix entries that
+      share a platform but build differently (the docker job's -race and no-cgo
+      legs). Start it with a hyphen.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -28,5 +37,5 @@ runs:
           ${{ steps.paths.outputs.gocache }}
           ${{ steps.paths.outputs.gomodcache }}
           ${{ steps.paths.outputs.staticcheck }}
-        key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}
-        restore-keys: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+        key: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}${{ inputs.cache-suffix }}-${{ hashFiles('go.mod', 'go.sum') }}
+        restore-keys: go-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}${{ inputs.cache-suffix }}-

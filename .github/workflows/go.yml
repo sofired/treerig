@@ -68,20 +68,42 @@ jobs:
   # The integration suite against the runner's real Docker daemon, in its own
   # job so it runs in parallel with the rest. It runs the whole suite, not a
   # list of packages, so a Docker test added anywhere is picked up; the tests
-  # that don't need Docker run again here, which costs a few seconds.
+  # that don't need Docker run again here, which costs a few seconds. Its two
+  # legs, with -race and without cgo as released, run as separate jobs, each on
+  # its own runner and Docker daemon, so the job takes as long as the slower
+  # leg rather than both. fail-fast is off so one leg failing still reports the
+  # other.
   docker:
-    name: docker ubuntu-latest
+    name: docker ubuntu-latest (${{ matrix.leg }})
     runs-on: ubuntu-latest
-    # -timeout 20m stops a hung package; 50m leaves room for one in each leg,
-    # plus setup. Measured 2026-10: about 14m for the whole job.
-    timeout-minutes: 50
+    # -timeout 20m stops a hung package; 35m leaves room for one, the rest of
+    # the leg and setup. Measured 2026-10: about 14m for both legs back to back.
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        # cgo and race go together: -race needs cgo. Each leg keeps its own
+        # build cache, since the two build different objects.
+        include:
+          - leg: race
+            cgo: '1'
+            race: -race
+            cache: -race
+          # As in the go job: releases are built without cgo.
+          - leg: no cgo
+            cgo: '0'
+            race: ''
+            cache: -nocgo
     steps:
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup-go
+        with:
+          cache-suffix: ${{ matrix.cache }}
 
       - name: Integration tests against Docker
         env:
+          CGO_ENABLED: ${{ matrix.cgo }}
           TREERIG_TEST_REQUIRE_DOCKER: '1'
         # -p 1: one package at a time. The Docker suites pick the router's
         # index and ping ports from a deterministic hash start, so packages
@@ -89,14 +111,8 @@ jobs:
         # package is too tight. internal/commands takes about 5 to 7m under
         # -race on CI and about 12m on a slower machine, and keeps growing.
         # A timeout panic skips t.Cleanup and leaks resources.
-        run: go test -race -p 1 -timeout 20m -count=1 -tags integration ./...
-
-      # As in the go job: releases are built without cgo.
-      - name: Integration tests against Docker without cgo, as released
-        env:
-          CGO_ENABLED: '0'
-          TREERIG_TEST_REQUIRE_DOCKER: '1'
-        run: go test -p 1 -timeout 20m -count=1 -tags integration ./...
+        # matrix.race is a constant from the matrix above, empty on the no-cgo leg.
+        run: go test ${{ matrix.race }} -p 1 -timeout 20m -count=1 -tags integration ./...
 
   # Everything the release builds, minus the publishing and the signing, which
   # need a tag and an OIDC token: GoReleaser's check, then a snapshot of the
