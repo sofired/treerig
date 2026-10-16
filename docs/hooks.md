@@ -68,7 +68,10 @@ need anything richer than that, write a script.
 
 Every hook, and every command, inherits the parent environment plus these. The prefix is a
 storage-contract name — it does **not** change when the binary is renamed, so
-hook scripts keep working however the tool is invoked.
+hook scripts keep working however the tool is invoked. A build from before the
+product rename used a different prefix, and treerig sets no aliases for it:
+update hooks that read the old variables to read `TREERIG_*` (see [Switching
+from a build before the rename](../README.md#switching-from-a-build-before-the-rename)).
 
 | Variable | Value |
 | -------- | ----- |
