@@ -19,22 +19,11 @@ import (
 var previousName = regexp.MustCompile(`(?i)` + "be" + `rth`)
 
 // previousNameAllowed lists the tracked files that may still carry the
-// retired name, each with the reason. At present it covers Markdown only: the
-// docs rename pull request empties it, and from then on no tracked file or
-// path may contain the name. A key must be a tracked file that really matches,
-// so an entry cannot outlive the text it excuses.
-var previousNameAllowed = map[string]string{
-	"AGENTS.md":               "Markdown, renamed with the rest of the docs",
-	"CONTRIBUTING.md":         "Markdown, renamed with the rest of the docs",
-	"README.md":               "Markdown, renamed with the rest of the docs",
-	"docs/design/config.md":   "Markdown, renamed with the rest of the docs",
-	"docs/design/locks.md":    "Markdown, renamed with the rest of the docs",
-	"docs/design/release.md":  "Markdown, renamed with the rest of the docs",
-	"docs/design/routing.md":  "Markdown, renamed with the rest of the docs",
-	"docs/design/state.md":    "Markdown, renamed with the rest of the docs",
-	"docs/design/teardown.md": "Markdown, renamed with the rest of the docs",
-	"docs/hooks.md":           "Markdown, renamed with the rest of the docs",
-}
+// retired name, each with the reason. It is empty: no tracked file or path may
+// contain the name. Keep it empty unless a file must quote the old name. An
+// entry would have to be a tracked Markdown file that really matches, so it
+// cannot outlive the text it excuses.
+var previousNameAllowed = map[string]string{}
 
 // TestNoPreviousName fails when a tracked file's path or contents still carry
 // the retired product name in any letter case. It lists files with git ls-files,

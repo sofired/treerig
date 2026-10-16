@@ -1,7 +1,7 @@
 # Configuration design
 
-How `berth.toml` is shaped, and how its JSON Schema and examples relate to
-the code that validates it. The file is half of berth's public contract (the
+How `treerig.toml` is shaped, and how its JSON Schema and examples relate to
+the code that validates it. The file is half of treerig's public contract (the
 other half is the hook protocol), so each choice here is a compatibility
 promise.
 
@@ -61,7 +61,7 @@ own. A hook is a fixed slot with one option so far. The sibling table keeps
 checks, the runner), so a hook that has no option reads exactly as it did, and
 a second option would add a second sibling table, not change a type. Its keys
 are every hook kind, and an unset key means no limit. There is deliberately no
-default for any hook: berth cannot know how long a project's migration takes,
+default for any hook: treerig cannot know how long a project's migration takes,
 a default that kills a healthy slow one midway is worse than the hang, and a
 default added later would break projects that rely on none, while one never
 added breaks nobody (docs/hooks.md, "Timeouts"). The runner applies the limit
@@ -69,8 +69,8 @@ in `hooks.RunHook`, so every hook kind gets it from that one place.
 
 ## The JSON Schema
 
-`berth config schema` prints a draft-07 JSON Schema of the file, and
-`schema/berth.schema.json` is the committed copy.
+`treerig config schema` prints a draft-07 JSON Schema of the file, and
+`schema/treerig.schema.json` is the committed copy.
 
 - **One definition.** The schema is generated from the `internal/shape`
   definitions that validate the file (`shape.JSONSchema`), so keys, types,
@@ -83,28 +83,28 @@ in `hooks.RunHook`, so every hook kind gets it from that one place.
   node without one. Write them for someone reading a single key.
 - **Identity.** `$id` is the raw GitHub URL of the file on `main`
   (`config.SchemaID`). The published copy therefore tracks `main`;
-  `berth config schema > berth.schema.json` pins it to the installed version.
+  `treerig config schema > treerig.schema.json` pins it to the installed version.
   The README tells users both.
 - **Code-only checks.** Some validation is code, which JSON Schema cannot
   state: a `Refine` on a string, a `SuperRefine` on a table (two services
   claiming a route), and `StartIssues` (a control character in an index
   label, checked only by commands that start something). The schema is looser
   than validation exactly there, never stricter, and says nothing about them;
-  `berth config validate` makes those checks. `shape.CodeOnlyChecks` lists the
+  `treerig config validate` makes those checks. `shape.CodeOnlyChecks` lists the
   first two kinds and a test pins the list, so adding one is a visible choice.
   A `Refine` whose rule is a pattern can be restated with `SchemaPattern`.
-- **String lengths count differently.** berth counts a string's length in
+- **String lengths count differently.** treerig counts a string's length in
   UTF-16 code units; JSON Schema's `minLength` and `maxLength` count code
   points. A string with characters outside the Basic Multilingual Plane (an
   emoji, say) can therefore pass the published `maxLength` and still exceed
-  berth's limit, so the schema is looser there too. Every `Min` in the config
+  treerig's limit, so the schema is looser there too. Every `Min` in the config
   is 1, where the two counts agree, so the schema is never stricter.
 - **Patterns are ECMA-262.** Go's regexp is RE2; editors run the pattern as
   ECMA-262. A pattern must mean the same in both, and the generator panics on
   the RE2-only spellings it can recognize. A closing `$` is the absolute end
   of the value in both, but a validator built on another engine (Python's
   `re`, say) also lets `$` match before a final newline, so it can accept a
-  value such as `"acme\n"` that `berth config validate` rejects. That only
+  value such as `"acme\n"` that `treerig config validate` rejects. That only
   makes such a validator looser; the patterns are left as they are, since the
   lookahead that would close it is not supported by Taplo's regex engine.
 - **Agreement is tested.** A test compiles the committed schema with an
@@ -116,8 +116,8 @@ in `hooks.RunHook`, so every hook kind gets it from that one place.
 
 ## TOML 1.0 in examples
 
-berth's parser (BurntSushi/toml) accepts TOML 1.1, but Taplo and Python's
-`tomllib` read 1.0. So `berth.example.toml`, the README and the docs use 1.0
+treerig's parser (BurntSushi/toml) accepts TOML 1.1, but Taplo and Python's
+`tomllib` read 1.0. So `treerig.example.toml`, the README and the docs use 1.0
 syntax only: no multi-line inline tables, no trailing comma in an inline
 table, no `\e` or `\xHH` escapes. A test scans them for those; it is
 best-effort and does not catch every 1.1 addition (times without seconds,
@@ -127,14 +127,14 @@ a file, but not from the syntax scan.
 
 ## The starter file
 
-`berth init` writes a starter `berth.toml` at the Git toplevel of the
+`treerig init` writes a starter `treerig.toml` at the Git toplevel of the
 checkout it runs in. The text is a template in `internal/config/starter.go`,
 filled with a project name taken from the directory (`config.StarterName`) and
 the Compose file found at the root, `compose.yaml` if none.
 
 - **A template, not a copy of the example.** It is a few lines of live
   configuration and two commented-out blocks (a routed service, hooks). Each
-  of its comment lines is a line of `berth.example.toml`, verbatim (or a line
+  of its comment lines is a line of `treerig.example.toml`, verbatim (or a line
   of the example's TOML commented out), apart from a short list of
   starter-only lines in `starter_test.go`; `TestStarter` fails on any other, so
   what it says cannot drift from the example. The `#:schema` directive on its
@@ -149,13 +149,13 @@ the Compose file found at the root, `compose.yaml` if none.
   meanwhile, makes it fail with `fs.ErrExist` and nothing else changes. The
   file is written in place, not renamed into position, so there is a short
   window in which a reader can see it incomplete, and a failed write removes
-  it. A kill or power loss inside the window leaves a truncated `berth.toml`,
+  it. A kill or power loss inside the window leaves a truncated `treerig.toml`,
   which `init` then refuses to replace as it would any other: delete it and
   run `init` again. Writing a temp file instead would trade that for a stray
-  `berth.toml.tmp.*` a kill leaves in the repository root, where `git add -A`
+  `treerig.toml.tmp.*` a kill leaves in the repository root, where `git add -A`
   would commit it. In a submodule it writes into the submodule, its own
   checkout.
-- **No YAML.** The Compose file is only named, never read: berth has no YAML
+- **No YAML.** The Compose file is only named, never read: treerig has no YAML
   parser, and `config validate` after `init` should not depend on one. The
   starter's service is a placeholder to rename.
 - **`--config` is refused.** `init` reads no configuration; accepting a path

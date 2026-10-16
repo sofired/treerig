@@ -17,7 +17,7 @@ makes teardown "work" by matching on a name will not be merged.
 alone. Recovery is explicit and goes through `lock.Clear`.
 
 **Library code takes values; the entry point reads the environment.** Only
-`cmd/berth`'s `main` reads `os.Args` or `os.Environ` directly. Everything
+`cmd/treerig`'s `main` reads `os.Args` or `os.Environ` directly. Everything
 else — including `cli.MainProcess` itself — receives the name, the working
 directory and environment values as parameters. The runner seam is
 `run.Runner` (`internal/run`), with `internal/run/fakerun` standing in for
@@ -26,7 +26,7 @@ tests.
 **Storage identity is a contract.** `internal/brand` names things that end up
 on disk or in Docker — see its own tests. Changing any of them is a
 migration for every existing user and needs a versioned record schema or a
-migration command — not a find-and-replace. Every store berth reads back
+migration command — not a find-and-replace. Every store treerig reads back
 carries a format version (`internal/stateformat`, pinned by its tests), and a
 build refuses a newer one; `docs/design/state.md` lists the stores, the
 refusal, and how a migration is added.
@@ -102,14 +102,14 @@ output is correct, so review every diff it leaves before committing it, the
 same way any other testdata file in this repository is updated. See
 golden_test.go's and output_integration_test.go's own package comments.
 
-`schema/berth.schema.json` is generated, not written: `berth config schema`
+`schema/treerig.schema.json` is generated, not written: `treerig config schema`
 prints it from the same `internal/shape` definitions that validate
-`berth.toml`. After changing the config schema or a field's description,
-regenerate it with `go run ./cmd/berth config schema > schema/berth.schema.json`;
+`treerig.toml`. After changing the config schema or a field's description,
+regenerate it with `go run ./cmd/treerig config schema > schema/treerig.schema.json`;
 `TestSchemaFileIsCurrent` fails until you do. Every field needs a
-`Describe(...)`, which editors show on hover. Examples in `berth.example.toml`
+`Describe(...)`, which editors show on hover. Examples in `treerig.example.toml`
 and the README stay TOML 1.0 (no multi-line inline tables); a test checks them.
-`berth init` writes the starter in `internal/config/starter.go`: a short
+`treerig init` writes the starter in `internal/config/starter.go`: a short
 template, not a copy of the example, with its commented-out service and hooks
 checked against the schema by `TestStarter`. Rename or remove a key there when
 you rename or remove it in the schema.
@@ -123,10 +123,10 @@ you rename or remove it in the schema.
 - A test that runs `up` never takes a port from the default loopback range
   (20000-29999), which a developer's own worktrees use. A unit test gets
   `registrytest.PortRange` and a probe that binds nothing from
-  `commandstest.World`; a scratch berth root under a real binary or daemon
+  `commandstest.World`; a scratch treerig root under a real binary or daemon
   writes its `settings.toml` with `registrytest.WriteScratchSettings`. Where
-  the berth root and the control home are one directory, claim it first with
-  `registrytest.ClaimControlHome`, since berth adopts only a directory it
+  the treerig root and the control home are one directory, claim it first with
+  `registrytest.ClaimControlHome`, since treerig adopts only a directory it
   created.
 - A helper process that must stay alive parks with a `for { time.Sleep(...) }`
   loop, never `select {}` — with nothing else runnable, Go's deadlock
@@ -179,7 +179,7 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
   the rule: the tap's `publish.yml` (`brew pr-pull`) pushes the bump and its
   bottle block straight to `main` with the workflow's `GITHUB_TOKEN`, after the
   pull request this job opens has passed the tap's checks.
-- [ ] The first tap pull request starts from `packaging/homebrew/berth.rb`;
+- [ ] The first tap pull request starts from `packaging/homebrew/treerig.rb`;
   later ones only change its `url` and `sha256`. Change the formula's body in
   the tap, and keep the template in step.
 
@@ -196,7 +196,7 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
    release page.
 3. Approve the run in the `release` environment, and watch it. Approval is
    requested once per gated job, so twice per release: first `release`, then
-   `homebrew-tap`. When it finishes, check the release page, then try `brew install sofired/tap/berth`,
+   `homebrew-tap`. When it finishes, check the release page, then try `brew install sofired/tap/treerig`,
    `install.sh` and one package.
 
 **When it fails:**
@@ -210,7 +210,7 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
   releases, assets cannot be replaced: delete the release (`gh release delete
   vX.Y.Z`, keeping the tag) and re-run instead.
 - Only the `homebrew-tap` job failed: re-run just that job ("Re-run failed
-  jobs"). It reuses the tap's `berth-X.Y.Z` branch and its open pull request,
+  jobs"). It reuses the tap's `treerig-X.Y.Z` branch and its open pull request,
   and does nothing if the tap's `main` already has the version. GitHub keeps one
   pending run per concurrency group, so if two releases were tagged while one
   waited on the tap, the replaced run's tap job has to be re-run by hand.
@@ -226,8 +226,8 @@ it ships when it merges.
 `release-snapshot` job in `go.yml`: shellcheck, `goreleaser check`, a snapshot
 build, a second build whose `checksums.txt` must match the first, and
 `packaging/verify-snapshot.sh` (every artifact, the files in each, how each
-binary was built, that `/usr/bin/berth` in the host's `.deb` and `.rpm` is the
-`berth` in the host's archive, the tap formula rendered into `dist/berth.rb`
+binary was built, that `/usr/bin/treerig` in the host's `.deb` and `.rpm` is the
+`treerig` in the host's archive, the tap formula rendered into `dist/treerig.rb`
 from the source archive, and `install.sh` against the snapshot through a local
 server). The job also runs the teardown pin flow: `teardown pin --release`
 against the snapshot with a real cosign (`TestTeardownPinSnapshot`,

@@ -1,14 +1,14 @@
 # Teardown pin
 
-`worktree remove` runs a pinned, trusted build of berth, never the code of the
+`worktree remove` runs a pinned, trusted build of treerig, never the code of the
 build that was invoked (#85). This note says where the pin lives, what it
 holds, how it is installed and verified, how removal uses it, and what it does
 not protect against. The pin is stored state, so it follows `state.md`.
 
-**Status.** The pin store, `berth teardown pin` in all three forms (`--release X.Y.Z`,
+**Status.** The pin store, `treerig teardown pin` in all three forms (`--release X.Y.Z`,
 `--latest` and `--file`) and `teardown status` exist (steps 2 to 4), and the
 `release-snapshot` job pins the snapshot with a real cosign and checks the packages'
-binaries (step 5). The pin command in the messages below is `berth teardown pin
+binaries (step 5). The pin command in the messages below is `treerig teardown pin
 --release X.Y.Z` while the repository has only pre-releases; when the first
 release that is not a pre-release is published, `teardownPinCommand` becomes
 `--latest`, the one function that names it, and the goldens that quote it are
@@ -24,9 +24,9 @@ work".
 
 | # | Decision |
 | --- | --- |
-| 1 | The commands are `berth teardown pin` and `berth teardown status`. |
+| 1 | The commands are `treerig teardown pin` and `treerig teardown status`. |
 | 2 | Downloads are verified by a cosign shell-out; `--file --sha256` serves users without cosign. No `gh attestation` check, and sigstore-go is not embedded. |
-| 3 | The boundary is berth's own code. A hook later added to removal needs its own trust rule. |
+| 3 | The boundary is treerig's own code. A hook later added to removal needs its own trust rule. |
 | 4 | The store, the commands, verification and the CI tests come first; the gate waits for the first tag. |
 | 5 | The pin protects against unreviewed branch code, not against a hostile process of the same user. Branch code that changes `PATH` or sigstore settings (a `.envrc`) is in scope for the cosign run; a process that can write the control home is not. |
 | 6 | `down` and `restore` are out of scope. |
@@ -34,8 +34,8 @@ work".
 | 8 | There is one pin per control home. |
 | 9 | `--yes` is allowed on `teardown pin`. |
 
-**The pin command**, in every message below, is `berth teardown pin --latest`,
-or `berth teardown pin --release X.Y.Z` while the repository has only
+**The pin command**, in every message below, is `treerig teardown pin --latest`,
+or `treerig teardown pin --release X.Y.Z` while the repository has only
 pre-releases (`--latest` never selects one); it is the latter until the first
 release that is not a pre-release exists.
 
@@ -57,11 +57,11 @@ release that is not a pre-release exists.
 ## Scope and threat model
 
 `worktree remove` runs no project hooks (the hook stages are prepare, seed,
-verify, backup and restore), and `berth.toml` and Compose files are data, so the
-code to pin is berth's own. A hook later added to removal needs its own trust
+verify, backup and restore), and `treerig.toml` and Compose files are data, so the
+code to pin is treerig's own. A hook later added to removal needs its own trust
 rule. `down` and `restore` are out of scope.
 
-The pin protects against **unreviewed branch code running as berth during a
+The pin protects against **unreviewed branch code running as treerig during a
 removal**. It does not protect against a hostile process running as the same
 user with write access to the control home, which can rewrite the pin as easily
 as anything else there. A root-owned location is not a goal.
@@ -73,8 +73,8 @@ would remove that dependence, was declined (decision 2). So:
 - Run `teardown pin` from a shell you trust, not from a directory whose `.envrc`
   or similar you have not read. Pinning is the user's one deliberate trust act;
   the gate protects the removals after it. Branch code that controls `PATH` at pin
-  time could equally replace `berth` itself, so nothing here claims to defend that.
-- berth narrows the common case: it refuses a cosign that resolves inside a
+  time could equally replace `treerig` itself, so nothing here claims to defend that.
+- treerig narrows the common case: it refuses a cosign that resolves inside a
   checkout or the control home (below), and gives cosign a fixed environment
   (below), so that no `.envrc` can choose its trust root.
 - **Accepted limit:** a cosign elsewhere on a hijacked `PATH`, outside every
@@ -92,7 +92,7 @@ would remove that dependence, was declined (decision 2). So:
 | Pinned teardown binaries | `<control home>/teardown/<binary sha256>` (`layout.Control.TeardownDir`) | none: the name is the version |
 | cosign's cache | `<control home>/teardown/cosign/{tuf,tmp}` (`layout.Control.CosignHome`, `CosignTUFRoot`, `CosignTmp`) | none: a derived cache, safe to delete |
 
-One pin per control home, shared by every berth root that uses it. `teardown/` is
+One pin per control home, shared by every treerig root that uses it. `teardown/` is
 separate from `bin/`: `bin/` holds unvetted copies of whatever was invoked and is
 swept by age and count. Directories are `0700` and created by
 `files.SecureTeardownDirectory`, which mirrors `SecureBinDirectory`; the pin
@@ -107,8 +107,8 @@ the bytes it installs.
 {
   "version": 1,
   "release": "1.2.3",
-  "source": "https://github.com/sofired/berth/releases/download/v1.2.3/",
-  "signer": "https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3",
+  "source": "https://github.com/sofired/treerig/releases/download/v1.2.3/",
+  "signer": "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3",
   "checksums_sha256": "<sha256 of the verified checksums.txt>",
   "pinned_at": "2026-10-14T12:00:00Z",
   "platforms": {
@@ -129,7 +129,7 @@ the bytes it installs.
 | `pinned_at` | RFC 3339, UTC, `Z` suffix. |
 | `platforms` | Keyed `<GOOS>_<GOARCH>` of the process that pins and the one that removes (a darwin/amd64 build under Rosetta is `darwin_amd64`). Only four keys exist: `linux_amd64`, `linux_arm64`, `darwin_amd64` and `darwin_arm64`. A release pin has all four; a file pin has exactly one entry, the machine it was made on. At least one entry names a binary. |
 | `archive_sha256` | Lowercase 64-hex; empty for a file pin, which has no archive. Recorded for all four platforms of a release pin, from the one verified `checksums.txt`. Kept for platforms not installed here because it records what was signed, lets `status` name the platforms with no binary, and lets a later `pin` for another platform of the same release merge without a new decision. |
-| `binary_sha256` | Lowercase 64-hex hash of the extracted `berth`: the **runtime trust anchor**. `checksums.txt` lists archive digests only, so it is computed at install, after the archive digest matched. Present only for platforms installed on this machine, and omitted rather than written empty: `"binary_sha256": ""` is foreign. Required (and the only digest) in a file pin's entry. |
+| `binary_sha256` | Lowercase 64-hex hash of the extracted `treerig`: the **runtime trust anchor**. `checksums.txt` lists archive digests only, so it is computed at install, after the archive digest matched. Present only for platforms installed on this machine, and omitted rather than written empty: `"binary_sha256": ""` is foreign. Required (and the only digest) in a file pin's entry. |
 
 **Unknown keys are foreign.** Keys are matched exactly (`Release` is not
 `release`), and a key may not appear twice in one object. Every key is required
@@ -146,8 +146,8 @@ the gate. It returns the pin, no pin, or a refusal:
 
 | Found | Result |
 | --- | --- |
-| Newer `version` | `stateformat.Newer("use", "the teardown pin <path>", …)`: `state.md`'s refusal, "Upgrade berth". |
-| No version, an unknown version, an unknown key, a duplicate key or a bad field | Foreign: the text below. Never "Upgrade berth"; never rewritten. |
+| Newer `version` | `stateformat.Newer("use", "the teardown pin <path>", …)`: `state.md`'s refusal, "Upgrade treerig". |
+| No version, an unknown version, an unknown key, a duplicate key or a bad field | Foreign: the text below. Never "Upgrade treerig"; never rewritten. |
 | `pin.json` is a symlink or not a regular file, or the directory is | `Refusing symlinked or non-file managed path: <path>` (`files.AssertSafeFilePath`). |
 | The file cannot be read | `Could not read the teardown pin <path>: <reason>. Check its permissions, or delete <control home>/teardown/ and pin again.` `<reason>` is the system error without the path (`permission denied`). The gate re-wraps it in its own refusal. |
 
@@ -158,9 +158,9 @@ Refusing to use the teardown pin <path>: it is not a pin this build wrote. Delet
 ## Installing or updating the pin
 
 ```
-berth teardown pin --release X.Y.Z | --latest   [--yes]
-berth teardown pin --file PATH --sha256 HEX --release LABEL   [--yes]
-berth teardown status [--json]
+treerig teardown pin --release X.Y.Z | --latest   [--yes]
+treerig teardown pin --file PATH --sha256 HEX --release LABEL   [--yes]
+treerig teardown status [--json]
 ```
 
 `--release` means "which release" everywhere: with `--file` it is the label the
@@ -191,12 +191,12 @@ There is no `unpin`: deleting `<control home>/teardown/` does it. `--yes` is
 
 | Source | Flow |
 | --- | --- |
-| `--release X.Y.Z` | The value must match release.yml's pattern `^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$`. `0.1.0-rc.1` passes, and so does the snapshot's `0.0.0-dev+<sha12>` (a pre-release part and a build part), which is why the CI pin flow runs unchanged against it. Everything is fetched from `https://github.com/sofired/berth/releases/download/vX.Y.Z/`. |
+| `--release X.Y.Z` | The value must match release.yml's pattern `^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$`. `0.1.0-rc.1` passes, and so does the snapshot's `0.0.0-dev+<sha12>` (a pre-release part and a build part), which is why the CI pin flow runs unchanged against it. Everything is fetched from `https://github.com/sofired/treerig/releases/download/vX.Y.Z/`. |
 | `--latest` | **Discovery only.** Fetches `…/releases/latest/download/checksums.txt`, reads the version from the archive names in it (they must all agree and match the pattern), and discards the bytes. Then it behaves as `--release` with that value and refetches everything, `checksums.txt` included, from the versioned URL. `releases/latest` never selects a pre-release, so before a stable release exists it answers 404 and the command refuses (below). |
 | `--file` | Reads the file once into memory (at most 200 MiB), hashes those bytes, compares with `--sha256`, and `binstore.Install`s the same bytes. For users without cosign and for development. |
 
 ```
-Refusing to pin the latest release: sofired/berth has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `berth teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/berth/releases.
+Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/treerig/releases.
 ```
 
 **What `--file` does, in order.** It checks the flags (all missing required flags are named in one line;
@@ -225,7 +225,7 @@ another format or one built for another architecture (a fat Mach-O passes when i
 holds this one), so `status` cannot report such a file as intact:
 
 ```
-Refusing to pin <release>: <path> is not a <platform> executable (<reason>). Nothing was pinned. Pin the berth binary built for this machine.
+Refusing to pin <release>: <path> is not a <platform> executable (<reason>). Nothing was pinned. Pin the treerig binary built for this machine.
 ```
 
 On success, one line on stderr and nothing on stdout:
@@ -241,10 +241,10 @@ by hand with the README's steps, or has no network, pins without cosign.
   is refused. One command's downloads share a 10-minute timeout.
 - Size caps: `checksums.txt` and the bundle 1 MiB each, the archive 100 MiB.
 - Extraction reads the gzip stream through a 500 MiB bound and accepts exactly
-  one regular entry named `berth` or `./berth`, of at most 200 MiB. Other
-  regular entries (including `completions/berth`) and directories are skipped
+  one regular entry named `treerig` or `./treerig`, of at most 200 MiB. Other
+  regular entries (including `completions/treerig`) and directories are skipped
   and never written. A link entry of any kind, an absolute name, a name with
-  `..`, a duplicate `berth` or a missing one refuses the archive.
+  `..`, a duplicate `treerig` or a missing one refuses the archive.
 - The fetcher is an interface (`releasefetch.Fetcher`) whose one implementation
   wraps an `*http.Client`; `commands.Env.Releases` carries it. `cli.MainProcess`
   builds the client, with `Proxy: http.ProxyFromEnvironment` set explicitly and a
@@ -264,7 +264,7 @@ earlier is cosign's own cache, `teardown/cosign/`, below: derived, not stored
 state.)
 
 1. `checksums.txt` and `checksums.txt.sigstore.json` are written to a `0700`
-   temporary directory under `teardown/cosign/tmp/`, chosen by berth and never by
+   temporary directory under `teardown/cosign/tmp/`, chosen by treerig and never by
    `TMPDIR`, and the bytes held in memory are the ones parsed later; the file
    cosign verified is read back and must equal them. Each fetch is announced on
    stderr (`Downloading <url>…`), since a stalled body otherwise waits out the
@@ -292,7 +292,7 @@ state.)
    ```
    <cosign> verify-blob
      --bundle <tmp>/checksums.txt.sigstore.json
-     --certificate-identity https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/vX.Y.Z
+     --certificate-identity https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/vX.Y.Z
      --certificate-oidc-issuer https://token.actions.githubusercontent.com
      <tmp>/checksums.txt
    ```
@@ -302,7 +302,7 @@ state.)
 5. Only now is `checksums.txt` parsed: exactly one line `<64-hex>  <archive
    name>` for the exact archive name, else refuse. The archive's sha256 must
    equal it.
-6. The archive is extracted as above; the `berth` bytes are hashed, giving
+6. The archive is extracted as above; the `treerig` bytes are hashed, giving
    `binary_sha256`.
 
 For `--file` only the supplied digest is checked; the plan says so. There is no
@@ -316,7 +316,7 @@ nothing), and no flag skips the signature or changes the identity.
 | The control home | `canonical(controlHome)`. **Required.** |
 | The current checkout | Walk up from the working directory to the first ancestor holding a `.git` file or directory. **Required** when there is one: a `.git` that cannot be read or followed refuses. |
 | That checkout's repository | For a worktree, follow the `.git` file's `gitdir:` to the git directory and its `commondir`, and take the parent when the common directory is named `.git`, else the directory itself; named "the repository of this checkout". With no `commondir` (a submodule) there is no repository root and none is guessed. |
-| The repository's listed worktrees | Each `<common dir>/worktrees/*/gitdir` file holds the path of a linked worktree's `.git` file; its directory is a root ("a worktree of this repository"). This covers worktrees berth never registered, such as this project's `../berth.<slug>` siblings, which sit outside the repository. No `git` is run; at most 1000 entries. |
+| The repository's listed worktrees | Each `<common dir>/worktrees/*/gitdir` file holds the path of a linked worktree's `.git` file; its directory is a root ("a worktree of this repository"). This covers worktrees treerig never registered, such as worktrees outside the repository, siblings of its checkout. No `git` is run; at most 1000 entries. |
 | Registered worktrees | The registry's records, each placed by the root its index card last recorded (a registration carries no path of its own, and `git` is not run to find one). Empty or absent: no roots; a record with no card contributes none, so a worktree that never ran `up` and is neither the checkout nor listed is not checked. Unreadable or of a newer format: skipped with a note on stderr, not a refusal, since pinning is the bootstrap. |
 
 Discovery fails closed: a required root that cannot be resolved refuses the pin
@@ -331,7 +331,7 @@ once, with their count.
 Each root is canonicalised with `registry.CanonicalPath`, which tolerates a path
 that does not exist yet. Containment compares canonical forms with `filepath.Rel` and rejects a result
 that is `..` or starts with `..` plus a separator; a string prefix is never used,
-so `berth.foo` is not inside `berth`. Each ancestor of the cosign path is also
+so `treerig.foo` is not inside `treerig`. Each ancestor of the cosign path is also
 compared with each root through `os.SameFile`, on every platform (one stat per
 ancestor), which sees through the case-insensitive volumes of macOS.
 
@@ -341,7 +341,7 @@ ancestor), which sees through the case-insensitive volumes of macOS.
   keyless with the identity above; tests supply their own.
 - cosign runs through `run.Runner` under a context timeout (10 seconds for
   `version`, 60 for `verify-blob`).
-- Its environment is an **allowlist**, not berth's own with some variables
+- Its environment is an **allowlist**, not treerig's own with some variables
   removed. cosign binds every flag to a `COSIGN_<FLAG>` variable
   (`COSIGN_TRUSTED_ROOT` picks the trust root, `COSIGN_INSECURE_IGNORE_TLOG=true`
   turns the log check off), reads `SIGSTORE_*`, and finds its TUF cache from
@@ -350,7 +350,7 @@ ancestor), which sees through the case-insensitive volumes of macOS.
   home, which is why the same reasoning does not apply to the pin.) cosign gets
   `PATH` (relative entries made absolute), `LANG` and `LC_*`, `HTTP_PROXY`,
   `HTTPS_PROXY` and `NO_PROXY` in both cases, `SSL_CERT_FILE` and `SSL_CERT_DIR`,
-  and three that berth sets itself: `HOME=<control home>/teardown/cosign`,
+  and three that treerig sets itself: `HOME=<control home>/teardown/cosign`,
   `TUF_ROOT=<control home>/teardown/cosign/tuf` and
   `TMPDIR=<control home>/teardown/cosign/tmp`, all `0700` and checked like the
   other managed directories. `ALL_PROXY` is not passed. Checked against cosign
@@ -362,8 +362,8 @@ ancestor), which sees through the case-insensitive volumes of macOS.
   refusal:
 
 ```
-Refusing to pin <release>: cosign resolves to <path> [(<canonical path>, only when it differs)], which is inside <the worktree <slug> | this checkout | the repository of this checkout | a worktree of this repository | the control home>, where branch code could have put it. Install cosign outside any checkout, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.
-Refusing to pin <release>: cosign 3.0.0 or newer is required to verify it, and cosign is not on PATH | <path> does not qualify (<found>) | no usable cosign was found (<found>). Install cosign | Upgrade cosign, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.
+Refusing to pin <release>: cosign resolves to <path> [(<canonical path>, only when it differs)], which is inside <the worktree <slug> | this checkout | the repository of this checkout | a worktree of this repository | the control home>, where branch code could have put it. Install cosign outside any checkout, or verify the download by hand and use `treerig teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.
+Refusing to pin <release>: cosign 3.0.0 or newer is required to verify it, and cosign is not on PATH | <path> does not qualify (<found>) | no usable cosign was found (<found>). Install cosign | Upgrade cosign, or verify the download by hand and use `treerig teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned.
 ```
 
 A failed `verify-blob` is classified from cosign's exit and its `Error:` lines
@@ -373,7 +373,7 @@ order of precedence, and only what the class supports is advised:
 | Class | Refusal |
 | --- | --- |
 | Signature or identity (`none of the expected identities matched`, `invalid signature`, `failed to verify log inclusion`, …) | `` Refusing to pin <release>: checksums.txt did not verify against the release workflow's signature. cosign said: "<stderr>". Do not trust this release. Nothing was pinned. `` The `--file` form is never offered. |
-| Trust root not loaded (`trusted root is required`, TUF errors) | `` Refusing to pin <release>: cosign could not load the Sigstore trust root. cosign said: "<stderr>". Run `cosign initialize` once with network access, or verify the download by hand and use `berth teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned. `` The only class that offers the file form. |
+| Trust root not loaded (`trusted root is required`, TUF errors) | `` Refusing to pin <release>: cosign could not load the Sigstore trust root. cosign said: "<stderr>". Run `cosign initialize` once with network access, or verify the download by hand and use `treerig teardown pin --file PATH --sha256 HEX --release LABEL`. Nothing was pinned. `` The only class that offers the file form. |
 | cosign could not be started | `` … cosign could not be run (<reason>). If it cannot load its trust root, run `cosign initialize` once with network access, then run this again. Nothing was pinned. `` |
 | Timeout (60 seconds) | `` … cosign did not finish within 60 seconds. If it is fetching its trust root on a slow connection, run `cosign initialize` … `` |
 | Anything else | `` Refusing to pin <release>: cosign could not verify checksums.txt. cosign said: "<stderr>". Nothing was pinned. `` No advice. |
@@ -430,8 +430,8 @@ A release pin's plan:
 ```
 Pin the teardown binary
   release   1.2.3  (current pin: 1.1.0)
-  source    https://github.com/sofired/berth/releases/download/v1.2.3/
-  signer    https://github.com/sofired/berth/.github/workflows/release.yml@refs/tags/v1.2.3  (cosign verified)
+  source    https://github.com/sofired/treerig/releases/download/v1.2.3/
+  signer    https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3  (cosign verified)
   cosign    /usr/local/bin/cosign -> /opt/cosign/cosign  (3.0.6)
   platform  linux_amd64  sha256 3f2a…
   `worktree remove` does not run this binary yet.
@@ -442,7 +442,7 @@ A `--file` pin's plan, where no signature is checked and cosign is not run:
 ```
 Pin the teardown binary
   release   my-build  (current pin: none)
-  source    file:/home/me/berth
+  source    file:/home/me/treerig
   signer    none (digest supplied by you); no signature was checked
   platform  linux_amd64  sha256 3f2a…
   `worktree remove` does not run this binary yet.
@@ -613,8 +613,8 @@ Gate(env, options):
   Running a `bin/<hash>` copy by hand with `--dev-teardown` prints no notice; the
   user has chosen it twice.
 - **Detection is by path and bytes.** A running binary whose bytes equal the pin,
-  such as a package-managed `/usr/bin/berth`, still re-executes the stored copy,
-  whose location and permissions berth controls.
+  such as a package-managed `/usr/bin/treerig`, still re-executes the stored copy,
+  whose location and permissions treerig controls.
 - **Who speaks.** The parent prints its notice before the exec; the child prints
   its line after it and then runs `RemoveWithContext`, so the child also asks the
   confirmation (`confirm` lives in `RemoveWithContext`, remove.go).
@@ -637,7 +637,7 @@ Running as the pinned teardown binary <path> (version <version>).
 
 Both lines are intended: the parent's says what it is about to run, and the
 child's proves that it ran, with `brand.Version`. The "pinned code ran" test builds the pinned binary with
-`-X github.com/sofired/berth/internal/brand.Version=pinned-test`, pins it,
+`-X github.com/sofired/treerig/internal/brand.Version=pinned-test`, pins it,
 invokes a differently versioned build, and asserts the second line, which only
 the pinned binary can print.
 
@@ -659,12 +659,12 @@ Refusing --dev-teardown: this is a pinned teardown binary. Nothing was removed.
 A newer pin gets `state.md`'s refusal as it stands. When the running build is
 newer than the pin, a refusal adds the hint sentence from `status`. A pinned
 release older than the registrations in use refuses them with `state.md`'s
-"Upgrade berth", which for a pinned child means updating the pin; the README says
+"Upgrade treerig", which for a pinned child means updating the pin; the README says
 so.
 
 ## The developer escape hatch [gate]
 
-`berth worktree remove --dev-teardown` ("remove with this build's own code, not a
+`treerig worktree remove --dev-teardown` ("remove with this build's own code, not a
 pinned teardown binary") runs this build's own teardown, relocated through `bin/`
 so a deleted checkout cannot delete the running program. The parent prints, on
 stderr, once, before the confirmation prompt; the relocated copy is silent
@@ -676,7 +676,7 @@ Removing with this build's own teardown (version <version>, sha256 <hash>), not 
 
 It must never become:
 
-- a key in `settings.toml` or `berth.toml` (`berth.toml` is branch content, so the
+- a key in `settings.toml` or `treerig.toml` (`treerig.toml` is branch content, so the
   worktree would authorise itself);
 - an environment variable;
 - implied by a development version, `go run`, a missing pin, a missing terminal
@@ -685,7 +685,7 @@ It must never become:
 - passed down to a pinned child (check 1 refuses it).
 
 A test walks the config schema, the settings keys and the environment names
-`cmd/berth` reads, and fails if any of them names this behaviour.
+`cmd/treerig` reads, and fails if any of them names this behaviour.
 
 ## Packages
 
@@ -703,11 +703,11 @@ A test walks the config schema, the settings keys and the environment names
 | Concern | Position |
 | --- | --- |
 | linux amd64, arm64 | Each has its own platform entry. A pin made on one has no `binary_sha256` for the other; the gate refuses there and names the fix. |
-| macOS quarantine | A Go HTTP client does not set `com.apple.quarantine`, and a `--file` copy carries no xattr; the user's `--sha256` is the approval. berth never runs `xattr`. |
+| macOS quarantine | A Go HTTP client does not set `com.apple.quarantine`, and a `--file` copy carries no xattr; the user's `--sha256` is the approval. treerig never runs `xattr`. |
 | macOS signing | The Go linker ad-hoc-signs darwin/arm64 binaries and the signature is in the Mach-O, so a copy executes. Releases are not Developer-ID signed or notarized. Any future signing step runs before archiving (`release.md`), so the digests describe the signed bytes. |
 | noexec control home | Exec fails and the gate refuses (the last-but-one refusal above). `--dev-teardown` relocates into the same filesystem and does not help. `teardown pin` never executes the stored binary (it only checks its headers, `teardown.CheckExecutable`, before storing), so the EACCES or ENOEXEC of a filesystem that cannot run programs first appears at the gate (#146), which owns the mapping to that refusal. Executing the binary at pin time to find out earlier was rejected: it would add an exec with its own argv, environment and timeout to a command that otherwise runs only cosign, to report a failure the gate must report anyway, and the gate's tests are where the mapping is pinned. |
 | Homebrew | Builds from the source archive, so its binary is not the release binary and is never the pin. A Homebrew user pins once, and again after an upgrade. |
-| deb, rpm, apk | `/usr/bin/berth` is the release binary (checked in the snapshot, below). The user still runs `teardown pin`. |
+| deb, rpm, apk | `/usr/bin/treerig` is the release binary (checked in the snapshot, below). The user still runs `teardown pin`. |
 | TOCTOU | The gate hashes the stored file and then executes its path. The directory is `0700` and user-owned; a process that can swap the file can edit the pin. Accepted. |
 
 ## Bootstrap
@@ -728,7 +728,7 @@ pinned with an explicit `--release`.
 | --- | --- |
 | Pin format, versions, refusals | Unit tests with `testdata` fixtures: round trip, newer, foreign, unknown key, bad fields, modes; the constant is pinned by `stateformat`'s test. |
 | Update rules and the sweep | Unit tests: merge, replace, downgrade; the sweep keeps the pin's binaries and the grace window and touches only 64-hex regular files, never a symlink. |
-| Download and extraction | `httptest` TLS server serving a release laid out per `release.md` (`releasefetch/releasetest`: four platform archives, a `checksums.txt` listing them, a placeholder bundle), with a client trusting its certificate; a 404, a redirect to `http`, size caps, a `--latest` that is overtaken by a newer release, hostile archives (links, absolute names, `..`, duplicates, a missing `berth`, devices, oversize and decompression bombs), a bad archive digest and a signature for another tag. Through the entry point: the built binary downloads through the proxy `HTTPS_PROXY` names. |
+| Download and extraction | `httptest` TLS server serving a release laid out per `release.md` (`releasefetch/releasetest`: four platform archives, a `checksums.txt` listing them, a placeholder bundle), with a client trusting its certificate; a 404, a redirect to `http`, size caps, a `--latest` that is overtaken by a newer release, hostile archives (links, absolute names, `..`, duplicates, a missing `treerig`, devices, oversize and decompression bombs), a bad archive digest and a signature for another tag. Through the entry point: the built binary downloads through the proxy `HTTPS_PROXY` names. |
 | cosign | A real cosign 3 with a throwaway key (see "CI"), skipped without one; and `fakerun`, which asserts the exact argv, the absolute path, the PATH-resolved path being the one run, the refusal of a path inside a worktree root, the checkout or the control home (including a sibling name that shares a prefix, which is not inside, and one directory reached by two spellings, which is: `TestLocateContainment` uses `/proc/self/root` on Linux, and no darwin case-difference test exists), the version check, the exact allowlisted environment of both cosign calls (`TestLocate`, `TestTeardownPinRelease`), the timeouts and the stderr in the refusal. |
 | The gate | Unit tests with `Env.Executable` and `Env.Exec` fakes: the order of checks 1 to 4 (a pinned child with an absent, unreadable, newer, foreign or non-naming pin refuses), the exact refusal text, and that `Context` is never built on a refusal. |
 | Pinned code ran | Integration test over the built binary, as described under "The two lines". No Docker for the assertion. |
@@ -741,11 +741,11 @@ The `release-snapshot` job has a SHA-pinned `sigstore/cosign-installer` step
 `release.md` fixes), and pins the snapshot after "Verify the artifacts" (the
 reproducibility step's `--clean` wipes `dist/`). A test in `internal/commands`
 (`TestTeardownPinSnapshot`), given the `dist/` path and the snapshot's version in
-`BERTH_SNAPSHOT_DIST` and `BERTH_SNAPSHOT_VERSION`, serves `dist/` over an
+`TREERIG_SNAPSHOT_DIST` and `TREERIG_SNAPSHOT_VERSION`, serves `dist/` over an
 `httptest` TLS server (`releasefetch/releasetest`) and runs
 `teardown pin --release` against it. It asserts all four `archive_sha256` values
 equal `checksums.txt` and the host's `binary_sha256` equals the hash of the built
-`berth`. The installer commit and `cosign-release:` are set in both `release.yml`
+`treerig`. The installer commit and `cosign-release:` are set in both `release.yml`
 and `go.yml`; `TestCosignPinnedTheSameInBothWorkflows` (`internal/style`) fails if
 they differ.
 
@@ -772,8 +772,8 @@ they differ.
   The test-only policy lives in the test files (`keyPolicy` in
   `internal/commands/teardown_cosign_test.go`); no key mode exists in production
   code. The real keyless identity is first exercised at #147.
-- **No silent skip.** The `release-snapshot` job sets `BERTH_REQUIRE_COSIGN=1`,
-  so a missing cosign, an unset `BERTH_SNAPSHOT_DIST` or `BERTH_SNAPSHOT_VERSION`,
+- **No silent skip.** The `release-snapshot` job sets `TREERIG_REQUIRE_COSIGN=1`,
+  so a missing cosign, an unset `TREERIG_SNAPSHOT_DIST` or `TREERIG_SNAPSHOT_VERSION`,
   or a `dist/` without `checksums.txt` fails the tests instead of skipping them.
   The step also runs `go test -v` and checks its log: it fails unless
   `--- PASS:` appears for each of the four tests (`TestTeardownPinSnapshot`,
@@ -782,8 +782,8 @@ they differ.
   `-run` pattern that matches nothing fails too. Locally, without the variable,
   the tests skip.
 - `packaging/verify-snapshot.sh` additionally asserts that the host's
-  `/usr/bin/berth` in the deb (and the rpm where `rpm2cpio` and `cpio` are
-  present) hashes to the archive's `berth`. Locally it says "skipped" where a
+  `/usr/bin/treerig` in the deb (and the rpm where `rpm2cpio` and `cpio` are
+  present) hashes to the archive's `treerig`. Locally it says "skipped" where a
   reader is missing; with `CI` set (GitHub sets it) a missing reader fails, so the
   check cannot pass by not running. CONTRIBUTING.md's "Trying it without
   publishing" commands and its `release-signing` paragraph carry the pin flow and
@@ -813,7 +813,7 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 actions and `permissions: contents: read`; takes the tag from
 `github.event.workflow_run.head_branch`, checked against the version pattern
 before use; and runs on `ubuntu-latest`, `ubuntu-24.04-arm` and `macos-latest`
-with scratch `BERTH_HOME` and `BERTH_CONTROL_HOME`. It runs
+with scratch `TREERIG_HOME` and `TREERIG_CONTROL_HOME`. It runs
 `teardown pin --release 0.1.0-rc.2 --yes` (explicit, since the tag is a
 pre-release), `status`, and a `worktree remove` with no terminal and no `--yes`, in a scratch checkout. It
 stops at the gate's two lines: it asserts both, and accepts the refusal that
