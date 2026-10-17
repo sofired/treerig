@@ -1209,6 +1209,8 @@ container cannot reach the host.
 
 ## Trust model
 
+To report a vulnerability, see [`SECURITY.md`](SECURITY.md).
+
 Bringing up a worktree runs the branch's code. `up` builds whatever its
 `compose.yaml` builds and runs the hooks named in its `treerig.toml`, as you,
 with your full environment — the same trust a `make` or an `npm install` in

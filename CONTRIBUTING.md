@@ -7,6 +7,9 @@ Thanks for looking. A few things that make contributions land smoothly.
 See "Go" below for the checks to run before opening a pull request. CI runs
 both on Linux and macOS.
 
+Report security vulnerabilities privately through GitHub (see
+[`SECURITY.md`](SECURITY.md)), not as an issue or pull request.
+
 ## What we care about
 
 **Ownership is a safety property, not a feature.** Anything that removes a
