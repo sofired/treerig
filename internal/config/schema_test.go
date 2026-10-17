@@ -154,8 +154,9 @@ func equalStrings(v any, want ...string) bool {
 
 // TestCodeOnlyChecks pins where validation checks something the published
 // schema cannot state, so adding a Refine or SuperRefine is a visible choice:
-// either restate it with SchemaPattern, or add it here, and to the README's
-// note that treerig config validate makes the checks the schema cannot.
+// either restate it with SchemaPattern, or add it here, and to the note in
+// docs/configuration.md that treerig config validate makes the checks the
+// schema cannot.
 func TestCodeOnlyChecks(t *testing.T) {
 	want := []string{
 		"(root)",         // two services claiming the same route

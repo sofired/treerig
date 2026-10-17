@@ -18,7 +18,7 @@
 #   3. Downloads the archive and checksums.txt, and VERIFIES the archive's
 #      sha256 against checksums.txt before it extracts anything. That catches
 #      a damaged or swapped archive; it does not check the signature on
-#      checksums.txt (the README says how to do that).
+#      checksums.txt (docs/install.md says how to do that).
 #   4. Installs the binary into the directory you chose. It never uses sudo:
 #      if the directory is not writable, it says so and stops before it
 #      downloads anything.
@@ -324,4 +324,4 @@ if on_path "$want_dir"; then
 else
   print_path_guidance "$want_dir"
 fi
-info "Shell completion: ${BIN} completion bash|zsh|fish (see the README)."
+info "Shell completion: ${BIN} completion bash|zsh|fish (see https://github.com/sofired/treerig/blob/main/docs/install.md#shell-completion)."

@@ -575,10 +575,10 @@ backup  = "./backup.sh"
 		}
 	})
 
-	// The README's install step is `ln -s <binary> somewhere-on-PATH`, and the
-	// rename story is that the symlink's own name is what people see —
-	// brand.CLIName reads argv[0], which must survive being invoked by a
-	// different name.
+	// docs/install.md ("Calling it something else") tells people to
+	// `ln -s <binary> somewhere-on-PATH`, and the rename story is that the
+	// symlink's own name is what people see — brand.CLIName reads argv[0],
+	// which must survive being invoked by a different name.
 	t.Run("answers to the name it was symlinked as, and to the product name otherwise", func(t *testing.T) {
 		cwd := writeStreamsProject(t, streamsConfig)
 		link := filepath.Join(cwd, "duke")
