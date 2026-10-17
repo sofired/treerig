@@ -9,6 +9,8 @@
 // build's lock design uses one.
 package procid
 
+import "github.com/sofired/treerig/internal/brand"
+
 // Identity is who a process is, in the terms a later reader can check it by.
 type Identity struct {
 	// MachineID is /etc/machine-id on Linux, the platform UUID on macOS.
@@ -111,7 +113,7 @@ type Table interface {
 // name as a whole argv token, or TREERIG_WORKTREE_ID=<wt> / COMPOSE_PROJECT_NAME=<p>
 // in its environment.
 func Marked(procs []Proc, m Markers) []Proc {
-	wantWorktree := "TREERIG_WORKTREE_ID=" + m.WorktreeID
+	wantWorktree := brand.EnvName("WORKTREE_ID") + "=" + m.WorktreeID
 	wantProject := "COMPOSE_PROJECT_NAME=" + m.Project
 	var found []Proc
 	for _, p := range procs {

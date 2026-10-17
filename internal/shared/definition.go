@@ -239,8 +239,8 @@ func (d Definition) Hash(service string) (string, error) {
 func (s *Stack) environment() []string {
 	extra := []string{
 		"COMPOSE_PROJECT_NAME=" + s.Project(),
-		"TREERIG_PROJECT=" + s.o.ProjectName,
-		"TREERIG_REPOSITORY_ID=" + s.o.RepositoryID,
+		brand.EnvName("PROJECT") + "=" + s.o.ProjectName,
+		brand.EnvName("REPOSITORY_ID") + "=" + s.o.RepositoryID,
 	}
 	// A process started from a hook inherits that worktree's TREERIG_*
 	// variables; they would make the same file read differently from there.
@@ -248,7 +248,7 @@ func (s *Stack) environment() []string {
 	var inherited []string
 	for _, entry := range s.o.Environ {
 		name, _, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(name, brand.EnvPrefix+"_") && name != brand.HomeEnv && name != brand.ControlHomeEnv {
+		if strings.HasPrefix(name, brand.EnvName("")) && name != brand.HomeEnv && name != brand.ControlHomeEnv {
 			continue
 		}
 		inherited = append(inherited, entry)

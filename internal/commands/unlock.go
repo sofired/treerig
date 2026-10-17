@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
@@ -397,7 +398,7 @@ func UnlockWithContext(ctx context.Context, cctx *CommandContext, options Unlock
 
 	if env, ok := cctx.environWorktreeID(); ok && env == target.worktreeID {
 		return nil, clierr.New(
-			"This command is running inside the worktree's own environment (TREERIG_WORKTREE_ID is set, as in its hooks), " +
+			"This command is running inside the worktree's own environment (" + brand.EnvName("WORKTREE_ID") + " is set, as in its hooks), " +
 				"so it cannot tell its own processes from the holder's. Run it from an ordinary shell.")
 	}
 
@@ -482,7 +483,7 @@ func wrapPartialClearFailure(cleared []ClearedLock, err error) error {
 func (c *CommandContext) environWorktreeID() (string, bool) {
 	for _, entry := range c.Environ {
 		name, value, ok := strings.Cut(entry, "=")
-		if ok && name == "TREERIG_WORKTREE_ID" {
+		if ok && name == brand.EnvName("WORKTREE_ID") {
 			return value, true
 		}
 	}

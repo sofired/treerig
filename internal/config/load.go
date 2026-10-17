@@ -91,7 +91,7 @@ func Load(file string) (*Loaded, error) {
 // exampleFileURL is where the missing-config hint points for the annotated
 // example: a released binary carries no source tree of its own, so the hint
 // names something a binary-only install still has access to.
-const exampleFileURL = "https://github.com/sofired/treerig/blob/main/" + brand.ExampleFile
+const exampleFileURL = "https://github.com/" + brand.Repository + "/blob/main/" + brand.ExampleFile
 
 // LoadNearest loads the nearest treerig.toml above startDir, or fails with a
 // hint that names something that exists. The hint names the tool by brand.Name,

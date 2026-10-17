@@ -13,6 +13,7 @@ import (
 	"slices"
 
 	"github.com/sofired/treerig/internal/backend"
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/logger"
@@ -51,11 +52,11 @@ func sharedURLsFor(controlHome, repositoryID string, cfg config.Config, routerPo
 	}
 	records, problems, err := registry.NewStore(controlHome, repositoryID).SharedRecords()
 	if err != nil {
-		log.Warn(fmt.Sprintf("Could not read the shared services' records, so TREERIG_SHARED_URL_* is left out: %s", err))
+		log.Warn(fmt.Sprintf("Could not read the shared services' records, so %s* is left out: %s", brand.EnvName(worktree.SharedURLPrefix), err))
 		return nil
 	}
 	for _, problem := range problems {
-		log.Warn(fmt.Sprintf("A shared service's record could not be read, so its TREERIG_SHARED_URL_* is left out: %s: %s", problem.File, problem.Reason))
+		log.Warn(fmt.Sprintf("A shared service's record could not be read, so its %s* is left out: %s: %s", brand.EnvName(worktree.SharedURLPrefix), problem.File, problem.Reason))
 	}
 	byName := make(map[string]registry.SharedRecord, len(records))
 	for _, record := range records {

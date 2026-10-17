@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/semver"
 )
 
@@ -25,7 +26,7 @@ const (
 )
 
 // DefaultRepository is the repository releases are downloaded from.
-const DefaultRepository = "https://github.com/sofired/treerig"
+const DefaultRepository = "https://github.com/" + brand.Repository
 
 // Source names where releases are published. The zero value is the treerig
 // repository on GitHub; tests point Repository at an httptest server.
@@ -149,7 +150,7 @@ func (h *HTTP) Get(ctx context.Context, rawURL string, limit int64) ([]byte, err
 var ErrNoStableRelease = errors.New("no release that is not a pre-release")
 
 // archiveName matches a platform archive's file name and captures its version.
-var archiveName = regexp.MustCompile(`^treerig_(.+)_(?:linux|darwin)_(?:amd64|arm64)\.tar\.gz$`)
+var archiveName = regexp.MustCompile(`^` + regexp.QuoteMeta(brand.Name) + `_(.+)_(?:linux|darwin)_(?:amd64|arm64)\.tar\.gz$`)
 
 // Latest is discovery only: it fetches releases/latest/download/checksums.txt,
 // reads the version from the platform archives named in it, which must all

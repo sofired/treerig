@@ -48,7 +48,7 @@ func SharedAddrVariables(addrs []SharedAddr) [][2]string {
 // so inherited shared addresses are dropped before this worktree's own are
 // set. It does not validate the service name or port suffix.
 func IsSharedAddrVariable(name string) bool {
-	return strings.HasPrefix(name, brand.EnvPrefix+"_"+SharedAddrPrefix)
+	return strings.HasPrefix(name, brand.EnvName(SharedAddrPrefix))
 }
 
 // SharedURL is the routed URL of a shared service's web UI
@@ -93,5 +93,5 @@ func SharedURLVariables(urls []SharedURL) [][2]string {
 // SharedURLVariables builds, so an inherited one from another worktree's hook
 // is dropped before this worktree's own are set.
 func IsSharedURLVariable(name string) bool {
-	return strings.HasPrefix(name, brand.EnvPrefix+"_"+SharedURLPrefix)
+	return strings.HasPrefix(name, brand.EnvName(SharedURLPrefix))
 }

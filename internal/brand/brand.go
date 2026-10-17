@@ -54,6 +54,15 @@ const (
 	LabelNamespace = "dev.treerig"
 	// EnvPrefix prefixes the environment variables handed to hooks, e.g. TREERIG_STAGE.
 	EnvPrefix = "TREERIG"
+	// Repository is the project's GitHub owner/name. Every URL that points at
+	// the repository (release downloads, the JSON Schema, the signing identity)
+	// derives from it.
+	//
+	// It is a trust root: the release download source and the cosign signing
+	// identity a pin verifies both derive from it. Changing it is a migration,
+	// like a storage name, and the literal identity in
+	// internal/releasefetch/cosign_test.go must change deliberately with it.
+	Repository = "sofired/treerig"
 )
 
 // Version is what `--version` prints. It stays "0.0.0-dev" for a plain `go
@@ -68,6 +77,11 @@ var Version = "0.0.0-dev"
 
 // LabelNamespacePattern is what a label namespace must look like: a reverse domain.
 var LabelNamespacePattern = regexp.MustCompile(`^[a-z0-9]+(\.[a-z0-9-]+)+$`)
+
+// EnvName is the environment variable the tool hands to hooks and commands for
+// suffix: EnvName("STAGE") is "TREERIG_STAGE". It is the one way to spell such
+// a name, so a rename cannot miss a copy.
+func EnvName(suffix string) string { return EnvPrefix + "_" + suffix }
 
 // ManagedLabel marks a resource as this tool's.
 func ManagedLabel(namespace string) string { return namespace + ".managed" }

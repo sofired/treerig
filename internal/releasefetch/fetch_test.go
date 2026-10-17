@@ -241,3 +241,11 @@ func TestRequireHTTPS(t *testing.T) {
 		}
 	})
 }
+
+// TestDefaultRepositoryLiteral pins where releases are downloaded from as a
+// literal, independent of brand.Repository: it is a trust root.
+func TestDefaultRepositoryLiteral(t *testing.T) {
+	if releasefetch.DefaultRepository != "https://github.com/sofired/treerig" {
+		t.Errorf("DefaultRepository = %q", releasefetch.DefaultRepository)
+	}
+}

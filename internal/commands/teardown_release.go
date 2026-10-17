@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/files"
@@ -70,7 +71,7 @@ func teardownPinRelease(ctx context.Context, env *Env, options TeardownPinOption
 		version, err := releasefetch.Latest(fetchCtx, fetcher, options.Source)
 		switch {
 		case errors.Is(err, releasefetch.ErrNoStableRelease):
-			return clierr.Newf("Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `%s teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/treerig/releases.", env.CommandName)
+			return clierr.Newf("Refusing to pin the latest release: %s has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `%s teardown pin --release X.Y.Z`. Releases are listed at https://github.com/%s/releases.", brand.Repository, env.CommandName, brand.Repository)
 		case err != nil:
 			return failure(subject, err)
 		}

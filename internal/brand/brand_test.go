@@ -104,3 +104,26 @@ func TestFormatLabel(t *testing.T) {
 		}
 	})
 }
+
+// TestEnvNameAndRepository pins the literal values the rest of the tree
+// derives from: hook scripts and the release signing identity depend on them.
+func TestEnvNameAndRepository(t *testing.T) {
+	t.Run("EnvName prefixes a suffix with the environment prefix", func(t *testing.T) {
+		for suffix, want := range map[string]string{
+			"STAGE":        "TREERIG_STAGE",
+			"WORKTREE_ID":  "TREERIG_WORKTREE_ID",
+			"SERVICE_URL_": "TREERIG_SERVICE_URL_",
+			"":             "TREERIG_",
+		} {
+			if got := brand.EnvName(suffix); got != want {
+				t.Errorf("EnvName(%q) = %q, want %q", suffix, got, want)
+			}
+		}
+	})
+
+	t.Run("the repository is the GitHub owner and name", func(t *testing.T) {
+		if brand.Repository != "sofired/treerig" {
+			t.Errorf("Repository = %q", brand.Repository)
+		}
+	})
+}

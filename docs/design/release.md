@@ -49,7 +49,11 @@ issuer:   https://token.actions.githubusercontent.com
 Every file in `checksums.txt` also has a GitHub build provenance attestation
 from the same workflow (`gh attestation verify <file> --repo sofired/treerig`).
 The workflow's file name is part of the identity a verifier pins, so a rename
-breaks every verification instruction already published.
+breaks every verification instruction already published. The repository path
+in the identity is `brand.Repository`, a trust root: the download source and
+the signing identity both derive from it, so changing it is a migration, like
+a storage name, and the identity literal pinned in
+`internal/releasefetch/cosign_test.go` changes deliberately with it.
 
 The signing tool is pinned: `release.yml` sets the installer's `cosign-release:`
 to `v3.0.6`, which cosign-installer v4.1.2 installed by default when it was

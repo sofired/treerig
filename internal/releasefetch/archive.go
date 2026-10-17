@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/text"
 )
 
@@ -108,29 +109,29 @@ func ExtractTreerig(archive []byte, limits Limits) ([]byte, error) {
 		default:
 			return nil, refuseArchive("has an entry that is not a regular file or a directory")
 		}
-		if name != "treerig" && name != "./treerig" {
+		if name != brand.Name && name != "./"+brand.Name {
 			continue
 		}
 		if found {
-			return nil, refuseArchive("has more than one `treerig` entry")
+			return nil, refuseArchive("has more than one `" + brand.Name + "` entry")
 		}
 		found = true
 		if header.Size > limits.Binary {
-			return nil, refuseArchive("holds a `treerig` larger than %s", sizeText(limits.Binary))
+			return nil, refuseArchive("holds a `"+brand.Name+"` larger than %s", sizeText(limits.Binary))
 		}
 		binary, err = io.ReadAll(io.LimitReader(tr, limits.Binary+1))
 		if err != nil {
 			if errors.Is(err, errExpanded) {
 				return nil, refuseArchive("expands to more than %s", sizeText(limits.Expanded))
 			}
-			return nil, refuseArchive("has a `treerig` entry that cannot be read (%s)", text.OneLine(err.Error(), 200))
+			return nil, refuseArchive("has a `"+brand.Name+"` entry that cannot be read (%s)", text.OneLine(err.Error(), 200))
 		}
 		if int64(len(binary)) > limits.Binary {
-			return nil, refuseArchive("holds a `treerig` larger than %s", sizeText(limits.Binary))
+			return nil, refuseArchive("holds a `"+brand.Name+"` larger than %s", sizeText(limits.Binary))
 		}
 	}
 	if !found {
-		return nil, refuseArchive("has no `treerig` entry at its root")
+		return nil, refuseArchive("has no `" + brand.Name + "` entry at its root")
 	}
 	return binary, nil
 }
