@@ -70,9 +70,11 @@ treerig doctor               # check prerequisites, registry, router; run verify
 before bringing up a branch you did not write.
 
 `up` starts the Compose project under a name derived from the worktree's
-UUIDs, with every container, volume, network, and image it builds labelled
+UUIDs, with every container, network, and image it builds, and every named
+volume the Compose file declares, labelled
 `dev.treerig.managed`, `dev.treerig.repository-uuid`, and
-`dev.treerig.worktree-uuid`, and, on everything but the volumes, the
+`dev.treerig.worktree-uuid` (an external volume is left alone, and the anonymous
+volume an image declares gets none: see [How treerig works](concepts.md)), and, on everything but the volumes, the
 `dev.treerig.format` label that says which format of labels those are (a named
 volume carries none: Compose would offer to recreate a volume whose label
 changed, losing its data). Your Compose file is never asked to add those

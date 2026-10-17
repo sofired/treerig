@@ -10,21 +10,22 @@ router, its root directory (the registry, the router state and the control
 home) and the identity markers it wrote into each repository's `.git`
 directory. The old config file and environment variables are not read either.
 If you have already installed treerig, keep the old binary until the cleanup is
-done. Run every command below with the old build:
+done. Run every command below with the old build; `<old>` stands for the
+command you ran it by:
 
-1. **Worktrees.** In each worktree, run `worktree remove`; `worktree remove
+1. **Worktrees.** In each worktree, run `<old> worktree remove`; `<old> worktree remove
    <slug|uuid>` also removes one whose checkout is already gone. It runs the
    compose down itself and deletes the worktree's containers, data directory
-   and markers, so first run the old build's `backup <dir>` for anything you
+   and markers, so first run the old build's `<old> backup <dir>` for anything you
    need, to a directory outside the worktree and the root directory (with no
-   directory, `backup` writes where `worktree remove` deletes). A `worktree
-   remove` that refuses must be resolved, not skipped: whatever it leaves
+   directory, `<old> backup` writes where `<old> worktree remove` deletes). A
+   `<old> worktree remove` that refuses must be resolved, not skipped: whatever it leaves
    behind is orphaned once the root directory is gone.
-2. **Shared services.** In each repository that uses them, run `shared down`.
-   Plain `shared down` keeps the volumes, and they are orphaned once the root
-   directory is gone; for a full cleanup, run `shared down --volumes`, which
+2. **Shared services.** In each repository that uses them, run `<old> shared down`.
+   Plain `<old> shared down` keeps the volumes, and they are orphaned once the root
+   directory is gone; for a full cleanup, run `<old> shared down --volumes`, which
    asks first, then deletes their data.
-3. **Router.** Run `router down` once. It stops the single router for the
+3. **Router.** Run `<old> router down` once. It stops the single router for the
    whole Docker daemon, so worktrees from any other root keep running but are
    unrouted until their next `up`. Do this before the first treerig `up`,
    because the old router can still hold the ports.

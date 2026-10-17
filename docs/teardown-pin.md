@@ -45,8 +45,10 @@ refuses the archive) and check that it is an executable for this machine. The pi
 records the archive digest of all four platforms and the extracted binary's
 digest for yours. Downloads are HTTPS only, redirects included, with size limits
 (1 MiB for `checksums.txt` and the signature, 100 MiB for the archive) and a
-10-minute limit for the lot; your `HTTPS_PROXY` settings apply. Nothing is
-written to the control home until you approve the plan, which shows the release,
+10-minute limit for the lot; your `HTTPS_PROXY` settings apply. Nothing of the
+pin is written to the control home until you approve the plan (cosign's own
+directories under `<control home>/teardown/cosign/` are made earlier: a cache,
+not the pin), which shows the release,
 source, signer, the cosign that ran and its version, and your platform's digest.
 
 treerig refuses a cosign that lives inside a checkout (the current one, its

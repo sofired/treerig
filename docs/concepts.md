@@ -96,9 +96,11 @@ the `restore` hook reads; treerig creates it (or takes an empty one), marks it
 `.incomplete` until the hook exits zero, and refuses to restore one still so
 marked. Hooks run with the worktree's own Compose project in their
 environment (`COMPOSE_PROJECT_NAME`), so a PostgreSQL round trip is two short
-scripts:
+scripts. Make each executable (`chmod +x`); it needs its `#!` line, because a
+hook is run directly, not through a shell:
 
 ```sh
+#!/usr/bin/env bash
 # scripts/backup.sh: dump to a temporary name, then move it into place
 set -euo pipefail
 bundle=$1
@@ -107,6 +109,7 @@ mv "$bundle/app.sql.tmp" "$bundle/app.sql"
 ```
 
 ```sh
+#!/usr/bin/env bash
 # scripts/restore.sh: stop at the first error; all or nothing
 set -euo pipefail
 bundle=$1

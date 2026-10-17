@@ -2,11 +2,11 @@
 
 How to install treerig, check a download, set up shell completion, and rename the binary.
 
-> **No release exists yet.** Until the first stable release, build treerig from
-> source (see [From source](#from-source)). Homebrew, the Linux packages and the
-> release archives are available from the first stable release. The first tag
-> will be a pre-release, `v0.1.0-rc.1`, which Homebrew and the plain install
-> script never select: see [Pre-releases](#pre-releases).
+> **No release exists yet.** Until a tag exists, build treerig from source (see
+> [From source](#from-source)). From the first pre-release, `v0.1.0-rc.1`,
+> `install.sh --version` and the release's downloadable files work (see
+> [Pre-releases](#pre-releases)). Homebrew and the install script's default,
+> the latest release, need a stable release, which is never a pre-release.
 
 treerig is a single static binary for Linux and macOS, on amd64 and arm64
 (Windows is not supported). It needs Git, Docker and Docker Compose at run
@@ -50,7 +50,8 @@ installs that for the build). Shell completions install with it.
 
 ## Install script
 
-*Available from the first stable release. None has shipped yet.*
+*Without `--version`, available from the first stable release. With
+`--version`, from the first pre-release. None has shipped yet.*
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | sh
@@ -77,7 +78,7 @@ If the directory is not on your PATH, it prints the line to add.
 
 ## Linux packages
 
-*Available from the first stable release. None has shipped yet.*
+*Available from the first release or pre-release. None has shipped yet.*
 
 Each release attaches a `.deb`, an `.rpm` and an `.apk` for amd64 and arm64.
 They put `treerig` in `/usr/bin` and the bash, zsh and fish completions where
@@ -103,7 +104,7 @@ package manager.
 
 ## Release archive
 
-*Available from the first stable release. None has shipped yet.*
+*Available from the first release or pre-release. None has shipped yet.*
 
 Each release also has a `treerig_<version>_<os>_<arch>.tar.gz` for `linux` and
 `darwin`, with `amd64` and `arm64`. It holds `treerig` at its root, with

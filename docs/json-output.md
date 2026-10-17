@@ -18,7 +18,10 @@ Rules that hold for every document:
 - Keys are camelCase. Enum values (`status`, `state`) are lowercase.
 - An optional key is omitted when it has no value, never `null`; a list is
   `[]` when empty.
-- The name of a service is always under the key `service`.
+- The name of a worktree's own service is under the key `service`, in `status`,
+  `urls` and `index` (including the `shared` entries of `index`). A shared
+  service in `status` and `shared status` is under `name`, and so is a host
+  route in `route ls`.
 - Free text (`subject`, `detail`, `label`, `purpose`, `branch`, paths) is for
   people. Scripts key on the ids and enum values described below.
 - Until 1.0 any shape may change. After 1.0 changes are additive only: a new

@@ -146,8 +146,10 @@ A code appears at most once in a report. The set of codes may gain values.
 In CI, select by id and status, for example
 `jq -e '[.sections[].checks[] | select(.id=="router.container" and .status=="fail")] | length == 0'`.
 That passes when the router check is `skip`, which it is while Docker is down.
-To require that the router was actually checked and healthy, use
-`jq -e 'any(.sections[].checks[]; .id=="router.container" and .status=="ok")'`.
+`router.container` is also `ok` when the router is not running, so to require
+that the router is running and healthy, require both that check and an `ok`
+`router.bind`, which is reported only while the router runs:
+`jq -e 'any(.sections[].checks[]; .id=="router.container" and .status=="ok") and any(.sections[].checks[]; .id=="router.bind" and .status=="ok")'`.
 For a per-item kind, filter by id and read `instance`:
 `jq -r '.sections[].checks[] | select(.id=="locks.worktree.operation") | .instance'`.
 
