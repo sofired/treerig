@@ -136,7 +136,7 @@ func teardownPinRelease(ctx context.Context, env *Env, options TeardownPinOption
 		return clierr.Newf("Refusing to pin %s: %s has sha256 %s, but the verified checksums.txt lists %s. Nothing was pinned.",
 			text.Printable(release), archiveName, found, digests[platform])
 	}
-	binary, err := releasefetch.ExtractTreerig(archive, releasefetch.DefaultLimits)
+	binary, err := releasefetch.ExtractTreerig(archive, releaseLimits)
 	if err != nil {
 		return clierr.Newf("Refusing to pin %s: the archive %s %s. Nothing was pinned.", text.Printable(release), archiveName, err)
 	}

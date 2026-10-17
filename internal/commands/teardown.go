@@ -37,6 +37,11 @@ const teardownPhrase = "pin teardown binary"
 // (docs/design/teardown.md, "Sources"). A variable only so a test can lower it.
 var maxTeardownBinary int64 = 200 << 20
 
+// releaseLimits bounds what a release archive may expand to and the binary it
+// holds (docs/design/teardown.md, "Sources"). A variable only so a test can
+// lower it.
+var releaseLimits = releasefetch.DefaultLimits
+
 // noSignerText is how a file pin's signer reads: nothing was verified.
 const noSignerText = "none (digest supplied by you)"
 
