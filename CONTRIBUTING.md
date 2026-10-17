@@ -63,6 +63,21 @@ so the Docker suites run once, in parallel with everything else. The Docker
 suites sweep anything a killed run left behind, without regard to age, so
 run one of them at a time on a machine.
 
+CI splits the `docker` job into ten jobs, the `-race` and no-cgo legs times
+five shards, each on its own runner and daemon: `internal/commands` in three,
+`internal/router` and `internal/cli` in a fourth, and every other package in
+the fifth. A shard is selected by
+`.github/scripts/commands-shards.sh run <1|2|3|slow|rest>`. It names the slow
+`internal/commands` tests for shards 1 and 2 and sends every other test, new
+ones included, to shard 3; it names the two packages for `slow` and computes
+`rest` with `go list`, so a new package needs nothing. Its `check`, run on
+the three commands shards, fails them unless every top-level test in
+`internal/commands` is in exactly one shard and every package is in exactly
+one, so a renamed test or package, or an overlapping name, cannot drop one or
+run it twice. When a slow Docker test
+makes a shard the longest, move its name into the shorter of the first two
+lists.
+
 ## Go
 
 **Toolchain:** the Go version in [`go.mod`](go.mod).
