@@ -105,6 +105,27 @@ nfpms:
       - src: completions/treerig.fish
         dst: /usr/share/fish/vendor_completions.d/treerig.fish
         file_info: *package_info
+      - src: completions/trig.bash
+        dst: /usr/share/bash-completion/completions/trig
+        file_info: *package_info
+      - src: completions/_trig
+        dst: /usr/share/zsh/site-functions/_trig
+        file_info: *package_info
+      - src: completions/trig.fish
+        dst: /usr/share/fish/vendor_completions.d/trig.fish
+        file_info: *package_info
+      # The short alias, a relative symlink in the same directory. It is
+      # shipped unconditionally: a package manager refuses to overwrite a file
+      # another package owns, so a clash fails the install loudly rather than
+      # replacing anything (docs/design/release.md, "The trig alias").
+      - src: treerig
+        dst: /usr/bin/trig
+        type: symlink
+        file_info:
+          owner: root
+          group: root
+          mode: 0777
+          mtime: "{{ .CommitDate }}"
       # Debian wants a machine-readable copyright file that points at the
       # system's copy of the license text.
       - src: packaging/debian/copyright

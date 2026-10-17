@@ -105,3 +105,49 @@ func TestReleaseFilesAgreeWithBrand(t *testing.T) {
 		}
 	})
 }
+
+// The short alias `trig` is a second name for the same binary: a symlink,
+// never a copy, so brand.CLIName (which follows argv[0]) is the only thing
+// that makes it say `trig`. Each place that creates the symlink spells the name
+// itself, and a rename or a typo in one would ship an alias that points
+// nowhere or is missing from one install route.
+func TestAliasAgreesAcrossReleaseFiles(t *testing.T) {
+	const alias = "trig"
+
+	install := repoFile(t, "install.sh")
+	goreleaser := repoFile(t, ".goreleaser.yaml")
+	formula := repoFile(t, "packaging", "homebrew", "treerig.rb")
+	completions := repoFile(t, "packaging", "completions.sh")
+	verify := repoFile(t, "packaging", "verify-snapshot.sh")
+
+	if got := only(t, "install.sh", regexp.MustCompile(`(?m)^ALIAS="([^"]*)"$`), install); got != alias {
+		t.Errorf("install.sh ALIAS = %q, want %q", got, alias)
+	}
+	if !strings.Contains(install, `ln -s "$BIN" "$alias_path"`) {
+		t.Error(`install.sh does not create the alias as a relative symlink to $BIN`)
+	}
+
+	// nfpm: a symlink whose target is the sibling binary.
+	link := regexp.MustCompile(`(?m)^\s*- src: ` + brand.Name + `\n\s*dst: /usr/bin/` + alias + `\n\s*type: symlink$`)
+	if !link.MatchString(goreleaser) {
+		t.Errorf(".goreleaser.yaml does not ship /usr/bin/%s as a symlink to %s", alias, brand.Name)
+	}
+
+	if want := `bin.install_symlink "` + brand.Name + `" => "` + alias + `"`; !strings.Contains(formula, want) {
+		t.Errorf("packaging/homebrew/treerig.rb does not contain %s", want)
+	}
+
+	// The completion scripts the packages ship are generated per name, and
+	// every one the packages list must be one completions.sh writes.
+	for _, f := range []string{alias + ".bash", "_" + alias, alias + ".fish"} {
+		for name, text := range map[string]string{
+			"packaging/completions.sh":     completions,
+			".goreleaser.yaml":             goreleaser,
+			"packaging/verify-snapshot.sh": verify,
+		} {
+			if !strings.Contains(text, f) {
+				t.Errorf("%s does not mention the completion file %s", name, f)
+			}
+		}
+	}
+}

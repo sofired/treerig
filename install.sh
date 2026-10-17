@@ -22,6 +22,11 @@
 #   4. Installs the binary into the directory you chose. It never uses sudo:
 #      if the directory is not writable, it says so and stops before it
 #      downloads anything.
+#   5. Adds `trig`, a short alias, as a symlink to treerig beside it. It never
+#      replaces anything: if a different `trig` is on your PATH, or a `trig`
+#      is already in the directory and is not a symlink to treerig, it skips
+#      the alias, says why on stderr, and still installs treerig. Set
+#      TREERIG_NO_ALIAS=1 to skip it without looking.
 #
 # Only the verified treerig binary is ever run, and only to print its version.
 # Nothing is written outside a private temporary directory until the checksum
@@ -43,6 +48,9 @@
 #   TREERIG_LATEST_URL     A checksums.txt that stands for the latest release
 #                        (default: GitHub's releases/latest/download/
 #                        checksums.txt redirect). For testing.
+#   TREERIG_NO_ALIAS       Any non-empty value except 0: do not create the `trig`
+#                        alias. Set it on the shell side of a pipe:
+#                        curl -fsSL <url> | TREERIG_NO_ALIAS=1 sh
 #
 # POSIX sh only, since it is piped into `sh`; passes `shellcheck -s sh`.
 
@@ -50,6 +58,7 @@ set -eu
 
 REPO="sofired/treerig"
 BIN="treerig"
+ALIAS="trig"
 BASE_URL="${TREERIG_BASE_URL:-https://github.com/${REPO}/releases/download}"
 LATEST_URL="${TREERIG_LATEST_URL:-https://github.com/${REPO}/releases/latest/download/checksums.txt}"
 RELEASES_PAGE="https://github.com/${REPO}/releases"
@@ -73,6 +82,10 @@ the release's checksums.txt.
   -v, --version VER    Install VER (1.2.3 or v1.2.3) instead of the latest
                        (default: $TREERIG_VERSION).
   -h, --help           Show this help.
+
+Also links `trig`, a short alias, to treerig in the same directory, unless a
+different `trig` is on your PATH or already in that directory (it never
+replaces one). Set TREERIG_NO_ALIAS=1 to skip it.
 USAGE
 }
 
@@ -252,6 +265,56 @@ print_path_guidance() {
   info "then restart your shell."
 }
 
+# install_alias <dir>: link $ALIAS to $BIN inside <dir>, a relative symlink so
+# the pair can move together. It adds a name and takes none: it is skipped, with
+# the reason on stderr, when
+#   - TREERIG_NO_ALIAS asks for that;
+#   - the name is already in <dir> and is not a symlink to this treerig;
+#   - another $ALIAS is on PATH, which the new link would shadow or be shadowed
+#     by, either way confusing.
+# A link that is already ours is left alone. `ln -s` without -f is the last
+# guard: if something appears in the gap, it fails instead of replacing it.
+# Returns 0 whether or not the alias exists: it never fails an install that
+# has already succeeded.
+install_alias() {
+  case "${TREERIG_NO_ALIAS:-}" in
+    "" | 0) : ;;
+    *) return 0 ;;
+  esac
+  alias_path="$1/$ALIAS"
+  if [ -L "$alias_path" ]; then
+    alias_target="$(readlink "$alias_path" 2>/dev/null)" || alias_target=""
+    if [ "$alias_target" = "$BIN" ] || [ "$alias_target" = "$1/$BIN" ]; then
+      info "The ${ALIAS} alias is already in place."
+      return 0
+    fi
+    err "skipped the ${ALIAS} alias: $alias_path is a symlink to '$alias_target', not to $BIN, so it was left alone. Move it aside if you want the alias."
+    return 0
+  fi
+  if [ -e "$alias_path" ]; then
+    err "skipped the ${ALIAS} alias: $alias_path exists and is not a symlink to $BIN, so it was left alone. Move it aside if you want the alias."
+    return 0
+  fi
+  alias_other="$(command -v "$ALIAS" 2>/dev/null)" || alias_other=""
+  if [ -n "$alias_other" ]; then
+    # A trig that is itself a link to a treerig (another install of this
+    # tool) is not a clash, only already provided.
+    alias_via="$(readlink "$alias_other" 2>/dev/null)" || alias_via=""
+    case "${alias_via##*/}" in
+      "$BIN") err "skipped the ${ALIAS} alias: it is already provided by $alias_other, a link to $BIN." ;;
+      *) err "skipped the ${ALIAS} alias: a different ${ALIAS} is already on your PATH ($alias_other). Use ${BIN}, or set TREERIG_NO_ALIAS=1 to stop seeing this." ;;
+    esac
+    return 0
+  fi
+  if ln -s "$BIN" "$alias_path"; then
+    info "Linked ${ALIAS} to ${BIN} (a short alias; TREERIG_NO_ALIAS=1 skips it)."
+    ALIAS_INSTALLED=1
+  else
+    err "could not create the ${ALIAS} alias at $alias_path; ${BIN} is installed without it."
+  fi
+  return 0
+}
+
 # --- Main --------------------------------------------------------------------
 
 if [ -z "$want_dir" ]; then
@@ -319,9 +382,15 @@ installed="$("$dest" --version 2>&1)" ||
   die "installed $dest, but it does not run: $installed"
 info "Installed ${BIN} ${installed} to ${dest}"
 
+ALIAS_INSTALLED=0
+install_alias "$want_dir"
+
 if on_path "$want_dir"; then
   info "Run '${BIN} doctor' to check Git, Docker and Docker Compose."
 else
   print_path_guidance "$want_dir"
 fi
 info "Shell completion: ${BIN} completion bash|zsh|fish (see the README)."
+if [ "$ALIAS_INSTALLED" = 1 ]; then
+  info "For the alias, load ${ALIAS} completion the same way: ${ALIAS} completion bash|zsh|fish."
+fi
