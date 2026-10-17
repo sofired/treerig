@@ -96,7 +96,7 @@ func utf16Len(s string) int {
 
 // SchemaID is the $id of the published JSON Schema: where the copy
 // committed as schema/treerig.schema.json is served from. It tracks main.
-const SchemaID = "https://raw.githubusercontent.com/sofired/treerig/main/schema/treerig.schema.json"
+const SchemaID = "https://raw.githubusercontent.com/" + brand.Repository + "/main/schema/" + brand.Name + ".schema.json"
 
 // nameKey is the key schema of a table of named entries: a name of
 // lower-case letters, digits and hyphens, at most dnsLabelMax characters.

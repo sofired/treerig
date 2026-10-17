@@ -67,7 +67,7 @@ const (
 	// extra_hosts maps it to the host's loopback (host mode) or to the
 	// engine's host gateway (bridge mode), so route files never depend on
 	// the mode.
-	LoopbackAlias = "treerig-loopback"
+	LoopbackAlias = brand.Name + "-loopback"
 	// BridgePingPort is the ping entrypoint's port inside the proxy
 	// container in bridge mode. It is bound to the container's own loopback
 	// and never published, and takes no port from the allocation range.

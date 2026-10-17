@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/logger"
@@ -90,8 +91,8 @@ type kind struct {
 }
 
 var (
-	hookKind    = kind{noun: "hook", title: "Hook", own: "STAGE", foreign: "TREERIG_COMMAND"}
-	commandKind = kind{noun: "command", title: "Command", own: "COMMAND", foreign: "TREERIG_STAGE"}
+	hookKind    = kind{noun: "hook", title: "Hook", own: "STAGE", foreign: brand.EnvName("COMMAND")}
+	commandKind = kind{noun: "command", title: "Command", own: "COMMAND", foreign: brand.EnvName("STAGE")}
 )
 
 // environment is the TREERIG_* vocabulary Compose receives, plus k's own
@@ -123,10 +124,11 @@ func environment(hctx HookContext, k kind, name string) []string {
 	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
 	pairs = append(pairs, worktree.SharedAddrVariables(hctx.Shared)...)
 	pairs = append(pairs, worktree.SharedURLVariables(hctx.SharedURLs)...)
+	urlVariable, serviceURLPrefix := brand.EnvName("URL"), brand.EnvName("SERVICE_URL_")
 	inherited := make([]string, 0, len(hctx.Environ))
 	for _, entry := range hctx.Environ {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == "TREERIG_URL" || strings.HasPrefix(key, "TREERIG_SERVICE_URL_") || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
+		if key == urlVariable || strings.HasPrefix(key, serviceURLPrefix) || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
 			continue
 		}
 		inherited = append(inherited, entry)

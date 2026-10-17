@@ -94,3 +94,11 @@ func TestParseChecksums(t *testing.T) {
 		}
 	})
 }
+
+// TestArchiveNameLiteral pins the archive file name as a literal, independent
+// of brand.Name: install.sh and .goreleaser.yaml spell it the same way.
+func TestArchiveNameLiteral(t *testing.T) {
+	if got := releasefetch.ArchiveName("1.2.3", "linux_amd64"); got != "treerig_1.2.3_linux_amd64.tar.gz" {
+		t.Errorf("ArchiveName = %q", got)
+	}
+}

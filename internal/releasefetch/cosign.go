@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/semver"
 	"github.com/sofired/treerig/internal/text"
@@ -25,7 +26,7 @@ const (
 	// Issuer is the OIDC issuer the release workflow's certificate carries.
 	Issuer = "https://token.actions.githubusercontent.com"
 	// identityBase is the release workflow at a tag, without the tag.
-	identityBase = "https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v"
+	identityBase = "https://github.com/" + brand.Repository + "/.github/workflows/release.yml@refs/tags/v"
 	// VersionTimeout and VerifyTimeout bound the two cosign runs.
 	VersionTimeout = 10 * time.Second
 	VerifyTimeout  = 60 * time.Second

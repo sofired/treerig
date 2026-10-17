@@ -322,3 +322,13 @@ func TestSchemaAgreesWithValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestSchemaIDLiteral pins the published $id as a literal, independent of
+// brand.Repository, so a rename of the repository fails here rather than
+// silently moving the schema's address.
+func TestSchemaIDLiteral(t *testing.T) {
+	const want = "https://raw.githubusercontent.com/sofired/treerig/main/schema/treerig.schema.json"
+	if SchemaID != want {
+		t.Errorf("SchemaID = %q, want %q", SchemaID, want)
+	}
+}

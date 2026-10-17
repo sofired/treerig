@@ -93,7 +93,7 @@ func Environment(source EnvironmentSource, ref Ref) [][2]string {
 func Variables(environment [][2]string) []string {
 	variables := make([]string, len(environment))
 	for i, pair := range environment {
-		variables[i] = brand.EnvPrefix + "_" + pair[0] + "=" + pair[1]
+		variables[i] = brand.EnvName(pair[0]) + "=" + pair[1]
 	}
 	return variables
 }
