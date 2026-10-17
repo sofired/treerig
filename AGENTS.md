@@ -53,6 +53,8 @@ printed.
 - `docs/design/locks.md`, `docs/design/config.md`, `docs/design/release.md`,
   `docs/hooks.md`: design notes (locks; the config file, its JSON Schema and
   examples; the release assets and signing identity) and the hook protocol.
+- `docs/brand/`: the visual identity (mark, 16 px file, lockups, colour, type,
+  voice), its generator `source/build.py`, and the decisions behind it.
 
 ## Rules that are easy to break
 
