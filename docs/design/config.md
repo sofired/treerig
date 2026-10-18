@@ -84,7 +84,7 @@ in `hooks.RunHook`, so every hook kind gets it from that one place.
 - **Identity.** `$id` is the raw GitHub URL of the file on `main`
   (`config.SchemaID`). The published copy therefore tracks `main`;
   `treerig config schema > treerig.schema.json` pins it to the installed version.
-  The README tells users both.
+  `docs/configuration.md` tells users both.
 - **Code-only checks.** Some validation is code, which JSON Schema cannot
   state: a `Refine` on a string, a `SuperRefine` on a table (two services
   claiming a route), and `StartIssues` (a control character in an index

@@ -15,7 +15,7 @@ release that is not a pre-release is published, `teardownPinCommand` becomes
 regenerated. The removal gate and `--dev-teardown` are tracked in #146 and the
 cross-platform smoke test in #147; both wait for the first tag, `v0.1.0-rc.1`. Until the gate lands,
 `worktree remove` is unchanged and nothing but this note, `state.md`,
-`release.md`, `AGENTS.md`, the README's "Teardown pin" section and the help of
+`release.md`, `AGENTS.md`, `docs/teardown-pin.md` and the help of
 the `teardown` commands mentions it. Text marked **[gate]** describes what
 exists only after #146; the strings #146 changes are listed under "Order of
 work".
@@ -233,7 +233,7 @@ On success, one line on stderr and nothing on stdout:
 (the path is named by the hash); a sweep that could not finish is a warning after it.
 
 `--file --sha256` is also the **offline route**: a user who verified a download
-by hand with the README's steps, or has no network, pins without cosign.
+by hand with the steps in `docs/install.md` ("Verifying a download"), or has no network, pins without cosign.
 
 ### Download bounds
 
@@ -534,9 +534,9 @@ Details the table leaves open:
   same; the document is printed first. A newer or foreign pin prints no document
   (the pin cannot be described), only the refusal.
 - Keys are camelCase and optional keys are omitted, as for every other
-  document (README, "Machine-readable output"): `signer` is absent for a file
+  document (`docs/json-output.md`): `signer` is absent for a file
   pin, and `binary.path` and `binary.sha256` are absent when `state` is `none`.
-  A newer or foreign pin prints nothing on stdout, and README says that empty
+  A newer or foreign pin prints nothing on stdout, and `docs/json-output.md` says that empty
   stdout with exit 1 means the pin could not be read.
 - `binary.sha256` is the digest the pin records for this platform, and `state`
   says whether the file at `binary.path` has it; the digest found on disk is in
@@ -659,8 +659,7 @@ Refusing --dev-teardown: this is a pinned teardown binary. Nothing was removed.
 A newer pin gets `state.md`'s refusal as it stands. When the running build is
 newer than the pin, a refusal adds the hint sentence from `status`. A pinned
 release older than the registrations in use refuses them with `state.md`'s
-"Upgrade treerig", which for a pinned child means updating the pin; the README says
-so.
+"Upgrade treerig", which for a pinned child means updating the pin with `teardown pin`.
 
 ## The developer escape hatch [gate]
 
@@ -801,10 +800,10 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 | --- | --- | --- |
 | 1. This note, with the `state.md`, `release.md` and `AGENTS.md` entries and the pinned `cosign-release` | #29 | Merged |
 | 2. Pin store: `layout.TeardownDir`/`PinPath`, `files.SecureTeardownDirectory`, `internal/teardown`, `internal/semver`, `stateformat.TeardownPin`, the sweep, the `state.md` refusal-table row | 1 | Round trip, newer, foreign, unknown key, update rules, modes, sweep and concurrent writers are tested |
-| 3. `teardown pin --file` and `teardown status`, with the confirmation, goldens and README section | 2 | A pin can be made from a local binary and `status` verifies it |
+| 3. `teardown pin --file` and `teardown status`, with the confirmation, goldens and `docs/teardown-pin.md` | 2 | A pin can be made from a local binary and `status` verifies it |
 | 4. `teardown pin --release X.Y.Z` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The flag rules become: `--file` requires `--sha256` and `--release`; a download takes `--release` or `--latest`. So "Missing required flag: --file." (and its plural) changes to ask for a source, and `teardownPinCommand` and the goldens that quote it, the missing-flag ones included, change to `--latest` or `--release X.Y.Z`. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. The noexec mapping (an EACCES or ENOEXEC when the stored binary is first executed, naming the mount) belongs to the gate: pin never executes the stored binary (below). Delivered in step 4: the download forms, `teardownPinCommand` and the goldens that quote it |
 | 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped (the hermetic sign and verify flags were run against cosign v3.0.6 in step 4, and "CI" above matches them) |
-| 6. **#146** The fail-closed gate and `--dev-teardown`; the README's relocation paragraph; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes |
+| 6. **#146** The fail-closed gate and `--dev-teardown`; the relocation paragraph in `docs/worktrees.md`; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes |
 | 6b. Cut `v0.1.0-rc.2` | 6 merged | A release containing the gate is published |
 | 7. **#147** Smoke test after a release | 6b | Passes on all three runners |
 
@@ -827,10 +826,10 @@ process): the last plan line of
 "`worktree remove` will run this binary instead of the build you invoke.";
 the help text of `teardown` (whose description ends "`worktree remove` does not
 run the pinned binary yet.") and of `teardown status` (which says it reports
-nothing about removal); the README's "Teardown pin" section, which says the
-gate does not exist, and its roadmap entry; the help text of `worktree remove`
+nothing about removal); `docs/teardown-pin.md`, which says the
+gate does not exist, and the README's roadmap entry; the help text of `worktree remove`
 (adds `--dev-teardown`); `status` gains the line
 `worktree remove: will run this binary` (intact) or `worktree remove: would
 refuse` (otherwise) and keeps its exit codes; and the removal refusals, the two
-lines and the warning above appear. `AGENTS.md` ("Running things safely") and the
-README describe `--dev-teardown` at the same time.
+lines and the warning above appear. `AGENTS.md` ("Running things safely") and
+`docs/teardown-pin.md` describe `--dev-teardown` at the same time.

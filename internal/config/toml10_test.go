@@ -118,10 +118,11 @@ func TestToml11Uses(t *testing.T) {
 }
 
 // TestExamplesAreToml10 holds treerig.example.toml and every toml block of the
-// README and of docs/, at any depth, to TOML 1.0 syntax, as the README
-// promises, so Taplo and Python's tomllib read them. A block must also parse,
-// unless its fence says ```toml invalid: that is for a block that shows a
-// mistake or elides part of a file, and it still has to keep to 1.0 syntax.
+// README and of docs/, at any depth, to TOML 1.0 syntax, as
+// docs/configuration.md promises, so Taplo and Python's tomllib read them. A
+// block must also parse, unless its fence says ```toml invalid: that is for a
+// block that shows a mistake or elides part of a file, and it still has to keep
+// to 1.0 syntax.
 func TestExamplesAreToml10(t *testing.T) {
 	root := filepath.Join("..", "..")
 	example, err := os.ReadFile(filepath.Join(root, "treerig.example.toml"))

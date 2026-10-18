@@ -71,7 +71,7 @@ storage-contract name — it does **not** change when the binary is renamed, so
 hook scripts keep working however the tool is invoked. A build from before the
 product rename used a different prefix, and treerig sets no aliases for it:
 update hooks that read the old variables to read `TREERIG_*` (see [Switching
-from a build before the rename](../README.md#switching-from-a-build-before-the-rename)).
+from a build before the rename](upgrading-from-a-pre-rename-build.md)).
 
 | Variable | Value |
 | -------- | ----- |
@@ -80,7 +80,7 @@ from a build before the rename](../README.md#switching-from-a-build-before-the-r
 | `TREERIG_PROJECT` | `project.name` from the config |
 | `TREERIG_REPOSITORY_ID` | UUID of the repository |
 | `TREERIG_WORKTREE_ID` | UUID of this worktree |
-| `TREERIG_SLUG` | The worktree's machine-unique slug. It changes only when [`worktree rename`](../README.md#renaming-a-worktree) renames the worktree, which needs it stopped; the next `up` runs hooks with the new one |
+| `TREERIG_SLUG` | The worktree's machine-unique slug. It changes only when [`worktree rename`](worktrees.md#renaming-a-worktree) renames the worktree, which needs it stopped; the next `up` runs hooks with the new one |
 | `TREERIG_HOST` | `<slug>.<domain>` |
 | `TREERIG_WORKTREE_HOME` | The worktree's private directory under the control home |
 | `TREERIG_CONFIG` | Absolute path of the loaded `treerig.toml` |
@@ -88,10 +88,10 @@ from a build before the rename](../README.md#switching-from-a-build-before-the-r
 | `COMPOSE_PROJECT_NAME` | The worktree's Compose project, `treerig-<hash>`, so `docker compose exec` and `logs` in a hook reach this worktree's containers and not the project Compose would name after the directory. Replaces an inherited value |
 | `TREERIG_COMPOSE_PROJECT` | The same name under treerig's own prefix |
 | `COMPOSE_FILE` | Absolute path of the Compose file `[compose] file` names, which Compose otherwise looks for as `compose.yaml` beside `treerig.toml`. Replaces an inherited value. The extra files treerig adds when it starts services (published ports, labels) are not part of it. Compose splits this variable on `:`, so a path that contains one does not work; keep the checkout where its path has none |
-| `TREERIG_URL` | This worktree's own URL: the `[service.<name>]` (or [host route](../README.md#host-routes)) routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if nothing claims that route. |
-| `TREERIG_SERVICE_URL_<NAME>` | One per `[service.<name>]` and per [host route](../README.md#host-routes): its own routed URL. `<NAME>` is the service's or route's name, upper-cased, with each `-` turned into `_` (a host route cannot share a service's name, so the names never collide) |
+| `TREERIG_URL` | This worktree's own URL: the `[service.<name>]` (or [host route](host-routes.md)) routed at the host root, with no `subdomain` and no `path` narrowing it. Unset if nothing claims that route. |
+| `TREERIG_SERVICE_URL_<NAME>` | One per `[service.<name>]` and per [host route](host-routes.md): its own routed URL. `<NAME>` is the service's or route's name, upper-cased, with each `-` turned into `_` (a host route cannot share a service's name, so the names never collide) |
 | `TREERIG_SERVICE_PORT_<NAME>` | One per `[service.<name>]` that has a pinned loopback port: the port on `127.0.0.1` the service is published on, for a tool that must bypass the router; and one per host route: the port its process listens on. `<NAME>` maps as for `TREERIG_SERVICE_URL_<NAME>`. Unset for a service with no port yet, as in a hook that runs before the first `up` has allocated one |
-| `TREERIG_SHARED_ADDR_<NAME>_<PORT>` | One per container port of a [shared service](../README.md#shared-services) that has a pinned loopback port: `127.0.0.1:<host port>`, for a process on the host. `<NAME>` is the shared service's name mapped as for `TREERIG_SERVICE_URL_<NAME>`, and `<PORT>` its container port as declared (`TREERIG_SHARED_ADDR_MAILPIT_1025`). Read from the repository's records, so it is set whether or not the service is running. Unset for a port with no pinned port yet |
+| `TREERIG_SHARED_ADDR_<NAME>_<PORT>` | One per container port of a [shared service](shared-services.md) that has a pinned loopback port: `127.0.0.1:<host port>`, for a process on the host. `<NAME>` is the shared service's name mapped as for `TREERIG_SERVICE_URL_<NAME>`, and `<PORT>` its container port as declared (`TREERIG_SHARED_ADDR_MAILPIT_1025`). Read from the repository's records, so it is set whether or not the service is running. Unset for a port with no pinned port yet |
 | `TREERIG_SHARED_URL_<NAME>` | One per shared service with a routed `port`: the URL of its web UI, `http://<name>.shared.<domain>` with the router's port folded in as for `TREERIG_SERVICE_URL_<NAME>`. `<NAME>` maps as there. Read from the repository's records, so it is set whether or not the service is running. Unset for a service with no routed port, or one that has not been started yet |
 
 `TREERIG_SHARED_ADDR_<NAME>_<PORT>` and `TREERIG_SHARED_URL_<NAME>` are for the
@@ -123,8 +123,7 @@ added after `up` began is not in that run's variables.
 Under `set -u`, an unset `TREERIG_URL` aborts the script; guard it with
 `${TREERIG_URL:-}` or `${TREERIG_URL:?…}` as above. A hook curling one of these
 is a non-browser client, so the same resolver caveats apply as anywhere else
-outside a browser — see [README.md's "Hostname resolution"
-notes](../README.md#platform-notes).
+outside a browser — see [Hostname resolution](platforms.md#hostname-resolution).
 
 The three Compose variables reach every hook (`prepare`, `seed`, `verify`,
 `backup`, `restore`) and every [command](#commands). `TREERIG_COMPOSE_PROJECT`
@@ -607,7 +606,7 @@ exit codes" above). A file whose execute bit is set but cannot be opened to chec
 its format (mode `0111`, say) is left `ok`: execute-only is not a format
 problem. A hook or command file that would not start names the exit code a real run
 would give, 127 or 126, in its own line — a prediction, not something
-`doctor` itself exits with (see the README's own `doctor` section). This is
+`doctor` itself exits with (see [`doctor.md`](doctor.md)). This is
 separate from, and runs whether or not, `doctor` goes on to actually run
 `verify`, reported on its own unprefixed `verify hook` line; `config
 validate` checks only the file, not what its hooks point at.

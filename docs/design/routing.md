@@ -565,7 +565,7 @@ and the generated index page. The environment Compose gave its containers
 also carries it (`TREERIG_SLUG`, `TREERIG_HOST`), which is why the verb refuses
 while the worktree has any container, found by ownership labels, and asks for
 `down`, which also removes the route files. A Compose file that builds the
-slug into a volume name is beyond what treerig can see; the README says what
+slug into a volume name is beyond what treerig can see; `docs/worktrees.md` says what
 that leaves behind.
 
 The route files of Compose services can therefore only be crash leftovers

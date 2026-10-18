@@ -37,8 +37,9 @@ credit you by name or handle unless you ask us not to.
 ## Supported versions
 
 Before 1.0, only the newest release gets security fixes, including a
-pre-release if that is the newest. The README's "latest" excludes
-pre-releases, so check the
+pre-release if that is the newest. What the install docs call the "latest"
+release never includes a pre-release (see
+[Pre-releases](docs/install.md#pre-releases)), so check the
 [Releases page](https://github.com/sofired/treerig/releases).
 
 ## Scope
@@ -47,7 +48,7 @@ In scope:
 
 - Once the removal gate ships (#146), anything that lets branch code run
   during `worktree remove` despite a teardown pin
-  ([Teardown pin](README.md#teardown-pin)). Until then `worktree remove` does
+  ([Teardown pin](docs/teardown-pin.md)). Until then `worktree remove` does
   not run the pinned binary, that gap is known, and it is not a new report.
   Reports about the pin commands themselves are welcome now.
 - Removal of a Docker resource that treerig cannot prove it owns by its
@@ -82,14 +83,14 @@ Out of scope:
   the host).
 - The security of your own Compose services, images, hooks and `[commands]`.
   Bringing up a worktree runs its branch's code, as you; see the
-  [Trust model](README.md#trust-model), which also lists what is open to other
+  [Trust model](docs/trust-model.md), which also lists what is open to other
   local users by design (for example, a routed service's loopback port and
   the index page).
 - Listeners and `ports:` entries that your own config or processes create, such
   as a host-route dev server bound to `0.0.0.0` or a service's own `ports:`.
 - A hostile `PATH` that supplies `cosign` from outside the checkouts treerig
   checks and the control home. This is a documented limit of `teardown pin`;
-  see [What it does not protect against](README.md#what-it-does-not-protect-against).
+  see [What it does not protect against](docs/teardown-pin.md#what-it-does-not-protect-against).
 - A `teardown pin --file` pin is exactly as trustworthy as the digest you
   checked.
 - Vulnerabilities in third-party tools such as Docker, Docker Compose,
@@ -98,4 +99,4 @@ Out of scope:
 ## Verifying a release
 
 To check that a download is the one this repository's release workflow built,
-follow [Verifying a download](README.md#verifying-a-download).
+follow [Verifying a download](docs/install.md#verifying-a-download).

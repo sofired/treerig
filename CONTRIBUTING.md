@@ -38,6 +38,59 @@ The pre-release rename (owner decision, 2026-10-15) changed every storage name
 without a migration because nothing had shipped. From the first tag
 (v0.1.0-rc.1), the migration rule above applies in full.
 
+## Repository layout
+
+The build lives in `cmd/treerig` and `internal/`, one package per concern:
+
+```
+cmd/treerig/               entry point: argv and the environment come in here and
+                          are handed down as parameters; library code never looks
+                          a variable up by name itself
+internal/
+  cli/                    command tree, dispatch, error reporting
+  commands/               the everyday verbs as plain functions over a context
+  config/                 treerig.toml schema, discovery and the JSON Schema it publishes
+  shape/                  the small schema library config files are validated
+                          against, strict about unknown keys
+  hooks/                  hook protocol and sequencer
+  progress/               phase logging with an elapsed-time heartbeat
+  ports/                  the lock-free loopback port allocator and its free-port probe
+  checkoutindex/          per-worktree cards, the snapshot, and the rendered page
+  router/                 the shared router's Compose stack per network mode, mode
+                          detection, its file-provider route files and their
+                          repair, and the ports it keeps
+  shared/                 a repository's shared services: run once per repository in a
+                          Compose project of their own, connected to each worktree
+                          that uses them
+  backend/                the Compose backend: labels, overrides, inventory, reap
+  worktree/               what the control plane and backend both say about a worktree
+  registry/               identity markers, slugs, the registry
+  lock/                   flock-based locks and their checked recovery
+  binstore/               the content-addressed store `worktree remove` runs
+                          itself from, outside any checkout
+  teardown/               the store behind the pinned teardown binary: the pin file,
+                          its installed binaries and the sweep of stale ones
+  releasefetch/           the bounded HTTPS fetch of a release for `teardown pin`:
+                          URLs, checksums.txt, the cosign policy, archive extraction
+  semver/                 a small, strict Semantic Versioning 2.0.0 comparer
+  settings/               the machine's own settings.toml, read as strictly as treerig.toml
+  layout/                 where everything lives under the treerig root and control home
+  files/                  owner-only, symlink-refusing filesystem primitives
+  text/                   the filter every printed line goes through
+  brand/                  the product name and the presentation/storage split
+  stateformat/            the format version of each stored state, and the
+                          refusal of one a newer treerig wrote
+  clierr/                 the error type a command reports and exits with
+  logger/                 the stdout/stderr split every command writes through
+  run/, run/osrun,
+  run/fakerun/            the subprocess seam, and its real and fake implementations
+  docker/                 runs the `docker` CLI and tells it apart from Docker being unavailable
+  procid/                 process identity and process-table lookups, for lock recovery
+  lifecycle/              signal handling and the lock-ordered mutation wrapper
+  style/                  the code-style rules gofmt, vet and staticcheck don't
+                          enforce, written as tests over the module's own source
+```
+
 ## Tests
 
 Unit tests are hermetic: no Docker, no real Git, no network. They mock at
@@ -125,8 +178,8 @@ prints it from the same `internal/shape` definitions that validate
 `treerig.toml`. After changing the config schema or a field's description,
 regenerate it with `go run ./cmd/treerig config schema > schema/treerig.schema.json`;
 `TestSchemaFileIsCurrent` fails until you do. Every field needs a
-`Describe(...)`, which editors show on hover. Examples in `treerig.example.toml`
-and the README stay TOML 1.0 (no multi-line inline tables); a test checks them.
+`Describe(...)`, which editors show on hover. Examples in `treerig.example.toml`,
+the README and `docs/` stay TOML 1.0 (no multi-line inline tables); a test checks them.
 `treerig init` writes the starter in `internal/config/starter.go`: a short
 template, not a copy of the example, with its commented-out service and hooks
 checked against the schema by `TestStarter`. Rename or remove a key there when

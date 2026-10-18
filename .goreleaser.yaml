@@ -178,5 +178,6 @@ release:
   replace_existing_artifacts: true
   footer: |
     Verify a download against `checksums.txt`, its Sigstore bundle and the
-    build provenance attestation as the
-    [README](https://github.com/sofired/treerig#verifying-a-download) describes.
+    build provenance attestation as
+    [Verifying a download](https://github.com/sofired/treerig/blob/main/docs/install.md#verifying-a-download)
+    describes.

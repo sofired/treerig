@@ -64,7 +64,7 @@ import (
 // gitMinimum is the oldest Git `git worktree list --porcelain -z` needs.
 const gitMinimum = "2.36"
 
-// composeMinimum is the oldest Compose the README promises to work with.
+// composeMinimum is the oldest Compose docs/getting-started.md promises to work with.
 const composeMinimum = "2.21"
 
 // dockerProbeTimeout is how long Docker gets to answer before it counts as unavailable.
@@ -1303,7 +1303,7 @@ func checkoutFileCheck(loaded *config.Loaded) Check {
 // names the exit code the runner would give, 127 for missing or 126 for
 // present but not executable or not a valid executable format, in the
 // line's own Detail — never in the Check's own ExitCode, and so never
-// doctor's own exit code either: the README promises doctor exits with the
+// doctor's own exit code either: docs/doctor.md promises doctor exits with the
 // verify hook's own code only when that hook actually ran and failed, and 1
 // for any other failure, a predicted one included (see doctorExitCode).
 //
@@ -1506,7 +1506,7 @@ func thisCheckoutSection(ctx context.Context, opts doctorOptions) ([]Check, erro
 /* -------------------------------------------------------------- report ---- */
 
 // doctorExitCode is 0 when nothing failed; the verify hook's own code when
-// it ran and failed, as the hook contract and the README promise; 1 for any
+// it ran and failed, as the hook contract and docs/doctor.md promise; 1 for any
 // other failure. Only the verify hook's own run (checkoutChecks' RunHook
 // call) ever sets a Check's ExitCode today — a hook-file resolution failure
 // (hookResolutionChecks) does not, on purpose: its predicted 127 or 126 is

@@ -1593,7 +1593,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		// The predicted 127 lives only in the line's own Detail: a
 		// resolution failure never supplies doctorExitCode's own code (the
-		// README promise is the verify hook's own code, or 1).
+		// docs/doctor.md promise is the verify hook's own code, or 1).
 		if found.ExitCode != nil {
 			t.Fatalf("exitCode = %v, want nil", found.ExitCode)
 		}
@@ -2467,7 +2467,7 @@ func TestDoctorRouterPort(t *testing.T) {
 }
 
 // documentedDoctorIDs is every check id `doctor` can emit, mirrored by the
-// table in README.md. A new check must be added here and there, which is
+// table in docs/doctor.md. A new check must be added here and there, which is
 // where its id, its section and its instance key get decided.
 var documentedDoctorIDs = []string{
 	"prerequisites.git",
@@ -2740,7 +2740,7 @@ func TestDoctorEmitsOnlyDocumentedIDs(t *testing.T) {
 
 // TestDoctorIDsAreTheDocumentedSet reads doctor.go, doctor_ports.go, doctor_router.go and doctor_shared.go for the ids they hand to
 // Check literals and to the helpers that take one, and compares that set with
-// documentedDoctorIDs; then checks README.md has a table row for each id and
+// documentedDoctorIDs; then checks docs/doctor.md has a table row for each id and
 // lists every hook stage as the instance of checkout.hooks.resolve.
 func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	fset := token.NewFileSet()
@@ -2789,7 +2789,7 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	}
 	for id := range found {
 		if !documented[id] {
-			t.Errorf("a doctor source uses the id %q, which documentedDoctorIDs (and the README table) does not list", id)
+			t.Errorf("a doctor source uses the id %q, which documentedDoctorIDs (and the docs/doctor.md table) does not list", id)
 		}
 	}
 	for id := range documented {
@@ -2798,19 +2798,19 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 		}
 	}
 
-	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	doctorDoc, err := os.ReadFile(filepath.Join("..", "..", "docs", "doctor.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	rows := map[string]string{}
-	for _, line := range strings.Split(string(readme), "\n") {
+	for _, line := range strings.Split(string(doctorDoc), "\n") {
 		if cells := strings.Split(line, "|"); len(cells) > 2 && strings.HasPrefix(strings.TrimSpace(cells[1]), "`") {
 			rows[strings.Trim(strings.TrimSpace(cells[1]), "`")] = line
 		}
 	}
 	for _, id := range documentedDoctorIDs {
 		if _, ok := rows[id]; !ok {
-			t.Errorf("README.md has no table row for the id %q", id)
+			t.Errorf("docs/doctor.md has no table row for the id %q", id)
 		}
 	}
 	all := config.Hooks{}
@@ -2818,7 +2818,7 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	all.Prepare, all.Seed, all.Verify, all.Backup, all.Restore = &value, &value, &value, &value, &value
 	for _, stage := range all.Configured() {
 		if !strings.Contains(rows["checkout.hooks.resolve"], "`"+string(stage)+"`") {
-			t.Errorf("the README row for checkout.hooks.resolve does not name the stage %q", stage)
+			t.Errorf("the docs/doctor.md row for checkout.hooks.resolve does not name the stage %q", stage)
 		}
 	}
 }
