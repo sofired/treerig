@@ -45,6 +45,8 @@ printed.
 ## Repository map
 
 - `cmd/treerig`, `internal/`: the build. One package per concern.
+- `docs/*.md`: the user documentation (install, getting started, concepts,
+  routing, configuration, `doctor`, JSON output and the rest).
 - `docs/design/state.md`: which stored state carries a format version, the
   newer-format refusal, and how a migration is added.
 - `docs/design/teardown.md`: the teardown pin, a trusted teardown binary
@@ -53,6 +55,9 @@ printed.
 - `docs/design/locks.md`, `docs/design/config.md`, `docs/design/release.md`,
   `docs/hooks.md`: design notes (locks; the config file, its JSON Schema and
   examples; the release assets and signing identity) and the hook protocol.
+- `docs/brand/`: the visual identity (mark, 16 px file, lockups, colour, type,
+  voice), its generator `source/build.py` (don't hand-edit the SVGs), and the
+  decisions behind it.
 
 ## Rules that are easy to break
 
@@ -100,8 +105,9 @@ break them are not merged.
 - Conventional commits: `feat(runtime): …`, `fix(locks): …`, `docs: …`,
   `test(registry): …`. Reference an issue when one exists.
 - One concern per pull request. Say in the description what you ran.
-- Update the README, `docs/hooks.md` or `CONTRIBUTING.md` in the same pull
-  request when the behaviour they describe changes.
+- Update the README, the pages under `docs/` (`docs/hooks.md` among them) or
+  `CONTRIBUTING.md` in the same pull request when the behaviour they describe
+  changes.
 - CI (`go.yml`) runs only on pull requests and on pushes to
   `main`. A pushed branch without a pull request gets no CI run.
 - CodeRabbit reviews every pull request. Before marking one ready, answer

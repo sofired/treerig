@@ -213,8 +213,8 @@ func FragmentPath(state layout.RouterLayout, repositoryID, worktreeID, service s
 
 // WriteFragment writes one routed service's dynamic-configuration fragment,
 // atomically, at 0o644 — DynamicDir's own mode contract (bind-mounted
-// read-only into the router; nothing under it is ever secret, matching the
-// README's own description of what lives there).
+// read-only into the router; nothing under it is ever secret, matching
+// docs/concepts.md's own description of what lives there).
 func WriteFragment(state layout.RouterLayout, repositoryID, worktreeID, service string, doc FragmentDocument) error {
 	path := FragmentPath(state, repositoryID, worktreeID, service)
 	if err := files.AssertSafeFilePathNamed(state.DynamicDir, path, dynamicNoun); err != nil {

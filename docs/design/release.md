@@ -125,7 +125,7 @@ files. Nothing the pipeline emits is signed by a package-manager key.
   template is `packaging/homebrew/treerig.rb`, and
   `packaging/homebrew/set-source.py` points it at a release. The tap job and
   the snapshot (`dist/treerig.rb`) both render it with that script.
-- **The README's verification steps** pin the identity above.
+- **The verification steps in `docs/install.md`** pin the identity above.
 - **The teardown pin** (`treerig teardown pin`, `docs/design/teardown.md`; #85)
   downloads `checksums.txt`, `checksums.txt.sigstore.json` and the platform
   archive by the names above, verifies `checksums.txt` with `cosign verify-blob`
