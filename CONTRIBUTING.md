@@ -135,6 +135,9 @@ lists.
 
 **Toolchain:** the Go version in [`go.mod`](go.mod).
 
+The brand SVGs in `docs/brand/` come from `docs/brand/source/build.py`, which
+needs Python 3 and its standard library only. Go remains the project language.
+
 **Before you open a pull request:**
 
 ```bash

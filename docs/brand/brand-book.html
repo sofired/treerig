@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>treerig Brand Book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column of numbered chapters, with art set in fixed light and dark plates. */
+:root{
+  --evergreen:#15271E; --paper:#F3F5F1; --red:#C4362C; --red-dk:#F0715F; --night:#0E1B15; --moss:#5C6F62; --moss-deep:#56675C; --moss-light:#9AAEA1;
+  --bg:#F3F5F1; --fg:#15271E; --muted:#56675C; --rule:#D6DDD6; --panel:#FFFFFF; --tint:#E8EDE7; --branch:#C4362C; --ui:#15271E;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0E1B15;--fg:#E7EDE8;--muted:#9AAEA1;--rule:#20342A;--panel:#13241C;--tint:#162A20;--branch:#F0715F;--ui:#E7EDE8;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0E1B15;--fg:#E7EDE8;--muted:#9AAEA1;--rule:#20342A;--panel:#13241C;--tint:#162A20;--branch:#F0715F;--ui:#E7EDE8;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 16px/1.6 var(--body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px))}
+@media (max-width:520px){.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}}
+h1,h2,h3{font-family:var(--display);font-stretch:112%;margin:0;line-height:1.1;text-wrap:balance}
+h2{font-size:clamp(28px,4vw,40px);font-weight:800}
+h3{font-size:19px;font-weight:700}
+p{margin:0;max-width:66ch}
+code{font-family:var(--mono);font-size:.88em}
+a{color:var(--ui);text-decoration:underline;text-underline-offset:2px}
+.lede{color:var(--muted);font-size:17px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.eyebrow b{color:var(--fg);font-weight:600}
+header{background:var(--night);color:var(--paper)}
+header .wrap{padding-block:72px 60px;display:grid;gap:26px}
+header img{width:min(520px,88%);height:auto}
+header h1{font-size:clamp(34px,6vw,64px);font-weight:800;letter-spacing:-.015em}
+header p{color:#AFC2B5;font-size:clamp(17px,2vw,20px)}
+header .eyebrow{color:#7F978A}
+header .eyebrow b{color:#FFFFFF}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px 18px;font:500 12px var(--mono);letter-spacing:.06em;text-transform:uppercase;border-top:1px solid #20342A;padding-top:16px}
+nav.toc a{color:#AFC2B5;text-decoration:none} nav.toc a:hover,nav.toc a:focus-visible{color:#FFFFFF;text-decoration:underline}
+:focus-visible{outline:2px solid var(--ui);outline-offset:3px}
+section{padding-block:68px;border-top:1px solid var(--rule)}
+main section:first-child{border-top:0}
+.head{display:grid;gap:12px;margin-bottom:30px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:760px){.two{grid-template-columns:minmax(0,1fr)}}
+.plates{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule)}
+@media (max-width:620px){.plates{grid-template-columns:1fr}}
+.plates>div{display:grid;place-items:center;padding:44px 24px}
+.pl{background:var(--paper)} .pd{background:var(--night)}
+.plates img{width:min(240px,70%);height:auto}
+.plates.wide img{width:min(340px,92%)}
+.meaning{display:grid;gap:14px;margin:0;padding:0;list-style:none}
+.meaning li{display:grid;grid-template-columns:28px 1fr;gap:12px;align-items:start}
+.meaning i{width:28px;height:28px;border-radius:50%;display:block;border:4px solid var(--fg);margin-top:2px}
+.meaning i.line{border-radius:0;border:0;height:5px;background:var(--fg);margin-top:12px}
+.meaning i.red{border-radius:0;border:0;height:5px;background:var(--branch);margin-top:12px}
+.meaning i.gap{border:0;border-left:3px dashed var(--branch);border-radius:0;width:4px;height:24px;margin-left:12px}
+.construct{background:var(--paper);border:1px solid var(--rule);padding:12px}
+.construct svg{display:block;width:100%;height:auto}
+.gl{stroke:#D3DCD5;stroke-width:.18} .gl.maj{stroke:#B8C6BC;stroke-width:.3}
+.ann-ring{fill:none;stroke:#C4362C;stroke-width:.35;stroke-dasharray:1 1}
+.ann-gap{stroke:#C4362C;stroke-width:.35;stroke-dasharray:1 1}
+.lab{font:500 2.6px var(--mono);fill:#3E5246} .lab.acc{fill:#C4362C} .dim{font:500 2.4px var(--mono);fill:#56675C}
+.specs{display:grid;gap:10px}
+.spec{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--rule)}
+.spec b{font:600 13px var(--mono);letter-spacing:.04em}
+.spec span{color:var(--muted)}
+.ladder{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end;padding:22px;background:var(--tint)}
+.ladder figure{margin:0;display:grid;gap:6px;justify-items:center;font:500 11px var(--mono);color:var(--muted);text-align:center}
+.ladder .pix{image-rendering:pixelated;width:128px;height:128px;border:1px solid var(--rule);background:var(--paper)}
+.rule-note{margin-top:16px;padding:14px 16px;border-left:3px solid var(--muted);background:var(--tint)}
+.donts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:28px}
+.dont{margin:0;border:1px solid var(--rule);background:var(--panel);display:grid}
+.dart{background:var(--paper);display:grid;place-items:center;height:130px;position:relative}
+.dart svg{width:84px;height:84px}
+.dart::after{content:"";position:absolute;inset:14px;background:linear-gradient(135deg,transparent calc(50% - 1px),#C4362C calc(50% - 1px),#C4362C calc(50% + 1px),transparent calc(50% + 1px));opacity:.55}
+.dont figcaption{padding:12px 14px;font-size:14px}
+.dont b{color:var(--fg)} .dont span{color:var(--muted)}
+.clear{display:grid;place-items:center;background:var(--paper);border:1px solid var(--rule);padding:30px}
+.clear .box{position:relative;padding:22px;outline:1.5px dashed #C4362C;outline-offset:0}
+.clear img{width:150px;height:auto;display:block}
+.clear .note{font:500 11px var(--mono);color:#56675C;margin-top:12px;text-align:center}
+.swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.sw{border:1px solid var(--rule);background:var(--panel);display:grid}
+.sw i{height:88px;display:block;border-bottom:1px solid var(--rule)}
+.sw div{padding:12px 14px;display:grid;gap:3px}
+.sw b{font:700 16px var(--display);font-stretch:112%}
+.sw code{color:var(--muted)}
+.sw span{font-size:13px;color:var(--muted)}
+.ratio{display:flex;height:16px;margin-top:18px;border:1px solid var(--rule)}
+.ratio i{display:block}
+.states{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:22px}
+.state{display:flex;gap:10px;align-items:center;padding:12px 14px;border:1px solid var(--rule);background:var(--panel);font-size:14px}
+.state .pill{font:500 12px var(--mono);padding:2px 9px;border-radius:999px;color:#fff}
+.state span{color:var(--muted)}
+.type{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.ts{background:var(--bg);padding:24px;display:grid;grid-template-columns:200px minmax(0,1fr);gap:18px;align-items:baseline}
+@media (max-width:620px){.ts{grid-template-columns:minmax(0,1fr)}}
+.ts .who b{display:block;font:600 14px var(--body)} .ts .who span{font:500 12px var(--mono);color:var(--muted)}
+.s-disp{font:800 clamp(30px,5vw,50px)/1.05 var(--display);font-stretch:112%;letter-spacing:-.015em;overflow-wrap:anywhere}
+.s-body{font-size:17px}
+.s-mono{font:400 15px/1.7 var(--mono);white-space:pre;overflow-x:auto}
+.voice{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:700px){.voice{grid-template-columns:minmax(0,1fr)}}
+.say{border:1px solid var(--rule);background:var(--panel);padding:20px;display:grid;gap:12px;align-content:start;min-width:0}
+.tag{font:600 11px var(--mono);letter-spacing:.1em;padding:3px 8px;color:#fff;justify-self:start}
+.term{background:var(--night);color:#D6E2E8;font:400 13.5px/1.7 var(--mono);padding:16px 18px;overflow-x:auto;white-space:pre}
+.term .p{color:#6F8A9D} .term .r{color:var(--red-dk)} .term .x{color:#F08A82}
+.say ul{margin:0;padding-left:18px;color:var(--muted);display:grid;gap:6px}
+.uses{display:grid;gap:26px}
+.use{display:grid;gap:10px;margin:0}
+.use figcaption{font-size:14px;color:var(--muted)}
+.gh{border:1px solid var(--rule);background:var(--panel);padding:26px 28px;display:grid;gap:14px}
+.gh img{height:44px;width:auto}
+.gh hr{border:0;border-top:1px solid var(--rule);margin:0}
+.social{aspect-ratio:2/1;max-width:100%;background:var(--night);color:var(--paper);display:grid;align-content:center;gap:18px;padding:6%;border:1px solid var(--rule)}
+.social img{width:46%;height:auto}
+.social b{font:800 clamp(18px,3.4vw,34px)/1.1 var(--display);font-stretch:112%}
+.social span{font:500 clamp(11px,1.6vw,15px) var(--mono);color:#AFC2B5}
+.social span em{color:var(--red-dk);font-style:normal}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;background:var(--tint);padding:10px 10px 0}
+.tab{display:flex;gap:8px;align-items:center;background:var(--panel);padding:8px 14px 8px 10px;border-radius:8px 8px 0 0;font-size:13px}
+.files{font:400 13px/1.9 var(--mono);background:var(--tint);padding:14px 16px;overflow-x:auto;white-space:pre}
+footer{padding-block:36px;border-top:1px solid var(--rule);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <div class="eyebrow"><b>Brand book</b> · Edition 1</div>
+  <img src="treerig-logo-dark.svg" alt="treerig" width="520" height="110">
+  <h1>A rig for every branch.</h1>
+  <p>treerig gives every Git worktree its own environment: its own Compose stack, a routed local URL, a home directory and a lock. This book covers the name, the mark, colour, type and voice, so everything carries the same identity.</p>
+  <nav class="toc" aria-label="Chapters"><a href="#name">Name</a><a href="#mark">Mark</a><a href="#small">Small sizes</a><a href="#lockups">Lockups</a><a href="#colour">Colour</a><a href="#type">Type</a><a href="#voice">Voice</a><a href="#use">In use</a><a href="#files">Files</a></nav>
+</div></header>
+
+<main class="wrap">
+<section id="name"><div class="head"><div class="eyebrow"><b>Name</b></div><h2>treerig, and soon <code>trig</code></h2></div>
+  <div class="two">
+    <div style="display:grid;gap:14px">
+      <p><strong>tree</strong> as in worktree, a checkout of a branch. <strong>rig</strong> as in a full working setup, the way people talk about a dev rig. Each worktree gets one.</p>
+      <p>Always lower case, <code>treerig</code>, the way it is typed. Capitalise it only to start a sentence. The command is <code>treerig</code>; <code>trig</code> is a short alias (coming).</p>
+      <p>Files and settings carry the full name: <code>treerig.toml</code>, <code>TREERIG_HOME</code>, the <code>dev.treerig</code> label namespace.</p>
+    </div>
+    <div class="specs">
+      <div class="spec"><b>Say it</b><span>“tree-rig”</span></div>
+      <div class="spec"><b>Write it</b><span>treerig</span></div>
+      <div class="spec"><b>Run it</b><span><code>treerig up</code> · <code>trig up</code> (coming)</span></div>
+      <div class="spec"><b>Line</b><span>A rig for every branch.</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="mark"><div class="head"><div class="eyebrow"><b>Mark</b> The Detached Fork</div><h2>One path in, and your branch breaks away</h2>
+  <p class="lede">It reads as a worktree does. main starts at a commit and runs on. At the split your branch leaves in red, with a clear break, because it lives in a space of its own.</p></div>
+  <div class="plates"><div class="pl"><img src="treerig-mark.svg" alt="The treerig mark on light"></div><div class="pd"><img src="treerig-mark-dark.svg" alt="The treerig mark on dark"></div></div>
+  <div class="two" style="margin-top:28px">
+    <ul class="meaning">
+      <li><i></i><div><b>The ring</b> is a commit on main, where the path starts.</div></li>
+      <li><i class="line"></i><div><b>The ink path</b> is main, running on to its next heading.</div></li>
+      <li><i class="red"></i><div><b>The red branch</b> is yours: the worktree you’re in.</div></li>
+      <li><i class="gap"></i><div><b>The gap</b> is isolation. Your branch shares history with main but nothing else.</div></li>
+    </ul>
+    <div class="construct"><svg viewBox="-8 -6 82 78" role="img" aria-label="The mark on its 64-unit construction grid">
+<line x1="0" y1="0" x2="0" y2="64" class="gl maj"/><line x1="0" y1="0" x2="64" y2="0" class="gl maj"/><line x1="4" y1="0" x2="4" y2="64" class="gl"/><line x1="0" y1="4" x2="64" y2="4" class="gl"/><line x1="8" y1="0" x2="8" y2="64" class="gl"/><line x1="0" y1="8" x2="64" y2="8" class="gl"/><line x1="12" y1="0" x2="12" y2="64" class="gl"/><line x1="0" y1="12" x2="64" y2="12" class="gl"/><line x1="16" y1="0" x2="16" y2="64" class="gl maj"/><line x1="0" y1="16" x2="64" y2="16" class="gl maj"/><line x1="20" y1="0" x2="20" y2="64" class="gl"/><line x1="0" y1="20" x2="64" y2="20" class="gl"/><line x1="24" y1="0" x2="24" y2="64" class="gl"/><line x1="0" y1="24" x2="64" y2="24" class="gl"/><line x1="28" y1="0" x2="28" y2="64" class="gl"/><line x1="0" y1="28" x2="64" y2="28" class="gl"/><line x1="32" y1="0" x2="32" y2="64" class="gl maj"/><line x1="0" y1="32" x2="64" y2="32" class="gl maj"/><line x1="36" y1="0" x2="36" y2="64" class="gl"/><line x1="0" y1="36" x2="64" y2="36" class="gl"/><line x1="40" y1="0" x2="40" y2="64" class="gl"/><line x1="0" y1="40" x2="64" y2="40" class="gl"/><line x1="44" y1="0" x2="44" y2="64" class="gl"/><line x1="0" y1="44" x2="64" y2="44" class="gl"/><line x1="48" y1="0" x2="48" y2="64" class="gl maj"/><line x1="0" y1="48" x2="64" y2="48" class="gl maj"/><line x1="52" y1="0" x2="52" y2="64" class="gl"/><line x1="0" y1="52" x2="64" y2="52" class="gl"/><line x1="56" y1="0" x2="56" y2="64" class="gl"/><line x1="0" y1="56" x2="64" y2="56" class="gl"/><line x1="60" y1="0" x2="60" y2="64" class="gl"/><line x1="0" y1="60" x2="64" y2="60" class="gl"/><line x1="64" y1="0" x2="64" y2="64" class="gl maj"/><line x1="0" y1="64" x2="64" y2="64" class="gl maj"/>
+<g opacity=".92"><g transform="translate(3 0)"><circle cx="9" cy="32" r="4.8" fill="none" stroke="#15271E" stroke-width="4.4"/><path d="M14 32H23C26 32 28 31 30 29L45 14" stroke="#15271E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 11H48V22" stroke="#15271E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M35 39L45 49" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 52H48V41" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g></g>
+<circle cx="12" cy="32" r="7" class="ann-ring"/>
+<path d="M33 29.5 L39.5 40.5" class="ann-gap"/>
+<text x="12" y="44" class="lab" text-anchor="middle">commit · main</text>
+<text x="44" y="7" class="lab">main runs on</text>
+<text x="20" y="58" class="lab">your branch, detached</text>
+<text x="34" y="36.5" class="lab acc">gap</text>
+<text x="-1" y="68.5" class="dim">0</text><text x="62" y="68.5" class="dim">64</text>
+</svg></div>
+  </div>
+  <div class="two" style="margin-top:28px">
+    <div class="specs">
+      <div class="spec"><b>Grid</b><span>64 units square.</span></div>
+      <div class="spec"><b>Paths</b><span>6 units, round caps and joins.</span></div>
+      <div class="spec"><b>Ring</b><span>4.8 radius, 4.4 stroke, open centre.</span></div>
+      <div class="spec"><b>Gap</b><span>The red branch starts clear of the split. It never touches.</span></div>
+      <div class="spec"><b>Clear space</b><span>One ring diameter on every side.</span></div>
+    </div>
+    <div class="clear"><div class="box"><img src="treerig-mark.svg" alt=""></div><div class="note">Clear space: one ring diameter</div></div>
+  </div>
+  <div class="donts"><figure class="dont"><div class="dart"><svg viewBox="0 0 64 64" aria-hidden="true"><g transform="translate(3 0)"><circle cx="9" cy="32" r="4.8" fill="none" stroke="#15271E" stroke-width="4.4"/><path d="M14 32H23C26 32 28 31 30 29L45 14" stroke="#15271E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 11H48V22" stroke="#15271E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M31 33L45 49" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 52H48V41" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g></svg></div><figcaption><b>Don’t</b> close the gap. <span>The break between the split and your branch is the meaning.</span></figcaption></figure><figure class="dont"><div class="dart"><svg viewBox="0 0 64 64" aria-hidden="true"><g transform="translate(3 0)"><circle cx="9" cy="32" r="4.8" fill="none" stroke="#15271E" stroke-width="4.4"/><path d="M14 32H23C26 32 28 31 30 29L45 14" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 11H48V22" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M35 39L45 49" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 52H48V41" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g></svg></div><figcaption><b>Don’t</b> make both branches red. <span>Red is only ever your branch.</span></figcaption></figure><figure class="dont"><div class="dart"><svg viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(90 32 32)"><g transform="translate(3 0)"><circle cx="9" cy="32" r="4.8" fill="none" stroke="#15271E" stroke-width="4.4"/><path d="M14 32H23C26 32 28 31 30 29L45 14" stroke="#15271E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 11H48V22" stroke="#15271E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M35 39L45 49" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M37 52H48V41" stroke="#C4362C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g></g></svg></div><figcaption><b>Don’t</b> rotate or mirror it. <span>The path always reads left to right.</span></figcaption></figure><figure class="dont"><div class="dart"><img src="treerig-mark.svg" width="16" height="16" alt="" style="image-rendering:auto"></div><figcaption><b>Don’t</b> shrink the master below 20 px. <span>Use the pixel-built 16 px file instead.</span></figcaption></figure></div>
+</section>
+
+<section id="small"><div class="head"><div class="eyebrow"><b>Small sizes</b></div><h2>Below 20 px, use the 16 px file</h2>
+  <p class="lede">At 16 px a scaled-down master blurs: the ring fills in and the gap closes. The 16 px file draws the same mark pixel by pixel, keeping the ring open and an empty pixel at the break.</p></div>
+  <div class="ladder">
+    <figure><img class="pix" src="treerig-favicon-16.svg" alt="The 16 px file enlarged eight times"><figcaption>16 px file, enlarged</figcaption></figure>
+    <figure><img src="treerig-favicon-16.svg" width="16" height="16" alt=""><figcaption>16<br>file</figcaption></figure>
+    <figure><img src="treerig-mark.svg" width="20" height="20" alt=""><figcaption>20</figcaption></figure>
+    <figure><img src="treerig-mark.svg" width="24" height="24" alt=""><figcaption>24</figcaption></figure>
+    <figure><img src="treerig-mark.svg" width="32" height="32" alt=""><figcaption>32</figcaption></figure>
+    <figure><img src="treerig-mark.svg" width="48" height="48" alt=""><figcaption>48</figcaption></figure>
+    <figure><img src="treerig-mark.svg" width="96" height="96" alt=""><figcaption>96</figcaption></figure>
+  </div>
+  <p class="rule-note">Use <code>treerig-favicon-16.svg</code> at 16 px, and the master from 20 px up. The ring opens fully from 24 px.</p>
+</section>
+
+<section id="lockups"><div class="head"><div class="eyebrow"><b>Lockups</b></div><h2>Mark, wordmark and icon</h2>
+  <p class="lede">The wordmark is Archivo ExtraBold, semi-expanded, converted to outlines. The mark sits on the baseline to the left of it. Don’t re-set the wordmark in another face, and don’t place the mark to the right.</p></div>
+  <div class="plates wide"><div class="pl"><img src="treerig-logo.svg" alt="Lockup on light"></div><div class="pd"><img src="treerig-logo-dark.svg" alt="Lockup on dark"></div></div>
+  <div class="ladder" style="margin-top:18px">
+    <figure><img src="treerig-icon.svg" width="128" height="128" alt="App icon"><figcaption>App icon, 128</figcaption></figure>
+    <figure><img src="treerig-icon.svg" width="64" height="64" alt=""><figcaption>64</figcaption></figure>
+    <figure><img src="treerig-icon.svg" width="32" height="32" alt=""><figcaption>32</figcaption></figure>
+  </div>
+</section>
+
+<section id="colour"><div class="head"><div class="eyebrow"><b>Colour</b></div><h2>Evergreen, paper and one red</h2>
+  <p class="lede">Evergreen and paper do nearly all the work. Signal Red is used sparingly and always means one thing: yours. If red appears anywhere else, it stops meaning that.</p></div>
+  <div class="swatches"><div class="sw"><i style="background:#15271E"></i><div><b>Evergreen</b><code>#15271E</code><span>Ink. The mark, text, dark grounds.</span></div></div><div class="sw"><i style="background:#F3F5F1"></i><div><b>Paper</b><code>#F3F5F1</code><span>Light grounds. The mark on dark.</span></div></div><div class="sw"><i style="background:#C4362C"></i><div><b>Signal Red</b><code>#C4362C</code><span>Your branch, and nothing else. #F0715F on dark.</span></div></div><div class="sw"><i style="background:#0E1B15"></i><div><b>Night</b><code>#0E1B15</code><span>Dark grounds behind the mark.</span></div></div><div class="sw"><i style="background:#5C6F62"></i><div><b>Moss</b><code>#5C6F62</code><span>Secondary text, rules, captions on Paper only: 4.90:1. Fails on Night and Evergreen.</span></div></div><div class="sw"><i style="background:#56675C"></i><div><b>Moss Deep</b><code>#56675C</code><span>Secondary text on white and tinted panels: 5.48:1 on Paper.</span></div></div><div class="sw"><i style="background:#9AAEA1"></i><div><b>Moss Light</b><code>#9AAEA1</code><span>Secondary text on dark grounds: 7.54:1 on Night.</span></div></div></div>
+  <div class="ratio" aria-label="Rough proportions: mostly paper and evergreen, a little moss, a sliver of red"><i style="flex:46;background:#F3F5F1"></i><i style="flex:38;background:#15271E"></i><i style="flex:12;background:#5C6F62"></i><i style="flex:4;background:#C4362C"></i></div>
+  <h3 style="margin-top:34px">State colours</h3>
+  <p class="lede" style="margin-top:8px">For the CLI and the checkout index. These are kept apart from Signal Red so that red stays reserved for “yours”.</p>
+  <p class="lede" style="margin-top:8px">They are proposed, not in the code yet. Each is a pill fill with white text, never text on Paper. On dark grounds use the lighter variant as text or a marker.</p>
+  <div class="states">
+    <div class="state"><span class="pill" style="background:#1A7A50">ready</span><span>#1A7A50 · white 5.33:1<br>dark: #3FBF86 · 7.59:1 on Night<br>running and reachable</span></div>
+    <div class="state"><span class="pill" style="background:#9A6A0C">pending</span><span>#9A6A0C · white 4.73:1<br>dark: #D9A441 · 7.87:1 on Night<br>first up not finished</span></div>
+    <div class="state"><span class="pill" style="background:#7A2E3A">missing</span><span>#7A2E3A · white 9.21:1<br>dark: #E0707F · 5.73:1 on Night<br>checkout gone</span></div>
+  </div>
+  <p class="lede" style="margin-top:22px;font-size:14px">License: the code is Apache-2.0, which grants no trademark rights (§6). Use of the name and mark by forks or packagers isn’t covered here.</p>
+</section>
+
+<section id="type"><div class="head"><div class="eyebrow"><b>Type</b></div><h2>Three faces, three jobs</h2>
+  <p class="lede">All three are on Google Fonts under the Open Font License.</p></div>
+  <div class="type">
+    <div class="ts"><div class="who"><b>Archivo</b><span>800 · width 112 · display</span></div><div class="s-disp">A rig for every branch.</div></div>
+    <div class="ts"><div class="who"><b>IBM Plex Sans</b><span>400 / 600 · body</span></div><p class="s-body">Remove the worktree and everything it owned is torn down, verified by ownership label and never by name.</p></div>
+    <div class="ts"><div class="who"><b>IBM Plex Mono</b><span>400 / 500 · code, CLI, data</span></div><div class="s-mono">treerig up
+api  http://feature-login.acme.localhost</div></div>
+  </div>
+</section>
+
+<section id="voice"><div class="head"><div class="eyebrow"><b>Voice</b></div><h2>Plain, exact, and literal in the product</h2>
+  <p class="lede">Write the way the README already does: say what happened, what is guaranteed and what to do next. The name may play on rigs; help text and errors never do.</p></div>
+  <div class="voice">
+    <div class="say"><span class="tag" style="background:#1A7A50">DO · REAL OUTPUT</span>
+      <div class="term"><span class="p">$</span> treerig up
+[treerig] feature-login.acme.localhost is up.
+api   http://feature-login.acme.localhost
+mail  http://mail.feature-login.acme.localhost
+<span class="p">$</span> treerig worktree remove nope
+[treerig] ERROR: No worktree is registered as nope.</div>
+      <ul><li>Use the product’s real nouns: worktree, lock, home, container.</li><li>Be specific about guarantees: “verified by ownership label, never by name.”</li></ul></div>
+    <div class="say"><span class="tag" style="background:#7A2E3A">DON’T · INVENTED, NEVER PRINTED</span>
+      <div class="term"><span class="p">$</span> treerig worktree remove
+<span class="x">Whoops! Couldn’t find that rig 🌳</span>
+<span class="p">$</span> treerig up
+<span class="x">Rigging up your tree… 🚀</span></div>
+      <ul><li>A deliberately bad example. treerig never prints this.</li><li>No puns, jokes or emoji in output. It should read the same in a CI log.</li><li>Don’t apologise or guess; say what went wrong and how to fix it.</li></ul></div>
+  </div>
+</section>
+
+<section id="use"><div class="head"><div class="eyebrow"><b>In use</b></div><h2>Where it shows up first</h2></div>
+  <div class="uses">
+    <figure class="use"><div class="gh"><img src="treerig-logo.svg" alt="treerig"><hr><p><strong>A rig for every branch.</strong> Give every Git worktree a durable identity, an isolated home, and a routed URL.</p></div><figcaption>README header. Use a <code>&lt;picture&gt;</code> element so GitHub swaps in the dark lockup.</figcaption></figure>
+    <figure class="use"><div class="social"><img src="treerig-logo-dark.svg" alt=""><b>A rig for every branch.</b><span>$ treerig up → http://<em>feature-login</em>.acme.localhost</span></div><figcaption>Social preview, 1280 × 640. The hand-made PNG still shows <code>trig up</code>; upload it once the alias ships.</figcaption></figure>
+    <figure class="use"><div class="tabs"><span class="tab"><img src="treerig-favicon-16.svg" width="16" height="16" alt="">treerig.localhost: 4 checkouts</span><span class="tab"><img src="treerig-favicon-16.svg" width="16" height="16" alt="">feature-login.acme.localhost</span></div><figcaption>The 16 px file as the favicon on the checkout index.</figcaption></figure>
+  </div>
+</section>
+
+<section id="files"><div class="head"><div class="eyebrow"><b>Files</b></div><h2>Assets</h2>
+  <p class="lede">All in <code>docs/brand/</code>. Regenerate the SVGs with <code>python3 docs/brand/source/build.py</code>; the PNG is made by hand. This page loads Google Fonts and falls back to system fonts offline.</p></div>
+  <div class="files">treerig-mark.svg              mark, light grounds
+treerig-mark-dark.svg         mark, dark grounds
+treerig-favicon-16.svg        pixel-built 16 px, light
+treerig-favicon-16-dark.svg   pixel-built 16 px, dark
+treerig-icon.svg              app icon
+treerig-logo.svg              lockup, light grounds
+treerig-logo-dark.svg         lockup, dark grounds
+treerig-social-preview.png    social preview, 1280 × 640 (hand-made)</div>
+</section>
+</main>
+<footer><div class="wrap">treerig · Southern Fired Software, LLC · Apache-2.0 · Brand book, edition 1</div></footer>
+</body>
+</html>
