@@ -136,6 +136,12 @@ func TestAliasAgreesAcrossReleaseFiles(t *testing.T) {
 	if want := `bin.install_symlink "` + brand.Name + `" => "` + alias + `"`; !strings.Contains(formula, want) {
 		t.Errorf("packaging/homebrew/treerig.rb does not contain %s", want)
 	}
+	// Homebrew generates the alias's completions from the link, under the
+	// alias's own name, so trig<TAB> completes after a brew install.
+	brewCompletions := regexp.MustCompile(`generate_completions_from_executable\(bin/"` + alias + `",[^)]*base_name: "` + alias + `"\)`)
+	if !brewCompletions.MatchString(formula) {
+		t.Errorf("packaging/homebrew/treerig.rb does not generate %s completions from bin/%q with base_name %q", alias, alias, alias)
+	}
 
 	// The completion scripts the packages ship are generated per name, and
 	// every one the packages list must be one completions.sh writes.

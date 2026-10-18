@@ -341,6 +341,10 @@ check_alias_skipped() {
   grep -q "$said" "$work/install.log" || { cat "$work/install.log" >&2; fail "$label: no message saying '$said'"; }
 }
 
+# The scenarios below expect the alias by default; one opted out in the
+# caller's environment would make every installer run skip it.
+unset TREERIG_NO_ALIAS
+
 serve "$work/good"
 check_install "latest, curl or wget" "$work/t1" PATH="$plain" TREERIG_LATEST_URL="$base/latest/checksums.txt" TREERIG_BASE_URL="$base"
 check_install "pinned version" "$work/t2" PATH="$plain" TREERIG_VERSION="v$version" TREERIG_BASE_URL="$base"
