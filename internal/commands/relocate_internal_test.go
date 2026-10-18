@@ -179,6 +179,30 @@ func TestRelocateAndReexec(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps the invoked name as argv[0] when run through the trig alias", func(t *testing.T) {
+		// The alias is a symlink named trig, and a shell passes argv[0] as
+		// typed ("trig"), not a path. The copy is exec-ed by path, but must
+		// still be told it is "trig", or its help and messages would name
+		// the hash-named file instead (brand.CLIName follows argv[0]).
+		f := newFakeEnv(t, "a treerig build")
+		f.env.Args = []string{"trig", "worktree", "remove", "--yes"}
+		var gotArgv0 string
+		var gotArgv []string
+		f.env.Exec = func(argv0 string, argv, _ []string) error {
+			gotArgv0, gotArgv = argv0, argv
+			return nil
+		}
+
+		reexec(t, f.env)
+
+		if gotArgv0 == "" || gotArgv0 == "trig" {
+			t.Fatalf("exec path = %q, want the installed copy's path", gotArgv0)
+		}
+		if len(gotArgv) == 0 || gotArgv[0] != "trig" {
+			t.Fatalf("argv = %v, want argv[0] to stay %q", gotArgv, "trig")
+		}
+	})
+
 	t.Run("returns the cancellation, and does not exec, when a signal arrived while the copy was installed", func(t *testing.T) {
 		f := newFakeEnv(t, "interrupted")
 		ctx, cancel := context.WithCancelCause(context.Background())

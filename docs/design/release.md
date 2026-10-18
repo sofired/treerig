@@ -25,8 +25,9 @@ it. All of them are attached to the GitHub Release.
 
 A platform archive holds exactly `treerig` (at the archive root, mode 0755),
 `LICENSE`, `NOTICE`, `README.md` and `completions/` (`treerig.bash`, `_treerig`,
-`treerig.fish`). The packages install `treerig` to `/usr/bin` and the completions
-where bash, zsh and fish look for them. `packaging/verify-snapshot.sh` asserts
+`treerig.fish`, and the same three for the alias: `trig.bash`, `_trig`,
+`trig.fish`). The packages install `treerig` to `/usr/bin`, `trig` beside it as
+a symlink, and the completions where bash, zsh and fish look for them. `packaging/verify-snapshot.sh` asserts
 all of this on every pull request.
 
 A signing or notarization step for the `treerig` binary, if one is ever added,
@@ -35,6 +36,50 @@ bytes; the teardown pin records those digests.
 
 Two builds of one commit are byte-identical: files carry the commit's date and
 root ownership, and the pull-request check rebuilds and diffs `checksums.txt`.
+
+## The `trig` alias
+
+`trig` is a short name for the same binary, not a second program: a symlink
+named `trig` pointing at `treerig`. It is presentation only. It creates no new
+trust boundary and no new storage name: labels, directories, environment
+variables and the teardown pin all keep the `treerig` names.
+
+`brand.CLIName` follows `argv[0]`, so run through the link, the help text, the
+usage lines and the `[trig]` message prefix say `trig`. Hints and stored text
+keep naming `treerig` by design (`brand.Name`; for one, the missing-config hint
+in `internal/config/load.go`, which is not handed the invoked name). The
+completion scripts are generated per name, so `trig` has its own;
+`completions.sh` writes them by running the binary through a `trig` symlink.
+`worktree remove`'s relocation and the future removal gate (#146) exec a copy
+with the caller's `argv[0]`, so the name survives the exec.
+
+Where the link is made, and what each route does about a clash:
+
+| Route | The link | A clash |
+| --- | --- | --- |
+| Homebrew | `bin.install_symlink "treerig" => "trig"` | A foreign `trig` in Homebrew's `bin` makes `brew install treerig` fail at the link step, and may leave treerig unlinked. Remove the other `trig`, then run `brew link --overwrite treerig`. |
+| `install.sh` | `trig` beside `treerig` in the install directory | Skipped, with the reason on stderr, when another `trig` is on `PATH` or `trig` already exists in the directory (a file, a broken link, a link elsewhere). `treerig` is installed either way. `TREERIG_NO_ALIAS=1` (any non-empty value except `0`) skips it. |
+| `.deb`, `.rpm`, `.apk` | `/usr/bin/trig`, a relative symlink, always | A `/usr/bin/trig` owned by another package makes the whole treerig install fail (dpkg says "trying to overwrite", and apt can be left half-unpacked). An unowned `/usr/bin/trig`, such as a hand-copied script, is silently replaced. |
+| Platform archive | none | Archives hold regular files and users unpack them by hand; the install docs say to run `ln -s treerig trig`. |
+
+**Decision: the packages ship the link unconditionally.** There is no
+pre-install script, `Conflicts` or `Replaces`: a script that probes for a
+`trig` would run as root on every install to guard against a name no distro
+package uses (checked October 2026), and `Conflicts` would block installing
+the other package for no reason. The residual risk is the two clashes in the
+table. It is accepted because no distro ships a `trig`, hand-installed
+commands belong in `/usr/local/bin`, which precedes `/usr/bin` on `PATH`, and
+a clash fails loudly instead of corrupting anything. Revisit it if a distro
+ever packages a `trig`.
+
+The archive carries the `trig` completion scripts anyway, so a user who makes
+the link by hand has them. A change to any of these spellings must change all
+of them: `internal/style/release_files_test.go` checks that they agree, and
+`packaging/verify-snapshot.sh` checks the deb, rpm and apk and `install.sh`
+end to end. The rpm and apk list the link with mode `l---------`; that is
+known and harmless, since a symlink's mode is not used, but it has not been
+checked on Alpine. User docs for the alias (the install docs, after #170) are
+written before any release ships it.
 
 ## Who signed it
 

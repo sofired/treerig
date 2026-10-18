@@ -18,17 +18,27 @@ class Treerig < Formula
     ldflags = "-s -w -X github.com/sofired/treerig/internal/brand.Version=#{version}"
     system "go", "build", *std_go_args(ldflags:), "./cmd/treerig"
     generate_completions_from_executable(bin/"treerig", "completion", shells: [:bash, :zsh, :fish])
+    # `trig` is a short alias: the same binary under a second name, which
+    # prints and completes as `trig` when run that way (brand.CLIName follows
+    # argv[0]). Its completions come from running it under that name.
+    bin.install_symlink "treerig" => "trig"
+    generate_completions_from_executable(bin/"trig", "completion", shells: [:bash, :zsh, :fish], base_name: "trig")
   end
 
   def caveats
     <<~EOS
       treerig needs Git, Docker and Docker Compose at run time.
       `treerig doctor` checks all three.
+
+      `trig` is the same program under a shorter name.
     EOS
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/treerig --version")
     assert_match "_treerig", shell_output("#{bin}/treerig completion bash")
+    assert_match version.to_s, shell_output("#{bin}/trig --version")
+    assert_match "_trig", shell_output("#{bin}/trig completion bash")
+    assert_predicate bin/"trig", :symlink?
   end
 end
