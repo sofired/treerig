@@ -127,7 +127,12 @@ func SharedUseLabelPrefix(namespace string) string { return namespace + ".shared
 const SharedProjectPrefix = Name + "-shared-"
 
 // CLIName is the name this CLI was invoked as: the basename of argv[0], which
-// is the symlink an installation is reached through. A binary built as `main`
+// is the symlink an installation is reached through. The short alias `trig` is
+// such a symlink and is deliberately not a constant here, since no Go code
+// needs it. It is spelled in install.sh, .goreleaser.yaml,
+// packaging/homebrew/treerig.rb, packaging/completions.sh and
+// packaging/verify-snapshot.sh, and internal/style's release-files test keeps
+// them in agreement. A binary built as `main`
 // (or no argv[0] at all) leaves no meaningful name, so the product name is used.
 func CLIName(argv0 string) string {
 	if argv0 == "" {

@@ -135,6 +135,9 @@ lists.
 
 **Toolchain:** the Go version in [`go.mod`](go.mod).
 
+The brand SVGs in `docs/brand/` come from `docs/brand/source/build.py`, which
+needs Python 3 and its standard library only. Go remains the project language.
+
 **Before you open a pull request:**
 
 ```bash
@@ -293,15 +296,25 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
 `install.sh` is served from `main` (or a tag), not from a release: a change to
 it ships when it merges.
 
+**The `trig` alias.** Every install route except the archive links `trig` to
+`treerig` (Homebrew, `install.sh`, the packages); `docs/design/release.md`
+("The `trig` alias") says how each treats a name clash. The user docs for it
+(the install docs, after #170) land before any release ships the alias. The
+tap's `Formula/treerig.rb` is only rewritten for its url and sha256 once it
+exists, so a formula published before the alias needs the `install` and
+`test` changes from `packaging/homebrew/treerig.rb` applied to the tap by
+hand, in a pull request there.
+
 **Trying it without publishing.** Pull requests and pushes to `main` run the
 `release-snapshot` job in `go.yml`: shellcheck, `goreleaser check`, a snapshot
 build, a second build whose `checksums.txt` must match the first, and
 `packaging/verify-snapshot.sh` (every artifact, the files in each, how each
 binary was built, that `/usr/bin/treerig` in the host's `.deb` and `.rpm` is the
-`treerig` in the host's archive, the tap formula rendered into `dist/treerig.rb`
-from the source archive, and `install.sh` against the snapshot through a local
-server). The job also runs the teardown pin flow: `teardown pin --release`
-against the snapshot with a real cosign (`TestTeardownPinSnapshot`,
+`treerig` in the host's archive, that both packages link `/usr/bin/trig` to it,
+the tap formula rendered into `dist/treerig.rb` from the source archive, and
+`install.sh` against the snapshot through a local server, including the `trig`
+alias and when it must be skipped). The job also runs the teardown pin flow:
+`teardown pin --release` against the snapshot with a real cosign (`TestTeardownPinSnapshot`,
 `TestTeardownPinSnapshotTampering`, `TestTeardownPinWithRealCosign` and
 `TestTeardownPinWithRealCosignAndNoTrustRoot`). It uploads the artifacts and the
 formula. To do the same locally:
