@@ -107,7 +107,7 @@ def main():
         'treerig-logo-dark.svg': lockup(PAPER, RED_DARK),
     }
     for name, content in files.items():
-        with open(os.path.join(OUT, name), 'w', encoding='utf-8') as f:
+        with open(os.path.join(OUT, name), 'w', encoding='utf-8', newline='\n') as f:
             f.write(content + '\n')
         print(name)
 
