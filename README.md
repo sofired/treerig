@@ -1,236 +1,243 @@
-# treerig
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/treerig-logo-dark.svg">
+    <img alt="treerig" src="docs/brand/treerig-logo.svg" height="56">
+  </picture>
+</h1>
 
-Give every Git worktree a durable identity, an isolated home, and a routed URL.
+**A rig for every branch.**
 
-Check out a branch into a worktree and it gets its own environment: its own
-Docker Compose project, its own data directory, its own hostname on a shared
-local router, and a lock that stops two commands from mutating it at once.
-Remove the worktree and everything it owned is torn down — verified by
-ownership label, never by name.
+Every worktree gets its own stack, its own data, and its own URL.
 
-The tool is language- and framework-agnostic. It knows about Git, Docker, and
-the filesystem. Everything specific to *your* project — migrations, seeding,
-health checks — arrives as a small config file and a handful of executables
-in whatever language you already use.
+Pre-release: [install](#install) from source.
 
-> **Status: pre-release.** The worktree lifecycle works end to end against
-> Docker Compose: `up`, `dev`, `down`, `status`, `urls`, `run`, `backup`,
-> `restore`, `worktree list`, `worktree remove`, `worktree rename`,
-> `worktree unlock`, and `doctor` — identity, locks, the registry, the hook
-> sequencer, a runtime that stamps every resource with ownership labels and
-> refuses to touch anything it cannot prove it owns, a shared hardened router
-> that makes every worktree reachable at its own hostname, and a machine-wide
-> index page listing every checkout. See [Roadmap](#roadmap).
+Git worktrees let you have three branches checked out at once, or three agent
+sessions working in parallel. Docker Compose doesn't play along: the second
+checkout fights the first for port 5432, both quietly share one database
+volume, every copy needs its own hand-edited `.env`, and the containers of the
+branch you deleted last week are still running. treerig gives each worktree its
+own Compose project, data and hostname. When you remove the worktree, treerig
+removes the containers, networks, images and named volumes that worktree
+created, and nothing else.
 
-## Documentation
+```console
+$ treerig up                       # in ~/src/myapp, on main
+web  http://main.myapp.localhost
 
-The reference material is in `docs/`:
+$ git worktree add ../myapp.feature-login -b feature/login
+$ cd ../myapp.feature-login && treerig up
+web  http://feature-login.myapp.localhost
+```
 
-- [Install](docs/install.md): every install route, verifying a download, shell completion, calling the binary something else
-- [Switching from a build before the rename](docs/upgrading-from-a-pre-rename-build.md)
-- [Getting started](docs/getting-started.md): the config file, the first `up`, what `up` creates
-- [How treerig works](docs/concepts.md): identity, slugs, locks, homes, hooks, backup and restore
-- [Configuration](docs/configuration.md): the keys of `treerig.toml`, editor support, TOML syntax
-- [Settings](docs/settings.md): the treerig root, the control home, `settings.toml`
-- [Trust model](docs/trust-model.md) and [SECURITY.md](SECURITY.md)
-- [Routing](docs/routing.md): pinned ports, the shared router, its network modes
-- [Worktrees](docs/worktrees.md): development sessions, removal, renaming
-- [Status words](docs/commands.md): what `status`, `worktree list` and the index print
-- [Checkout index](docs/checkout-index.md): the page at `http://treerig.localhost`
-- [Shared services](docs/shared-services.md)
-- [Host routes](docs/host-routes.md)
-- [Hooks](docs/hooks.md): the hook protocol
-- [Teardown pin](docs/teardown-pin.md)
-- [Output and exit codes](docs/output-and-exit-codes.md) and [machine-readable output](docs/json-output.md)
-- [Doctor](docs/doctor.md): what it checks, and the check ids
-- [Platform notes](docs/platforms.md) and [lock recovery](docs/lock-recovery.md)
-- [Contributing](CONTRIBUTING.md), including the repository layout, and the [design notes](docs/design/)
+*Illustrative output: `up` also prints Compose's progress before its URL
+lines.*
+
+- **A URL per worktree**, from one shared router that listens only on
+  loopback. You don't edit any ports.
+- **Isolated by default.** Each worktree has its own Compose project,
+  networks, volumes and data directory.
+- **Safe cleanup.** `treerig worktree remove` deletes only what the worktree
+  can prove it created, by its labels, never by its name. External volumes and
+  the anonymous volumes an image declares are left alone.
+- **One page for everything running** at `http://treerig.localhost`.
+- **Your Compose file stays as it is.** A generated override adds the labels
+  and ports. Migrations, seeding and health checks are small scripts in
+  whatever language you already use.
+
+> **Status: pre-release.** Linux and macOS. treerig needs Git, Docker and
+> Docker Compose 2.21 or newer; the Docker integration tests run on Linux in
+> CI. Nothing is tagged yet; the first release will be `v0.1.0-rc.1`.
 
 ## Install
 
-No release exists yet, so build treerig from source (Go, at least the version
-[`go.mod`](go.mod) names):
+No release exists yet, so build treerig from source with Go, at least the
+version [`go.mod`](go.mod) names:
 
 ```bash
 git clone https://github.com/sofired/treerig && cd treerig
 go install ./cmd/treerig   # installs $(go env GOPATH)/bin/treerig (or $GOBIN)
 ```
 
-Homebrew, the install script, the Linux packages and every other option are in
-[docs/install.md](docs/install.md).
+If `treerig` isn't found, add `$(go env GOPATH)/bin` to your `PATH`. Then
+check your machine with `treerig doctor`.
+
+Release archives, Linux packages and `install.sh --version` work from the
+first pre-release; Homebrew, and the install script without `--version`, wait
+for the first stable release. See [docs/install.md](docs/install.md), which
+also covers shell completion.
 
 ### Verifying a download
 
-How to check a release download is in
+Release downloads come with checksums and a signature. How to check them is in
 [docs/install.md](docs/install.md#verifying-a-download).
 
 ## Quick start
 
-The tool is tested with Docker Compose 2.21 and newer (`treerig doctor` checks,
-as does `docker compose version`). From the root of your repository,
-`treerig init` writes a starter `treerig.toml` there (the file is commented, names
-your Compose file, and opens with the schema directive described under
-[Editor support](docs/configuration.md#editor-support)); it refuses to replace one that exists.
-Or write the file yourself and commit it at the root:
+Start in the root of a Git repository that has a Compose file.
+
+**1. Write a config.** `treerig init` writes a commented `treerig.toml` that
+already names your Compose file, with a project name and domain taken from the
+directory's name:
+
+```bash
+treerig init
+```
+
+Uncomment only the placeholder `[service.<name>]` line, and rename it to the
+Compose service you want in a browser. Without the comments, the file is now:
 
 ```toml
 [project]
-name   = "acme"
-domain = "acme.localhost"          # worktrees route as <slug>.acme.localhost
+name   = "myapp"
+domain = "myapp.localhost"   # worktrees route as <slug>.myapp.localhost
 
 [compose]
-file = "docker/compose.yaml"
+file = "compose.yaml"
 
-[service.api]                      # a service is a table named by its Compose service
-                                   # (no subdomain: routes at the worktree host root)
-[service.api.index]
-label   = "API"
-purpose = "REST surface"
-
-[service.mail]
-subdomain = "mail"                 # mail.<slug>.acme.localhost
-
-[hooks]
-prepare = "./scripts/migrate.sh"   # services healthy, nothing seeded
-seed    = "./scripts/seed.py"      # only after prepare exits zero
-verify  = "./scripts/check.sh"     # run by doctor; exit 0 means healthy
-backup  = "./scripts/backup.sh"    # treerig backup: writes a bundle into the directory it is given
-restore = "./scripts/restore.sh"   # treerig restore: loads one back
-
-[hooks.timeout]                    # optional: no entry, no limit
-prepare = "30m"                    # a hung migration fails `up` after half an hour
-verify  = "2m"                     # and a hung check fails `doctor` after two minutes
-
-[commands]
-plan = "./scripts/keycloak.sh plan"   # on demand, with `treerig run plan`
+[service.web]                # a service from compose.yaml, routed at the worktree's host
 ```
 
-Then:
+A routed service needs a port: one it exposes in the Compose file, or `port`
+in its `[service.<name>]` table. Run `treerig config validate` to check the
+file.
+
+**2. Commit it**, so every new worktree gets it:
 
 ```bash
-treerig config validate     # parse and check the file
-treerig config schema       # print its JSON Schema, for editors
-treerig up                   # register this worktree, start its services, run prepare (+ seed the first time)
-treerig dev                  # the same, then follow its logs until Ctrl-C
-treerig status               # per-service state
-treerig urls                 # print its routed URLs
-treerig route add web --port 5173 --subdomain app   # route a dev server on the host at app.<slug>.<domain>
-treerig route ls             # this worktree's host routes
-treerig run plan             # run one of the project's own [commands], on the terminal
-treerig backup [dir]         # run the backup hook, writing a bundle into dir (default: under the worktree's home)
-treerig restore <dir>        # run the restore hook on a bundle directory
-treerig down                 # stop it; data is kept
-treerig shared up            # start the shared services, or replace one, and reconnect every worktree
-treerig shared status        # their state, addresses and whether this worktree is connected
-treerig shared down          # stop them; their named volumes are kept
-treerig worktree list        # every worktree of this repository, with state
-treerig worktree remove      # tear it down, verified by ownership
-treerig worktree rename NEW  # change its slug, and with it its hostname
-treerig worktree unlock      # clear a dead holder's lock, once it is checked gone
-treerig doctor               # check prerequisites, registry, router; run verify
+git add treerig.toml && git commit -m "Add treerig"
 ```
 
-`up` runs the branch's own build and hooks. Read [Trust model](#trust-model)
-before bringing up a branch you did not write.
+**3. Bring this worktree up** (`up` runs the branch's code: see
+[Trust model](#trust-model)):
 
-A full annotated example is in [`treerig.example.toml`](treerig.example.toml).
-The hook contract is specified in [`docs/hooks.md`](docs/hooks.md).
+```bash
+treerig up       # start this worktree's services, then print its URLs
+```
 
-## Trust model
+**4. Add a second worktree and bring that up too:**
 
-To report a vulnerability, see [`SECURITY.md`](SECURITY.md).
+```bash
+git worktree add ../myapp.feature-x -b feature/x
+cd ../myapp.feature-x && treerig up
+```
 
-Bringing up a worktree runs the branch's code. `up` builds whatever its
-`compose.yaml` builds and runs the hooks named in its `treerig.toml`, as you,
-with your full environment — the same trust a `make` or an `npm install` in
-that checkout asks for. Do not bring up a branch you would not run. `treerig
-run` asks the same of a branch's `[commands]`, and gives them your terminal
-too.
+Open both URLs, or open <http://treerig.localhost> to see every checkout on
+the machine.
 
-The rest of the model, including what other local users can reach by design and
-what treerig does guarantee, is in [docs/trust-model.md](docs/trust-model.md).
+**5. Clean up when you're done:**
 
-## Roadmap
+```bash
+treerig worktree remove   # asks you to type the hostname, then removes what the worktree created
+cd - && git worktree remove ../myapp.feature-x
+```
 
-Shipped:
+`treerig down` stops a worktree and keeps its data; `treerig dev` is `up`
+followed by its logs until Ctrl-C. A hostname that won't resolve, or port 80
+already taken? See [Platform notes](docs/platforms.md) and
+[Settings](docs/settings.md). The full walkthrough, with hooks, is in
+[Getting started](docs/getting-started.md).
 
-- **Compose runtime** — `up`/`down` that stamp every resource with
-  `<namespace>.managed`, `.repository-uuid` and `.worktree-uuid` (and `.format`
-  on containers, networks and images, not on named volumes); inventory and
-  teardown that verify the full ownership tuple on every resource before
-  touching it.
-- **`up` / `down` / `status` / `urls`** — under the worktree lock, with
-  interrupts deferred until it can be released cleanly.
-- **`worktree list` / `worktree remove`** — ownership-verified teardown in
-  crash-safe order, run from a content-addressed copy of the binary
-  installed outside any checkout; checkouts Git no longer lists are reported
-  missing.
-- **Host routes** — `route add|rm|ls` send a hostname of the worktree to a
-  process on the host through the same router, recorded in the registration;
-  `up` and `down` keep them and `worktree remove` removes them.
-- **Shared router** — one Traefik proxy across every worktree of every
-  repository, routed entirely through its file provider (no Docker-socket
-  access at all) to services on pinned loopback ports, in host network mode on
-  a native Linux Engine and bridge mode on Docker Desktop and OrbStack, and
-  owned by the treerig root that started it: another root's `up` refuses rather
-  than taking it over.
-- **Settings file** — `settings.toml` under the treerig root, starting with
-  the router's port; `router status` and `doctor` say where the port came
-  from.
-- **Checkout index** — `treerig.localhost`: every registered worktree on the
-  machine, grouped by domain, with per-service links and status.
-- **`worktree unlock`** — clears a dead holder's locks (a worktree's own,
-  or, with `--registry`/`--router`, the registry's or router's) once it is
-  checked gone; `doctor` reports every held lock, and any left unreleased by
-  a holder that is gone.
-- **`run`** — the project's own named `[commands]`, run on the terminal
-  against a registered worktree: they can prompt, answer Ctrl-C, and hold
-  the worktree's lock until everything they started has exited.
-- **`dev`** — `up`, then the worktree's logs followed until Ctrl-C, holding
-  the development-session lock for the whole session so `worktree remove`
-  refuses while one is attached.
-- **`backup` / `restore`** (#10) — run the hooks of the same name against a
-  registered, running worktree with a bundle directory as their first
-  argument, under the worktree's lock, exiting with the hook's own status.
-- **`worktree rename`** (#11) — change the current worktree's slug and
-  hostname; refused while it has containers, and its data, volumes and pinned
-  ports stay, keyed by its ID.
-- **Shared services** (#123) — `[shared]`: a service such as an email catcher
-  that runs once per repository, connected to each worktree that uses it by
-  its name, with its definition checked for drift, its ports pinned on
-  `127.0.0.1`, a routed web UI at `<name>.shared.<domain>`, and `shared up`,
-  `shared down` and `shared status` to run it yourself.
-- **`init`** (#9) — writes a commented starter `treerig.toml` at the Git
-  checkout's root, with the schema directive and the Compose file it finds
-  there, and never replaces an existing one.
-- **`teardown pin --release` / `--latest` / `--file`, `teardown status`** (#85) —
-  pin a release verified with cosign, or a treerig binary you verified by its
-  sha256, as the teardown binary, and check the pin; see
-  [Teardown pin](docs/teardown-pin.md). `worktree remove` does not run it yet.
-- **`doctor`** — one read-only report: Git, Docker and Compose against the
-  versions this tool needs; the treerig root and every registration
-  (unreadable records, a hostname claimed twice, the index's own hostname);
-  the router's status, mode and loopback-only bind and a probe of each route;
-  and, for this
-  checkout, whether every configured hook and command resolves to something
-  runnable,
-  its `verify` hook, and any registration of its repository whose checkout
-  Git no longer lists.
+## How it works
 
-Not built yet, in rough order; apart from the pin commands in item 2, none of
-these is a command at all.
+- **Identity.** treerig writes an ID for the repository and for the worktree
+  into the Git directory. Paths and branch names can change; the worktree keeps
+  its environment.
+- **Hostnames.** The branch gives the hostname: `feature/login` becomes
+  `feature-login.<domain>`. A clash gets a short suffix, never a surprise.
+- **Your Compose file, labelled.** `up` adds a generated override that labels
+  every container, network, image and named volume with the worktree's IDs,
+  and publishes each routed service on a fixed `127.0.0.1` port.
+- **One router.** One shared proxy per Docker daemon routes each hostname to
+  its worktree's service. It has no access to the Docker socket.
+- **Hooks.** `prepare`, `seed`, `verify`, `backup` and `restore` are scripts
+  you name in `treerig.toml`. treerig runs them at the right moment and never
+  learns what they do.
 
-1. **Migrating stored state between releases** (#29) — every store already
-   carries a format version and refuses a newer one
-   ([`docs/design/state.md`](docs/design/state.md)); a migration comes with the
-   first change to a store's format after a release.
-2. **Running `worktree remove` from a pinned, trusted binary** (#85, #146) —
-   the stronger guarantee the relocated-copy mechanism ([Worktrees](docs/worktrees.md#removing-a-worktree)) is a step toward.
-   The pin, its commands and cosign-verified release pinning are built
-   ([Teardown pin](docs/teardown-pin.md)); the gate that makes removal run the pinned
-   binary is not. Tagged releases, with the names and
-   signing identity in [`docs/design/release.md`](docs/design/release.md), are
-   what it will pin to.
+More in [How treerig works](docs/concepts.md) and [Routing](docs/routing.md).
+
+## Safety
+
+treerig deletes only what it can prove it created: every container, network,
+image and named volume it labelled for the worktree. External volumes, and the
+anonymous volumes an image declares, carry no labels and are left alone, so
+keep data you want removed on a named volume
+([How treerig works](docs/concepts.md)). `worktree remove` checks the labels on
+every resource first and refuses the whole removal if one doesn't match. It
+runs the treerig build you invoked; see [Status and roadmap](#status-and-roadmap).
+
+Locks stop two commands from changing a worktree at once. A lock left by a
+command that died is cleared only after treerig checks that the holder is
+really gone, or you explicitly vouch for it, never because it is old.
+
+### Trust model
+
+`treerig up` runs the branch's own code. It builds what the branch's Compose
+file builds and runs the hooks its `treerig.toml` names, as you, with your
+environment: the same trust as `make` or `npm install` in that checkout. Don't
+bring up a branch you wouldn't run. The full model, including what other local
+users can reach, is in [docs/trust-model.md](docs/trust-model.md). To report a
+vulnerability, see [SECURITY.md](SECURITY.md).
+
+## Documentation
+
+| Page | What it covers |
+| --- | --- |
+| [Install](docs/install.md) | Building from source, the release channels to come, verifying a download, shell completion, renaming the binary |
+| [Getting started](docs/getting-started.md) | The config file, the first `up`, and what `up` creates |
+| [How treerig works](docs/concepts.md) | Identity, hostnames, locks, hooks, backup and restore |
+| [Configuration](docs/configuration.md) | Every key of `treerig.toml`, editor support; the annotated [`treerig.example.toml`](treerig.example.toml) |
+| [Settings](docs/settings.md) | The router's port, the loopback port range, and where treerig keeps its files |
+| [Routing](docs/routing.md) | Pinned ports, the shared router and its network modes |
+| [Worktrees](docs/worktrees.md) | Development sessions, removing a worktree, renaming one |
+| [Shared services](docs/shared-services.md) | One instance of a service, such as a mail catcher, per repository |
+| [Host routes](docs/host-routes.md) | Route a dev server running on the host at a worktree's hostname |
+| [Checkout index](docs/checkout-index.md) | The page at `http://treerig.localhost` |
+| [Hooks](docs/hooks.md) | The hook protocol |
+| [Status words](docs/commands.md) | What `status`, `worktree list` and the index print |
+| [Doctor](docs/doctor.md) | What `treerig doctor` checks, and its check ids |
+| [Output and exit codes](docs/output-and-exit-codes.md) | Which stream each command writes to, and how it exits |
+| [Machine-readable output](docs/json-output.md) | The `--json` documents |
+| [Platform notes](docs/platforms.md) | Linux, Docker Desktop, OrbStack, name resolution, unsupported setups |
+| [Lock recovery](docs/lock-recovery.md) | How `worktree unlock` decides a lock is safe to clear |
+| [Trust model](docs/trust-model.md) | What `up` trusts, and what treerig guarantees |
+| [Coming from an older build](docs/upgrading-from-a-pre-rename-build.md) | Cleanup for a machine that ran a build from before the rename |
+
+The design notes explain the reasoning behind
+[the config file](docs/design/config.md), [locks](docs/design/locks.md),
+[releases](docs/design/release.md), [routing](docs/design/routing.md),
+[stored state](docs/design/state.md) and [teardown](docs/design/teardown.md).
+Every command also explains itself: `treerig <command> --help`. The docs are
+also on [GitHub](https://github.com/sofired/treerig/tree/main/docs).
+
+## Status and roadmap
+
+Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
+`status`, `urls`, `run`, `backup`, `restore`, and `worktree list`, `remove`,
+`rename` and `unlock`), the shared router and checkout index, host routes
+(`route`), shared services and `doctor`; `treerig --help` lists every
+command. Releases will be listed on the
+[releases page](https://github.com/sofired/treerig/releases).
+
+Not built yet:
+
+1. **`worktree remove` runs a pinned, verified build** (#146). Until this
+   lands, `worktree remove` runs whichever treerig binary you invoked, a
+   branch's own build included, and that holds for `v0.1.0-rc.1` too. Removal
+   is meant to run a treerig build you verified once instead. The commands that
+   install and check that build exist ([Teardown pin](docs/teardown-pin.md));
+   the gate that makes removal use it does not. It is meant to ship in the
+   first release cut after it lands (expected `v0.1.0-rc.2`).
+2. **Migrating stored state between releases** (#29). Every store treerig
+   reads back carries a format version, and a build refuses a newer one; no
+   migration code exists yet.
+
+## Contributing
+
+treerig is pre-release, and the most useful thing you can do is try it on your
+own stack and open an issue when something surprises you: platform reports,
+docs and examples are all welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+first. Its safety rules, ownership before removal and no lock cleared by age,
+are not negotiable.
 
 ## License
 
