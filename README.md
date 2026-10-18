@@ -1,7 +1,7 @@
 <h1>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/treerig-logo-dark.svg">
-    <img alt="treerig" src="docs/brand/treerig-logo.svg" height="56">
+    <img alt="treerig" src="docs/brand/treerig-logo.svg" width="262" height="56">
   </picture>
 </h1>
 
@@ -13,9 +13,10 @@ Pre-release: [install](#install) from source.
 
 Git worktrees let you have three branches checked out at once, or three agent
 sessions working in parallel. Docker Compose doesn't play along: the second
-checkout fights the first for port 5432, both quietly share one database
-volume, every copy needs its own hand-edited `.env`, and the containers of the
-branch you deleted last week are still running. treerig gives each worktree its
+checkout fights the first for port 5432, a pinned project name or an external
+volume makes both share one database, every copy needs its own hand-edited
+`.env`, and the containers of the branch you deleted last week are still
+running. treerig gives each worktree its
 own Compose project, data and hostname. When you remove the worktree, treerig
 removes the containers, networks, images and named volumes that worktree
 created, and nothing else.
