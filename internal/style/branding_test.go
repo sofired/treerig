@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -30,27 +29,11 @@ var previousNameAllowed = map[string]string{}
 // not a directory walk, because a checkout also holds untracked local notes
 // that may mention the name. The allowlist may name Markdown files only.
 func TestNoPreviousName(t *testing.T) {
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatalf("git is not on PATH, so the tracked files cannot be listed: %v", err)
-	}
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command(git, "-C", root, "ls-files", "-z").Output()
-	if err != nil {
-		t.Fatalf("git ls-files: %v", err)
-	}
-	var files []string
-	for _, name := range strings.Split(string(out), "\x00") {
-		if name != "" {
-			files = append(files, name)
-		}
-	}
-	if len(files) < 500 {
-		t.Fatalf("git ls-files listed only %d files from %s; the listing is not seeing the repository", len(files), root)
-	}
+	files := trackedFiles(t, root)
 
 	for path := range previousNameAllowed {
 		if !strings.HasSuffix(path, ".md") {
