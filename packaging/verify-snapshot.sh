@@ -6,7 +6,9 @@
 # a release is (no cgo, trimmed paths, the version stamped in), and install.sh
 # installs the host's archive through a local HTTP server standing in for GitHub
 # Releases, with curl and with wget, and refuses an archive whose checksum does
-# not match.
+# not match. The `trig` alias is checked too: the host's packages ship it as a
+# symlink to treerig, and install.sh links it, skips it (without touching
+# anything) when another `trig` is in the way, and skips it when asked.
 #
 # usage: packaging/verify-snapshot.sh [dist-dir]
 #
@@ -79,8 +81,11 @@ want_archive="LICENSE
 NOTICE
 README.md
 completions/_treerig
+completions/_trig
 completions/treerig.bash
 completions/treerig.fish
+completions/trig.bash
+completions/trig.fish
 treerig"
 for os in linux darwin; do
   for arch in amd64 arm64; do
@@ -164,17 +169,25 @@ not_checked() {
 if [ "$os" = linux ] && command -v dpkg-deb >/dev/null 2>&1; then
   deb=$(find "$dist" -maxdepth 1 -name "*_${arch}.deb")
   want_deb="-rwxr-xr-x /usr/bin/treerig
+lrwxrwxrwx /usr/bin/trig
 -rw-r--r-- /usr/share/bash-completion/completions/treerig
+-rw-r--r-- /usr/share/bash-completion/completions/trig
 -rw-r--r-- /usr/share/doc/treerig/NOTICE
 -rw-r--r-- /usr/share/doc/treerig/copyright
 -rw-r--r-- /usr/share/fish/vendor_completions.d/treerig.fish
--rw-r--r-- /usr/share/zsh/site-functions/_treerig"
+-rw-r--r-- /usr/share/fish/vendor_completions.d/trig.fish
+-rw-r--r-- /usr/share/zsh/site-functions/_treerig
+-rw-r--r-- /usr/share/zsh/site-functions/_trig"
   got_deb=$(dpkg-deb -c "$deb" | awk '$1 !~ /^d/ { sub(/^\./, "", $6); print $1, $6 }' | LC_ALL=C sort -k2)
   [ "$got_deb" = "$want_deb" ] || {
     printf '%s\n' "$got_deb" >&2
     fail "$(basename "$deb") does not hold exactly the expected files and modes"
   }
-  echo "deb contents: ok"
+  # The alias is a relative symlink to the binary beside it.
+  deb_listing=$(dpkg-deb -c "$deb") || fail "dpkg-deb could not list $(basename "$deb")"
+  printf '%s\n' "$deb_listing" | grep -q ' \./usr/bin/trig -> treerig$' ||
+    fail "$(basename "$deb") does not link /usr/bin/trig to treerig"
+  echo "deb contents: ok (with the trig symlink)"
 else
   not_checked "deb contents" dpkg-deb
 fi
@@ -231,13 +244,29 @@ if [ "$os" = linux ] && command -v rpm2cpio >/dev/null 2>&1 && command -v cpio >
   cpio -i --to-stdout ./usr/bin/treerig /usr/bin/treerig usr/bin/treerig <"$work/rpm.cpio" >"$work/rpm-treerig" 2>/dev/null || true
   [ -s "$work/rpm-treerig" ] || fail "no /usr/bin/treerig in $(basename "$rpm")"
   rpm_sha=$(sha256_stdin <"$work/rpm-treerig")
+  # The alias: a symlink to treerig. cpio -tv spells the member with or without
+  # a leading ./ or / by rpm2cpio's version. (Matched on the listing's text; the
+  # payload is read once and not extracted.)
+  rpm_listing=$(cpio -itv <"$work/rpm.cpio" 2>/dev/null) || true
+  printf '%s\n' "$rpm_listing" | grep -Eq '^l.* (\./|/)?usr/bin/trig -> treerig$' ||
+    fail "$(basename "$rpm") does not link /usr/bin/trig to treerig"
   rm -f "$work/rpm.cpio" "$work/rpm-treerig"
   package_binary_matches rpm "$rpm" "$rpm_sha"
-  echo "rpm binary: ok (/usr/bin/treerig is the archive's treerig)"
+  echo "rpm binary: ok (/usr/bin/treerig is the archive's treerig, /usr/bin/trig links to it)"
 else
   if command -v rpm2cpio >/dev/null 2>&1; then missing=cpio; else missing=rpm2cpio; fi
   not_checked "rpm binary" "$missing"
 fi
+
+# The host's .apk is concatenated gzip streams of tar, which tar reads through;
+# it holds the same alias symlink.
+case "$arch" in amd64) apk_arch=x86_64 ;; *) apk_arch=aarch64 ;; esac
+apk=$(find "$dist" -maxdepth 1 -name "*_${apk_arch}.apk")
+[ -f "$apk" ] || fail "expected one .apk for $apk_arch in $dist"
+apk_listing=$(tar tzvf "$apk" 2>/dev/null) || true
+printf '%s\n' "$apk_listing" | grep -q ' usr/bin/trig -> treerig$' ||
+  fail "$(basename "$apk") does not link /usr/bin/trig to treerig"
+echo "apk contents: ok (with the trig symlink)"
 
 # --- install.sh against a local stand-in for GitHub Releases -------------------
 
@@ -268,8 +297,20 @@ stop_server() {
   server_pid=
 }
 
+# A directory of the tools install.sh needs and nothing else, to stand in for
+# PATH where a `trig` already on this machine (a package install of treerig
+# puts one in /usr/bin) would make the alias scenarios depend on the host. It
+# holds curl as well, unlike the "no curl" directory below.
+plain="$work/plain"
+mkdir "$plain"
+for t in uname mktemp sed awk head tar gzip cp chmod mv rm mkdir cat tr dirname readlink ln wget curl shasum sha256sum env sh; do
+  p=$(command -v "$t" 2>/dev/null || true)
+  case "$p" in /*) ln -s "$p" "$plain/$t" ;; esac
+done
+
 # check_install <label> <dir> [env...]: run install.sh into <dir> and require
-# the installed binary to report this snapshot's version.
+# the installed binary to report this snapshot's version, and trig beside it
+# to be a symlink to it that runs as trig.
 check_install() {
   label=$1
   dir=$2
@@ -278,16 +319,39 @@ check_install() {
     { cat "$work/install.log" >&2; fail "$label: install.sh failed"; }
   got=$("$dir/treerig" --version)
   [ "$got" = "$version" ] || fail "$label: installed treerig reports $got, expected $version"
+  if [ ! -L "$dir/trig" ] || [ "$(readlink "$dir/trig")" != treerig ]; then
+    cat "$work/install.log" >&2
+    fail "$label: $dir/trig is not a symlink to treerig"
+  fi
+  [ "$("$dir/trig" --version)" = "$version" ] || fail "$label: trig does not report $version"
+  "$dir/trig" --help 2>&1 | grep -q 'trig' || fail "$label: trig --help does not say trig"
   echo "install.sh ($label): ok"
 }
 
+# check_alias_skipped <label> <dir> <what-install-prints> [env...]: install.sh
+# into <dir> still installs treerig, exits 0, and says why it left trig out.
+check_alias_skipped() {
+  label=$1
+  dir=$2
+  said=$3
+  shift 3
+  env "$@" sh "$repo/install.sh" --dir "$dir" >"$work/install.log" 2>&1 ||
+    { cat "$work/install.log" >&2; fail "$label: install.sh failed"; }
+  [ "$("$dir/treerig" --version)" = "$version" ] || fail "$label: treerig was not installed"
+  grep -q "$said" "$work/install.log" || { cat "$work/install.log" >&2; fail "$label: no message saying '$said'"; }
+}
+
+# The scenarios below expect the alias by default; one opted out in the
+# caller's environment would make every installer run skip it.
+unset TREERIG_NO_ALIAS
+
 serve "$work/good"
-check_install "latest, curl or wget" "$work/t1" TREERIG_LATEST_URL="$base/latest/checksums.txt" TREERIG_BASE_URL="$base"
-check_install "pinned version" "$work/t2" TREERIG_VERSION="v$version" TREERIG_BASE_URL="$base"
+check_install "latest, curl or wget" "$work/t1" PATH="$plain" TREERIG_LATEST_URL="$base/latest/checksums.txt" TREERIG_BASE_URL="$base"
+check_install "pinned version" "$work/t2" PATH="$plain" TREERIG_VERSION="v$version" TREERIG_BASE_URL="$base"
 
 # Without curl, and then without sha256sum: a directory holding only the tools
 # the script needs.
-tools="uname mktemp sed awk head tar gzip cp chmod mv rm mkdir cat tr dirname wget shasum sha256sum env sh"
+tools="uname mktemp sed awk head tar gzip cp chmod mv rm mkdir cat tr dirname readlink ln wget shasum sha256sum env sh"
 if command -v wget >/dev/null 2>&1; then
   mkdir "$work/nocurl"
   for t in $tools; do
@@ -309,6 +373,54 @@ if command -v shasum >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1; th
 else
   echo "install.sh (shasum, no sha256sum): skipped, both tools are not here"
 fi
+
+# The alias never takes a name that is not ours. Each case runs against the
+# plain tool directory (plus the one thing in the way), so what is on this
+# machine's PATH cannot change the outcome.
+env PATH="$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base" sh "$repo/install.sh" --dir "$work/t1" >"$work/install.log" 2>&1 ||
+  { cat "$work/install.log" >&2; fail "install.sh: a second install over the first failed"; }
+grep -q 'already in place' "$work/install.log" || fail "install.sh: a second install did not leave its own trig alone"
+[ "$(readlink "$work/t1/trig")" = treerig ] || fail "install.sh: a second install changed the trig link"
+
+mkdir "$work/t6"
+printf 'mine\n' >"$work/t6/trig"
+check_alias_skipped "a file named trig" "$work/t6" 'skipped the trig alias' PATH="$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+if [ -L "$work/t6/trig" ] || [ "$(cat "$work/t6/trig")" != mine ]; then
+  fail "install.sh replaced a trig file that was not its own"
+fi
+
+mkdir "$work/t7"
+ln -s /nonexistent-elsewhere "$work/t7/trig"
+check_alias_skipped "a trig symlink elsewhere" "$work/t7" 'skipped the trig alias' PATH="$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+[ "$(readlink "$work/t7/trig")" = /nonexistent-elsewhere ] || fail "install.sh repointed a trig symlink that was not its own"
+
+mkdir "$work/otherbin"
+printf '#!/bin/sh\necho not-treerig\n' >"$work/otherbin/trig"
+chmod 755 "$work/otherbin/trig"
+check_alias_skipped "a different trig on PATH" "$work/t8" 'different trig is already on your PATH' PATH="$work/otherbin:$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+[ ! -e "$work/t8/trig" ] || fail "install.sh linked trig beside a different trig on PATH"
+
+# A broken symlink is still something in the way.
+mkdir "$work/t10"
+ln -s /nonexistent-broken-target "$work/t10/trig"
+check_alias_skipped "a broken trig symlink" "$work/t10" 'skipped the trig alias' PATH="$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+[ "$(readlink "$work/t10/trig")" = /nonexistent-broken-target ] || fail "install.sh repointed a broken trig symlink"
+
+# A trig on PATH that already links to a treerig is "provided", not a clash.
+mkdir "$work/provided"
+ln -s "$work/t1/treerig" "$work/provided/trig"
+check_alias_skipped "a trig on PATH that links to treerig" "$work/t11" 'already provided by' PATH="$work/provided:$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+if [ -e "$work/t11/trig" ] || [ -L "$work/t11/trig" ]; then
+  fail "install.sh linked trig where one is already provided on PATH"
+fi
+
+env PATH="$plain" TREERIG_NO_ALIAS=1 TREERIG_VERSION="$version" TREERIG_BASE_URL="$base" sh "$repo/install.sh" --dir "$work/t9" >"$work/install.log" 2>&1 ||
+  { cat "$work/install.log" >&2; fail "install.sh with TREERIG_NO_ALIAS failed"; }
+[ -x "$work/t9/treerig" ] || fail "TREERIG_NO_ALIAS=1 skipped treerig too"
+if [ -e "$work/t9/trig" ] || [ -L "$work/t9/trig" ]; then
+  fail "TREERIG_NO_ALIAS=1 still linked trig"
+fi
+echo "install.sh (trig alias): linked; left alone beside a file, a foreign symlink and a different trig on PATH; skipped on TREERIG_NO_ALIAS"
 stop_server
 
 serve "$work/bad"

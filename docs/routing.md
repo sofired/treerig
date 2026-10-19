@@ -59,7 +59,7 @@ container.
 
 ## Router
 
-**Router.** One Traefik proxy container per machine, started on first `up`,
+**Router.** One Traefik proxy container per Docker daemon, started on first `up`,
 shared by every worktree of every repository. It serves a single loopback
 port and routes by hostname, and every hop to a service is a loopback hop: a
 request for a routed service goes to `treerig-loopback:<port>`, a name that
