@@ -90,7 +90,7 @@ func faviconLink(svg, sizes, scheme string) string {
 // renderFaviconLinks is the page's four icon links, one per size and colour
 // scheme, each on its own line of the head. The 16 px files go first, and
 // each dark icon precedes its light twin: a browser that ignores media and
-// takes the last match for a size then shows the light icon, the right one
+// takes the last match for a size then likely shows the light icon, the right one
 // on the more common light tab strip.
 func renderFaviconLinks() string {
 	return strings.Join([]string{

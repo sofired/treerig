@@ -68,14 +68,14 @@ func TestFaviconLinks(t *testing.T) {
 	})
 
 	t.Run("each icon file has the viewBox of its size", func(t *testing.T) {
-		for _, svg := range []string{faviconMaster, faviconMasterDark} {
+		for name, svg := range map[string]string{"favicon-master.svg": faviconMaster, "favicon-master-dark.svg": faviconMasterDark} {
 			if !strings.Contains(svg, `viewBox="0 0 64 64"`) {
-				t.Error("master favicon is not the 64-unit master")
+				t.Errorf("%s is not the 64-unit master", name)
 			}
 		}
-		for _, svg := range []string{favicon16, favicon16Dark} {
+		for name, svg := range map[string]string{"favicon-16.svg": favicon16, "favicon-16-dark.svg": favicon16Dark} {
 			if !strings.Contains(svg, `viewBox="0 0 16 16"`) {
-				t.Error("16 px favicon is not the 16-unit file")
+				t.Errorf("%s is not the 16-unit file", name)
 			}
 		}
 	})

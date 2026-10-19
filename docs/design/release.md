@@ -78,8 +78,8 @@ of them: `internal/style/release_files_test.go` checks that they agree, and
 `packaging/verify-snapshot.sh` checks the deb, rpm and apk and `install.sh`
 end to end. The rpm and apk list the link with mode `l---------`; that is
 known and harmless, since a symlink's mode is not used, but it has not been
-checked on Alpine. User docs for the alias (the install docs, after #170) are
-written before any release ships it.
+checked on Alpine. The user docs for the alias are "The `trig` alias" in
+[`docs/install.md`](../install.md#the-trig-alias); keep them in step.
 
 ## Who signed it
 

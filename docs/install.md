@@ -1,6 +1,7 @@
 # Install
 
-How to install treerig, check a download, set up shell completion, and rename the binary.
+How to install treerig and its `trig` alias, check a download, set up shell
+completion, and rename the binary.
 
 > **No release exists yet.** Until a tag exists, build treerig from source (see
 > [From source](#from-source)). From the first pre-release, `v0.1.0-rc.1`,
@@ -32,6 +33,13 @@ or build a binary yourself and put it wherever you like:
 mkdir -p ~/.local/bin && go build -o ~/.local/bin/treerig ./cmd/treerig   # any directory on PATH
 ```
 
+Neither makes the [`trig` alias](#the-trig-alias). To add it, link it beside
+`treerig`, wherever that is on your PATH:
+
+```bash
+ln -s treerig "$(dirname "$(command -v treerig)")/trig"
+```
+
 A plain build prints `0.0.0-dev` for `treerig --version`, not a release's
 version. To stamp one, build with
 `-ldflags "-X github.com/sofired/treerig/internal/brand.Version=<version>"`.
@@ -46,7 +54,8 @@ brew install sofired/tap/treerig
 
 Homebrew installs a prebuilt bottle where the tap has one for your platform;
 otherwise it builds treerig from the release's source, which needs Go (Homebrew
-installs that for the build). Shell completions install with it.
+installs that for the build). It links `trig`, the [short alias](#the-trig-alias),
+beside `treerig`, and installs shell completions for both names.
 
 ## Install script
 
@@ -76,13 +85,34 @@ is installed. It uses `curl`, or `wget` when there is no `curl`, and
 `sha256sum`, or `shasum -a 256` when there is no `sha256sum`.
 If the directory is not on your PATH, it prints the line to add.
 
+It also links `trig`, the [short alias](#the-trig-alias), beside `treerig`. It
+never replaces anything, and `treerig` is installed, with exit status 0,
+whatever happens to the link:
+
+- **Already linked.** A `trig` in the install directory that points at
+  `treerig` is left alone ("already in place"), and so is a `trig` elsewhere on
+  PATH that is a link to a `treerig` ("already provided").
+- **Something else in the way.** A file, a symlink that points elsewhere or is
+  broken, or a different `trig` on PATH: the link is skipped, with the reason
+  on stderr.
+- **The link can't be made.** It prints "could not create" on stderr.
+
+It reminds you to load the `trig` completion only when it created the link. To
+skip the alias, set `TREERIG_NO_ALIAS` to any non-empty value except `0`. With
+`curl | sh` the variable goes on the `sh` side of the pipe:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | TREERIG_NO_ALIAS=1 sh
+```
+
 ## Linux packages
 
 *Available from the first release or pre-release. None has shipped yet.*
 
 Each release attaches a `.deb`, an `.rpm` and an `.apk` for amd64 and arm64.
-They put `treerig` in `/usr/bin` and the bash, zsh and fish completions where
-those shells look for them:
+They put `treerig` in `/usr/bin`, `trig` (the [short alias](#the-trig-alias))
+beside it, and the bash, zsh and fish completions for both names where those
+shells look for them:
 
 ```bash
 VERSION=1.2.3    # a release on the Releases page
@@ -100,7 +130,8 @@ On ARM the architecture is `arm64` in the `.deb` name and `aarch64` in the
 `.rpm` and `.apk` names. The packages are not signed with a package-manager
 key, so apk needs `--allow-untrusted`; check the download as described under
 [Verifying a download](#verifying-a-download) instead. Uninstall them with your
-package manager.
+package manager. The packages always include `/usr/bin/trig`: if another
+package owns that file, the install fails (see [The `trig` alias](#the-trig-alias)).
 
 ## Release archive
 
@@ -109,7 +140,11 @@ package manager.
 Each release also has a `treerig_<version>_<os>_<arch>.tar.gz` for `linux` and
 `darwin`, with `amd64` and `arm64`. It holds `treerig` at its root, with
 `LICENSE`, `NOTICE`, `README.md` and the shell completions under
-`completions/`; extract it and put `treerig` anywhere on PATH.
+`completions/`; extract it and put `treerig` anywhere on PATH. The archive has
+no `trig` link, since archives hold regular files; to add the
+[alias](#the-trig-alias), run `ln -s treerig trig` in the directory that holds
+`treerig`. The completions folder already has the `trig` scripts
+(`trig.bash`, `_trig`, `trig.fish`).
 
 ## Pre-releases
 
@@ -193,13 +228,52 @@ treerig completion fish | source    # fish
 ```
 
 A renamed binary or symlink (see [Calling it something else](#calling-it-something-else))
-prints a script for the name it was invoked as.
+prints a script for the name it was invoked as, so `trig completion
+bash|zsh|fish` is the same command under the other name. A completion loaded
+for `treerig` does not cover `trig`: load both if you use both. Homebrew and the
+packages install completions for both names; `install.sh` reminds you to load
+the `trig` one when it created the link.
+
+## The `trig` alias
+
+*From source you can add it today (see [From source](#from-source)). Each
+install route provides it from that route's first release; none has shipped
+yet.*
+
+Homebrew, `install.sh` and the Linux packages give you `trig` automatically.
+With a release archive or a source build, make the link yourself.
+
+`trig` is a short name for the same program: a symlink named `trig` that points
+at `treerig`. Run through it, the help text, usage lines and the `[trig]`
+message prefix say `trig`.
+
+`trig` is only a name. The config file (`treerig.toml`), the `TREERIG_*`
+variables, the labels and the directories keep their `treerig` names. Some
+hints in output still name `treerig`; either name works, because both run the
+same program.
+
+### When something else is already called `trig`
+
+| Route | What happens |
+| --- | --- |
+| Homebrew | A different `trig` in Homebrew's `bin` makes the install fail at the link step. Remove it, then run `brew link --overwrite treerig`. |
+| `install.sh` | It skips the alias, says why on stderr, and installs `treerig` anyway. See [Install script](#install-script). |
+| `.deb`, `.rpm`, `.apk` | The packages always include `/usr/bin/trig`. If another package owns that file, the install fails; a file nobody owns is replaced. |
+| Release archive, source build | You make the link, so you choose: `ln -s treerig trig` where `treerig` is, or skip it. |
+
+### Removing it
+
+Homebrew and the packages remove `trig` along with `treerig`. If you installed
+by hand (`install.sh`, an archive or a source build), remove the `trig` link
+when you remove `treerig`.
 
 ## Calling it something else
 
 Name the binary or symlink whatever you like. Help text, the log prefix, and
-every "run `X urls`" hint follow the name it was invoked as, which is read
-from `argv[0]` and from nowhere else:
+most "run `X urls`" hints follow the name it was invoked as, which is read
+from `argv[0]` and from nowhere else. A few hints, such as the one shown when
+no `treerig.toml` is found, always name `treerig`; either name works, because
+both run the same program:
 
 ```bash
 ln -s "$(go env GOPATH)/bin/treerig" ~/.local/bin/duke

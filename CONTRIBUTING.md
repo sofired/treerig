@@ -299,11 +299,11 @@ it ships when it merges.
 **The `trig` alias.** Every install route except the archive links `trig` to
 `treerig` (Homebrew, `install.sh`, the packages); `docs/design/release.md`
 ("The `trig` alias") says how each treats a name clash. The user docs for it
-(the install docs, after #170) land before any release ships the alias. The
-tap's `Formula/treerig.rb` is only rewritten for its url and sha256 once it
-exists, so a formula published before the alias needs the `install` and
-`test` changes from `packaging/homebrew/treerig.rb` applied to the tap by
-hand, in a pull request there.
+are in `docs/install.md` ("The `trig` alias"). The tap's `Formula/treerig.rb`
+is only rewritten for its url and sha256 once it exists, so a formula
+published before the alias needs the `install` and `test` changes from
+`packaging/homebrew/treerig.rb` applied to the tap by hand, in a pull request
+there.
 
 **Trying it without publishing.** Pull requests and pushes to `main` run the
 `release-snapshot` job in `go.yml`: shellcheck, `goreleaser check`, a snapshot
