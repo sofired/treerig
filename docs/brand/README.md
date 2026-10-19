@@ -158,16 +158,20 @@ Notes for wiring the identity into the project; each says whether it is done.
    index page, rendered by `internal/checkoutindex/render.go`, links six
    `<link rel="icon">` elements by relative path: the 32 × 32 and 16 × 16 PNGs
    (`sizes="32x32"`, `sizes="16x16"`) and the masters (`sizes="any"`), in that
-   order. Each light icon is a default link with no `media`, immediately
-   followed by its dark twin with `media="(prefers-color-scheme: dark)"`. A
-   browser that honours `media` (Chrome, Edge, Firefox) gets the twin for its
-   colour scheme. Safari ignores `media` on PNG links and shows one of the two
-   twins, depending on a tiebreak Apple does not document: light first is
-   right if it takes the first match, and wrong on a light tab strip if it
-   takes the last. Chromium resolves the preference from the operating
-   system, not the browser theme, so a dark tab strip on a light system gets the
-   light icon, and links cannot fix that. The 16 px SVGs are not linked: they
-   are pixel for pixel the 16 px PNGs. The PNGs come first because Safari
+   order. Each carries `media="(prefers-color-scheme: ...)"`, and in each pair
+   the dark link comes first and the light one after it. Chrome and Edge
+   honour `media` and match one link of the pair. Safari ignores `media` on
+   icon links and takes the last match (observed in Safari on a light tab bar,
+   where the earlier order showed the near-white dark icon), so it shows the
+   light icon: right on a light tab bar, and a known limit on a dark one, since
+   links give it no way to choose. Firefox most likely does the same (Mozilla
+   bug 1603885, still open). `prefers-color-scheme`
+   resolves to `light` or `dark` only (MDN: `light` also means no expressed
+   preference), so no link without `media` is needed as a fallback. Chromium
+   resolves the preference from the operating system, not the browser theme, so
+   a dark tab strip on a light system gets the light icon, and links cannot fix
+   that. The 16 px SVGs are not linked: they are pixel for pixel the 16 px
+   PNGs. The PNGs come first because Safari
    before 26 ignores SVG favicons, and a `data:` one too (WebKit bug 236616),
    which is why the files are not embedded in the page.
    `Service.Refresh` and `Router.Ensure` write them beside `index.html` in the

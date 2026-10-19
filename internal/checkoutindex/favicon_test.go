@@ -65,23 +65,23 @@ func TestFaviconsMatchBrand(t *testing.T) {
 // Refresh writes, and the CSP that lets the page use them.
 func TestFaviconLinks(t *testing.T) {
 	html := RenderIndexHTML(renderTestSnapshot())
-	linkRE := regexp.MustCompile(`<link rel="icon" type="([^"]+)" sizes="([^"]+)"( media="\(prefers-color-scheme: dark\)")? href="([^"]+)">`)
+	linkRE := regexp.MustCompile(`<link rel="icon" type="([^"]+)" sizes="([^"]+)" media="\(prefers-color-scheme: ([a-z]+)\)" href="([^"]+)">`)
 
 	t.Run("carries one relative icon link per file, in order", func(t *testing.T) {
 		links := linkRE.FindAllStringSubmatch(html, -1)
 		if len(links) != len(icons) || strings.Count(html, "<link ") != len(icons) {
 			t.Fatalf("icon links = %d, want %d", len(links), len(icons))
 		}
-		// Each light icon is a default link with no media, and its dark twin
-		// follows at once, so whichever link a browser picks is usable.
-		const dark = ` media="(prefers-color-scheme: dark)"`
+		// In each pair the dark link comes first and the light one last:
+		// Safari ignores media and takes the last match, so it shows the
+		// light icon; browsers that honour media match one link of the pair.
 		want := [][4]string{
-			{"image/png", "32x32", "", "favicon-32.png"},
-			{"image/png", "32x32", dark, "favicon-32-dark.png"},
-			{"image/png", "16x16", "", "favicon-16.png"},
-			{"image/png", "16x16", dark, "favicon-16-dark.png"},
-			{"image/svg+xml", "any", "", "favicon-master.svg"},
-			{"image/svg+xml", "any", dark, "favicon-master-dark.svg"},
+			{"image/png", "32x32", "dark", "favicon-32-dark.png"},
+			{"image/png", "32x32", "light", "favicon-32.png"},
+			{"image/png", "16x16", "dark", "favicon-16-dark.png"},
+			{"image/png", "16x16", "light", "favicon-16.png"},
+			{"image/svg+xml", "any", "dark", "favicon-master-dark.svg"},
+			{"image/svg+xml", "any", "light", "favicon-master.svg"},
 		}
 		for i, link := range links {
 			if [4]string(link[1:]) != want[i] {

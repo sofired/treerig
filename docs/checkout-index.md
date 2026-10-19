@@ -19,8 +19,14 @@ pauses on request. Without scripting it falls back to reloading every 60
 seconds.
 
 The page's favicon is a set of six small files (PNG and SVG, light and dark),
-the brand's favicon files (`docs/brand`). `Router.Ensure` (`up`, `router up`)
-and every index refresh write them beside `index.html`, before the page, and the
+the brand's favicon files (`docs/brand`), linked 32 px PNG, 16 px PNG, then
+the master SVG, each as a dark link (`media="(prefers-color-scheme: dark)"`)
+followed by a light one (`media="(prefers-color-scheme: light)"`). Chrome and
+Edge match the one for their colour scheme. Safari ignores `media` and takes
+the last match, so it shows the light icon, which is wrong on a dark tab bar
+(a limit of the browser, not fixable with links); Firefox most likely does the
+same. `Router.Ensure` (`up`, `router up`) and every index refresh write them
+beside `index.html`, before the page, and the
 same container serves them, so the page needs no more than `img-src 'self'`. A
 write leaves a file alone when it already holds the right bytes. If one cannot
 be written but an earlier copy is there, the page is still refreshed and a
