@@ -110,8 +110,13 @@ prints, router port included exactly as it folds that in there. When
 `doctor` runs `verify` but can't resolve the router's port, it sets none of
 these three, nor `TREERIG_SHARED_URL_<NAME>`, and its Router section says why.
 (`TREERIG_SHARED_ADDR_…` does not depend on the router and is still set.)
-None of these variables reaches Compose, so `compose.yaml` cannot reference `${TREERIG_URL}` — read
-them from a hook instead:
+`TREERIG_URL` and `TREERIG_SERVICE_URL_<NAME>` also reach this worktree's
+Compose file, with the same values; see [Writing your compose.yaml for
+treerig](compose.md#variables-you-can-use). A `TREERIG_URL` already in the
+environment of the process that runs `treerig` (a hook of another worktree,
+say) is replaced, or dropped when this worktree has none.
+
+Hooks read them from the environment as well:
 
 ```sh
 curl -fsS "${TREERIG_URL:?no service is routed at the host root}/health"
@@ -127,7 +132,8 @@ outside a browser — see [Hostname resolution](platforms.md#hostname-resolution
 
 The three Compose variables reach every hook (`prepare`, `seed`, `verify`,
 `backup`, `restore`) and every [command](#commands). `TREERIG_COMPOSE_PROJECT`
-reaches Compose too, like the other `TREERIG_*` names. A hook that runs
+reaches Compose too, along with the other variables listed in
+[Writing your compose.yaml](compose.md#variables-you-can-use). A hook that runs
 `docker compose exec` or `logs` finds this worktree's containers. One that runs
 `docker compose up` (or `run`) starts containers in the worktree's project
 **without treerig's ownership labels**: `treerig up --remove-orphans` may remove

@@ -584,7 +584,7 @@ func TestDecoysNeitherInventoryListsTheOthers(t *testing.T) {
 	tc := w.context("")
 	result := w.mustUp(t, tc)
 	ref := refOf(result)
-	runtime := tc.Runtime(brand.LabelNamespace)
+	runtime := tc.LabelRuntime(brand.LabelNamespace)
 	stack := sharedStackFor(tc, result.Registration.RepositoryID)
 
 	t.Run("the worktree's inventory lists no shared resource, though the shared container is on its network", func(t *testing.T) {

@@ -93,3 +93,53 @@ func TestSharedFileHashAcrossCheckoutsWithRealCompose(t *testing.T) {
 		}
 	})
 }
+
+// TestSharedDefinitionIgnoresWorktreeURLVariablesWithRealCompose reads a
+// shared file that references ${TREERIG_URL} and ${TREERIG_SERVICE_URL_WEB}
+// with the real Compose, under inherited environments that differ only in
+// those variables: the definition hash must be the same, because the shared
+// definition must not vary by worktree (#177).
+func TestSharedDefinitionIgnoresWorktreeURLVariablesWithRealCompose(t *testing.T) {
+	if os.Getenv("TREERIG_TEST_SKIP_DOCKER") == "1" {
+		t.Skip("Docker tests are skipped (TREERIG_TEST_SKIP_DOCKER=1)")
+	}
+	if err := exec.Command("docker", "compose", "version").Run(); err != nil {
+		t.Skipf("docker compose is not available: %v", err)
+	}
+	parent := registrytest.TempDir(t)
+	dir := filepath.Join(parent, "acme", "docker")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "services:\n  db:\n    image: postgres:17\n    environment:\n" +
+		"      PUBLIC_URL: \"${TREERIG_URL:-unset}\"\n      WEB_URL: \"${TREERIG_SERVICE_URL_WEB:-unset}\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "compose.shared.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hashUnder := func(inherited ...string) string {
+		t.Helper()
+		stack := shared.New(shared.Options{
+			RepositoryID: repository, LabelNamespace: ns, ControlHome: filepath.Join(parent, "control"),
+			ComposeFile: filepath.Join(dir, "compose.shared.yaml"), ProjectName: "acme",
+			WorktreeRoots: []string{filepath.Join(parent, "acme")},
+			Environ:       append(os.Environ(), inherited...), Runner: osrun.New(), Logger: logger.Silent{},
+		})
+		definition, err := stack.ReadDefinition(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash, err := definition.Hash("db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hash
+	}
+	t.Run("the hash is the same with and without inherited URL variables", func(t *testing.T) {
+		bare := hashUnder("TREERIG_URL=", "TREERIG_SERVICE_URL_WEB=")
+		withURLs := hashUnder("TREERIG_URL=http://one.acme.localhost:30080", "TREERIG_SERVICE_URL_WEB=http://one.acme.localhost:30080")
+		other := hashUnder("TREERIG_URL=http://two.acme.localhost", "TREERIG_SERVICE_URL_WEB=http://api.two.acme.localhost")
+		if bare != withURLs || bare != other {
+			t.Fatalf("the shared definition varies with the caller's URL variables:\n%s\n%s\n%s", bare, withURLs, other)
+		}
+	})
+}

@@ -2,6 +2,8 @@
 
 Write a `treerig.toml`, bring a worktree up, and see what `up` creates. The
 [Glossary](glossary.md) defines the terms used here and on the other pages.
+Writing the Compose file first? [Writing your compose.yaml for treerig](compose.md)
+says how to expose a port and which variables it can use.
 
 ## Write a `treerig.toml`
 
@@ -80,15 +82,19 @@ before bringing up a branch you did not write.
 and labels the containers, networks, images and named volumes it creates for
 the worktree with its [ownership labels](concepts.md#ownership-labels). The
 anonymous volumes an image declares get none, so `worktree remove` leaves them.
-Your Compose file is never asked to add them: a generated override file does it, and also publishes each
-routed service's pinned port. The Compose file sees the same `TREERIG_*`
-variables hooks do, so `${TREERIG_WORKTREE_HOME}` works in a bind mount exactly
-as it does in a seed script. See [Environment variables](environment.md).
+Your Compose file is never asked to add them: a generated override file does
+it, and also publishes each routed service's pinned port. The Compose file sees
+the variables listed in
+[Writing your compose.yaml](compose.md#variables-you-can-use), so
+`${TREERIG_WORKTREE_HOME}` works in a bind mount exactly as it does in a seed
+script. See [Environment variables](environment.md).
 
 ## Next steps
 
 - [`treerig.example.toml`](../treerig.example.toml) is a full annotated example,
   and [Configuration](configuration.md) lists every key.
+- [Writing your compose.yaml for treerig](compose.md) covers the variables your
+  Compose file can use, ports, and what treerig refuses.
 - [The hook contract](hooks.md) specifies `prepare`, `seed`, `verify`, `backup`
   and `restore`.
 - [Routing](routing.md) explains pinned ports and the shared router;

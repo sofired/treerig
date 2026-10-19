@@ -14,6 +14,7 @@ import (
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/ports"
 	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/shared"
 	"github.com/sofired/treerig/internal/worktree"
 )
@@ -389,7 +390,7 @@ func connectWorktree(ctx context.Context, cctx *CommandContext, ref worktree.Ref
 // and the worktree were labelled under different namespaces.
 func connectLocked(ctx context.Context, cctx *CommandContext, ref worktree.Ref, stackNamespace, worktreeNamespace string, names []string, requireLive bool) error {
 	stack := cctx.sharedStack(ref.RepositoryID, stackNamespace, nil)
-	runtime := cctx.Runtime(worktreeNamespace)
+	runtime := cctx.LabelRuntime(worktreeNamespace)
 	instances, err := stack.Instances(ctx, names)
 	if err != nil {
 		return err
@@ -586,7 +587,7 @@ func disconnectShared(ctx context.Context, cctx *CommandContext, ref worktree.Re
 	if len(containers) == 0 {
 		return nil
 	}
-	runtime := cctx.Runtime(worktreeNamespace)
+	runtime := cctx.LabelRuntime(worktreeNamespace)
 	proofs, err := runtime.OwnedNetworks(ctx, ref)
 	if err != nil {
 		return err
@@ -623,12 +624,13 @@ func disconnectShared(ctx context.Context, cctx *CommandContext, ref worktree.Re
 // them, after the shared lock is released — also when the start then failed
 // with a container up. It returns the names of the shared services this
 // worktree uses, for the connect step; none when it uses none.
-func startSharedForUp(ctx context.Context, cctx *CommandContext, ref worktree.Ref, namespace string) ([]string, error) {
+func startSharedForUp(ctx context.Context, cctx *CommandContext, registered *registry.RegisteredWorktree, routerPort int, namespace string) ([]string, error) {
+	ref := toRef(*registered)
 	needed := sharedNeeded(cctx.Loaded.Config)
 	if len(needed) == 0 {
 		return nil, nil
 	}
-	if err := cctx.Runtime(namespace).CheckSharedUse(ctx, ref, sharedSpecs(needed)); err != nil {
+	if err := cctx.RuntimeFor(namespace, registered, routerPort).CheckSharedUse(ctx, ref, sharedSpecs(needed)); err != nil {
 		return nil, err
 	}
 	outcome, err := ensureShared(ctx, cctx, ref.RepositoryID, namespace, sharedPlan{Services: needed, DefinedBy: ref.WorktreeID})

@@ -115,7 +115,7 @@ func runBundleHook(ctx context.Context, cctx *CommandContext, stage config.HookS
 	ref := toRef(registration.RegisteredWorktree)
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
 	store := cctx.Registry.Store(ref.RepositoryID)
-	runtime := cctx.Runtime(cfg.LabelNamespace())
+	runtime := cctx.RuntimeFor(cfg.LabelNamespace(), &registration.RegisteredWorktree, cctx.RouterPort)
 
 	locking := *cctx
 	locking.Invocation = strings.Join([]string{cctx.CommandName, string(stage)}, " ")
@@ -167,7 +167,9 @@ func runBundleHook(ctx context.Context, cctx *CommandContext, stage config.HookS
 				ProjectRoot: cctx.Loaded.Root,
 			},
 			Ref: ref, Hooks: cfg.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ, ComposeFile: cctx.ComposeFile(),
-			Routes: worktree.WithPorts(worktree.Routes(cfg.Service, ref.Slug, found.Domain, cctx.RouterPort), found.Ports),
+			// The same routes as `up`'s hooks and every Compose call: services
+			// and host routes (#177).
+			Routes: routesOf(cfg, ref.Slug, found.Domain, cctx.RouterPort, found.Ports, found.HostRoutes).All(),
 			Shared: sharedAddrs(cctx, ref.RepositoryID),
 		}
 		_, hookErr := hooks.RunHook(ctx, stage, hctx, hooks.RunOptions{Argument: &bundle, Output: hooks.Terminal})

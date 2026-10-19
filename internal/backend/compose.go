@@ -111,6 +111,13 @@ type Options struct {
 	Logger         logger.Logger
 	// Environ is the environment Compose inherits; os.Environ() in production.
 	Environ []string
+	// URLVariables are the worktree's routed URLs as worktree.URLVariables
+	// builds them from the same routes `treerig urls` prints (#177):
+	// TREERIG_URL and TREERIG_SERVICE_URL_<NAME>, handed to every Compose
+	// invocation of the worktree's own project so compose.yaml can interpolate
+	// them. Nil when the router's port could not be resolved: the variables are
+	// then unset, and any inherited ones dropped, not left stale.
+	URLVariables [][2]string
 	// Routes are the services to route, from [service.<name>] in config.
 	Routes []RouteSpec
 	// SharedUse maps a service of the consumer's Compose file to the shared
@@ -143,14 +150,26 @@ func (c *Compose) project(ref worktree.Ref) string {
 	return layout.ComposeProjectName(ref.RepositoryID, ref.WorktreeID)
 }
 
-// environment is the same TREERIG_* vocabulary hooks receive, so one name means one thing.
+// environment is the same TREERIG_* vocabulary hooks receive, so one name means one thing:
+// worktree.Environment, then Options.URLVariables (#177) over an inherited
+// environment stripped of any URL variable of its own. The one place it is
+// built, so every invocation of the project — up, its config reads, down,
+// status — sees identical values for identical inputs.
 func (c *Compose) environment(ref worktree.Ref) []string {
 	source := worktree.EnvironmentSource{
 		ProjectName: c.options.ProjectName, Domain: c.options.Domain, ControlHome: c.options.ControlHome,
 		ConfigFile: c.options.ConfigFile, ProjectRoot: c.options.ProjectRoot,
 	}
 	extra := append(worktree.Variables(worktree.Environment(source, ref)), "COMPOSE_PROJECT_NAME="+c.project(ref))
-	return docker.ComposeEnvironment(c.options.Environ, extra...)
+	extra = append(extra, worktree.Variables(c.options.URLVariables)...)
+	inherited := make([]string, 0, len(c.options.Environ))
+	for _, entry := range c.options.Environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if !worktree.IsURLVariable(name) {
+			inherited = append(inherited, entry)
+		}
+	}
+	return docker.ComposeEnvironment(inherited, extra...)
 }
 
 // composeArgs is the full `docker compose ...` command line compose() builds

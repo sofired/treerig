@@ -100,7 +100,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	if err != nil {
 		return nil, err
 	}
-	runtime := cctx.Runtime(namespace)
+	runtime := cctx.LabelRuntime(namespace)
 	// The shared stack is labelled under its own repository's namespace: the
 	// running command's for a worktree of this repository, whose checkout
 	// this is, and the target's recorded one for a worktree of another, which

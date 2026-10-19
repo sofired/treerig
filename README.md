@@ -106,8 +106,9 @@ file = "compose.yaml"
 ```
 
 A routed service needs a port: one it exposes in the Compose file, or `port`
-in its `[service.<name>]` table. Run `treerig config validate` to check the
-file.
+in its `[service.<name>]` table, and the app must listen on `0.0.0.0`: see
+[Writing your compose.yaml](docs/compose.md). Run `treerig config validate` to
+check the file.
 
 **2. Commit it**, so every new worktree gets it:
 
@@ -195,7 +196,8 @@ vulnerability, see [SECURITY.md](SECURITY.md).
 | [Troubleshooting](docs/troubleshooting.md) | Common failures, the message you see, and the fix |
 | [How treerig works](docs/concepts.md) | Identity, hostnames, locks, ownership labels, hooks, backup and restore |
 | [Configuration](docs/configuration.md) | Every key of `treerig.toml`, editor support; the annotated [`treerig.example.toml`](treerig.example.toml) |
-| [Environment variables](docs/environment.md) | Every `TREERIG_*` variable you can set, and the ones treerig sets for your hooks |
+| [Writing your compose.yaml](docs/compose.md) | The variables it can use, exposing a port, listening on `0.0.0.0`, what treerig refuses, what `worktree remove` deletes |
+| [Environment variables](docs/environment.md) | Every `TREERIG_*` variable you can set, and the ones your hooks and `compose.yaml` can use |
 | [Settings](docs/settings.md) | The router's port, the loopback port range, and where treerig keeps its files |
 | [Routing](docs/routing.md) | Pinned ports, the shared router and its network modes |
 | [Worktrees](docs/worktrees.md) | Development sessions, removing a worktree, renaming one |

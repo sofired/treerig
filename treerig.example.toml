@@ -30,6 +30,8 @@ domain = "acme.localhost"
 # label-namespace = "dev.acme"
 
 [compose]
+# How to write the Compose file for treerig (variables, ports, 0.0.0.0):
+# docs/compose.md.
 # Relative to this file. Paths inside the Compose file itself (build contexts,
 # bind mounts, env_file) and its `.env` resolve against the Compose file's own
 # directory — docker/ here — exactly as with `docker compose -f docker/compose.yaml`.
@@ -60,7 +62,7 @@ purpose = "Captured email"
 [service.docs]
 subdomain = "docs"
 path      = "/latest"   # routes only this prefix; several services may share a host with different paths
-port      = 4000        # container port to route to; defaults to the first port the service exposes
+port      = 4000        # container port to route to; defaults to the first `expose`, then the first `ports` target (docs/compose.md)
 
 # ---------------------------------------------------------------------------
 # Shared services. Some services are wasteful once per worktree: an email

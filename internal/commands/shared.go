@@ -295,7 +295,7 @@ func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, wor
 		}
 	}
 	store := cctx.Registry.Store(repositoryID)
-	runtime := cctx.Runtime(namespace)
+	runtime := cctx.LabelRuntime(namespace)
 	ref := worktree.Ref{RepositoryID: repositoryID, WorktreeID: worktreeID}
 	entries := make([]SharedStatusEntry, 0, len(services))
 	for _, service := range services {

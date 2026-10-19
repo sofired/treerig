@@ -124,11 +124,10 @@ func environment(hctx HookContext, k kind, name string) []string {
 	pairs = append(pairs, worktree.ServiceURLVariables(hctx.Routes)...)
 	pairs = append(pairs, worktree.SharedAddrVariables(hctx.Shared)...)
 	pairs = append(pairs, worktree.SharedURLVariables(hctx.SharedURLs)...)
-	urlVariable, serviceURLPrefix := brand.EnvName("URL"), brand.EnvName("SERVICE_URL_")
 	inherited := make([]string, 0, len(hctx.Environ))
 	for _, entry := range hctx.Environ {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == urlVariable || strings.HasPrefix(key, serviceURLPrefix) || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
+		if worktree.IsURLVariable(key) || worktree.IsSharedAddrVariable(key) || worktree.IsSharedURLVariable(key) || key == k.foreign {
 			continue
 		}
 		inherited = append(inherited, entry)

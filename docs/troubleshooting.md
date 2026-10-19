@@ -10,6 +10,7 @@ Jump to:
 - [A dev server answers 403 or "Invalid Host header"](#a-dev-server-answers-403-or-invalid-host-header)
 - [Port 80 is taken](#port-80-is-taken)
 - [A service declares no port](#a-service-declares-no-port)
+- [The hostname answers 502 Bad Gateway](#the-hostname-answers-502-bad-gateway)
 - [A route is stale](#a-route-is-stale)
 - [A lock is held](#a-lock-is-held)
 - [Refusing to use state from a newer treerig](#refusing-to-use-state-from-a-newer-treerig)
@@ -66,9 +67,29 @@ When the container itself fails to start, the message is `The shared router fail
 Service web declares no port: set port in its [service.web] table, or expose one in compose.yaml.
 ```
 
-**Fix:** add `port = 8080` to the `[service.web]` table, using the port the container listens on, or expose one in the Compose file. See [Configuration](configuration.md).
+**Fix:** add `port = 8080` to the `[service.web]` table, using the port the container listens on, or add `expose: ["8080"]` to the service in the Compose file. See [Writing your compose.yaml](compose.md#ports) and [Configuration](configuration.md).
 
-**Why:** a routed service needs a port, and treerig finds none: the table sets no `port`, and the Compose service exposes none.
+**Why:** a routed service needs a port, and treerig finds none: the table sets no `port`, and the Compose service has no `expose` or `ports` entry. treerig does not read the `EXPOSE` line of the image's Dockerfile.
+
+## The hostname answers 502 Bad Gateway
+
+For a routed Compose service: the browser or `curl` gets `502 Bad Gateway` from its hostname, and `up` printed no error.
+
+**Fix:** make the app listen on `0.0.0.0`, not `localhost`: [Listen on 0.0.0.0](compose.md#listen-on-0000) has the setting for common dev servers. Then check that `port` or `expose` is the port it listens on.
+
+**Still 502?** Find which side is broken. Get the service's pinned port from `treerig urls --json` (its `port` key; if there is none, run `treerig up` first), then ask it directly:
+
+```bash
+curl -i http://127.0.0.1:<pinned port>/
+```
+
+- Any response, whatever the status: the container answers, and the problem is on the router side. Run `treerig doctor` and see [A route is stale](#a-route-is-stale).
+- `Failed to connect … Couldn't connect to server` (curl exit 7; older curls say `Connection refused`): the container is not running, or has exited. `treerig status` shows its state; `docker compose logs` in the worktree shows why.
+- Usually `Empty reply from server` or `Recv failure: Connection reset by peer`: the port is published but the app inside does not answer on it. The app is probably bound to localhost, or `port` is not the port it listens on.
+
+**Why:** the router reaches a service at its pinned `127.0.0.1` port and answers 502 when nothing there accepts the request. The usual cause is a server bound to localhost inside its container, which Docker's published port cannot reach. See [Writing your compose.yaml](compose.md#ports).
+
+For a host route or a shared service's web UI, see [Host routes](host-routes.md) and [Shared services](shared-services.md).
 
 ## A route is stale
 

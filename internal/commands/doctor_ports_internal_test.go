@@ -5,12 +5,15 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/settings"
 )
 
 // registerWithPorts registers f's checkout and records ports for it.
@@ -192,6 +195,68 @@ func TestDoctorLoopbackPorts(t *testing.T) {
 		lines := portLines(t, f, opts, "checkout.published-port-scan")
 		if len(lines) != 1 || lines[0].Status != StatusFail {
 			t.Fatalf("lines = %+v", lines)
+		}
+	})
+}
+
+// TestDoctorConfigReadSeesTheRoutedURLs pins that doctor's Compose config
+// read (the published-port scan) gets the URL variables `up` gives it, so a
+// ${TREERIG_URL:?} guard in compose.yaml does not fail doctor, and none when
+// the router's port did not resolve (#177).
+func TestDoctorConfigReadSeesTheRoutedURLs(t *testing.T) {
+	configEnvs := func(f *checkoutFixture) []map[string]string {
+		var envs []map[string]string
+		for _, spec := range f.runner.state.callsSnapshot() {
+			if spec.Command != "docker" || !slices.Contains(spec.Args, "config") {
+				continue
+			}
+			env := map[string]string{}
+			for _, entry := range spec.Env {
+				name, value, _ := strings.Cut(entry, "=")
+				env[name] = value
+			}
+			envs = append(envs, env)
+		}
+		return envs
+	}
+	scan := func(t *testing.T, mutate func(*doctorOptions)) []map[string]string {
+		t.Helper()
+		f := newCheckoutFixture(t, "")
+		record := registerWithPorts(t, f, map[string]int{"api": 30010})
+		opts := f.opts()
+		opts.PortProbe = registrytest.FreeProbe{}
+		opts.DockerAnswered = true
+		mutate(&opts)
+		registration := &registry.WorktreeRegistration{RegisteredWorktree: record}
+		if _, err := loopbackPortChecks(context.Background(), opts, f.loaded, registration); err != nil {
+			t.Fatal(err)
+		}
+		return configEnvs(f)
+	}
+
+	t.Run("gets them, router port included, when the port resolved", func(t *testing.T) {
+		envs := scan(t, func(o *doctorOptions) { o.RouterPort = settings.PortResolution{Port: 30080} })
+		if len(envs) == 0 {
+			t.Fatal("no compose config call")
+		}
+		for _, env := range envs {
+			if got := env["TREERIG_SERVICE_URL_API"]; !strings.HasSuffix(got, ".localhost:30080") {
+				t.Errorf("TREERIG_SERVICE_URL_API = %q, want the router's port 30080", got)
+			}
+		}
+	})
+
+	t.Run("gets none when the router's port did not resolve", func(t *testing.T) {
+		envs := scan(t, func(o *doctorOptions) { o.RouterErr = errors.New("bad port") })
+		if len(envs) == 0 {
+			t.Fatal("no compose config call")
+		}
+		for _, env := range envs {
+			for name := range env {
+				if name == "TREERIG_URL" || strings.HasPrefix(name, "TREERIG_SERVICE_URL_") {
+					t.Errorf("%s set with no resolved router port", name)
+				}
+			}
 		}
 	})
 }

@@ -98,7 +98,7 @@ func RenameWithContext(ctx context.Context, cctx *CommandContext, options Rename
 	if err != nil {
 		return nil, err
 	}
-	runtime := cctx.Runtime(namespace)
+	runtime := cctx.LabelRuntime(namespace)
 	store := cctx.Registry.Store(ref.RepositoryID)
 
 	result := &RenameResult{Previous: registration.RegisteredWorktree}

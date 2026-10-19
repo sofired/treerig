@@ -191,7 +191,7 @@ func TestSharedServicesOnARealDaemon(t *testing.T) {
 
 	t.Run("neither inventory lists the other's resources, though they are attached", func(t *testing.T) {
 		cctx := w.contextFor(t, w.env)
-		owned, err := cctx.Runtime(w.namespace).Inventory(ctx, refOf(one))
+		owned, err := cctx.LabelRuntime(w.namespace).Inventory(ctx, refOf(one))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -55,7 +55,7 @@ type UpOptions struct {
 	// follow runs holding the development lock alone. It reports how the
 	// session ended and so always returns an error (an interrupted session
 	// included); UpWithContext returns it as its own.
-	follow func(ctx context.Context, ref worktree.Ref, host string) error
+	follow func(ctx context.Context, ref worktree.Ref, host string, runtime *backend.Compose) error
 }
 
 // UpResult is what `up` did.
@@ -125,11 +125,11 @@ func routeSpecsFromConfig(services []config.Service, ports map[string]int) []bac
 }
 
 // upRuntime is the Compose runtime up starts services through: the same
-// construction as CommandContext.Runtime, plus the routes runtime.Up needs
-// and no other verb does. Duplicating its handful of fields here is cheaper
-// than widening CommandContext.Runtime's own signature (context.go) for one
-// caller.
-func upRuntime(cctx *CommandContext, namespace string, ports map[string]int) *backend.Compose {
+// construction as CommandContext.RuntimeFor, plus the routes runtime.Up needs
+// and no other verb does (urlVariables is composeURLVariables' result).
+// RuntimeFor has neither the explicit ports nor the routes, which only `up`
+// knows, so up builds its runtime here.
+func upRuntime(cctx *CommandContext, namespace string, ports map[string]int, urlVariables [][2]string) *backend.Compose {
 	routes := routeSpecsFromConfig(cctx.Loaded.Config.Service, ports)
 	return backend.NewCompose(backend.Options{
 		ComposeFile:    cctx.ComposeFile(),
@@ -142,6 +142,7 @@ func upRuntime(cctx *CommandContext, namespace string, ports map[string]int) *ba
 		Runner:         cctx.Runner,
 		Logger:         cctx.Logger,
 		Environ:        cctx.Environ,
+		URLVariables:   urlVariables,
 		Routes:         routes,
 		SharedUse:      sharedUseMap(cctx.Loaded.Config),
 	})
@@ -236,7 +237,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	// reused under the shared lock alone, before the worktree's operation
 	// lock is taken, so that lock is never held waiting on a slow start. If
 	// one cannot start, nothing of the worktree is touched.
-	sharedUsed, err := startSharedForUp(ctx, cctx, ref, ownNamespace)
+	sharedUsed, err := startSharedForUp(ctx, cctx, &registration.RegisteredWorktree, routerSvc.Port(), ownNamespace)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +245,8 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	// serviceRoutes (named apart from the mutation closure's own routes,
 	// routeSpecsFromConfig below) feeds both urls, printed below, and the
 	// hooks' own TREERIG_URL/TREERIG_SERVICE_URL_<NAME> (#28) — computed once.
+	// Compose gets the same values (#177), built inside the mutation from the
+	// record.
 	serviceRoutes := worktree.Routes(cctx.Loaded.Config.Service, ref.Slug, registration.Domain, routerSvc.Port())
 	urls := urlsFromRoutes(cctx.Loaded.Config.Service, serviceRoutes)
 
@@ -302,7 +305,12 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		// Ports exist before anything starts: allocated under the registry
 		// lock (inside this operation lock), refused if something else holds
 		// one, and published by the override the runtime writes (#119).
-		inspector := upRuntime(cctx, ownNamespace, nil)
+		// The worktree's routed URLs for Compose (#177), from the record as it
+		// stands under the lock and the router port the hooks get: one value
+		// for every Compose call below. startSharedForUp, earlier, builds the
+		// same from the registration Ensure returned and the same router port.
+		urlVariables := composeURLVariables(cctx.Loaded.Config, found, routerSvc.Port())
+		inspector := upRuntime(cctx, ownNamespace, nil, urlVariables)
 		// Refused before allocating, so no port is ever recorded for a
 		// service that cannot publish one.
 		if err := inspector.CheckPublishable(ctx, ref); err != nil {
@@ -356,7 +364,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		if len(options.Services) > 0 {
 			what = strings.Join(options.Services, ", ")
 		}
-		runtime := upRuntime(cctx, ownNamespace, ports)
+		runtime := upRuntime(cctx, ownNamespace, ports, urlVariables)
 		start := func() error {
 			return withProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
 				return runtime.Up(ctx, ref, options.Services)
@@ -464,7 +472,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 	err = cctx.mutateSession(ctx, ref, host, mutation, func(ctx context.Context) error {
 		announce()
 		refresh(ctx)
-		return options.follow(ctx, ref, host)
+		return options.follow(ctx, ref, host, cctx.RuntimeFor(ownNamespace, &registration.RegisteredWorktree, routerSvc.Port()))
 	})
 	return nil, err
 }
@@ -518,7 +526,7 @@ func refuseRelabelling(ctx context.Context, cctx *CommandContext, identity *regi
 	if recorded == nil || *recorded == own {
 		return nil
 	}
-	leftovers, err := cctx.Runtime(*recorded).Inventory(ctx, toRef(*current))
+	leftovers, err := cctx.LabelRuntime(*recorded).Inventory(ctx, toRef(*current))
 	if err != nil {
 		return err
 	}

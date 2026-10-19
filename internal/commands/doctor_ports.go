@@ -25,8 +25,14 @@ import (
 // span the whole registry. Nothing here writes.
 func loopbackPortChecks(ctx context.Context, opts doctorOptions, loaded *config.Loaded, registration *registry.WorktreeRegistration) ([]Check, error) {
 	ref := worktree.Ref{RepositoryID: registration.RepositoryID, WorktreeID: registration.WorktreeID, Slug: registration.Slug}
+	// The config read behind the published-port scan interpolates the Compose
+	// file, so it gets the URL variables `up` gives it (#177) — unless the
+	// router port did not resolve, when they stay unset, as for the verify hook.
+	// composeURLVariables treats the zero port of a failed resolution as unset.
+	urlVariables := composeURLVariables(loaded.Config, &registration.RegisteredWorktree, opts.RouterPort.Port)
 	runtime := backend.NewCompose(backend.Options{
-		ComposeFile: composeFilePath(loaded), ProjectRoot: loaded.Root, ConfigFile: loaded.File,
+		URLVariables: urlVariables,
+		ComposeFile:  composeFilePath(loaded), ProjectRoot: loaded.Root, ConfigFile: loaded.File,
 		ProjectName: loaded.Config.Project.Name, Domain: loaded.Config.Project.Domain,
 		ControlHome: opts.ControlHome, LabelNamespace: loaded.Config.LabelNamespace(),
 		Runner: opts.Runner, Logger: opts.Logger, Environ: opts.Environ,
