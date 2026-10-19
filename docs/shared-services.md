@@ -4,7 +4,7 @@ Run one instance of a service, such as an email catcher, for a whole repository 
 
 ## How shared services work
 
-**Shared services.** Some services are wasteful once per worktree: an email
+Some services are wasteful once per worktree: an email
 catcher, an object-store emulator, a broker's web UI. A *shared service* runs
 once per repository, in a Compose project of its own, and is connected to
 each worktree whose services use it. "Repository" is one repository UUID, so
@@ -44,7 +44,9 @@ volumes:
   mailbox: {}
 ```
 
-**What the file may say.** A shared name is a table key, like a service's:
+### What the file may say
+
+A shared name is a table key, like a service's:
 lower-case letters, digits and hyphens, at most 63. `used-by` entries are
 unique and may not name a shared service. `port` and `ports` are TCP ports,
 1 to 65535, unique within the service, at most 16 in all. `[shared]` needs
@@ -68,7 +70,9 @@ your environment, `TREERIG_PROJECT`, `TREERIG_REPOSITORY_ID` and the Compose
 project name — never `TREERIG_ROOT`, `TREERIG_WORKTREE_ID` and the rest of a
 worktree's own, and not the `TREERIG_*` a hook passes down.
 
-**Reading the same from every checkout.** Two checkouts of a repository must
+### Reading the same from every checkout
+
+Two checkouts of a repository must
 compute the same hash for the file, or `up` would warn that the definition
 differs when nothing changed. A relative path resolves against each checkout's
 own directory, so `../shared-data` names a different directory in each, and
@@ -101,7 +105,9 @@ users, shells or machines (`${USER}`, `${HOME}`, a machine-specific setting):
 treerig reads the file in one environment and cannot see that, so the hash would
 differ across them and `treerig up` would warn.
 
-**Starting it.** A worktree whose Compose file has a `used-by` service
+### Starting it
+
+A worktree whose Compose file has a `used-by` service
 *needs* the shared service. `up` starts it before it touches the worktree, and
 a failure to start it fails the `up`. Two worktrees' first `up`s serialise on
 a per-repository shared lock (up to 15 minutes): the second finds the
@@ -116,7 +122,9 @@ shared file for data that must survive a down. Give a
 service that should come back after a reboot `restart: unless-stopped` in the
 shared file; treerig does not add one, and `doctor` reports a stopped container.
 
-**Connecting it.** After the worktree's own `compose up`, and before its
+### Connecting it
+
+After the worktree's own `compose up`, and before its
 hooks (which may send mail), `up` connects the shared container, under the
 shared name as an alias, to each of the worktree's own networks that a running
 `used-by` container is on, proven by the worktree's ownership labels. It does
@@ -127,7 +135,9 @@ lets a worktree's network be removed while the shared service keeps running.
 The worktrees never see one another's services: `web` calling `api` resolves
 inside its own worktree's network only.
 
-**Replacing it.** Each shared container carries a hash of its definition (the
+### Replacing it
+
+Each shared container carries a hash of its definition (the
 service and everything it `depends_on`, before treerig's own override) and the
 worktree that started it. A worktree whose file hashes differently gets a
 warning from `up`, naming who started the running one, and nothing is
@@ -155,9 +165,11 @@ references. It is `compose config`'s output, so a Compose upgrade can change it
 and show `differs` once for a service that did not change; run `treerig shared up
 --recreate <name>` to restamp it.
 
-**Reaching it.** From a container, `mailpit:1025` on the worktree's network.
+### Reaching it
+
+From a container, `mailpit:1025` on the worktree's network.
 From the host, each declared port is published on a pinned `127.0.0.1` port
-from the same allocator as a routed service's (see [*Ports*](routing.md#ports)), kept across
+from the same allocator as a routed service's (see [Ports](routing.md#ports)), kept across
 `shared down` and released only by `shared down --volumes`; hooks and `treerig
 run` get it as `TREERIG_SHARED_ADDR_<NAME>_<PORT>=127.0.0.1:<host port>`, with
 `<NAME>` mapped as in `TREERIG_SERVICE_URL_<NAME>` and `<PORT>` the container
@@ -167,7 +179,9 @@ its containers when the state changed. A host process uses the pinned port; a
 container never does, because on a host firewalled by default a container
 cannot reach the host's loopback.
 
-**Its web UI.** A `port` is also routed, through the same proxy as your
+### Its web UI
+
+A `port` is also routed, through the same proxy as your
 services, at `<name>.shared.<domain>` (`mailpit.shared.acme.localhost`), under
 the domain the service was first pinned with. `shared` is therefore reserved:
 a branch that slugs to `shared` gets a suffixed slug. The route file is written when the service is up
@@ -188,6 +202,8 @@ stale port from the record. Dropping `port` from `treerig.toml` stops routing a
 running service at the next `up` or `shared up` without restarting it; a port
 newly declared as the web UI that the container was not started with needs
 `shared up --recreate <name>`.
+
+### Commands
 
 ```bash
 treerig shared up [name...]                    # start (or reuse) them, then reconnect every worktree

@@ -2,7 +2,7 @@
 
 The machine-wide page at `http://treerig.localhost` that lists every checkout.
 
-**Index.** `http://treerig.localhost` (plus the port, if changed) lists every
+`http://treerig.localhost` (plus the port, if changed) lists every
 checkout on the machine across every project: branch, hostname, path, whether
 its services are running, and a link for each service that opted in with
 `[service.<name>.index]`. It is a static page served from the router stack,

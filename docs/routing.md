@@ -4,7 +4,7 @@ How a request for a worktree's hostname reaches its service: pinned ports, the s
 
 ## Ports
 
-**Ports.** Each routed service also gets a port of its own on
+Each routed service also gets a port of its own on
 `127.0.0.1`, allocated when `up` first needs it, recorded in the worktree's
 registration and published by the override `up` generates. It is *pinned*: a
 container restart, `down` and `up`, or a reboot leaves it where it was, and
@@ -34,7 +34,7 @@ routed service whose Compose file also publishes a fixed host port of its
 own.
 
 `[ports] range` is where each routed service's pinned `127.0.0.1` port comes
-from (see [Ports](#ports) above). The default, 20000-29999, sits below Linux's
+from (see [Ports](#ports)). The default, 20000-29999, sits below Linux's
 ephemeral range (from 32768) and macOS's (from 49152), so the operating
 system does not hand those ports out on its own. A range of your own should
 stay clear of them too, and on Linux of anything in `ip_local_port_range`
@@ -59,12 +59,12 @@ container.
 
 ## Router
 
-**Router.** One Traefik proxy container per Docker daemon, started on first `up`,
+One Traefik proxy container per Docker daemon, started on first `up`,
 shared by every worktree of every repository. It serves a single loopback
 port and routes by hostname, and every hop to a service is a loopback hop: a
 request for a routed service goes to `treerig-loopback:<port>`, a name that
 resolves to this machine's loopback, where the service's pinned port (see
-*Ports*) is published on `127.0.0.1`. No Docker network is shared between
+[Ports](#ports)) is published on `127.0.0.1`. No Docker network is shared between
 worktrees and the router, and no host firewall sits between them, so routing
 works under ufw's default-deny policy. Routes are read only from Traefik's
 file provider: `up` writes one dynamic-configuration file per routed service

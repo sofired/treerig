@@ -141,9 +141,8 @@ cd - && git worktree remove ../myapp.feature-x
 
 `treerig down` stops a worktree and keeps its data; `treerig dev` is `up`
 followed by its logs until Ctrl-C. A hostname that won't resolve, or port 80
-already taken? See [Platform notes](docs/platforms.md) and
-[Settings](docs/settings.md). The full walkthrough, with hooks, is in
-[Getting started](docs/getting-started.md).
+already taken? See [Troubleshooting](docs/troubleshooting.md). The full
+walkthrough, with hooks, is in [Getting started](docs/getting-started.md).
 
 ## How it works
 
@@ -161,7 +160,8 @@ already taken? See [Platform notes](docs/platforms.md) and
   you name in `treerig.toml`. treerig runs them at the right moment and never
   learns what they do.
 
-More in [How treerig works](docs/concepts.md) and [Routing](docs/routing.md).
+More in [How treerig works](docs/concepts.md), [Routing](docs/routing.md) and the
+[Glossary](docs/glossary.md).
 
 ## Safety
 
@@ -169,7 +169,7 @@ treerig deletes only what it can prove it created: every container, network,
 image and named volume it labelled for the worktree. External volumes, and the
 anonymous volumes an image declares, carry no labels and are left alone, so
 keep data you want removed on a named volume
-([How treerig works](docs/concepts.md)). `worktree remove` checks the labels on
+([Ownership labels](docs/concepts.md#ownership-labels)). `worktree remove` checks the labels on
 every resource first and refuses the whole removal if one doesn't match. It
 runs the treerig build you invoked; see [Status and roadmap](#status-and-roadmap).
 
@@ -192,8 +192,10 @@ vulnerability, see [SECURITY.md](SECURITY.md).
 | --- | --- |
 | [Install](docs/install.md) | Building from source, the release channels to come, verifying a download, shell completion, the `trig` alias, renaming the binary |
 | [Getting started](docs/getting-started.md) | The config file, the first `up`, and what `up` creates |
-| [How treerig works](docs/concepts.md) | Identity, hostnames, locks, hooks, backup and restore |
+| [Troubleshooting](docs/troubleshooting.md) | Common failures, the message you see, and the fix |
+| [How treerig works](docs/concepts.md) | Identity, hostnames, locks, ownership labels, hooks, backup and restore |
 | [Configuration](docs/configuration.md) | Every key of `treerig.toml`, editor support; the annotated [`treerig.example.toml`](treerig.example.toml) |
+| [Environment variables](docs/environment.md) | Every `TREERIG_*` variable you can set, and the ones treerig sets for your hooks |
 | [Settings](docs/settings.md) | The router's port, the loopback port range, and where treerig keeps its files |
 | [Routing](docs/routing.md) | Pinned ports, the shared router and its network modes |
 | [Worktrees](docs/worktrees.md) | Development sessions, removing a worktree, renaming one |
@@ -208,6 +210,7 @@ vulnerability, see [SECURITY.md](SECURITY.md).
 | [Platform notes](docs/platforms.md) | Linux, Docker Desktop, OrbStack, name resolution, unsupported setups |
 | [Lock recovery](docs/lock-recovery.md) | How `worktree unlock` decides a lock is safe to clear |
 | [Trust model](docs/trust-model.md) | What `up` trusts, and what treerig guarantees |
+| [Glossary](docs/glossary.md) | Plain definitions of the terms the docs use |
 | [Coming from an older build](docs/upgrading-from-a-pre-rename-build.md) | Cleanup for a machine that ran a build from before the rename |
 
 The design notes explain the reasoning behind

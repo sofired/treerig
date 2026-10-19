@@ -34,7 +34,7 @@ newer format, or not one treerig wrote): stdout is empty and stderr says why.
 
 **`worktree list --json`** prints one array, `[]` when there is nothing,
 sorted by domain and then slug. Each row has `repositoryId`, `worktreeId`,
-`slug`, `domain`, `host`, `state` (`ready`, `pending` or `missing`) and
+`slug`, `domain`, `host`, `state` (`ready`, `pending` or `missing`: see [Status words](commands.md)) and
 `current`, plus `root`, `branch` and `labelNamespace` when they are known.
 
 **`doctor --json`** is described in [doctor.md](doctor.md#machine-readable-report).
@@ -46,7 +46,8 @@ the port the process on the host listens on. An unregistered worktree is an
 error: exit 1 and no document.
 
 **`status --json`** prints the worktree's `host` and one entry per declared
-service. `state` is `running`, `starting`, `stopped`, `absent` or `unknown`.
+service. `state` is `running`, `starting`, `stopped`, `absent` or `unknown` (what each
+means is under [Status words](commands.md)).
 `detail` appears when there is something to add: for `unknown` it is Docker's
 own word for the state, and for a `running` service failing its health check
 it is `unhealthy`. `port` is a number (for example `20417`): the routed
@@ -68,9 +69,8 @@ exits 0, as the text form does.
 
 When `treerig.toml` declares shared services, `status --json` also has a
 `shared` array, one entry per declared service, in file order (the key is
-absent otherwise). `state` uses the words of `services`: `running`, `starting` (also a restarting
-container or a pending health check), `stopped`, `absent` or `unknown`, with
-`detail` `unhealthy` for a running one failing its check. One inconsistent
+absent otherwise). `state` uses the words of `services`: `running`, `starting`, `stopped`, `absent`
+or `unknown`, with `detail` `unhealthy` for a running one failing its check. One inconsistent
 container is an `unknown` entry with a `detail`, not a failure of the whole
 command; a record that cannot be read leaves `addrs` out with a warning and
 makes the definition `unknown`. If Docker cannot be asked about the shared
@@ -163,7 +163,8 @@ is none.
 - `identityError` (Git could not say which worktrees exist) appears only when
   that happened, and `cardReadFailures` counts index cards that could not be
   read.
-- `entries[].status` is `running`, `partial`, `stopped`, `missing` or `unknown`.
+- `entries[].status` is `running`, `partial`, `stopped`, `missing` or `unknown`
+  (the lower-case form of the index page's words: see [Status words](commands.md)).
 
 ```json
 {

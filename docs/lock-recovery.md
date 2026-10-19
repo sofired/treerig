@@ -2,6 +2,12 @@
 
 How `worktree unlock` decides that a dead holder's lock is safe to clear.
 
+The check below runs on its own whenever a command takes a free lock whose
+previous holder's record is unreleased, before that command treats the lock as
+recovered: an unreleased record alone does not prove the holder is gone.
+`worktree unlock` runs the same check on demand, so a lock nobody is waiting on
+can be cleared right away.
+
 `worktree unlock [slug|uuid]` clears a worktree's locks (its operation lock,
 and its development-session lock if that is held too) only when all of this
 holds — checked automatically, without ever waiting to acquire the lock
@@ -13,8 +19,9 @@ itself:
 - the record its last holder left names a process this machine can
   identify: by its machine ID, or by its boot ID in a container image that
   has none, in this boot and this PID namespace;
-- that holder's PID no longer exists, or now belongs to a later process, so
-  a reused PID is never mistaken for the same one — checked twice, a second
+- that holder's PID no longer exists, or now belongs to a later process (told
+  apart by its start time), so a reused PID is never mistaken for the same
+  one — checked twice, a second
   look about a second later, in case a holder that looked alive was simply
   finishing;
 - no command started for the worktree is still running on this machine:
