@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/sofired/treerig/internal/checkoutindex"
+	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/router"
 )
 
@@ -62,6 +66,12 @@ func TestRouterServiceEnsure(t *testing.T) {
 		}
 		if got := fileMode(t, w.State.IndexFile); got != 0o644 {
 			t.Errorf("IndexFile mode = %o, want 0644", got)
+		}
+		// The page links its icons, so they are written before it, readable the same way.
+		for _, name := range checkoutindex.IconNames() {
+			if got := fileMode(t, filepath.Join(w.State.IndexDir, name)); got != 0o644 {
+				t.Errorf("%s mode = %o, want 0644", name, got)
+			}
 		}
 		if got := fileMode(t, w.State.ComposeFile); got != 0o600 {
 			t.Errorf("ComposeFile mode = %o, want 0600", got)
@@ -816,6 +826,53 @@ func TestEnsureRepairsRouteFiles(t *testing.T) {
 			if _, err := os.Stat(path); err != nil {
 				t.Fatalf("%s: an unmatched shared route file was removed: %v", name, err)
 			}
+		}
+	})
+}
+
+// TestRouterEnsureIconFailure: the page links the favicon files, so a start
+// that cannot write one must not leave a page pointing at it.
+func TestRouterEnsureIconFailure(t *testing.T) {
+	t.Run("the icons are on disk before the placeholder page is rendered or written", func(t *testing.T) {
+		var state *layout.RouterLayout
+		var missing []string
+		w := newWorldOpts(t, "", 80, func(o *router.Options) {
+			o.Page = func(time.Time) ([]byte, error) {
+				for _, name := range checkoutindex.IconNames() {
+					if info, err := os.Lstat(filepath.Join(state.IndexDir, name)); err != nil || !info.Mode().IsRegular() {
+						missing = append(missing, name)
+					}
+				}
+				return []byte("page"), nil
+			}
+		})
+		state = &w.State
+		if err := w.Router.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(missing) != 0 {
+			t.Errorf("the page was written before these icons: %v", missing)
+		}
+		if _, err := os.Stat(w.State.IndexFile); err != nil {
+			t.Errorf("the page hook was never used: %v", err)
+		}
+	})
+
+	t.Run("an icon that cannot be written and is missing fails the start and writes no page", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		blocked := filepath.Join(w.State.IndexDir, checkoutindex.IconNames()[0])
+		if err := os.MkdirAll(blocked, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := w.Router.Ensure(context.Background())
+		if err == nil || !strings.Contains(err.Error(), checkoutindex.IconNames()[0]) {
+			t.Fatalf("Ensure error = %v, want one naming %s", err, checkoutindex.IconNames()[0])
+		}
+		if _, statErr := os.Stat(w.State.IndexFile); !os.IsNotExist(statErr) {
+			t.Errorf("a placeholder page was written with an icon missing: %v", statErr)
+		}
+		if len(w.ups()) != 0 {
+			t.Errorf("the start went on to `up`: %v", w.ups())
 		}
 	})
 }

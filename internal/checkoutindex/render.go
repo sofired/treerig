@@ -50,23 +50,6 @@ var script string
 //go:embed assets/styles.css
 var styles string
 
-// The brand's marks, copied byte for byte from docs/brand (a test keeps the
-// copies in step), embedded so the page stays self-contained and nothing
-// reads docs/ at runtime. The 16 px files are pixel-built and only look right
-// at 16 px; the masters serve every larger size.
-//
-//go:embed assets/favicon-16.svg
-var favicon16 string
-
-//go:embed assets/favicon-16-dark.svg
-var favicon16Dark string
-
-//go:embed assets/favicon-master.svg
-var faviconMaster string
-
-//go:embed assets/favicon-master-dark.svg
-var faviconMasterDark string
-
 // scriptHash and shellFingerprint depend only on the embedded assets above,
 // which never change at runtime, so they are computed once, here, rather
 // than on every render.
@@ -75,31 +58,6 @@ var (
 	shellFingerprint = base64.RawURLEncoding.EncodeToString(sum256(styles + script))[:16]
 	faviconLinks     = renderFaviconLinks()
 )
-
-// faviconLink is one <link rel="icon"> whose href is svg as a data: URI.
-// sizes picks between the 16 px file ("16x16") and the master ("any"), and
-// scheme ("light" or "dark") is the prefers-color-scheme the icon is for:
-// a browser that honours media on icon links shows the one that matches the
-// tab strip.
-func faviconLink(svg, sizes, scheme string) string {
-	uri := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(strings.TrimSpace(svg)))
-	return fmt.Sprintf(`<link rel="icon" type="image/svg+xml" sizes="%s" media="(prefers-color-scheme: %s)" href="%s">`,
-		sizes, scheme, uri)
-}
-
-// renderFaviconLinks is the page's four icon links, one per size and colour
-// scheme, each on its own line of the head. The 16 px files go first, and
-// each dark icon precedes its light twin: a browser that ignores media and
-// takes the last match for a size then likely shows the light icon, the right one
-// on the more common light tab strip.
-func renderFaviconLinks() string {
-	return strings.Join([]string{
-		faviconLink(favicon16Dark, "16x16", "dark"),
-		faviconLink(favicon16, "16x16", "light"),
-		faviconLink(faviconMasterDark, "any", "dark"),
-		faviconLink(faviconMaster, "any", "light"),
-	}, "\n  ")
-}
 
 // sum256 is the raw SHA-256 digest of value, as a byte slice ready for a
 // base64 encoder.
@@ -566,7 +524,7 @@ func RenderIndexHTML(snapshot IndexSnapshot) string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'sha256-%s'; connect-src 'self'; form-action 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-%s'; connect-src 'self'; form-action 'none'; base-uri 'none'">
   <noscript><meta http-equiv="refresh" content="%d"></noscript>
   %s
   <title>%s</title>

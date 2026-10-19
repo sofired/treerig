@@ -18,6 +18,17 @@ says so in the header when it has stopped being able to read the page, and
 pauses on request. Without scripting it falls back to reloading every 60
 seconds.
 
+The page's favicon is a set of six small files (PNG and SVG, light and dark),
+the brand's favicon files (`docs/brand`). `Router.Ensure` (`up`, `router up`)
+and every index refresh write them beside `index.html`, before the page, and the
+same container serves them, so the page needs no more than `img-src 'self'`. A
+write leaves a file alone when it already holds the right bytes. If one cannot
+be written but an earlier copy is there, the page is still refreshed and a
+warning names the file; with no copy there, the page is left as it was and the
+refresh warns that the index could not be refreshed. On a first write, `up` and
+`router up` fail if an icon cannot be written, because the page would link a
+missing file; on later refreshes a stale copy only produces a warning.
+
 `index` needs a `treerig.toml` — the nearest one above the working directory,
 or the one `--config <path>` names — even though what it prints spans the
 machine. The same is true of `worktree list --all`, and of every verb that

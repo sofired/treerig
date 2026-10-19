@@ -42,6 +42,7 @@ internal/cli
 
 shard1='
 TestHostRouteAnswersAtTheWorktreeHostnameOnARealDaemon
+TestIndexIconsAreServedOnARealDaemon
 TestRenameOnARealDaemon
 TestSharedAnonymousVolumesOnARealDaemon
 TestSharedServicesOnARealDaemon

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -360,7 +361,11 @@ func secureState(state layout.RouterLayout) error {
 	if err := secureDirectories(state.StateDir, []string{state.DynamicDir, state.IndexDir}, 0o755); err != nil {
 		return err
 	}
-	for _, file := range []string{state.LockPath, state.IndexFile, state.ComposeFile, state.StateFile} {
+	checked := []string{state.LockPath, state.IndexFile, state.ComposeFile, state.StateFile}
+	for _, name := range checkoutindex.IconNames() {
+		checked = append(checked, filepath.Join(state.IndexDir, name))
+	}
+	for _, file := range checked {
 		if err := files.AssertSafeFilePathNamed(state.StateDir, file, stateNoun); err != nil {
 			return err
 		}
@@ -398,6 +403,13 @@ func secureDirectories(root string, dirs []string, mode os.FileMode) error {
 // serve.
 func (r *Router) write(now time.Time, options StackOptions) error {
 	if err := secureState(r.state); err != nil {
+		return err
+	}
+	// The icons the page links, before any page: idempotent, and the page
+	// below (or Refresh's later) must never point at a missing file. A failed
+	// write over an icon an earlier start left is only a warning, as in
+	// checkoutindex.Service.Refresh; with an icon missing the start fails.
+	if err := checkoutindex.EnsureIcons(r.state.IndexDir, r.logger); err != nil {
 		return err
 	}
 	// The index container's health check fetches the page, so one must exist
