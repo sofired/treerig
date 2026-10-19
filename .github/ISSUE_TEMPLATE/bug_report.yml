@@ -7,6 +7,9 @@ body:
       value: |
         Thanks for reporting it. If it might be a security problem, stop here and
         [report it privately](https://github.com/sofired/treerig/security/advisories/new) instead.
+
+        This issue is public. Before you paste configuration or output, replace any
+        passwords, tokens or other secrets in it with placeholders.
   - type: textarea
     id: what-happened
     attributes:
@@ -25,7 +28,7 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
-      description: The smallest setup that shows it. Include the relevant part of treerig.toml and compose.yaml.
+      description: The smallest setup that shows it. Include the relevant part of treerig.toml and compose.yaml, with passwords, tokens and other secrets replaced by placeholders.
       placeholder: |
         1. git worktree add ../app.feature
         2. cd ../app.feature && treerig up
