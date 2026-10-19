@@ -41,7 +41,7 @@ is a constant there, pinned by its tests.
 | Router containers | `dev.treerig.router-protocol` | the protocol number, its own counter |
 | Shared definition hash | `dev.treerig.shared-definition` | the `v1:` prefix, the hash scheme's counter |
 | Named volumes | none | proven by the ownership labels alone |
-| Route files, router stack file, index page, override files | `<treerig root>/router/…`, `<worktree home>/treerig.override.yaml`, `<repo>/shared/treerig.override.yaml` | none: derived |
+| Route files, router stack file, index page and its favicon files, override files | `<treerig root>/router/…`, `<worktree home>/treerig.override.yaml`, `<repo>/shared/treerig.override.yaml` | none: derived |
 | Relocated copies | `<control home>/bin/<sha256>` | none: the name is the version |
 | Teardown pin | `<control home>/teardown/pin.json` | `"version": 1`, `stateformat.TeardownPin` |
 | Pinned teardown binaries | `<control home>/teardown/<sha256>` | none: the name is the version |
@@ -49,6 +49,9 @@ is a constant there, pinned by its tests.
 | Backup bundles | where `backup` was told | none: the hook's |
 | `settings.toml`, `treerig.toml` | the treerig root, the repository | none: user-written |
 | Quarantined homes | `<repo>/instances/.deleting-<worktree>` | none: a renamed home |
+
+treerig never deletes from the router's index directory, so a favicon file that
+a later release renames or drops stays behind, unlinked and harmless.
 
 ### Why each is, or is not, versioned
 

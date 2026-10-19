@@ -67,6 +67,13 @@ first pre-release; Homebrew, and the install script without `--version`, wait
 for the first stable release. See [docs/install.md](docs/install.md), which
 also covers shell completion.
 
+Prefer a shorter name? This gives you `trig` (see
+[The `trig` alias](docs/install.md#the-trig-alias)):
+
+```bash
+ln -s treerig "$(dirname "$(command -v treerig)")/trig"
+```
+
 ### Verifying a download
 
 Release downloads come with checksums and a signature. How to check them is in
@@ -183,7 +190,7 @@ vulnerability, see [SECURITY.md](SECURITY.md).
 
 | Page | What it covers |
 | --- | --- |
-| [Install](docs/install.md) | Building from source, the release channels to come, verifying a download, shell completion, renaming the binary |
+| [Install](docs/install.md) | Building from source, the release channels to come, verifying a download, shell completion, the `trig` alias, renaming the binary |
 | [Getting started](docs/getting-started.md) | The config file, the first `up`, and what `up` creates |
 | [How treerig works](docs/concepts.md) | Identity, hostnames, locks, hooks, backup and restore |
 | [Configuration](docs/configuration.md) | Every key of `treerig.toml`, editor support; the annotated [`treerig.example.toml`](treerig.example.toml) |

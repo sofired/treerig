@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +88,8 @@ type Options struct {
 	// control home (see internal/layout's RouterStateDir comment).
 	// Resolving that path needs an Env's Getenv, which this package does
 	// not depend on, so the caller resolves it once and hands it over.
+	// Its directory, the one the index container serves, also receives the
+	// favicon files (WriteIcons) the page links.
 	IndexFile string
 	// Lock is the shared router's lock scope (internal/commands'
 	// routerLockScope): Refresh takes it around reading the registry and
@@ -126,6 +129,10 @@ type Service struct {
 	// without needing real file descriptor exhaustion to exercise #18. Never
 	// set outside a test.
 	readCard func(controlHome, repositoryID, worktreeID string) (*card.IndexCard, error)
+	// writeIcons is WriteIcons, indirected only so a test can fail one write
+	// where the filesystem would not, or watch the order of writes. Never set
+	// outside a test.
+	writeIcons func(dir string) (warning, err error)
 }
 
 // NewService builds a Service from opts, filling in defaults.
@@ -145,7 +152,7 @@ func NewService(opts Options) *Service {
 	if opts.Logger == nil {
 		opts.Logger = logger.Silent{}
 	}
-	return &Service{opts: opts, readCard: card.ReadIndexCard}
+	return &Service{opts: opts, readCard: card.ReadIndexCard, writeIcons: WriteIcons}
 }
 
 // URL is where the page this Service maintains can be read.
@@ -471,6 +478,13 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 
 	snapshot, err := s.Snapshot(lockCtx)
 	if err != nil {
+		return IndexSnapshot{}, err
+	}
+	// The icons first: the page links them, so it must never be served while
+	// one is missing. A failed write over an icon an earlier refresh left is
+	// only a warning (the page still refreshes, with the older icon); with an
+	// icon missing the page is left alone and the error returned.
+	if err := ensureIcons(filepath.Dir(s.opts.IndexFile), s.opts.Logger, s.writeIcons); err != nil {
 		return IndexSnapshot{}, err
 	}
 	if err := files.AtomicWrite(s.opts.IndexFile, []byte(RenderIndexHTML(snapshot)), 0o644); err != nil {

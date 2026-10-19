@@ -18,13 +18,19 @@ package commands_test
 // so they survive changes to how routes are carried.
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/router"
@@ -202,4 +208,86 @@ func TestWorktreeSubdomainRoutingAndDoctorConflictOnARealDaemon(t *testing.T) {
 		t.Fatalf("removing the impostor's route fragment: %v", err)
 	}
 	w.downAndRemove(t, result, host)
+}
+
+// TestIndexIconsAreServedOnARealDaemon proves the favicon files reach a
+// browser: after `up`, the page and every icon it links answer 200 with the
+// right Content-Type, both on the index container's own loopback port and
+// through the proxy at the index host, and the bytes served are the bytes
+// written. The page also carries a Content-Security-Policy with no data:
+// source, so these same-origin files are the only icons it can show.
+func TestIndexIconsAreServedOnARealDaemon(t *testing.T) {
+	w := newRoutesWalk(t)
+	w.up(t)
+	state, found, err := router.ReadState(w.state)
+	if err != nil || !found || state.IndexPort == 0 {
+		t.Fatalf("router state = %+v, found %v, err %v", state, found, err)
+	}
+	loopback := func(t *testing.T, path string) (*http.Response, []byte) {
+		t.Helper()
+		resp, err := walkClient.Get(fmt.Sprintf("http://127.0.0.1:%d%s", state.IndexPort, path))
+		if err != nil {
+			t.Fatalf("GET %s on the index's own port: %v", path, err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("reading %s from the index's own port: %v", path, err)
+		}
+		return resp, body
+	}
+	proxied := func(t *testing.T, path string) (*http.Response, []byte) {
+		t.Helper()
+		request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", w.port, path), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Host = router.IndexHost
+		resp, err := walkClient.Do(request)
+		if err != nil {
+			t.Fatalf("GET %s through the proxy: %v", path, err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("reading %s through the proxy: %v", path, err)
+		}
+		return resp, body
+	}
+	// Traefik learns the index route from its file provider a moment after up.
+	w.eventually(t, router.IndexHost, func(status int, _ string) bool { return status == http.StatusOK })
+
+	for _, route := range []struct {
+		via string
+		get func(*testing.T, string) (*http.Response, []byte)
+	}{{"the index's own port", loopback}, {"the proxy", proxied}} {
+		get := route.get
+		t.Run("the page and its icons answer 200 with their types through "+route.via, func(t *testing.T) {
+			resp, page := get(t, "/index.html")
+			if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+				t.Fatalf("index.html answered %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+			}
+			if bytes.Contains(page, []byte("data:")) {
+				t.Error("the page carries a data: source")
+			}
+			hrefs := regexp.MustCompile(`<link rel="icon" type="([^"]+)"[^>]* href="([^"]+)">`).FindAllSubmatch(page, -1)
+			if len(hrefs) != len(checkoutindex.IconNames()) {
+				t.Fatalf("the page links %d icons, want %d", len(hrefs), len(checkoutindex.IconNames()))
+			}
+			for _, link := range hrefs {
+				name, declared := string(link[2]), string(link[1])
+				resp, body := get(t, "/"+name)
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("%s answered %d", name, resp.StatusCode)
+				}
+				if got := resp.Header.Get("Content-Type"); got != declared {
+					t.Errorf("%s is served as %q, but the page links it as %q", name, got, declared)
+				}
+				want, err := os.ReadFile(filepath.Join(w.state.IndexDir, name))
+				if err != nil || len(body) == 0 || !bytes.Equal(body, want) {
+					t.Errorf("%s served %d bytes, which are not the %d written (%v)", name, len(body), len(want), err)
+				}
+			}
+		})
+	}
 }

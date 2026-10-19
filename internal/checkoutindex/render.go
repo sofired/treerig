@@ -56,6 +56,7 @@ var styles string
 var (
 	scriptHash       = base64.StdEncoding.EncodeToString(sum256(script))
 	shellFingerprint = base64.RawURLEncoding.EncodeToString(sum256(styles + script))[:16]
+	faviconLinks     = renderFaviconLinks()
 )
 
 // sum256 is the raw SHA-256 digest of value, as a byte slice ready for a
@@ -525,6 +526,7 @@ func RenderIndexHTML(snapshot IndexSnapshot) string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-%s'; connect-src 'self'; form-action 'none'; base-uri 'none'">
   <noscript><meta http-equiv="refresh" content="%d"></noscript>
+  %s
   <title>%s</title>
   <style>%s  </style>
 </head>
@@ -538,7 +540,7 @@ func RenderIndexHTML(snapshot IndexSnapshot) string {
   <script>%s</script>
 </body>
 </html>
-`, shellFingerprint, scriptHash, noscriptRefreshSeconds, escapeHTML(pageTitle(snapshot)), styles,
+`, shellFingerprint, scriptHash, noscriptRefreshSeconds, faviconLinks, escapeHTML(pageTitle(snapshot)), styles,
 		escapeHTML(snapshot.GeneratedAt), escapeHTML(snapshot.GeneratedAt), fingerprint, rows, script)
 }
 
