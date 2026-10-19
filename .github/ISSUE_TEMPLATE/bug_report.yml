@@ -1,0 +1,62 @@
+name: Bug report
+description: Something treerig does is wrong, or it fails.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. If it might be a security problem, stop here and
+        [report it privately](https://github.com/sofired/treerig/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran and what it printed. Paste output as text, not a screenshot.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest setup that shows it. Include the relevant part of treerig.toml and compose.yaml.
+      placeholder: |
+        1. git worktree add ../app.feature
+        2. cd ../app.feature && treerig up
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: treerig doctor output
+      description: Run `treerig doctor` in the affected worktree and paste its report.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: treerig version
+      description: Output of `treerig --version`, and how you installed it (Homebrew, install.sh, a package, from source).
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and architecture
+      placeholder: macOS 26 arm64, Ubuntu 24.04 amd64, ...
+    validations:
+      required: true
+  - type: textarea
+    id: docker
+    attributes:
+      label: Docker and Compose versions
+      description: Output of `docker version` and `docker compose version`. Say if you use Docker Desktop, OrbStack, Colima or another engine.
+      render: text
+    validations:
+      required: true

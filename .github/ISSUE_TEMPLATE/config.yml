@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/sofired/treerig/security/advisories/new
+    about: Report it privately, never in a public issue. See SECURITY.md.
+  - name: Troubleshooting guide
+    url: https://github.com/sofired/treerig/blob/main/docs/troubleshooting.md
+    about: Fixes for common problems, such as a hostname that does not resolve or a 502.
