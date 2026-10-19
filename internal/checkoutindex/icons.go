@@ -35,8 +35,8 @@ type icon struct {
 	mime string
 	// sizes is the link's sizes attribute: "16x16", "32x32" or "any".
 	sizes string
-	// scheme is "light" for a default link with no media, or "dark" for the
-	// twin that carries media="(prefers-color-scheme: dark)".
+	// scheme is "light" or "dark": the prefers-color-scheme the icon's link
+	// names in its media attribute.
 	scheme string
 }
 
@@ -46,22 +46,27 @@ type icon struct {
 // they are pixel for pixel the 16 px PNGs). The 32x32 PNG is for Retina tab
 // strips.
 //
-// Every light icon is a default link with no media, and its dark twin follows
-// it with media="(prefers-color-scheme: dark)". A browser that honours media
-// (Chrome, Edge, Firefox) gets the twin that matches its colour scheme. One
-// that ignores it (Safari, on PNG links) shows one of the two, whichever its
-// tiebreak picks, and that tiebreak is not documented; light first is right
-// if it takes the first match, and wrong on a light tab strip if it takes the
-// last. Chromium resolves prefers-color-scheme from the operating system, not from
-// the browser's own theme, so a dark tab strip on a light system gets the
-// light icon; links cannot fix that.
+// Every icon's link carries media="(prefers-color-scheme: ...)", and in each
+// pair the dark link comes first and the light one after it. Chrome and Edge
+// honour media: in light mode only the light links match, in dark mode only
+// the dark ones. Safari ignores media on icon links and, as observed in Safari
+// on a light tab bar, takes the last matching link, so the light one goes last
+// and it shows the light icon. Firefox most likely ignores media there too
+// (Mozilla bug 1603885 is open), so it gets the same. That is wrong on a dark
+// tab bar, a known limit: those browsers offer links no way to choose. prefers-color-scheme
+// resolves to light or dark only (MDN: light also covers "no active
+// preference"), so no link without media is needed as a fallback, and one
+// placed first would only compete with the dark link in a browser that picks
+// by order. Chromium resolves prefers-color-scheme from the operating
+// system, not from the browser's own theme, so a dark tab strip on a light
+// system gets the light icon; links cannot fix that either.
 var icons = []icon{
-	{"favicon-32.png", "image/png", "32x32", "light"},
 	{"favicon-32-dark.png", "image/png", "32x32", "dark"},
-	{"favicon-16.png", "image/png", "16x16", "light"},
+	{"favicon-32.png", "image/png", "32x32", "light"},
 	{"favicon-16-dark.png", "image/png", "16x16", "dark"},
-	{"favicon-master.svg", "image/svg+xml", "any", "light"},
+	{"favicon-16.png", "image/png", "16x16", "light"},
 	{"favicon-master-dark.svg", "image/svg+xml", "any", "dark"},
+	{"favicon-master.svg", "image/svg+xml", "any", "light"},
 }
 
 // IconNames is the name of every icon file Refresh writes beside the index
@@ -167,11 +172,8 @@ func iconCurrent(path string, want []byte) bool {
 // link is the page's <link rel="icon"> for ic. href is relative, so it
 // resolves beside index.html wherever the page is served from.
 func (ic icon) link() string {
-	media := ""
-	if ic.scheme == "dark" {
-		media = ` media="(prefers-color-scheme: dark)"`
-	}
-	return fmt.Sprintf(`<link rel="icon" type="%s" sizes="%s"%s href="%s">`, ic.mime, ic.sizes, media, ic.name)
+	return fmt.Sprintf(`<link rel="icon" type="%s" sizes="%s" media="(prefers-color-scheme: %s)" href="%s">`,
+		ic.mime, ic.sizes, ic.scheme, ic.name)
 }
 
 // renderFaviconLinks is the page's icon links, each on its own line of the
