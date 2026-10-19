@@ -223,7 +223,7 @@ func TestIndexIconsAreServedOnARealDaemon(t *testing.T) {
 	if err != nil || !found || state.IndexPort == 0 {
 		t.Fatalf("router state = %+v, found %v, err %v", state, found, err)
 	}
-	loopback := func(path string) (*http.Response, []byte) {
+	loopback := func(t *testing.T, path string) (*http.Response, []byte) {
 		t.Helper()
 		resp, err := walkClient.Get(fmt.Sprintf("http://127.0.0.1:%d%s", state.IndexPort, path))
 		if err != nil {
@@ -236,7 +236,7 @@ func TestIndexIconsAreServedOnARealDaemon(t *testing.T) {
 		}
 		return resp, body
 	}
-	proxied := func(path string) (*http.Response, []byte) {
+	proxied := func(t *testing.T, path string) (*http.Response, []byte) {
 		t.Helper()
 		request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", w.port, path), nil)
 		if err != nil {
@@ -259,11 +259,11 @@ func TestIndexIconsAreServedOnARealDaemon(t *testing.T) {
 
 	for _, route := range []struct {
 		via string
-		get func(string) (*http.Response, []byte)
+		get func(*testing.T, string) (*http.Response, []byte)
 	}{{"the index's own port", loopback}, {"the proxy", proxied}} {
 		get := route.get
 		t.Run("the page and its icons answer 200 with their types through "+route.via, func(t *testing.T) {
-			resp, page := get("/index.html")
+			resp, page := get(t, "/index.html")
 			if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
 				t.Fatalf("index.html answered %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
 			}
@@ -276,7 +276,7 @@ func TestIndexIconsAreServedOnARealDaemon(t *testing.T) {
 			}
 			for _, link := range hrefs {
 				name, declared := string(link[2]), string(link[1])
-				resp, body := get("/" + name)
+				resp, body := get(t, "/"+name)
 				if resp.StatusCode != http.StatusOK {
 					t.Errorf("%s answered %d", name, resp.StatusCode)
 				}
