@@ -77,9 +77,10 @@ before bringing up a branch you did not write.
 ## What `up` creates
 
 `up` starts the Compose project under a name derived from the worktree's UUIDs
-and labels everything it creates for the worktree with its
-[ownership labels](concepts.md#ownership-labels). Your Compose file is never
-asked to add them: a generated override file does it, and also publishes each
+and labels the containers, networks, images and named volumes it creates for
+the worktree with its [ownership labels](concepts.md#ownership-labels). The
+anonymous volumes an image declares get none, so `worktree remove` leaves them.
+Your Compose file is never asked to add them: a generated override file does it, and also publishes each
 routed service's pinned port. The Compose file sees the same `TREERIG_*`
 variables hooks do, so `${TREERIG_WORKTREE_HOME}` works in a bind mount exactly
 as it does in a seed script. See [Environment variables](environment.md).

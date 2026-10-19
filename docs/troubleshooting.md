@@ -27,7 +27,7 @@ Chrome opens the URL, but `curl`, Safari or a language HTTP library cannot find 
 curl: (6) Could not resolve host: feature-login.acme.localhost
 ```
 
-**Fix:** run `curl -sSI http://treerig.localhost` and read the answer:
+**Fix:** run `curl -sSI http://treerig.localhost` and read the answer. If the router is not on port 80, add its port, as in `curl -sSI http://treerig.localhost:8080`. `treerig router status` prints the port and says whether `TREERIG_ROUTER_PORT`, `[router] port` in `settings.toml` or the default of 80 chose it; `treerig doctor` says the same.
 
 - An `HTTP/1.1` status line: resolution works, and the router answered.
 - `Could not resolve host`: add every hostname `treerig urls` prints, plus `treerig.localhost`, to `/etc/hosts` (it has no wildcards), or use `curl --resolve`.

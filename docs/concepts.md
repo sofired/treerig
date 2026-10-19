@@ -107,8 +107,8 @@ The labels are what treerig trusts before it removes anything. A resource is
 the worktree's only if it carries the full ownership tuple: the managed,
 repository and worktree labels, in the format the `format` label names. A
 named volume has no format label, so its other three labels prove it. A name
-proves nothing. A resource of a newer format, or one without the format label,
-is not proven to be yours and is left alone (see
+proves nothing. A container, network or image of a newer format, or one without
+the format label, is not proven to be yours and is left alone (see
 [Stored-state format](settings.md#stored-state-format)), and `worktree remove`
 checks every resource first and refuses the whole removal if one fails the
 check.
