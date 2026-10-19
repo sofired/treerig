@@ -276,6 +276,9 @@ wants a directory of its own, such as `pg_dump -Fd`, is given a subdirectory:
 
 ### A PostgreSQL round trip
 
+Make each script executable (`chmod +x`). It needs its `#!` line, because a
+hook is run directly, not through a shell.
+
 The hooks run in the project root with the worktree's own Compose project in
 their environment ([`COMPOSE_PROJECT_NAME`](#environment)), so
 `docker compose exec` reaches this worktree's database and no other. Keep the
@@ -485,7 +488,7 @@ script, with a clearer message than treerig could give.
 
 By default a command holds the worktree's operation lock while it runs, the
 lock `up`, `down`, `worktree remove` and `worktree rename` take. Those wait for it (up to 25
-minutes) and, after a couple of seconds, say what they are waiting on:
+minutes; see [Locks](concepts.md#locks)) and, after a couple of seconds, say what they are waiting on:
 `treerig run apply`, without the arguments after `--`, which may carry a secret.
 A second `run` waits too, and one inside the same worktree's own hooks or
 commands refuses at once, since its caller holds the lock. The development

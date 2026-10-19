@@ -2,7 +2,9 @@
 
 Notes for Linux, Docker Desktop, OrbStack and other environments.
 
-**Bind mounts on Linux.** Docker Engine enforces host file permissions inside
+## Bind mounts on Linux
+
+Docker Engine enforces host file permissions inside
 containers. A worktree's home directory (`${TREERIG_WORKTREE_HOME}`) is 0700, so
 a service whose process runs as a uid other than yours — `postgres`, `redis`,
 and `mysql` drop to uid 999 in their default images (`postgres:*-alpine` uses
@@ -18,7 +20,9 @@ their data directory to their own uid as root before dropping privileges, and
 of. When that happens it stops and prints a one-off `docker run … chown` that
 hands them back to you; run it, then run the removal again and it finishes.
 
-**Docker Desktop on macOS.** File sharing performs I/O as your macOS user, so
+## Docker Desktop on macOS
+
+File sharing performs I/O as your macOS user, so
 mode bits are not enforced against the container's uid: a bind mount that
 works on macOS can fail on a Linux teammate's Docker Engine for the reason
 above. Projects that must run on both should use named volumes. Docker
@@ -26,7 +30,9 @@ Desktop on Windows behaves like Linux when the tool runs inside the WSL 2
 distribution with the control home and checkout on its own filesystem; paths
 under `/mnt/c` present as 0777 and behave like the macOS case.
 
-**Docker Desktop file sharing and the file provider.** Routes come from files
+## Docker Desktop file sharing and the file provider
+
+Routes come from files
 `up`, `down` and `worktree remove` write and remove under the router's own
 state directory, watched by Traefik's file provider inside the container. On
 macOS Docker Desktop, both file-sharing backends (virtiofs, the current
@@ -40,28 +46,44 @@ as; see [Calling it something else](install.md#calling-it-something-else)) to fo
 route file from a clean start, rather than waiting on the next filesystem
 event that touches it.
 
-**Host routes on Docker Desktop and OrbStack.** The proxy runs on a bridge
+`router down` stops the one router container for the whole Docker daemon, not
+just for this worktree or treerig root. Every worktree of every repository,
+whichever treerig root started it, loses its routing until a `router up` (or the
+next `up`) starts the router again. Services keep running, unrouted. See
+[Router ownership](routing.md#router-ownership).
+
+## Host routes on Docker Desktop and OrbStack
+
+The proxy runs on a bridge
 network there and reaches your host process through the engine's host
 gateway, which is IPv4 only: bind the process to `127.0.0.1`, not `::1`. See
 [Host routes](host-routes.md).
 
-**Rootless Docker** is refused (#121): its "host" network is RootlessKit's
+## Rootless Docker
+
+treerig refuses rootless Docker (#121): its "host" network is RootlessKit's
 namespace, not the machine's, so the proxy could not reach your services over
 loopback, and a port below 1024 cannot be published by default.
 
-**Remote Docker daemons** (`DOCKER_HOST` or a Docker context pointing at
-another machine) are refused: the proxy reaches your services on this
+## Remote Docker daemons
+
+treerig refuses a remote daemon (`DOCKER_HOST` or a Docker context pointing at
+another machine): the proxy reaches your services on this
 machine's loopback. An `ssh://` or `tcp://` host is remote; a socket forwarded over SSH to a local
 unix path looks local and cannot be detected.
 
-**Firewalls.** On Linux the proxy shares the host's network namespace, so a
+## Firewalls
+
+On Linux the proxy shares the host's network namespace, so a
 default-deny host firewall (ufw) never sits between it and a service. On
 Docker Desktop and OrbStack the proxy reaches the host's loopback through the
 engine's own forwarding, which needs no firewall change on either. A service
 that listens only on `::1` is reachable in host mode but not through Docker
 Desktop, so bind `127.0.0.1` (or every IPv4 address).
 
-**SELinux.** Hosts with SELinux enforcing need bind mounts relabelled (`:z`),
+## SELinux
+
+Hosts with SELinux enforcing need bind mounts relabelled (`:z`),
 which the tool does not do for its own router mounts; treat such hosts as
 unsupported for now.
 

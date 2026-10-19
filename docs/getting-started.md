@@ -1,6 +1,9 @@
 # Getting started
 
-Write a `treerig.toml`, bring a worktree up, and see what `up` creates.
+Write a `treerig.toml`, bring a worktree up, and see what `up` creates. The
+[Glossary](glossary.md) defines the terms used here and on the other pages.
+
+## Write a `treerig.toml`
 
 The tool is tested with Docker Compose 2.21 and newer (`treerig doctor` checks,
 as does `docker compose version`). From the root of your repository,
@@ -41,7 +44,9 @@ verify  = "2m"                     # and a hung check fails `doctor` after two m
 plan = "./scripts/keycloak.sh plan"   # on demand, with `treerig run plan`
 ```
 
-Then:
+## Bring a worktree up
+
+With the file in place, these are the commands you will use:
 
 ```bash
 treerig config validate     # parse and check the file
@@ -69,19 +74,26 @@ treerig doctor               # check prerequisites, registry, router; run verify
 `up` runs the branch's own build and hooks. Read [Trust model](trust-model.md)
 before bringing up a branch you did not write.
 
-`up` starts the Compose project under a name derived from the worktree's
-UUIDs, with every container, network, and image it builds, and every named
-volume the Compose file declares, labelled
-`dev.treerig.managed`, `dev.treerig.repository-uuid`, and
-`dev.treerig.worktree-uuid` (an external volume is left alone, and the anonymous
-volume an image declares gets none: see [How treerig works](concepts.md)), and, on everything but the volumes, the
-`dev.treerig.format` label that says which format of labels those are (a named
-volume carries none: Compose would offer to recreate a volume whose label
-changed, losing its data). Your Compose file is never asked to add those
-labels; a generated override file does it, so forgetting one — and silently
-exempting a resource from cleanup — is not possible. The Compose file sees
-the same `TREERIG_*` variables hooks do, so `${TREERIG_WORKTREE_HOME}` works in a
-bind mount exactly as it does in a seed script.
+## What `up` creates
 
-A full annotated example is in [`treerig.example.toml`](../treerig.example.toml).
-The hook contract is specified in [the hook contract](hooks.md).
+`up` starts the Compose project under a name derived from the worktree's UUIDs
+and labels the containers, networks, images and named volumes it creates for
+the worktree with its [ownership labels](concepts.md#ownership-labels). The
+anonymous volumes an image declares get none, so `worktree remove` leaves them.
+Your Compose file is never asked to add them: a generated override file does it, and also publishes each
+routed service's pinned port. The Compose file sees the same `TREERIG_*`
+variables hooks do, so `${TREERIG_WORKTREE_HOME}` works in a bind mount exactly
+as it does in a seed script. See [Environment variables](environment.md).
+
+## Next steps
+
+- [`treerig.example.toml`](../treerig.example.toml) is a full annotated example,
+  and [Configuration](configuration.md) lists every key.
+- [The hook contract](hooks.md) specifies `prepare`, `seed`, `verify`, `backup`
+  and `restore`.
+- [Routing](routing.md) explains pinned ports and the shared router;
+  [Shared services](shared-services.md) and [Host routes](host-routes.md) cover
+  a mail catcher for the whole repository and a dev server on the host.
+- [Worktrees](worktrees.md) covers development sessions, removing a worktree
+  and renaming one.
+- Something not working? See [Troubleshooting](troubleshooting.md).

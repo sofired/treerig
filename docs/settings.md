@@ -40,7 +40,9 @@ format of control home it is (`format 2`). Your home directory, anything
 above it, and the filesystem root are always refused, whether reached through
 `TREERIG_HOME` or `TREERIG_CONTROL_HOME`.
 
-**Stored-state format.** Everything treerig writes and reads back says which
+## Stored-state format
+
+Everything treerig writes and reads back says which
 format wrote it: the control home's marker, the identity markers in the Git
 directory, registrations and shared-service records, the router's `state.json`,
 a lock's holder record, a worktree's index card, and a `dev.treerig.format` label
