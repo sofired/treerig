@@ -38,7 +38,7 @@ follower running on its own; end it with `kill`.
 ## Removing a worktree
 
 `worktree remove` is the only destructive verb. It inventories everything
-the worktree owns, verifies the full ownership tuple on every resource, and
+the worktree owns, verifies the full [ownership tuple](concepts.md#ownership-labels) on every resource, and
 refuses the whole operation if a single one fails — before it asks you to
 type the hostname to confirm (`--yes` skips the prompt). Then, in an order
 chosen so that an interrupted removal can simply be run again: Docker

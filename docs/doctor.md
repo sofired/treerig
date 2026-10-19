@@ -18,16 +18,13 @@ that outlives its `[hooks.timeout]` limit and is stopped for it (`The verify
 hook timed out after 2m and was terminated.`); the report's `verify hook` line
 tells the two apart, the exit code does not. If `timeout(1)` kills `doctor`
 itself, which also exits 124, there is no report at all. `doctor`
-also reports one line per configured hook — `prepare`, `seed`, `verify`,
-`backup` and `restore` alike, whether or not this worktree is registered —
-for whether the file it names would even start: as `<stage> hook file`,
-distinct from `verify hook`'s own run line so the two are never mistaken for
-one repeated check, and one `<name> command file` line for each `[commands]`
-entry after them. A hook file that would not start names the exit code a
-real run would give in its own line, 127 or 126
-([`hooks.md`](hooks.md)), but that is a prediction, not an
-observation — it never supplies `doctor`'s own exit code, which stays the
-verify hook's own (only when verify itself actually ran and failed) or 1.
+also reports one line per configured hook, and one per `[commands]` entry,
+for whether the file it names would even start (`<stage> hook file` and
+`<name> command file`, distinct from `verify hook`'s own run line). How that
+prediction works is in [`hooks.md`](hooks.md#doctors-own-check). It is a
+prediction, not an observation: it never supplies `doctor`'s own exit code,
+which stays the verify hook's own (only when verify itself actually ran and
+failed) or 1.
 It takes no lock, writes nothing, and repairs nothing; it reports. When the
 router itself could be resolved, its
 `Router` section also names the router's owner (a `fail` for a router

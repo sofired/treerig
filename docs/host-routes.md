@@ -40,7 +40,9 @@ not know whether the process is up. `doctor` lists each one with whether its
 port answers (a stopped dev server is `ok`, with the 502 note; only a port that
 answers on `::1` alone is a warning), and probes each through the router.
 
-**Bind `127.0.0.1`.** The proxy reaches a host process on `127.0.0.1`. A server
+## Bind `127.0.0.1`
+
+The proxy reaches a host process on `127.0.0.1`. A server
 that listens only on `::1` (some tools resolve `localhost` to IPv6 first; Vite's
 default host can be `::1` on a Mac) answers through the router on a native Linux
 Engine, but not on Docker Desktop or OrbStack, where the host is reached over
@@ -51,7 +53,9 @@ from the network and may trigger the macOS firewall prompt; prefer `127.0.0.1`.
 Forcing `[router] mode = "bridge"` on a Linux engine does not work for host
 routes: the bridge container cannot reach a `127.0.0.1` listener there.
 
-**Allowed hosts.** The router passes the worktree hostname through as the
+## Allowed hosts
+
+The router passes the worktree hostname through as the
 request's `Host` header, and many dev servers refuse hosts they do not know.
 Allow it in the dev server's own settings. Vite answers a blocked host with a
 403 "Blocked request" page: set `server.allowedHosts` (for example

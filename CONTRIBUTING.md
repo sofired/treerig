@@ -256,6 +256,12 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
 - [ ] The first tap pull request starts from `packaging/homebrew/treerig.rb`;
   later ones only change its `url` and `sha256`. Change the formula's body in
   the tap, and keep the template in step.
+- [ ] The docs no longer say that nothing has shipped. In `README.md`, update
+  the `Pre-release` line under the title, the status
+  box ("Nothing is tagged yet") and the Install text ("No release exists
+  yet"). In `docs/install.md`, update the "No release exists yet" note at the
+  top and each "None has shipped yet" line. `grep -n "yet" README.md
+  docs/install.md` finds them.
 
 **Cutting a release:**
 
