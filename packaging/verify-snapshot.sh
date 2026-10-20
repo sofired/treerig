@@ -655,12 +655,14 @@ else
   grep -q 'could not extract the completion scripts for trig from the archive (an older release may not include them)' "$work/install.log" || fail "a missing script was not reported"
   echo "install.sh (completion): a symlink or a missing script in the archive skips only that script or command"
 
-  # A system-wide copy (Homebrew's prefix here) is kept: no user-level copy for
-  # that command and shell, which would shadow it. The zsh block still goes in.
-  mkdir -p "$work/brewprefix/share/zsh/site-functions" "$work/brewprefix/share/fish/vendor_completions.d" "$work/brewprefix/share/bash-completion/completions" "$work/path-brew"
+  # A system-wide copy (Homebrew's prefix here, laid out as Homebrew links a
+  # formula's completions: bash under etc/bash_completion.d) is kept: no
+  # user-level copy for that command and shell, which would shadow it. The zsh
+  # block still goes in.
+  mkdir -p "$work/brewprefix/share/zsh/site-functions" "$work/brewprefix/share/fish/vendor_completions.d" "$work/brewprefix/etc/bash_completion.d" "$work/path-brew"
   : >"$work/brewprefix/share/zsh/site-functions/_treerig"
   : >"$work/brewprefix/share/fish/vendor_completions.d/treerig.fish"
-  : >"$work/brewprefix/share/bash-completion/completions/treerig"
+  : >"$work/brewprefix/etc/bash_completion.d/treerig"
   printf '#!/bin/sh\necho "%s"\n' "$work/brewprefix" >"$work/path-brew/brew"
   chmod 755 "$work/path-brew/brew"
   h="$work/h8h"
@@ -723,19 +725,36 @@ else
   # completions whether or not the .zshrc ran compinit first, and the block does
   # not run compinit again when it had.
   if command -v zsh >/dev/null 2>&1; then
+    # A .zshenv for these test shells only: it drops the system fpath
+    # directories compaudit calls insecure (on GitHub's runner images some
+    # under /usr/local/share are group- or world-writable), since compinit with
+    # no terminal aborts on them instead of asking, which would hide what this
+    # checks. Our own directories are not exempt: one compaudit flags is dropped
+    # too, and the check below then fails.
+    # shellcheck disable=SC2016 # zsh expands these
+    zenv='autoload -Uz compaudit
+_tr_bad=( $(compaudit 2>/dev/null) )
+_tr_keep=()
+for _tr_d in $fpath; do
+  (( ${_tr_bad[(Ie)$_tr_d]} || ${_tr_bad[(Ie)${_tr_d:h}]} )) || _tr_keep+=( $_tr_d )
+done
+fpath=( $_tr_keep )
+unset _tr_bad _tr_keep _tr_d'
+    printf '%s\n' "$zenv" >"$h/.zshenv"
     # (a) no compinit earlier in the .zshrc
     # shellcheck disable=SC2016 # zsh expands these
-    got=$(env HOME="$h" ZDOTDIR="$h" TERM=dumb zsh -d -i -c 'print -r -- "$_comps[treerig] $_comps[trig]"' 2>/dev/null </dev/null) || true
-    [ "$got" = "_treerig _trig" ] || fail "zsh: with no earlier compinit, got '$got', expected '_treerig _trig'"
+    got=$(env HOME="$h" ZDOTDIR="$h" TERM=dumb zsh -d -i -c 'print -r -- "$_comps[treerig] $_comps[trig]"' 2>"$work/zsh.err" </dev/null) || true
+    [ "$got" = "_treerig _trig" ] || { cat "$work/zsh.err" >&2; fail "zsh: with no earlier compinit, got '$got', expected '_treerig _trig'"; }
     # (b) compinit already ran. Afterwards compinit is replaced by a counter, so
     # a second call from the block would show as N=1.
     zd="$work/zdot b"
     mkdir -p "$zd"
+    printf '%s\n' "$zenv" >"$zd/.zshenv"
     printf 'autoload -Uz compinit && compinit\ntypeset -gi N=0\ncompinit() { (( N++ )) }\n' >"$zd/.zshrc"
     sed -n '/^# >>> treerig/,/^# <<< treerig/p' "$h/.zshrc" >>"$zd/.zshrc"
     # shellcheck disable=SC2016 # zsh expands these
-    got=$(env HOME="$h" ZDOTDIR="$zd" TERM=dumb zsh -d -i -c 'print -r -- "$_comps[treerig] $_comps[trig] $N"' 2>/dev/null </dev/null) || true
-    [ "$got" = "_treerig _trig 0" ] || fail "zsh: with an earlier compinit, got '$got', expected '_treerig _trig 0'"
+    got=$(env HOME="$h" ZDOTDIR="$zd" TERM=dumb zsh -d -i -c 'print -r -- "$_comps[treerig] $_comps[trig] $N"' 2>"$work/zsh.err" </dev/null) || true
+    [ "$got" = "_treerig _trig 0" ] || { cat "$work/zsh.err" >&2; fail "zsh: with an earlier compinit, got '$got', expected '_treerig _trig 0'"; }
     echo "install.sh (completion): a real zsh registers the completions with and without an earlier compinit"
   elif [ -n "${CI:-}" ]; then
     fail "install.sh (completion): zsh is not on this machine, and CI does not skip the real-zsh check"

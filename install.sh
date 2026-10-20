@@ -435,17 +435,21 @@ has_bash_completion() {
 # .apk put it (.goreleaser.yaml), or in Homebrew's prefix when brew is on PATH.
 # A user-level copy would shadow it, and this one may be newer.
 system_completion() {
+  # Homebrew links a formula's bash completions into etc/bash_completion.d, not
+  # share/bash-completion/completions, so bash checks both.
   case "$1" in
-    fish) sc_rel="share/fish/vendor_completions.d/$2.fish" ;;
-    bash) sc_rel="share/bash-completion/completions/$2" ;;
-    zsh) sc_rel="share/zsh/site-functions/_$2" ;;
+    fish) sc_rels="share/fish/vendor_completions.d/$2.fish" ;;
+    bash) sc_rels="share/bash-completion/completions/$2 etc/bash_completion.d/$2" ;;
+    zsh) sc_rels="share/zsh/site-functions/_$2" ;;
   esac
   for sc_prefix in /usr "$BREW_PREFIX"; do
     [ -n "$sc_prefix" ] || continue
-    if [ -f "$sc_prefix/$sc_rel" ]; then
-      printf '%s\n' "$sc_prefix/$sc_rel"
-      return 0
-    fi
+    for sc_rel in $sc_rels; do
+      if [ -f "$sc_prefix/$sc_rel" ]; then
+        printf '%s\n' "$sc_prefix/$sc_rel"
+        return 0
+      fi
+    done
   done
   return 1
 }
