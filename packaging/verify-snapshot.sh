@@ -424,6 +424,13 @@ check_alias_skipped "a broken trig symlink" "$work/t10" 'skipped the trig alias'
 mkdir "$work/provided"
 ln -s "$work/t1/treerig" "$work/provided/trig"
 check_alias_skipped "a trig on PATH that links to treerig" "$work/t11" 'already provided by' PATH="$work/provided:$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+# Homebrew's layout: two hops, relative ones, bin/trig -> ../Cellar/.../bin/trig -> treerig.
+mkdir -p "$work/brewlike/bin" "$work/brewlike/Cellar/treerig/1.0/bin"
+cp "$work/t1/treerig" "$work/brewlike/Cellar/treerig/1.0/bin/treerig"
+ln -s treerig "$work/brewlike/Cellar/treerig/1.0/bin/trig"
+ln -s ../Cellar/treerig/1.0/bin/trig "$work/brewlike/bin/trig"
+check_alias_skipped "a trig on PATH that links to treerig in two hops" "$work/t11b" 'already provided by' PATH="$work/brewlike/bin:$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+[ ! -e "$work/t11b/trig" ] || fail "install.sh linked trig where one is already provided on PATH in two hops"
 if [ -e "$work/t11/trig" ] || [ -L "$work/t11/trig" ]; then
   fail "install.sh linked trig where one is already provided on PATH"
 fi

@@ -334,8 +334,20 @@ install_alias() {
   alias_other="$(command -v "$ALIAS" 2>/dev/null)" || alias_other=""
   if [ -n "$alias_other" ]; then
     # A trig that is itself a link to a treerig (another install of this
-    # tool) is not a clash, only already provided.
-    alias_via="$(readlink "$alias_other" 2>/dev/null)" || alias_via=""
+    # tool) is not a clash, only already provided. The link is followed to its
+    # end, a bounded number of hops: Homebrew's is two, bin/trig ->
+    # ../Cellar/treerig/<version>/bin/trig -> treerig.
+    alias_via="$alias_other"
+    alias_hops=0
+    while [ -L "$alias_via" ] && [ "$alias_hops" -lt 40 ]; do
+      alias_next="$(readlink "$alias_via" 2>/dev/null)" || alias_next=""
+      [ -n "$alias_next" ] || break
+      case "$alias_next" in
+        /*) alias_via="$alias_next" ;;
+        *) alias_via="${alias_via%/*}/$alias_next" ;;
+      esac
+      alias_hops=$((alias_hops + 1))
+    done
     case "${alias_via##*/}" in
       "$BIN")
         err "skipped the ${ALIAS} alias: it is already provided by $alias_other, a link to $BIN."
