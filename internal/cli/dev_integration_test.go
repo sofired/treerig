@@ -86,14 +86,15 @@ func TestDevThroughTheBinary(t *testing.T) {
 		_, stdout, stderr := startDev(t, f, binary)
 
 		waitForOutput(t, stdout, "api-1  | following")
+		// treerig writes these before it starts the follower, but stdout and
+		// stderr are separate pipes, copied separately: stderr can still be
+		// behind once the follower's line is on stdout, so each is waited for.
 		for _, line := range []string{
 			"[treerig] Starting all services for feature-login.acme.localhost.\n",
 			"[treerig] feature-login.acme.localhost is up.\n",
 			"[treerig] Following the logs of feature-login.acme.localhost. Press Ctrl-C to end the session.\n",
 		} {
-			if !strings.Contains(stderr.String(), line) {
-				t.Fatalf("stderr = %q, want it to contain %q", stderr.String(), line)
-			}
+			waitForOutput(t, stderr, line)
 		}
 		if got := f.stages(t); strings.Join(got, " ") != "prepare seed" {
 			t.Fatalf("stages = %v", got)
