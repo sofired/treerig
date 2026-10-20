@@ -490,7 +490,7 @@ count_block() { grep -c '^# >>> treerig completion ' "$1" || true; }
 # that install.sh rightly leaves alone, which would change what these scenarios
 # see; they only run where there are none.
 system_wide=
-for f in /usr/share/bash-completion/completions/treerig /usr/share/zsh/site-functions/_treerig /usr/share/fish/vendor_completions.d/treerig.fish; do
+for f in /usr/share/bash-completion/completions/treerig /usr/share/zsh/site-functions/_treerig /usr/share/zsh/vendor-completions/_treerig /usr/share/fish/vendor_completions.d/treerig.fish; do
   [ ! -e "$f" ] || system_wide=$f
 done
 
@@ -686,7 +686,18 @@ else
   must_match "Homebrew zsh copy off fpath" "$h/.local/share/zsh/site-functions/_treerig" _treerig
   must_lack "Homebrew zsh copy off fpath" "$h/.config/fish/completions/treerig.fish"
   must_lack "Homebrew zsh copy off fpath" "$h/.local/share/bash-completion/completions/treerig"
-  echo "install.sh (completion): a system-wide copy is kept in place of a user-level one; for zsh only when its directory is on zsh's fpath"
+  # A zsh copy in share/zsh/vendor-completions, where the .deb puts it, counts
+  # too when that directory is on zsh's fpath, as on Debian and Ubuntu.
+  mkdir -p "$work/vcprefix/share/zsh/vendor-completions" "$work/path-vc"
+  : >"$work/vcprefix/share/zsh/vendor-completions/_treerig"
+  printf '#!/bin/sh\necho "%s"\n' "$work/vcprefix" >"$work/path-vc/brew"
+  printf '#!/bin/sh\necho "%s"\n' "$work/vcprefix/share/zsh/vendor-completions" >"$work/path-vc/zsh"
+  chmod 755 "$work/path-vc/brew" "$work/path-vc/zsh"
+  h="$work/h8j"
+  run_install "completion, vendor-completions copy" "$work/c8j" HOME="$h" SHELL=/bin/zsh PATH="$work/path-vc:$work/path-all:$plain"
+  must_lack "vendor-completions copy" "$h/.local/share/zsh/site-functions/_treerig"
+  must_have "vendor-completions copy, trig" "$h/.local/share/zsh/site-functions/_trig"
+  echo "install.sh (completion): a system-wide copy is kept in place of a user-level one; for zsh only when its directory (site-functions or vendor-completions) is on zsh's fpath"
 
   # Opt-outs write nothing, not even a directory.
   h="$work/h9"
