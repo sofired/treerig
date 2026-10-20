@@ -64,7 +64,8 @@ install script:
 curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | sh -s -- --version 0.1.0-rc.2
 ```
 
-Then check your machine with `treerig doctor`. The
+It installs into `~/.local/bin`, and says how to add that to your `PATH` if it
+isn't there. Then check your machine with `treerig doctor`. The
 [release page](https://github.com/sofired/treerig/releases/tag/v0.1.0-rc.2)
 also has archives and `.deb`, `.rpm` and `.apk` packages. Homebrew, and the
 install script without `--version`, wait for the first stable release. To build

@@ -805,7 +805,7 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 | 4. `teardown pin --release X.Y.Z` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The flag rules become: `--file` requires `--sha256` and `--release`; a download takes `--release` or `--latest`. So "Missing required flag: --file." (and its plural) changes to ask for a source, and `teardownPinCommand` and the goldens that quote it, the missing-flag ones included, change to `--latest` or `--release X.Y.Z`. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. The noexec mapping (an EACCES or ENOEXEC when the stored binary is first executed, naming the mount) belongs to the gate: pin never executes the stored binary (below). Delivered in step 4: the download forms, `teardownPinCommand` and the goldens that quote it |
 | 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped (the hermetic sign and verify flags were run against cosign v3.0.6 in step 4, and "CI" above matches them) |
 | 6. **#146** The fail-closed gate and `--dev-teardown`; the relocation paragraph in `docs/worktrees.md`; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes The gate must exec the pinned binary with the caller's `argv[0]` (as `worktree remove`'s relocation does, pinned by a test in `relocate_internal_test.go`), so the program name stays `trig` or `treerig` and does not become the hash path |
-| 6b. Cut `v0.1.0-rc.2` | 6 merged | A release containing the gate is published |
+| 6b. Cut `v0.1.0-rc.3` (or the first release after 6) | 6 merged | A release containing the gate is published |
 | 7. **#147** Smoke test after a release | 6b | Passes on all three runners |
 
 **#147** runs on `workflow_run` of the Release workflow (when it succeeded) and on
@@ -814,7 +814,7 @@ actions and `permissions: contents: read`; takes the tag from
 `github.event.workflow_run.head_branch`, checked against the version pattern
 before use; and runs on `ubuntu-latest`, `ubuntu-24.04-arm` and `macos-latest`
 with scratch `TREERIG_HOME` and `TREERIG_CONTROL_HOME`. It runs
-`teardown pin --release 0.1.0-rc.2 --yes` (explicit, since the tag is a
+`teardown pin --release 0.1.0-rc.3 --yes` (explicit, since the tag is a
 pre-release), `status`, and a `worktree remove` with no terminal and no `--yes`, in a scratch checkout. It
 stops at the gate's two lines: it asserts both, and accepts the refusal that
 follows, so nothing is removed. The removal's `Inventory` calls Docker, which fails on a
