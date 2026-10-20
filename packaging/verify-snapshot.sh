@@ -424,6 +424,9 @@ check_alias_skipped "a broken trig symlink" "$work/t10" 'skipped the trig alias'
 mkdir "$work/provided"
 ln -s "$work/t1/treerig" "$work/provided/trig"
 check_alias_skipped "a trig on PATH that links to treerig" "$work/t11" 'already provided by' PATH="$work/provided:$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
+if [ -e "$work/t11/trig" ] || [ -L "$work/t11/trig" ]; then
+  fail "install.sh linked trig where one is already provided on PATH"
+fi
 # Homebrew's layout: two hops, relative ones, bin/trig -> ../Cellar/.../bin/trig -> treerig.
 mkdir -p "$work/brewlike/bin" "$work/brewlike/Cellar/treerig/1.0/bin"
 cp "$work/t1/treerig" "$work/brewlike/Cellar/treerig/1.0/bin/treerig"
@@ -432,14 +435,13 @@ ln -s ../Cellar/treerig/1.0/bin/trig "$work/brewlike/bin/trig"
 check_alias_skipped "a trig on PATH that links to treerig in two hops" "$work/t11b" 'already provided by' PATH="$work/brewlike/bin:$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
 [ ! -e "$work/t11b/trig" ] || fail "install.sh linked trig where one is already provided on PATH in two hops"
 # A trig already in the install directory that reaches its treerig in two hops
-# is in place, and its completions are written.
+# is in place, and left as it is. (The completion scenarios below check that its
+# completions are written.)
 mkdir -p "$work/t11c"
 ln -s trig-hop "$work/t11c/trig"
 ln -s treerig "$work/t11c/trig-hop"
 check_alias_skipped "a trig in the directory that links to treerig in two hops" "$work/t11c" 'alias is already in place' PATH="$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base" TREERIG_NO_COMPLETIONS=1
-if [ -e "$work/t11/trig" ] || [ -L "$work/t11/trig" ]; then
-  fail "install.sh linked trig where one is already provided on PATH"
-fi
+[ "$(readlink "$work/t11c/trig")" = trig-hop ] || fail "install.sh replaced a trig that reaches treerig in two hops"
 
 env PATH="$plain" TREERIG_NO_ALIAS=1 TREERIG_VERSION="$version" TREERIG_BASE_URL="$base" sh "$repo/install.sh" --dir "$work/t9" >"$work/install.log" 2>&1 ||
   { cat "$work/install.log" >&2; fail "install.sh with TREERIG_NO_ALIAS failed"; }
@@ -747,6 +749,19 @@ else
   grep -q 'already provided by' "$work/install.log" || fail "provided trig: the alias was not reported as provided"
   must_have "provided trig" "$h/.config/fish/completions/trig.fish"
   must_have "provided trig" "$h/.local/share/zsh/site-functions/_trig"
+  # A trig already in the install directory, reaching its treerig in two hops,
+  # is in place: its completions are written, the archive's own.
+  mkdir -p "$work/c12b"
+  ln -s trig-hop "$work/c12b/trig"
+  ln -s treerig "$work/c12b/trig-hop"
+  h="$work/h12b"
+  run_install "completion, trig in place in two hops" "$work/c12b" HOME="$h" SHELL=/bin/zsh PATH="$work/path-all:$plain"
+  grep -q 'alias is already in place' "$work/install.log" || fail "trig in two hops: the alias was not reported as in place"
+  [ "$(readlink "$work/c12b/trig")" = trig-hop ] || fail "trig in two hops: install.sh replaced the link"
+  must_match "trig in two hops" "$h/.config/fish/completions/trig.fish" trig.fish
+  must_match "trig in two hops" "$h/.local/share/bash-completion/completions/trig" trig.bash
+  must_match "trig in two hops" "$h/.local/share/zsh/site-functions/_trig" _trig
+  grep -qF 'compdef _trig trig' "$h/.zshrc" || fail "trig in two hops: the zsh block does not cover trig"
   echo "install.sh (completion): trig files only with the alias in place (not beside a different trig, not under TREERIG_NO_ALIAS)"
 
   # A HOME with a space in it.
