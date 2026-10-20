@@ -5,11 +5,16 @@
   </picture>
 </h1>
 
+[![CI](https://github.com/sofired/treerig/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/sofired/treerig/actions/workflows/go.yml?query=branch%3Amain)
+[![Release](https://img.shields.io/github/v/release/sofired/treerig?include_prereleases&sort=semver)](https://github.com/sofired/treerig/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/sofired/treerig)](go.mod)
+[![License](https://img.shields.io/github/license/sofired/treerig)](LICENSE)
+
 **A rig for every branch.**
 
 Every worktree gets its own stack, its own data, and its own URL.
 
-Pre-release: [install](#install) from source.
+Pre-release: [install](#install) `v0.1.0-rc.2` with the install script.
 
 Git worktrees let you have three branches checked out at once, or three agent
 sessions working in parallel. Docker Compose doesn't play along: the second
@@ -47,25 +52,35 @@ lines.*
 
 > **Status: pre-release.** Linux and macOS. treerig needs Git, Docker and
 > Docker Compose 2.21 or newer; the Docker integration tests run on Linux in
-> CI. Nothing is tagged yet; the first release will be `v0.1.0-rc.1`.
+> CI. The newest release is the pre-release `v0.1.0-rc.2`; there is no stable
+> release yet.
 
 ## Install
 
-No release exists yet, so build treerig from source with Go, at least the
-version [`go.mod`](go.mod) names:
+There is no stable release yet, so name the pre-release when you run the
+install script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | sh -s -- --version 0.1.0-rc.2
+```
+
+By default it installs into `~/.local/bin` (set `TREERIG_INSTALL_DIR` or pass
+`--dir` to choose another directory), and says how to add the install directory
+to your `PATH` if it isn't there. Then check your machine with `treerig doctor`. The
+[release page](https://github.com/sofired/treerig/releases/tag/v0.1.0-rc.2)
+also has archives and `.deb`, `.rpm` and `.apk` packages. Homebrew, and the
+install script without `--version`, wait for the first stable release. To build
+from source instead, you need Go, at least the version [`go.mod`](go.mod)
+names:
 
 ```bash
 git clone https://github.com/sofired/treerig && cd treerig
 go install ./cmd/treerig   # installs $(go env GOPATH)/bin/treerig (or $GOBIN)
 ```
 
-If `treerig` isn't found, add `$(go env GOPATH)/bin` to your `PATH`. Then
-check your machine with `treerig doctor`.
-
-Release archives, Linux packages and `install.sh --version` work from the
-first pre-release; Homebrew, and the install script without `--version`, wait
-for the first stable release. See [docs/install.md](docs/install.md), which
-also covers shell completion.
+If `treerig` isn't found, add `$(go env GOPATH)/bin` to your `PATH`. See
+[docs/install.md](docs/install.md) for every route, checking a download, and
+shell completion.
 
 Prefer a shorter name? This gives you `trig` (see
 [The `trig` alias](docs/install.md#the-trig-alias)):
@@ -228,18 +243,18 @@ Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
 `status`, `urls`, `run`, `backup`, `restore`, and `worktree list`, `remove`,
 `rename` and `unlock`), the shared router and checkout index, host routes
 (`route`), shared services and `doctor`; `treerig --help` lists every
-command. Releases will be listed on the
+command. Releases are listed on the
 [releases page](https://github.com/sofired/treerig/releases).
 
 Not built yet:
 
 1. **`worktree remove` runs a pinned, verified build** (#146). Until this
    lands, `worktree remove` runs whichever treerig binary you invoked, a
-   branch's own build included, and that holds for `v0.1.0-rc.1` too. Removal
+   branch's own build included, and that holds for `v0.1.0-rc.2` too. Removal
    is meant to run a treerig build you verified once instead. The commands that
    install and check that build exist ([Teardown pin](docs/teardown-pin.md));
    the gate that makes removal use it does not. It is meant to ship in the
-   first release cut after it lands (expected `v0.1.0-rc.2`).
+   first release cut after it lands (expected `v0.1.0-rc.3`).
 2. **Migrating stored state between releases** (#29). Every store treerig
    reads back carries a format version, and a build refuses a newer one; no
    migration code exists yet.

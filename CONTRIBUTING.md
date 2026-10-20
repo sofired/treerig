@@ -38,8 +38,8 @@ build refuses a newer one; `docs/design/state.md` lists the stores, the
 refusal, and how a migration is added.
 
 The pre-release rename (owner decision, 2026-10-15) changed every storage name
-without a migration because nothing had shipped. From the first tag
-(v0.1.0-rc.1), the migration rule above applies in full.
+without a migration because nothing had shipped. From the first release
+(v0.1.0-rc.2), the migration rule above applies in full.
 
 ## Repository layout
 
