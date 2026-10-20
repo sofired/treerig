@@ -10,6 +10,9 @@ both on Linux and macOS.
 Report security vulnerabilities privately through GitHub (see
 [`SECURITY.md`](SECURITY.md)), not as an issue or pull request.
 
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+Report conduct problems to conduct@sofired.io.
+
 ## What we care about
 
 **Ownership is a safety property, not a feature.** Anything that removes a
