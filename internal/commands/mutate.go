@@ -153,7 +153,7 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	}
 	ref := toRef(registration.RegisteredWorktree)
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
-	runtime := cctx.Runtime(cctx.Loaded.Config.LabelNamespace())
+	runtime := cctx.RuntimeFor(cctx.Loaded.Config.LabelNamespace(), &registration.RegisteredWorktree, cctx.RouterPort)
 	if err := cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
 		// Unroutes before the worktree's own teardown, unconditionally —
 		// see unrouteWorktree's own comment for why.

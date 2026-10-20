@@ -48,8 +48,8 @@ func Dev(ctx context.Context, env *Env) error {
 // containers' logs.
 func DevWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, index Index) error {
 	_, err := UpWithContext(ctx, cctx, routerSvc, index, UpOptions{
-		follow: func(ctx context.Context, ref worktree.Ref, host string) error {
-			return followLogs(ctx, cctx, ref, host)
+		follow: func(ctx context.Context, ref worktree.Ref, host string, runtime *backend.Compose) error {
+			return followLogs(ctx, cctx, runtime, ref, host)
 		},
 	})
 	return err
@@ -94,12 +94,11 @@ func sessionEnded(cctx *CommandContext, host string, sig syscall.Signal, noConta
 // notice saying so. Any end of the follower other than the above is the
 // session ending on its own, with a message and the follower's exit code, or
 // 1 for exit 0.
-func followLogs(ctx context.Context, cctx *CommandContext, ref worktree.Ref, host string) error {
+func followLogs(ctx context.Context, cctx *CommandContext, runtime *backend.Compose, ref worktree.Ref, host string) error {
 	if err := ctx.Err(); err != nil {
 		return context.Cause(ctx)
 	}
 	cctx.Logger.Info(fmt.Sprintf("Following the logs of %s. Press Ctrl-C to end the session.", host))
-	runtime := cctx.Runtime(cctx.Loaded.Config.LabelNamespace())
 
 	watchCtx, stopWatching := context.WithCancel(ctx)
 	var watching sync.WaitGroup

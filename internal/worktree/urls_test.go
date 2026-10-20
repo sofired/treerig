@@ -2,6 +2,7 @@ package worktree_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sofired/treerig/internal/config"
@@ -78,6 +79,46 @@ func TestRootRoute(t *testing.T) {
 	t.Run("is nil for no routes at all", func(t *testing.T) {
 		if root := worktree.RootRoute(nil); root != nil {
 			t.Fatalf("got %+v, want nil", root)
+		}
+	})
+}
+
+func TestURLVariables(t *testing.T) {
+	t.Run("is exactly the URL part of ServiceURLVariables, with the router's port folded in as urls does (#177)", func(t *testing.T) {
+		routes := worktree.WithPorts(worktree.Routes(mixedServices(), "feature-login", "acme.localhost", 30080), map[string]int{"api": 20001})
+		got := pairsToMap(worktree.URLVariables(routes))
+		want := map[string]string{
+			"URL":                    "http://feature-login.acme.localhost:30080",
+			"SERVICE_URL_API":        "http://feature-login.acme.localhost:30080",
+			"SERVICE_URL_MAIL_RELAY": "http://mail.feature-login.acme.localhost:30080",
+			"SERVICE_URL_DOCS":       "http://docs.feature-login.acme.localhost:30080/latest",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+		for key := range got {
+			if strings.HasPrefix(key, "SERVICE_PORT_") {
+				t.Fatalf("a port variable %s is not Compose's", key)
+			}
+		}
+	})
+
+	t.Run("omits the port 80 suffix and the root URL when nothing claims the root", func(t *testing.T) {
+		got := pairsToMap(worktree.URLVariables(worktree.Routes([]config.Service{{Name: "mail", Subdomain: "mail"}}, "wt", "acme.localhost", 80)))
+		want := map[string]string{"SERVICE_URL_MAIL": "http://mail.wt.acme.localhost"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("IsURLVariable names exactly the variables it sets", func(t *testing.T) {
+		for name, want := range map[string]bool{
+			"TREERIG_URL": true, "TREERIG_SERVICE_URL_WEB": true, "TREERIG_SERVICE_URL_": true,
+			"TREERIG_SERVICE_PORT_WEB": false, "TREERIG_SHARED_URL_MAIL": false, "TREERIG_URLS": false, "URL": false, "TREERIG_HOST": false,
+		} {
+			if got := worktree.IsURLVariable(name); got != want {
+				t.Errorf("IsURLVariable(%q) = %v, want %v", name, got, want)
+			}
 		}
 	})
 }

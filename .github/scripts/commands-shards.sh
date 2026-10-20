@@ -41,6 +41,7 @@ internal/cli
 '
 
 shard1='
+TestComposeInterpolatesTheRoutedURLsOnARealDaemon
 TestHostRouteAnswersAtTheWorktreeHostnameOnARealDaemon
 TestIndexIconsAreServedOnARealDaemon
 TestRenameOnARealDaemon

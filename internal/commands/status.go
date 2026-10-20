@@ -66,7 +66,7 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 		return nil, nil
 	}
 	ref := toRef(registration.RegisteredWorktree)
-	statuses, err := cctx.Runtime(cctx.Loaded.Config.LabelNamespace()).Status(ctx, ref)
+	statuses, err := cctx.RuntimeFor(cctx.Loaded.Config.LabelNamespace(), &registration.RegisteredWorktree, cctx.RouterPort).Status(ctx, ref)
 	if err != nil {
 		return nil, err
 	}

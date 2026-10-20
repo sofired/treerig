@@ -100,10 +100,24 @@ func composeFilePath(loaded *config.Loaded) string {
 	return filepath.Join(loaded.Root, loaded.Config.Compose.File)
 }
 
-// Runtime is the Compose runtime for resources labelled under namespace; a
-// worktree of another repository may carry another project's.
-func (c *CommandContext) Runtime(namespace string) *backend.Compose {
+// LabelRuntime is the Compose runtime for resources labelled under namespace; a
+// worktree of another repository may carry another project's. It carries no
+// routed URLs (TREERIG_URL and friends), so it is only for calls that look
+// resources up by label and never read the Compose file; anything that can
+// uses RuntimeFor. The name is the reminder.
+func (c *CommandContext) LabelRuntime(namespace string) *backend.Compose {
+	return c.RuntimeFor(namespace, nil, 0)
+}
+
+// RuntimeFor is LabelRuntime for a worktree whose registration is at hand: its
+// Compose invocations also get TREERIG_URL and TREERIG_SERVICE_URL_<NAME>
+// (#177), built from registered and routerPort the way `treerig urls` builds
+// them. A nil registered or an unresolved (not positive) routerPort leaves
+// them unset. Callers pass the router port their command works with:
+// CommandContext.RouterPort, or the running Router's Port() in `up` and `dev`.
+func (c *CommandContext) RuntimeFor(namespace string, registered *registry.RegisteredWorktree, routerPort int) *backend.Compose {
 	return backend.NewCompose(backend.Options{
+		URLVariables:   composeURLVariables(c.Loaded.Config, registered, routerPort),
 		ComposeFile:    c.ComposeFile(),
 		ProjectRoot:    c.Loaded.Root,
 		ConfigFile:     c.Loaded.File,

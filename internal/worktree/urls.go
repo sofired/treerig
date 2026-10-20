@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/layout"
 )
@@ -79,25 +80,18 @@ func RootRoute(routes []ServiceRoute) *ServiceRoute {
 	return nil
 }
 
-// ServiceURLVariables is the extra environment a hook — and a `treerig run`
-// command (#94) — receives on top of Environment: TREERIG_URL for the
+// URLVariables is the routed-URL part of a worktree's environment, the one
+// every consumer of a worktree's routes shares: TREERIG_URL for the
 // worktree's root route (RootRoute), omitted rather than empty when routes
-// has none, TREERIG_SERVICE_URL_<NAME> for every routed service, its name
-// upper-cased with each hyphen turned into an underscore, and
-// TREERIG_SERVICE_PORT_<NAME> (same name mapping) for every routed service
-// that has an allocated loopback port (#119): the port on 127.0.0.1 that
-// bypasses the router, for tools that must reach the service directly.
+// has none, and TREERIG_SERVICE_URL_<NAME> for every routed service, its
+// name upper-cased with each hyphen turned into an underscore.
 //
-// Deliberately not folded into Environment/Variables, which also feed
-// Compose (internal/backend/compose.go): the router port is a setting of
-// the whole machine, not of any one worktree's own Compose project, so
-// handing it to Compose here would make a change to nothing but the
-// router's port look like a configuration change to every worktree,
-// recreating its containers on the next `up` (#28). This function is the
-// only place these variables are built, and only the hooks runner (for hooks
-// and commands alike) calls it; compose_test.go pins Compose's own environment builder never calling
-// it either.
-func ServiceURLVariables(routes []ServiceRoute) [][2]string {
+// Hooks and `treerig run` commands receive these through ServiceURLVariables;
+// the worktree's own Compose invocations receive exactly these pairs, built
+// by the same call from the same routes, so ${TREERIG_URL} in compose.yaml is
+// the URL `treerig urls` prints (#177). Shared services' Compose invocations
+// never do: the shared definition must not vary by worktree.
+func URLVariables(routes []ServiceRoute) [][2]string {
 	var pairs [][2]string
 	if root := RootRoute(routes); root != nil {
 		pairs = append(pairs, [2]string{"URL", root.URL})
@@ -105,6 +99,30 @@ func ServiceURLVariables(routes []ServiceRoute) [][2]string {
 	for _, route := range routes {
 		pairs = append(pairs, [2]string{"SERVICE_URL_" + serviceEnvName(route.Service), route.URL})
 	}
+	return pairs
+}
+
+// IsURLVariable reports whether name (an environment variable's name) is one
+// URLVariables sets: TREERIG_URL or TREERIG_SERVICE_URL_<anything>. Whoever
+// lays URLVariables over an inherited environment drops these first, so a
+// variable inherited from another worktree's hook never stands in for a
+// route this worktree doesn't have.
+func IsURLVariable(name string) bool {
+	return name == brand.EnvName("URL") || strings.HasPrefix(name, brand.EnvName("SERVICE_URL_"))
+}
+
+// ServiceURLVariables is the extra environment a hook — and a `treerig run`
+// command (#94) — receives on top of Environment: URLVariables, and
+// TREERIG_SERVICE_PORT_<NAME> (same name mapping) for every routed service
+// that has an allocated loopback port (#119): the port on 127.0.0.1 that
+// bypasses the router, for tools that must reach the service directly.
+//
+// Deliberately not folded into Environment/Variables, which also feed
+// every Compose invocation: the loopback ports are not Compose's business,
+// and a hook's environment is built per stage. Compose gets URLVariables
+// alone (internal/backend, #177), only for the worktree's own project.
+func ServiceURLVariables(routes []ServiceRoute) [][2]string {
+	pairs := URLVariables(routes)
 	for _, route := range routes {
 		if route.Port > 0 {
 			pairs = append(pairs, [2]string{"SERVICE_PORT_" + serviceEnvName(route.Service), strconv.Itoa(route.Port)})

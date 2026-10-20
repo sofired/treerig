@@ -235,8 +235,15 @@ func (f *dockerFake) removals() bool {
 // on written files.
 func newRuntime(t *testing.T, fake *dockerFake) (*Compose, string) {
 	t.Helper()
+	return newRuntimeWith(t, fake, nil)
+}
+
+// newRuntimeWith is newRuntime with adjust, when not nil, applied to the
+// Options before the runtime is built.
+func newRuntimeWith(t *testing.T, fake *dockerFake, adjust func(*Options)) (*Compose, string) {
+	t.Helper()
 	controlHome := t.TempDir()
-	return NewCompose(Options{
+	options := Options{
 		ComposeFile:    "/work/acme/docker/compose.yaml",
 		ProjectRoot:    "/work/acme",
 		ConfigFile:     "/work/acme/treerig.toml",
@@ -250,7 +257,11 @@ func newRuntime(t *testing.T, fake *dockerFake) (*Compose, string) {
 			"PATH=/bin", "COMPOSE_FILE=from-the-shell", "COMPOSE_PATH_SEPARATOR=:", "COMPOSE_ENV_FILES=x", "COMPOSE_IGNORE_ORPHANS=1",
 			"COMPOSE_DISABLE_ENV_FILE=1", "COMPOSE_PROJECT_NAME=from-the-shell",
 		},
-	}), controlHome
+	}
+	if adjust != nil {
+		adjust(&options)
+	}
+	return NewCompose(options), controlHome
 }
 
 // ensureHome creates a worktree's home directory, as the command layer does
@@ -317,15 +328,75 @@ func TestDownStatus(t *testing.T) {
 		if _, ok := got["TREERIG_STAGE"]; ok {
 			t.Error("TREERIG_STAGE reached Compose")
 		}
-		// TREERIG_URL and TREERIG_SERVICE_URL_<NAME> are hook-only, so a router
-		// port change never recreates a worktree's containers (#28).
+		// No URL variables in Options: none reach Compose.
 		if _, ok := got["TREERIG_URL"]; ok {
-			t.Error("TREERIG_URL reached Compose")
+			t.Error("TREERIG_URL reached Compose without Options.URLVariables")
 		}
 		for name := range got {
 			if strings.HasPrefix(name, "TREERIG_SERVICE_URL_") {
-				t.Errorf("%s reached Compose", name)
+				t.Errorf("%s reached Compose without Options.URLVariables", name)
 			}
+		}
+	})
+	t.Run("hands every invocation of the project the routed URL variables, and drops inherited ones", func(t *testing.T) {
+		fake := newFake()
+		rt, controlHome := newRuntimeWith(t, fake, func(o *Options) {
+			o.URLVariables = [][2]string{
+				{"URL", "http://feature-login.acme.localhost:30080"},
+				{"SERVICE_URL_WEB", "http://feature-login.acme.localhost:30080"},
+				{"SERVICE_URL_API_V2", "http://api.feature-login.acme.localhost:30080/v2"},
+			}
+			// Another worktree's hook handed these down.
+			o.Environ = append(o.Environ, "TREERIG_URL=http://stale", "TREERIG_SERVICE_URL_GONE=http://stale", "TREERIG_SERVICE_PORT_WEB=1")
+		})
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.Down(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]string{
+			"TREERIG_URL":                "http://feature-login.acme.localhost:30080",
+			"TREERIG_SERVICE_URL_WEB":    "http://feature-login.acme.localhost:30080",
+			"TREERIG_SERVICE_URL_API_V2": "http://api.feature-login.acme.localhost:30080/v2",
+		}
+		calls := append(fake.composeCalls("config"), append(fake.composeCalls("up"), fake.composeCalls("down")...)...)
+		if len(calls) < 3 {
+			t.Fatalf("expected config, up and down calls, got %d", len(calls))
+		}
+		for _, call := range calls {
+			got := environ(call)
+			for name, value := range want {
+				if got[name] != value {
+					t.Errorf("%v: %s = %q, want %q", call.Args, name, got[name], value)
+				}
+			}
+			if _, ok := got["TREERIG_SERVICE_URL_GONE"]; ok {
+				t.Errorf("%v: an inherited TREERIG_SERVICE_URL_GONE survived", call.Args)
+			}
+			// Only the URL variables are replaced: the loopback port variables
+			// are not Compose's, and an inherited one passes through untouched.
+			if got["TREERIG_SERVICE_PORT_WEB"] != "1" {
+				t.Errorf("%v: TREERIG_SERVICE_PORT_WEB = %q, want the inherited 1", call.Args, got["TREERIG_SERVICE_PORT_WEB"])
+			}
+		}
+	})
+	t.Run("drops inherited URL variables when none are given", func(t *testing.T) {
+		fake := newFake()
+		rt, controlHome := newRuntimeWith(t, fake, func(o *Options) {
+			o.Environ = append(o.Environ, "TREERIG_URL=http://stale", "TREERIG_SERVICE_URL_WEB=http://stale")
+		})
+		ensureHome(t, controlHome)
+		if err := rt.Up(ctx, ref, nil); err != nil {
+			t.Fatal(err)
+		}
+		got := environ(fake.composeCalls("up")[0])
+		if _, ok := got["TREERIG_URL"]; ok {
+			t.Errorf("a stale TREERIG_URL = %q survived an unresolved router port", got["TREERIG_URL"])
+		}
+		if _, ok := got["TREERIG_SERVICE_URL_WEB"]; ok {
+			t.Error("a stale TREERIG_SERVICE_URL_WEB survived an unresolved router port")
 		}
 	})
 	t.Run("keeps the shell from redirecting Compose to other files", func(t *testing.T) {

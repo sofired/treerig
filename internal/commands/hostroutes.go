@@ -77,6 +77,19 @@ func routesOf(cfg config.Config, slug, domain string, routerPort int, ports map[
 	return routes
 }
 
+// composeURLVariables is the URL environment the worktree's own Compose
+// invocations get (#177): worktree.URLVariables over the same routesOf
+// `treerig urls` prints, so ${TREERIG_URL} in compose.yaml and the URL on the
+// terminal are one value, router port included. Nil, so the variables stay
+// unset, when w is nil or routerPort is not a resolved port (as `doctor`
+// leaves them out of a hook's environment). The shared stack never gets them.
+func composeURLVariables(cfg config.Config, w *registry.RegisteredWorktree, routerPort int) [][2]string {
+	if w == nil || routerPort <= 0 {
+		return nil
+	}
+	return worktree.URLVariables(routesOf(cfg, w.Slug, w.Domain, routerPort, w.Ports, w.HostRoutes).All())
+}
+
 // All is the services' routes and then the host routes', for the variables a
 // hook or command gets (worktree.ServiceURLVariables).
 func (r worktreeRoutes) All() []worktree.ServiceRoute {

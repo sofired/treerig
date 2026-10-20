@@ -56,16 +56,18 @@ Every hook and every [command](hooks.md#commands) inherits your environment plus
 | `TREERIG_WORKTREE_ID` | hooks and commands | yes | UUID of this worktree |
 | `TREERIG_SLUG` | hooks and commands | yes | The worktree's slug |
 | `TREERIG_HOST` | hooks and commands | yes | `<slug>.<domain>` |
-| `TREERIG_WORKTREE_HOME` | hooks and commands | yes | The worktree's private directory under the control home |
+| `TREERIG_WORKTREE_HOME` | hooks and commands | yes | The worktree home: the worktree's private directory under the control home |
 | `TREERIG_CONFIG` | hooks and commands | yes | Absolute path of the loaded `treerig.toml` |
 | `TREERIG_ROOT` | hooks and commands | yes | The directory that contains `treerig.toml`; also the working directory |
 | `TREERIG_COMPOSE_PROJECT` | hooks and commands | yes | The worktree's Compose project name, `treerig-<hash>` |
 | `COMPOSE_PROJECT_NAME` | hooks and commands | yes | The same name, for Compose; replaces an inherited value |
 | `COMPOSE_FILE` | hooks and commands | no | Absolute path of the Compose file `[compose] file` names; replaces an inherited value |
-| `TREERIG_URL` | hooks and commands | no | The worktree's own URL: the service or host route at the host root. Unset if none |
-| `TREERIG_SERVICE_URL_<NAME>` | hooks and commands | no | One per service and host route: its routed URL |
+| `TREERIG_URL` | hooks, commands and Compose | yes | The worktree's own URL: the service or host route at the host root. Unset if none |
+| `TREERIG_SERVICE_URL_<NAME>` | hooks, commands and Compose | yes | One per service and host route: its routed URL |
 | `TREERIG_SERVICE_PORT_<NAME>` | hooks and commands | no | One per service with a pinned port, and per host route: the port on `127.0.0.1` |
 | `TREERIG_SHARED_ADDR_<NAME>_<PORT>` | hooks and commands | no | One per pinned port of a [shared service](shared-services.md): `127.0.0.1:<host port>` |
 | `TREERIG_SHARED_URL_<NAME>` | hooks and commands | no | One per shared service with a routed `port`: its web UI's URL |
 
 `TREERIG_HOME` and `TREERIG_CONTROL_HOME` are not in this list on purpose: they pass through to hooks unchanged, so a hook that runs treerig resolves the same treerig root and control home you did.
+
+The Compose file sees the variables marked in the table's last column, and [Writing your compose.yaml for treerig](compose.md#variables-you-can-use) is the one list of them, with examples. The shared services' own Compose file gets none of the per-worktree ones.

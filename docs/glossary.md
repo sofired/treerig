@@ -10,6 +10,10 @@ A directory that the `backup` hook fills and the `restore` hook reads. treerig m
 
 The directory where one worktree's files are checked out: the files you edit. See [Worktrees](worktrees.md).
 
+## Container port
+
+The port an app listens on inside its container, which you `expose` in your Compose file or set as `port` in `[service.<name>]`. It is not the pinned port. See [Writing your compose.yaml](compose.md#ports).
+
 ## Control home
 
 The directory where treerig keeps what each worktree owns: its private directory, its locks and its backup bundles. It is `control-home/` under the [treerig root](#treerig-root) unless `TREERIG_CONTROL_HOME` moves it. See [Settings](settings.md).
@@ -44,7 +48,7 @@ The labels that make a Docker resource a worktree's: managed, repository and wor
 
 ## Pinned port
 
-The port on `127.0.0.1` that a routed service is published on. It is allocated once and stays the same across restarts and reboots, so a tool that cannot use a hostname can reach the service. It reaches your hooks as `TREERIG_SERVICE_PORT_<NAME>`. See [Routing](routing.md#ports).
+The port on `127.0.0.1` that a routed service is published on. It is allocated once and stays the same across restarts and reboots, so a tool that cannot use a hostname can reach the service. It reaches your hooks as `TREERIG_SERVICE_PORT_<NAME>`. It is not the container port you `expose` in your Compose file. See [Routing](routing.md#ports) and [Writing your compose.yaml](compose.md#ports).
 
 ## Registration
 
@@ -69,6 +73,10 @@ A treerig build that you install and verify once with `treerig teardown pin`, wh
 ## treerig root
 
 The directory where treerig keeps what belongs to the machine rather than to a project: `~/.treerig` by default, or whatever `TREERIG_HOME` names. It holds `settings.toml`, the router's state and, by default, the [control home](#control-home). See [Settings](settings.md).
+
+## Worktree home
+
+The worktree's private directory under the control home, `${TREERIG_WORKTREE_HOME}`. `worktree remove` deletes it. See [Homes](concepts.md#homes).
 
 ## Worktree
 

@@ -202,6 +202,26 @@ func TestReadDefinitionRefusals(t *testing.T) {
 		}
 	})
 
+	t.Run("never hands the shared file a worktree's routed URL variables, whatever the caller inherited (#177)", func(t *testing.T) {
+		f := newFixture(t, root)
+		runner := &fakerun.Runner{Handler: f.docker.Handle}
+		stack := shared.New(shared.Options{
+			RepositoryID: repository, LabelNamespace: ns, ControlHome: f.control, ComposeFile: "/work/compose.shared.yaml",
+			ProjectName: "acme", Runner: runner,
+			Environ: []string{"PATH=/bin", "TREERIG_URL=http://wt.acme.localhost:30080", "TREERIG_SERVICE_URL_WEB=http://wt.acme.localhost:30080"},
+		})
+		if _, err := stack.ReadDefinition(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		for _, call := range runner.Calls() {
+			for _, entry := range call.Env {
+				if strings.HasPrefix(entry, "TREERIG_URL=") || strings.HasPrefix(entry, "TREERIG_SERVICE_URL_") {
+					t.Errorf("%v: environment carries %s", call.Args, entry)
+				}
+			}
+		}
+	})
+
 	t.Run("reads the file under the shared environment only", func(t *testing.T) {
 		f := newFixture(t, root)
 		runner := &fakerun.Runner{Handler: f.docker.Handle}
