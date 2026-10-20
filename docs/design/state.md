@@ -281,7 +281,7 @@ Nothing here implements one.
 6. **A storage-name change is a migration** (`CONTRIBUTING.md`): the same step
    reads the old name until it has run. The pre-release rename (owner decision,
    2026-10-15) changed every storage name without a migration, because nothing
-   had shipped; from the first tag (v0.1.0-rc.1) this rule applies in full.
+   had shipped; from the first release (v0.1.0-rc.2) this rule applies in full.
 7. **Test it** with a fixture of the previous format in `testdata`, an upgrade
    test over it, and refusal tests for the new number. A change that cannot
    migrate refuses instead, in the words of the refusal above.

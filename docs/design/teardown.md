@@ -13,7 +13,7 @@ binaries (step 5). The pin command in the messages below is `treerig teardown pi
 release that is not a pre-release is published, `teardownPinCommand` becomes
 `--latest`, the one function that names it, and the goldens that quote it are
 regenerated. The removal gate and `--dev-teardown` are tracked in #146 and the
-cross-platform smoke test in #147; both wait for the first tag, `v0.1.0-rc.1`. Until the gate lands,
+cross-platform smoke test in #147; both wait for the first release, `v0.1.0-rc.2`. Until the gate lands,
 `worktree remove` is unchanged and nothing but this note, `state.md`,
 `release.md`, `AGENTS.md`, `docs/teardown-pin.md` and the help of
 the `teardown` commands mentions it. Text marked **[gate]** describes what
@@ -711,12 +711,13 @@ A test walks the config schema, the settings keys and the environment names
 
 ## Bootstrap
 
-The first tag, `v0.1.0-rc.1`, is cut before the gate exists, so it cannot
-contain it. A pinned child of a release without the gate runs the relocation of
+The first release, `v0.1.0-rc.2`, is cut before the gate exists, so it cannot
+contain it. (`v0.1.0-rc.1` was tagged first, but its workflow never started, so
+it has no release.) A pinned child of a release without the gate runs the relocation of
 its own bytes through `bin/` and then proceeds; that is accepted, because the
 bytes are the pinned bytes and no unpinned code runs. The first release that
-contains the gate is the one cut after #146 lands (`v0.1.0-rc.2`), and #147 pins
-that release. `rc.1` is what the pin store, `teardown pin --release` and `status`
+contains the gate is the one cut after #146 lands (`v0.1.0-rc.3` or later), and #147
+pins that release. `rc.2` is what the pin store, `teardown pin --release` and `status`
 meet a real signature, real URLs and real macOS binaries on. Both are
 pre-releases, which `install.sh`, Homebrew and `--latest` skip, so they are
 pinned with an explicit `--release`.

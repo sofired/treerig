@@ -49,5 +49,5 @@ labels (the managed label and the repository and worktree UUIDs) and make sure
 nothing still uses it.
 
 Run this once per machine. Nothing is migrated, because nothing had shipped
-when the name changed; from the first tag (v0.1.0-rc.1), a change to a storage
+when the name changed; from the first release (v0.1.0-rc.2), a change to a storage
 name comes with a migration (see [`CONTRIBUTING.md`](../CONTRIBUTING.md)).
