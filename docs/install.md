@@ -3,18 +3,18 @@
 How to install treerig and its `trig` alias, check a download, set up shell
 completion, and rename the binary.
 
-> **No release exists yet.** Until a tag exists, build treerig from source (see
-> [From source](#from-source)). From the first pre-release, `v0.1.0-rc.1`,
-> `install.sh --version` and the release's downloadable files work (see
-> [Pre-releases](#pre-releases)). Homebrew and the install script's default,
-> the latest release, need a stable release, which is never a pre-release.
+> **Only a pre-release exists so far**, `v0.1.0-rc.2`. Install it with
+> `install.sh --version` or from its downloadable files (see
+> [Pre-releases](#pre-releases)), or build from source (see
+> [From source](#from-source)). Homebrew and the install script's default, the
+> latest release, need a stable release, which is never a pre-release.
 
 treerig is a single static binary for Linux and macOS, on amd64 and arm64
 (Windows is not supported). It needs Git, Docker and Docker Compose at run
-time; `treerig doctor` checks all three once it is on PATH. Once a release
-exists, Homebrew and the install script install the latest release, which is
-never a pre-release (see [Pre-releases](#pre-releases)); the packages and
-archives are per release. Coming from a build before the
+time; `treerig doctor` checks all three once it is on PATH. Once a stable
+release exists, Homebrew and the install script install the latest release,
+which is never a pre-release (see [Pre-releases](#pre-releases)); the packages
+and archives are per release. Coming from a build before the
 rename? See [Switching from a build before the rename](upgrading-from-a-pre-rename-build.md)
 first.
 
@@ -46,7 +46,7 @@ version. To stamp one, build with
 
 ## Homebrew
 
-*Available from the first stable release. None has shipped yet.*
+*Available from the first stable release, which has not shipped yet.*
 
 ```bash
 brew install sofired/tap/treerig
@@ -59,8 +59,8 @@ beside `treerig`, and installs shell completions for both names.
 
 ## Install script
 
-*Without `--version`, available from the first stable release. With
-`--version`, from the first pre-release. None has shipped yet.*
+*Without `--version`, available from the first stable release, which has not
+shipped yet. With `--version`, available now.*
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | sh
@@ -218,8 +218,6 @@ Then delete the block between the two marker lines in `${ZDOTDIR:-$HOME}/.zshrc`
 
 ## Linux packages
 
-*Available from the first release or pre-release. None has shipped yet.*
-
 Each release attaches a `.deb`, an `.rpm` and an `.apk` for amd64 and arm64.
 They put `treerig` in `/usr/bin`, `trig` (the [short alias](#the-trig-alias))
 beside it, and the bash, zsh and fish completions for both names where those
@@ -246,8 +244,6 @@ package owns that file, the install fails (see [The `trig` alias](#the-trig-alia
 
 ## Release archive
 
-*Available from the first release or pre-release. None has shipped yet.*
-
 Each release also has a `treerig_<version>_<os>_<arch>.tar.gz` for `linux` and
 `darwin`, with `amd64` and `arm64`. It holds `treerig` at its root, with
 `LICENSE`, `NOTICE`, `README.md` and the shell completions under
@@ -259,8 +255,7 @@ no `trig` link, since archives hold regular files; to add the
 
 ## Pre-releases
 
-*Available from the first pre-release (`v0.1.0-rc.1`). None has shipped yet.
-Homebrew needs a stable release.*
+*The first pre-release is `v0.1.0-rc.2`. Homebrew needs a stable release.*
 
 A tag with a suffix, such as `v1.2.3-rc.1`, is published as a GitHub
 pre-release. It is never "latest", so the commands above do not install it,
@@ -269,8 +264,6 @@ and Homebrew does not see it. Install one with `install.sh --version
 [Releases page](https://github.com/sofired/treerig/releases).
 
 ## Verifying a download
-
-*Available from the first release or pre-release. None has shipped yet.*
 
 Every release publishes `checksums.txt`, covering the archives, the source
 archive and the packages. Compare the file you downloaded with it (run in the
@@ -382,9 +375,8 @@ yours).
 
 ## The `trig` alias
 
-*From source you can add it today (see [From source](#from-source)). Each
-install route provides it from that route's first release; none has shipped
-yet.*
+*Homebrew and the install script without `--version` provide it from the first
+stable release. Every other route provides it now.*
 
 Homebrew, `install.sh` and the Linux packages give you `trig` automatically.
 With a release archive or a source build, make the link yourself.

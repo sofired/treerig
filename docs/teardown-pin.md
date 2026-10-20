@@ -21,7 +21,7 @@ nothing downloads except `teardown pin --release` or `--latest`, which you run.
 Download a release, verify it, and pin the `treerig` inside it:
 
 ```bash
-treerig teardown pin --release 0.1.0-rc.1     # a version, as the tag without the v
+treerig teardown pin --release 0.1.0-rc.2     # a version, as the tag without the v
 treerig teardown pin --latest                 # the newest release that is not a pre-release
 ```
 
