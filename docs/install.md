@@ -97,13 +97,124 @@ whatever happens to the link:
   on stderr.
 - **The link can't be made.** It prints "could not create" on stderr.
 
-It reminds you to load the `trig` completion only when it created the link. To
-skip the alias, set `TREERIG_NO_ALIAS` to any non-empty value except `0`. With
-`curl | sh` the variable goes on the `sh` side of the pipe:
+To skip the alias, set `TREERIG_NO_ALIAS` to any non-empty value except `0`.
+With `curl | sh` the variable goes on the `sh` side of the pipe:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | TREERIG_NO_ALIAS=1 sh
 ```
+
+### What the script sets up for completion
+
+Completion setup is on by default, because a one-line install should give you
+working completion. To skip it, pass `--no-completions` or set
+`TREERIG_NO_COMPLETIONS` to any non-empty value except `0` (the option wins).
+Use that for CI and scratch installs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | sh -s -- --no-completions
+```
+
+After the binary and the alias are in place, `install.sh` sets up
+[shell completion](#shell-completion) from the scripts inside the archive. It
+copies them; it does not run `treerig completion`. The only thing it runs from
+the release is the verified binary's `--version`; the one other program it may
+run is `brew --prefix` (read-only, to find Homebrew's completion directory), when
+`brew` is on PATH. It covers `treerig`, and `trig`
+when this run created the alias, found it already in place, or found it
+provided elsewhere on PATH by a link to `treerig`. It leaves `trig` out when a
+different `trig` is in the way, and under `TREERIG_NO_ALIAS`.
+
+Completions are per user, so `--dir` does not move them: they go under your home
+directory whatever directory the binary goes to.
+
+For each of fish, bash and zsh that is on PATH, it writes (creating the
+directories, and replacing any regular file of that name on a re-run; a symlink
+or directory at one of these paths is left alone):
+
+| Shell | Files | Loaded because |
+| --- | --- | --- |
+| fish | `${XDG_CONFIG_HOME:-~/.config}/fish/completions/treerig.fish` (and `trig.fish`) | fish loads that directory on its own. |
+| bash | `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/treerig` (and `trig`) | bash-completion 2 loads a file named after the command. |
+| zsh | `${XDG_DATA_HOME:-~/.local/share}/zsh/site-functions/_treerig` (and `_trig`) | The block below puts the directory on `fpath`. |
+
+A shell you do not log in with still gets its files. fish and bash load theirs
+on their own, and the report says they are in place for when you use them. zsh
+does not: nothing puts the directory on its `fpath` unless zsh is your login
+shell (no `.zshrc` is written otherwise), so the report tells you to add the
+fpath lines from [Shell completion](#shell-completion). bash needs
+bash-completion 2 (macOS's own bash 3.2 cannot use it: install `bash-completion@2` and a newer bash with Homebrew), and
+if bash is your login shell and bash-completion does not look installed, the
+script says so. The script creates directories as 755 whatever your umask, since
+zsh's `compinit` distrusts a group-writable directory on `fpath`.
+
+If a system-wide copy of a command's completion is already there for a shell,
+from a package (`/usr/share/...`) or from Homebrew (under `brew --prefix`; those
+two are the only places it looks), the
+script leaves that shell's user-level copy out and says so, because a copy in
+your home directory would shadow the system one, which may be newer. The zsh
+block below is still added: `compinit` may be missing even when the scripts are
+there. The reverse does not hold. A user-level copy that an earlier `install.sh`
+wrote shadows the packages' and Homebrew's, so before you switch to either,
+[undo the setup](#undoing-the-completion-setup) first.
+
+When your login shell (`$SHELL`) is zsh, it also appends one block to
+`${ZDOTDIR:-~}/.zshrc`, creating the file if it is missing, in a single write:
+
+```zsh
+# >>> treerig completion (added by install.sh; delete this block to undo) >>>
+fpath=('/home/you/.local/share/zsh/site-functions' $fpath)
+if (( $+functions[compdef] )); then
+  autoload -Uz _treerig && compdef _treerig treerig
+  autoload -Uz _trig && compdef _trig trig
+else
+  autoload -Uz compinit && compinit
+fi
+# <<< treerig completion <<<
+```
+
+The block works whether or not your `.zshrc` ran `compinit` before it
+(oh-my-zsh, prezto and the like do). If your `.zshrc` runs `compinit` later,
+that is harmless, and it picks the functions up too. The `compinit` in the
+block, which runs only for a zsh setup that had none, adds a little shell
+start-up time; a plain `compinit` also asks about "insecure directories" if one
+on `fpath` is group-writable, and `compaudit | xargs chmod g-w` fixes that.
+
+The script never adds the block twice, and never rewrites one that is there: if
+the start marker is already in the file it leaves the file alone. A begin marker
+with no end marker counts as damage: it reports that, edits nothing, and asks you
+to remove the block and re-run. It does not edit a `.zshrc` that is a symlink or
+not writable either; it prints the same lines for you to add. A `.zshrc` that you
+track in a dotfiles repository as a regular file does get the block, so dotfiles
+users may prefer `--no-completions` and the manual steps under
+[Shell completion](#shell-completion). A re-run after the alias first appears
+does not edit the block; it prints the one line to add.
+
+`HOME` and `ZDOTDIR` must be absolute paths or the script skips completion with a
+message. It reads `ZDOTDIR` from its own environment, so one you set only in
+`~/.zshenv` is not seen: the block goes into `~/.zshrc`, and you move it.
+
+The report names what was written where, and ends with "Open a new terminal to
+use completion." (or, when it could not edit your `.zshrc` and printed lines for
+you to add, "After adding those lines, or fixing the file, open a new terminal.")
+and a link to the undo steps. Nothing here can fail the install:
+a problem is one line on stderr, and `treerig` is installed anyway. It does
+nothing when run as root, since `$HOME` may be another user's; it prints one line
+saying so.
+
+### Undoing the completion setup
+
+Delete the files `install.sh` wrote (leave out any you did not get, such as
+`trig` or a shell you do not have):
+
+```bash
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}"/fish/completions/{treerig,trig}.fish
+rm -f "${XDG_DATA_HOME:-$HOME/.local/share}"/bash-completion/completions/{treerig,trig}
+rm -f "${XDG_DATA_HOME:-$HOME/.local/share}"/zsh/site-functions/_{treerig,trig}
+```
+
+Then delete the block between the two marker lines in `${ZDOTDIR:-$HOME}/.zshrc`
+(from `# >>> treerig completion` to `# <<< treerig completion <<<`).
 
 ## Linux packages
 
@@ -219,20 +330,55 @@ written:
 
 A registry that is missing, empty or unreadable, or a `treerig.toml` that
 cannot be found or parsed, completes nothing rather than failing.
-`treerig completion <shell> --help` says how to load the script for good; to
-try it in the current shell:
+
+`install.sh` sets completion up for you (see
+[What the script sets up for completion](#what-the-script-sets-up-for-completion)),
+and Homebrew and the Linux packages install the scripts for both names in the
+shells' system-wide directories. Those are enough for fish, and for bash with
+bash-completion 2. zsh still needs `compinit` to have run: a package or Homebrew
+only puts the scripts on `fpath`, and a `.zshrc` that never runs `compinit`
+loads none of them. With a release archive or a source build you load the script
+yourself.
+
+`treerig completion <shell> --help` prints the generic text cobra generates for
+every program; the steps below are the recommended ones. To try the script in the
+current shell:
 
 ```bash
-source <(treerig completion bash)   # or zsh
-treerig completion fish | source    # fish
+source <(treerig completion bash)   # bash
+treerig completion fish | source    # fish only: `| source` does not work in bash or zsh
 ```
+
+zsh needs `compinit` before the script is sourced, or `source <(treerig
+completion zsh)` fails with `command not found: compdef`:
+
+```zsh
+autoload -U compinit && compinit    # once, if your .zshrc does not already
+source <(treerig completion zsh)
+```
+
+To make zsh permanent, write the script into a directory on `fpath` (before
+`compinit` runs, or run `compinit` after adding it), and add the directory to
+`.zshrc`:
+
+```zsh
+mkdir -p ~/.local/share/zsh/site-functions
+treerig completion zsh > ~/.local/share/zsh/site-functions/_treerig
+# in ~/.zshrc, before compinit (or before a plain `autoload -U compinit && compinit`):
+fpath=(~/.local/share/zsh/site-functions $fpath)
+autoload -U compinit && compinit
+```
+
+For bash, write it where bash-completion 2 looks, named after the command:
+`treerig completion bash > ~/.local/share/bash-completion/completions/treerig`.
+For fish: `treerig completion fish > ~/.config/fish/completions/treerig.fish`.
 
 A renamed binary or symlink (see [Calling it something else](#calling-it-something-else))
 prints a script for the name it was invoked as, so `trig completion
 bash|zsh|fish` is the same command under the other name. A completion loaded
-for `treerig` does not cover `trig`: load both if you use both. Homebrew and the
-packages install completions for both names; `install.sh` reminds you to load
-the `trig` one when it created the link.
+for `treerig` does not cover `trig`: load both if you use both. Homebrew, the
+packages and `install.sh` provide both names (`install.sh` only when the alias is
+yours).
 
 ## The `trig` alias
 
