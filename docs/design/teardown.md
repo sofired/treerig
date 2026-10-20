@@ -811,11 +811,12 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 **#147** runs on `workflow_run` of the Release workflow (when it succeeded) and on
 `workflow_dispatch` with a tag, not as part of the release. It uses SHA-pinned
 actions and `permissions: contents: read`; takes the tag from
-`github.event.workflow_run.head_branch`, checked against the version pattern
-before use; and runs on `ubuntu-latest`, `ubuntu-24.04-arm` and `macos-latest`
+`github.event.workflow_run.head_branch` (or the dispatch input), checked against
+the version pattern before use; and runs on `ubuntu-latest`, `ubuntu-24.04-arm` and `macos-latest`
 with scratch `TREERIG_HOME` and `TREERIG_CONTROL_HOME`. It runs
-`teardown pin --release 0.1.0-rc.3 --yes` (explicit, since the tag is a
-pre-release), `status`, and a `worktree remove` with no terminal and no `--yes`, in a scratch checkout. It
+`teardown pin --release <version> --yes` (explicit, since the tag is a
+pre-release; `<version>` is the tag without its leading `v`, such as
+`0.1.0-rc.3`), `status`, and a `worktree remove` with no terminal and no `--yes`, in a scratch checkout. It
 stops at the gate's two lines: it asserts both, and accepts the refusal that
 follows, so nothing is removed. The removal's `Inventory` calls Docker, which fails on a
 macOS runner without it; the test accepts that refusal too.
