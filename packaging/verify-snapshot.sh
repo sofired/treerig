@@ -431,6 +431,12 @@ ln -s treerig "$work/brewlike/Cellar/treerig/1.0/bin/trig"
 ln -s ../Cellar/treerig/1.0/bin/trig "$work/brewlike/bin/trig"
 check_alias_skipped "a trig on PATH that links to treerig in two hops" "$work/t11b" 'already provided by' PATH="$work/brewlike/bin:$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base"
 [ ! -e "$work/t11b/trig" ] || fail "install.sh linked trig where one is already provided on PATH in two hops"
+# A trig already in the install directory that reaches its treerig in two hops
+# is in place, and its completions are written.
+mkdir -p "$work/t11c"
+ln -s trig-hop "$work/t11c/trig"
+ln -s treerig "$work/t11c/trig-hop"
+check_alias_skipped "a trig in the directory that links to treerig in two hops" "$work/t11c" 'alias is already in place' PATH="$plain" TREERIG_VERSION="$version" TREERIG_BASE_URL="$base" TREERIG_NO_COMPLETIONS=1
 if [ -e "$work/t11/trig" ] || [ -L "$work/t11/trig" ]; then
   fail "install.sh linked trig where one is already provided on PATH"
 fi

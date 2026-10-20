@@ -311,6 +311,25 @@ print_path_guidance() {
 # already in place, or provided elsewhere on PATH by a link to ${BIN}), which is
 # when install_completions also covers it. Returns 0 whether or not the alias
 # exists: it never fails an install that has already succeeded.
+# link_end <path>: print where a chain of symlinks starting at <path> ends,
+# following relative and absolute targets, at most 40 hops (a loop stops there).
+# Homebrew's trig is two hops: bin/trig -> ../Cellar/treerig/<version>/bin/trig
+# -> treerig.
+link_end() {
+  le_path="$1"
+  le_hops=0
+  while [ -L "$le_path" ] && [ "$le_hops" -lt 40 ]; do
+    le_next="$(readlink "$le_path" 2>/dev/null)" || le_next=""
+    [ -n "$le_next" ] || break
+    case "$le_next" in
+      /*) le_path="$le_next" ;;
+      *) le_path="${le_path%/*}/$le_next" ;;
+    esac
+    le_hops=$((le_hops + 1))
+  done
+  printf '%s\n' "$le_path"
+}
+
 install_alias() {
   case "${TREERIG_NO_ALIAS:-}" in
     "" | 0) : ;;
@@ -319,7 +338,12 @@ install_alias() {
   alias_path="$1/$ALIAS"
   if [ -L "$alias_path" ]; then
     alias_target="$(readlink "$alias_path" 2>/dev/null)" || alias_target=""
-    if [ "$alias_target" = "$BIN" ] || [ "$alias_target" = "$1/$BIN" ]; then
+    # Followed to its end, the link must reach this directory's treerig.
+    alias_end="$(link_end "$alias_path")"
+    alias_end_dir="$(cd -P "${alias_end%/*}" 2>/dev/null && pwd)" || alias_end_dir=""
+    alias_dir="$(cd -P "$1" 2>/dev/null && pwd)" || alias_dir=""
+    if [ "$alias_target" = "$BIN" ] || [ "$alias_target" = "$1/$BIN" ] ||
+      { [ "${alias_end##*/}" = "$BIN" ] && [ -n "$alias_dir" ] && [ "$alias_end_dir" = "$alias_dir" ]; }; then
       info "The ${ALIAS} alias is already in place."
       ALIAS_OURS=1
       return 0
@@ -334,20 +358,9 @@ install_alias() {
   alias_other="$(command -v "$ALIAS" 2>/dev/null)" || alias_other=""
   if [ -n "$alias_other" ]; then
     # A trig that is itself a link to a treerig (another install of this
-    # tool) is not a clash, only already provided. The link is followed to its
-    # end, a bounded number of hops: Homebrew's is two, bin/trig ->
-    # ../Cellar/treerig/<version>/bin/trig -> treerig.
-    alias_via="$alias_other"
-    alias_hops=0
-    while [ -L "$alias_via" ] && [ "$alias_hops" -lt 40 ]; do
-      alias_next="$(readlink "$alias_via" 2>/dev/null)" || alias_next=""
-      [ -n "$alias_next" ] || break
-      case "$alias_next" in
-        /*) alias_via="$alias_next" ;;
-        *) alias_via="${alias_via%/*}/$alias_next" ;;
-      esac
-      alias_hops=$((alias_hops + 1))
-    done
+    # tool), followed to its end, is not a clash, only already provided.
+    alias_via=""
+    [ -L "$alias_other" ] && alias_via="$(link_end "$alias_other")"
     case "${alias_via##*/}" in
       "$BIN")
         err "skipped the ${ALIAS} alias: it is already provided by $alias_other, a link to $BIN."
