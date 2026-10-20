@@ -211,6 +211,12 @@ jobs:
           goreleaser release --snapshot --clean --skip=sign
           diff "$RUNNER_TEMP/first-checksums.txt" dist/checksums.txt
 
+      # install.sh's completion setup is checked against a real interactive zsh,
+      # which the runner image may not carry; verify-snapshot.sh fails under CI
+      # rather than skip that check.
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh
+
       - name: Verify the artifacts, the tap formula and install.sh
         run: packaging/verify-snapshot.sh dist
 

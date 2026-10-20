@@ -117,9 +117,28 @@ files. Nothing the pipeline emits is signed by a package-manager key.
 - **`install.sh`** builds the archive name from the platform and version,
   reads `checksums.txt` to find the latest version (from the archive names in
   it) and the archive's digest, and extracts `treerig` from the archive root.
-  It does not check the signature. The script is served from `main`
-  (`raw.githubusercontent.com`) or from a tag, so a change to it ships on merge,
-  not with a release.
+  For shell completion it also extracts `completions/treerig.bash`,
+  `completions/_treerig` and `completions/treerig.fish`, and the same three
+  named `trig` for the alias, and copies them into the user's XDG directories
+  (`docs/install.md`, "Install script"). Renaming or moving one of those files
+  is a change to `install.sh`; a missing one skips that command's completion
+  with one line, not fail. It does not check the signature. The script is served
+  from `main` (`raw.githubusercontent.com`) or from a tag, so a change to it
+  ships on merge, not with a release.
+
+  **install.sh's footprint outside the install directory.** Completion setup is
+  the one thing `install.sh` writes beside the install directory, and the
+  paths are a contract: `${XDG_CONFIG_HOME:-~/.config}/fish/completions/{treerig,trig}.fish`,
+  `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/{treerig,trig}`,
+  `${XDG_DATA_HOME:-~/.local/share}/zsh/site-functions/_{treerig,trig}`, and
+  one block in `${ZDOTDIR:-~}/.zshrc` for a zsh login shell. The block's begin
+  and end marker prefixes (`# >>> treerig completion`, `# <<< treerig completion <<<`)
+  are stable: they are how a later run, and a user undoing it, find the block.
+  The opt-outs are `--no-completions` and `TREERIG_NO_COMPLETIONS`. It never
+  rewrites an existing block, so changing the block's text is a migration, not
+  an edit: a new version has to keep matching the old marker prefixes and decide
+  what to do with an old block. `install.sh` is served from `main`, so a change
+  to any of this also applies to `--version` installs of old releases.
 - **The Homebrew formula** in `sofired/homebrew-tap` builds from the source
   archive; the release workflow takes its digest from `checksums.txt`. The
   template is `packaging/homebrew/treerig.rb`, and
