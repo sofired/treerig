@@ -444,8 +444,9 @@ tar xzf "$dist/$archive" -C "$work/archive-files" completions ||
   fail "could not read completions/ from $archive"
 
 # mkstubs <name> <shell>...: a directory of empty stand-ins for shells. install.sh
-# only asks `command -v`, so a stub is enough to make a shell "present"; the PATH
-# for a scenario is such a directory in front of the plain tool directory.
+# asks `command -v`, so a stub is enough to make a shell "present", and the one
+# it runs, `zsh -f` for zsh's default fpath, gets an empty one from the stub; the
+# PATH for a scenario is such a directory in front of the plain tool directory.
 mkstubs() {
   d="$work/path-$1"
   mkdir -p "$d"
@@ -664,7 +665,9 @@ else
   : >"$work/brewprefix/share/fish/vendor_completions.d/treerig.fish"
   : >"$work/brewprefix/etc/bash_completion.d/treerig"
   printf '#!/bin/sh\necho "%s"\n' "$work/brewprefix" >"$work/path-brew/brew"
-  chmod 755 "$work/path-brew/brew"
+  # A zsh whose default fpath holds Homebrew's directory, so its copy counts.
+  printf '#!/bin/sh\necho "%s"\n' "$work/brewprefix/share/zsh/site-functions" >"$work/path-brew/zsh"
+  chmod 755 "$work/path-brew/brew" "$work/path-brew/zsh"
   h="$work/h8h"
   run_install "completion, system-wide copy" "$work/c8h" HOME="$h" SHELL=/bin/zsh PATH="$work/path-brew:$work/path-all:$plain"
   must_lack "system-wide copy" "$h/.config/fish/completions/treerig.fish"
@@ -673,7 +676,17 @@ else
   must_have "system-wide copy, trig" "$h/.config/fish/completions/trig.fish"
   grep -q "kept the system-wide $work/brewprefix/share/zsh/site-functions/_treerig" "$work/install.log" || fail "the kept system-wide copy was not reported"
   grep -qF 'compdef _treerig treerig' "$h/.zshrc" || fail "the zsh block is missing when the system-wide copy was kept"
-  echo "install.sh (completion): a system-wide copy is kept in place of a user-level one"
+  # The same Homebrew copy with a zsh whose fpath lacks its directory, as on
+  # Apple silicon with macOS's own zsh: zsh would never load it, so the user-level
+  # copy is written. bash and fish still keep theirs.
+  mkdir -p "$work/path-brew-nofpath"
+  cp "$work/path-brew/brew" "$work/path-brew-nofpath/brew"
+  h="$work/h8i"
+  run_install "completion, Homebrew zsh copy off fpath" "$work/c8i" HOME="$h" SHELL=/bin/zsh PATH="$work/path-brew-nofpath:$work/path-all:$plain"
+  must_match "Homebrew zsh copy off fpath" "$h/.local/share/zsh/site-functions/_treerig" _treerig
+  must_lack "Homebrew zsh copy off fpath" "$h/.config/fish/completions/treerig.fish"
+  must_lack "Homebrew zsh copy off fpath" "$h/.local/share/bash-completion/completions/treerig"
+  echo "install.sh (completion): a system-wide copy is kept in place of a user-level one; for zsh only when its directory is on zsh's fpath"
 
   # Opt-outs write nothing, not even a directory.
   h="$work/h9"

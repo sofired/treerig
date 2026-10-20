@@ -118,9 +118,10 @@ curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | s
 After the binary and the alias are in place, `install.sh` sets up
 [shell completion](#shell-completion) from the scripts inside the archive. It
 copies them; it does not run `treerig completion`. The only thing it runs from
-the release is the verified binary's `--version`; the one other program it may
-run is `brew --prefix` (read-only, to find Homebrew's completion directory), when
-`brew` is on PATH. It covers `treerig`, and `trig`
+the release is the verified binary's `--version`. The only other programs it may
+run are read-only lookups: `brew --prefix`, when `brew` is on PATH, to find
+Homebrew's completion directory, and `zsh -f`, when `zsh` is, to read zsh's
+default `fpath`. It covers `treerig`, and `trig`
 when this run created the alias, found it already in place, or found it
 provided elsewhere on PATH by a link to `treerig`. It leaves `trig` out when a
 different `trig` is in the way, and under `TREERIG_NO_ALIAS`.
@@ -152,7 +153,11 @@ If a system-wide copy of a command's completion is already there for a shell,
 from a package (`/usr/share/...`) or from Homebrew (under `brew --prefix`; those
 two are the only places it looks), the
 script leaves that shell's user-level copy out and says so, because a copy in
-your home directory would shadow the system one, which may be newer. The zsh
+your home directory would shadow the system one, which may be newer. For zsh
+the system copy counts only if its directory is on zsh's default `fpath`:
+Homebrew's on Apple silicon (`/opt/homebrew/share/zsh/site-functions`) is not on
+macOS's own zsh's, and `/usr/share/zsh/site-functions` is not on Debian's or
+Ubuntu's, so zsh would never load those copies and the script writes its own. The zsh
 block below is still added: `compinit` may be missing even when the scripts are
 there. The reverse does not hold. A user-level copy that an earlier `install.sh`
 wrote shadows the packages' and Homebrew's, so before you switch to either,

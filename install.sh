@@ -40,8 +40,9 @@
 #      TREERIG_NO_COMPLETIONS=1 to skip it.
 #
 # Only the verified treerig binary is ever run, and only to print its version.
-# The one other program it may run is `brew --prefix`, read-only, when brew is
-# on your PATH, to find Homebrew's completion directory.
+# The only other programs it may run are read-only lookups for completion:
+# `brew --prefix`, when brew is on your PATH, to find Homebrew's completion
+# directory, and `zsh -f`, when zsh is, to read zsh's default fpath.
 # Nothing is written outside a private temporary directory until the checksum
 # matches.
 #
@@ -433,7 +434,11 @@ has_bash_completion() {
 # system_completion <shell> <command>: print the path of a system-wide
 # completion script for <command>, if there is one: where the .deb, .rpm and
 # .apk put it (.goreleaser.yaml), or in Homebrew's prefix when brew is on PATH.
-# A user-level copy would shadow it, and this one may be newer.
+# A user-level copy would shadow it, and this one may be newer. A zsh copy
+# counts only when its directory is on zsh's default fpath (ZSH_FPATH): Homebrew's
+# on Apple silicon (/opt/homebrew) is not on macOS's own zsh's, and
+# /usr/share/zsh/site-functions is not on Debian's or Ubuntu's, so zsh would
+# never load those.
 system_completion() {
   # Homebrew links a formula's bash completions into etc/bash_completion.d, not
   # share/bash-completion/completions, so bash checks both.
@@ -445,10 +450,12 @@ system_completion() {
   for sc_prefix in /usr "$BREW_PREFIX"; do
     [ -n "$sc_prefix" ] || continue
     for sc_rel in $sc_rels; do
-      if [ -f "$sc_prefix/$sc_rel" ]; then
-        printf '%s\n' "$sc_prefix/$sc_rel"
-        return 0
+      [ -f "$sc_prefix/$sc_rel" ] || continue
+      if [ "$1" = zsh ]; then
+        printf '%s\n' "$ZSH_FPATH" | grep -qxF "$sc_prefix/${sc_rel%/*}" || continue
       fi
+      printf '%s\n' "$sc_prefix/$sc_rel"
+      return 0
     done
   done
   return 1
@@ -598,6 +605,12 @@ install_completions() {
   if command -v brew >/dev/null 2>&1; then
     BREW_PREFIX="$(brew --prefix 2>/dev/null | head -n 1)" || BREW_PREFIX=""
     case "$BREW_PREFIX" in /*) : ;; *) BREW_PREFIX="" ;; esac
+  fi
+  # zsh's fpath with no startup files of the user's, one directory per line.
+  ZSH_FPATH=""
+  if command -v zsh >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # zsh expands it
+    ZSH_FPATH="$(zsh -fc 'print -rl -- $fpath' 2>/dev/null)" || ZSH_FPATH=""
   fi
 
   ic_data="$(xdg_dir "${XDG_DATA_HOME:-}" "$HOME/.local/share")"
