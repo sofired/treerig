@@ -12,8 +12,10 @@ binaries (step 5). The pin command in the messages below is `treerig teardown pi
 --release X.Y.Z` while the repository has only pre-releases; when the first
 release that is not a pre-release is published, `teardownPinCommand` becomes
 `--latest`, the one function that names it, and the goldens that quote it are
-regenerated. The removal gate and `--dev-teardown` are tracked in #146 and the
-cross-platform smoke test in #147; both wait for the first release, `v0.1.0-rc.2`. Until the gate lands,
+regenerated. The removal gate and `--dev-teardown` are tracked in #146, which
+needed a first release (`v0.1.0-rc.2`, now out); the cross-platform smoke test in
+#147 waits for the first release that contains the gate (`v0.1.0-rc.3` or
+later). Until the gate lands,
 `worktree remove` is unchanged and nothing but this note, `state.md`,
 `release.md`, `AGENTS.md`, `docs/teardown-pin.md` and the help of
 the `teardown` commands mentions it. Text marked **[gate]** describes what
