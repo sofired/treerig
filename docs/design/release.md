@@ -39,7 +39,8 @@ pre-release sorts before the release) and `_` in an `.apk`. GitHub rewrites a
 cannot be downloaded: the file at `releases/download/` has `.` where the line has
 `~`. A final release has none of this: `treerig_0.1.0_amd64.deb`. Anything that
 fetches a package for a tag (`.github/scripts/release-smoke.sh` does) has to
-apply both rewrites, and checked them against the `v0.1.0-rc.2` release.
+apply both rewrites; the script's rewrites were checked against the
+`v0.1.0-rc.2` release.
 
 A platform archive holds exactly `treerig` (at the archive root, mode 0755),
 `LICENSE`, `NOTICE`, `README.md` and `completions/` (`treerig.bash`, `_treerig`,

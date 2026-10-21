@@ -531,8 +531,13 @@ cmd_latest() {
   target=$(curl_get "$base/latest" -fsS --retry 3 --retry-all-errors --connect-timeout 20 --max-time 60 -o /dev/null -w '%{redirect_url}') ||
     die "could not resolve $base/latest"
   [ -n "$target" ] || die "$base/latest did not redirect to a release (is a release marked latest?)"
-  latest=${target##*/}
-  [ -n "$latest" ] || die "$base/latest redirected to $target, which names no release"
+  # Only a redirect to …/releases/tag/<name> names the latest release; GitHub
+  # sends /releases/latest elsewhere (the releases list) when none is marked
+  # latest, which must fail, not skip.
+  case $target in
+    */releases/tag/?*) latest=${target##*/} ;;
+    *) die "$base/latest redirected to $target, which names no release tag (is a release marked latest?)" ;;
+  esac
   if [ "$latest" != "$tag" ]; then
     echo "::notice::$tag is not the latest release (that is '$latest'); skipping the latest checks"
     return 0
