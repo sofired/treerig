@@ -54,9 +54,12 @@ In scope:
   (a control home redirected into a checkout, say), a development build that
   removes without a pin and without `--dev-teardown`, or a way to turn
   `--dev-teardown` on without the flag. A release build without a pin runs its own
-  (released) code by design, so that is not a report; and a build someone stamped
-  with a release-looking version by hand is not a release, but treerig does not
-  defend against that (it is a process of yours). `v0.1.0-rc.2` predates the gate
+  (released) code by design, so that is not a report. A build whose version was
+  stamped to look like a release, by hand, by `-ldflags` or `GOFLAGS` from an
+  environment a branch controls (direnv, mise, a devcontainer), or by a build
+  wrapper, is trusted as a release when no pin exists; treerig does not defend
+  against that, and the mitigation is to pin, because a usable pin overrides it for
+  every build. `v0.1.0-rc.2` predates the gate
   and removes with itself, so a report about it is not new. Reports about the pin
   commands themselves are welcome too.
 - Removal of a Docker resource that treerig cannot prove it owns by its

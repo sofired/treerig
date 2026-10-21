@@ -160,8 +160,10 @@ cd - && git worktree remove ../myapp.feature-x
 ```
 
 Working on treerig itself, or running a build from source? A development build
-removes only with a pinned teardown binary: see
-[Teardown pin](docs/teardown-pin.md).
+(`treerig --version` prints `0.0.0-…`) removes only with a pinned teardown binary:
+see [Teardown pin](docs/teardown-pin.md#what-counts-as-a-release-build). Don't
+`go build` a branch in a shell whose auto-loaded environment (direnv, mise, a
+devcontainer) you haven't reviewed; install from a release.
 
 `treerig down` stops a worktree and keeps its data; `treerig dev` is `up`
 followed by its logs until Ctrl-C. A hostname that won't resolve, or port 80
@@ -260,7 +262,7 @@ command. Releases are listed on the
 [releases page](https://github.com/sofired/treerig/releases).
 
 `worktree remove` refuses development builds that have no pinned, verified
-teardown binary (#146). That gate is in `main` and ships in the first release cut
+teardown binary (#146). That check is in `main` and ships in the first release cut
 after it (expected `v0.1.0-rc.3`); release builds, `v0.1.0-rc.2` included, remove
 with themselves.
 

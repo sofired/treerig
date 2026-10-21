@@ -90,32 +90,32 @@ Before `worktree remove` does anything else, it decides which code does the remo
   branch. Pin a build ([Getting a pin](teardown-pin.md#getting-a-pin)) or use
   `--dev-teardown`.
 
-`worktree remove --dev-teardown` removes with the build you invoked, whatever its
-kind and whether or not a pin exists, for work on removal itself. It is a flag and nothing else: no setting,
-no `treerig.toml` key and no environment variable turns it on, and nothing
-remembers it. It prints a warning on every run that names the version and the
-sha256 of the code that is about to run. That build is first copied, as itself,
-into a content-addressed store under the control home (`bin/`, outside any
-checkout), and the removal is handed to the copy, so deleting the checkout
-cannot delete the running program either (an unpinned release build does the same). The copy is exactly the invoked
-binary and no more: a build made from a branch still runs that branch's code.
-Copies are content-addressed, so a rebuild that changes nothing installs nothing
-new; one that has not been installed or reused in the last 30 days, or that is
-not among the 5 most recently used besides the current one, whichever rule
-catches it first, is swept away automatically: disk hygiene for a workflow that
-rebuilds often, not something to manage by hand. That count is a steady-state
-target, not a hard ceiling: the sweep only runs as part of a later
-`--dev-teardown` removal, so a burst of removals from distinct builds in quick
-succession can briefly leave more than 5 until the next one catches up. A copy
-installed or reused in the last 10 minutes is never swept away by either rule,
-however old or however far past the count it would otherwise be: that window
-exists for another removal, running at the same time, that might be mid-way
-through installing or about to run the very copy this one's own sweep would
-otherwise be free to take. A copy that cannot be installed or run, including on
-a control home whose filesystem cannot execute programs at all, is reported on
-stderr as it happens, and the removal continues with the invoked binary. The
-pinned binary cannot be run with `--dev-teardown` (it refuses), and the pin
-itself is untouched.
+`worktree remove --dev-teardown` removes with the build you invoked, whatever
+its kind and whether or not a pin exists, for work on removal itself. It is a
+flag and nothing else: no setting, no `treerig.toml` key and no environment
+variable turns it on, and nothing remembers it. It prints a warning on every run
+that names the version and the sha256 of the code that is about to run. That
+build is first copied, as itself, into a content-addressed store under the
+control home (`bin/`, outside any checkout), and the removal is handed to the
+copy, so deleting the checkout cannot delete the running program either (an
+unpinned release build does the same). The copy is exactly the invoked binary
+and no more: a build made from a branch still runs that branch's code. Copies
+are content-addressed, so a rebuild that changes nothing installs nothing new;
+one that has not been installed or reused in the last 30 days, or that is not
+among the 5 most recently used besides the current one, whichever rule catches
+it first, is swept away automatically: disk hygiene for a workflow that rebuilds
+often, not something to manage by hand. That count is a steady-state target, not
+a hard ceiling: the sweep only runs as part of a later `--dev-teardown` removal,
+so a burst of removals from distinct builds in quick succession can briefly
+leave more than 5 until the next one catches up. A copy installed or reused in
+the last 10 minutes is never swept away by either rule, however old or however
+far past the count it would otherwise be: that window exists for another
+removal, running at the same time, that might be mid-way through installing or
+about to run the very copy this one's own sweep would otherwise be free to take.
+A copy that cannot be installed or run, including on a control home whose
+filesystem cannot execute programs at all, is reported on stderr as it happens,
+and the removal continues with the invoked binary. The pinned binary cannot be
+run with `--dev-teardown` (it refuses), and the pin itself is untouched.
 
 ## Renaming a worktree
 

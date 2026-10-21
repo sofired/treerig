@@ -571,7 +571,7 @@ func TestTeardownStatus(t *testing.T) {
 			t.Fatalf("stdout = %q, stderr = %q", f.printed(), f.logged())
 		}
 		g := newTeardownFixture(t)
-		if err := g.status(true, "0.1.0-rc.3"); err != nil || g.printed() != "{\n  \"pinned\": false\n}" {
+		if err := g.status(true, "0.1.0-rc.3"); err != nil || g.printed() != "{\n  \"pinned\": false,\n  \"removal\": \"this-build\"\n}" {
 			t.Fatalf("--json: err = %v, stdout = %q", err, g.printed())
 		}
 	})
@@ -579,7 +579,7 @@ func TestTeardownStatus(t *testing.T) {
 	t.Run("with no pin and --json prints {pinned: false} and refuses", func(t *testing.T) {
 		f := newTeardownFixture(t)
 		wantRefusal(t, f.status(true, "0.0.0-dev"), "No teardown binary is pinned. Pin one with "+pinCommand+".")
-		if got := f.printed(); got != "{\n  \"pinned\": false\n}" {
+		if got := f.printed(); got != "{\n  \"pinned\": false,\n  \"removal\": \"refuse\"\n}" {
 			t.Fatalf("stdout = %q", got)
 		}
 	})
@@ -641,7 +641,7 @@ func TestTeardownStatus(t *testing.T) {
 			t.Fatalf("%v\n%s", err, f.printed())
 		}
 		want := commands.TeardownStatusReport{
-			Pinned: true, OK: true, Release: "my-build", Source: "file:" + f.file, PinnedAt: "2026-10-14T12:00:00Z", Platform: "linux_amd64",
+			Pinned: true, OK: true, Removal: "pin", Release: "my-build", Source: "file:" + f.file, PinnedAt: "2026-10-14T12:00:00Z", Platform: "linux_amd64",
 			Binary:  commands.TeardownBinaryReport{Path: f.stored(f.digest), SHA256: f.digest, State: "ok"},
 			Running: commands.TeardownRunningReport{Version: "0.0.0-dev", IsPin: true},
 		}
@@ -651,7 +651,7 @@ func TestTeardownStatus(t *testing.T) {
 		if strings.Contains(f.printed(), `"signer"`) {
 			t.Errorf("a file pin has no signer to report:\n%s", f.printed())
 		}
-		for _, key := range []string{`"pinned"`, `"ok"`, `"release"`, `"source"`, `"pinnedAt"`, `"platform"`, `"binary"`, `"path"`, `"sha256"`, `"state"`, `"running"`, `"version"`, `"isPin"`, `"newerThanPin"`} {
+		for _, key := range []string{`"pinned"`, `"ok"`, `"removal"`, `"release"`, `"source"`, `"pinnedAt"`, `"platform"`, `"binary"`, `"path"`, `"sha256"`, `"state"`, `"running"`, `"version"`, `"isPin"`, `"newerThanPin"`} {
 			if !strings.Contains(f.printed(), key) {
 				t.Errorf("JSON has no %s", key)
 			}

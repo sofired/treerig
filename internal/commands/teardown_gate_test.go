@@ -91,7 +91,7 @@ func (f *gateFixture) asPinnedChild(digest string) {
 
 // devNoPin is the reason and next steps of the no-pin refusal of a development
 // build (version 0.0.0-dev), on its continuation lines.
-const devNoPin = "this is a development build (0.0.0-dev), and a development build removes only with a pinned teardown binary, which none is yet (a release build needs no pin).\n" +
+const devNoPin = "this is a development build (0.0.0-dev), which may carry a branch's code, and no teardown binary is pinned. A development build removes only with a pinned one (a release build needs none).\n" +
 	"Pin a published release: `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`\n" +
 	"or a treerig you trust: `treerig teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`\n" +
 	"(`treerig teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`."
@@ -166,6 +166,42 @@ func TestTeardownGate(t *testing.T) {
 			if _, err := os.Lstat(f.control.TeardownDir); !os.IsNotExist(err) {
 				t.Fatalf("%s: the teardown directory exists (%v); an unpinned release writes none", version, err)
 			}
+		}
+	})
+
+	t.Run("with no pin, a release build that cannot find its own binary warns once and goes on, without an exec", func(t *testing.T) {
+		f := newGateFixture(t)
+		f.env.Executable = func() (string, error) { return "", errors.New("no /proc") }
+		err := f.remove(commands.RemoveOptions{Yes: true, Version: "0.1.0-rc.3"})
+		if err != nil && strings.Contains(err.Error(), "Refusing") {
+			t.Fatalf("err = %v, want no refusal", err)
+		}
+		if want := "warn: Could not find its own running binary before removing: no /proc; continuing with this binary."; f.logged() != want {
+			t.Fatalf("stderr = %q, want exactly %q", f.logged(), want)
+		}
+		if len(f.calls) != 0 {
+			t.Fatalf("exec was called: %v", f.calls)
+		}
+	})
+
+	t.Run("with no pin, a release build already running as its bin copy goes on without another exec", func(t *testing.T) {
+		f := newGateFixture(t)
+		f.execErr = nil
+		// A first removal installs the copy, as the real relocation does.
+		_ = f.remove(commands.RemoveOptions{Yes: true, Version: "0.1.0-rc.3"})
+		if len(f.calls) != 1 {
+			t.Fatalf("setup: exec calls = %+v", f.calls)
+		}
+		bin := f.calls[0].path
+		f.calls = nil
+		f.log.Lines, f.log.Printed = nil, nil
+		f.env.Executable = func() (string, error) { return bin, nil }
+		err := f.remove(commands.RemoveOptions{Yes: true, Version: "0.1.0-rc.3"})
+		if err != nil && strings.Contains(err.Error(), "Refusing") {
+			t.Fatalf("err = %v, want no refusal", err)
+		}
+		if len(f.calls) != 0 || f.logged() != "" {
+			t.Fatalf("exec calls %v, stderr %q; want none", f.calls, f.logged())
 		}
 	})
 
@@ -642,8 +678,8 @@ func TestDevTeardown(t *testing.T) {
 			}
 			f.env.Args = []string{"trig", "worktree", "remove", "--dev-teardown", "--yes"}
 			f.execErr = nil
-			err := f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true, Version: "0.1.0-rc.3"})
-			if err != nil && strings.Contains(err.Error(), "Refusing") {
+			// The fake exec returns nil, so the relocation "succeeds" and the removal goes on.
+			if err := f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true, Version: "0.1.0-rc.3"}); err != nil && !strings.Contains(err.Error(), "No treerig.toml") {
 				t.Fatalf("pinned=%v: err = %v", pinned, err)
 			}
 			hash, _ := binstore.HashFile(f.running)
@@ -751,9 +787,7 @@ func TestTeardownWarnsWhenRemovalWouldRefuse(t *testing.T) {
 		}
 		f.log.Lines, f.log.Printed = nil, nil
 		f.env.NoExec = noexec
-		if err := f.status(false, "0.0.0-dev"); err != nil {
-			t.Fatalf("status = %v; the exit code is about pin integrity only", err)
-		}
+		wantRefusal(t, f.status(false, "0.0.0-dev"), "The pin is intact, but `treerig worktree remove` would refuse; see the warning above.")
 		if f.logged() != advice(f) || !strings.HasSuffix(f.printed(), "\nworktree remove: would refuse (see the warning below)") {
 			t.Fatalf("stdout = %q, stderr = %q", f.printed(), f.logged())
 		}
@@ -766,14 +800,13 @@ func TestTeardownWarnsWhenRemovalWouldRefuse(t *testing.T) {
 		}
 		f.log.Lines, f.log.Printed = nil, nil
 		f.env.NoExec = noexec
-		if err := f.status(true, "0.0.0-dev"); err != nil {
-			t.Fatal(err)
-		}
+		wantRefusal(t, f.status(true, "0.0.0-dev"), "The pin is intact, but `treerig worktree remove` would refuse; see the warning above.")
 		var document struct {
-			Pinned bool `json:"pinned"`
-			OK     bool `json:"ok"`
+			Pinned  bool   `json:"pinned"`
+			OK      bool   `json:"ok"`
+			Removal string `json:"removal"`
 		}
-		if err := json.Unmarshal([]byte(f.printed()), &document); err != nil || !document.Pinned || !document.OK {
+		if err := json.Unmarshal([]byte(f.printed()), &document); err != nil || !document.Pinned || !document.OK || document.Removal != "refuse" {
 			t.Fatalf("stdout is not just the status document (%v): %q", err, f.printed())
 		}
 		if f.logged() != advice(f) {
@@ -790,9 +823,7 @@ func TestTeardownWarnsWhenRemovalWouldRefuse(t *testing.T) {
 		if err := os.Chmod(f.control.PinPath, 0o666); err != nil {
 			t.Fatal(err)
 		}
-		if err := f.status(false, "0.0.0-dev"); err != nil {
-			t.Fatal(err)
-		}
+		wantRefusal(t, f.status(false, "0.0.0-dev"), "The pin is intact, but `treerig worktree remove` would refuse; see the warning above.")
 		want := "warn: " + f.control.PinPath + " can be written by its group or others (mode 0666), so the teardown pin is not private to you. Do one of these: fix its owner and mode; delete " + f.control.TeardownDir + "/ and pin again with " + pinCommand + "; or move the control home to a local filesystem with TREERIG_CONTROL_HOME."
 		if f.logged() != want || !strings.HasSuffix(f.printed(), "\nworktree remove: would refuse (see the warning below)") {
 			t.Fatalf("stdout = %q, stderr = %q", f.printed(), f.logged())

@@ -230,7 +230,8 @@ func ownershipProblem(commandName, version string, control layout.Control, binar
 // removal should go on in this process, an error to refuse, and does not
 // return at all when it has exec-ed the pinned binary. With either seam nil
 // (cli.Main, and every hand-built test Env) it does nothing: only
-// cli.MainProcess wires them, and that is where the gate fails closed.
+// cli.MainProcess wires them, and that is where the gate fails closed (for a
+// development build, and for any pin that exists).
 //
 // The checks, in order, with every path compared canonically:
 //
@@ -240,14 +241,17 @@ func ownershipProblem(commandName, version string, control layout.Control, binar
 //  2. It is <control home>/bin/<its own hash> and --dev-teardown was given: the
 //     relocated copy of a dev run, which proceeds silently.
 //  3. --dev-teardown: warn, relocate through bin/ (relocateAndReexec), proceed.
-//  4. Otherwise read the pin. A usable pin wins for every build: refuse a control
-//     home inside a git work tree, open and verify the stored binary for this
-//     platform, refuse a store that is not private to this user, and exec it
-//     through the descriptor that was verified, with the caller's argv and an
-//     environment without loader variables. Every failure of a pin that exists
-//     refuses. With no pin, a release build (semver.IsPublishedRelease)
-//     removes with itself, relocated through bin/ as before the gate (#7), and a
-//     development build refuses.
+//  4. Otherwise read the pin (a foreign, newer or unreadable one refuses). With no
+//     pin, a release build (semver.IsPublishedRelease) removes with itself,
+//     relocated through bin/ as before the gate (#7), and a development build
+//     refuses; the location check below is not reached, because there is no pin
+//     for a branch to have planted. With a pin, which wins for every build:
+//     refuse if the running build cannot identify itself (it might be the pinned
+//     child), refuse a control home inside a git work tree, open and verify the
+//     stored binary for this platform, refuse a store that is not private to
+//     this user, and exec the binary through the descriptor that was verified,
+//     with the caller's argv and an environment without loader variables. Every
+//     failure of a pin that exists refuses.
 func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 	if env.Executable == nil || env.Exec == nil {
 		return nil

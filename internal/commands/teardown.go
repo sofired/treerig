@@ -384,12 +384,23 @@ type TeardownRunningReport struct {
 	NewerThanPin bool   `json:"newerThanPin"`
 }
 
+// What `worktree remove` would do, as `teardown status --json` reports it in
+// "removal": run the pinned binary, remove with this release build (no pin,
+// and none needed), or refuse.
+const (
+	removalPin       = "pin"
+	removalThisBuild = "this-build"
+	removalRefuse    = "refuse"
+)
+
 // TeardownStatusReport is `teardown status --json` for a pin that exists. OK
 // is true only when the pinned binary for this platform is installed and has
-// the recorded digest.
+// the recorded digest. Removal says what `worktree remove` would do, which
+// also needs the pin store to be somewhere and owned as the gate requires.
 type TeardownStatusReport struct {
 	Pinned   bool                  `json:"pinned"`
 	OK       bool                  `json:"ok"`
+	Removal  string                `json:"removal"`
 	Release  string                `json:"release"`
 	Source   string                `json:"source"`
 	Signer   string                `json:"signer,omitempty"`
@@ -401,13 +412,14 @@ type TeardownStatusReport struct {
 
 // TeardownStatus is `teardown status`: it reads the pin and checks that the
 // stored binary for this platform is there and has the digest the pin
-// records. The exit code and --json are about pin integrity only; the closing
-// line of the text report adds whether `worktree remove` would run the stored
-// binary, which also needs the control home to be outside every checkout,
-// private to you and on a filesystem that can run programs (each reported on
-// stderr as a warning when it is not). Stdout carries the report; a problem is
-// an error, printed on stderr, and exit 1. No pin is an error too (with --json,
-// after {"pinned": false}).
+// records, and says what `worktree remove` would do. Exit 0 means removal would
+// run: the pin is intact and its store acceptable to the gate (outside every
+// checkout, private to you, on a filesystem that can run programs), or there
+// is no pin and this is a release build, which needs none. Anything else is
+// reported on stderr, with exit 1: a development build with no pin, a pin that
+// cannot be used, a store the gate would refuse (each of those as a warning
+// first). Stdout carries the report, or with --json one document that always
+// has "removal".
 func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -424,16 +436,19 @@ func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions
 		// No pin is fine for a release build, which removes with itself; for a
 		// development build it is the problem it was.
 		release := semver.IsPublishedRelease(options.Version)
+		removal, closing := removalRefuse, "worktree remove: would refuse"
+		if release {
+			removal, closing = removalThisBuild, "worktree remove: will run this build (a release; no pin needed)"
+		}
 		if options.JSON {
 			if err := outputJSON(env, struct {
-				Pinned bool `json:"pinned"`
-			}{}); err != nil {
+				Pinned  bool   `json:"pinned"`
+				Removal string `json:"removal"`
+			}{Removal: removal}); err != nil {
 				return err
 			}
-		} else if release {
-			env.Logger.Output("worktree remove: will run this build (a release; no pin needed)")
 		} else {
-			env.Logger.Output("worktree remove: would refuse")
+			env.Logger.Output(closing)
 		}
 		if release {
 			env.Logger.Info(fmt.Sprintf("No teardown binary is pinned, and a release build needs none. Pin one with %s to make removal keep running that verified build.",
@@ -454,9 +469,16 @@ func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions
 	}
 
 	problems := storeProblems(env.CommandName, options.Version, env.NoExec, control, teardown.HomeFromUserDatabase(env.PasswdHome, userHome), binary)
+	removal, closing := removalPin, "worktree remove: will run this binary"
+	switch {
+	case check.State != teardown.BinaryOK:
+		removal, closing = removalRefuse, "worktree remove: would refuse"
+	case len(problems) > 0:
+		removal, closing = removalRefuse, "worktree remove: would refuse (see the warning below)"
+	}
 	if options.JSON {
 		report := TeardownStatusReport{
-			Pinned: true, OK: check.State == teardown.BinaryOK, Release: pin.Release, Source: pin.Source, Signer: pin.Signer,
+			Pinned: true, OK: check.State == teardown.BinaryOK, Removal: removal, Release: pin.Release, Source: pin.Source, Signer: pin.Signer,
 			PinnedAt: pin.PinnedAt, Platform: platform,
 			Binary:  TeardownBinaryReport{Path: check.Path, SHA256: check.Pinned, State: check.State},
 			Running: running,
@@ -465,14 +487,6 @@ func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions
 			return err
 		}
 	} else {
-		closing := "worktree remove: would refuse"
-		switch {
-		case check.State != teardown.BinaryOK:
-		case len(problems) > 0:
-			closing += " (see the warning below)"
-		default:
-			closing = "worktree remove: will run this binary"
-		}
 		printTeardownReport(env, pin, platform, check, closing)
 		if hint := newerHint(env.CommandName, pin, options.Version); hint != "" {
 			env.Logger.Info(hint)
@@ -486,6 +500,9 @@ func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions
 	again := repinCommand(env.CommandName, options.Version, pin, platform)
 	switch check.State {
 	case teardown.BinaryOK:
+		if len(problems) > 0 {
+			return clierr.Newf("The pin is intact, but `%s worktree remove` would refuse; see the warning above.", env.CommandName)
+		}
 		return nil
 	case teardown.BinaryNone:
 		return clierr.Newf("The teardown pin has no binary for %s. Pin one for this machine with %s.", platform, again)

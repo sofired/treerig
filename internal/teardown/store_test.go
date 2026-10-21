@@ -1,11 +1,14 @@
 package teardown_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/sofired/treerig/internal/binstore"
 	"github.com/sofired/treerig/internal/layout"
@@ -241,4 +244,43 @@ func stageStale(t *testing.T, l layout.Control, now time.Time) string {
 	}
 	age(t, path, now, time.Hour)
 	return path
+}
+
+func TestReadPinIsDefensive(t *testing.T) {
+	t.Run("an oversized pin.json is foreign, without being read whole", func(t *testing.T) {
+		l, _ := newControl(t)
+		if err := os.MkdirAll(l.TeardownDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(l.PinPath, []byte(`{"version": 1, "pad": "`+strings.Repeat("x", 70<<10)+`"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, found, err := teardown.ReadPin(l)
+		if found || !errors.Is(err, teardown.ErrForeign) {
+			t.Fatalf("found %v, err = %v; want a foreign refusal", found, err)
+		}
+	})
+
+	t.Run("a FIFO where pin.json belongs is refused without hanging", func(t *testing.T) {
+		l, _ := newControl(t)
+		if err := os.MkdirAll(l.TeardownDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := unix.Mkfifo(l.PinPath, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := teardown.ReadPin(l)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("a FIFO was read as a pin")
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("ReadPin hung on a FIFO")
+		}
+	})
 }

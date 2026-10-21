@@ -1,12 +1,12 @@
 Check the teardown pin on this machine: that it can be read, and that the stored
 binary for this platform exists and still has the sha256 the pin records. Exit 0
-means the pin is intact; no pin, or any problem, is reported on stderr with exit
-1, and --json is about the pin's integrity only. The text report ends with a
-line saying whether `worktree remove` would run the stored binary, run this
-release build, or refuse, which also takes into account where the control home
-is and who can write it. A release build with no pin exits 0. With --json, one
-document on stdout; with no pin, {"pinned": false}; empty stdout with exit 1
-means the pin could not be read.
+means removal would run: the pin is intact, or there is none and this is a
+release build, which needs none. A development build with no pin, or any other
+problem, is reported on stderr with exit 1. The text report ends with a line
+saying what `worktree remove` would do, which also takes into account where the
+control home is and who can write it. With --json, one document on stdout whose
+"removal" is "pin", "this-build" or "refuse"; with no pin, {"pinned": false,
+"removal": …}; empty stdout with exit 1 means the pin could not be read.
 
 Usage:
   treerig teardown status [flags]

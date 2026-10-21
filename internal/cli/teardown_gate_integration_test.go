@@ -52,7 +52,7 @@ func TestTeardownGate(t *testing.T) {
 
 	t.Run("refuses without a pin, with the exact text, and writes nothing", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		want := "[treerig] ERROR: Refusing to remove this worktree: this is a development build (invoked-9.9.9), and a development build removes only with a pinned teardown binary, which none is yet (a release build needs no pin).\n" +
+		want := "[treerig] ERROR: Refusing to remove this worktree: this is a development build (invoked-9.9.9), which may carry a branch's code, and no teardown binary is pinned. A development build removes only with a pinned one (a release build needs none).\n" +
 			"  Pin a published release: `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`\n" +
 			"  or a treerig you trust: `treerig teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`\n" +
 			"  (`treerig teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.\n"

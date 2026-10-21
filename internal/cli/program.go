@@ -972,9 +972,10 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	teardownGroup := &cobra.Command{
 		Use:   "teardown",
 		Short: "pin and check the trusted treerig build for worktree removal",
-		Long: "The pinned teardown binary is the build of treerig that `worktree remove` runs in place of whichever build you invoke when one is pinned, " +
-			"so that code from a branch does not run during a removal. These commands install the pin and check it. " +
-			"A development build's `worktree remove` refuses without a pin and a release build's removes with itself; either uses a pin when one exists, and `worktree remove --dev-teardown` removes with the build you invoke instead.",
+		Long: "The pinned teardown binary is the build of treerig that `worktree remove` runs in place of whichever build you invoke, so that code from a branch does not run during a removal. " +
+			"These commands install the pin and check it. " +
+			"A development build's `worktree remove` refuses without a pin. A release build's removes with itself. Either runs the pinned binary when one exists. " +
+			"`worktree remove --dev-teardown` removes with the build you invoke instead.",
 		Args: usageArgs(unknownSubcommand),
 		RunE: bareGroup(p),
 	}
@@ -1020,9 +1021,10 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Use:   "status",
 		Short: "check the teardown pin and its stored binary",
 		Long: "Check the teardown pin on this machine: that it can be read, and that the stored binary for this platform exists and still has the sha256 the pin records. " +
-			"Exit 0 means the pin is intact; no pin, or any problem, is reported on stderr with exit 1, and --json is about the pin's integrity only. " +
-			"The text report ends with a line saying whether `worktree remove` would run the stored binary, run this release build, or refuse, which also takes into account where the control home is and who can write it. A release build with no pin exits 0. " +
-			"With --json, one document on stdout; with no pin, {\"pinned\": false}; empty stdout with exit 1 means the pin could not be read.",
+			"Exit 0 means removal would run: the pin is intact, or there is none and this is a release build, which needs none. " +
+			"A development build with no pin, or any other problem, is reported on stderr with exit 1. " +
+			"The text report ends with a line saying what `worktree remove` would do, which also takes into account where the control home is and who can write it. " +
+			"With --json, one document on stdout whose \"removal\" is \"pin\", \"this-build\" or \"refuse\"; with no pin, {\"pinned\": false, \"removal\": …}; empty stdout with exit 1 means the pin could not be read.",
 		Args: maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)

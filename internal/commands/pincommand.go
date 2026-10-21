@@ -78,7 +78,7 @@ func repinCommand(commandName, version string, pin teardown.Pin, platform string
 // It says so, and gives both routes that work for a build with no release of its
 // own to name, on lines of their own.
 func noPinRefusal(commandName, version string) string {
-	return fmt.Sprintf("this is a development build (%s), and a development build removes only with a pinned teardown binary, which none is yet (a release build needs no pin).\n"+
+	return fmt.Sprintf("this is a development build (%s), which may carry a branch's code, and no teardown binary is pinned. A development build removes only with a pinned one (a release build needs none).\n"+
 		"Pin a published release: `%s teardown pin %s`\n"+
 		"or a treerig you trust: `%s teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`\n"+
 		"(`%s teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`.",

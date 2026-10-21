@@ -108,7 +108,7 @@ func TestTeardownPinAndStatus(t *testing.T) {
 			t.Fatalf("status = %+v", text)
 		}
 		asJSON := runTreerig(t, binary, dir, []string{"teardown", "status", "--json"}, treerigOptions{})
-		if asJSON.Code != 1 || asJSON.Stdout != "{\n  \"pinned\": false\n}\n" || asJSON.Stderr != want {
+		if asJSON.Code != 1 || asJSON.Stdout != "{\n  \"pinned\": false,\n  \"removal\": \"refuse\"\n}\n" || asJSON.Stderr != want {
 			t.Fatalf("status --json = %+v", asJSON)
 		}
 	})

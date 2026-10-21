@@ -38,8 +38,14 @@ func IsRelease(s string) bool {
 }
 
 // gitDescribeTail is what `git describe --tags` appends to a tag for a commit
-// past it: "-<commits>-g<abbreviated hash>".
-var gitDescribeTail = regexp.MustCompile(`-[0-9]+-g[0-9a-f]{7,}$`)
+// past it, "-<commits>-g<abbreviated hash>", with the "-dirty" or "-broken" that
+// --dirty and --broken add after it.
+var gitDescribeTail = regexp.MustCompile(`-[0-9]+-g[0-9a-f]{7,}(-dirty|-broken)?$`)
+
+// gitDescribeMark is a bare "-dirty" or "-broken" suffix, which `git describe
+// --dirty` puts on a tag that is itself checked out with local changes
+// (`0.1.0-dirty`).
+var gitDescribeMark = regexp.MustCompile(`-(dirty|broken)$`)
 
 // IsPublishedRelease reports whether s is the version of a build that was cut
 // from a release tag, as opposed to a development, snapshot or source build. It
@@ -52,15 +58,22 @@ var gitDescribeTail = regexp.MustCompile(`-[0-9]+-g[0-9a-f]{7,}$`)
 //   - it has no `+build` metadata, so a snapshot's `0.0.0-dev+<sha>` is out;
 //   - it is not 0.0.0 in any form, so an unstamped build's `0.0.0-dev` is out;
 //   - it does not end the way `git describe` ends a version for a commit past a
-//     tag (`0.1.0-rc.2-5-gabc1234`), which would otherwise read as a pre-release.
+//     tag (`0.1.0-rc.2-5-gabc1234`, with `-dirty` or `-broken` after it, or a bare
+//     `-dirty`/`-broken`), which would otherwise read as a pre-release.
 //
 // Nothing in this repository stamps a version that is not a tag's: the release
 // takes it from the tag (GoReleaser, and Homebrew's formula), a snapshot stamps
-// 0.0.0-dev+<sha>, and a plain build keeps 0.0.0-dev. Someone who stamps a
-// release-looking version on a build by hand gets past this, which is accepted:
-// it is not a defence against a hostile process of the same user.
+// 0.0.0-dev+<sha>, and a plain build keeps 0.0.0-dev.
+//
+// What it cannot do is tell a version stamped by any other means from a tag's:
+// a build whose version is set to something release-looking by hand, by
+// -ldflags or GOFLAGS from an environment a branch controls (direnv, mise, a
+// devcontainer), or by a build wrapper, is treated as a release, and with no pin
+// it removes with itself. That is accepted: it is not a defence against a
+// hostile process of the same user. The mitigation is a pin, which overrides it
+// for every build.
 func IsPublishedRelease(s string) bool {
-	if !IsRelease(s) || strings.Contains(s, "+") || gitDescribeTail.MatchString(s) {
+	if !IsRelease(s) || strings.Contains(s, "+") || gitDescribeTail.MatchString(s) || gitDescribeMark.MatchString(s) {
 		return false
 	}
 	return s != "0.0.0" && !strings.HasPrefix(s, "0.0.0-")

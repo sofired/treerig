@@ -52,6 +52,24 @@ jobs:
             echo "::error::tag '${GITHUB_REF_NAME}' isn't a semantic version (vMAJOR.MINOR.PATCH, optionally with -prerelease or +build)" >&2
             exit 1
           fi
+          # A published release has to read as one to treerig's own check
+          # (internal/semver.IsPublishedRelease): `worktree remove` treats a build
+          # whose version passes it as a release, which removes without a pin, and
+          # anything else as a development build. So a tag that check would reject
+          # (build metadata, 0.0.0 in any form, or the tail `git describe` adds
+          # past a tag) cannot be released.
+          if printf '%s' "$version" | grep -q '+'; then
+            echo "::error::tag '${GITHUB_REF_NAME}' has build metadata (+...), which treerig does not treat as a release version" >&2
+            exit 1
+          fi
+          if printf '%s' "$version" | grep -Eq '^0\.0\.0($|-)'; then
+            echo "::error::tag '${GITHUB_REF_NAME}' is 0.0.0, the version of development builds" >&2
+            exit 1
+          fi
+          if printf '%s' "$version" | grep -Eq -e '-[0-9]+-g[0-9a-f]{7,}(-dirty|-broken)?$' -e '-(dirty|broken)$'; then
+            echo "::error::tag '${GITHUB_REF_NAME}' ends like a git describe version (-N-gHASH, -dirty, -broken)" >&2
+            exit 1
+          fi
 
       # Only a commit that is on main can be released: whoever can push a tag
       # (the repository's tag ruleset, docs/design/release.md, says who) cannot

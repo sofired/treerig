@@ -1,6 +1,7 @@
 {
   "pinned": true,
   "ok": true,
+  "removal": "pin",
   "release": "my-build",
   "source": "file:BASE/bin/treerig-local",
   "pinnedAt": "TIMESTAMP",
