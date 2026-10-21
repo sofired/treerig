@@ -17,12 +17,12 @@ class Treerig < Formula
     ENV["CGO_ENABLED"] = "0"
     ldflags = "-s -w -X github.com/sofired/treerig/internal/brand.Version=#{version}"
     system "go", "build", *std_go_args(ldflags:), "./cmd/treerig"
-    generate_completions_from_executable(bin/"treerig", "completion", shells: [:bash, :zsh, :fish])
+    generate_completions_from_executable(bin/"treerig", "completion")
     # `trig` is a short alias: the same binary under a second name, which
     # prints and completes as `trig` when run that way (brand.CLIName follows
     # argv[0]). Its completions come from running it under that name.
     bin.install_symlink "treerig" => "trig"
-    generate_completions_from_executable(bin/"trig", "completion", shells: [:bash, :zsh, :fish], base_name: "trig")
+    generate_completions_from_executable(bin/"trig", "completion", base_name: "trig")
   end
 
   def caveats
