@@ -21,11 +21,11 @@
 # The cooldown waits a week before proposing a newly published version. Security
 # updates skip it, and they are never grouped.
 #
-# `cosign-release: v3.0.6` in release.yml and go.yml is a `with:` input of
-# sigstore/cosign-installer, not an action reference, so Dependabot never sees
-# it. It is a contract pin that changes only on purpose, in both files
-# (docs/design/release.md); the installer commit in the two files also changes
-# together, and internal/style's TestCosignPinnedTheSameInBothWorkflows fails
+# `cosign-release: v3.0.6` in release.yml, go.yml and release-smoke.yml is a
+# `with:` input of sigstore/cosign-installer, not an action reference, so
+# Dependabot never sees it. It is a contract pin that changes only on purpose,
+# in all three files (docs/design/release.md); the installer commit in the
+# three files also changes together, and internal/style's TestCosignPinnedTheSameInAllWorkflows fails
 # when they differ.
 #
 # Go modules are not covered: dependency bumps stay deliberate, by hand.

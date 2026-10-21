@@ -177,7 +177,7 @@ jobs:
       - uses: ./.github/actions/setup-go
 
       - name: ShellCheck
-        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh .github/scripts/commands-shards.sh .github/scripts/validate-tag.sh
+        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh .github/scripts/commands-shards.sh .github/scripts/validate-tag.sh .github/scripts/release-smoke.sh
 
       # Installed once and put on PATH, so the reproducibility step below can
       # run it again; the action alone leaves no goreleaser on PATH.
@@ -219,6 +219,20 @@ jobs:
 
       - name: Verify the artifacts, the tap formula and install.sh
         run: packaging/verify-snapshot.sh dist
+
+      # The release smoke test's three legs (.github/scripts/release-smoke.sh,
+      # run against a real release by release-smoke.yml) against the snapshot's
+      # own binary, so a change to the script, or to the gate or pin it asserts
+      # on, fails here and not first at a release tag. The snapshot is a
+      # development build and `--pin file` pins that binary itself, hence the
+      # two options that --ci-snapshot allows under Actions. The legs use
+      # scratch homes in a temp directory and remove nothing.
+      - name: The release smoke legs against the snapshot
+        run: |
+          version=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)
+          test -n "$version"
+          .github/scripts/release-smoke.sh legs --ci-snapshot --pin file --dev-build \
+            --binary dist/treerig_linux_amd64_v1/treerig --version "$version"
 
       # teardown pin --release against the snapshot: the test signs a copy of
       # dist/checksums.txt with a throwaway key (no Rekor, no TSA, no network),

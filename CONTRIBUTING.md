@@ -300,8 +300,114 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
    requested once per gated job, so twice per release: first `release`, then
    `homebrew-tap`. When it finishes, check the release page, then try `brew install sofired/tap/treerig`,
    `install.sh` and one package.
+4. Look at the **Release smoke** run that follows (Actions, "Release smoke"; see
+   below). It is not part of the release and does not hold it up.
 
-**When it fails:**
+   The smoke workflow, and the script it runs, come from `main` (a
+   `workflow_run` workflow runs from the default branch), not from the tag. So
+   merge any change to `release-smoke.yml` or `.github/scripts/release-smoke.sh`
+   before you tag, or dispatch it afterwards with "Use workflow from: main".
+
+**Release smoke** (`.github/workflows/release-smoke.yml`, #147) checks the
+published release the way a user meets it. It has two kinds of job: "Read and
+validate the tag", and a `smoke` job on each of `ubuntu-latest`,
+`ubuntu-24.04-arm` and `macos-latest` (linux/amd64, linux/arm64 and darwin/arm64;
+darwin/amd64, which the release also ships, has no standard hosted runner, so
+nothing runs that archive). It starts when the Release workflow finishes
+successfully, and shows in the Actions tab as "Release smoke vX.Y.Z". Each
+runner:
+
+- downloads `checksums.txt`, its Sigstore bundle and that platform's archive from
+  `releases/download/<tag>/`, checks `checksums.txt` with `cosign verify-blob`
+  against the identity in `docs/design/release.md` (the real keyless signature,
+  which nothing else exercises before a release), checks that it lists every
+  asset the release contract names, and checks the archive against it;
+- on Linux, downloads the `.deb`, `.rpm` and `.apk` (a pre-release's names differ
+  from its `checksums.txt` lines; `docs/design/release.md` says how) and checks
+  that `/usr/bin/treerig` in each is the archive's `treerig`;
+- runs the archive's `treerig` through three legs, each with its own scratch
+  `TREERIG_HOME` and `TREERIG_CONTROL_HOME` and no terminal, ending in a
+  `worktree remove` that removes nothing (the checkout is not a registered
+  worktree): **pin** (`teardown pin --release` with the real cosign,
+  `teardown status`, and both "pinned teardown binary" lines of the gate),
+  **no pin** (a release removes with itself: no refusal and neither line, and
+  `teardown status --json` says `"removal": "this-build"`) and **corrupt pin**
+  (the stored binary overwritten, which the gate refuses);
+- at a stable tag that is the latest release, also checks
+  `releases/latest/download/checksums.txt` and `teardown pin --latest`.
+
+**Running it again.** Use Actions, "Release smoke", Run workflow ("Use workflow
+from: main"), and give the tag with its `v`, as `v0.1.0-rc.3` (`validate-tag.sh`
+checks it, and a tag without the `v` is refused). The workflow starts only when
+the Release run *succeeded*. A re-run of
+a failed Release job or run makes a new attempt of the same run (the same run id,
+a higher `run_attempt`); when that attempt succeeds the run's conclusion becomes
+`success` and GitHub sends a new `workflow_run` `completed` event, so the smoke
+run starts by itself, once, for the tag. GitHub's documentation says that the
+`requested` activity does not occur on a re-run and does not spell out
+`completed`, so if no smoke run appears within a minute of the re-run finishing,
+dispatch it by hand. A Release run that fails and stays failed (a failed
+`homebrew-tap` job, the last one, and for a stable tag the slowest: it waits for
+the tap's bottles) also starts no smoke run; dispatch it. The smoke runs for one
+tag are serialised (`concurrency`), never cancelled.
+
+**When Release smoke fails.** The log of the failed job says what; read, in
+order, the `release-smoke: …` line that ends it (and, in the run's summary, its
+`::error::` annotation), and for a leg the
+`release-smoke: FAILED (<leg> leg): …` line, above which each command is shown as
+`[<leg>] $ <command>` with its `out|` and `err|` lines and `exit N`. A failure
+means the *published release* has a problem; nothing was unpublished.
+
+| What it says | What it means | What to do |
+| --- | --- | --- |
+| `checksums.txt is not signed by …; do not trust this release` | The signature is missing, or isn't from `release.yml` at that tag. | Don't trust the release. Mark it pre-release or delete it (`gh release delete`, keeping the tag), and find out why: was `release.yml` renamed, was it run from a fork or another ref, was `checksums.txt` replaced? |
+| `could not download …` or a 404 | An asset is not there (yet), or GitHub had a hiccup. | Re-run the failed job; the downloads are retried already. If it stays, the release is missing that asset: look at the release page and the Release run. |
+| `checksums.txt does not list: …` | A release asset the contract names (`docs/design/release.md`) is missing or renamed. | A file-name template changed (a migration) or GoReleaser skipped a package. Fix forward with a new tag. |
+| `… has sha256 …, but checksums.txt lists …` or `… does not match its line` | A download differs from what was signed: the asset was replaced, or the upload was cut. | Re-run once. If it persists, treat the release as untrustworthy, as for a signature failure. |
+| `/usr/bin/treerig in … is not the treerig in …`, or `no /usr/bin/treerig in …` | A package carries a different binary from the archive's, or can't be read (the message has the tools' last words). | The release is inconsistent: don't point people at the package, and fix forward. |
+| `release-smoke: FAILED (pin leg) …`, `(no-pin leg)`, `(corrupt leg)` | The release's own binary doesn't do what the gate and pin should. | Reproduce it with the same binary: unpack the archive and run `.github/scripts/release-smoke.sh legs --binary ./treerig --version X.Y.Z --keep` (the `--keep` leaves the scratch directory, named at the top of the output, with each command's output). Then fix forward; it is a bug in #146 or the pin. |
+
+**The homebrew-tap job is checked by hand**: the tap's pull request is merged or
+closed by its publish workflow, and an anonymous API call is rate-limited on
+shared runners, so a check there would be flaky. At a stable tag, confirm in
+`sofired/homebrew-tap` that:
+
+- the `treerig-X.Y.Z` pull request is merged;
+- the tap's `main` has the new `url` and `sha256` in `Formula/treerig.rb` and a
+  `bottle do` block;
+- the tap's `publish.yml` run for it is green; and
+- `brew install sofired/tap/treerig` installs `X.Y.Z` and `treerig --version` says so.
+
+If any of that is missing, re-run the failed `homebrew-tap` job of the Release
+run (see "When the release fails" below); it reuses the tap's branch and pull
+request.
+
+The legs are a script, so they run locally against a binary you have, before any
+release exists (`.github/scripts/release-smoke.sh help`, and its header, for the
+rest). A GoReleaser snapshot is a development build, so give it `--dev-build`
+(the no-pin leg then expects the gate's refusal), and `--pin file`, which pins
+the snapshot's own `treerig` instead of downloading a release. `--dev-build`,
+`--pin file`, `--base-url`, `--no-signature-check` and `--no-packages` are for
+local testing only, and the script refuses them under GitHub Actions. The one
+exception is `--ci-snapshot`, which allows `--dev-build` and `--pin file` (and
+nothing else) for the `release-snapshot` job in `go.yml`, which runs the legs on
+every pull request. `release-smoke.yml` uses none of them.
+
+```bash
+goreleaser release --snapshot --clean --skip=sign
+.github/scripts/release-smoke.sh legs --pin file --dev-build \
+  --binary dist/treerig_linux_amd64_v1/treerig \
+  --version "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)"
+```
+
+A build with a release version (`-ldflags "-X
+github.com/sofired/treerig/internal/brand.Version=0.1.0-rc.3"`) takes `--pin
+file` without `--dev-build`. Both use scratch homes under `$TMPDIR` and leave
+your own `~/.treerig` and pin alone. `fetch` and `latest` run the same way
+against a real tag (cosign 3, curl, and on Linux `dpkg-deb`, `rpm2cpio` and
+`cpio` needed).
+
+**When the release fails:**
 
 - Before the GitHub Release exists: fix the cause and re-run the failed jobs.
 - After GoReleaser created the release, in the same job (the attestation, say):
@@ -389,9 +495,9 @@ each major update, and its own security updates.
 The `release-signing` group (cosign-installer, goreleaser-action and attest)
 signs and publishes only on a release tag. A pull request's CI installs
 cosign-installer and goreleaser-action in the `release-snapshot` job but never
-signs. `go.yml` and `release.yml` both pin cosign-installer, by the same commit,
-and both set `cosign-release:`; they change together, and
-`TestCosignPinnedTheSameInBothWorkflows` (`internal/style`) fails if they differ.
+signs. `go.yml`, `release.yml` and `release-smoke.yml` all pin cosign-installer,
+by the same commit, and all set `cosign-release:`; they change together, and
+`TestCosignPinnedTheSameInAllWorkflows` (`internal/style`) fails if they differ.
 Before merging an update to the group, check by hand:
 
 - `goreleaser release --snapshot --clean --skip=sign` still passes;
@@ -399,7 +505,7 @@ Before merging an update to the group, check by hand:
   `v3.0.6` (read its `action.yml` at the new commit and its release notes).
 
 `cosign-release:` is an input, not an action, so Dependabot leaves it alone;
-raise it by hand in both workflows (`docs/design/release.md`).
+raise it by hand in all three workflows (`docs/design/release.md`).
 
 ## Commit messages
 

@@ -970,8 +970,8 @@ reproducibility step's `--clean` wipes `dist/`). A test in `internal/commands`
 `httptest` TLS server (`releasefetch/releasetest`) and runs
 `teardown pin --release` against it. It asserts all four `archive_sha256` values
 equal `checksums.txt` and the host's `binary_sha256` equals the hash of the built
-`treerig`. The installer commit and `cosign-release:` are set in both `release.yml`
-and `go.yml`; `TestCosignPinnedTheSameInBothWorkflows` (`internal/style`) fails if
+`treerig`. The installer commit and `cosign-release:` are set in `release.yml`,
+`go.yml` and `release-smoke.yml`; `TestCosignPinnedTheSameInAllWorkflows` (`internal/style`) fails if
 they differ.
 
 - **Hermetic signing.** The test signs a copy of `checksums.txt` with a
@@ -1040,7 +1040,7 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 | 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped (the hermetic sign and verify flags were run against cosign v3.0.6 in step 4, and "CI" above matches them) |
 | 6. **#146** (delivered) The gate for development builds and for any pin, and `--dev-teardown`; the relocation paragraph in `docs/worktrees.md`; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | A development build without a pin or the flag refuses with the exact text; a release build with no pin removes with itself; with a pin, any build runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes The gate must exec the pinned binary with the caller's `argv[0]` (as `worktree remove`'s relocation does, pinned by a test in `relocate_internal_test.go`), so the program name stays `trig` or `treerig` and does not become the hash path. Delivered as "How `worktree remove` uses it" says (the descriptor on Linux; a re-check on macOS, where nothing can execute a descriptor) |
 | 6b. Cut `v0.1.0-rc.3` (or the first release after 6) | 6 merged | A release containing the gate is published |
-| 7. **#147** Smoke test after a release | 6b | Passes on all three runners |
+| 7. **#147** Smoke test after a release | 6; merged before 6b for the automatic run | Passes on all three runners |
 
 **#147** runs on `workflow_run` of the Release workflow (when it succeeded) and on
 `workflow_dispatch` with a tag, not as part of the release. It uses SHA-pinned
@@ -1052,17 +1052,56 @@ with scratch `TREERIG_HOME` and `TREERIG_CONTROL_HOME`. It runs
 pre-release; `<version>` is the tag without its leading `v`, such as
 `0.1.0-rc.3`), `status`, and a `worktree remove` with no terminal and no `--yes`, in a scratch checkout. It
 stops at the gate's two lines: it asserts both, and accepts the refusal that
-follows, so nothing is removed. The removal's `Inventory` calls Docker, which fails on a
-macOS runner without it; the test accepts that refusal too. Two more legs, each
-with a fresh scratch control home:
+follows, so nothing is removed. (As built, the refusal is "not registered;
+nothing to remove", which comes before the removal's `Inventory` asks Docker
+anything; see "As built" below.) Two more legs, each with a fresh scratch control
+home:
 
 - **No pin.** `worktree remove` shows no refusal and neither pinned line, and
-  accepts the same Docker failure; `teardown status` exits 0 and prints "will run
-  this build". The tag's version satisfies `semver.IsPublishedRelease`, so this
+  stops at the same place; `teardown status --json` exits 0 and says
+  `"removal": "this-build"` (the text form prints "will run this build"). The tag's version satisfies `semver.IsPublishedRelease`, so this
   leg shows the workflow's tag check (`release.yml`) and the predicate agree.
 - **Corrupt pin.** Make a pin, corrupt its stored binary, and assert the refusal
   ("has sha256 …, not the pinned …"): a pin that exists is used by a release
   build too, and a broken one fails closed.
+
+As built (`.github/workflows/release-smoke.yml`, with the checks in
+`.github/scripts/release-smoke.sh`, which also runs against a local binary):
+
+- The scratch checkout is not a registered worktree, so every `worktree remove`
+  stops after the gate at "This worktree is not registered; nothing to remove",
+  before it looks at Docker. That is the only stop the legs accept, except on
+  macOS (no Docker on the runner), where "Docker is not available" is accepted
+  too in case that order changes. The no-pin leg reads the JSON form of `status`
+  (`"removal": "this-build"`), as #147 words it.
+- A development build (a GoReleaser snapshot, which the script's `--dev-build`
+  names) cannot show the no-pin leg's release behaviour, so for it that leg
+  asserts the gate's refusal and `"removal": "refuse"` with exit 1 instead.
+  `--pin file` pins the binary itself with `--file --sha256`, for a binary no
+  release has: `teardown pin --release` has no supported way to point at a local
+  server. `--base-url` (a local server for `fetch` and `latest`),
+  `--no-signature-check` and `--no-packages` are the other local-testing
+  options. None of them is for the release run: the script refuses them when
+  `GITHUB_ACTIONS` is true, `release-smoke.yml` does not use them
+  (`TestReleaseSmokeWorkflowUsesNoLocalTestingOptions`), and the one CI use,
+  `go.yml`'s `release-snapshot` job running the legs against the snapshot on
+  every pull request, says `--ci-snapshot`, which allows only `--pin file` and
+  `--dev-build`.
+- Beyond the three legs, each runner checks the release's artifacts: the
+  keyless signature on `checksums.txt` (`cosign verify-blob` with the identity in
+  `release.md`), every asset name the contract lists, the archive against its
+  line, and on Linux that `/usr/bin/treerig` in the `.deb`, `.rpm` and `.apk` is
+  the archive's `treerig`. A pre-release's package names differ between
+  `checksums.txt` and the download URL (`release.md`, "A pre-release's package
+  names"). The package code duplicates the small part of
+  `packaging/verify-snapshot.sh` that does the same on `dist/`, on purpose: that
+  script is tied to a snapshot's `dist/` and its file names, and sharing code
+  would have meant changing a script that pull requests depend on. Each file
+  points at the other. At a stable tag that is the latest release the script also
+  checks `releases/latest/download/checksums.txt` and `teardown pin --latest`.
+  The homebrew-tap check is manual (CONTRIBUTING.md).
+- A separate `tag` job reads and validates the tag once; the matrix jobs take it
+  from its outputs. Runs for one tag are serialised, not cancelled.
 
 **Strings step 6 changed** (goldens reviewed with #146; `<pin command>` is rendered
 by `pinCommandFor` from the running version, as "The pin command" says): the last plan line of `teardown pin`, from "`worktree remove` does not

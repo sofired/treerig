@@ -1,0 +1,151 @@
+name: Release smoke
+
+# Checks a published release the way a user meets it (#147): its signature, its
+# URLs, its packages, and what its own binary does at the teardown pin and
+# `worktree remove`'s gate (#146), on Linux amd64, Linux arm64 and macOS arm64.
+# It runs after the Release workflow succeeds, and by hand for any tag (Actions,
+# "Release smoke", Run workflow); CONTRIBUTING.md ("Cutting a release") says what
+# it checks and what to do when it fails. The design is "#147" in
+# docs/design/teardown.md; the checks are .github/scripts/release-smoke.sh, which
+# also runs locally.
+#
+# It is not part of the release: a failure here never unpublishes anything, it
+# says the published release needs a look. Like release.yml, every action is
+# pinned to a commit. It writes nothing and needs no secret.
+#
+# The script's local-testing options (a local base URL, skipping the signature
+# or the packages, pinning a file, a development build) are not used here, and
+# the script refuses them under Actions: this run verifies the real signature,
+# the real URLs and the real pin. internal/style checks.
+#
+# A workflow_run workflow, and the script it calls, come from main: merge changes
+# to either before the tag they should check (CONTRIBUTING.md).
+#
+# Renaming release.yml (docs/design/release.md) means changing `workflows:`
+# below with it.
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to check, such as v0.1.0-rc.3
+        required: true
+        type: string
+
+run-name: Release smoke ${{ github.event.workflow_run.head_branch || inputs.tag }}
+
+permissions:
+  contents: read
+
+# One smoke run per tag at a time, whether it came from Release or from a
+# dispatch; a second waits instead of cancelling the first, since each is a
+# different attempt at the same question. A workflow_run from anything but a
+# tag push (which the job's `if:` skips) gets a group of its own, its run id,
+# so a branch named like a tag can't share, and displace, the real tag's run.
+concurrency:
+  group: release-smoke-${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event != 'push') && github.run_id || github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  # The one place the tag is read and validated. For workflow_run it is the
+  # branch or tag the Release run was started for (head_branch is the tag name
+  # for a tag push); anyone who can push a tag chose it, so it only reaches a
+  # shell through the environment, and only after validate-tag.sh. What the
+  # later jobs get from here is a string that script accepted: letters, digits,
+  # '.', '+' and '-'.
+  tag:
+    name: Read and validate the tag
+    # Only a Release run that succeeded, and only one a tag push started.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      stable: ${{ steps.tag.outputs.stable }}
+    steps:
+      # For the scripts. A workflow_run event checks out the default branch, not
+      # the tag, so the smoke test that runs is main's, against the tag's assets.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the tag
+        id: tag
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
+        run: |
+          set -eu
+          GITHUB_REF_NAME="$TAG" .github/scripts/validate-tag.sh
+          version="${TAG#v}"
+          # A tag with a suffix is a pre-release, which is never "latest".
+          case "$version" in
+            *-*) stable=false ;;
+            *) stable=true ;;
+          esac
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+            echo "stable=$stable"
+          } >> "$GITHUB_OUTPUT"
+
+  smoke:
+    name: smoke (${{ matrix.os }})
+    needs: tag
+    strategy:
+      fail-fast: false
+      matrix:
+        # The platforms the release ships binaries for that GitHub hosts:
+        # linux/amd64, linux/arm64 and darwin/arm64. darwin/amd64, which the
+        # release also ships, has no standard hosted runner, so it is the one
+        # platform whose archive nothing here runs.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      TAG: ${{ needs.tag.outputs.tag }}
+      VERSION: ${{ needs.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The real cosign, the one release.yml signs with: the teardown pin reads
+      # its bundle format (docs/design/release.md). Same pin as release.yml and
+      # go.yml; the three change together.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pinned to what v4.1.2 installed by default when this was pinned,
+          # so the signing tool does not change with the installer's own
+          # default. The teardown pin reads this bundle format
+          # (docs/design/release.md); changing it is a migration.
+          cosign-release: v3.0.6
+
+      # To read the .rpm: dpkg-deb, tar and the rest are on the runner.
+      - name: Install the tools that read packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends rpm2cpio cpio
+
+      # The signature on checksums.txt, the release's URLs, the archive against
+      # its checksum, and (Linux) the packages' /usr/bin/treerig against the
+      # archive's. Leaves the release's own treerig in release/bin/.
+      - name: Download and verify the release
+        run: .github/scripts/release-smoke.sh fetch --tag "$TAG" --dir "$RUNNER_TEMP/release"
+
+      # Pin, no pin and a corrupted pin, each in a scratch TREERIG_HOME and
+      # TREERIG_CONTROL_HOME, with no terminal. Nothing is removed and the
+      # router is never touched.
+      - name: The pin, the gate and the corrupted pin
+        run: .github/scripts/release-smoke.sh legs --binary "$RUNNER_TEMP/release/bin/treerig" --version "$VERSION"
+
+      # A final release only: releases/latest/download and `teardown pin
+      # --latest`. The script skips a tag that is no longer the latest.
+      - name: The latest release
+        if: needs.tag.outputs.stable == 'true'
+        run: .github/scripts/release-smoke.sh latest --tag "$TAG" --binary "$RUNNER_TEMP/release/bin/treerig" --dir "$RUNNER_TEMP/release"
