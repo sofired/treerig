@@ -86,17 +86,23 @@ break them are not merged.
 
 - The Docker integration suites remove whatever a killed run left behind.
   Run one of them at a time on a machine.
-- `worktree remove` runs only the pinned teardown binary (#146) and refuses
-  without a pin, so a suite or a hand trial that removes through a built binary
-  pins that binary first, in the same scratch root:
+- `worktree remove` on a development build (what every build here is: a plain
+  `go build` reports `0.0.0-dev`) refuses without a pinned teardown binary
+  (#146); a release build removes with itself. So a suite or a hand trial that
+  removes through a built binary pins that binary first, in the same scratch
+  root (`shasum -a 256` where there is no `sha256sum`, as on macOS):
 
   ```sh
   digest=$(sha256sum BIN | cut -d' ' -f1)
   BIN teardown pin --file BIN --sha256 "$digest" --release LABEL --yes
   ```
 
-  The gate also refuses a control home inside a git work tree and a pin store
-  that is not private to you, so a scratch `TREERIG_HOME` or
+  Or add `--dev-teardown` to the removal, which warns on every run. A pin that
+  exists is used by every build, release builds included, and a test that wants
+  the release path builds with `-X …/brand.Version=0.1.0-rc.3` and pins nothing.
+
+  Once a pin exists the gate also refuses a control home inside a git work tree
+  and a pin store that is not private to you, so a scratch `TREERIG_HOME` or
   `TREERIG_CONTROL_HOME` lives outside every checkout (a temp directory does).
   The gate does nothing under `cli.Main` and hand-built Envs (their
   `Executable` and `Exec` are nil), so unit tests and in-process tests are

@@ -108,10 +108,14 @@ is only a contract if it survives the entry point, and no mock at the
 `run.Runner` seam can prove it. These are excluded from the default
 `go test ./...` and run separately (see "Go" below).
 
-`worktree remove` runs only the pinned teardown binary and refuses without a pin
-(`docs/design/teardown.md`, #146), so every suite that runs it through a built
-binary pins that binary first, in its own scratch root, with `pinWithEnv`
-(`internal/cli/teardown_gate_integration_test.go`). The gate is skipped by
+`worktree remove` on a development build (a plain `go build`, which reports
+`0.0.0-dev`) refuses without a pinned teardown binary, while a release build
+(`semver.IsPublishedRelease`) removes with itself (`docs/design/teardown.md`,
+#146). So every suite that runs it through a built binary pins that binary first,
+in its own scratch root, with `pinWithEnv`
+(`internal/cli/teardown_gate_integration_test.go`), unless it is the test of the
+release path, which builds with `-X …/brand.Version=0.1.0-rc.3` (`buildVersioned`)
+and pins nothing. The gate is skipped by
 `cli.Main` and by an `Env` built by hand (its `Executable` and `Exec` are nil), so
 in-process tests need nothing. The frozen `worktree remove` goldens under
 `internal/cli/testdata/output` carry the gate's two lines, with the stored

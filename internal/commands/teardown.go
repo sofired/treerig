@@ -421,12 +421,24 @@ func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions
 		return err
 	}
 	if !found {
+		// No pin is fine for a release build, which removes with itself; for a
+		// development build it is the problem it was.
+		release := semver.IsPublishedRelease(options.Version)
 		if options.JSON {
 			if err := outputJSON(env, struct {
 				Pinned bool `json:"pinned"`
 			}{}); err != nil {
 				return err
 			}
+		} else if release {
+			env.Logger.Output("worktree remove: will run this build (a release; no pin needed)")
+		} else {
+			env.Logger.Output("worktree remove: would refuse")
+		}
+		if release {
+			env.Logger.Info(fmt.Sprintf("No teardown binary is pinned, and a release build needs none. Pin one with %s to make removal keep running that verified build.",
+				pinCommandFor(env.CommandName, options.Version)))
+			return nil
 		}
 		return clierr.Newf("No teardown binary is pinned. Pin one with %s.", pinCommandFor(env.CommandName, options.Version))
 	}

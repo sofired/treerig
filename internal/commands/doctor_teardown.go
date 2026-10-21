@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/semver"
 	"github.com/sofired/treerig/internal/stateformat"
 	"github.com/sofired/treerig/internal/teardown"
 	"github.com/sofired/treerig/internal/text"
@@ -33,6 +34,9 @@ func teardownPinChecks(opts doctorOptions) []Check {
 		return []Check{{Status: StatusFail, ID: "registry.teardown-pin", Subject: subject, Detail: text.OneLine(err.Error(), 300)}}
 	case err != nil:
 		return []Check{{Status: StatusFail, ID: "registry.teardown-pin", Subject: subject, Detail: fmt.Sprintf("could not be read: %s", text.OneLine(err.Error(), 300))}}
+	case !found && semver.IsPublishedRelease(version):
+		return []Check{{Status: StatusOK, ID: "registry.teardown-pin", Subject: subject,
+			Detail: fmt.Sprintf("not needed: `%s worktree remove` runs this release build; pin one with %s to keep removal on a verified build", name, pinCommandFor(name, version))}}
 	case !found:
 		return []Check{{Status: StatusWarn, ID: "registry.teardown-pin", Subject: subject,
 			Detail: fmt.Sprintf("none pinned; `%s worktree remove` will refuse until you pin one with %s", name, pinCommandFor(name, version))}}

@@ -1,28 +1,40 @@
 # Teardown pin
 
-Install and check the pinned treerig build that `worktree remove` runs.
+Install and check the pinned treerig build that `worktree remove` can run.
 
-`worktree remove` runs a pinned, trusted build of treerig, not the code of
-whichever build you invoked, so that code from a branch does not run while it
-takes a worktree apart ([`design/teardown.md`](design/teardown.md), #85, #146).
-It re-executes the stored copy of the pinned binary after checking its sha256
-against the pin, with the same arguments and environment, and **refuses to
-remove anything when there is no usable pin**. The commands below install a pin
-and check it; `worktree remove --dev-teardown` (below) is the one way around it.
+A pin keeps code from a branch from running while `worktree remove` takes a
+worktree apart ([`design/teardown.md`](design/teardown.md), #85, #146). Whether
+you need one depends on the build you run:
+
+| Build | No pin | A pin |
+| --- | --- | --- |
+| A release (`0.1.0-rc.3`, `1.2.3`: a version cut from a release tag) | Removes with itself. Nothing to set up. | Removal runs the pinned, verified binary instead. |
+| A development build (from source, a snapshot, anything `0.0.0-…`) | **Refuses**, unless `--dev-teardown`. | Removal runs the pinned, verified binary. |
+
+A usable pin wins for every build: it is checked (its sha256, where it lives, who
+owns it) and its binary is run in place of the one you invoked, with the same
+arguments and environment. A pin that is broken (missing or different binary,
+foreign or newer format, no binary for this platform) refuses, whatever the build.
+`worktree remove --dev-teardown` removes with the build you invoked and skips
+the pin, with a warning.
+
+**When to pin a release.** Pinning means removal keeps running that exact
+verified build, even after you upgrade treerig. That is worth having when you
+want removal fixed to a version you checked (a shared machine, or a build you
+verified by hand), or when you also run development builds and want them to remove
+with a release. If you only run releases, you can ignore this page.
 
 ## Getting a pin
 
-A build with the removal gate (`v0.1.0-rc.3` and later, or a source build)
-refuses `worktree remove` until you pin once. Two routes:
+A development build needs one. Two routes:
 
 1. With cosign 3.0.0 or newer on your `PATH`: `treerig teardown pin --release
-   0.1.0-rc.2` (or the version you run, once a release with the gate is out).
-   Today that pins a release without the gate, which is safe: its bytes are the
-   pinned bytes and no unpinned code runs.
+   0.1.0-rc.2` (a published version; the build's own, once it is a release).
 2. Without cosign, or offline: verify a download by hand
    ([Verifying a download](install.md#verifying-a-download)), take the
-   `treerig` binary's own digest with `sha256sum treerig`, and run `treerig
-   teardown pin --file ./treerig --sha256 <that digest> --release <a label>`.
+   `treerig` binary's own digest with `sha256sum treerig` (`shasum -a 256
+   treerig` on macOS), and run `treerig teardown pin --file ./treerig --sha256
+   <that digest> --release <a label>`.
 
 Then `treerig teardown status` shows whether removal will run it.
 
@@ -128,28 +140,41 @@ verification, use `--release X.Y.Z` or `--latest` above.
 
 Reports whether the pin is intact on this machine: whether it can be read, and
 whether the stored binary for this platform exists and has the sha256 the pin
-records. The report ends with `worktree remove: will run this binary` when
-removal would run the stored binary, or `worktree remove: would refuse`, which
-adds `(see the warning below)` when the reason is one of the warnings the command
-prints on stderr (a control home inside a git work tree, a pin store others can
-write, a `noexec` mount; they appear with `--json` too, and do not change the exit
-code). It prints the pin on stdout and exits 0 when all is well. When there is no pin, the pin is of a newer format or is not one
-treerig wrote, or the binary is missing or different, it says so on stderr and
-exits 1; the first two print nothing on stdout, and the others print the report
-first. With `--json` it prints one document instead:
+records. It prints the pin on stdout and exits 0 when all is well. The report
+ends with a line that says what removal would do:
+
+- `worktree remove: will run this binary`, with an intact pin;
+- `worktree remove: would refuse`, for a pin that is broken, and for a
+  development build with no pin; it adds `(see the warning below)` when the
+  reason is one of the warnings the command prints on stderr (a control home
+  inside a git work tree, a pin store others can write, a `noexec` mount; they
+  appear with `--json` too, and do not change the exit code);
+- `worktree remove: will run this build (a release; no pin needed)`, for a
+  release build with no pin.
+
+With no pin, a release build exits 0 (stderr says none is needed and how to
+pin one) and a development build exits 1 with an error. A pin of a newer
+format, or one treerig did not write, prints nothing on stdout and exits 1; a
+missing or different binary prints the report first and exits 1.
+
+With `--json` it prints one document instead:
 `pinned`, `ok`, `release`, `source`, `signer` (absent for a file pin),
 `pinnedAt`, `platform`, `binary` (`path` and `sha256`, absent when the state is
 `none`, and `state`: `ok`, `missing`, `mismatch` or `none` for a platform the
 pin has no binary for) and `running` (`version`, `isPin`: this build is the
 pinned binary, and `newerThanPin`). `mismatch` also covers a stored binary that
 cannot be read or is not a regular file; the text form says which. With no pin
-it prints `{"pinned": false}` and exits 1. When the running build is newer than
-the pinned release, the text form adds a line on stderr saying to pin again.
+it prints `{"pinned": false}` (exit 0 for a release build, 1 for a development
+build). When the running build is newer than the pinned release, the text form
+adds a line on stderr saying to pin again.
 
 ## `worktree remove` and the pin
 
 `worktree remove` is gated before it does anything else, before it takes a lock
-or reads `treerig.toml`:
+or reads `treerig.toml`. With no pin and no `--dev-teardown`, a release build
+removes with itself (relocated into a copy under the control home first, so
+deleting its checkout cannot delete the running program), and a development
+build refuses. Otherwise:
 
 - With an intact pin it prints `Running the pinned teardown binary <path>
   (release <release>) to remove <this worktree | the worktree X>.` on stderr,
@@ -164,8 +189,9 @@ or reads `treerig.toml`:
   swapped in between: on Linux it is run through `/proc/self/fd`, so `/proc` must
   be mounted; on macOS, where a file cannot be run through an open descriptor,
   the path is checked again immediately before.
-- It refuses, removes nothing, and says what to run when there is no pin; the
-  pin is of a newer format or not one treerig wrote; the stored binary is missing
+- It refuses, removes nothing, and says what to run when a development build has
+  no pin; whatever the build, when the pin is of a newer format or not one
+  treerig wrote; the stored binary is missing
   or has other bytes; the pin has no binary for this machine's platform; or the
   pin store is not trustworthy, below. When the build you invoked is newer than
   the pin, the refusal says so, as `teardown status` does, and so does the line
@@ -196,16 +222,24 @@ or reads `treerig.toml`:
 - A flag error or `--help` still comes from the build you invoked, which
   parses the command line first; neither removes anything.
 
-When no pin exists the refusal gives a command you can run. A released build
-names its own version (`treerig teardown pin --release 0.1.0-rc.3`). A
-development or source build says it has no release to name, and gives both
-routes, on lines of their own: `treerig teardown pin --release <a published
-version, such as 0.1.0-rc.2>`, or `treerig teardown pin --file <a treerig you
-trust> --sha256 <its sha256> --release <a label>`, with `treerig teardown pin
---help` for both.
+When a development build has no pin, the refusal says so and gives both routes,
+on lines of their own: `treerig teardown pin --release <a published version, such
+as 0.1.0-rc.2>`, or `treerig teardown pin --file <a treerig you trust> --sha256
+<its sha256> --release <a label>`, with `treerig teardown pin --help` for both. A
+release build names its own version where a message tells it to pin
+(`treerig teardown pin --release 0.1.0-rc.3`).
 
-`worktree remove --dev-teardown` removes with the build you invoked instead, for
-work on removal itself, and prints a warning on every run naming its version and
+**What counts as a release build.** One strict rule decides (`semver.IsPublishedRelease`):
+the version is a release version such as `0.1.0` or `0.1.0-rc.2`, with no `+build`
+part, not `0.0.0` in any form, and not the tail `git describe` adds past a tag
+(`0.1.0-rc.2-5-gabc1234`). Release builds, GoReleaser archives and Homebrew's formula
+(which stamps the tag's version) stamp such a version; a plain `go build` or `go
+install` reports `0.0.0-dev`, and a snapshot `0.0.0-dev+<sha>`, so they are development
+builds. Someone who stamps a release-looking version on a build by hand gets past
+the rule; treerig does not defend against a hostile process of the same user.
+
+`worktree remove --dev-teardown` removes with the build you invoked instead (any
+build, release or development, pinned or not), for work on removal itself, and prints a warning on every run naming its version and
 sha256 (`unknown` when the build cannot be read, in which case it goes on). It is
 a per-invocation flag and nothing else: no setting, no `treerig.toml` key, no
 environment variable, and nothing remembers it. The pinned binary itself refuses

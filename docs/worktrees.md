@@ -65,35 +65,39 @@ first `up` finishes, and so is one whose first `up` failed, and nothing in
 the registration tells either from an interrupted removal, so a check could
 only warn about the ordinary case. `worktree list` shows it.
 
-`worktree remove` does not run the removal with the code of whichever binary you
-invoked. Before it does anything else, it runs the **pinned teardown binary**:
-the build you installed and verified once with `treerig teardown pin`
-([Teardown pin](teardown-pin.md)). It checks the pinned file's sha256 against the
-pin, then replaces itself with that file, passing the same arguments and
-environment, so code from a branch does not run while it takes a worktree
-apart, and a deleted checkout cannot delete the program still removing it: the
-pinned binary lives in the control home, outside every checkout, and the
-control home is refused if it is inside a git work tree or if its pin store is
-owned by someone else or writable by others. The exec drops the `LD_*`, `DYLD_*`,
-`GODEBUG` and `GOFLAGS` variables from the environment. It prints two lines on
-stderr, one before the exec naming the file and the release, one from the pinned
-binary after it, naming its version. With no pin, a pin it cannot read, a stored
-binary that is missing or whose bytes changed, a pin with no binary for your
-platform, or a filesystem that cannot run programs (a `noexec` control home), it
-refuses, removes nothing, and says what to run; an exec that fails is never
-worked around by running the invoked build. The refusal also says when the build
-you invoked is newer than the pin, as `teardown status` does. A build with the
-removal gate needs a pin before its first removal: see
-[Getting a pin](teardown-pin.md#getting-a-pin).
+Before `worktree remove` does anything else, it decides which code does the removal.
 
-`worktree remove --dev-teardown` is the one way to remove with the build you
-invoked, for work on removal itself. It is a flag and nothing else: no setting,
+- **A pin wins, for every build.** If you pinned a teardown binary
+  (`treerig teardown pin`, [Teardown pin](teardown-pin.md)), it checks the pinned
+  file's sha256 against the pin, then replaces itself with that file, passing the
+  same arguments and environment. The pinned binary lives in the control home,
+  outside every checkout, and the control home is refused if it is inside a git
+  work tree or if its pin store is owned by someone else or writable by others.
+  The exec drops the `LD_*`, `DYLD_*`, `GODEBUG` and `GOFLAGS` variables from the
+  environment, and prints two lines on stderr: one before the exec naming the file
+  and the release, one from the pinned binary after it, naming its version. A pin
+  that is broken (a pin it cannot read, a stored binary that is missing or whose
+  bytes changed, no binary for your platform, a filesystem that cannot run
+  programs) refuses, removes nothing, and says what to run; an exec that fails is
+  never worked around by running the invoked build. The refusal also says when the
+  build you invoked is newer than the pin, as `teardown status` does.
+- **No pin, a release build:** it removes with itself. You have nothing to set up.
+  It is first copied, as itself, into a content-addressed store under the control
+  home (`bin/`, outside any checkout), and the removal is handed to the copy, so
+  deleting the checkout cannot delete the running program.
+- **No pin, a development build** (built from source, a snapshot, anything
+  `0.0.0-…`): it refuses, because a development build may carry code from a
+  branch. Pin a build ([Getting a pin](teardown-pin.md#getting-a-pin)) or use
+  `--dev-teardown`.
+
+`worktree remove --dev-teardown` removes with the build you invoked, whatever its
+kind and whether or not a pin exists, for work on removal itself. It is a flag and nothing else: no setting,
 no `treerig.toml` key and no environment variable turns it on, and nothing
 remembers it. It prints a warning on every run that names the version and the
 sha256 of the code that is about to run. That build is first copied, as itself,
 into a content-addressed store under the control home (`bin/`, outside any
 checkout), and the removal is handed to the copy, so deleting the checkout
-cannot delete the running program either. The copy is exactly the invoked
+cannot delete the running program either (an unpinned release build does the same). The copy is exactly the invoked
 binary and no more: a build made from a branch still runs that branch's code.
 Copies are content-addressed, so a rebuild that changes nothing installs nothing
 new; one that has not been installed or reused in the last 30 days, or that is

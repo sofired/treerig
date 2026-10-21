@@ -553,11 +553,26 @@ func TestTeardownPinConfirmation(t *testing.T) {
 }
 
 func TestTeardownStatus(t *testing.T) {
-	t.Run("with no pin prints nothing on stdout and refuses", func(t *testing.T) {
+	t.Run("with no pin, a development build prints only the closing line and refuses", func(t *testing.T) {
 		f := newTeardownFixture(t)
 		wantRefusal(t, f.status(false, "0.0.0-dev"), "No teardown binary is pinned. Pin one with "+pinCommand+".")
-		if f.printed() != "" {
+		if f.printed() != "worktree remove: would refuse" {
 			t.Fatalf("stdout = %q", f.printed())
+		}
+	})
+
+	t.Run("with no pin, a release build says removal will run it, succeeds, and says how to pin", func(t *testing.T) {
+		f := newTeardownFixture(t)
+		if err := f.status(false, "0.1.0-rc.3"); err != nil {
+			t.Fatalf("status = %v, want success: a release needs no pin", err)
+		}
+		if f.printed() != "worktree remove: will run this build (a release; no pin needed)" ||
+			f.logged() != "info: No teardown binary is pinned, and a release build needs none. Pin one with `treerig teardown pin --release 0.1.0-rc.3` to make removal keep running that verified build." {
+			t.Fatalf("stdout = %q, stderr = %q", f.printed(), f.logged())
+		}
+		g := newTeardownFixture(t)
+		if err := g.status(true, "0.1.0-rc.3"); err != nil || g.printed() != "{\n  \"pinned\": false\n}" {
+			t.Fatalf("--json: err = %v, stdout = %q", err, g.printed())
 		}
 	})
 

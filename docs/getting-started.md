@@ -67,21 +67,15 @@ treerig shared up            # start the shared services, or replace one, and re
 treerig shared status        # their state, addresses and whether this worktree is connected
 treerig shared down          # stop them; their named volumes are kept
 treerig worktree list        # every worktree of this repository, with state
-treerig teardown pin --release 0.1.0-rc.2   # once, for a build with the removal gate (below)
-treerig worktree remove      # tear it down, verified by ownership; refuses without a pin on such a build
+treerig worktree remove      # tear it down, verified by ownership
 treerig worktree rename NEW  # change its slug, and with it its hostname
 treerig worktree unlock      # clear a dead holder's lock, once it is checked gone
 treerig doctor               # check prerequisites, registry, router; run verify
 ```
 
-The pin step applies to builds that have the removal gate: `v0.1.0-rc.3` and
-later, or a source build. They refuse to remove until a pin exists, because
-`worktree remove` runs a treerig build you pinned and verified once, never the
-code of the checkout it is removing. `v0.1.0-rc.2` has no gate and needs no pin;
-`treerig teardown pin --release 0.1.0-rc.2` works today and pins a release
-without the gate, which is safe. `--release` needs cosign 3.0.0 or newer on your
-`PATH`; `teardown pin --file ./treerig --sha256 <its sha256> --release <a label>`
-is the route without cosign. See [Teardown pin](teardown-pin.md).
+A release build removes with itself, so there is nothing to set up. A development
+build (one built from source, which may carry a branch's code) removes only with a
+pinned teardown binary; see [Teardown pin](teardown-pin.md).
 
 `up` runs the branch's own build and hooks. Read [Trust model](trust-model.md)
 before bringing up a branch you did not write.

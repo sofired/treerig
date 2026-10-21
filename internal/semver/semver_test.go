@@ -221,3 +221,35 @@ func TestIsDev(t *testing.T) {
 		}
 	})
 }
+
+func TestIsPublishedRelease(t *testing.T) {
+	for in, want := range map[string]bool{
+		"0.1.0":                  true,
+		"1.2.3":                  true,
+		"0.1.0-rc.1":             true,
+		"0.1.0-rc.2":             true,
+		"10.20.30-beta.4":        true,
+		"0.0.1":                  true,
+		"0.1.0-rc.2-5":           true, // a hyphenated pre-release identifier is legal, and no git hash follows
+		"0.0.0-dev":              false,
+		"0.0.0-dev+abc123def456": false,
+		"0.0.0":                  false,
+		"0.0.0-rc.1":             false,
+		"0.1.0+abc":              false,
+		"0.1.0-rc.2+abc":         false,
+		"0.1.0-rc.2-5-gabc1234":  false, // git describe
+		"1.0.0-5-gabcdef0123":    false,
+		"v1.2.3":                 false,
+		"1.2":                    false,
+		"01.2.3":                 false,
+		"invoked-9.9.9":          false,
+		"pinned-test":            false,
+		"":                       false,
+		"garbage":                false,
+		"1.2.3 ":                 false,
+	} {
+		if got := semver.IsPublishedRelease(in); got != want {
+			t.Errorf("IsPublishedRelease(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

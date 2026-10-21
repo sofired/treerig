@@ -52,7 +52,7 @@ func TestTeardownGate(t *testing.T) {
 
 	t.Run("refuses without a pin, with the exact text, and writes nothing", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		want := "[treerig] ERROR: Refusing to remove this worktree: no pinned teardown binary exists, and this is a development build (invoked-9.9.9), which no release matches.\n" +
+		want := "[treerig] ERROR: Refusing to remove this worktree: this is a development build (invoked-9.9.9), and a development build removes only with a pinned teardown binary, which none is yet (a release build needs no pin).\n" +
 			"  Pin a published release: `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`\n" +
 			"  or a treerig you trust: `treerig teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`\n" +
 			"  (`treerig teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.\n"
@@ -72,18 +72,48 @@ func TestTeardownGate(t *testing.T) {
 			}
 		}
 		named := runTreerig(t, invoked, dir, []string{"worktree", "remove", "--yes", "feature-login"}, treerigOptions{})
-		if named.Code != 1 || !strings.HasPrefix(named.Stderr, "[treerig] ERROR: Refusing to remove the worktree feature-login: no pinned teardown binary exists") {
+		if named.Code != 1 || !strings.HasPrefix(named.Stderr, "[treerig] ERROR: Refusing to remove the worktree feature-login: this is a development build") {
 			t.Fatalf("named remove = %+v", named)
 		}
 	})
 
-	t.Run("a release build names its own version as the one to pin", func(t *testing.T) {
+	t.Run("with no pin, a release build removes with itself, relocated through bin/, and says nothing about a pin", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		result := runTreerig(t, released, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{})
-		want := "[treerig] ERROR: Refusing to remove this worktree: no pinned teardown binary exists, and this build is not one. " +
-			"Run `treerig teardown pin --release 0.1.0-rc.3`. To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.\n"
-		if result.Code != 1 || result.Stdout != "" || result.Stderr != want {
+		result := runTreerig(t, released, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{timeout: 60 * time.Second})
+		// Past the gate, the removal stops at the first thing that needs a treerig.toml.
+		if result.Code != 1 || result.Stdout != "" || !strings.HasPrefix(result.Stderr, "[treerig] ERROR: No treerig.toml found in ") ||
+			strings.Contains(result.Stderr, "Refusing") || strings.Contains(result.Stderr, "WARNING") || strings.Contains(result.Stderr, "pinned") {
 			t.Fatalf("remove = %+v", result)
+		}
+		digest := fileSHA256(t, released)
+		if got := fileSHA256(t, filepath.Join(dir, "control-home", "control-home", "bin", digest)); got != digest {
+			t.Fatalf("relocated copy sha256 = %s", got)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "control-home", "control-home", "teardown")); !os.IsNotExist(err) {
+			t.Fatalf("teardown/: %v; an unpinned release writes no pin store", err)
+		}
+	})
+
+	t.Run("a pin wins for a release build, and --dev-teardown bypasses it with the warning", func(t *testing.T) {
+		dir, stored := pinnedRoot(t)
+		result := runTreerig(t, released, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{})
+		want := "[treerig] Running the pinned teardown binary " + stored + " (release pinned-label) to remove this worktree.\n" +
+			"[treerig] Running as the pinned teardown binary (version pinned-test).\n"
+		if result.Code != 1 || !strings.HasPrefix(result.Stderr, want) {
+			t.Fatalf("remove = %+v\nwant stderr to start with\n%s", result, want)
+		}
+		bypass := runTreerig(t, released, dir, []string{"worktree", "remove", "--yes", "--dev-teardown"}, treerigOptions{})
+		warning := "[treerig] WARNING: Removing with this build's own code (version 0.1.0-rc.3, sha256 " + fileSHA256(t, released) + ")"
+		if bypass.Code != 1 || !strings.HasPrefix(bypass.Stderr, warning) || strings.Contains(bypass.Stderr, "pinned teardown binary (version") {
+			t.Fatalf("--dev-teardown on a release build = %+v", bypass)
+		}
+		// A broken pin still refuses a release build.
+		if err := os.WriteFile(stored, []byte("tampered"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		broken := runTreerig(t, released, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{})
+		if broken.Code != 1 || !strings.HasPrefix(broken.Stderr, "[treerig] ERROR: Refusing to remove this worktree: the pinned teardown binary "+stored+" has sha256 ") {
+			t.Fatalf("broken pin = %+v", broken)
 		}
 	})
 
@@ -185,7 +215,7 @@ func TestTeardownGate(t *testing.T) {
 			t.Fatalf("second run = %+v", again)
 		}
 		plain := runTreerig(t, invoked, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{})
-		if !strings.Contains(plain.Stderr, "Refusing to remove this worktree: no pinned teardown binary exists") {
+		if !strings.Contains(plain.Stderr, "Refusing to remove this worktree: this is a development build") {
 			t.Fatalf("a plain run after --dev-teardown = %+v; the flag must not be remembered", plain)
 		}
 	})
@@ -262,7 +292,7 @@ func TestTeardownGate(t *testing.T) {
 			if result := runTreerig(t, pinned, checkout, []string{"teardown", "pin", "--file", pinned, "--sha256", pinnedDigest, "--release", "planted", "--yes"}, opts); result.Code != 0 {
 				t.Fatalf("%s: pin = %+v", name, result)
 			}
-			result := runTreerig(t, invoked, checkout, []string{"worktree", "remove", "--yes"}, opts)
+			result := runTreerig(t, released, checkout, []string{"worktree", "remove", "--yes"}, opts) // a release build refuses a planted pin too
 			want := "[treerig] ERROR: Refusing to remove this worktree: " + planted + "/ is inside the git work tree " + checkout + "/" +
 				", where a branch could plant its own teardown pin. Keep the control home outside every checkout: move TREERIG_HOME (or TREERIG_CONTROL_HOME, if you set it) to a directory that is not inside a git work tree. Nothing was removed.\n"
 			if result.Code != 1 || result.Stdout != "" || result.Stderr != want {

@@ -37,6 +37,35 @@ func IsRelease(s string) bool {
 	return err == nil
 }
 
+// gitDescribeTail is what `git describe --tags` appends to a tag for a commit
+// past it: "-<commits>-g<abbreviated hash>".
+var gitDescribeTail = regexp.MustCompile(`-[0-9]+-g[0-9a-f]{7,}$`)
+
+// IsPublishedRelease reports whether s is the version of a build that was cut
+// from a release tag, as opposed to a development, snapshot or source build. It
+// is the one place that decides, and it is strict, because the removal gate
+// trusts it to tell a build users get from one a branch can produce
+// (docs/design/teardown.md, decision 10):
+//
+//   - s is a release version (IsRelease), with a pre-release suffix such as
+//     `-rc.2` allowed;
+//   - it has no `+build` metadata, so a snapshot's `0.0.0-dev+<sha>` is out;
+//   - it is not 0.0.0 in any form, so an unstamped build's `0.0.0-dev` is out;
+//   - it does not end the way `git describe` ends a version for a commit past a
+//     tag (`0.1.0-rc.2-5-gabc1234`), which would otherwise read as a pre-release.
+//
+// Nothing in this repository stamps a version that is not a tag's: the release
+// takes it from the tag (GoReleaser, and Homebrew's formula), a snapshot stamps
+// 0.0.0-dev+<sha>, and a plain build keeps 0.0.0-dev. Someone who stamps a
+// release-looking version on a build by hand gets past this, which is accepted:
+// it is not a defence against a hostile process of the same user.
+func IsPublishedRelease(s string) bool {
+	if !IsRelease(s) || strings.Contains(s, "+") || gitDescribeTail.MatchString(s) {
+		return false
+	}
+	return s != "0.0.0" && !strings.HasPrefix(s, "0.0.0-")
+}
+
 // Version is a parsed version. Numeric parts are kept as their decimal digits,
 // which Compare orders by digit count and then lexically, so no width limits
 // a version.

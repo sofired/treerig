@@ -240,11 +240,14 @@ func ownershipProblem(commandName, version string, control layout.Control, binar
 //  2. It is <control home>/bin/<its own hash> and --dev-teardown was given: the
 //     relocated copy of a dev run, which proceeds silently.
 //  3. --dev-teardown: warn, relocate through bin/ (relocateAndReexec), proceed.
-//  4. Otherwise, once the running binary is known: refuse a control home inside
-//     a git work tree, read the pin, open and verify the stored binary for this
+//  4. Otherwise read the pin. A usable pin wins for every build: refuse a control
+//     home inside a git work tree, open and verify the stored binary for this
 //     platform, refuse a store that is not private to this user, and exec it
 //     through the descriptor that was verified, with the caller's argv and an
-//     environment without loader variables. Every failure refuses.
+//     environment without loader variables. Every failure of a pin that exists
+//     refuses. With no pin, a release build (semver.IsPublishedRelease)
+//     removes with itself, relocated through bin/ as before the gate (#7), and a
+//     development build refuses.
 func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 	if env.Executable == nil || env.Exec == nil {
 		return nil
@@ -306,20 +309,33 @@ func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 		return relocateAndReexec(ctx, env)
 	}
 
-	// 4. Exec the pinned binary. A build that cannot tell which file it is
-	// refuses first: it might be the pinned child itself.
-	if runningErr != nil {
-		return refuseRemove(target, fmt.Sprintf("could not tell which treerig build this is (%s).", text.OneLine(reasonWithoutPath(runningErr), 200)), runningErr)
-	}
-	if problem, cause := locationProblem(control, teardown.HomeFromUserDatabase(env.PasswdHome, userHome)); problem != "" {
-		return refuseRemove(target, problem, cause)
-	}
+	// 4. No --dev-teardown, and not a pinned child. A usable pin wins for every
+	// build; with none, a release build removes with itself and a development
+	// build refuses.
 	pin, found, err := readPinForGate(env, version, control, target)
 	if err != nil {
 		return err
 	}
 	if !found {
+		// No pin. A release build is the code users are meant to run, so it
+		// removes with itself, relocated through bin/ as before the gate (#7), with
+		// nothing said. A development build is where branch code runs, so it
+		// refuses unless --dev-teardown was given (handled above).
+		if semver.IsPublishedRelease(version) {
+			return relocateAndReexec(ctx, env)
+		}
 		return refuseRemove(target, noPinRefusal(name, version), nil)
+	}
+	// A pin exists. A build that cannot tell which file it is refuses here: it
+	// might be the pinned child itself, and would exec the stored binary again
+	// forever. (With no pin it cannot be one, which is why this comes after.)
+	if runningErr != nil {
+		return refuseRemove(target, fmt.Sprintf("could not tell which treerig build this is (%s).", text.OneLine(reasonWithoutPath(runningErr), 200)), runningErr)
+	}
+	// A pin exists, so it wins for every build: from here on the control home
+	// must be one a branch could not have written, and the pin must be usable.
+	if problem, cause := locationProblem(control, teardown.HomeFromUserDatabase(env.PasswdHome, userHome)); problem != "" {
+		return refuseRemove(target, problem, cause)
 	}
 	check, binary := teardown.OpenBinary(control, pin, platform)
 	hint := newerHint(name, pin, version)

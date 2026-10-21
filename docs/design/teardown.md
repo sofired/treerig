@@ -1,7 +1,8 @@
 # Teardown pin
 
-`worktree remove` runs a pinned, trusted build of treerig, never the code of the
-build that was invoked (#85). This note says where the pin lives, what it
+`worktree remove` of a development build runs a pinned, trusted build of treerig,
+never the code of the build that was invoked (#85); a release build removes with
+itself unless a pin exists, and a pin always wins (decision 10). This note says where the pin lives, what it
 holds, how it is installed and verified, how removal uses it, and what it does
 not protect against. The pin is stored state, so it follows `state.md`.
 
@@ -9,8 +10,9 @@ not protect against. The pin is stored state, so it follows `state.md`.
 forms (`--release X.Y.Z`, `--latest` and `--file`) and `teardown status` (steps 2 to 4),
 the `release-snapshot` job that pins the snapshot with a real cosign and checks the
 packages' binaries (step 5), and the removal gate with `--dev-teardown` (step 6,
-#146): `worktree remove` runs the stored copy of the pinned binary and refuses
-without one. The pin command in the messages below is `treerig teardown pin
+#146): `worktree remove` runs the stored copy of the pinned binary when a usable
+pin exists, whatever the build; with no pin a release build removes with itself
+and a development build refuses. The pin command in the messages below is `treerig teardown pin
 --release X.Y.Z` while the repository has only pre-releases; when the first
 release that is not a pre-release is published, `internal/commands/pincommand.go`,
 the one file that names the pin command, switches to `--latest`, and the goldens
@@ -33,6 +35,7 @@ Until then a pin made from `rc.2` is a pinned child without the gate (see
 | 7 | `teardown status` and the removal refusal hint at the pin command when the running build is newer than the pin. Nothing updates the pin on its own. |
 | 8 | There is one pin per control home. |
 | 9 | `--yes` is allowed on `teardown pin`. |
+| 10 | The gate fails closed for development builds and for anyone who pinned, not for everyone. A usable pin wins for every build; with no pin, a release build (`semver.IsPublishedRelease`) removes with itself, relocated through `bin/` as before the gate, and a development build refuses unless `--dev-teardown`. This reverses the first design ("fail closed for everyone", which made every user pin, in practice by installing cosign 3 or typing a `--file`/`--sha256` command, before their first removal). The reason is usability with the risk where it is: a release is already the code the user chose to trust (they installed it, from a signed release or a package they chose), and branch code runs in development builds, so the gate that stops it needs to stand there. The accepted limit: a version stamped by hand on a branch build (`-X …/brand.Version=1.2.3`) reads as a release and gets past the rule, consistent with decision 5, since a hostile process of the same user could equally replace the binary. Nothing in this repository stamps a release-looking version on a non-release build (GoReleaser takes the tag's, a snapshot stamps `0.0.0-dev+<sha>`, Homebrew stamps the tag's, a plain build keeps `0.0.0-dev`), and the rule additionally rejects `+build` metadata, `0.0.0` in any form and `git describe`'s `-N-g<hash>` tail. |
 
 **The pin command**, in every message below, is `treerig teardown pin --latest`,
 or `treerig teardown pin --release X.Y.Z` while the repository has only
@@ -54,10 +57,12 @@ quote), so a command for a file pin made from `/home/me/sp dir/treerig` still ru
 
 ## Rules
 
-1. **No branch code runs after the gate.** `worktree remove` re-executes
-   the pinned binary unless it already is that binary, and refuses when there is
-   no usable pin. The invoked build parses its flags before the gate, so a flag
-   error or `--help` comes from it; neither removes anything.
+1. **No branch code runs after the gate, for a development build or a pin.**
+   `worktree remove` re-executes the pinned binary unless it already is that
+   binary, and refuses when the pin is not usable. With no pin, a development
+   build refuses, and a release build removes with itself. The invoked build
+   parses its flags before the gate, so a flag error or `--help` comes from it;
+   neither removes anything.
 2. **A pin is installed by an explicit, approved command.** Nothing pins, updates
    or unpins implicitly, and nothing downloads on its own.
 3. **Trust is decided once, at pin time.** Afterwards the recorded sha256 is the
@@ -551,14 +556,16 @@ the line is plain `would refuse` and the problem line below it is the error.
 | State | Stdout | Exit |
 | --- | --- | --- |
 | Intact (and the store acceptable to the gate) | `Teardown pin: release 1.2.3 (linux_amd64)`, then `source`, `signer` (`none (digest supplied by you)` for a file pin), `binary <path> sha256 <hash> ok`, `pinned <time>`, `attestation not checked` for a release pin, and the unindented line `worktree remove: will run this binary` | 0 |
-| No pin | nothing | 1 |
+| No pin, a development build | the line `worktree remove: would refuse` | 1 |
+| No pin, a release build | the line `worktree remove: will run this build (a release; no pin needed)`; stderr says none is needed and how to pin | 0 |
 | Newer or foreign | nothing | 1 |
 | No binary for this platform, or the binary missing or different | the report, with `missing` or `sha256 <found>, pinned <want>`, and the line `worktree remove: would refuse` | 1 |
 
 The problem lines on stderr:
 
 ```
-No teardown binary is pinned. Pin one with <pin command>.
+No teardown binary is pinned. Pin one with <pin command>.            (a development build)
+No teardown binary is pinned, and a release build needs none. Pin one with <pin command> to make removal keep running that verified build.   (info, a release build)
 The teardown pin has no binary for <platform>. Pin one on this machine with <pin command>.
 The pinned teardown binary <path> <problem>. Pin it again with <pin command>.
 ```
@@ -567,7 +574,7 @@ The pinned teardown binary <path> <problem>. Pin it again with <pin command>.
 `{"pinned", "ok", "release", "source", "signer", "pinnedAt", "platform",
 "binary": {"path", "sha256", "state"}, "running": {"version", "isPin",
 "newerThanPin"}}`, where `state` is `ok`, `missing`, `mismatch` or `none`. With
-no pin it prints `{"pinned": false}` and exits 1. The `worktree remove:` line is
+no pin it prints `{"pinned": false}` and exits 1 for a development build, 0 for a release build. The `worktree remove:` line is
 part of the text form only; the document is unchanged.
 
 Details the table leaves open:
@@ -606,15 +613,27 @@ The running build (<version>) is newer than the pinned release (<release>). Pin 
 
 **`doctor`** looks at the same things without executing anything
 (`teardownPinChecks`, with `teardown.OpenBinary` and the gate's `newerHint`):
-`registry.teardown-pin` is ok when the pin and its binary are intact, a warning
-when nothing is pinned (removal refuses, but nothing is broken yet), the pin has
-no binary for this platform or the running build is newer than it, and a failure
+`registry.teardown-pin` is ok when the pin and its binary are intact, and also when
+nothing is pinned and the running build is a release (removal needs none), a
+warning when nothing is pinned and the build is a development build (removal
+will refuse, but nothing is broken yet), the pin has no binary for this
+platform or the running build is newer than it, and a failure
 when the pin cannot be read, is newer or foreign, or its binary is missing or
 different. `registry.teardown-store` adds a failure for a control home inside a
 git work tree (`location`) or a store that is not private to the user
 (`ownership`), and a warning for a noexec mount (`noexec`), only when a pin exists.
 
 ## How `worktree remove` uses it
+
+A release build is decided by one function, `semver.IsPublishedRelease`: a release
+version (the strict pattern of "Sources", pre-release suffixes such as `-rc.2`
+included), with no `+build` metadata, not `0.0.0` in any form, and not ending in
+the `-N-g<hash>` that `git describe` appends. Everything else is a development
+build. Release builds take their version from the tag (GoReleaser's
+`-X …/brand.Version={{ .Version }}`, Homebrew's `#{version}`); a snapshot stamps
+`0.0.0-dev+<sha12>` and a plain build keeps `0.0.0-dev`. `docs/install.md` tells
+source builders they may stamp their own version; one that looks like a release is
+treated as one, which decision 10 accepts.
 
 The gate is the first act of `worktree remove`, before `Context` is built and
 before any lock is taken. A lock's descriptor is close-on-exec and would not
@@ -644,9 +663,13 @@ Gate(env, options):
        print the child line; return
   2. running is <controlHome>/bin/<64-hex>, bytes == that name, options.DevTeardown:
        return                                         -- the relocated dev copy: silent
-  3. options.DevTeardown:  warn; relocate through bin/; return
-  4. refuse if the control home or teardown/ is inside a git work tree
-     pin := ReadPin()                                 -- none, foreign, newer: refuse
+  3. options.DevTeardown:  warn; relocate through bin/; return   -- any build, pin or none
+  4. pin := ReadPin()                                 -- foreign, newer, unreadable: refuse
+     if there is no pin:
+       a release build (semver.IsPublishedRelease):  relocate through bin/; return
+       a development build:                          refuse
+     refuse if the running build cannot be identified (it might be the pinned child)
+     refuse if the control home or teardown/ is inside a git work tree
      entry := pin.platforms[GOOS_GOARCH]              -- absent or no binary_sha256: refuse
      stored := teardown/<entry.binary_sha256>
      the stored file must hash to entry.binary_sha256 -- else refuse
@@ -785,8 +808,10 @@ step> Nothing was removed.`, where `<target>` is `the worktree <identifier>` or
 `this worktree`:
 
 ```
-Refusing to remove <target>: no pinned teardown binary exists, and this build is not one. Run `<name> teardown pin --release <this build's version>`. To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
-Refusing to remove <target>: no pinned teardown binary exists, and this is a development build (<version>), which no release matches. Run `<name> teardown pin --release <a published version, such as 0.1.0-rc.2>`, or `<name> teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>` (`<name> teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
+Refusing to remove <target>: this is a development build (<version>), and a development build removes only with a pinned teardown binary, which none is yet (a release build needs no pin).
+  Pin a published release: `<name> teardown pin --release <a published version, such as 0.1.0-rc.2>`
+  or a treerig you trust: `<name> teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`
+  (`<name> teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
 Refusing to remove <target>: the pinned teardown binary <path> cannot be read (<error>) / has sha256 <found>, not the pinned <want>. Pin it again with <re-pin command>. Nothing was removed.
 Refusing to remove <target>: the teardown pin has no binary for <platform>. Pin one for this machine with <re-pin command>. Nothing was removed.
 Refusing to remove <target>: the teardown pin <path> is not one this build wrote. Delete <control home>/teardown/, then pin again with <pin command>. Nothing was removed.
@@ -802,13 +827,10 @@ Refusing to remove <target>: could not tell which treerig build this is (<error>
 Refusing --dev-teardown: this is a pinned teardown binary. Nothing was removed.
 ```
 
-The first no-pin row is for a build whose version is a release version (the
-strict pattern of "Sources", pre-release suffixes included, and not a
-development version `0.0.0-dev…`): it names its own version, which is a published
-release. The second is for a development or source build, which has none to
-name; it gives both routes that work. `<name>` is the invoked name (`treerig` or
-`trig`). The development-build row is written on continuation lines, which the
-logger indents. `<pin command>` is `pinCommandFor` for the running version and
+The no-pin row is only ever printed for a development build. A release build with
+no pin does not refuse; a broken pin refuses it like any other build. `<name>` is
+the invoked name (`treerig` or `trig`). The row is written on continuation lines,
+which the logger indents. `<pin command>` is `pinCommandFor` for the running version and
 `<re-pin command>` is `repinCommand` (both above); `status` and `doctor` use the
 same functions.
 
@@ -856,8 +878,8 @@ It must never become:
 - a key in `settings.toml` or `treerig.toml` (`treerig.toml` is branch content, so the
   worktree would authorise itself);
 - an environment variable;
-- implied by a development version, `go run`, a missing pin, a missing terminal
-  or `--yes`;
+- implied by a development version, `go run`, a missing pin (a development build
+  refuses instead), a missing terminal or `--yes`;
 - remembered between invocations;
 - passed down to a pinned child (check 1 refuses it).
 
@@ -1037,6 +1059,17 @@ checks failed (1 warning(s), 1 skipped)`, and added `OutputOptions.Version` so
 `doctor` can compare the running build with the pin. The status goldens carry the
 closing line, and their problem lines quote the re-pin command.
 
-`sudo treerig worktree remove` refuses: the gate requires the pin store to be
-owned by the effective user, which under `sudo` is root and not the owner of the
-user's control home. Run it as yourself.
+`sudo treerig worktree remove` refuses once a pin exists: the gate requires the pin
+store to be owned by the effective user, which under `sudo` is root and not the
+owner of the user's control home. Run it as yourself. (A release build with no pin
+needs no pin store, so it does not meet this.)
+
+**The usability rework** (decision 10) changed these strings and expectations
+again: the development-build refusal is now a rule ("this is a development build
+(…), and a development build removes only with a pinned teardown binary, which none
+is yet (a release build needs no pin)") and no release build meets it; `status`
+gains the `will run this build (a release; no pin needed)` closing line and exits 0
+for a release with no pin; `doctor` shows `registry.teardown-pin` as ok, "not
+needed", for a release with no pin; and the end-user docs (README, getting started,
+`docs/troubleshooting.md`, `docs/worktrees.md`, `docs/output-and-exit-codes.md`,
+`docs/doctor.md`, `SECURITY.md`) drop the pin step for people who run releases.

@@ -58,6 +58,23 @@ func TestTeardownPinChecks(t *testing.T) {
 		}
 	})
 
+	t.Run("is ok, not needed, for a release build with no pin, and says how to pin anyway", func(t *testing.T) {
+		opts, _ := newOptions(t)
+		opts.Version = "0.1.0-rc.3"
+		checks := teardownPinChecks(opts)
+		want := "not needed: `treerig worktree remove` runs this release build; pin one with `treerig teardown pin --release 0.1.0-rc.3` to keep removal on a verified build"
+		if summary(checks) != "ok registry.teardown-pin " || checks[0].Detail != want {
+			t.Fatalf("checks = %+v", checks)
+		}
+		// A snapshot or a git-describe version is not a release.
+		for _, version := range []string{"0.0.0-dev+abc123def456", "0.1.0-rc.2-5-gabc1234"} {
+			opts.Version = version
+			if got := summary(teardownPinChecks(opts)); got != "warn registry.teardown-pin " {
+				t.Errorf("version %s: %s", version, got)
+			}
+		}
+	})
+
 	t.Run("is ok for an intact pin, and says which", func(t *testing.T) {
 		opts, control := newOptions(t)
 		pin(t, opts, control, "my-build", "bytes")

@@ -91,7 +91,7 @@ func (f *gateFixture) asPinnedChild(digest string) {
 
 // devNoPin is the reason and next steps of the no-pin refusal of a development
 // build (version 0.0.0-dev), on its continuation lines.
-const devNoPin = "no pinned teardown binary exists, and this is a development build (0.0.0-dev), which no release matches.\n" +
+const devNoPin = "this is a development build (0.0.0-dev), and a development build removes only with a pinned teardown binary, which none is yet (a release build needs no pin).\n" +
 	"Pin a published release: `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`\n" +
 	"or a treerig you trust: `treerig teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`\n" +
 	"(`treerig teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`."
@@ -132,17 +132,72 @@ func TestTeardownGate(t *testing.T) {
 		wantRefusal(t, err, teardownRefusal("the worktree feature-login", devNoPin))
 	})
 
-	t.Run("names the version to pin when the running build is a release, and both routes when it is a development build", func(t *testing.T) {
-		const escape = " To remove with this build's own code while you work on removal itself, add `--dev-teardown`."
+	t.Run("with no pin, a development build refuses and names itself, whatever its version looks like", func(t *testing.T) {
 		f := newGateFixture(t)
-		wantRefusal(t, f.remove(commands.RemoveOptions{Yes: true, Version: "0.1.0-rc.3"}),
-			teardownRefusal(thisWorktree, "no pinned teardown binary exists, and this build is not one. Run `treerig teardown pin --release 0.1.0-rc.3`."+escape))
-		wantRefusal(t, f.remove(commands.RemoveOptions{Yes: true, Version: "1.2.3"}),
-			teardownRefusal(thisWorktree, "no pinned teardown binary exists, and this build is not one. Run `treerig teardown pin --release 1.2.3`."+escape))
-		for _, version := range []string{"0.0.0-dev", "0.0.0-dev+abc123def456", "garbage"} {
+		for _, version := range []string{"0.0.0-dev", "0.0.0-dev+abc123def456", "garbage", "1.2.3+metadata", "0.1.0-rc.2-5-gabc1234", "0.0.0-rc.1"} {
 			err := f.remove(commands.RemoveOptions{Yes: true, Version: version})
 			if err == nil || !strings.Contains(err.Error(), "this is a development build ("+version+")") || !strings.Contains(err.Error(), "`treerig teardown pin --help` explains both") {
 				t.Fatalf("version %q: err = %v", version, err)
+			}
+		}
+		if len(f.calls) != 0 {
+			t.Fatalf("exec was called: %v", f.calls)
+		}
+	})
+
+	t.Run("with no pin, a release build removes with itself, relocated through bin and with nothing said", func(t *testing.T) {
+		for _, version := range []string{"0.1.0-rc.3", "1.2.3"} {
+			f := newGateFixture(t)
+			f.execErr = nil // the relocation's exec "succeeds"
+			err := f.remove(commands.RemoveOptions{Yes: true, Version: version})
+			if err != nil && strings.Contains(err.Error(), "Refusing") {
+				t.Fatalf("%s: err = %v, want no refusal", version, err)
+			}
+			hash, herr := binstore.HashFile(f.running)
+			if herr != nil {
+				t.Fatal(herr)
+			}
+			if len(f.calls) != 1 || f.calls[0].path != filepath.Join(f.control.BinDir, hash) {
+				t.Fatalf("%s: exec calls = %+v, want the relocation to bin/", version, f.calls)
+			}
+			if f.logged() != "" || f.printed() != "" {
+				t.Fatalf("%s: stderr %q, stdout %q; want nothing said", version, f.logged(), f.printed())
+			}
+			if _, err := os.Lstat(f.control.TeardownDir); !os.IsNotExist(err) {
+				t.Fatalf("%s: the teardown directory exists (%v); an unpinned release writes none", version, err)
+			}
+		}
+	})
+
+	t.Run("a pin wins for a release build too: it is verified and used, and a broken one refuses", func(t *testing.T) {
+		f := newGateFixture(t)
+		digest := f.pinnedFile(t)
+		err := f.remove(commands.RemoveOptions{Yes: true, Version: "0.1.0-rc.3"})
+		if !errors.Is(err, errExecStopped) || len(f.calls) != 1 || binstore.Hash(f.calls[0].pathContent) != digest {
+			t.Fatalf("err = %v, calls %+v; want the pinned binary run", err, f.calls)
+		}
+		if err := os.WriteFile(f.stored(digest), []byte("tampered"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.calls = nil
+		err = f.remove(commands.RemoveOptions{Yes: true, Version: "0.1.0-rc.3"})
+		if err == nil || !strings.Contains(err.Error(), "has sha256 "+binstore.Hash([]byte("tampered"))) || len(f.calls) != 0 {
+			t.Fatalf("err = %v, calls %v; want a broken pin to refuse a release build", err, f.calls)
+		}
+	})
+
+	t.Run("a foreign or newer pin refuses a release build as well", func(t *testing.T) {
+		for _, body := range []string{`{"version": 1, "extra": true}`, `{"version": 99}`} {
+			f := newGateFixture(t)
+			if err := os.MkdirAll(f.control.TeardownDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(f.control.PinPath, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := f.remove(commands.RemoveOptions{Yes: true, Version: "0.1.0-rc.3"})
+			if err == nil || len(f.calls) != 0 {
+				t.Fatalf("%s: err = %v, calls %v; want a refusal", body, err, f.calls)
 			}
 		}
 	})
@@ -550,7 +605,7 @@ func TestTeardownGate(t *testing.T) {
 		}
 		f.env.Executable = func() (string, error) { return bin, nil }
 		err := f.remove(commands.RemoveOptions{Yes: true})
-		if err == nil || !strings.HasPrefix(err.Error(), "Refusing to remove this worktree: no pinned teardown binary exists") {
+		if err == nil || !strings.HasPrefix(err.Error(), "Refusing to remove this worktree: this is a development build") {
 			t.Fatalf("err = %v, want the no-pin refusal", err)
 		}
 	})
@@ -576,6 +631,28 @@ func TestDevTeardown(t *testing.T) {
 		}
 		if len(f.calls) != 1 || f.calls[0].path != filepath.Join(f.control.BinDir, hash) || strings.Join(f.calls[0].argv, " ") != "trig worktree remove --dev-teardown --yes" {
 			t.Fatalf("exec calls = %+v, want the bin copy with the caller's argv", f.calls)
+		}
+	})
+
+	t.Run("is allowed on a release build, with or without a pin, and bypasses the pin with the same warning", func(t *testing.T) {
+		for _, pinned := range []bool{false, true} {
+			f := newGateFixture(t)
+			if pinned {
+				f.pinnedFile(t)
+			}
+			f.env.Args = []string{"trig", "worktree", "remove", "--dev-teardown", "--yes"}
+			f.execErr = nil
+			err := f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true, Version: "0.1.0-rc.3"})
+			if err != nil && strings.Contains(err.Error(), "Refusing") {
+				t.Fatalf("pinned=%v: err = %v", pinned, err)
+			}
+			hash, _ := binstore.HashFile(f.running)
+			if !strings.HasPrefix(f.logged(), "warn: Removing with this build's own code (version 0.1.0-rc.3, sha256 "+hash+")") {
+				t.Fatalf("pinned=%v: stderr = %q, want the warning", pinned, f.logged())
+			}
+			if len(f.calls) != 1 || f.calls[0].path != filepath.Join(f.control.BinDir, hash) {
+				t.Fatalf("pinned=%v: exec calls = %+v, want the relocation, not the pin", pinned, f.calls)
+			}
 		}
 	})
 

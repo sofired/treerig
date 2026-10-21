@@ -14,10 +14,12 @@ see [Machine-readable output](json-output.md).
 
 `teardown pin` writes only its notices to stderr, and nothing to stdout.
 `teardown status` writes its report to stdout, and takes `--json` (see
-[Teardown pin](teardown-pin.md)); a problem, no pin included, is an error on
-stderr that exits 1. The report's last line, `worktree remove: will run this
-binary` or `worktree remove: would refuse`, is part of the text form only: the
-`--json` document does not carry it. Anything that would make removal refuse
+[Teardown pin](teardown-pin.md)); a problem is an error on stderr that exits 1,
+and so is no pin on a development build. On a release build, no pin is not a
+problem: it exits 0 and says on stderr that none is needed. The report's last
+line, `worktree remove: will run this binary`, `worktree remove: would refuse` or
+`worktree remove: will run this build (a release; no pin needed)`, is part of the
+text form only: the `--json` document does not carry it. Anything that would make removal refuse
 besides the pin's own integrity (a control home inside a checkout, a pin store
 others can write, a `noexec` mount) is a warning on stderr in both forms, with
 exit 0, so stdout stays the report or the document.
@@ -25,9 +27,9 @@ exit 0, so stdout stays the report or the document.
 `up`, `dev`, `down`, `backup`, `restore`, `router down` and `worktree remove`
 are the exception: they pass your hooks' and Compose's own stdout through as
 those programs wrote it, and `up` adds its URL table there. `worktree remove`
-prints the two lines of its teardown gate (the pinned binary it runs, and the
-pinned binary saying it ran), and any refusal of the gate, on stderr, never on
-stdout. `dev` is `up` and then the followed logs, which keep their streams: a
+prints the two lines of its teardown gate when a pin is used (the pinned binary it
+runs, and the pinned binary saying it ran), and any refusal of the gate, on stderr,
+never on stdout. `dev` is `up` and then the followed logs, which keep their streams: a
 container's stdout on treerig's stdout, its stderr on treerig's stderr, and one
 notice on stderr when following starts. `backup` and `restore` write their own closing line, and any
 warning, to stderr, so a script that needs a bundle's path passes it a

@@ -43,24 +43,13 @@ func shellWord(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// isReleaseBuild reports whether version is one a published release carries:
-// the release pattern, strict SemVer, and not a development version (`0.0.0-dev…`,
-// what an unstamped build and a snapshot report).
-func isReleaseBuild(version string) bool {
-	if !semver.IsRelease(version) {
-		return false
-	}
-	parsed, err := semver.Parse(version)
-	return err == nil && !parsed.IsDev()
-}
-
 // pinCommandFor is the command the messages tell the user to run to pin a
 // treerig build, for the running build's version. A release build names its
 // own version, which is a published release, so the command runs as written. A
 // development or source build has no release to name: it says what to put there
 // and where the other route is.
 func pinCommandFor(commandName, version string) string {
-	if isReleaseBuild(version) {
+	if semver.IsPublishedRelease(version) {
 		return fmt.Sprintf("`%s teardown pin --release %s`", commandName, shellWord(version))
 	}
 	return fmt.Sprintf("`%s teardown pin %s` (or `--file`; see `%s teardown pin --help`)", commandName, publishedRelease, commandName)
@@ -84,18 +73,14 @@ func repinCommand(commandName, version string, pin teardown.Pin, platform string
 	return fmt.Sprintf("`%s teardown pin --release %s`", commandName, shellWord(pin.Release))
 }
 
-// noPinRefusal is the refusal for a machine with no pin, saying how to make one
-// in words that can be run. A release build names its own version; a
-// development or source build has none to name, so it says so and gives both
-// routes that work for it, on lines of their own.
+// noPinRefusal is the refusal for a development build with no pin: development
+// builds remove only with a pinned teardown binary (a release build needs none).
+// It says so, and gives both routes that work for a build with no release of its
+// own to name, on lines of their own.
 func noPinRefusal(commandName, version string) string {
-	escape := "To remove with this build's own code while you work on removal itself, add `--dev-teardown`."
-	if isReleaseBuild(version) {
-		return fmt.Sprintf("no pinned teardown binary exists, and this build is not one. Run %s. %s", pinCommandFor(commandName, version), escape)
-	}
-	return fmt.Sprintf("no pinned teardown binary exists, and this is a development build (%s), which no release matches.\n"+
+	return fmt.Sprintf("this is a development build (%s), and a development build removes only with a pinned teardown binary, which none is yet (a release build needs no pin).\n"+
 		"Pin a published release: `%s teardown pin %s`\n"+
 		"or a treerig you trust: `%s teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`\n"+
-		"(`%s teardown pin --help` explains both). %s",
-		text.Printable(version), commandName, publishedRelease, commandName, commandName, escape)
+		"(`%s teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`.",
+		text.Printable(version), commandName, publishedRelease, commandName, commandName)
 }
