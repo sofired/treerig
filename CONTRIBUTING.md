@@ -291,7 +291,7 @@ job fails at one of these steps:
    does not touch Homebrew. Release notes list the commits since the previous
    tag, so after an rc they cover only what changed since the rc. For the first
    stable release after release candidates, write the notes by hand to cover the
-   whole release and paste them on the release page (`v0.1.0` did).
+   whole release and paste them on the release page once the run publishes it.
 3. Approve the run in the `release` environment, and watch it. Approval is
    requested once per gated job, so twice per release: first `release`, then
    `homebrew-tap`. When it finishes, check the release page, then try `brew install sofired/tap/treerig`,
