@@ -13,6 +13,16 @@
 set -eu
 
 tag="${GITHUB_REF_NAME:-}"
+
+# A release tag is `v` plus the version: release.yml only fires on `v*`, and the
+# download URLs (release-smoke.yml's dispatch input included) are built from it.
+case "$tag" in
+  v*) ;;
+  *)
+    echo "::error::tag '${tag}' must start with v, as in v0.1.0" >&2
+    exit 1
+    ;;
+esac
 version="${tag#v}"
 
 # Goes straight into -ldflags -X; a tag name with a quote or space in it would

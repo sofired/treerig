@@ -39,13 +39,13 @@ run-name: Release smoke ${{ github.event.workflow_run.head_branch || inputs.tag 
 permissions:
   contents: read
 
-# One smoke run per tag at a time; a second waits instead of cancelling the
-# first, since each is a different attempt at the same question.
+# One smoke run per tag at a time, whether it came from Release or from a
+# dispatch; a second waits instead of cancelling the first, since each is a
+# different attempt at the same question. A workflow_run from anything but a
+# tag push (which the job's `if:` skips) gets a group of its own, its run id,
+# so a branch named like a tag can't share, and displace, the real tag's run.
 concurrency:
-  # The event is part of the key, so a branch named like a tag (a workflow_run
-  # from a non-tag push, which the job's `if:` then skips) can't share a group
-  # with, and displace, the real tag's pending run.
-  group: release-smoke-${{ github.event_name }}-${{ github.event.workflow_run.event }}-${{ github.event.workflow_run.head_branch || inputs.tag }}
+  group: release-smoke-${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event != 'push') && github.run_id || github.event.workflow_run.head_branch || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
