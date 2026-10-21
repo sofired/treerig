@@ -167,7 +167,7 @@ For a per-item kind, filter by id and read `instance`:
       { "id": "registry.control-home", "status": "ok", "subject": "control home", "detail": "…" },
       { "id": "registry.router-state", "status": "ok", "subject": "router state", "detail": "…" },
       { "id": "registry.registrations", "status": "ok", "subject": "registrations", "detail": "1 readable" },
-      { "id": "registry.teardown-pin", "status": "warn", "subject": "teardown pin", "detail": "none pinned; `treerig worktree remove` will refuse until you pin one with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`)" } ] },
+      { "id": "registry.teardown-pin", "status": "warn", "subject": "teardown pin", "detail": "none pinned; `treerig worktree remove` will refuse until you pin one with `treerig teardown pin --latest` (or `--file`; see `treerig teardown pin --help`)" } ] },
     { "id": "locks", "title": "Locks", "checks": [
       { "id": "locks.none", "status": "ok", "subject": "locks", "detail": "none held" } ] },
     { "id": "router", "title": "Router", "checks": [

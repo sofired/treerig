@@ -5,6 +5,8 @@ Write a `treerig.toml`, bring a worktree up, and see what `up` creates. The
 Writing the Compose file first? [Writing your compose.yaml for treerig](compose.md)
 says how to expose a port and which variables it can use.
 
+Not installed yet? `brew install sofired/tap/treerig`, or see [Install](install.md).
+
 ## Write a `treerig.toml`
 
 The tool is tested with Docker Compose 2.21 and newer (`treerig doctor` checks,
@@ -73,9 +75,11 @@ treerig worktree unlock      # clear a dead holder's lock, once it is checked go
 treerig doctor               # check prerequisites, registry, router; run verify
 ```
 
-A release build removes with itself, so there is nothing to set up. A development
-build (one built from source, which may carry a branch's code) removes only with a
-pinned teardown binary; see [Teardown pin](teardown-pin.md).
+A release build (Homebrew, the install script, a package or an archive) removes
+with itself, so there is nothing to set up. A development build (one built from
+source, which may carry a branch's code) removes only with a pinned teardown
+binary: `treerig teardown pin --latest` pins the newest release. See
+[Teardown pin](teardown-pin.md).
 
 `up` runs the branch's own build and hooks. Read [Trust model](trust-model.md)
 before bringing up a branch you did not write.

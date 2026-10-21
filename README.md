@@ -6,7 +6,7 @@
 </h1>
 
 [![CI](https://github.com/sofired/treerig/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/sofired/treerig/actions/workflows/go.yml?query=branch%3Amain)
-[![Release](https://img.shields.io/github/v/release/sofired/treerig?include_prereleases&sort=semver)](https://github.com/sofired/treerig/releases)
+[![Release](https://img.shields.io/github/v/release/sofired/treerig)](https://github.com/sofired/treerig/releases)
 [![Go](https://img.shields.io/github/go-mod/go-version/sofired/treerig)](go.mod)
 [![License](https://img.shields.io/github/license/sofired/treerig)](LICENSE)
 
@@ -14,7 +14,7 @@
 
 Every worktree gets its own stack, its own data, and its own URL.
 
-Pre-release: [install](#install) `v0.1.0-rc.2` with the install script.
+Version 0.1.0 is the first stable release: [install](#install) it with the install script or Homebrew.
 
 Git worktrees let you have three branches checked out at once, or three agent
 sessions working in parallel. Docker Compose doesn't play along: the second
@@ -50,28 +50,32 @@ lines.*
   and ports. Migrations, seeding and health checks are small scripts in
   whatever language you already use.
 
-> **Status: pre-release.** Linux and macOS. treerig needs Git, Docker and
-> Docker Compose 2.21 or newer; the Docker integration tests run on Linux in
-> CI. The newest release is the pre-release `v0.1.0-rc.2`; there is no stable
-> release yet.
+> **Status: 0.1.0, the first stable release.** Linux and macOS. treerig needs Git,
+> Docker and Docker Compose 2.21 or newer; the Docker integration tests run on
+> Linux in CI. [Status and roadmap](#status-and-roadmap) lists what is not
+> built yet.
 
 ## Install
 
-There is no stable release yet, so name the pre-release when you run the
-install script:
+The install script installs the latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | sh -s -- --version 0.1.0-rc.2
+curl -fsSL https://raw.githubusercontent.com/sofired/treerig/main/install.sh | sh
 ```
 
-By default it installs into `~/.local/bin` (set `TREERIG_INSTALL_DIR` or pass
-`--dir` to choose another directory), and says how to add the install directory
+or with Homebrew:
+
+```bash
+brew install sofired/tap/treerig
+```
+
+The script installs into `~/.local/bin` by default (set `TREERIG_INSTALL_DIR` or pass
+`--dir` to choose another directory) and says how to add the install directory
 to your `PATH` if it isn't there. Then check your machine with `treerig doctor`. The
-[release page](https://github.com/sofired/treerig/releases/tag/v0.1.0-rc.2)
-also has archives and `.deb`, `.rpm` and `.apk` packages. Homebrew, and the
-install script without `--version`, wait for the first stable release. To build
-from source instead, you need Go, at least the version [`go.mod`](go.mod)
-names:
+[release page](https://github.com/sofired/treerig/releases/latest)
+also has archives and `.deb`, `.rpm` and `.apk` packages (see
+[docs/install.md](docs/install.md)). To build from source instead, you need Go,
+at least the version [`go.mod`](go.mod) names:
 
 ```bash
 git clone https://github.com/sofired/treerig && cd treerig
@@ -221,7 +225,7 @@ vulnerability, see [SECURITY.md](SECURITY.md).
 
 | Page | What it covers |
 | --- | --- |
-| [Install](docs/install.md) | Building from source, the release channels to come, verifying a download, shell completion, the `trig` alias, renaming the binary |
+| [Install](docs/install.md) | Homebrew, the install script, packages and archives, building from source, verifying a download, shell completion, the `trig` alias, renaming the binary |
 | [Getting started](docs/getting-started.md) | The config file, the first `up`, and what `up` creates |
 | [Troubleshooting](docs/troubleshooting.md) | Common failures, the message you see, and the fix |
 | [How treerig works](docs/concepts.md) | Identity, hostnames, locks, ownership labels, hooks, backup and restore |
@@ -261,10 +265,10 @@ Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
 command. Releases are listed on the
 [releases page](https://github.com/sofired/treerig/releases).
 
-`worktree remove` refuses development builds that have no pinned, verified
-teardown binary (#146). That check is in `main` and ships in the first release cut
-after it (expected `v0.1.0-rc.3`); release builds, `v0.1.0-rc.2` included, remove
-with themselves.
+`worktree remove` refuses development builds, which includes a build from
+source, that have no pinned, verified teardown binary (#146); pin one with
+`treerig teardown pin --latest`. Release builds remove with themselves. See
+[Teardown pin](docs/teardown-pin.md).
 
 Not built yet:
 
@@ -274,7 +278,7 @@ Not built yet:
 
 ## Contributing
 
-treerig is pre-release, and the most useful thing you can do is try it on your
+treerig is at 0.1.0, before 1.0, and the most useful thing you can do is try it on your
 own stack and open an issue when something surprises you: platform reports,
 docs and examples are all welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
 first. Its safety rules, ownership before removal and no lock cleared by age,

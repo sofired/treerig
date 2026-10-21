@@ -18,7 +18,7 @@ import (
 // state, and that it only looks (docs/design/teardown.md, "How `worktree remove`
 // uses it"): the severity, the id and instance, and the gate's own sentences.
 func TestTeardownPinChecks(t *testing.T) {
-	const command = "`treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`)"
+	const command = "`treerig teardown pin --latest` (or `--file`; see `treerig teardown pin --help`)"
 	newOptions := func(t *testing.T) (doctorOptions, layout.Control) {
 		t.Helper()
 		base := registrytest.TempDir(t)
@@ -65,6 +65,11 @@ func TestTeardownPinChecks(t *testing.T) {
 		want := "not needed: `treerig worktree remove` runs this release build; pin one with `treerig teardown pin --release 0.1.0-rc.3` to keep removal on a verified build"
 		if summary(checks) != "ok registry.teardown-pin " || checks[0].Detail != want {
 			t.Fatalf("checks = %+v", checks)
+		}
+		opts.Version = "0.1.0"
+		want = "not needed: `treerig worktree remove` runs this release build; pin one with `treerig teardown pin --latest` to keep removal on a verified build"
+		if got := teardownPinChecks(opts); summary(got) != "ok registry.teardown-pin " || got[0].Detail != want {
+			t.Fatalf("stable release: %+v", got)
 		}
 		// A snapshot or a git-describe version is not a release.
 		for _, version := range []string{"0.0.0-dev+abc123def456", "0.1.0-rc.2-5-gabc1234"} {
@@ -132,7 +137,7 @@ func TestTeardownPinChecks(t *testing.T) {
 		}
 		opts.Version = "1.3.0"
 		got := teardownPinChecks(opts)
-		if summary(got) != "warn registry.teardown-pin " || !strings.Contains(got[0].Detail, "The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --release 1.3.0` to update it.") {
+		if summary(got) != "warn registry.teardown-pin " || !strings.Contains(got[0].Detail, "The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --latest` to update it.") {
 			t.Fatalf("checks = %+v", got)
 		}
 	})

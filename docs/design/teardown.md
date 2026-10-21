@@ -13,14 +13,15 @@ packages' binaries (step 5), and the removal gate with `--dev-teardown` (step 6,
 #146): `worktree remove` runs the stored copy of the pinned binary when a usable
 pin exists, whatever the build; with no pin a release build removes with itself
 and a development build refuses. The pin command in the messages below is `treerig teardown pin
---release X.Y.Z` while the repository has only pre-releases; when the first
-release that is not a pre-release is published, `internal/commands/pincommand.go`,
-the one file that names the pin command, switches to `--latest`, and the goldens
-that quote it are regenerated (that switch is not part of #146). The first release, `v0.1.0-rc.2`,
-predates the gate; the first release that contains it is the next one cut
-(`v0.1.0-rc.3` or later), and the cross-platform smoke test in #147 waits for it.
-Until then a pin made from `rc.2` is a pinned child without the gate (see
-"Bootstrap"). The strings step 6 changed are listed under "Order of work".
+--latest` (a pre-release build names its own version instead; see "The pin
+command"). It was `--release X.Y.Z` while the repository had only pre-releases;
+the first release that is not a pre-release, `v0.1.0`, switched it, in
+`internal/commands/pincommand.go`, the one file that names the pin command, and
+in the goldens that quote it. The first pre-release, `v0.1.0-rc.2`, predates the
+gate; `v0.1.0-rc.3` is the first that contains it, and the cross-platform smoke
+test in #147 runs on it. A pin made from `rc.2` is a pinned child without the
+gate (see "Bootstrap"). The strings step 6 changed are listed under "Order of
+work".
 
 ## Decisions
 
@@ -37,21 +38,21 @@ Until then a pin made from `rc.2` is a pinned child without the gate (see
 | 9 | `--yes` is allowed on `teardown pin`. |
 | 10 | The gate fails closed for development builds and for anyone who pinned, not for everyone. A usable pin wins for every build; with no pin, a release build (`semver.IsPublishedRelease`) removes with itself, relocated through `bin/` as before the gate, and a development build refuses unless `--dev-teardown`. This reverses the first design ("fail closed for everyone", which made every user pin, in practice by installing cosign 3 or typing a `--file`/`--sha256` command, before their first removal). The reason is usability with the risk where it is: a release is already the code the user chose to trust (they installed it, from a signed release or a package they chose), and branch code runs in development builds, so the gate that stops it needs to stand there. The accepted limit: a version stamped by any means other than a release tag reads as a release and, with no pin, removes with itself: stamped by hand (`-X …/brand.Version=1.2.3`), by `-ldflags` or `GOFLAGS` from an environment a branch controls (direnv, mise, a devcontainer), or by a build wrapper. This is consistent with decision 5, since a hostile process of the same user could equally replace the binary; the consequence is that the build is trusted as a release, and the mitigation is to pin, because a usable pin overrides it for every build. Nothing in this repository stamps a release-looking version on a non-release build (GoReleaser takes the tag's, a snapshot stamps `0.0.0-dev+<sha>`, Homebrew stamps the tag's, a plain build keeps `0.0.0-dev`), and the rule additionally rejects `+build` metadata, `0.0.0` in any form and `git describe`'s `-N-g<hash>` tail (with or without `-dirty`/`-broken`, or a bare one). |
 
-**The pin command**, in every message below, is `treerig teardown pin --latest`,
-or `treerig teardown pin --release X.Y.Z` while the repository has only
-pre-releases (`--latest` never selects one); it is the latter until the first
-release that is not a pre-release exists. A message that runs it names the
-running build's version (`--release 0.1.0-rc.3`) when that is a release
-version, so the command runs as written; a development or source build has no
-release to name and says what to put there and where the `--file` route is. For a
-pin that is broken, the message pins that pin again: a release pin by its own
-release, a file pin by its own `--file`, `--sha256` and `--release`, which refuse
-if the file is no longer the one that was approved. `pinCommandFor`,
+**The pin command**, in every message below, is `treerig teardown pin --latest`:
+the newest release that is not a pre-release. A development or source build gets
+it with the `--file` route beside it (`` `treerig teardown pin --latest` (or
+`--file`; see `treerig teardown pin --help`) ``), and a stable release build gets
+it alone. The one exception is a pre-release build (`0.1.0-rc.3`: a version
+`semver.IsPublishedRelease` accepts that has a pre-release part): `--latest` never
+selects a pre-release, so it would pin a different build than the one running, or
+refuse, and the message names the build's own version instead
+(`treerig teardown pin --release 0.1.0-rc.3`), which runs as written. For a pin
+that is broken, the message pins that pin again, not the latest: a release pin by
+its own release, a file pin by its own `--file`, `--sha256` and `--release`, which
+refuse if the file is no longer the one that was approved. `pinCommandFor`,
 `repinCommand` and `noPinRefusal` (`internal/commands/pincommand.go`) are the one
-place that makes these commands. What becomes `--latest` when the first stable
-release exists is the shared `publishedRelease` route (the flag and its example
-version), used by `pinCommandFor`, `noPinRefusal` and the `--latest` refusal, and
-the two development-build branches that spell it out. A path or label in a
+place that makes these commands; the `--latest` refusal in `teardown_release.go`
+uses the same `latestRoute` constant. A path or label in a
 command is shell-quoted when it needs it (single quotes, `'\''` for an embedded
 quote), so a command for a file pin made from `/home/me/sp dir/treerig` still runs.
 
@@ -223,11 +224,11 @@ There is no `unpin`: deleting `<control home>/teardown/` does it. `--yes` is
 | Source | Flow |
 | --- | --- |
 | `--release X.Y.Z` | The value must match release.yml's pattern `^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$`. `0.1.0-rc.1` passes, and so does the snapshot's `0.0.0-dev+<sha12>` (a pre-release part and a build part), which is why the CI pin flow runs unchanged against it. Everything is fetched from `https://github.com/sofired/treerig/releases/download/vX.Y.Z/`. |
-| `--latest` | **Discovery only.** Fetches `…/releases/latest/download/checksums.txt`, reads the version from the archive names in it (they must all agree and match the pattern), and discards the bytes. Then it behaves as `--release` with that value and refetches everything, `checksums.txt` included, from the versioned URL. `releases/latest` never selects a pre-release, so before a stable release exists it answers 404 and the command refuses (below). |
+| `--latest` | **Discovery only.** Fetches `…/releases/latest/download/checksums.txt`, reads the version from the archive names in it (they must all agree and match the pattern), and discards the bytes. Then it behaves as `--release` with that value and refetches everything, `checksums.txt` included, from the versioned URL. `releases/latest` never selects a pre-release, so while a repository has no stable release it answers 404 and the command refuses (below). |
 | `--file` | Reads the file once into memory (at most 200 MiB), hashes those bytes, compares with `--sha256`, and `binstore.Install`s the same bytes. For users without cosign and for development. |
 
 ```
-Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`. Releases are listed at https://github.com/sofired/treerig/releases.
+Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release (or the repository is not reachable). Try `treerig teardown pin --latest` again later, or name a release with `treerig teardown pin --release <a version>`. Releases are listed at https://github.com/sofired/treerig/releases.
 ```
 
 **What `--file` does, in order.** It checks the flags (all missing required flags are named in one line;
@@ -567,7 +568,7 @@ The problem lines on stderr:
 
 ```
 No teardown binary is pinned. Pin one with <pin command>.            (a development build)
-No teardown binary is pinned, and a release build needs none. Pin one with <pin command> to make removal keep running that verified build.   (info, a release build)
+No teardown binary is pinned, and a release build needs none. Pin one with <pin command> to make removal run a verified, pinned build.   (info, a release build)
 The teardown pin has no binary for <platform>. Pin one on this machine with <pin command>.
 The pinned teardown binary <path> <problem>. Pin it again with <pin command>.
 ```
@@ -828,7 +829,7 @@ step> Nothing was removed.`, where `<target>` is `the worktree <identifier>` or
 
 ```
 Refusing to remove <target>: this is a development build (<version>), which may carry a branch's code, and no teardown binary is pinned. A development build removes only with a pinned one (a release build needs none).
-  Pin a published release: `<name> teardown pin --release <a published version, such as 0.1.0-rc.2>`
+  Pin the latest release: `<name> teardown pin --latest`
   or a treerig you trust: `<name> teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`
   (`<name> teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
 Refusing to remove <target>: the pinned teardown binary <path> cannot be read (<error>) / has sha256 <found>, not the pinned <want>. Pin it again with <re-pin command>. Nothing was removed.
@@ -936,7 +937,7 @@ refusal unchanged.
 
 ## Bootstrap
 
-The first release, `v0.1.0-rc.2`, is cut before the gate exists, so it cannot
+The first pre-release, `v0.1.0-rc.2`, is cut before the gate exists, so it cannot
 contain it. (`v0.1.0-rc.1` was tagged first, but its workflow never started, so
 it has no release.) A pinned child of a release without the gate runs the relocation of
 its own bytes through `bin/` and then proceeds; that is accepted, because the
@@ -945,7 +946,8 @@ contains the gate is the one cut after #146 lands (`v0.1.0-rc.3` or later), and 
 pins that release. `rc.2` is what the pin store, `teardown pin --release` and `status`
 meet a real signature, real URLs and real macOS binaries on. Both are
 pre-releases, which `install.sh`, Homebrew and `--latest` skip, so they are
-pinned with an explicit `--release`.
+pinned with an explicit `--release`. The first stable release, `v0.1.0`, is the
+first that `--latest` finds.
 
 ## Testing
 

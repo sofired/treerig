@@ -92,7 +92,7 @@ func (f *gateFixture) asPinnedChild(digest string) {
 // devNoPin is the reason and next steps of the no-pin refusal of a development
 // build (version 0.0.0-dev), on its continuation lines.
 const devNoPin = "this is a development build (0.0.0-dev), which may carry a branch's code, and no teardown binary is pinned. A development build removes only with a pinned one (a release build needs none).\n" +
-	"Pin a published release: `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`\n" +
+	"Pin the latest release: `treerig teardown pin --latest`\n" +
 	"or a treerig you trust: `treerig teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`\n" +
 	"(`treerig teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`."
 
@@ -389,7 +389,7 @@ func TestTeardownGate(t *testing.T) {
 		}
 		err := f.remove(commands.RemoveOptions{Yes: true, Version: "1.3.0"})
 		wantRefusal(t, err, teardownRefusal(thisWorktree, "the pinned teardown binary "+f.stored(digest)+" is missing. Pin it again with `treerig teardown pin --release 1.2.3`. "+
-			"The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --release 1.3.0` to update it."))
+			"The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --latest` to update it."))
 		// No hint for a build that is not newer.
 		err = f.remove(commands.RemoveOptions{Yes: true, Version: "1.2.3"})
 		if err == nil || strings.Contains(err.Error(), "newer") {
@@ -480,7 +480,7 @@ func TestTeardownGate(t *testing.T) {
 		f.releasePin(t, "1.2.3", "release build")
 		_ = f.remove(commands.RemoveOptions{Yes: true, Version: "1.3.0"})
 		want := "info: Running the pinned teardown binary " + f.stored(binstore.Hash([]byte("release build"))) + " (release 1.2.3) to remove this worktree. " +
-			"The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --release 1.3.0` to update it."
+			"The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --latest` to update it."
 		if !strings.HasPrefix(f.logged(), want+"\n") && f.logged() != want {
 			t.Fatalf("stderr = %q\nwant     %q", f.logged(), want)
 		}

@@ -7,7 +7,7 @@ Prerequisites
 Registry
   ok    control home   FIXTURE/control
   ok    registrations  1 readable
-  warn  teardown pin   none pinned; `treerig worktree remove` will refuse until you pin one with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`)
+  warn  teardown pin   none pinned; `treerig worktree remove` will refuse until you pin one with `treerig teardown pin --latest` (or `--file`; see `treerig teardown pin --help`)
 
 Locks
   ok    locks  none held

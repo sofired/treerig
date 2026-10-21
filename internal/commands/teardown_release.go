@@ -71,7 +71,7 @@ func teardownPinRelease(ctx context.Context, env *Env, options TeardownPinOption
 		version, err := releasefetch.Latest(fetchCtx, fetcher, options.Source)
 		switch {
 		case errors.Is(err, releasefetch.ErrNoStableRelease):
-			return clierr.Newf("Refusing to pin the latest release: %s has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `%s teardown pin %s`. Releases are listed at https://github.com/%s/releases.", brand.Repository, env.CommandName, publishedRelease, brand.Repository)
+			return clierr.Newf("Refusing to pin the latest release: %s has no release that is not a pre-release (or the repository is not reachable). Try `%s teardown pin %s` again later, or name a release with `%s teardown pin --release <a version>`. Releases are listed at https://github.com/%s/releases.", brand.Repository, env.CommandName, latestRoute, env.CommandName, brand.Repository)
 		case err != nil:
 			return failure(subject, err)
 		}

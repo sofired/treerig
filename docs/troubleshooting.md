@@ -140,14 +140,14 @@ source or a snapshot, refuses without a pinned teardown binary:
 
 ```text
 [treerig] ERROR: Refusing to remove this worktree: this is a development build (0.0.0-dev), which may carry a branch's code, and no teardown binary is pinned. A development build removes only with a pinned one (a release build needs none).
-  Pin a published release: `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`
+  Pin the latest release: `treerig teardown pin --latest`
   or a treerig you trust: `treerig teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`
   (`treerig teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
 ```
 
 **Fix:** use a release build, or pin a treerig build once and run the removal again.
 
-1. With cosign 3.0.0 or newer on your `PATH`: `treerig teardown pin --release 0.1.0-rc.2`. `0.1.0-rc.2` predates the check and is safe to pin: its bytes are the pinned bytes.
+1. With cosign 3.0.0 or newer on your `PATH`: `treerig teardown pin --latest`, which pins the newest release that is not a pre-release.
 2. Without cosign: verify a download by hand ([Verifying a download](install.md#verifying-a-download)), then `treerig teardown pin --file ./treerig --sha256 "$(sha256sum treerig | cut -d' ' -f1)" --release my-build` (on macOS, `shasum -a 256 treerig | cut -d' ' -f1` for the digest).
 
 `treerig teardown status` says whether the pin is intact and whether removal will run it; `treerig doctor` has a line for it. See [Teardown pin](teardown-pin.md).
