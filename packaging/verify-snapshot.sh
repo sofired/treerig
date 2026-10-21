@@ -205,6 +205,9 @@ else
   not_checked "deb contents" dpkg-deb
 fi
 
+# (.github/scripts/release-smoke.sh reads a published release's packages the same
+# way, by its own copy of this code, since this script is tied to dist/: keep
+# the two in step.)
 # /usr/bin/treerig in the host's packages is the release binary: the same bytes as
 # the treerig in the host's archive, which is the file the teardown pin records as
 # binary_sha256 (docs/design/teardown.md, "Platforms"). The deb is read with

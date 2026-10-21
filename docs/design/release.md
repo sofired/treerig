@@ -23,6 +23,24 @@ it. All of them are attached to the GitHub Release.
 | Checksums | `checksums.txt`: `<sha256>  <file name>` for every asset above |
 | Signature | `checksums.txt.sigstore.json`: a Sigstore bundle for `checksums.txt` |
 
+**A pre-release's package names.** The packages follow their formats' rules for a
+version with a suffix (`.goreleaser.yaml` takes the name from nfpm's
+`ConventionalFileName`), so for `v0.1.0-rc.2` they are not `0.1.0-rc.2`:
+
+| Package | Name in `checksums.txt` | Download URL |
+| --- | --- | --- |
+| Debian | `treerig_0.1.0~rc.2_amd64.deb` | `treerig_0.1.0.rc.2_amd64.deb` |
+| RPM | `treerig-0.1.0~rc.2-1.x86_64.rpm` | `treerig-0.1.0.rc.2-1.x86_64.rpm` |
+| Alpine | `treerig_0.1.0_rc.2_x86_64.apk` | `treerig_0.1.0_rc.2_x86_64.apk` |
+
+The first `-` of the version becomes `~` in a `.deb` and an `.rpm` (so the
+pre-release sorts before the release) and `_` in an `.apk`. GitHub rewrites a
+`~` in an uploaded asset's name to `.`, so `checksums.txt` lists a name that
+cannot be downloaded: the file at `releases/download/` has `.` where the line has
+`~`. A final release has none of this: `treerig_0.1.0_amd64.deb`. Anything that
+fetches a package for a tag (`.github/scripts/release-smoke.sh` does) has to
+apply both rewrites, and checked them against the `v0.1.0-rc.2` release.
+
 A platform archive holds exactly `treerig` (at the archive root, mode 0755),
 `LICENSE`, `NOTICE`, `README.md` and `completions/` (`treerig.bash`, `_treerig`,
 `treerig.fish`, and the same three for the alias: `trig.bash`, `_trig`,
@@ -98,19 +116,22 @@ breaks every verification instruction already published. The repository path
 in the identity is `brand.Repository`, a trust root: the download source and
 the signing identity both derive from it, so changing it is a migration, like
 a storage name, and the identity literal pinned in
-`internal/releasefetch/cosign_test.go` changes deliberately with it.
+`internal/releasefetch/cosign_test.go` changes deliberately with it. The
+release smoke test (`.github/scripts/release-smoke.sh`) also names the
+repository and the identity, as literals, and changes with it.
 
 The signing tool is pinned: `release.yml` sets the installer's `cosign-release:`
 to `v3.0.6`, which cosign-installer v4.1.2 installed by default when it was
 pinned. `go.yml`'s `release-snapshot` job installs the same cosign, with the
 same installer commit and `cosign-release:`, to run the teardown pin flow
-against the snapshot; the two files change together, and
-`TestCosignPinnedTheSameInBothWorkflows` (`internal/style`) fails if they
+against the snapshot, and so does `release-smoke.yml`, to verify and pin the
+published release; the three files change together, and
+`TestCosignPinnedTheSameInAllWorkflows` (`internal/style`) fails if they
 differ. The bundle it writes is what the teardown pin's minimum, cosign 3.0.0,
 reads, so **changing the pinned cosign is a migration for the pin**: raise it
 together with the pin's minimum and its tests. Dependabot bumps the installer
-action but not `cosign-release:`, so raising it is a manual step, in both
-files. Nothing the pipeline emits is signed by a package-manager key.
+action but not `cosign-release:`, so raising it is a manual step, in all
+three files. Nothing the pipeline emits is signed by a package-manager key.
 
 ## What depends on it
 
@@ -153,6 +174,15 @@ files. Nothing the pipeline emits is signed by a package-manager key.
   `treerig` from the archive root. The asset names, the archive layout, the
   workflow file name and the bundle format (cosign 3 or newer reads it) are
   therefore what it depends on.
+
+- **The release smoke test** (`.github/workflows/release-smoke.yml`, #147)
+  downloads a published release by the names above from
+  `releases/download/<tag>/`, verifies `checksums.txt` against the identity
+  above, and reads every asset name in this note, so a rename that this note
+  calls a migration also breaks it, on purpose. It starts from the Release
+  workflow by its `name:` (`workflows: [Release]`), so that name changes with it.
+  It runs `treerig` from the archive, which has to be the platform's `treerig`
+  at the archive root.
 
 Only a release that is not a pre-release is ever "latest": `install.sh` and
 Homebrew skip a tag with a suffix such as `-rc.1`.

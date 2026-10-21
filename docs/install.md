@@ -247,6 +247,17 @@ curl -fsSLO "https://github.com/sofired/treerig/releases/download/v${VERSION}/tr
 sudo apk add --allow-untrusted "./treerig_${VERSION}_x86_64.apk"     # Alpine
 ```
 
+These names are for a final release. A pre-release such as `1.2.3-rc.1` spells
+its packages differently. In `checksums.txt` and in the package's own version,
+the `.deb` and `.rpm` have `1.2.3~rc.1` and the `.apk` has `1.2.3_rc.1`. GitHub
+rewrites the `~` to `.` in uploaded file names, so you download, and save,
+`treerig_1.2.3.rc.1_amd64.deb` and `treerig-1.2.3.rc.1-1.x86_64.rpm` from
+`…/download/v1.2.3-rc.1/`. To check one with the recipe under
+[Verifying a download](#verifying-a-download), look it up by its `~` name:
+`grep " treerig_1.2.3~rc.1_amd64.deb\$" checksums.txt` gives the hash to compare
+with `sha256sum treerig_1.2.3.rc.1_amd64.deb`. [`docs/design/release.md`](design/release.md)
+lists the exact names.
+
 On ARM the architecture is `arm64` in the `.deb` name and `aarch64` in the
 `.rpm` and `.apk` names. The packages are not signed with a package-manager
 key, so apk needs `--allow-untrusted`; check the download as described under
