@@ -99,8 +99,20 @@ nfpms:
           group: root
           mode: 0644
           mtime: "{{ .CommitDate }}"
+      # zsh's completions go where each distribution's zsh looks: Debian and
+      # Ubuntu put vendor-completions on fpath, not site-functions; Fedora and
+      # Alpine use site-functions.
+      - src: completions/_treerig
+        dst: /usr/share/zsh/vendor-completions/_treerig
+        packager: deb
+        file_info: *package_info
       - src: completions/_treerig
         dst: /usr/share/zsh/site-functions/_treerig
+        packager: rpm
+        file_info: *package_info
+      - src: completions/_treerig
+        dst: /usr/share/zsh/site-functions/_treerig
+        packager: apk
         file_info: *package_info
       - src: completions/treerig.fish
         dst: /usr/share/fish/vendor_completions.d/treerig.fish
@@ -109,7 +121,16 @@ nfpms:
         dst: /usr/share/bash-completion/completions/trig
         file_info: *package_info
       - src: completions/_trig
+        dst: /usr/share/zsh/vendor-completions/_trig
+        packager: deb
+        file_info: *package_info
+      - src: completions/_trig
         dst: /usr/share/zsh/site-functions/_trig
+        packager: rpm
+        file_info: *package_info
+      - src: completions/_trig
+        dst: /usr/share/zsh/site-functions/_trig
+        packager: apk
         file_info: *package_info
       - src: completions/trig.fish
         dst: /usr/share/fish/vendor_completions.d/trig.fish

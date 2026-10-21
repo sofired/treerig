@@ -182,8 +182,8 @@ lrwxrwxrwx /usr/bin/trig
 -rw-r--r-- /usr/share/doc/treerig/copyright
 -rw-r--r-- /usr/share/fish/vendor_completions.d/treerig.fish
 -rw-r--r-- /usr/share/fish/vendor_completions.d/trig.fish
--rw-r--r-- /usr/share/zsh/site-functions/_treerig
--rw-r--r-- /usr/share/zsh/site-functions/_trig"
+-rw-r--r-- /usr/share/zsh/vendor-completions/_treerig
+-rw-r--r-- /usr/share/zsh/vendor-completions/_trig"
   got_deb=$(dpkg-deb -c "$deb" | awk '$1 !~ /^d/ { sub(/^\./, "", $6); print $1, $6 }' | LC_ALL=C sort -k2)
   [ "$got_deb" = "$want_deb" ] || {
     printf '%s\n' "$got_deb" >&2
@@ -193,7 +193,14 @@ lrwxrwxrwx /usr/bin/trig
   deb_listing=$(dpkg-deb -c "$deb") || fail "dpkg-deb could not list $(basename "$deb")"
   printf '%s\n' "$deb_listing" | grep -q ' \./usr/bin/trig -> treerig$' ||
     fail "$(basename "$deb") does not link /usr/bin/trig to treerig"
-  echo "deb contents: ok (with the trig symlink)"
+  # Debian's and Ubuntu's zsh look for completions in vendor-completions, not
+  # site-functions; where this is such a system with zsh, check that it does.
+  if [ -f /etc/debian_version ] && command -v zsh >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # zsh expands it
+    zsh -fc 'print -rl -- $fpath' | grep -qxF /usr/share/zsh/vendor-completions ||
+      fail "this Debian-family zsh does not have /usr/share/zsh/vendor-completions on its fpath"
+  fi
+  echo "deb contents: ok (with the trig symlink, zsh completions in vendor-completions)"
 else
   not_checked "deb contents" dpkg-deb
 fi
@@ -256,9 +263,13 @@ if [ "$os" = linux ] && command -v rpm2cpio >/dev/null 2>&1 && command -v cpio >
   rpm_listing=$(cpio -itv <"$work/rpm.cpio" 2>/dev/null) || true
   printf '%s\n' "$rpm_listing" | grep -Eq '^l.* (\./|/)?usr/bin/trig -> treerig$' ||
     fail "$(basename "$rpm") does not link /usr/bin/trig to treerig"
+  for f in _treerig _trig; do
+    printf '%s\n' "$rpm_listing" | grep -Eq " (\./|/)?usr/share/zsh/site-functions/$f\$" ||
+      fail "$(basename "$rpm") does not put $f in /usr/share/zsh/site-functions"
+  done
   rm -f "$work/rpm.cpio" "$work/rpm-treerig"
   package_binary_matches rpm "$rpm" "$rpm_sha"
-  echo "rpm binary: ok (/usr/bin/treerig is the archive's treerig, /usr/bin/trig links to it)"
+  echo "rpm binary: ok (/usr/bin/treerig is the archive's treerig, /usr/bin/trig links to it, zsh completions in site-functions)"
 else
   if command -v rpm2cpio >/dev/null 2>&1; then missing=cpio; else missing=rpm2cpio; fi
   not_checked "rpm binary" "$missing"
@@ -272,7 +283,11 @@ apk=$(find "$dist" -maxdepth 1 -name "*_${apk_arch}.apk")
 apk_listing=$(tar tzvf "$apk" 2>/dev/null) || true
 printf '%s\n' "$apk_listing" | grep -q ' usr/bin/trig -> treerig$' ||
   fail "$(basename "$apk") does not link /usr/bin/trig to treerig"
-echo "apk contents: ok (with the trig symlink)"
+for f in _treerig _trig; do
+  printf '%s\n' "$apk_listing" | grep -q " usr/share/zsh/site-functions/$f\$" ||
+    fail "$(basename "$apk") does not put $f in /usr/share/zsh/site-functions"
+done
+echo "apk contents: ok (with the trig symlink, zsh completions in site-functions)"
 
 # --- install.sh against a local stand-in for GitHub Releases -------------------
 
