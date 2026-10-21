@@ -142,6 +142,11 @@ func TestAliasAgreesAcrossReleaseFiles(t *testing.T) {
 	if !brewCompletions.MatchString(formula) {
 		t.Errorf("packaging/homebrew/treerig.rb does not generate %s completions from bin/%q with base_name %q", alias, alias, alias)
 	}
+	// bash, zsh and fish are the default; `brew style` (the tap's test-bot)
+	// rejects passing them as redundant, which failed the v0.1.0 tap PR.
+	if strings.Contains(formula, "shells:") {
+		t.Error("packaging/homebrew/treerig.rb passes shells: to generate_completions_from_executable; drop it, the default covers bash, zsh and fish")
+	}
 
 	// The completion scripts the packages ship are generated per name, and
 	// every one the packages list must be one completions.sh writes.
