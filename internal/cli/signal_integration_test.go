@@ -222,6 +222,17 @@ func TestInterruptedMutation(t *testing.T) {
 				}
 				registrytest.RequireIsolatedRouterState(t, getenv)
 
+				env := append(os.Environ(),
+					"TREERIG_HOME="+controlHome, "TREERIG_CONTROL_HOME="+controlHome,
+					"TREERIG_ROUTER_PORT="+strconv.Itoa(routerPort),
+					"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+				// `worktree remove` runs only the pinned teardown binary (#146):
+				// pin the build under test first. It is the same process id
+				// after the gate's exec, so the signal below reaches the pinned
+				// build exactly as it reached this one.
+				if verb[0] == "worktree" {
+					pinWithEnv(t, binary, checkout, env, "signal-test")
+				}
 				cmd := exec.Command(binary, verb...)
 				cmd.Dir = checkout
 				// TREERIG_CONTROL_HOME (#80), not just TREERIG_HOME, points the
@@ -230,10 +241,7 @@ func TestInterruptedMutation(t *testing.T) {
 				// left set too, so the router's own state (best-effort
 				// index refresh) still lands under this test's own temp
 				// directory rather than this machine's real one.
-				cmd.Env = append(os.Environ(),
-					"TREERIG_HOME="+controlHome, "TREERIG_CONTROL_HOME="+controlHome,
-					"TREERIG_ROUTER_PORT="+strconv.Itoa(routerPort),
-					"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+				cmd.Env = env
 				var stderr strings.Builder
 				cmd.Stderr = &stderr
 				if err := cmd.Start(); err != nil {

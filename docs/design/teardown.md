@@ -1,26 +1,26 @@
 # Teardown pin
 
-`worktree remove` runs a pinned, trusted build of treerig, never the code of the
-build that was invoked (#85). This note says where the pin lives, what it
+`worktree remove` of a development build runs a pinned, trusted build of treerig,
+never the code of the build that was invoked (#85); a release build removes with
+itself unless a pin exists, and a pin always wins (decision 10). This note says where the pin lives, what it
 holds, how it is installed and verified, how removal uses it, and what it does
 not protect against. The pin is stored state, so it follows `state.md`.
 
-**Status.** The pin store, `treerig teardown pin` in all three forms (`--release X.Y.Z`,
-`--latest` and `--file`) and `teardown status` exist (steps 2 to 4), and the
-`release-snapshot` job pins the snapshot with a real cosign and checks the packages'
-binaries (step 5). The pin command in the messages below is `treerig teardown pin
+**Status.** Everything here exists. The pin store, `treerig teardown pin` in all three
+forms (`--release X.Y.Z`, `--latest` and `--file`) and `teardown status` (steps 2 to 4),
+the `release-snapshot` job that pins the snapshot with a real cosign and checks the
+packages' binaries (step 5), and the removal gate with `--dev-teardown` (step 6,
+#146): `worktree remove` runs the stored copy of the pinned binary when a usable
+pin exists, whatever the build; with no pin a release build removes with itself
+and a development build refuses. The pin command in the messages below is `treerig teardown pin
 --release X.Y.Z` while the repository has only pre-releases; when the first
-release that is not a pre-release is published, `teardownPinCommand` becomes
-`--latest`, the one function that names it, and the goldens that quote it are
-regenerated. The removal gate and `--dev-teardown` are tracked in #146, which
-needed a first release (`v0.1.0-rc.2`, now out); the cross-platform smoke test in
-#147 waits for the first release that contains the gate (`v0.1.0-rc.3` or
-later). Until the gate lands,
-`worktree remove` is unchanged and nothing but this note, `state.md`,
-`release.md`, `AGENTS.md`, `docs/teardown-pin.md` and the help of
-the `teardown` commands mentions it. Text marked **[gate]** describes what
-exists only after #146; the strings #146 changes are listed under "Order of
-work".
+release that is not a pre-release is published, `internal/commands/pincommand.go`,
+the one file that names the pin command, switches to `--latest`, and the goldens
+that quote it are regenerated (that switch is not part of #146). The first release, `v0.1.0-rc.2`,
+predates the gate; the first release that contains it is the next one cut
+(`v0.1.0-rc.3` or later), and the cross-platform smoke test in #147 waits for it.
+Until then a pin made from `rc.2` is a pinned child without the gate (see
+"Bootstrap"). The strings step 6 changed are listed under "Order of work".
 
 ## Decisions
 
@@ -30,28 +30,44 @@ work".
 | 2 | Downloads are verified by a cosign shell-out; `--file --sha256` serves users without cosign. No `gh attestation` check, and sigstore-go is not embedded. |
 | 3 | The boundary is treerig's own code. A hook later added to removal needs its own trust rule. |
 | 4 | The store, the commands, verification and the CI tests come first; the gate waits for the first tag. |
-| 5 | The pin protects against unreviewed branch code, not against a hostile process of the same user. Branch code that changes `PATH` or sigstore settings (a `.envrc`) is in scope for the cosign run; a process that can write the control home is not. |
+| 5 | The pin protects against unreviewed branch code, not against a hostile process of the same user. Branch code that changes `PATH` or sigstore settings (a `.envrc`) is in scope for the cosign run, and a control home it redirects into a checkout is in scope for the gate; a process that can write the control home is not. |
 | 6 | `down` and `restore` are out of scope. |
 | 7 | `teardown status` and the removal refusal hint at the pin command when the running build is newer than the pin. Nothing updates the pin on its own. |
 | 8 | There is one pin per control home. |
 | 9 | `--yes` is allowed on `teardown pin`. |
+| 10 | The gate fails closed for development builds and for anyone who pinned, not for everyone. A usable pin wins for every build; with no pin, a release build (`semver.IsPublishedRelease`) removes with itself, relocated through `bin/` as before the gate, and a development build refuses unless `--dev-teardown`. This reverses the first design ("fail closed for everyone", which made every user pin, in practice by installing cosign 3 or typing a `--file`/`--sha256` command, before their first removal). The reason is usability with the risk where it is: a release is already the code the user chose to trust (they installed it, from a signed release or a package they chose), and branch code runs in development builds, so the gate that stops it needs to stand there. The accepted limit: a version stamped by any means other than a release tag reads as a release and, with no pin, removes with itself: stamped by hand (`-X …/brand.Version=1.2.3`), by `-ldflags` or `GOFLAGS` from an environment a branch controls (direnv, mise, a devcontainer), or by a build wrapper. This is consistent with decision 5, since a hostile process of the same user could equally replace the binary; the consequence is that the build is trusted as a release, and the mitigation is to pin, because a usable pin overrides it for every build. Nothing in this repository stamps a release-looking version on a non-release build (GoReleaser takes the tag's, a snapshot stamps `0.0.0-dev+<sha>`, Homebrew stamps the tag's, a plain build keeps `0.0.0-dev`), and the rule additionally rejects `+build` metadata, `0.0.0` in any form and `git describe`'s `-N-g<hash>` tail (with or without `-dirty`/`-broken`, or a bare one). |
 
 **The pin command**, in every message below, is `treerig teardown pin --latest`,
 or `treerig teardown pin --release X.Y.Z` while the repository has only
 pre-releases (`--latest` never selects one); it is the latter until the first
-release that is not a pre-release exists.
+release that is not a pre-release exists. A message that runs it names the
+running build's version (`--release 0.1.0-rc.3`) when that is a release
+version, so the command runs as written; a development or source build has no
+release to name and says what to put there and where the `--file` route is. For a
+pin that is broken, the message pins that pin again: a release pin by its own
+release, a file pin by its own `--file`, `--sha256` and `--release`, which refuse
+if the file is no longer the one that was approved. `pinCommandFor`,
+`repinCommand` and `noPinRefusal` (`internal/commands/pincommand.go`) are the one
+place that makes these commands. What becomes `--latest` when the first stable
+release exists is the shared `publishedRelease` route (the flag and its example
+version), used by `pinCommandFor`, `noPinRefusal` and the `--latest` refusal, and
+the two development-build branches that spell it out. A path or label in a
+command is shell-quoted when it needs it (single quotes, `'\''` for an embedded
+quote), so a command for a file pin made from `/home/me/sp dir/treerig` still runs.
 
 ## Rules
 
-1. **No branch code runs after the gate [gate].** `worktree remove` re-executes
-   the pinned binary unless it already is that binary, and refuses when there is
-   no usable pin. The invoked build parses its flags before the gate, so a flag
-   error or `--help` comes from it; neither removes anything.
+1. **No branch code runs after the gate, for a development build or a pin.**
+   `worktree remove` re-executes the pinned binary unless it already is that
+   binary, and refuses when the pin is not usable. With no pin, a development
+   build refuses, and a release build removes with itself. The invoked build
+   parses its flags before the gate, so a flag error or `--help` comes from it;
+   neither removes anything.
 2. **A pin is installed by an explicit, approved command.** Nothing pins, updates
    or unpins implicitly, and nothing downloads on its own.
 3. **Trust is decided once, at pin time.** Afterwards the recorded sha256 is the
    anchor, rechecked at every use, so removal needs no network and no verifier.
-4. **The developer escape hatch is a per-invocation flag [gate].** It is never a
+4. **The developer escape hatch is a per-invocation flag.** It is never a
    setting, an environment variable or a default.
 5. **Ownership is unchanged.** The pinned build proves ownership by labels, as
    every build does; the pin adds a precondition and moves no check.
@@ -67,6 +83,19 @@ The pin protects against **unreviewed branch code running as treerig during a
 removal**. It does not protect against a hostile process running as the same
 user with write access to the control home, which can rewrite the pin as easily
 as anything else there. A root-owned location is not a goal.
+
+It does protect against a branch that can choose where treerig looks. A checkout
+can set the environment (a `.envrc` setting `TREERIG_CONTROL_HOME`) and can commit
+files, so it could commit a `pin.json` and an executable named by its sha256 and
+point the control home at them. The gate therefore refuses a control home, or a
+`teardown/` directory, inside a git work tree, and requires the pin store to be
+owned by the user and not writable by group or others ("How `worktree remove`
+uses it"); that is the rule the cosign check applies to cosign, applied to the
+pin. The one directory the walk does not look past is the user's home directory
+as the user database lists it, handed down by the entry point, and only when it
+is the same directory as `$HOME`; it is never derived from the environment, which
+a `.envrc` can set. What stays unguarded is a work tree rooted at your real home
+directory (dotfiles in `~`).
 
 **Verification trusts the user's `PATH`.** `teardown pin` runs the `cosign` it
 finds there, and a fake one can report success. Embedding sigstore-go, which
@@ -198,7 +227,7 @@ There is no `unpin`: deleting `<control home>/teardown/` does it. `--yes` is
 | `--file` | Reads the file once into memory (at most 200 MiB), hashes those bytes, compares with `--sha256`, and `binstore.Install`s the same bytes. For users without cosign and for development. |
 
 ```
-Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/treerig/releases.
+Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`. Releases are listed at https://github.com/sofired/treerig/releases.
 ```
 
 **What `--file` does, in order.** It checks the flags (all missing required flags are named in one line;
@@ -360,6 +389,14 @@ ancestor), which sees through the case-insensitive volumes of macOS.
   it from `tuf-repo-cdn.sigstore.dev`, and the cache persists across runs. The
   directory is a cache: derived, unversioned, safe to delete, never touched by
   the sweep (which reads only regular files) or by `status`.
+- The same reasoning gives the pinned child its environment: the removal gate
+  drops `LD_*`, `DYLD_*`, `GODEBUG` and `GOFLAGS` before it execs the pinned
+  binary ("How `worktree remove` uses it"). cosign's environment is an allowlist
+  because a denylist cannot be made complete against what a `.envrc` can set for
+  a program with a flag-per-variable convention; the pinned child's is a denylist
+  of exactly the variables that act before a Go program's first line, since the
+  child is treerig itself and its other variables (`TREERIG_HOME`, `DOCKER_HOST`,
+  `PATH`) are the removal's own inputs.
 - Its stderr, through `text.Printable` and cut to about 2 KiB, is part of every
   refusal:
 
@@ -505,30 +542,49 @@ errors are internal and lowercase; the commands wrap them.
 
 ### `status`
 
-Reports the pin's integrity on this machine and says nothing about removal until
-the gate exists. Stdout carries the report; a problem is a refusal on stderr with
-exit 1, and exit 0 means the pin is intact for this platform.
+Says what `worktree remove` would do on this machine, and ends the report with the
+one line that says it. Stdout carries the report; exit 0 means removal would run:
+the pin is intact and its store acceptable to the gate, or there is no pin and this
+is a release build, which needs none. Anything else is a refusal on stderr with
+exit 1: a development build with no pin, a pin that cannot be used, or an intact
+pin whose store the gate would refuse (a control home inside a git work tree, a
+store others can write, or a noexec mount), the last as a warning first, with the
+gate's own words, in the text form and with `--json` alike (stdout stays the report
+or the document). The closing line says `worktree remove: would refuse (see the
+warning below)` for that last case, and a plain `would refuse` for the others, whose
+problem line below it is the error.
 
 | State | Stdout | Exit |
 | --- | --- | --- |
-| Intact | `Teardown pin: release 1.2.3 (linux_amd64)`, then `source`, `signer` (`none (digest supplied by you)` for a file pin), `binary <path> sha256 <hash> ok`, `pinned <time>`, and `attestation not checked` for a release pin | 0 |
-| No pin | nothing | 1 |
+| Intact, and the store acceptable to the gate | `Teardown pin: release 1.2.3 (linux_amd64)`, then `source`, `signer` (`none (digest supplied by you)` for a file pin), `binary <path> sha256 <hash> ok`, `pinned <time>`, `attestation not checked` for a release pin, and the unindented line `worktree remove: will run this binary` | 0 |
+| No pin, a development build | the line `worktree remove: would refuse` | 1 |
+| No pin, a release build | the line `worktree remove: will run this build (a release; no pin needed)`; stderr says none is needed and how to pin | 0 |
 | Newer or foreign | nothing | 1 |
-| No binary for this platform, or the binary missing or different | the report, with `missing` or `sha256 <found>, pinned <want>` | 1 |
+| Intact, but the store is one the gate would refuse | the report, ending `worktree remove: would refuse (see the warning below)` | 1 |
+| No binary for this platform, or the binary missing or different | the report, with `missing` or `sha256 <found>, pinned <want>`, and the line `worktree remove: would refuse` | 1 |
 
 The problem lines on stderr:
 
 ```
-No teardown binary is pinned. Pin one with <pin command>.
+No teardown binary is pinned. Pin one with <pin command>.            (a development build)
+No teardown binary is pinned, and a release build needs none. Pin one with <pin command> to make removal keep running that verified build.   (info, a release build)
 The teardown pin has no binary for <platform>. Pin one on this machine with <pin command>.
 The pinned teardown binary <path> <problem>. Pin it again with <pin command>.
 ```
 
 `--json` prints one document on stdout and the same exit code:
-`{"pinned", "ok", "release", "source", "signer", "pinnedAt", "platform",
-"binary": {"path", "sha256", "state"}, "running": {"version", "isPin",
-"newerThanPin"}}`, where `state` is `ok`, `missing`, `mismatch` or `none`. With
-no pin it prints `{"pinned": false}` and exits 1.
+`{"pinned", "ok", "removal", "release", "source", "signer", "pinnedAt",
+"platform", "binary": {"path", "sha256", "state"}, "running": {"version", "isPin",
+"newerThanPin"}}`, where `state` is `ok`, `missing`, `mismatch` or `none`, and
+`removal` is what `worktree remove` would do: `"pin"` (it would run the stored
+binary), `"this-build"` (no pin, and this is a release build, which needs none) or
+`"refuse"`. `removal` is present in every case, as an additive field, and
+`"refuse"` is exactly the exit-1 cases that print a document. With no pin it prints
+`{"pinned": false, "removal": …}`: `"this-build"` and exit 0 for a release build,
+`"refuse"` and exit 1 for a development build. The exit code is 0 exactly when
+`removal` is `"pin"` or `"this-build"`; a pin that is intact but whose store the gate
+would refuse is `"refuse"` with its warning on stderr and exit 1. The `worktree
+remove:` line is part of the text form only.
 
 Details the table leaves open:
 
@@ -546,8 +602,8 @@ Details the table leaves open:
   stored path that cannot be read, or is not a regular file (a symlink
   included), because the gate refuses all of them alike; the text form's
   problem line says which. `teardown.InspectBinary` makes the check, opening the
-  file with `O_NOFOLLOW` and hashing the descriptor it opened, so the gate
-  reuses it unchanged.
+  file with `O_NOFOLLOW` and hashing the descriptor it opened; the gate makes the
+  same check with `teardown.OpenBinary`, which keeps that descriptor to execute.
 - `platform` is this machine's key. `running.isPin` is true when the running binary's bytes hash
   to this platform's `binary_sha256`, which only the real entry point can tell
   (`Env.Executable`), so it is false under `cli.Main`.
@@ -564,15 +620,42 @@ comparer above), the human form adds on stderr:
 The running build (<version>) is newer than the pinned release (<release>). Pin the new build with <pin command> to update it.
 ```
 
-## How `worktree remove` uses it [gate]
+**`doctor`** looks at the same things without executing anything
+(`teardownPinChecks`, with `teardown.OpenBinary` and the gate's `newerHint`):
+`registry.teardown-pin` is ok when the pin and its binary are intact, and also when
+nothing is pinned and the running build is a release (removal needs none), a
+warning when nothing is pinned and the build is a development build (removal
+will refuse, but nothing is broken yet), the pin has no binary for this
+platform or the running build is newer than it, and a failure
+when the pin cannot be read, is newer or foreign, or its binary is missing or
+different. `registry.teardown-store` adds a failure for a control home inside a
+git work tree (`location`) or a store that is not private to the user
+(`ownership`), and a warning for a noexec mount (`noexec`), only when a pin exists.
+
+## How `worktree remove` uses it
+
+A release build is decided by one function, `semver.IsPublishedRelease`: a release
+version (the strict pattern of "Sources", pre-release suffixes such as `-rc.2`
+included), with no `+build` metadata, not `0.0.0` in any form, and not ending in
+the `-N-g<hash>` that `git describe` appends (with or without `-dirty` or
+`-broken`, or a bare `-dirty`/`-broken`). Everything else is a development
+build. Release builds take their version from the tag (GoReleaser's
+`-X …/brand.Version={{ .Version }}`, Homebrew's `#{version}`); a snapshot stamps
+`0.0.0-dev+<sha12>` and a plain build keeps `0.0.0-dev`. `docs/install.md` tells
+source builders they may stamp their own version; one that looks like a release is
+treated as one, which decision 10 accepts.
 
 The gate is the first act of `worktree remove`, before `Context` is built and
 before any lock is taken. A lock's descriptor is close-on-exec and would not
 survive the exec, and nothing has been mutated yet. It is not in
 `RemoveWithContext`. `Env.Executable` and `Env.Exec` are the seams: nil from
 `cli.Main` and from hand-built test Envs, which skips the gate, and wired only by
-`cli.MainProcess`, which is where the gate fails closed
-(`TestEnvBuilderRelocationWiring` pins the wiring).
+`cli.MainProcess`, which is where the gate fails closed (for a development build
+without a pin or the flag, and for any pin that is broken;
+`TestEnvBuilderRelocationWiring` pins the wiring). The gate is
+`teardownGate` in `internal/commands/teardown_gate.go`; it is a function of `Env`,
+so it lives with the commands, and `internal/teardown` holds what it needs to
+verify and run a file (`OpenBinary`, `Binary.ExecPath`).
 
 The checks run in this order; every path comparison uses
 `canonical(controlHome)`, symlinks resolved on both sides:
@@ -580,7 +663,9 @@ The checks run in this order; every path comparison uses
 ```
 Gate(env, options):
   controlHome := canonical(checkedHome(env.Getenv))        -- failure: refuse
-  running := canonical(executable); bytes := the running file's hash
+  running := canonical(executable)                         -- fails: refuse, unless --dev-teardown
+  if running is named like a stored binary (64-hex) in teardown/ or bin/ (os.SameFile):
+      bytes := the running file's hash                     -- unreadable: refuse, unless --dev-teardown
 
   1. running is <controlHome>/teardown/<64-hex> and bytes == that name:   -- a pinned child
        if options.DevTeardown: refuse
@@ -589,13 +674,22 @@ Gate(env, options):
        print the child line; return
   2. running is <controlHome>/bin/<64-hex>, bytes == that name, options.DevTeardown:
        return                                         -- the relocated dev copy: silent
-  3. options.DevTeardown:  notice; relocate through bin/; return
-  4. pin := ReadPin()                                 -- none, foreign, newer: refuse
+  3. options.DevTeardown:  warn; relocate through bin/; return   -- any build, pin or none
+  4. pin := ReadPin()                                 -- foreign, newer, unreadable: refuse
+     if there is no pin:
+       a release build (semver.IsPublishedRelease):  relocate through bin/; return
+       a development build:                          refuse
+     refuse if the running build cannot be identified (it might be the pinned child)
+     refuse if the control home or teardown/ is inside a git work tree
      entry := pin.platforms[GOOS_GOARCH]              -- absent or no binary_sha256: refuse
      stored := teardown/<entry.binary_sha256>
      the stored file must hash to entry.binary_sha256 -- else refuse
-     print the parent notice; exec stored with the same argv and environment
-                                                      -- error: refuse
+     refuse unless the control home, teardown/, pin.json and the stored file
+       are owned by the euid and not group- or other-writable
+     refuse on empty Args; refuse if the context is already cancelled
+     print the parent notice; exec stored, through the descriptor that was
+     hashed, with the same argv and the environment minus LD_*, DYLD_*,
+     GODEBUG and GOFLAGS                              -- error, or a nil return: refuse
 ```
 
 - **Check 1 is a pinned child.** It reads the pin only to confirm membership: the
@@ -607,25 +701,107 @@ Gate(env, options):
   it: an absent, unreadable, newer or foreign pin, or one that does not name it,
   all refuse, so running `teardown/<hash>` directly is no way around the pin (the
   `--dev-teardown` path is the only intended exception).
-  The child line is printed only when it proceeds.
+  The child line is printed only when it proceeds. A pinned child that finds no
+  pin at all refuses with the same text as one the pin does not name (its row
+  below): there is nothing to say to it about `--dev-teardown`, which it refuses.
+  A child does not repeat check 4's location and ownership tests: it is already
+  running, and it is only confirming that the pin names it.
 - **Check 2 is how `--dev-teardown` avoids a second notice.** Relocation
   re-executes the same argv from `bin/<hash>`, so the flag travels with it and no
   environment marker exists. A `bin/` copy run without the flag matches neither
   check 1 nor 2 and goes to check 4: a relocated copy is never trusted as the pin.
   Running a `bin/<hash>` copy by hand with `--dev-teardown` prints no notice; the
   user has chosen it twice.
-- **Detection is by path and bytes.** A running binary whose bytes equal the pin,
-  such as a package-managed `/usr/bin/treerig`, still re-executes the stored copy,
-  whose location and permissions treerig controls.
+- **Detection is by path and bytes, and hashes only what the name earns.** The
+  running binary is read and hashed only when its name is 64 hex digits and its
+  directory is the teardown or bin directory (compared with `os.SameFile`, not as
+  text), so an ordinary build costs no read. A build that cannot find its own
+  path (`os.Executable` fails), or cannot read a file named like a stored binary,
+  refuses unless `--dev-teardown` was given: a pinned child that did not
+  recognise itself would exec the stored binary again, forever. Only the dev path
+  survives that; the warning then says `sha256 unknown` and the removal goes on,
+  with relocation reporting whatever it cannot do. A running binary whose bytes
+  equal the pin, such as a package-managed `/usr/bin/treerig`, still re-executes
+  the stored copy, whose location and permissions treerig controls.
+- **The pin store must be one a branch could not have written** (check 4). A
+  branch can commit a `pin.json` and an executable named by its sha256, and an
+  environment file (`.envrc`) that sets `TREERIG_CONTROL_HOME` to them; the pin
+  would verify and the gate would run branch code with no `--dev-teardown`. That
+  is the cosign containment rule ("Verification") applied to the pin store. The
+  gate canonicalises the control home and `teardown/` and walks each upward for an
+  entry named `.git` (a file or a directory, as for a linked worktree); either
+  inside a work tree refuses. No `git` is run.
+
+  **The one exemption, and where it comes from.** The walk stops before a
+  directory that is the same file (`os.SameFile` on the canonical paths, so
+  another spelling or a case-insensitive volume does not matter) as the user's
+  home directory, so a dotfiles repository whose work tree is `~` does not
+  condemn `~/.treerig`. That home is never `$HOME`: a checkout's `.envrc` can set
+  `HOME=$PWD` and `TREERIG_CONTROL_HOME=$PWD/.c`, which would move the boundary
+  above the checkout's own `.git` and let a planted pin pass. It is the home
+  directory the user database lists for the effective user, looked up by
+  `cli.MainProcess` (`os/user.LookupId`, not `Current`) and carried in
+  `Env.PasswdHome`. The exemption applies only when that directory exists and is
+  the same file as the checked `$HOME`; an empty answer, a failed lookup, or a
+  database home that disagrees with `$HOME` exempts nothing, and the dotfiles
+  user then gets the location refusal (fix: put the control home outside any
+  work tree, which a home with no `.git` above `~/.treerig` always is).
+  `os/user.Current` is avoided on purpose. Without cgo on Linux (what a release
+  build is, `CGO_ENABLED=0`) it falls back to `$HOME` and `$USER` when
+  `/etc/passwd` has no entry for the user, so it can return the environment's
+  answer; `LookupId` reads `/etc/passwd` only (no NSS, LDAP or sssd without cgo)
+  and fails instead of guessing. On macOS, with or without cgo, both go through
+  `getpwuid_r` in libc, so Directory Services users resolve, and neither falls
+  back to `$HOME`. The residual risk is a work tree rooted at your real home
+  directory, which the exemption leaves unguarded. It then requires the control home, `teardown/`, `pin.json` and the
+  stored binary (by `fstat` of the descriptor that will run) to be owned by the
+  effective user, with no group or other write bit. `teardown status` and `doctor`
+  report both, without running anything.
+- **Verify and execute are one act.** `teardown.OpenBinary` opens the stored file
+  with `O_NOFOLLOW` and `O_NONBLOCK` (a FIFO swapped in at the path then fails the
+  regular-file test instead of hanging the open), requires a regular file and
+  hashes the descriptor it opened. On Linux the gate then hands `execve` the
+  descriptor's own `/proc/self/fd/<n>` path, which the kernel resolves to that
+  open file, so a rename or replacement of `teardown/<hash>` after the hash cannot
+  change what runs (the descriptor is close-on-exec, which is fine for an ELF
+  binary). macOS has no `fexecve`, so there `ExecPath` can only re-check,
+  immediately before the exec, that the path still names the file that was hashed
+  (`os.SameFile`) and refuse if it does not; see the TOCTOU row under
+  "Platforms". Either way the program keeps the caller's `argv[0]`.
+- **Before the exec.** An empty `Args` (a process with nothing to pass on) refuses.
+  The context is checked and, if a signal has cancelled it, the cause is returned
+  and the process dies by that signal: an exec resets handlers, so the new image
+  would forget the interruption and remove anyway. A signal that lands after that
+  check and before `execve` is not seen by this process; the pinned binary starts
+  with default handlers and installs its own at start, so the window is the few
+  instructions between the check and the system call, and what it can cost is a
+  removal that was not interrupted. Nothing has been mutated yet.
+- **After the exec call.** `Env.Exec` returns only on failure. A fake that returns
+  nil is refused too ("the exec call returned without starting it"), since
+  nothing may go on in this process unpinned.
 - **Who speaks.** The parent prints its notice before the exec; the child prints
   its line after it and then runs `RemoveWithContext`, so the child also asks the
   confirmation (`confirm` lives in `RemoveWithContext`, remove.go).
-- **It fails closed.** Every failure refuses with exit 1 as an expected failure
-  (`clierr`), prints nothing on stdout and removes nothing.
-- **Arguments and environment** pass through unchanged. Control-home resolution
-  reads the same variables as every other command, through `env.Getenv`; the
-  gate sets and reads no others. The pinned release parses the flags: one added
-  later is rejected by it as unknown, and the remedy is to update the pin.
+- **It fails closed where it applies.** A development build without a pin or the
+  flag refuses, a release build with no pin removes with itself, and every failure
+  of a pin that exists refuses, whatever the build. A refusal is exit 1 as an
+  expected failure (`clierr`), prints nothing on stdout and removes nothing.
+- **Ordering with no pin.** The pin is read before the location and ownership
+  checks, so with no pin they are never reached: there is no pin for a branch to
+  have planted, and a release build does what it did before #146 (#7's
+  relocation). `teardown status` and `doctor` report accordingly: no pin on a
+  release build is fine, and `registry.teardown-store` appears only once a pin
+  exists.
+- **Arguments and environment.** The arguments pass through unchanged. The
+  environment passes through with one filter: `LD_*`, `DYLD_*`, `GODEBUG` and
+  `GOFLAGS` are dropped, because they change what a program loads or how its Go
+  runtime behaves before its first line runs, and a `.envrc` could set them to
+  put branch code into the pinned binary. The gate filters the environment it was
+  given (`Env.Environ`); it does not read the process's own, which stays the entry
+  point's job. Control-home resolution reads the same variables as every other
+  command, through `env.Getenv`; the gate sets and reads no others. The pinned
+  release parses the flags: one added later is rejected by it as unknown, and the
+  remedy is to update the pin.
 - **Exit codes** after a successful exec are the pinned build's.
 - **`bin/` serves only `--dev-teardown`.** The pinned path never writes to it,
   since it would copy the very code the pin exists to avoid.
@@ -634,11 +810,14 @@ Gate(env, options):
 
 ```
 Running the pinned teardown binary <path> (release <release>) to remove <target>.
-Running as the pinned teardown binary <path> (version <version>).
+Running as the pinned teardown binary (version <version>).
 ```
 
 Both lines are intended: the parent's says what it is about to run, and the
-child's proves that it ran, with `brand.Version`. The "pinned code ran" test builds the pinned binary with
+child's proves that it ran, with `brand.Version`. When the running build is newer
+than the pin, the parent's line ends with the hint sentence from `status` (a file
+pin never adds it), so a stale pin is seen on the run that works. The "pinned code
+ran" test builds the pinned binary with
 `-X github.com/sofired/treerig/internal/brand.Version=pinned-test`, pins it,
 invokes a differently versioned build, and asserts the second line, which only
 the pinned binary can print.
@@ -648,22 +827,60 @@ step> Nothing was removed.`, where `<target>` is `the worktree <identifier>` or
 `this worktree`:
 
 ```
-Refusing to remove <target>: no pinned teardown binary exists, and this build is not one. Run <pin command>. To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
-Refusing to remove <target>: the pinned teardown binary <path> cannot be read (<error>) / has sha256 <found>, not the pinned <want>. Run <pin command> to install it again. Nothing was removed.
-Refusing to remove <target>: the teardown pin has no binary for <platform>. Run <pin command> on this machine. Nothing was removed.
-Refusing to remove <target>: the teardown pin <path> is not one this build wrote. Delete <control home>/teardown/ and run <pin command>. Nothing was removed.
-Refusing to remove <target>: the teardown pin <path> could not be read (<error>). Run <pin command>. Nothing was removed.
-Refusing to remove <target>: this teardown binary <path> is not the one the pin names, or the pin was replaced just now. Run this again; if it refuses again, run <pin command>. Nothing was removed.
-Refusing to remove <target>: could not run the pinned teardown binary <path> (<error>). If the filesystem holding the control home (<control home>) cannot run programs, remount it with exec. Nothing was removed.
+Refusing to remove <target>: this is a development build (<version>), which may carry a branch's code, and no teardown binary is pinned. A development build removes only with a pinned one (a release build needs none).
+  Pin a published release: `<name> teardown pin --release <a published version, such as 0.1.0-rc.2>`
+  or a treerig you trust: `<name> teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`
+  (`<name> teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
+Refusing to remove <target>: the pinned teardown binary <path> cannot be read (<error>) / has sha256 <found>, not the pinned <want>. Pin it again with <re-pin command>. Nothing was removed.
+Refusing to remove <target>: the teardown pin has no binary for <platform>. Pin one for this machine with <re-pin command>. Nothing was removed.
+Refusing to remove <target>: the teardown pin <path> is not one this build wrote. Delete <control home>/teardown/, then pin again with <pin command>. Nothing was removed.
+Refusing to remove <target>: the teardown pin <path> could not be read (<error>). Check its permissions, or delete <control home>/teardown/ and pin again with <pin command>. Nothing was removed.
+Refusing to remove <target>: this teardown binary <path> is not the one the pin names, or the pin was replaced just now. Run this again; if it refuses again, pin it again with <re-pin command>. Nothing was removed.
+Refusing to remove <target>: <path>/ is inside the git work tree <root>/, where a branch could plant its own teardown pin. Keep the control home outside every checkout: move TREERIG_HOME (or TREERIG_CONTROL_HOME, if you set it) to a directory that is not inside a git work tree. Nothing was removed.
+Refusing to remove <target>: <path> is owned by uid <n>, not by you (uid <m>) / can be written by its group or others (mode <mode>), so the teardown pin is not private to you. Do one of these: fix its owner and mode; delete <control home>/teardown/ and pin again with <pin command>; or move the control home to a local filesystem with TREERIG_CONTROL_HOME. Nothing was removed.
+Refusing to remove <target>: could not run the pinned teardown binary <path> (<error>). If the filesystem holding the control home (<control home>) cannot run programs, remount it with exec, or move the control home with TREERIG_CONTROL_HOME. Nothing was removed.
+Refusing to remove <target>: could not run the pinned teardown binary <path> (<error>). treerig runs the file it verified through /proc/self/fd, and /proc is not available to this process; mount /proc, or run treerig where /proc is available. Nothing was removed.
+Refusing to remove <target>: could not run the pinned teardown binary <path> (<error>). Pin it again with <re-pin command>. Nothing was removed.
+Refusing to remove <target>: <why the control home could not be resolved>. Nothing was removed.
+Refusing to remove <target>: could not tell which treerig build this is (<error>). Nothing was removed.
 Refusing --dev-teardown: this is a pinned teardown binary. Nothing was removed.
 ```
 
+The no-pin row is only ever printed for a development build. A release build with
+no pin does not refuse; a broken pin refuses it like any other build. `<name>` is
+the invoked name (`treerig` or `trig`). The row is written on continuation lines,
+which the logger indents. `<pin command>` is `pinCommandFor` for the running version and
+`<re-pin command>` is `repinCommand` (both above); `status` and `doctor` use the
+same functions.
+
+The ownership row, written as a list ("Do one of these: …; …; or …"), offers
+three ways out, each enough on its own: fix the owner and mode; delete `teardown/`
+and pin again (which makes a fresh private store, so it is offered only when the
+offending path is inside `teardown/`, not when it is the control home itself);
+or move the control home to a local filesystem (for a root-squashed NFS home or
+an idmapped mount, where the owner cannot be fixed). The control-home variant
+keeps the plain sentence "Fix its owner and mode, or move the control home to a
+local filesystem with TREERIG_CONTROL_HOME." A directory is written with a
+trailing slash wherever it is named in the ownership and location refusals.
+
+The first of the three "could not run" rows is for an `EACCES` or `ENOEXEC` from
+the exec (a mount that cannot run programs, or a file the kernel will not run);
+the second for an `ENOENT` on Linux, where the exec path is under `/proc` and a
+process without `/proc` has no way to run the file it verified (running the stored
+path instead would give up the guarantee); every other exec error, and a file that
+was replaced since it was verified (macOS), takes the third. `<error>` is the
+system error without the path.
+
 A newer pin gets `state.md`'s refusal as it stands. When the running build is
-newer than the pin, a refusal adds the hint sentence from `status`. A pinned
+newer than the pin, the refusals that read the pin and found it intact (the
+binary is missing, different, not a regular file or unreadable, and the pin has
+no binary for this platform) add the hint sentence from `status` after their next
+step, before "Nothing was removed." A newer or foreign pin cannot be described,
+and a file pin's release is a free label, so neither adds it. A pinned
 release older than the registrations in use refuses them with `state.md`'s
 "Upgrade treerig", which for a pinned child means updating the pin with `teardown pin`.
 
-## The developer escape hatch [gate]
+## The developer escape hatch
 
 `treerig worktree remove --dev-teardown` ("remove with this build's own code, not a
 pinned teardown binary") runs this build's own teardown, relocated through `bin/`
@@ -672,7 +889,7 @@ stderr, once, before the confirmation prompt; the relocated copy is silent
 (check 2):
 
 ```
-Removing with this build's own teardown (version <version>, sha256 <hash>), not a pinned teardown binary: code from this branch runs during the removal.
+Removing with this build's own code (version <version>, sha256 <hash>), not a pinned teardown binary: code from this build runs during the removal.
 ```
 
 It must never become:
@@ -680,22 +897,27 @@ It must never become:
 - a key in `settings.toml` or `treerig.toml` (`treerig.toml` is branch content, so the
   worktree would authorise itself);
 - an environment variable;
-- implied by a development version, `go run`, a missing pin, a missing terminal
-  or `--yes`;
+- implied by a development version, `go run`, a missing pin (a development build
+  refuses instead), a missing terminal or `--yes`;
 - remembered between invocations;
 - passed down to a pinned child (check 1 refuses it).
 
-A test walks the config schema, the settings keys and the environment names
-`cmd/treerig` reads, and fails if any of them names this behaviour.
+`TestDevTeardownIsOnlyAFlag` (`internal/style`) walks the module's string
+literals and the published config schema, and fails if an environment-variable
+shaped name mentions it anywhere, or if it appears at all in the packages that
+define configuration keys or read the environment (`internal/config`,
+`settings`, `shape`, `layout`, `cmd/treerig`). `TestTeardownGate` in
+`internal/cli` also runs a build with the obvious variable names set and sees the
+refusal unchanged.
 
 ## Packages
 
 | Package | Holds |
 | --- | --- |
-| `internal/teardown` | The pin file (read, classify, write, merge), the sweep, the status report and the gate's decision. |
+| `internal/teardown` | The pin file (read, classify, write, merge), the sweep, the status report's integrity check, and the verified, executable descriptor the gate runs (`OpenBinary`, `Binary.ExecPath`). |
 | `internal/releasefetch` | The fetcher interface, `checksums.txt` parsing, the cosign policy and its runner, archive extraction. |
 | `internal/semver` | The version comparer. |
-| `internal/commands` | `teardown pin`, `teardown status` and the gate's call from `Remove`. |
+| `internal/commands` | `teardown pin`, `teardown status`, and the gate (`teardownGate`, called first by `Remove`) with its refusals. |
 | `internal/cli` | The command tree and the HTTP client. |
 | `internal/layout`, `internal/files`, `internal/stateformat` | `TeardownDir` and `PinPath`; `SecureTeardownDirectory`; `TeardownPin`. |
 
@@ -706,10 +928,11 @@ A test walks the config schema, the settings keys and the environment names
 | linux amd64, arm64 | Each has its own platform entry. A pin made on one has no `binary_sha256` for the other; the gate refuses there and names the fix. |
 | macOS quarantine | A Go HTTP client does not set `com.apple.quarantine`, and a `--file` copy carries no xattr; the user's `--sha256` is the approval. treerig never runs `xattr`. |
 | macOS signing | The Go linker ad-hoc-signs darwin/arm64 binaries and the signature is in the Mach-O, so a copy executes. Releases are not Developer-ID signed or notarized. Any future signing step runs before archiving (`release.md`), so the digests describe the signed bytes. |
-| noexec control home | Exec fails and the gate refuses (the last-but-one refusal above). `--dev-teardown` relocates into the same filesystem and does not help. `teardown pin` never executes the stored binary (it only checks its headers, `teardown.CheckExecutable`, before storing), so the EACCES or ENOEXEC of a filesystem that cannot run programs first appears at the gate (#146), which owns the mapping to that refusal. Executing the binary at pin time to find out earlier was rejected: it would add an exec with its own argv, environment and timeout to a command that otherwise runs only cosign, to report a failure the gate must report anyway, and the gate's tests are where the mapping is pinned. |
+| noexec control home | `teardown pin` and `teardown status` warn, from statfs flags (`ST_NOEXEC` on Linux, `MNT_NOEXEC` on macOS) and without executing anything, when the control home's filesystem is mounted noexec; `doctor` has a line for it. Exec fails with `EACCES` or `ENOEXEC` and the gate refuses with the first "could not run" row above, naming the control home and `TREERIG_CONTROL_HOME` as the other way out. `--dev-teardown` relocates into the same filesystem and does not help. `teardown pin` never executes the stored binary (it only checks its headers, `teardown.CheckExecutable`, before storing), so the EACCES or ENOEXEC of a filesystem that cannot run programs first appears at the gate (#146), which owns the mapping to that refusal. Executing the binary at pin time to find out earlier was rejected: it would add an exec with its own argv, environment and timeout to a command that otherwise runs only cosign, to report a failure the gate must report anyway, and the gate's tests are where the mapping is pinned. |
+| `/proc` (Linux) | The gate runs the verified file as `/proc/self/fd/<n>`, so a process with no `/proc` cannot run it; an `ENOENT` from the exec on Linux says so rather than blaming the pin. |
 | Homebrew | Builds from the source archive, so its binary is not the release binary and is never the pin. A Homebrew user pins once, and again after an upgrade. |
 | deb, rpm, apk | `/usr/bin/treerig` is the release binary (checked in the snapshot, below). The user still runs `teardown pin`. |
-| TOCTOU | The gate hashes the stored file and then executes its path. The directory is `0700` and user-owned; a process that can swap the file can edit the pin. Accepted. |
+| TOCTOU | On Linux the gate hashes the descriptor it opened and executes that same descriptor, so a replaced path cannot change what runs. macOS cannot execute a descriptor, so it hashes the descriptor, re-checks right before the exec that the path still names the same file, and executes the path; the instants between that check and the exec are not closed, and a copy would not close them either, since it too must be executed by path. In both cases the gate now requires the control home, `teardown/`, `pin.json` and the stored binary to be owned by the effective user and not writable by group or others (treerig creates them `0700`/`0600`, but it no longer assumes it), and a control home outside every git work tree; a process of the same user that can swap the file can still edit the pin. Accepted, as is an in-place write to the verified inode by a process of the same user. |
 
 ## Bootstrap
 
@@ -732,8 +955,8 @@ pinned with an explicit `--release`.
 | Update rules and the sweep | Unit tests: merge, replace, downgrade; the sweep keeps the pin's binaries and the grace window and touches only 64-hex regular files, never a symlink. |
 | Download and extraction | `httptest` TLS server serving a release laid out per `release.md` (`releasefetch/releasetest`: four platform archives, a `checksums.txt` listing them, a placeholder bundle), with a client trusting its certificate; a 404, a redirect to `http`, size caps, a `--latest` that is overtaken by a newer release, hostile archives (links, absolute names, `..`, duplicates, a missing `treerig`, devices, oversize and decompression bombs), a bad archive digest and a signature for another tag. Through the entry point: the built binary downloads through the proxy `HTTPS_PROXY` names. |
 | cosign | A real cosign 3 with a throwaway key (see "CI"), skipped without one; and `fakerun`, which asserts the exact argv, the absolute path, the PATH-resolved path being the one run, the refusal of a path inside a worktree root, the checkout or the control home (including a sibling name that shares a prefix, which is not inside, and one directory reached by two spellings, which is: `TestLocateContainment` uses `/proc/self/root` on Linux, and no darwin case-difference test exists), the version check, the exact allowlisted environment of both cosign calls (`TestLocate`, `TestTeardownPinRelease`), the timeouts and the stderr in the refusal. |
-| The gate | Unit tests with `Env.Executable` and `Env.Exec` fakes: the order of checks 1 to 4 (a pinned child with an absent, unreadable, newer, foreign or non-naming pin refuses), the exact refusal text, and that `Context` is never built on a refusal. |
-| Pinned code ran | Integration test over the built binary, as described under "The two lines". No Docker for the assertion. |
+| The gate | Unit tests with `Env.Executable` and `Env.Exec` fakes: the order of checks 1 to 4 (a pinned child with an absent, unreadable, newer, foreign or non-naming pin refuses), the exact refusal text, that `Context` is never built on a refusal, the location and ownership refusals (`teardown.CheckLocation`, `CheckOwnership`, with a stand-in euid), the filtered environment, the runnable no-pin text for a release and a development build, and the exec errors. `TestTeardownGate` in `internal/cli` repeats the location case with `TREERIG_CONTROL_HOME` pointing into a checkout that holds a valid pin, and runs with the control home reached through a symlinked directory, with a timeout, to show a pinned child recognises itself instead of exec-ing in a loop. |
+| Pinned code ran | `TestTeardownGate` in `internal/cli` (integration): two builds, the pinned one stamped `pinned-test` and the invoking one `invoked-9.9.9`, run as `trig`; it asserts the two lines, that only the pinned build can print its version, the refusals, the `EACCES` mapping (a stored binary that hashes right but has no execute bit) and that `--dev-teardown` is the only way around. No Docker. |
 | Snapshot | See "CI". |
 
 ### CI
@@ -774,6 +997,15 @@ they differ.
   The test-only policy lives in the test files (`keyPolicy` in
   `internal/commands/teardown_cosign_test.go`); no key mode exists in production
   code. The real keyless identity is first exercised at #147.
+- **The snapshot binary through the gate.** After the pin tests, the job runs
+  `TestSnapshotBinaryThroughTheGate` (`internal/cli`, `-tags integration`, with the
+  same `TREERIG_SNAPSHOT_DIST` and `TREERIG_SNAPSHOT_VERSION`): it pins GoReleaser's
+  own host binary (CGO_ENABLED=0, `-trimpath`) with `--file` into a scratch
+  root and runs `worktree remove --yes` from an empty directory. The gate must print
+  both lines, the second with the snapshot's version, which only a successful
+  exec through `/proc/self/fd` (the stored path, on macOS) can produce; the
+  removal then stops at the missing `treerig.toml`. The step checks its log for
+  `--- PASS` and for any `--- SKIP`.
 - **No silent skip.** The `release-snapshot` job sets `TREERIG_REQUIRE_COSIGN=1`,
   so a missing cosign, an unset `TREERIG_SNAPSHOT_DIST` or `TREERIG_SNAPSHOT_VERSION`,
   or a `dist/` without `checksums.txt` fails the tests instead of skipping them.
@@ -806,7 +1038,7 @@ linux/arm64 and macOS arm64 hardware, and that a release contains the gate.
 | 3. `teardown pin --file` and `teardown status`, with the confirmation, goldens and `docs/teardown-pin.md` | 2 | A pin can be made from a local binary and `status` verifies it |
 | 4. `teardown pin --release X.Y.Z` / `--latest`: `internal/releasefetch`, cosign, extraction, per-platform digests | 3 | Works against `httptest` and the snapshot's `dist/`; a wrong-tag signature, a bad digest, a missing or old cosign, a 404 and a hostile archive each refuse. The flag rules become: `--file` requires `--sha256` and `--release`; a download takes `--release` or `--latest`. So "Missing required flag: --file." (and its plural) changes to ask for a source, and `teardownPinCommand` and the goldens that quote it, the missing-flag ones included, change to `--latest` or `--release X.Y.Z`. The `httptest` base URL must end `/releases/download/v<release>/` (the pin store refuses any other), and its fixtures carry all four platforms' archive digests. The noexec mapping (an EACCES or ENOEXEC when the stored binary is first executed, naming the mount) belongs to the gate: pin never executes the stored binary (below). Delivered in step 4: the download forms, `teardownPinCommand` and the goldens that quote it |
 | 5. CI: the cosign install, the snapshot pin flow, the package-hash check, CONTRIBUTING's list | 4 | Green on a pull request, with cosign required rather than skipped (the hermetic sign and verify flags were run against cosign v3.0.6 in step 4, and "CI" above matches them) |
-| 6. **#146** The fail-closed gate and `--dev-teardown`; the relocation paragraph in `docs/worktrees.md`; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | Removal without a pin or the flag refuses with the exact text; with a pin it runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes The gate must exec the pinned binary with the caller's `argv[0]` (as `worktree remove`'s relocation does, pinned by a test in `relocate_internal_test.go`), so the program name stays `trig` or `treerig` and does not become the hash path |
+| 6. **#146** (delivered) The gate for development builds and for any pin, and `--dev-teardown`; the relocation paragraph in `docs/worktrees.md`; every suite that runs `worktree remove` through a binary pins first | 3, 4, the first tag | A development build without a pin or the flag refuses with the exact text; a release build with no pin removes with itself; with a pin, any build runs the stored copy. Verify and execute through one descriptor or a copy: `teardown.InspectBinary` hashes the file it opened, but an exec of the path afterwards could run swapped bytes The gate must exec the pinned binary with the caller's `argv[0]` (as `worktree remove`'s relocation does, pinned by a test in `relocate_internal_test.go`), so the program name stays `trig` or `treerig` and does not become the hash path. Delivered as "How `worktree remove` uses it" says (the descriptor on Linux; a re-check on macOS, where nothing can execute a descriptor) |
 | 6b. Cut `v0.1.0-rc.3` (or the first release after 6) | 6 merged | A release containing the gate is published |
 | 7. **#147** Smoke test after a release | 6b | Passes on all three runners |
 
@@ -821,19 +1053,53 @@ pre-release; `<version>` is the tag without its leading `v`, such as
 `0.1.0-rc.3`), `status`, and a `worktree remove` with no terminal and no `--yes`, in a scratch checkout. It
 stops at the gate's two lines: it asserts both, and accepts the refusal that
 follows, so nothing is removed. The removal's `Inventory` calls Docker, which fails on a
-macOS runner without it; the test accepts that refusal too.
+macOS runner without it; the test accepts that refusal too. Two more legs, each
+with a fresh scratch control home:
 
-**Strings step 6 changes** (goldens reviewed with #146; `<pin command>` is rendered
-as the literal command, `--latest` or `--release X.Y.Z`, chosen once per
-process): the last plan line of
-`teardown pin`, from "`worktree remove` does not run this binary yet." to
-"`worktree remove` will run this binary instead of the build you invoke.";
-the help text of `teardown` (whose description ends "`worktree remove` does not
-run the pinned binary yet.") and of `teardown status` (which says it reports
-nothing about removal); `docs/teardown-pin.md`, which says the
-gate does not exist, and the README's roadmap entry; the help text of `worktree remove`
-(adds `--dev-teardown`); `status` gains the line
-`worktree remove: will run this binary` (intact) or `worktree remove: would
-refuse` (otherwise) and keeps its exit codes; and the removal refusals, the two
-lines and the warning above appear. `AGENTS.md` ("Running things safely") and
-`docs/teardown-pin.md` describe `--dev-teardown` at the same time.
+- **No pin.** `worktree remove` shows no refusal and neither pinned line, and
+  accepts the same Docker failure; `teardown status` exits 0 and prints "will run
+  this build". The tag's version satisfies `semver.IsPublishedRelease`, so this
+  leg shows the workflow's tag check (`release.yml`) and the predicate agree.
+- **Corrupt pin.** Make a pin, corrupt its stored binary, and assert the refusal
+  ("has sha256 …, not the pinned …"): a pin that exists is used by a release
+  build too, and a broken one fails closed.
+
+**Strings step 6 changed** (goldens reviewed with #146; `<pin command>` is rendered
+by `pinCommandFor` from the running version, as "The pin command" says): the last plan line of `teardown pin`, from "`worktree remove` does not
+run this binary yet." to "`worktree remove` will run this binary instead of the
+build you invoke."; the help text of `teardown` (which says a development build's `worktree remove`
+refuses without a pin, a release build's removes with itself, either runs the
+pinned binary when one exists, and `--dev-teardown` removes with the invoked
+build) and of `teardown status` (which says what `worktree remove` would do); `docs/teardown-pin.md`,
+the README's roadmap and safety text, `docs/worktrees.md`, `docs/glossary.md`,
+`docs/troubleshooting.md`, `SECURITY.md`'s first in-scope item and `AGENTS.md`
+("Running things safely"); the help text of `worktree remove` (adds
+`--dev-teardown`); `status` gains the unindented line `worktree remove: will run
+this binary` (intact) or `worktree remove: would refuse` (otherwise) after its
+report, in the text form only (its exit codes are redefined by the rework below); and the removal
+refusals, the two lines and the warning above appear, in the frozen
+`worktree remove` goldens as the two lines (the stored binary's name scrubbed to
+`DIGEST`) since those suites pin first. The same step changed the three `doctor`
+goldens (`doctor --json`, `doctor with no checkout`, `doctor with hooks
+configured`: the new `registry.teardown-pin` line, which is a warning on a machine
+with no pin), the streams contract's expectation that a clean `doctor` says `No
+checks failed (1 warning(s), 1 skipped)`, and added `OutputOptions.Version` so
+`doctor` can compare the running build with the pin. The status goldens carry the
+closing line, and their problem lines quote the re-pin command.
+
+`sudo treerig worktree remove` refuses once a pin exists: the gate requires the pin
+store to be owned by the effective user, which under `sudo` is root and not the
+owner of the user's control home. Run it as yourself. (A release build with no pin
+needs no pin store, so it does not meet this.)
+
+**The usability rework** (decision 10) changed these strings and expectations
+again: the development-build refusal is now a rule, worded as in the Refusal block
+above ("this is a development build (…), which may carry a branch's code, and no
+teardown binary is pinned. A development build removes only with a pinned one (a
+release build needs none)."), and no release build meets it; `status` gains the
+`will run this build (a release; no pin needed)` closing line, and its exit rule is
+now that exit 0 means removal would run, so a release with no pin exits 0 and an
+intact pin whose store the gate would refuse exits 1; `doctor` shows `registry.teardown-pin` as ok, "not
+needed", for a release with no pin; and the end-user docs (README, getting started,
+`docs/troubleshooting.md`, `docs/worktrees.md`, `docs/output-and-exit-codes.md`,
+`docs/doctor.md`, `SECURITY.md`) drop the pin step for people who run releases.

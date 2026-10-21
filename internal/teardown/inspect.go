@@ -92,25 +92,59 @@ type BinaryCheck struct {
 // bytes of the descriptor it opened, so what it reports is what that
 // descriptor holds. It never runs the binary and never modifies anything.
 //
-// It is not by itself enough for the removal gate: the gate must verify and
-// execute the same bytes, through one descriptor or a copy it made, because
-// the path can be swapped between this check and an exec of it.
+// It is the report `teardown status` makes. The removal gate does not stop at
+// a check: it uses OpenBinary, which keeps the verified descriptor so the
+// binary it runs is the one it hashed.
 func InspectBinary(l layout.Control, pin Pin, platform string) BinaryCheck {
+	check, binary := OpenBinary(l, pin, platform)
+	if binary != nil {
+		binary.Close()
+	}
+	return check
+}
+
+// Binary is a stored teardown binary that OpenBinary found intact: the
+// descriptor it opened and hashed, still open. The removal gate executes
+// through it (ExecPath), so the bytes that run are the bytes that were
+// verified, not whatever the path names by then. The caller closes it with
+// Close, after the exec call has returned (a successful exec replaces the
+// process and closes it).
+type Binary struct {
+	// Path is the stored file's path, for messages.
+	Path string
+	file *os.File
+}
+
+// Close releases the descriptor. It is safe to call twice.
+func (b *Binary) Close() {
+	if b != nil && b.file != nil {
+		_ = b.file.Close()
+		b.file = nil
+	}
+}
+
+// OpenBinary is InspectBinary that keeps the descriptor it verified. The
+// returned Binary is non-nil exactly when the check's State is BinaryOK.
+//
+// The file is opened with O_NOFOLLOW and O_NONBLOCK (a swapped-in FIFO then
+// fails the regular-file test instead of hanging the open), required to be a
+// regular file, and hashed through the descriptor it opened.
+func OpenBinary(l layout.Control, pin Pin, platform string) (BinaryCheck, *Binary) {
 	pinned := pin.Platforms[platform].BinarySHA256
 	if pinned == "" {
-		return BinaryCheck{State: BinaryNone}
+		return BinaryCheck{State: BinaryNone}, nil
 	}
 	result := BinaryCheck{Path: BinaryPath(l, pinned), Pinned: pinned}
-	mismatch := func(problem string) BinaryCheck {
+	mismatch := func(problem string) (BinaryCheck, *Binary) {
 		result.State, result.Problem = BinaryMismatch, problem
-		return result
+		return result, nil
 	}
-	unreadable := func(err error) BinaryCheck {
+	unreadable := func(err error) (BinaryCheck, *Binary) {
 		return mismatch(fmt.Sprintf("cannot be read (%s)", text.OneLine(reasonOf(err), 200)))
 	}
 	if info, err := os.Lstat(result.Path); errors.Is(err, fs.ErrNotExist) {
 		result.State, result.Problem = BinaryMissing, "is missing"
-		return result
+		return result, nil
 	} else if err != nil {
 		return unreadable(err)
 	} else if !info.Mode().IsRegular() {
@@ -123,14 +157,19 @@ func InspectBinary(l layout.Control, pin Pin, platform string) BinaryCheck {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			result.State, result.Problem = BinaryMissing, "is missing"
-			return result
+			return result, nil
 		}
 		if errors.Is(err, syscall.ELOOP) {
 			return mismatch("is not a regular file")
 		}
 		return unreadable(err)
 	}
-	defer func() { _ = file.Close() }()
+	keep := false
+	defer func() {
+		if !keep {
+			_ = file.Close()
+		}
+	}()
 	if info, err := file.Stat(); err != nil {
 		return unreadable(err)
 	} else if !info.Mode().IsRegular() {
@@ -145,7 +184,8 @@ func InspectBinary(l layout.Control, pin Pin, platform string) BinaryCheck {
 		return mismatch(fmt.Sprintf("has sha256 %s, not the pinned %s", found, pinned))
 	}
 	result.State = BinaryOK
-	return result
+	keep = true
+	return result, &Binary{Path: result.Path, file: file}
 }
 
 // reasonOf is err's system error without the path an *fs.PathError names, for

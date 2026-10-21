@@ -65,36 +65,57 @@ first `up` finishes, and so is one whose first `up` failed, and nothing in
 the registration tells either from an interrupted removal, so a check could
 only warn about the ordinary case. `worktree list` shows it.
 
-`worktree remove` does not run the removal from wherever the invoked binary
-happens to live: before doing anything else, it installs a content-addressed
-copy of itself under the control home — outside any checkout — and hands the
-removal to that copy, so deleting a checkout cannot delete the program still
-removing it. That holds whenever the copy can be installed and run; when it
-cannot, removal continues with the invoked binary, as described below. The
-copy is exactly
-the binary that was invoked, though, nothing more: a build made from a
-branch still runs that branch's code once relocated, just from somewhere the
-checkout it is removing cannot take down with it. Running only a trusted,
-pinned build regardless of what invoked `worktree remove` is a separate,
-later guarantee tied to how releases are distributed (#85, see
-[`design/release.md`](design/release.md)). Copies are
-content-addressed, so a rebuild that changes nothing installs nothing new;
-one that has not been installed or reused in the last 30 days, or that is
-not among the 5 most recently used besides the current one, whichever rule
-catches it first, is swept away automatically — disk hygiene for a workflow
-that rebuilds often, not something to manage by hand. That count is a
-steady-state target, not a hard ceiling: the sweep only runs as part of a
-later `worktree remove`, so a burst of removals from distinct builds in
-quick succession can briefly leave more than 5 until the next one catches
-up. A copy installed or reused in the last 10 minutes is never swept away by
-either rule, however old or however far past the count it would otherwise
-be: that window exists for another `worktree remove`, running at the same
-time, that might be mid-way through installing or about to run the very
-copy this one's own sweep would otherwise be free to take. This is invisible
-in normal use; a copy that cannot be installed or run — including on a
-control home whose filesystem cannot execute programs at all — is reported
-on stderr as it happens, and removal continues with whichever binary was
-invoked.
+Before `worktree remove` does anything else, it decides which code does the removal.
+
+- **A pin wins, for every build.** If you pinned a teardown binary
+  (`treerig teardown pin`, [Teardown pin](teardown-pin.md)), it checks the pinned
+  file's sha256 against the pin, then replaces itself with that file, passing the
+  same arguments and environment. The pinned binary lives in the control home,
+  outside every checkout, and the control home is refused if it is inside a git
+  work tree or if its pin store is owned by someone else or writable by others.
+  The exec drops the `LD_*`, `DYLD_*`, `GODEBUG` and `GOFLAGS` variables from the
+  environment, and prints two lines on stderr: one before the exec naming the file
+  and the release, one from the pinned binary after it, naming its version. A pin
+  that is broken (a pin it cannot read, a stored binary that is missing or whose
+  bytes changed, no binary for your platform, a filesystem that cannot run
+  programs) refuses, removes nothing, and says what to run; an exec that fails is
+  never worked around by running the invoked build. The refusal also says when the
+  build you invoked is newer than the pin, as `teardown status` does.
+- **No pin, a release build:** it removes with itself. You have nothing to set up.
+  It is first copied, as itself, into a content-addressed store under the control
+  home (`bin/`, outside any checkout), and the removal is handed to the copy, so
+  deleting the checkout cannot delete the running program.
+- **No pin, a development build** (built from source, a snapshot, anything
+  `0.0.0-…`): it refuses, because a development build may carry code from a
+  branch. Pin a build ([Getting a pin](teardown-pin.md#getting-a-pin)) or use
+  `--dev-teardown`.
+
+`worktree remove --dev-teardown` removes with the build you invoked, whatever
+its kind and whether or not a pin exists, for work on removal itself. It is a
+flag and nothing else: no setting, no `treerig.toml` key and no environment
+variable turns it on, and nothing remembers it. It prints a warning on every run
+that names the version and the sha256 of the code that is about to run. That
+build is first copied, as itself, into a content-addressed store under the
+control home (`bin/`, outside any checkout), and the removal is handed to the
+copy, so deleting the checkout cannot delete the running program either (an
+unpinned release build does the same). The copy is exactly the invoked binary
+and no more: a build made from a branch still runs that branch's code. Copies
+are content-addressed, so a rebuild that changes nothing installs nothing new;
+one that has not been installed or reused in the last 30 days, or that is not
+among the 5 most recently used besides the current one, whichever rule catches
+it first, is swept away automatically: disk hygiene for a workflow that rebuilds
+often, not something to manage by hand. That count is a steady-state target, not
+a hard ceiling: the sweep only runs as part of a later `--dev-teardown` removal,
+so a burst of removals from distinct builds in quick succession can briefly
+leave more than 5 until the next one catches up. A copy installed or reused in
+the last 10 minutes is never swept away by either rule, however old or however
+far past the count it would otherwise be: that window exists for another
+removal, running at the same time, that might be mid-way through installing or
+about to run the very copy this one's own sweep would otherwise be free to take.
+A copy that cannot be installed or run, including on a control home whose
+filesystem cannot execute programs at all, is reported on stderr as it happens,
+and the removal continues with the invoked binary. The pinned binary cannot be
+run with `--dev-teardown` (it refuses), and the pin itself is untouched.
 
 ## Renaming a worktree
 

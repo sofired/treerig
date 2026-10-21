@@ -1,1 +1,3 @@
+[treerig] Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove this worktree.
+[treerig] Running as the pinned teardown binary (version 0.0.0-dev).
 [treerig] ERROR: Refusing to touch volume v1: its ownership labels do not match this worktree.

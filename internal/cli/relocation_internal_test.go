@@ -31,7 +31,7 @@ func TestEnvBuilderRelocationWiring(t *testing.T) {
 	args := []string{"treerig", "worktree", "remove", "--yes"}
 
 	t.Run("Main's own (nil, nil) builds an Env with no relocation primitives at all", func(t *testing.T) {
-		build := envBuilder("treerig", "treerig worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, nil, nil, nil)
+		build := envBuilder("treerig", "treerig worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, nil, nil, nil, "")
 		env, err := build("")
 		if err != nil {
 			t.Fatalf("build(\"\"): %v", err)
@@ -45,7 +45,7 @@ func TestEnvBuilderRelocationWiring(t *testing.T) {
 	})
 
 	t.Run("MainProcess's own (os.Executable, osExec) builds an Env carrying both through", func(t *testing.T) {
-		build := envBuilder("treerig", "treerig worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, os.Executable, osExec, nil)
+		build := envBuilder("treerig", "treerig worktree remove --yes", console, getenv, strings.NewReader(""), io.Discard, nil, args, os.Executable, osExec, nil, "")
 		env, err := build("")
 		if err != nil {
 			t.Fatalf("build(\"\"): %v", err)

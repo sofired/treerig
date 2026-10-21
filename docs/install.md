@@ -43,6 +43,13 @@ ln -s treerig "$(dirname "$(command -v treerig)")/trig"
 A plain build prints `0.0.0-dev` for `treerig --version`, not a release's
 version. To stamp one, build with
 `-ldflags "-X github.com/sofired/treerig/internal/brand.Version=<version>"`.
+Stamp a local build `0.0.0-dev+<label>`, not a release-looking version such as
+`1.2.3`: `worktree remove` treats a build whose version looks like a release's as a
+release, which removes with itself and needs no pinned teardown binary
+([Teardown pin](teardown-pin.md)). The same goes for a version set by `-ldflags`
+or `GOFLAGS` from an environment you have not reviewed (direnv, mise, a
+devcontainer): do not `go build` a branch in a shell whose auto-loaded
+environment you have not read, and install from a release instead.
 
 ## Homebrew
 

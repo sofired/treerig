@@ -10,6 +10,7 @@ package cli_test
 // signal_integration_test.go).
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/registry/registrytest"
 )
@@ -58,6 +60,12 @@ type treerigOptions struct {
 	// env sets or overrides further variables, applied after TREERIG_HOME,
 	// PATH and HOME so a case can override any of them too.
 	env map[string]string
+	// argv0 is the name the process is started as, as a symlink such as
+	// `trig` would give it; empty keeps the binary's own path.
+	argv0 string
+	// timeout, when set, kills a run that takes longer; a gate that exec-ed
+	// itself in a loop would otherwise hang the suite.
+	timeout time.Duration
 }
 
 // runTreerig runs binary with args in cwd, giving it TREERIG_HOME under cwd and
@@ -81,7 +89,16 @@ func runTreerig(t *testing.T, binary, cwd string, args []string, opts treerigOpt
 	for key, value := range opts.env {
 		env = append(env, key+"="+value)
 	}
-	cmd := exec.Command(binary, args...)
+	ctx := context.Background()
+	if opts.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	if opts.argv0 != "" {
+		cmd.Args[0] = opts.argv0
+	}
 	cmd.Dir = cwd
 	cmd.Env = env
 	var stdout, stderr strings.Builder
@@ -443,8 +460,13 @@ backup  = "./backup.sh"
 		if !regexp.MustCompile(`(?m)^ {2}ok {4}router +not running`).MatchString(result.Stdout) {
 			t.Errorf("stdout = %q, want an ok router check", result.Stdout)
 		}
-		if !regexp.MustCompile(`(?m)^\[treerig\] No checks failed \(1 skipped\)\.$`).MatchString(result.Stderr) {
+		if !regexp.MustCompile(`(?m)^\[treerig\] No checks failed \(1 warning\(s\), 1 skipped\)\.$`).MatchString(result.Stderr) {
 			t.Errorf("stderr = %q, want the no-failures notice", result.Stderr)
+		}
+		// The one warning is that nothing is pinned for `worktree remove`; it is
+		// a warning and not a failure, so doctor still exits 0.
+		if !strings.Contains(result.Stdout, "  warn  teardown pin   none pinned; `treerig worktree remove` will refuse until you pin one with ") {
+			t.Errorf("stdout = %q, want the warning about the missing teardown pin", result.Stdout)
 		}
 		if strings.Contains(result.Stderr, "ERROR") {
 			t.Errorf("stderr = %q, must not say ERROR when nothing failed", result.Stderr)

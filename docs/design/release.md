@@ -50,8 +50,8 @@ keep naming `treerig` by design (`brand.Name`; for one, the missing-config hint
 in `internal/config/load.go`, which is not handed the invoked name). The
 completion scripts are generated per name, so `trig` has its own;
 `completions.sh` writes them by running the binary through a `trig` symlink.
-`worktree remove`'s relocation and the future removal gate (#146) exec a copy
-with the caller's `argv[0]`, so the name survives the exec.
+`worktree remove`'s removal gate (#146) and its `--dev-teardown` relocation exec
+a file with the caller's `argv[0]`, so the name survives the exec.
 
 Where the link is made, and what each route does about a clash:
 

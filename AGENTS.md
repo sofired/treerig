@@ -50,8 +50,8 @@ printed.
 - `docs/design/state.md`: which stored state carries a format version, the
   newer-format refusal, and how a migration is added.
 - `docs/design/teardown.md`: the teardown pin, a trusted teardown binary
-  installed and verified by `treerig teardown pin`. The removal gate that runs it
-  is pending (#146).
+  installed and verified by `treerig teardown pin`, and the removal gate that
+  runs it (#146).
 - `docs/design/locks.md`, `docs/design/config.md`, `docs/design/release.md`,
   `docs/hooks.md`: design notes (locks; the config file, its JSON Schema and
   examples; the release assets and signing identity) and the hook protocol.
@@ -86,6 +86,30 @@ break them are not merged.
 
 - The Docker integration suites remove whatever a killed run left behind.
   Run one of them at a time on a machine.
+- `worktree remove` on a development build (what every build here is: a plain
+  `go build` reports `0.0.0-dev`) refuses without a pinned teardown binary
+  (#146); a release build removes with itself. So a suite or a hand trial that
+  removes through a built binary pins that binary first, in the same scratch
+  root (`shasum -a 256` where there is no `sha256sum`, as on macOS):
+
+  ```sh
+  digest=$(sha256sum BIN | cut -d' ' -f1)
+  BIN teardown pin --file BIN --sha256 "$digest" --release LABEL --yes
+  ```
+
+  Or add `--dev-teardown` to the removal, which warns on every run. A pin that
+  exists is used by every build, release builds included, and a test that wants
+  the release path builds with `-X …/brand.Version=0.1.0-rc.3` and pins nothing.
+
+  Once a pin exists the gate also refuses a control home inside a git work tree
+  and a pin store that is not private to you, so a scratch `TREERIG_HOME` or
+  `TREERIG_CONTROL_HOME` lives outside every checkout (a temp directory does).
+  The gate does nothing under `cli.Main` and hand-built Envs (their
+  `Executable` and `Exec` are nil), so unit tests and in-process tests are
+  unaffected. `worktree remove --dev-teardown` removes with the invoked build and
+  warns on every run; never make it a setting, a `treerig.toml` key or an
+  environment variable (`internal/style` checks). Never touch the real pin under
+  `~/.treerig/control-home/teardown/`.
 - To try a build by hand, give it a scratch home so it doesn't touch the
   registered worktrees of the person you're working for. `TREERIG_HOME` is the
   treerig root — `settings.toml` (#79), the router's own state and lock, and

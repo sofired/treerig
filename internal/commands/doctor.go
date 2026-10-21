@@ -472,7 +472,8 @@ func registrySection(opts doctorOptions) ([]Check, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(checks, registrations...), nil
+	checks = append(checks, registrations...)
+	return append(checks, teardownPinChecks(opts)...), nil
 }
 
 /* --------------------------------------------------------------- locks ---- */
@@ -1604,6 +1605,14 @@ func doctorSummary(sections []Section) doctorSummaryLine {
 type doctorOptions struct {
 	CommandName string
 	ControlHome string
+	// Arch and Version are the running build's GOARCH and version, for the
+	// teardown pin checks (OS is below); NoExec asks whether a path's
+	// filesystem is mounted noexec, nil for the operating system.
+	Arch    string
+	Version string
+	NoExec  func(path string) (bool, error)
+	// PasswdHome is Env.PasswdHome, the boundary of the teardown location check.
+	PasswdHome string
 	// Home is the checked treerig root (TREERIG_HOME, #80): reported alongside
 	// ControlHome and RouterStateDir in the Registry section, so someone
 	// who set only TREERIG_CONTROL_HOME can still see where the rest of it
@@ -1742,7 +1751,7 @@ func doctorOptionsFor(env *Env, home, userHome string, svc *router.Router, state
 	opts := doctorOptions{
 		CommandName: env.CommandName, ControlHome: controlHome, Home: home,
 		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: userHome,
-		Runner: env.Runner, Logger: env.Logger, OS: env.OS,
+		Runner: env.Runner, Logger: env.Logger, OS: env.OS, Arch: env.Arch, NoExec: env.NoExec, PasswdHome: env.PasswdHome,
 		Checkout: checkout, Invocation: env.Invocation, Environ: env.Environ,
 		Listeners: env.Listeners,
 	}
@@ -1858,6 +1867,7 @@ func Doctor(ctx context.Context, env *Env, options OutputOptions) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	opts.Version = options.Version
 	sections, err := doctorSections(ctx, opts)
 	if err != nil {
 		return 0, err

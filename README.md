@@ -94,6 +94,10 @@ ln -s treerig "$(dirname "$(command -v treerig)")/trig"
 Release downloads come with checksums and a signature. How to check them is in
 [docs/install.md](docs/install.md#verifying-a-download).
 
+### After installing
+
+Run `treerig doctor` to check the machine.
+
 ## Quick start
 
 Start in the root of a Git repository that has a Compose file.
@@ -155,6 +159,12 @@ treerig worktree remove   # asks you to type the hostname, then removes what the
 cd - && git worktree remove ../myapp.feature-x
 ```
 
+Working on treerig itself, or running a build from source? A development build
+(`treerig --version` prints `0.0.0-…`) removes only with a pinned teardown binary:
+see [Teardown pin](docs/teardown-pin.md#what-counts-as-a-release-build). Don't
+`go build` a branch in a shell whose auto-loaded environment (direnv, mise, a
+devcontainer) you haven't reviewed; install from a release.
+
 `treerig down` stops a worktree and keeps its data; `treerig dev` is `up`
 followed by its logs until Ctrl-C. A hostname that won't resolve, or port 80
 already taken? See [Troubleshooting](docs/troubleshooting.md). The full
@@ -186,8 +196,13 @@ image and named volume it labelled for the worktree. External volumes, and the
 anonymous volumes an image declares, carry no labels and are left alone, so
 keep data you want removed on a named volume
 ([Ownership labels](docs/concepts.md#ownership-labels)). `worktree remove` checks the labels on
-every resource first and refuses the whole removal if one doesn't match. It
-runs the treerig build you invoked; see [Status and roadmap](#status-and-roadmap).
+every resource first and refuses the whole removal if one doesn't match. A
+release build removes with itself. A development build, which may carry a
+branch's code, removes only with a pinned, verified build and refuses without
+one, so branch code does not run while it takes the worktree apart; you can pin
+one on any build to keep removal on it ([Teardown pin](docs/teardown-pin.md)).
+`worktree remove --dev-teardown` removes with the build you invoked, for work on
+removal itself; it says so on every run.
 
 Locks stop two commands from changing a worktree at once. A lock left by a
 command that died is cleared only after treerig checks that the holder is
@@ -246,16 +261,14 @@ Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
 command. Releases are listed on the
 [releases page](https://github.com/sofired/treerig/releases).
 
+`worktree remove` refuses development builds that have no pinned, verified
+teardown binary (#146). That check is in `main` and ships in the first release cut
+after it (expected `v0.1.0-rc.3`); release builds, `v0.1.0-rc.2` included, remove
+with themselves.
+
 Not built yet:
 
-1. **`worktree remove` runs a pinned, verified build** (#146). Until this
-   lands, `worktree remove` runs whichever treerig binary you invoked, a
-   branch's own build included, and that holds for `v0.1.0-rc.2` too. Removal
-   is meant to run a treerig build you verified once instead. The commands that
-   install and check that build exist ([Teardown pin](docs/teardown-pin.md));
-   the gate that makes removal use it does not. It is meant to ship in the
-   first release cut after it lands (expected `v0.1.0-rc.3`).
-2. **Migrating stored state between releases** (#29). Every store treerig
+1. **Migrating stored state between releases** (#29). Every store treerig
    reads back carries a format version, and a build refuses a newer one; no
    migration code exists yet.
 

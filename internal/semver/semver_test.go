@@ -1,6 +1,9 @@
 package semver_test
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -220,4 +223,79 @@ func TestIsDev(t *testing.T) {
 			}
 		}
 	})
+}
+
+// publishedReleaseCases is every version IsPublishedRelease is pinned on, and
+// whether it counts as a release; the tag-validation script is held to the same
+// table.
+var publishedReleaseCases = map[string]bool{
+	"0.1.0":                        true,
+	"1.2.3":                        true,
+	"0.1.0-rc.1":                   true,
+	"0.1.0-rc.2":                   true,
+	"10.20.30-beta.4":              true,
+	"0.0.1":                        true,
+	"0.1.0-rc.2-5":                 true, // a hyphenated pre-release identifier is legal, and no git hash follows
+	"0.0.0-dev":                    false,
+	"0.0.0-dev+abc123def456":       false,
+	"0.0.0":                        false,
+	"0.0.0-rc.1":                   false,
+	"0.1.0+abc":                    false,
+	"0.1.0-rc.2+abc":               false,
+	"0.1.0-rc.2-5-gabc1234":        false, // git describe
+	"1.0.0-5-gabcdef0123":          false,
+	"0.1.0-rc.2-5-gabc1234-dirty":  false, // git describe --dirty
+	"0.1.0-rc.2-5-gabc1234-broken": false, // git describe --broken
+	"0.1.0-dirty":                  false, // a tag checked out with local changes
+	"0.1.0-broken":                 false,
+	"0.1.0-rc.2-dirty":             false,
+	"v1.2.3":                       false,
+	"1.2":                          false,
+	"01.2.3":                       false,
+	"invoked-9.9.9":                false,
+	"pinned-test":                  false,
+	"":                             false,
+	"garbage":                      false,
+	"1.2.3 ":                       false,
+}
+
+func TestIsPublishedRelease(t *testing.T) {
+	for in, want := range publishedReleaseCases {
+		if got := semver.IsPublishedRelease(in); got != want {
+			t.Errorf("IsPublishedRelease(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+// TestValidateTagAgreesWithIsPublishedRelease runs .github/scripts/validate-tag.sh,
+// the release workflow's tag check, for every version the Go predicate is pinned
+// on, plus the ones a looser pattern let through, and requires that the script
+// accepts a tag exactly when IsPublishedRelease accepts its version.
+func TestValidateTagAgreesWithIsPublishedRelease(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not available")
+	}
+	script, err := filepath.Abs(filepath.Join("..", "..", ".github", "scripts", "validate-tag.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]bool{}
+	for in, want := range publishedReleaseCases {
+		cases[in] = want
+	}
+	for _, in := range []string{"0.0.00", "00.1.0", "1.2.3-01", "1.2.3-rc..1", "1.2.3-", "1.2.3-.rc", "1.2.3-rc.01"} {
+		cases[in] = false
+	}
+	for in, want := range cases {
+		if got := semver.IsPublishedRelease(in); got != want {
+			t.Errorf("IsPublishedRelease(%q) = %v, want %v", in, got, want)
+		}
+		cmd := exec.Command(bash, script)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GITHUB_REF_NAME=v" + in}
+		accepted := cmd.Run() == nil
+		if accepted != want {
+			t.Errorf("validate-tag.sh accepts tag v%s = %v, but IsPublishedRelease(%q) = %v", in, accepted, in, want)
+		}
+	}
 }

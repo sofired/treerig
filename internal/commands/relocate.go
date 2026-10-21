@@ -82,6 +82,14 @@ const standaloneGrace = 10 * time.Minute
 // every resource still goes through regardless of which binary performs
 // the removal, and it does not vet the binary it relocates.
 //
+// Its only caller outside tests is the teardown gate (teardown_gate.go), which
+// has already resolved the control home and decided that this binary is not a
+// relocated copy. relocateAndReexec resolves and checks both again on purpose,
+// rather than taking them as parameters: it owns the checks it relies on (the
+// treerig-root and adoption checks, the canonical-path "already running the
+// installed copy" test) instead of trusting a caller's, tests call it directly,
+// and both are cheap and deterministic.
+//
 // The one error it returns is ctx's cause, when a signal has cancelled ctx
 // by the time the copy is ready to be exec-ed: nothing has been touched yet,
 // and the caller returns it so the process dies by the signal.

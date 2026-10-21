@@ -73,6 +73,10 @@ treerig worktree unlock      # clear a dead holder's lock, once it is checked go
 treerig doctor               # check prerequisites, registry, router; run verify
 ```
 
+A release build removes with itself, so there is nothing to set up. A development
+build (one built from source, which may carry a branch's code) removes only with a
+pinned teardown binary; see [Teardown pin](teardown-pin.md).
+
 `up` runs the branch's own build and hooks. Read [Trust model](trust-model.md)
 before bringing up a branch you did not write.
 

@@ -3,7 +3,7 @@ Pin the teardown binary
   source    file:BASE/bin/treerig-local
   signer    none (digest supplied by you); no signature was checked
   platform  PLATFORM  sha256 DIGEST
-  `worktree remove` does not run this binary yet.
+  `worktree remove` will run this binary instead of the build you invoke.
 
 Type this exact phrase to continue:
 

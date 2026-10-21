@@ -81,6 +81,8 @@ start.
 | `registry.host-conflict` | `registry` | the host | a hostname claimed by more than one worktree |
 | `registry.index-host` | `registry` | worktree ID | a worktree registered on the index's own hostname |
 | `registry.port-conflict` | `registry` | the port | a loopback port recorded for more than one service, in one worktree or several |
+| `registry.teardown-pin` | `registry` | | the [teardown pin](teardown-pin.md) `worktree remove` runs: ok when it and its stored binary are intact, and also when none is pinned and the running build is a release (removal needs none); `warn` when none is pinned and the running build is a development build (removal will refuse), it has no binary for this platform, or the running build is newer than it; `fail` when it cannot be read, is of a newer format or not one treerig wrote, or its binary is missing or different. Nothing is executed |
+| `registry.teardown-store` | `registry` | `location`, `ownership`, `noexec` | why removal will refuse a pin that is otherwise intact: the control home is inside a git work tree or the pin store is not private to you (`fail`), or the control home's filesystem is mounted noexec (`warn`). Only with a pin |
 | `locks.none` | `locks` | | no lock is held |
 | `locks.scan` | `locks` | | the locks could not be read |
 | `locks.registry` | `locks` | | the registry lock is held or was left unreleased, or could not be checked |
@@ -154,7 +156,7 @@ For a per-item kind, filter by id and read `instance`:
 {
   "ok": false,
   "exitCode": 1,
-  "counts": { "ok": 6, "warn": 0, "fail": 2, "skip": 2 },
+  "counts": { "ok": 6, "warn": 1, "fail": 2, "skip": 2 },
   "sections": [
     { "id": "prerequisites", "title": "Prerequisites", "checks": [
       { "id": "prerequisites.git", "status": "ok", "subject": "Git", "detail": "2.45.0" },
@@ -164,7 +166,8 @@ For a per-item kind, filter by id and read `instance`:
       { "id": "registry.treerig-root", "status": "ok", "subject": "treerig root", "detail": "/home/you/.treerig" },
       { "id": "registry.control-home", "status": "ok", "subject": "control home", "detail": "…" },
       { "id": "registry.router-state", "status": "ok", "subject": "router state", "detail": "…" },
-      { "id": "registry.registrations", "status": "ok", "subject": "registrations", "detail": "1 readable" } ] },
+      { "id": "registry.registrations", "status": "ok", "subject": "registrations", "detail": "1 readable" },
+      { "id": "registry.teardown-pin", "status": "warn", "subject": "teardown pin", "detail": "none pinned; `treerig worktree remove` will refuse until you pin one with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`)" } ] },
     { "id": "locks", "title": "Locks", "checks": [
       { "id": "locks.none", "status": "ok", "subject": "locks", "detail": "none held" } ] },
     { "id": "router", "title": "Router", "checks": [
@@ -176,4 +179,6 @@ For a per-item kind, filter by id and read `instance`:
 ```
 
 (Shown compacted, and with `…` standing in for text you would see in full;
-the real output is indented, one key per line.)
+the real output is indented, one key per line. The example is a development
+build with no teardown pin, so `registry.teardown-pin` is the one warning: a
+release build would show it as `ok` and `"warn": 0`.)

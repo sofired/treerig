@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -135,18 +136,31 @@ func TestHTTPGet(t *testing.T) {
 	})
 
 	t.Run("stops when the context ends", func(t *testing.T) {
+		// Cancelled only once the server has the request, so the test does not
+		// race a deadline against connection setup (a timeout could fire before
+		// the request is sent, and under load did).
 		release := make(chan struct{})
+		entered := make(chan struct{})
+		var once sync.Once
 		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			select {
-			case <-release:
-			case <-req.Context().Done():
-			}
+			once.Do(func() { close(entered) })
+			// Waits only for the test to end. Returning when the request's context
+			// ends would send an empty 200 that could beat the client's own
+			// cancellation; `defer close(release)` runs before server.Close.
+			<-release
 		}))
 		defer server.Close()
 		defer close(release)
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if _, err := releasefetch.NewHTTP(server.Client()).Get(ctx, server.URL, 10); !errors.Is(err, context.DeadlineExceeded) {
+		go func() {
+			select {
+			case <-entered:
+			case <-time.After(30 * time.Second):
+			}
+			cancel()
+		}()
+		if _, err := releasefetch.NewHTTP(server.Client()).Get(ctx, server.URL, 10); !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v", err)
 		}
 	})

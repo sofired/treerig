@@ -127,6 +127,8 @@ func TestDevThroughTheBinary(t *testing.T) {
 
 	t.Run("a second dev, and worktree remove, refuse while a session is attached, and up and down still work", func(t *testing.T) {
 		f := newUpFixture(t)
+		// `worktree remove` runs only the pinned teardown binary (#146).
+		pinWithEnv(t, binary, f.checkout, f.env, "dev-test")
 		startDev(t, f, binary)
 
 		for _, args := range [][]string{{"dev"}, {"worktree", "remove", "--yes"}} {

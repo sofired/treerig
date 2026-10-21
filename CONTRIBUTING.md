@@ -69,10 +69,11 @@ internal/
   worktree/               what the control plane and backend both say about a worktree
   registry/               identity markers, slugs, the registry
   lock/                   flock-based locks and their checked recovery
-  binstore/               the content-addressed store `worktree remove` runs
-                          itself from, outside any checkout
+  binstore/               the content-addressed store `worktree remove
+                          --dev-teardown` runs itself from, outside any checkout
   teardown/               the store behind the pinned teardown binary: the pin file,
-                          its installed binaries and the sweep of stale ones
+                          its installed binaries, the sweep of stale ones, and the
+                          verified descriptor `worktree remove` executes
   releasefetch/           the bounded HTTPS fetch of a release for `teardown pin`:
                           URLs, checksums.txt, the cosign policy, archive extraction
   semver/                 a small, strict Semantic Versioning 2.0.0 comparer
@@ -106,6 +107,21 @@ which spawns the built CLI as a process, since which stream a line lands on
 is only a contract if it survives the entry point, and no mock at the
 `run.Runner` seam can prove it. These are excluded from the default
 `go test ./...` and run separately (see "Go" below).
+
+`worktree remove` on a development build (a plain `go build`, which reports
+`0.0.0-dev`) refuses without a pinned teardown binary, while a release build
+(`semver.IsPublishedRelease`) removes with itself (`docs/design/teardown.md`,
+#146). So every suite that runs it through a built binary pins that binary first,
+in its own scratch root, with `pinWithEnv`
+(`internal/cli/teardown_gate_integration_test.go`), unless it is the test of the
+release path, which builds with `-X …/brand.Version=0.1.0-rc.3` (`buildVersioned`)
+and pins nothing. The gate is skipped by
+`cli.Main` and by an `Env` built by hand (its `Executable` and `Exec` are nil), so
+in-process tests need nothing. The frozen `worktree remove` goldens under
+`internal/cli/testdata/output` carry the gate's two lines, with the stored
+binary's name scrubbed to `DIGEST`. `--dev-teardown` is a flag and nothing
+else: `internal/style` fails if a setting, a `treerig.toml` key or an
+environment variable names it.
 
 Every module with security-relevant behaviour — path containment, file
 modes, lock recovery, identity markers — has a dedicated test file. Keep it
@@ -271,7 +287,10 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
 1. `main` is green and holds what you mean to ship.
 2. Tag the commit and push the tag: `git tag vMAJOR.MINOR.PATCH && git push
    origin vMAJOR.MINOR.PATCH`. The tag is the version (`v1.2.3` reports
-   `1.2.3`); it must be a semantic version. A tag with a pre-release suffix
+   `1.2.3`); it must be a strict semantic version that treerig reads as a release
+   (no leading zeros, no `+build`, not `0.0.0`, no `git describe` tail), which
+   `.github/scripts/validate-tag.sh` checks and `internal/semver`'s tests hold to
+   `IsPublishedRelease`. A tag with a pre-release suffix
    (`v1.2.3-rc.1`) publishes a GitHub pre-release, which is never "latest", and
    does not touch Homebrew. Release notes list the commits since the previous
    tag, so after an rc they cover only what changed since the rc; and the first
@@ -325,8 +344,12 @@ the tap formula rendered into `dist/treerig.rb` from the source archive, and
 alias and when it must be skipped). The job also runs the teardown pin flow:
 `teardown pin --release` against the snapshot with a real cosign (`TestTeardownPinSnapshot`,
 `TestTeardownPinSnapshotTampering`, `TestTeardownPinWithRealCosign` and
-`TestTeardownPinWithRealCosignAndNoTrustRoot`). It uploads the artifacts and the
-formula. To do the same locally:
+`TestTeardownPinWithRealCosignAndNoTrustRoot`). It also pins the snapshot's own
+binary and runs it through `worktree remove`'s gate against an empty directory
+(`TestSnapshotBinaryThroughTheGate`, with the same `TREERIG_SNAPSHOT_DIST` and
+`TREERIG_SNAPSHOT_VERSION`, under `-tags integration`), so the CGO_ENABLED=0,
+trimpath release binary proves the exec through `/proc/self/fd`. It uploads the
+artifacts and the formula. To do the same locally:
 
 ```bash
 go install github.com/goreleaser/goreleaser/v2@v2.18.3   # the version both workflows pin
@@ -340,6 +363,11 @@ TREERIG_REQUIRE_COSIGN=1 \
 TREERIG_SNAPSHOT_DIST="$PWD/dist" \
 TREERIG_SNAPSHOT_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)" \
   go test -race -count=1 -run '^(TestTeardownPinSnapshot|TestTeardownPinSnapshotTampering|TestTeardownPinWithRealCosign|TestTeardownPinWithRealCosignAndNoTrustRoot)$' ./internal/commands/
+
+# The snapshot binary through worktree remove's gate; no cosign needed.
+TREERIG_SNAPSHOT_DIST="$PWD/dist" \
+TREERIG_SNAPSHOT_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)" \
+  go test -race -count=1 -tags integration -run '^TestSnapshotBinaryThroughTheGate$' ./internal/cli/
 ```
 
 `--skip=sign` is needed because signing wants the release job's OIDC token.

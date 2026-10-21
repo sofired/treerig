@@ -63,6 +63,19 @@ type Env struct {
 	// Tests give it a fake so a scan never reaches this machine's real
 	// process table.
 	Table procid.Table
+	// PasswdHome is the home directory the user database lists for the
+	// effective user, looked up by cli.MainProcess; "" when there is none, and
+	// from cli.Main and hand-built Envs. It is the one input to the teardown
+	// gate's location check that does not come from the environment: HOME can be
+	// set by a checkout's environment file, so the exemption for a dotfiles
+	// repository at the home directory is granted only when PasswdHome is
+	// the same directory as the checked HOME.
+	PasswdHome string
+	// NoExec says whether the filesystem holding path is mounted noexec, for
+	// the warnings of `teardown pin`, `teardown status` and `doctor`; nil asks
+	// the operating system (teardown.MountNoExec). Tests set a fake, since no
+	// test can mount anything.
+	NoExec func(path string) (bool, error)
 	// Lifecycle is the process's signal handling; mutations hold their locks through it.
 	Lifecycle *lifecycle.Lifecycle
 	// Stdin, Stderr, StdinIsTTY and StderrIsTTY serve the confirmation prompt.
@@ -72,19 +85,21 @@ type Env struct {
 	StderrIsTTY bool
 	// Executable is this process's own running binary; os.Executable, but
 	// only from cli.MainProcess — cmd/treerig's own entry point, the one
-	// caller allowed to let `worktree remove` relocate (#7). cli.Main,
-	// which every in-process test calls, always leaves this nil, and so
-	// does every Env built by hand for a test; nil skips relocation
-	// entirely rather than reading anything.
+	// caller allowed to let `worktree remove` run its teardown gate (#146)
+	// and relocate (#7). cli.Main, which every in-process test calls,
+	// always leaves this nil, and so does every Env built by hand for a
+	// test; nil skips the gate entirely rather than reading anything.
 	Executable func() (string, error)
-	// Exec replaces this process's image with argv0, argv and envv —
-	// golang.org/x/sys/unix.Exec, but again only from cli.MainProcess. On
-	// success it never returns; a non-nil error means the exec itself
-	// failed. Nil skips relocation entirely, the same as a nil Executable —
+	// Exec replaces this process's image with the program at path (the
+	// pinned teardown binary, or a relocated copy of this one), handing it
+	// argv and envv — golang.org/x/sys/unix.Exec, but again only from
+	// cli.MainProcess. On success it never returns; a non-nil error means
+	// the exec itself failed, which the gate refuses and the relocation
+	// survives. Nil skips the gate entirely, the same as a nil Executable —
 	// this must never be wired to anything that can replace an in-process
 	// test's own image (a go test binary included): see
 	// internal/cli's TestEnvBuilderRelocationWiring.
-	Exec func(argv0 string, argv, envv []string) error
+	Exec func(path string, argv, envv []string) error
 }
 
 // ListOptions are `worktree list`'s flags.
@@ -98,6 +113,9 @@ type ListOptions struct {
 // exit code is the same either way.
 type OutputOptions struct {
 	JSON bool
+	// Version is the running build's version (brand.Version), which `doctor`
+	// compares with the teardown pin's release.
+	Version string
 }
 
 // RemoveOptions are `worktree remove`'s argument and flags.
@@ -108,6 +126,14 @@ type RemoveOptions struct {
 	LabelNamespace string
 	// Yes skips the confirmation phrase.
 	Yes bool
+	// DevTeardown is --dev-teardown: remove with this build's own code
+	// instead of the pinned teardown binary, for work on removal itself. It
+	// is a per-invocation flag and nothing else (docs/design/teardown.md,
+	// "The developer escape hatch").
+	DevTeardown bool
+	// Version is the running build's version (brand.Version), which the gate
+	// names in its lines and compares with the pin for its freshness hint.
+	Version string
 }
 
 // printJSON prints value as the command's one JSON document on stdout, the

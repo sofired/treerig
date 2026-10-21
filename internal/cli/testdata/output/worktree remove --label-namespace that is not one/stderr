@@ -1,1 +1,3 @@
+[treerig] Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove this worktree.
+[treerig] Running as the pinned teardown binary (version 0.0.0-dev).
 [treerig] ERROR: --label-namespace must look like a reverse domain, e.g. dev.example, not "Not One".

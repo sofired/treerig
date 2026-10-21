@@ -3,11 +3,15 @@ package teardown
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/sofired/treerig/internal/binstore"
 	"github.com/sofired/treerig/internal/clierr"
@@ -39,7 +43,13 @@ func ReadPin(l layout.Control) (pin Pin, found bool, err error) {
 	if err := files.AssertSafeFilePath(l.ControlHome, l.PinPath); err != nil {
 		return Pin{}, false, err
 	}
-	data, err := os.ReadFile(l.PinPath)
+	data, err := readPinBytes(l.PinPath)
+	if errors.Is(err, errPinTooLarge) {
+		return Pin{}, false, foreign(l.PinPath, l.TeardownDir, err)
+	}
+	if errors.Is(err, errPinNotRegular) {
+		return Pin{}, false, clierr.New("Refusing symlinked or non-file managed path: " + l.PinPath)
+	}
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return Pin{}, false, nil
@@ -63,6 +73,45 @@ func ReadPin(l layout.Control) (pin Pin, found bool, err error) {
 		return parsed, true, nil
 	}
 	return Pin{}, false, foreign(l.PinPath, l.TeardownDir, nil)
+}
+
+// maxPinBytes bounds pin.json: a pin is a few kilobytes, and a larger file is
+// not one treerig wrote.
+const maxPinBytes = 64 << 10
+
+var (
+	errPinTooLarge   = errors.New("the file is larger than 64 KiB")
+	errPinNotRegular = errors.New("not a regular file")
+)
+
+// readPinBytes reads pin.json defensively: opened without following a symlink
+// and without blocking (so a FIFO swapped in after the safety check cannot hang
+// the open), required to be a regular file by the descriptor itself, and capped
+// at maxPinBytes, so a planted file cannot hang or exhaust a removal.
+func readPinBytes(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, errPinNotRegular
+		}
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errPinNotRegular
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxPinBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxPinBytes {
+		return nil, errPinTooLarge
+	}
+	return data, nil
 }
 
 // BinaryPath is where the stored binary for hash lives, installed or not.

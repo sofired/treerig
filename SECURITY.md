@@ -46,11 +46,22 @@ release never includes a pre-release (see
 
 In scope:
 
-- Once the removal gate ships (#146), anything that lets branch code run
-  during `worktree remove` despite a teardown pin
-  ([Teardown pin](docs/teardown-pin.md)). Until then `worktree remove` does
-  not run the pinned binary, that gap is known, and it is not a new report.
-  Reports about the pin commands themselves are welcome now.
+- Anything that lets branch code run during `worktree remove` despite the
+  teardown check ([Teardown pin](docs/teardown-pin.md)). The check protects
+  development builds, which refuse to remove without a pinned, verified teardown
+  binary, and anyone who pins, whose pin every build then uses. A way around it
+  counts: a way to make removal run something other than the bytes the pin names
+  (a control home redirected into a checkout, say), a development build that
+  removes without a pin and without `--dev-teardown`, or a way to turn
+  `--dev-teardown` on without the flag. A release build without a pin runs its own
+  (released) code by design, so that is not a report. A build whose version was
+  stamped to look like a release, by hand, by `-ldflags` or `GOFLAGS` from an
+  environment a branch controls (direnv, mise, a devcontainer), or by a build
+  wrapper, is trusted as a release when no pin exists; treerig does not defend
+  against that, and the mitigation is to pin, because a usable pin overrides it for
+  every build. `v0.1.0-rc.2` predates the check
+  and removes with itself, so a report about it is not new. Reports about the pin
+  commands themselves are welcome too.
 - Removal of a Docker resource that treerig cannot prove it owns by its
   ownership labels.
 - The router, the index page, a routed service's pinned port, or a shared

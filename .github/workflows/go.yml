@@ -177,7 +177,7 @@ jobs:
       - uses: ./.github/actions/setup-go
 
       - name: ShellCheck
-        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh .github/scripts/commands-shards.sh
+        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh .github/scripts/commands-shards.sh .github/scripts/validate-tag.sh
 
       # Installed once and put on PATH, so the reproducibility step below can
       # run it again; the action alone leaves no goreleaser on PATH.
@@ -243,6 +243,26 @@ jobs:
           for name in TestTeardownPinSnapshot TestTeardownPinSnapshotTampering TestTeardownPinWithRealCosign TestTeardownPinWithRealCosignAndNoTrustRoot; do
             grep -q -- "^--- PASS: $name " "$log" || { echo "::error::$name did not report PASS"; exit 1; }
           done
+          if grep -q -- '--- SKIP' "$log"; then
+            echo "::error::a test skipped"
+            exit 1
+          fi
+
+      # The snapshot's own treerig, built with CGO_ENABLED=0 and -trimpath as a
+      # release is, is pinned into a scratch root and run through `worktree
+      # remove`'s gate against an empty directory: it must print the pinned
+      # binary's line, which only a successful exec through /proc/self/fd (or,
+      # on macOS, the stored path) can. Nothing is removed. Like the step
+      # above, it fails on a skip or a missing PASS.
+      - name: The snapshot binary runs through the removal gate
+        shell: bash
+        run: |
+          version=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)
+          test -n "$version"
+          log="$RUNNER_TEMP/gate-test.log"
+          TREERIG_SNAPSHOT_DIST="$PWD/dist" TREERIG_SNAPSHOT_VERSION="$version" \
+            go test -v -race -count=1 -tags integration -run '^TestSnapshotBinaryThroughTheGate$' ./internal/cli/ 2>&1 | tee "$log"
+          grep -q -- '^--- PASS: TestSnapshotBinaryThroughTheGate ' "$log" || { echo "::error::TestSnapshotBinaryThroughTheGate did not report PASS"; exit 1; }
           if grep -q -- '--- SKIP' "$log"; then
             echo "::error::a test skipped"
             exit 1
