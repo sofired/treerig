@@ -38,7 +38,7 @@ build refuses a newer one; `docs/design/state.md` lists the stores, the
 refusal, and how a migration is added.
 
 The pre-release rename (owner decision, 2026-10-15) changed every storage name
-without a migration because nothing had shipped. From the first release
+without a migration because nothing had shipped. From the first pre-release
 (v0.1.0-rc.2), the migration rule above applies in full.
 
 ## Repository layout
@@ -249,8 +249,10 @@ land it. The names, the signing identity and what depends on them are in
 [`docs/design/release.md`](docs/design/release.md); renaming `release.yml` or a
 file-name template is a migration.
 
-**Before the first tag** (each item is a blocker, not a nicety). A source build
-reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
+**One-time setup** (done before the first pre-release, `v0.1.0-rc.2`; each item is a
+blocker, not a nicety). Keep this list as the checklist for recreating the
+repository, the `release` environment or the tap, and for finding why a release
+job fails at one of these steps:
 
 - [ ] The repository is public. Every channel downloads release assets
   anonymously, and build provenance attestations need it on this plan.
@@ -275,12 +277,6 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
 - [ ] The first tap pull request starts from `packaging/homebrew/treerig.rb`;
   later ones only change its `url` and `sha256`. Change the formula's body in
   the tap, and keep the template in step.
-- [ ] The docs no longer say that nothing has shipped. In `README.md`, update
-  the `Pre-release` line under the title, the status
-  box ("Nothing is tagged yet") and the Install text ("No release exists
-  yet"). In `docs/install.md`, update the "No release exists yet" note at the
-  top and each "None has shipped yet" line. `grep -n "yet" README.md
-  docs/install.md` finds them.
 
 **Cutting a release:**
 
@@ -293,9 +289,9 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
    `IsPublishedRelease`. A tag with a pre-release suffix
    (`v1.2.3-rc.1`) publishes a GitHub pre-release, which is never "latest", and
    does not touch Homebrew. Release notes list the commits since the previous
-   tag, so after an rc they cover only what changed since the rc; and the first
-   release's notes are the whole history, long enough to trim by hand on the
-   release page.
+   tag, so after an rc they cover only what changed since the rc. For the first
+   stable release after release candidates, write the notes by hand to cover the
+   whole release and paste them on the release page once the run publishes it.
 3. Approve the run in the `release` environment, and watch it. Approval is
    requested once per gated job, so twice per release: first `release`, then
    `homebrew-tap`. When it finishes, check the release page, then try `brew install sofired/tap/treerig`,

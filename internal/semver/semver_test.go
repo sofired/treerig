@@ -212,6 +212,19 @@ func TestAtLeast(t *testing.T) {
 	})
 }
 
+func TestIsPreRelease(t *testing.T) {
+	t.Run("is true for a pre-release part and false for a release or build metadata alone", func(t *testing.T) {
+		for s, want := range map[string]bool{
+			"0.1.0-rc.3": true, "1.2.3-beta": true, "0.1.0-rc.2-5": true, "0.0.0-dev+abc": true, "0.1.0-rc.1+build": true,
+			"0.1.0": false, "1.2.3": false, "1.2.3+build": false,
+		} {
+			if got := mustParse(t, s).IsPreRelease(); got != want {
+				t.Errorf("IsPreRelease(%q) = %v, want %v", s, got, want)
+			}
+		}
+	})
+}
+
 func TestIsDev(t *testing.T) {
 	t.Run("is 0.0.0 with a dev pre-release", func(t *testing.T) {
 		for s, want := range map[string]bool{

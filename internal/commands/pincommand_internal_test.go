@@ -19,3 +19,32 @@ func TestShellWord(t *testing.T) {
 		}
 	}
 }
+
+func TestPinCommandFor(t *testing.T) {
+	const latest = "`treerig teardown pin --latest`"
+	const devLatest = "`treerig teardown pin --latest` (or `--file`; see `treerig teardown pin --help`)"
+	t.Run("a pre-release build names its own version, since --latest never selects a pre-release", func(t *testing.T) {
+		for version, want := range map[string]string{
+			"0.1.0-rc.3":      "`treerig teardown pin --release 0.1.0-rc.3`",
+			"10.20.30-beta.4": "`treerig teardown pin --release 10.20.30-beta.4`",
+		} {
+			if got := pinCommandFor("treerig", version); got != want {
+				t.Errorf("pinCommandFor(%q) = %s, want %s", version, got, want)
+			}
+		}
+	})
+	t.Run("a stable release build is told --latest, with no --file route", func(t *testing.T) {
+		for _, version := range []string{"0.1.0", "1.2.3"} {
+			if got := pinCommandFor("treerig", version); got != latest {
+				t.Errorf("pinCommandFor(%q) = %s, want %s", version, got, latest)
+			}
+		}
+	})
+	t.Run("a development or source build is told --latest and the --file route", func(t *testing.T) {
+		for _, version := range []string{"0.0.0-dev", "0.0.0-dev+abc123def456", "0.1.0-rc.3-5-gabc1234", "0.1.0-dirty", "garbage", ""} {
+			if got := pinCommandFor("treerig", version); got != devLatest {
+				t.Errorf("pinCommandFor(%q) = %s, want %s", version, got, devLatest)
+			}
+		}
+	})
+}

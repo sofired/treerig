@@ -451,7 +451,7 @@ func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions
 			env.Logger.Output(closing)
 		}
 		if release {
-			env.Logger.Info(fmt.Sprintf("No teardown binary is pinned, and a release build needs none. Pin one with %s to make removal keep running that verified build.",
+			env.Logger.Info(fmt.Sprintf("No teardown binary is pinned, and a release build needs none. Pin one with %s to make removal run a verified, pinned build.",
 				pinCommandFor(env.CommandName, options.Version)))
 			return nil
 		}

@@ -297,7 +297,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		options := f.options()
 		options.Release, options.Latest = "", true
-		wantRefusal(t, f.pin(options), "Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`. Releases are listed at https://github.com/sofired/treerig/releases.")
+		wantRefusal(t, f.pin(options), "Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release (or the repository is not reachable). Try `treerig teardown pin --latest` again later, or name a release with `treerig teardown pin --release <a version>`. Releases are listed at https://github.com/sofired/treerig/releases.")
 		f.wantNothingPinned(t)
 		if len(f.runner.Calls()) != 0 {
 			t.Fatalf("cosign ran: %v", f.runner.Argv())

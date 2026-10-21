@@ -64,7 +64,7 @@
           "id": "registry.teardown-pin",
           "status": "warn",
           "subject": "teardown pin",
-          "detail": "none pinned; `treerig worktree remove` will refuse until you pin one with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`)"
+          "detail": "none pinned; `treerig worktree remove` will refuse until you pin one with `treerig teardown pin --latest` (or `--file`; see `treerig teardown pin --help`)"
         }
       ]
     },

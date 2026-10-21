@@ -166,6 +166,12 @@ func (v Version) IsDev() bool {
 		len(v.pre) > 0 && strings.HasPrefix(v.pre[0], "dev")
 }
 
+// IsPreRelease reports whether v has a pre-release part (`-rc.2`), so that it
+// ranks below the release with the same numbers. Build metadata is not one.
+func (v Version) IsPreRelease() bool {
+	return len(v.pre) > 0
+}
+
 // Compare orders a and b by SemVer section 11 precedence: -1 when a ranks
 // below b, 1 when above, 0 when equal. Build metadata plays no part.
 func Compare(a, b Version) int {

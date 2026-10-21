@@ -181,7 +181,7 @@ func (f *teardownFixture) pinAgain() string {
 
 // pinCommand is the generic command the messages name for a development build,
 // which has no release version to put in it.
-const pinCommand = "`treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`)"
+const pinCommand = "`treerig teardown pin --latest` (or `--file`; see `treerig teardown pin --help`)"
 
 func TestTeardownPinFile(t *testing.T) {
 	t.Run("pins a local binary: stores the same bytes under their hash and writes a file pin for this platform", func(t *testing.T) {
@@ -567,7 +567,7 @@ func TestTeardownStatus(t *testing.T) {
 			t.Fatalf("status = %v, want success: a release needs no pin", err)
 		}
 		if f.printed() != "worktree remove: will run this build (a release; no pin needed)" ||
-			f.logged() != "info: No teardown binary is pinned, and a release build needs none. Pin one with `treerig teardown pin --release 0.1.0-rc.3` to make removal keep running that verified build." {
+			f.logged() != "info: No teardown binary is pinned, and a release build needs none. Pin one with `treerig teardown pin --release 0.1.0-rc.3` to make removal run a verified, pinned build." {
 			t.Fatalf("stdout = %q, stderr = %q", f.printed(), f.logged())
 		}
 		g := newTeardownFixture(t)
@@ -800,7 +800,7 @@ func TestTeardownStatus(t *testing.T) {
 		if err := f.status(false, "1.3.0"); err != nil {
 			t.Fatal(err)
 		}
-		want := "info: The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --release 1.3.0` to update it."
+		want := "info: The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --latest` to update it."
 		if f.logged() != want {
 			t.Fatalf("stderr = %q\nwant     %q", f.logged(), want)
 		}

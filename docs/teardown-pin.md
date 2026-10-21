@@ -8,7 +8,7 @@ you need one depends on the build you run:
 
 | Build | No pin | A pin |
 | --- | --- | --- |
-| A release (`0.1.0-rc.3`, `1.2.3`: a version cut from a release tag) | Removes with itself. Nothing to set up. | Removal runs the pinned, verified binary instead. |
+| A release (`0.1.0`, `1.2.3`: a version cut from a release tag) | Removes with itself. Nothing to set up. | Removal runs the pinned, verified binary instead. |
 | A development build (from source, a snapshot, anything `0.0.0-…`) | **Refuses**, unless `--dev-teardown`. | Removal runs the pinned, verified binary. |
 
 A usable pin wins for every build: it is checked (its sha256, where it lives, who
@@ -28,8 +28,9 @@ with a release. If you only run releases, you can ignore this page.
 
 A development build needs one. Two routes:
 
-1. With cosign 3.0.0 or newer on your `PATH`: `treerig teardown pin --release
-   0.1.0-rc.2` (a published version; the build's own, once it is a release).
+1. With cosign 3.0.0 or newer on your `PATH`: `treerig teardown pin --latest`,
+   which pins the newest release that is not a pre-release. To pin a specific
+   release (a pre-release too), name it: `treerig teardown pin --release 0.1.0`.
 2. Without cosign, or offline: verify a download by hand
    ([Verifying a download](install.md#verifying-a-download)), take the
    `treerig` binary's own digest with `sha256sum treerig` (`shasum -a 256
@@ -50,16 +51,17 @@ nothing downloads except `teardown pin --release` or `--latest`, which you run.
 Download a release, verify it, and pin the `treerig` inside it:
 
 ```bash
-treerig teardown pin --release 0.1.0-rc.2     # a version, as the tag without the v
 treerig teardown pin --latest                 # the newest release that is not a pre-release
+treerig teardown pin --release 0.1.0          # a version, as the tag without the v
 ```
 
 `--latest` only finds the version: it reads `releases/latest/download/checksums.txt`
 for the version in the archive names, discards it, and then behaves as
 `--release` with that version, fetching everything again from
 `https://github.com/sofired/treerig/releases/download/vX.Y.Z/`. It never selects a
-pre-release, so while every release is one it refuses and tells you to name the
-release with `--release`. `--release` and `--latest` exclude each other.
+pre-release, so to pin one, name it with `--release`. If the repository has no
+release that is not a pre-release, or cannot be reached, it refuses and says so.
+`--release` and `--latest` exclude each other.
 
 Verification needs **cosign 3.0.0 or newer** on your `PATH`. treerig finds it once
 and runs that path for both steps, so check what `PATH` finds. It checks
@@ -229,11 +231,15 @@ build refuses. Otherwise:
   parses the command line first; neither removes anything.
 
 When a development build has no pin, the refusal says so and gives both routes,
-on lines of their own: `treerig teardown pin --release <a published version, such
-as 0.1.0-rc.2>`, or `treerig teardown pin --file <a treerig you trust> --sha256
-<its sha256> --release <a label>`, with `treerig teardown pin --help` for both. A
-release build names its own version where a message tells it to pin
-(`treerig teardown pin --release 0.1.0-rc.3`).
+on lines of their own: `treerig teardown pin --latest`, or `treerig teardown pin
+--file <a treerig you trust> --sha256 <its sha256> --release <a label>`, with
+`treerig teardown pin --help` for both. Every message that tells you to pin says
+`treerig teardown pin --latest`, with one exception: a pre-release build (for
+example `0.1.0-rc.3`) names its own version
+(`treerig teardown pin --release 0.1.0-rc.3`), because `--latest` never selects
+a pre-release and would not pin the build you are running. A message about a
+broken pin pins that pin again instead: a release pin by its own release, a file
+pin by its own `--file`, `--sha256` and `--release`.
 
 ### What counts as a release build
 
@@ -259,10 +265,10 @@ build cannot be read, in which case it goes on). It is a per-invocation flag and
 nothing else: no setting, no `treerig.toml` key, no environment variable, and
 nothing remembers it. The pinned binary itself refuses it.
 
-`v0.1.0-rc.2` predates this check. A pin made from it is safe: it runs the old
-relocation of its own bytes and then removes, and those are the pinned bytes, so
-nothing unpinned runs. Pin the first release that has the check to have the
-pinned binary enforce it too.
+`v0.1.0-rc.2` predates this check (`v0.1.0-rc.3` and later have it). A pin made
+from `rc.2` is safe: it runs the old relocation of its own bytes and then
+removes, and those are the pinned bytes, so nothing unpinned runs. Pin a release
+with the check, such as the latest, to have the pinned binary enforce it too.
 
 ## What it does not protect against
 
