@@ -386,11 +386,12 @@ The legs are a script, so they run locally against a binary you have, before any
 release exists (`.github/scripts/release-smoke.sh help`, and its header, for the
 rest). A GoReleaser snapshot is a development build, so give it `--dev-build`
 (the no-pin leg then expects the gate's refusal), and `--pin file`, which pins
-the snapshot's own `treerig` instead of downloading a release. These options,
-`--base-url`, `--no-signature-check` and `--no-packages` are for local testing
-only: the script refuses them under GitHub Actions, except that `--ci-snapshot`
-allows the first two, for the `release-snapshot` job in `go.yml`, which runs this
-on every pull request; `release-smoke.yml` uses none of them.
+the snapshot's own `treerig` instead of downloading a release. `--dev-build`,
+`--pin file`, `--base-url`, `--no-signature-check` and `--no-packages` are for
+local testing only, and the script refuses them under GitHub Actions. The one
+exception is `--ci-snapshot`, which allows `--dev-build` and `--pin file` (and
+nothing else) for the `release-snapshot` job in `go.yml`, which runs the legs on
+every pull request. `release-smoke.yml` uses none of them.
 
 ```bash
 goreleaser release --snapshot --clean --skip=sign
