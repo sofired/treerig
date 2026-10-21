@@ -297,7 +297,7 @@ func TestTeardownPinRelease(t *testing.T) {
 		f := newReleaseFixture(t, "1.2.3")
 		options := f.options()
 		options.Release, options.Latest = "", true
-		wantRefusal(t, f.pin(options), "Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release X.Y.Z`. Releases are listed at https://github.com/sofired/treerig/releases.")
+		wantRefusal(t, f.pin(options), "Refusing to pin the latest release: sofired/treerig has no release that is not a pre-release yet (or the repository is not reachable). Pin a pre-release with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`. Releases are listed at https://github.com/sofired/treerig/releases.")
 		f.wantNothingPinned(t)
 		if len(f.runner.Calls()) != 0 {
 			t.Fatalf("cosign ran: %v", f.runner.Argv())
@@ -585,7 +585,7 @@ func TestTeardownPinReleasePlan(t *testing.T) {
 			"  signer    https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3  (cosign verified)\n" +
 			"  cosign    " + f.cosign + "  (3.0.6)\n" +
 			"  platform  linux_amd64  sha256 " + binary + "\n" +
-			"  `worktree remove` does not run this binary yet.\n\n" +
+			"  `worktree remove` will run this binary instead of the build you invoke.\n\n" +
 			"Type this exact phrase to continue:\n\n  pin teardown binary\n\n> "
 		if f.stderr.String() != want {
 			t.Fatalf("plan:\n%s\nwant:\n%s", f.stderr.String(), want)

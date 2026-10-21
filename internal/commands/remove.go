@@ -56,16 +56,15 @@ type RemoveResult struct {
 
 // Remove is `worktree remove`.
 func Remove(ctx context.Context, env *Env, options RemoveOptions) error {
-	// Before anything else: relocate to, and re-exec into, a standalone copy
-	// of this binary outside any checkout, so deleting the worktree below
-	// can never delete the program doing the removal (#7) — the copy is
-	// this same binary's own bytes, nothing more; a build made from a
-	// branch still runs that branch's code once relocated, just from
-	// somewhere the checkout cannot take down with it. RemoveWithContext,
-	// which tests call directly, is deliberately not where this lives — a
-	// test's Env has no Executable/Exec wired, so it skips relocation and
-	// runs exactly as it always has.
-	if err := relocateAndReexec(ctx, env); err != nil {
+	// Before anything else, the teardown gate (#146): run the pinned,
+	// verified teardown binary in place of this build, or refuse. The only
+	// way to run this build's own code is --dev-teardown, which relocates it
+	// to a standalone copy outside any checkout first (#7), so deleting the
+	// worktree below can never delete the program doing the removal.
+	// RemoveWithContext, which tests call directly, is deliberately not
+	// where this lives: a test's Env has no Executable/Exec wired, so the
+	// gate does nothing and the removal runs exactly as it always has.
+	if err := teardownGate(ctx, env, options); err != nil {
 		return err
 	}
 	cctx, err := Context(env)

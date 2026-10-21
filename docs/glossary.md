@@ -68,7 +68,7 @@ The hostname part that identifies a worktree, derived from its branch: `feature/
 
 ## Teardown pin
 
-A treerig build that you install and verify once with `treerig teardown pin`, which `worktree remove` is meant to run instead of whichever binary you invoked. The pin exists; the removal that uses it does not yet. See [Teardown pin](teardown-pin.md).
+A treerig build that you install and verify once with `treerig teardown pin`, which `worktree remove` runs instead of whichever binary you invoked, and refuses without. See [Teardown pin](teardown-pin.md).
 
 ## treerig root
 

@@ -1,1 +1,1 @@
-[treerig] ERROR: The pinned teardown binary BASE/treerig-home/control-home/teardown/DIGEST is missing. Pin it again with `treerig teardown pin --release X.Y.Z`.
+[treerig] ERROR: The pinned teardown binary BASE/treerig-home/control-home/teardown/DIGEST is missing. Pin it again with `treerig teardown pin --file BASE/bin/treerig-local --sha256 DIGEST --release my-build`.

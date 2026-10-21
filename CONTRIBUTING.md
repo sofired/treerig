@@ -69,10 +69,11 @@ internal/
   worktree/               what the control plane and backend both say about a worktree
   registry/               identity markers, slugs, the registry
   lock/                   flock-based locks and their checked recovery
-  binstore/               the content-addressed store `worktree remove` runs
-                          itself from, outside any checkout
+  binstore/               the content-addressed store `worktree remove
+                          --dev-teardown` runs itself from, outside any checkout
   teardown/               the store behind the pinned teardown binary: the pin file,
-                          its installed binaries and the sweep of stale ones
+                          its installed binaries, the sweep of stale ones, and the
+                          verified descriptor `worktree remove` executes
   releasefetch/           the bounded HTTPS fetch of a release for `teardown pin`:
                           URLs, checksums.txt, the cosign policy, archive extraction
   semver/                 a small, strict Semantic Versioning 2.0.0 comparer
@@ -106,6 +107,17 @@ which spawns the built CLI as a process, since which stream a line lands on
 is only a contract if it survives the entry point, and no mock at the
 `run.Runner` seam can prove it. These are excluded from the default
 `go test ./...` and run separately (see "Go" below).
+
+`worktree remove` runs only the pinned teardown binary and refuses without a pin
+(`docs/design/teardown.md`, #146), so every suite that runs it through a built
+binary pins that binary first, in its own scratch root, with `pinWithEnv`
+(`internal/cli/teardown_gate_integration_test.go`). The gate is skipped by
+`cli.Main` and by an `Env` built by hand (its `Executable` and `Exec` are nil), so
+in-process tests need nothing. The frozen `worktree remove` goldens under
+`internal/cli/testdata/output` carry the gate's two lines, with the stored
+binary's name scrubbed to `DIGEST`. `--dev-teardown` is a flag and nothing
+else: `internal/style` fails if a setting, a `treerig.toml` key or an
+environment variable names it.
 
 Every module with security-relevant behaviour — path containment, file
 modes, lock recovery, identity markers — has a dedicated test file. Keep it
@@ -325,8 +337,12 @@ the tap formula rendered into `dist/treerig.rb` from the source archive, and
 alias and when it must be skipped). The job also runs the teardown pin flow:
 `teardown pin --release` against the snapshot with a real cosign (`TestTeardownPinSnapshot`,
 `TestTeardownPinSnapshotTampering`, `TestTeardownPinWithRealCosign` and
-`TestTeardownPinWithRealCosignAndNoTrustRoot`). It uploads the artifacts and the
-formula. To do the same locally:
+`TestTeardownPinWithRealCosignAndNoTrustRoot`). It also pins the snapshot's own
+binary and runs it through `worktree remove`'s gate against an empty directory
+(`TestSnapshotBinaryThroughTheGate`, with the same `TREERIG_SNAPSHOT_DIST` and
+`TREERIG_SNAPSHOT_VERSION`, under `-tags integration`), so the CGO_ENABLED=0,
+trimpath release binary proves the exec through `/proc/self/fd`. It uploads the
+artifacts and the formula. To do the same locally:
 
 ```bash
 go install github.com/goreleaser/goreleaser/v2@v2.18.3   # the version both workflows pin

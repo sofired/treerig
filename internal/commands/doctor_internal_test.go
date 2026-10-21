@@ -1223,7 +1223,7 @@ func TestDoctorSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok treerig root", "ok control home", "ok router state", "ok registrations", "fail unreadable record"}
+		want := []string{"ok treerig root", "ok control home", "ok router state", "ok registrations", "fail unreadable record", "warn teardown pin"}
 		gotStatuses := statuses(sections, "Registry")
 		if len(gotStatuses) != len(want) {
 			t.Fatalf("registry = %v", gotStatuses)
@@ -2481,6 +2481,8 @@ var documentedDoctorIDs = []string{
 	"registry.host-conflict",
 	"registry.index-host",
 	"registry.port-conflict",
+	"registry.teardown-pin",
+	"registry.teardown-store",
 	"locks.none",
 	"locks.scan",
 	"locks.registry",
@@ -2738,14 +2740,14 @@ func TestDoctorEmitsOnlyDocumentedIDs(t *testing.T) {
 	checkReport(t, sections)
 }
 
-// TestDoctorIDsAreTheDocumentedSet reads doctor.go, doctor_ports.go, doctor_router.go and doctor_shared.go for the ids they hand to
+// TestDoctorIDsAreTheDocumentedSet reads doctor.go, doctor_ports.go, doctor_router.go, doctor_shared.go and doctor_teardown.go for the ids they hand to
 // Check literals and to the helpers that take one, and compares that set with
 // documentedDoctorIDs; then checks docs/doctor.md has a table row for each id and
 // lists every hook stage as the instance of checkout.hooks.resolve.
 func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 	fset := token.NewFileSet()
 	var doctorFiles []*ast.File
-	for _, name := range []string{"doctor.go", "doctor_ports.go", "doctor_router.go", "doctor_shared.go", "doctor_hostroutes.go"} {
+	for _, name := range []string{"doctor.go", "doctor_ports.go", "doctor_router.go", "doctor_shared.go", "doctor_hostroutes.go", "doctor_teardown.go"} {
 		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)

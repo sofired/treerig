@@ -1,5 +1,6 @@
 --config	path to treerig.toml (default: nearest above cwd)
 --version	output the version number
+--dev-teardown	remove with this build's own code, not a pinned teardown binary
 --domain	narrow a slug registered under more than one domain
 --help	help for remove
 --label-namespace	supply the Docker label namespace when nothing on disk records it (a worktree of another repository)

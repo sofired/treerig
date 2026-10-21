@@ -255,6 +255,25 @@ func filterDockerCalls(calls []string, substr string) []string {
 	return kept
 }
 
+// environ is the environment every run of this fixture gets.
+func (f outputFixture) environ() []string {
+	return []string{
+		"HOME=" + f.base,
+		// TREERIG_CONTROL_HOME points directly at the control home (#80);
+		// TREERIG_HOME is also set to it, which moves the router's own state
+		// under f.controlHome/router too — readIndexPage below relies on
+		// that.
+		"TREERIG_HOME=" + f.controlHome, "TREERIG_CONTROL_HOME=" + f.controlHome,
+		"PATH=" + f.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+	}
+}
+
+// pinnedDigestPattern matches the name a pinned teardown binary is stored
+// under, which is the sha256 of the build under test and so differs from
+// one build to the next.
+var pinnedDigestPattern = regexp.MustCompile(`(teardown/)[0-9a-f]{64}`)
+
 // runIn executes command in dir — the fixture's own checkout for every case
 // but doctor's "no checkout" one, which needs a directory with no treerig.toml
 // above it; f.base (this fixture's own root, holding only checkout/, bin/,
@@ -268,16 +287,7 @@ func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIn
 	t.Helper()
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Dir = dir
-	cmd.Env = []string{
-		"HOME=" + f.base,
-		// TREERIG_CONTROL_HOME points directly at the control home (#80);
-		// TREERIG_HOME is also set to it, which moves the router's own state
-		// under f.controlHome/router too — readIndexPage below relies on
-		// that.
-		"TREERIG_HOME=" + f.controlHome, "TREERIG_CONTROL_HOME=" + f.controlHome,
-		"PATH=" + f.bin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-	}
+	cmd.Env = f.environ()
 	registrytest.RequireIsolatedRouterState(t, envGetenv(cmd.Env))
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -303,7 +313,7 @@ func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIn
 	run := outputRun{
 		Stdout: jsonToolVersionPattern.ReplaceAllString(
 			toolVersionPattern.ReplaceAllString(scrubFixturePath(normalizeTimestamp(stdout.String()), f.base), "${1}VERSION"), `${1}"VERSION"`),
-		Stderr: scrubFixturePath(normalizeTimestamp(stderr.String()), f.base),
+		Stderr: pinnedDigestPattern.ReplaceAllString(scrubFixturePath(normalizeTimestamp(stderr.String()), f.base), "${1}DIGEST"),
 		Exit:   exit, Docker: calls,
 	}
 	if checkIndexPage {
@@ -549,6 +559,13 @@ func TestOutputGoldens(t *testing.T) {
 			gotFixture := newOutputFixture(t, fixture, tc.decoy)
 			if tc.setup != nil {
 				tc.setup(t, gotFixture)
+			}
+			// `worktree remove` runs only the pinned teardown binary (#146), so
+			// its cases pin the build under test first; the goldens then carry
+			// the gate's two lines, with the pinned binary's stored name
+			// scrubbed.
+			if len(tc.args) >= 2 && tc.args[0] == "worktree" && tc.args[1] == "remove" {
+				pinWithEnv(t, binary, gotFixture.checkout, gotFixture.environ(), "golden-pin")
 			}
 			gotDir := gotFixture.checkout
 			if tc.outsideCheckout {

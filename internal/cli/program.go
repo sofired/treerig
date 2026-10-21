@@ -645,7 +645,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			if err != nil {
 				return err
 			}
-			code, err := commands.Doctor(cmd.Context(), env, commands.OutputOptions{JSON: doctorJSON})
+			code, err := commands.Doctor(cmd.Context(), env, commands.OutputOptions{JSON: doctorJSON, Version: version})
 			if err != nil {
 				return err
 			}
@@ -888,17 +888,21 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 			domain, _ := cmd.Flags().GetString("domain")
 			labelNamespace, _ := cmd.Flags().GetString("label-namespace")
 			yes, _ := cmd.Flags().GetBool("yes")
+			devTeardown, _ := cmd.Flags().GetBool("dev-teardown")
 			return commands.Remove(cmd.Context(), env, commands.RemoveOptions{
 				Identifier:     arg0(args),
 				Domain:         domain,
 				LabelNamespace: labelNamespace,
 				Yes:            yes,
+				DevTeardown:    devTeardown,
+				Version:        version,
 			})
 		},
 	}
 	remove.Flags().String("domain", "", "narrow a slug registered under more than one domain")
 	remove.Flags().String("label-namespace", "", "supply the Docker label namespace when nothing on disk records it (a worktree of another repository)")
 	remove.Flags().Bool("yes", false, "skip the confirmation phrase")
+	remove.Flags().Bool("dev-teardown", false, "remove with this build's own code, not a pinned teardown binary")
 	remove.ValidArgsFunction = identifierCompletionFunc(p, false)
 	_ = remove.RegisterFlagCompletionFunc("domain", domainCompletionFunc(p))
 	worktree.AddCommand(remove)
@@ -968,9 +972,9 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	teardownGroup := &cobra.Command{
 		Use:   "teardown",
 		Short: "pin and check the trusted treerig build for worktree removal",
-		Long: "The pinned teardown binary is the build of treerig that `worktree remove` is meant to run in place of whichever build you invoke, " +
+		Long: "The pinned teardown binary is the build of treerig that `worktree remove` runs in place of whichever build you invoke, " +
 			"so that code from a branch does not run during a removal. These commands install the pin and check it. " +
-			"`worktree remove` does not run the pinned binary yet.",
+			"`worktree remove` refuses without a pin; `worktree remove --dev-teardown` removes with the build you invoke instead.",
 		Args: usageArgs(unknownSubcommand),
 		RunE: bareGroup(p),
 	}
@@ -1016,7 +1020,8 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Use:   "status",
 		Short: "check the teardown pin and its stored binary",
 		Long: "Check the teardown pin on this machine: that it can be read, and that the stored binary for this platform exists and still has the sha256 the pin records. " +
-			"It reports the pin's integrity and nothing about removal. Exit 0 means the pin is intact; no pin, or any problem, is reported on stderr with exit 1. " +
+			"Exit 0 means the pin is intact; no pin, or any problem, is reported on stderr with exit 1, and --json is about the pin's integrity only. " +
+			"The text report ends with a line saying whether `worktree remove` would run the stored binary or refuse, which also takes into account where the control home is and who can write it. " +
 			"With --json, one document on stdout; with no pin, {\"pinned\": false}; empty stdout with exit 1 means the pin could not be read.",
 		Args: maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {

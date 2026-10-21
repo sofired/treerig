@@ -46,11 +46,14 @@ release never includes a pre-release (see
 
 In scope:
 
-- Once the removal gate ships (#146), anything that lets branch code run
-  during `worktree remove` despite a teardown pin
-  ([Teardown pin](docs/teardown-pin.md)). Until then `worktree remove` does
-  not run the pinned binary, that gap is known, and it is not a new report.
-  Reports about the pin commands themselves are welcome now.
+- Anything that lets branch code run during `worktree remove` despite a
+  teardown pin ([Teardown pin](docs/teardown-pin.md)): a way around the gate
+  that makes removal run only the pinned binary, a way to make it run something
+  other than the bytes the pin names (a control home redirected into a checkout,
+  say), or a way to turn `--dev-teardown` on without the flag. `v0.1.0-rc.2` predates the gate and runs whichever binary
+  you invoked, so a report about it is not new; the first release cut after
+  the gate is the one that carries it. Reports about the pin commands
+  themselves are welcome too.
 - Removal of a Docker resource that treerig cannot prove it owns by its
   ownership labels.
 - The router, the index page, a routed service's pinned port, or a shared

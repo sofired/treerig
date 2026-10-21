@@ -5,6 +5,8 @@ Usage:
   treerig worktree remove [identifier] [flags]
 
 Flags:
+      --dev-teardown             remove with this build's own code, not a pinned
+                                 teardown binary
       --domain string            narrow a slug registered under more than one
                                  domain
   -h, --help                     help for remove

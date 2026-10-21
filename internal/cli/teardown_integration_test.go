@@ -102,7 +102,7 @@ func TestTeardownPinAndStatus(t *testing.T) {
 
 	t.Run("with no pin: status says so on stderr and exits 1, and --json prints {pinned: false} first", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
-		want := "[treerig] ERROR: No teardown binary is pinned. Pin one with `treerig teardown pin --release X.Y.Z`.\n"
+		want := "[treerig] ERROR: No teardown binary is pinned. Pin one with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`).\n"
 		text := runTreerig(t, binary, dir, []string{"teardown", "status"}, treerigOptions{})
 		if text.Code != 1 || text.Stdout != "" || text.Stderr != want {
 			t.Fatalf("status = %+v", text)
@@ -160,7 +160,7 @@ func TestTeardownPinAndStatus(t *testing.T) {
 			ptytest.ReadUntil(t, ptmx, "  source    file:"+binary)
 			ptytest.ReadUntil(t, ptmx, "  signer    none (digest supplied by you); no signature was checked")
 			ptytest.ReadUntil(t, ptmx, "sha256 "+digest)
-			ptytest.ReadUntil(t, ptmx, "  `worktree remove` does not run this binary yet.")
+			ptytest.ReadUntil(t, ptmx, "  `worktree remove` will run this binary instead of the build you invoke.")
 			ptytest.ReadUntil(t, ptmx, "Type this exact phrase to continue:")
 			ptytest.ReadUntil(t, ptmx, "> ")
 			if _, err := ptmx.WriteString(tc.answer); err != nil {

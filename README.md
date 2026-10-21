@@ -94,6 +94,12 @@ ln -s treerig "$(dirname "$(command -v treerig)")/trig"
 Release downloads come with checksums and a signature. How to check them is in
 [docs/install.md](docs/install.md#verifying-a-download).
 
+### After installing
+
+Install, pin, then check: `treerig teardown pin --release 0.1.0-rc.2` (once, for a
+build with the removal gate; see step 5 of the quick start), then
+`treerig doctor`, which has a line for the pin.
+
 ## Quick start
 
 Start in the root of a Git repository that has a Compose file.
@@ -151,9 +157,20 @@ the machine.
 **5. Clean up when you're done:**
 
 ```bash
+treerig teardown pin --release 0.1.0-rc.2   # once, if your build has the removal gate
 treerig worktree remove   # asks you to type the hostname, then removes what the worktree created
 cd - && git worktree remove ../myapp.feature-x
 ```
+
+The pin step applies to builds that have the removal gate: `v0.1.0-rc.3` and
+later, or a source build. Those refuse to remove until a pin exists, because
+`worktree remove` runs a treerig build you pinned and verified once, never the
+code of the checkout it is removing. `v0.1.0-rc.2` has no gate and needs no pin.
+Today `treerig teardown pin --release 0.1.0-rc.2` works, and pins a release
+without the gate, which is safe (the bytes are the pinned bytes; see
+[Teardown pin](docs/teardown-pin.md)). `--release` needs cosign 3.0.0 or newer
+on your `PATH`; without cosign, verify a download by hand and pin it with
+`treerig teardown pin --file ./treerig --sha256 <its sha256> --release <a label>`.
 
 `treerig down` stops a worktree and keeps its data; `treerig dev` is `up`
 followed by its logs until Ctrl-C. A hostname that won't resolve, or port 80
@@ -187,7 +204,11 @@ anonymous volumes an image declares, carry no labels and are left alone, so
 keep data you want removed on a named volume
 ([Ownership labels](docs/concepts.md#ownership-labels)). `worktree remove` checks the labels on
 every resource first and refuses the whole removal if one doesn't match. It
-runs the treerig build you invoked; see [Status and roadmap](#status-and-roadmap).
+runs only the pinned build of treerig that you installed and verified with
+`treerig teardown pin`, and refuses without one, so code from a branch does not
+run while it takes the worktree apart ([Teardown pin](docs/teardown-pin.md)).
+`worktree remove --dev-teardown` is the one way to remove with the build you
+invoked, for work on removal itself; it says so on every run.
 
 Locks stop two commands from changing a worktree at once. A lock left by a
 command that died is cleared only after treerig checks that the holder is
@@ -246,16 +267,14 @@ Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
 command. Releases are listed on the
 [releases page](https://github.com/sofired/treerig/releases).
 
+`worktree remove` runs a pinned, verified build (#146). That gate is in `main`
+and ships in the first release cut after it (expected `v0.1.0-rc.3`);
+`v0.1.0-rc.2` predates it and runs whichever treerig binary you invoked, a
+branch's own build included.
+
 Not built yet:
 
-1. **`worktree remove` runs a pinned, verified build** (#146). Until this
-   lands, `worktree remove` runs whichever treerig binary you invoked, a
-   branch's own build included, and that holds for `v0.1.0-rc.2` too. Removal
-   is meant to run a treerig build you verified once instead. The commands that
-   install and check that build exist ([Teardown pin](docs/teardown-pin.md));
-   the gate that makes removal use it does not. It is meant to ship in the
-   first release cut after it lands (expected `v0.1.0-rc.3`).
-2. **Migrating stored state between releases** (#29). Every store treerig
+1. **Migrating stored state between releases** (#29). Every store treerig
    reads back carries a format version, and a build refuses a newer one; no
    migration code exists yet.
 

@@ -14,11 +14,14 @@ import (
 
 // TestWorktreeRemoveRelocatesToAStandaloneBinary proves #7 through the real
 // binary — never cli.Main in-process, which must never exec (see
-// internal/cli's TestEnvBuilderRelocationWiring): `worktree remove`
-// installs a content-addressed copy of the invoked binary under
-// <TREERIG_HOME>/control-home/bin (#80's treerig-root/control-home split),
-// outside the checkout, before doing anything else, and hands the removal
-// to that copy.
+// internal/cli's TestEnvBuilderRelocationWiring): `worktree remove
+// --dev-teardown`, the one way to remove with the invoked build's own code
+// since the teardown gate (#146), installs a content-addressed copy of the
+// invoked binary under <TREERIG_HOME>/control-home/bin (#80's
+// treerig-root/control-home split), outside the checkout, before doing
+// anything else, and hands the removal to that copy. Without the flag the
+// gate runs the pinned build instead and never copies the invoked one
+// (teardown_gate_integration_test.go).
 //
 // No registered worktree is needed to prove this: relocation runs before
 // Context even loads a config, so the simplest failing case — an empty
@@ -47,7 +50,7 @@ func TestWorktreeRemoveRelocatesToAStandaloneBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(binary, "worktree", "remove", "--yes")
+	cmd := exec.Command(binary, "worktree", "remove", "--yes", "--dev-teardown")
 	cmd.Dir = checkout
 	cmd.Env = append(os.Environ(), "HOME="+home, "TREERIG_HOME="+treerigHome)
 	var stdout, stderr strings.Builder

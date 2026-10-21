@@ -1,1 +1,1 @@
-[treerig] ERROR: No teardown binary is pinned. Pin one with `treerig teardown pin --release X.Y.Z`.
+[treerig] ERROR: No teardown binary is pinned. Pin one with `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`).

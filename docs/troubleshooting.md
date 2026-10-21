@@ -14,6 +14,7 @@ Jump to:
 - [A route is stale](#a-route-is-stale)
 - [A lock is held](#a-lock-is-held)
 - [Refusing to use state from a newer treerig](#refusing-to-use-state-from-a-newer-treerig)
+- [`worktree remove` refuses without a teardown pin](#worktree-remove-refuses-without-a-teardown-pin)
 - [`worktree remove` cannot delete a directory](#worktree-remove-cannot-delete-a-directory)
 - [`doctor` reports a failure](#doctor-reports-a-failure)
 - [Rootless or remote Docker is refused](#rootless-or-remote-docker-is-refused)
@@ -130,6 +131,40 @@ The same sentence follows `Refusing to touch the container …` and similar open
 **Fix:** upgrade the treerig you are running, or run the newer one. Do not delete the state to get past the message. See [Stored-state format](settings.md#stored-state-format).
 
 **Why:** something on this machine, a stored file or a Docker resource, was written by a newer treerig than the one you ran, perhaps from another checkout or a different install. This build does not read, repair, rewrite or delete it.
+
+## `worktree remove` refuses without a teardown pin
+
+`worktree remove` stops before it touches anything. From a release build:
+
+```text
+[treerig] ERROR: Refusing to remove this worktree: no pinned teardown binary exists, and this build is not one. Run `treerig teardown pin --release 0.1.0-rc.3`. To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
+```
+
+From a development or source build, which has no release to name:
+
+```text
+[treerig] ERROR: Refusing to remove this worktree: no pinned teardown binary exists, and this is a development build (0.0.0-dev), which no release matches.
+  Pin a published release: `treerig teardown pin --release <a published version, such as 0.1.0-rc.2>`
+  or a treerig you trust: `treerig teardown pin --file <a treerig you trust> --sha256 <its sha256> --release <a label>`
+  (`treerig teardown pin --help` explains both). To remove with this build's own code while you work on removal itself, add `--dev-teardown`. Nothing was removed.
+```
+
+**Fix:** pin a treerig build once, then run the removal again.
+
+1. With cosign 3.0.0 or newer on your `PATH`: `treerig teardown pin --release 0.1.0-rc.2`. A release without the gate is safe to pin.
+2. Without cosign: verify a download by hand ([Verifying a download](install.md#verifying-a-download)), then `treerig teardown pin --file ./treerig --sha256 "$(sha256sum treerig | cut -d' ' -f1)" --release my-build`.
+
+`treerig teardown status` says whether the pin is intact and whether removal will run it; `treerig doctor` has a line for it. See [Teardown pin](teardown-pin.md).
+
+The same opening, with another reason, covers:
+
+- a stored binary that is missing or has other bytes: pin it again with the command the message gives;
+- a pin with no binary for this platform: pin one for this machine;
+- a control home inside a git work tree, or a pin store you do not own or that others can write: the message names the path; move `TREERIG_HOME` (or `TREERIG_CONTROL_HOME`, if you set it) to a directory that is not inside a git work tree, and fix the owner and mode, delete `<control home>/teardown/` and pin again, or move the control home to a local filesystem (`sudo treerig worktree remove` also refuses: run it as yourself);
+- `could not run the pinned teardown binary … (permission denied)`: the control home is probably on a `noexec` filesystem; remount it with `exec`, or move it with `TREERIG_CONTROL_HOME`;
+- `… (no such file or directory)` on Linux, with a note that `/proc` is not available: mount `/proc`, or run treerig where `/proc` is available.
+
+**Why:** removal runs only a build you verified once, never the code of the checkout it is removing. `--dev-teardown` removes with the build you invoked, for work on removal itself, and warns on every run.
 
 ## `worktree remove` cannot delete a directory
 

@@ -173,8 +173,15 @@ func wantRefusal(t *testing.T, err error, message string) {
 	}
 }
 
-// pinCommand is the command the refusals name.
-const pinCommand = "`treerig teardown pin --release X.Y.Z`"
+// pinAgain is the command that pins f's file pin again: the file, the digest it
+// recorded and its label.
+func (f *teardownFixture) pinAgain() string {
+	return "`treerig teardown pin --file " + f.file + " --sha256 " + f.digest + " --release my-build`"
+}
+
+// pinCommand is the generic command the messages name for a development build,
+// which has no release version to put in it.
+const pinCommand = "`treerig teardown pin --release <a published version, such as 0.1.0-rc.2>` (or `--file`; see `treerig teardown pin --help`)"
 
 func TestTeardownPinFile(t *testing.T) {
 	t.Run("pins a local binary: stores the same bytes under their hash and writes a file pin for this platform", func(t *testing.T) {
@@ -481,7 +488,7 @@ func TestTeardownPinConfirmation(t *testing.T) {
 			"  source    file:" + f.file + "\n" +
 			"  signer    none (digest supplied by you); no signature was checked\n" +
 			"  platform  linux_amd64  sha256 " + f.digest + "\n" +
-			"  `worktree remove` does not run this binary yet.\n\n" +
+			"  `worktree remove` will run this binary instead of the build you invoke.\n\n" +
 			"Type this exact phrase to continue:\n\n  pin teardown binary\n\n> "
 		if f.stderr.String() != want {
 			t.Fatalf("stderr =\n%s\nwant\n%s", f.stderr.String(), want)
@@ -575,7 +582,8 @@ func TestTeardownStatus(t *testing.T) {
 			"  source  file:" + f.file + "\n" +
 			"  signer  none (digest supplied by you)\n" +
 			"  binary  " + f.stored(f.digest) + " sha256 " + f.digest + " ok\n" +
-			"  pinned  2026-10-14T12:00:00Z"
+			"  pinned  2026-10-14T12:00:00Z\n" +
+			"worktree remove: will run this binary"
 		if f.printed() != want {
 			t.Fatalf("stdout =\n%s\nwant\n%s", f.printed(), want)
 		}
@@ -596,7 +604,8 @@ func TestTeardownStatus(t *testing.T) {
 			"  signer       https://github.com/sofired/treerig/.github/workflows/release.yml@refs/tags/v1.2.3\n" +
 			"  binary       " + f.stored(digest) + " sha256 " + digest + " ok\n" +
 			"  pinned       2026-10-14T12:00:00Z\n" +
-			"  attestation  not checked"
+			"  attestation  not checked\n" +
+			"worktree remove: will run this binary"
 		if f.printed() != want {
 			t.Fatalf("stdout =\n%s\nwant\n%s", f.printed(), want)
 		}
@@ -677,7 +686,7 @@ func TestTeardownStatus(t *testing.T) {
 		}
 		f.log.Lines, f.log.Printed = nil, nil
 		err := f.status(false, "0.0.0-dev")
-		wantRefusal(t, err, "The pinned teardown binary "+f.stored(f.digest)+" is missing. Pin it again with "+pinCommand+".")
+		wantRefusal(t, err, "The pinned teardown binary "+f.stored(f.digest)+" is missing. Pin it again with "+f.pinAgain()+".")
 		if want := "  binary  " + f.stored(f.digest) + " missing\n"; !strings.Contains(f.printed()+"\n", want) {
 			t.Fatalf("stdout = %q, want a line %q", f.printed(), want)
 		}
@@ -694,7 +703,7 @@ func TestTeardownStatus(t *testing.T) {
 		found := binstore.Hash([]byte("tampered"))
 		f.log.Lines, f.log.Printed = nil, nil
 		err := f.status(false, "0.0.0-dev")
-		wantRefusal(t, err, "The pinned teardown binary "+f.stored(f.digest)+" has sha256 "+found+", not the pinned "+f.digest+". Pin it again with "+pinCommand+".")
+		wantRefusal(t, err, "The pinned teardown binary "+f.stored(f.digest)+" has sha256 "+found+", not the pinned "+f.digest+". Pin it again with "+f.pinAgain()+".")
 		if want := "  binary  " + f.stored(f.digest) + " sha256 " + found + ", pinned " + f.digest; !strings.Contains(f.printed(), want) {
 			t.Fatalf("stdout = %q, want a line %q", f.printed(), want)
 		}
@@ -716,7 +725,7 @@ func TestTeardownStatus(t *testing.T) {
 		if err := os.Symlink(f.file, f.stored(f.digest)); err != nil {
 			t.Fatal(err)
 		}
-		wantRefusal(t, f.status(false, "0.0.0-dev"), "The pinned teardown binary "+f.stored(f.digest)+" is not a regular file. Pin it again with "+pinCommand+".")
+		wantRefusal(t, f.status(false, "0.0.0-dev"), "The pinned teardown binary "+f.stored(f.digest)+" is not a regular file. Pin it again with "+f.pinAgain()+".")
 	})
 
 	t.Run("reports a platform the pin has no binary for", func(t *testing.T) {
@@ -726,7 +735,7 @@ func TestTeardownStatus(t *testing.T) {
 		}
 		f.env.Arch = "arm64"
 		f.log.Lines, f.log.Printed = nil, nil
-		wantRefusal(t, f.status(false, "0.0.0-dev"), "The teardown pin has no binary for linux_arm64. Pin one on this machine with "+pinCommand+".")
+		wantRefusal(t, f.status(false, "0.0.0-dev"), "The teardown pin has no binary for linux_arm64. Pin one for this machine with "+pinCommand+".")
 		if !strings.Contains(f.printed(), "  binary  none\n") && !strings.HasSuffix(strings.Split(f.printed(), "\n")[3], "none") {
 			t.Fatalf("stdout = %q", f.printed())
 		}
@@ -776,7 +785,7 @@ func TestTeardownStatus(t *testing.T) {
 		if err := f.status(false, "1.3.0"); err != nil {
 			t.Fatal(err)
 		}
-		want := "info: The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with " + pinCommand + " to update it."
+		want := "info: The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --release 1.3.0` to update it."
 		if f.logged() != want {
 			t.Fatalf("stderr = %q\nwant     %q", f.logged(), want)
 		}

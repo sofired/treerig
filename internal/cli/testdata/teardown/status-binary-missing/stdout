@@ -3,3 +3,4 @@ Teardown pin: release my-build (PLATFORM)
   signer  none (digest supplied by you)
   binary  BASE/treerig-home/control-home/teardown/DIGEST missing
   pinned  TIMESTAMP
+worktree remove: would refuse
