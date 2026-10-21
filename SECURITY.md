@@ -47,7 +47,7 @@ release never includes a pre-release (see
 In scope:
 
 - Anything that lets branch code run during `worktree remove` despite the
-  teardown gate ([Teardown pin](docs/teardown-pin.md)). The gate protects
+  teardown check ([Teardown pin](docs/teardown-pin.md)). The check protects
   development builds, which refuse to remove without a pinned, verified teardown
   binary, and anyone who pins, whose pin every build then uses. A way around it
   counts: a way to make removal run something other than the bytes the pin names
@@ -59,7 +59,7 @@ In scope:
   environment a branch controls (direnv, mise, a devcontainer), or by a build
   wrapper, is trusted as a release when no pin exists; treerig does not defend
   against that, and the mitigation is to pin, because a usable pin overrides it for
-  every build. `v0.1.0-rc.2` predates the gate
+  every build. `v0.1.0-rc.2` predates the check
   and removes with itself, so a report about it is not new. Reports about the pin
   commands themselves are welcome too.
 - Removal of a Docker resource that treerig cannot prove it owns by its

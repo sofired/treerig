@@ -29,9 +29,9 @@ the document.
 `up`, `dev`, `down`, `backup`, `restore`, `router down` and `worktree remove`
 are the exception: they pass your hooks' and Compose's own stdout through as
 those programs wrote it, and `up` adds its URL table there. `worktree remove`
-prints the two lines of its teardown gate when a pin is used (the pinned binary it
-runs, and the pinned binary saying it ran), and any refusal of the gate, on stderr,
-never on stdout. `dev` is `up` and then the followed logs, which keep their streams: a
+prints two lines naming the pinned binary when a pin is used (the one it runs,
+and the pinned binary saying it ran), and any refusal of the teardown check, on
+stderr, never on stdout. `dev` is `up` and then the followed logs, which keep their streams: a
 container's stdout on treerig's stdout, its stderr on treerig's stderr, and one
 notice on stderr when following starts. `backup` and `restore` write their own closing line, and any
 warning, to stderr, so a script that needs a bundle's path passes it a

@@ -38,13 +38,12 @@ func IsRelease(s string) bool {
 }
 
 // gitDescribeTail is what `git describe --tags` appends to a tag for a commit
-// past it, "-<commits>-g<abbreviated hash>", with the "-dirty" or "-broken" that
-// --dirty and --broken add after it.
-var gitDescribeTail = regexp.MustCompile(`-[0-9]+-g[0-9a-f]{7,}(-dirty|-broken)?$`)
+// past it: "-<commits>-g<abbreviated hash>". The "-dirty" or "-broken" that
+// --dirty and --broken add after it is caught by gitDescribeMark.
+var gitDescribeTail = regexp.MustCompile(`-[0-9]+-g[0-9a-f]{7,}$`)
 
-// gitDescribeMark is a bare "-dirty" or "-broken" suffix, which `git describe
-// --dirty` puts on a tag that is itself checked out with local changes
-// (`0.1.0-dirty`).
+// gitDescribeMark is a "-dirty" or "-broken" suffix, bare (`0.1.0-dirty`, a tag
+// checked out with local changes) or after the tail above.
 var gitDescribeMark = regexp.MustCompile(`-(dirty|broken)$`)
 
 // IsPublishedRelease reports whether s is the version of a build that was cut

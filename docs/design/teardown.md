@@ -35,7 +35,7 @@ Until then a pin made from `rc.2` is a pinned child without the gate (see
 | 7 | `teardown status` and the removal refusal hint at the pin command when the running build is newer than the pin. Nothing updates the pin on its own. |
 | 8 | There is one pin per control home. |
 | 9 | `--yes` is allowed on `teardown pin`. |
-| 10 | The gate fails closed for development builds and for anyone who pinned, not for everyone. A usable pin wins for every build; with no pin, a release build (`semver.IsPublishedRelease`) removes with itself, relocated through `bin/` as before the gate, and a development build refuses unless `--dev-teardown`. This reverses the first design ("fail closed for everyone", which made every user pin, in practice by installing cosign 3 or typing a `--file`/`--sha256` command, before their first removal). The reason is usability with the risk where it is: a release is already the code the user chose to trust (they installed it, from a signed release or a package they chose), and branch code runs in development builds, so the gate that stops it needs to stand there. The accepted limit: a version stamped by any means other than a release tag reads as a release and, with no pin, removes with itself: stamped by hand (`-X …/brand.Version=1.2.3`), by `-ldflags` or `GOFLAGS` from an environment a branch controls (direnv, mise, a devcontainer), or by a build wrapper. This is consistent with decision 5, since a hostile process of the same user could equally replace the binary; the consequence is that the build is trusted as a release, and the mitigation is to pin, because a usable pin overrides it for every build. Nothing in this repository stamps a release-looking version on a non-release build (GoReleaser takes the tag's, a snapshot stamps `0.0.0-dev+<sha>`, Homebrew stamps the tag's, a plain build keeps `0.0.0-dev`), and the rule additionally rejects `+build` metadata, `0.0.0` in any form and `git describe`'s `-N-g<hash>` tail. |
+| 10 | The gate fails closed for development builds and for anyone who pinned, not for everyone. A usable pin wins for every build; with no pin, a release build (`semver.IsPublishedRelease`) removes with itself, relocated through `bin/` as before the gate, and a development build refuses unless `--dev-teardown`. This reverses the first design ("fail closed for everyone", which made every user pin, in practice by installing cosign 3 or typing a `--file`/`--sha256` command, before their first removal). The reason is usability with the risk where it is: a release is already the code the user chose to trust (they installed it, from a signed release or a package they chose), and branch code runs in development builds, so the gate that stops it needs to stand there. The accepted limit: a version stamped by any means other than a release tag reads as a release and, with no pin, removes with itself: stamped by hand (`-X …/brand.Version=1.2.3`), by `-ldflags` or `GOFLAGS` from an environment a branch controls (direnv, mise, a devcontainer), or by a build wrapper. This is consistent with decision 5, since a hostile process of the same user could equally replace the binary; the consequence is that the build is trusted as a release, and the mitigation is to pin, because a usable pin overrides it for every build. Nothing in this repository stamps a release-looking version on a non-release build (GoReleaser takes the tag's, a snapshot stamps `0.0.0-dev+<sha>`, Homebrew stamps the tag's, a plain build keeps `0.0.0-dev`), and the rule additionally rejects `+build` metadata, `0.0.0` in any form and `git describe`'s `-N-g<hash>` tail (with or without `-dirty`/`-broken`, or a bare one). |
 
 **The pin command**, in every message below, is `treerig teardown pin --latest`,
 or `treerig teardown pin --release X.Y.Z` while the repository has only
@@ -637,7 +637,8 @@ git work tree (`location`) or a store that is not private to the user
 A release build is decided by one function, `semver.IsPublishedRelease`: a release
 version (the strict pattern of "Sources", pre-release suffixes such as `-rc.2`
 included), with no `+build` metadata, not `0.0.0` in any form, and not ending in
-the `-N-g<hash>` that `git describe` appends. Everything else is a development
+the `-N-g<hash>` that `git describe` appends (with or without `-dirty` or
+`-broken`, or a bare `-dirty`/`-broken`). Everything else is a development
 build. Release builds take their version from the tag (GoReleaser's
 `-X …/brand.Version={{ .Version }}`, Homebrew's `#{version}`); a snapshot stamps
 `0.0.0-dev+<sha12>` and a plain build keeps `0.0.0-dev`. `docs/install.md` tells
@@ -1092,11 +1093,13 @@ owner of the user's control home. Run it as yourself. (A release build with no p
 needs no pin store, so it does not meet this.)
 
 **The usability rework** (decision 10) changed these strings and expectations
-again: the development-build refusal is now a rule ("this is a development build
-(…), and a development build removes only with a pinned teardown binary, which none
-is yet (a release build needs no pin)") and no release build meets it; `status`
-gains the `will run this build (a release; no pin needed)` closing line and exits 0
-for a release with no pin; `doctor` shows `registry.teardown-pin` as ok, "not
+again: the development-build refusal is now a rule, worded as in the Refusal block
+above ("this is a development build (…), which may carry a branch's code, and no
+teardown binary is pinned. A development build removes only with a pinned one (a
+release build needs none)."), and no release build meets it; `status` gains the
+`will run this build (a release; no pin needed)` closing line, and its exit rule is
+now that exit 0 means removal would run, so a release with no pin exits 0 and an
+intact pin whose store the gate would refuse exits 1; `doctor` shows `registry.teardown-pin` as ok, "not
 needed", for a release with no pin; and the end-user docs (README, getting started,
 `docs/troubleshooting.md`, `docs/worktrees.md`, `docs/output-and-exit-codes.md`,
 `docs/doctor.md`, `SECURITY.md`) drop the pin step for people who run releases.

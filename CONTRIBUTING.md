@@ -287,7 +287,10 @@ reports `0.0.0-dev`, so the first tag can be `v0.1.0`:
 1. `main` is green and holds what you mean to ship.
 2. Tag the commit and push the tag: `git tag vMAJOR.MINOR.PATCH && git push
    origin vMAJOR.MINOR.PATCH`. The tag is the version (`v1.2.3` reports
-   `1.2.3`); it must be a semantic version. A tag with a pre-release suffix
+   `1.2.3`); it must be a strict semantic version that treerig reads as a release
+   (no leading zeros, no `+build`, not `0.0.0`, no `git describe` tail), which
+   `.github/scripts/validate-tag.sh` checks and `internal/semver`'s tests hold to
+   `IsPublishedRelease`. A tag with a pre-release suffix
    (`v1.2.3-rc.1`) publishes a GitHub pre-release, which is never "latest", and
    does not touch Homebrew. Release notes list the commits since the previous
    tag, so after an rc they cover only what changed since the rc; and the first

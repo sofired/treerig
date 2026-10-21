@@ -30,7 +30,8 @@ Rules that hold for every document:
 
 **`teardown status --json`** is described under [Teardown pin](teardown-pin.md); every
 document has `removal` (`"pin"`, `"this-build"` or `"refuse"`), what
-`worktree remove` would do, and the exit code is 0 exactly when it is not `"refuse"`. When
+`worktree remove` would do, and the exit code is 0 exactly when it is not `"refuse"`. `ok` says only that
+the stored binary matches the pin; `removal` is the answer to rely on. When
 it prints nothing at all and exits 1, the pin could not be read (it is of a
 newer format, or not one treerig wrote): stdout is empty and stderr says why.
 

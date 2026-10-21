@@ -144,10 +144,10 @@ func TestHTTPGet(t *testing.T) {
 		var once sync.Once
 		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			once.Do(func() { close(entered) })
-			select {
-			case <-release:
-			case <-req.Context().Done():
-			}
+			// Waits only for the test to end. Returning when the request's context
+			// ends would send an empty 200 that could beat the client's own
+			// cancellation; `defer close(release)` runs before server.Close.
+			<-release
 		}))
 		defer server.Close()
 		defer close(release)

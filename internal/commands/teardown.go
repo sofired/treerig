@@ -417,7 +417,7 @@ type TeardownStatusReport struct {
 // checkout, private to you, on a filesystem that can run programs), or there
 // is no pin and this is a release build, which needs none. Anything else is
 // reported on stderr, with exit 1: a development build with no pin, a pin that
-// cannot be used, a store the gate would refuse (each of those as a warning
+// cannot be used, or a store the gate would refuse (that last one with a warning
 // first). Stdout carries the report, or with --json one document that always
 // has "removal".
 func TeardownStatus(ctx context.Context, env *Env, options TeardownStatusOptions) error {

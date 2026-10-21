@@ -134,7 +134,7 @@ func TestTeardownGate(t *testing.T) {
 
 	t.Run("with no pin, a development build refuses and names itself, whatever its version looks like", func(t *testing.T) {
 		f := newGateFixture(t)
-		for _, version := range []string{"0.0.0-dev", "0.0.0-dev+abc123def456", "garbage", "1.2.3+metadata", "0.1.0-rc.2-5-gabc1234", "0.0.0-rc.1"} {
+		for _, version := range []string{"0.0.0-dev", "0.0.0-dev+abc123def456", "garbage", "1.2.3+metadata", "0.1.0-rc.2-5-gabc1234", "0.1.0-rc.2-5-gabc1234-dirty", "0.1.0-dirty", "0.0.0-rc.1"} {
 			err := f.remove(commands.RemoveOptions{Yes: true, Version: version})
 			if err == nil || !strings.Contains(err.Error(), "this is a development build ("+version+")") || !strings.Contains(err.Error(), "`treerig teardown pin --help` explains both") {
 				t.Fatalf("version %q: err = %v", version, err)
@@ -679,8 +679,8 @@ func TestDevTeardown(t *testing.T) {
 			f.env.Args = []string{"trig", "worktree", "remove", "--dev-teardown", "--yes"}
 			f.execErr = nil
 			// The fake exec returns nil, so the relocation "succeeds" and the removal goes on.
-			if err := f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true, Version: "0.1.0-rc.3"}); err != nil && !strings.Contains(err.Error(), "No treerig.toml") {
-				t.Fatalf("pinned=%v: err = %v", pinned, err)
+			if err := f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true, Version: "0.1.0-rc.3"}); err == nil || !strings.Contains(err.Error(), "No treerig.toml") {
+				t.Fatalf("pinned=%v: err = %v, want the removal to go on to the missing treerig.toml", pinned, err)
 			}
 			hash, _ := binstore.HashFile(f.running)
 			if !strings.HasPrefix(f.logged(), "warn: Removing with this build's own code (version 0.1.0-rc.3, sha256 "+hash+")") {

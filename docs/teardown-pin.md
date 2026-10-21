@@ -143,12 +143,13 @@ whether the stored binary for this platform exists and has the sha256 the pin
 records. It prints the pin on stdout and exits 0 when all is well. The report
 ends with a line that says what removal would do:
 
-- `worktree remove: will run this binary`, with an intact pin;
-- `worktree remove: would refuse`, for a pin that is broken, and for a
-  development build with no pin; it adds `(see the warning below)` when the
-  reason is one of the warnings the command prints on stderr (a control home
-  inside a git work tree, a pin store others can write, a `noexec` mount; they
-  appear with `--json` too);
+- `worktree remove: will run this binary`, for an intact pin whose store is
+  acceptable;
+- `worktree remove: would refuse`, for a broken pin and for a development build
+  with no pin; it adds `(see the warning below)` for an intact pin whose store is
+  refused, for one of the reasons the command prints as warnings on stderr (a
+  control home inside a git work tree, a pin store others can write, a `noexec`
+  mount; they appear with `--json` too);
 - `worktree remove: will run this build (a release; no pin needed)`, for a
   release build with no pin.
 
@@ -167,7 +168,8 @@ and `running` (`version`, `isPin`: this build is the pinned binary, and
 `newerThanPin`). **`removal`** is what `worktree remove` would do and is present
 in every case: `"pin"` (run the stored binary), `"this-build"` (no pin, a release
 build) or `"refuse"`; the exit code is 0 exactly when it is `"pin"` or
-`"this-build"`. `mismatch` also covers a stored binary that cannot be read or is
+`"this-build"`. `ok` says only that the stored binary matches the pin;
+`removal` is the answer to rely on. `mismatch` also covers a stored binary that cannot be read or is
 not a regular file; the text form says which. With no pin it prints
 `{"pinned": false, "removal": …}`. When the running build is newer than the pinned
 release, the text form adds a line on stderr saying to pin again.

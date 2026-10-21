@@ -177,7 +177,7 @@ jobs:
       - uses: ./.github/actions/setup-go
 
       - name: ShellCheck
-        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh .github/scripts/commands-shards.sh
+        run: shellcheck -s sh install.sh packaging/completions.sh packaging/verify-snapshot.sh .github/scripts/commands-shards.sh .github/scripts/validate-tag.sh
 
       # Installed once and put on PATH, so the reproducibility step below can
       # run it again; the action alone leaves no goreleaser on PATH.
