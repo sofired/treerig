@@ -363,6 +363,11 @@ TREERIG_REQUIRE_COSIGN=1 \
 TREERIG_SNAPSHOT_DIST="$PWD/dist" \
 TREERIG_SNAPSHOT_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)" \
   go test -race -count=1 -run '^(TestTeardownPinSnapshot|TestTeardownPinSnapshotTampering|TestTeardownPinWithRealCosign|TestTeardownPinWithRealCosignAndNoTrustRoot)$' ./internal/commands/
+
+# The snapshot binary through worktree remove's gate; no cosign needed.
+TREERIG_SNAPSHOT_DIST="$PWD/dist" \
+TREERIG_SNAPSHOT_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json)" \
+  go test -race -count=1 -tags integration -run '^TestSnapshotBinaryThroughTheGate$' ./internal/cli/
 ```
 
 `--skip=sign` is needed because signing wants the release job's OIDC token.
