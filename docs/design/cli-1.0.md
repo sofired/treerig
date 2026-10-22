@@ -122,8 +122,11 @@ output this design rewrites anyway, so the order is:
 - Once the redesign has landed, one pull request removes what is left
   (identifiers, comments, test names, docs), before 1.0, while no other pull
   request is in flight. It adds a test in `internal/style` that fails on the
-  word anywhere in the repository except Git's own commands (`git checkout`,
-  `actions/checkout`), so it can't come back.
+  word anywhere in the repository, so it can't come back. Its allow-list is
+  explicit and short: Git's own commands (`git checkout`, `actions/checkout`);
+  design notes under `docs/design/`, which keep their history; release notes;
+  the sentences in CONTRIBUTING.md and AGENTS.md that state this rule; and the
+  test's own file.
 
 No storage name or JSON key uses the word, so none of this needs a migration. The page at
 `http://treerig.localhost` is *the overview*. *Control home*, *registration*,
@@ -148,7 +151,7 @@ requests that change each behaviour.
 | `rename <new-slug>` | Change this worktree's name and URL, and restart it if it runs | `worktree rename` | 10 |
 | `run <name> [-- args]` | Run a command declared in `treerig.toml` | `run` | |
 | `backup [dir]`, `restore <dir>` | Run the backup or restore hook | same | 10 |
-| `route add\|list\|remove` | Route a process on your machine through a worktree URL | `route add\|ls\|rm` | 2 |
+| `route add\|list\|remove` | Route a process on your machine through a worktree URL | `route add\|ls\|rm` | 10 |
 | `doctor [--json]` | Does this machine and this worktree work, and if not, why | `doctor`, `router status` | 1, 2 |
 | `shared up\|down\|status` | Shared services | same | |
 | `router down` | Stop the shared router, to free its port | `router down` | |
@@ -168,8 +171,9 @@ list` and `teardown status`.
   scripts read `status --json`.
 - **`index`** goes into `list --all` (text and JSON, including the shared
   services' web UIs and the Docker error fields `index --json` carries today).
-  The overview page at `http://treerig.localhost` stays; `up`, `down` and `remove` keep
-  refreshing it, `doctor` reports a stale page, and `list --all --refresh`
+  The overview page at `http://treerig.localhost` stays; `up`, `down`,
+  `remove` and `rename` keep refreshing it, `doctor` reports a stale page, and
+  `list --all --refresh`
   rebuilds it.
 - **`worktree list|remove|rename|unlock`** become `list`, `remove`, `rename` and
   `unlock`. `unlock` is not a worktree verb: it also clears the registry's, the
@@ -262,8 +266,8 @@ Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
 - **A UUID** (the 36-character form) names that worktree. Every recovery command
   treerig prints uses it.
 - **A host** names the registered worktree with exactly that host.
-- **A path** is an argument written as one: it starts with `/`, `./`, `../` or
-  `~`. It resolves (after `EvalSymlinks`) to the worktree whose recorded root is
+- **A path** is an argument written as one: it is `.` or `..`, or it starts
+  with `/`, `./`, `../` or `~`. It resolves (after `EvalSymlinks`) to the worktree whose recorded root is
   its longest prefix, so a directory nested in another resolves to the inner
   one. A path inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form.
@@ -291,7 +295,7 @@ A worktree is in exactly one of these:
 
 | Text | JSON | Meaning |
 |---|---|---|
-| `running` | `running` | Every service is running (and healthy, where it has a health check) |
+| `running` | `running` | At least one service runs, and every service that hasn't exited cleanly is running (and healthy, where it has a health check) |
 | `starting` | `starting` | A container is being created, or a health check hasn't passed yet |
 | `partly running` | `partly_running` | Some services run; at least one has exited with an error, is restarting or is unhealthy |
 | `failed` | `failed` | No service runs, and at least one exited with an error, is restarting or is unhealthy |
@@ -304,7 +308,12 @@ A worktree is in exactly one of these:
 The first that applies wins: `removing`, `directory missing`, `unknown`,
 `starting`, `failed`, `partly running`, `running`, `stopped`, `not started`.
 Containers decide over history, so a first `up` that fails with one service
-running is `partly running`, and one whose only service crashed is `failed`.
+running is `partly running`, and one whose only service crashed is `failed`. A
+service that exited with code 0, such as a one-shot `migrate` or `seed`, has
+done its job: it counts as neither running nor failed, so `web` running beside
+a finished `migrate` is `running`, and a worktree whose services all exited
+cleanly is `stopped`. Every combination of service states maps to exactly one
+worktree state, which the mapping test enumerates.
 Whether an `up` has ever finished is what the registration records today as
 `ready` against `pending`; `down` removes containers, so `stopped` can't depend
 on them existing.
@@ -327,8 +336,10 @@ with a short budget.
   change, made as [state.md](state.md) says. A removal by a 0.1.x pin writes
   none, so an interrupted one shows `not started` or `stopped`.
 - **`directory missing` needs positive evidence**: Git ran against a reachable
-  repository and lists the entry as prunable and not locked, and the directory's
-  parent exists, is not empty, and is not a mount point or below one
+  repository and lists the entry as prunable and not locked; the directory
+  itself doesn't exist (Git also reports an existing directory as prunable when
+  its administrative files are gone, and that one is `unknown`, not missing, as
+  is a path that can't be checked); and the directory's parent exists, is not empty, and is not a mount point or below one
   that the mount table (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
   doesn't list as mounted. An unmounted volume's mount point is an ordinary
   empty directory, so emptiness is the signal. Otherwise the state
@@ -337,8 +348,8 @@ with a short budget.
   deleted one; `remove --gone` shows each path so the user can run `git
   worktree repair` first.
 - Every text word maps to one JSON value, pinned by one test.
-- The index page shows when it was generated, since it is refreshed only by
-  `up`, `down`, `remove` and `list --all --refresh`.
+- The overview page shows when it was generated, since it is refreshed only by
+  `up`, `down`, `remove`, `rename` and `list --all --refresh`.
 
 `ready`, `pending`, `absent`, `Partial` and `[Running]` go. `docs/commands.md`
 already says none of the three vocabularies was frozen before 1.0.
@@ -625,7 +636,8 @@ $ treerig doctor
   doesn't answer, every check that needs it is `skip` ("not checked: Docker
   isn't answering"), and the first Docker timeout short-circuits the rest. In
   text, a symptom is listed under its cause; in `--json` every check stays,
-  with new `causedBy` and `fix` fields. Check IDs don't change.
+  with new `causedBy` and `fix` fields. Check IDs don't change, except that
+  `checkout.*` become `worktree.*` (see [Words](#words)).
 - **Locks.** A runtime check on a worktree whose operation lock is held (an
   `up` in progress) is `skip`.
 - **Pin.** A pin that fails or warns (`registry.teardown-pin`) is a problem in
@@ -699,7 +711,9 @@ as today.
 **`teardown run` is never a way around the gate.** Run directly, it enforces
 the same gate as `remove` and proceeds only as the pinned binary, the relocated
 `--dev-teardown` copy, or a release build with no pin; the same holds for
-`--gone`. A test beside `TestTeardownGate` covers it.
+`--gone`. It applies `remove`'s rules to its own arguments too, so `teardown
+run --gone --all` refuses `--yes` however it is invoked. Tests beside
+`TestTeardownGate` cover both.
 
 **Older pins.** Before the exec the gate asks the pinned binary which contract
 it speaks: it runs the stored binary, through the same verified descriptor as
@@ -776,8 +790,17 @@ this release, since one exec can't loop over several worktrees.
 
 `remove --gone` removes every worktree of this repository whose state is
 `directory missing`. It runs through the same gate as `remove` (`teardown run
---gone`), and each worktree goes through the same proof and teardown, one at a
-time, holding one worktree's locks at a time. It lists them with their path,
+--gone`), one worktree at a time, holding one worktree's locks at a time, and
+replaces two of `remove`'s steps:
+
+- **Instead of step 1's directory check**, which needs a directory to run `git
+  status` in, its preflight is the `directory missing` evidence above,
+  together with the registration's worktree UUID matching the identity Git
+  recorded for that entry. Without both, the worktree is skipped.
+- **Step 3** rechecks that evidence under the locks, and step 4 tears down the
+  environment as `remove` does.
+- **Step 5 doesn't run.** There is no directory left to remove, and `--gone`
+  makes no Git change. It lists them with their path,
 volumes and data size, then any warnings (a skipped repository, a path that
 may have moved), so they sit right above the question, and asks once with the
 count and the total data in the question itself (`Remove 3 worktrees and 4.2
@@ -786,8 +809,8 @@ and exits 1 if any failed. `--all` does the same for every repository on the
 machine and never accepts `--yes`. A repository Git couldn't read, and a
 worktree whose state is `unknown`, are listed as skipped.
 
-`--gone` changes nothing in Git: `remove` running `git worktree remove` is the
-only Git write in the CLI. Git keeps listing the gone entries as prunable, so
+`remove` on a single worktree, running `git worktree remove`, is the only Git
+write in the CLI. Git keeps listing the gone entries as prunable, so
 `--gone` ends with the next step: `Git still lists them: run 'git worktree
 prune' in /home/sam/src/myapp to clear them.`
 
@@ -1038,7 +1061,7 @@ runs a new build with the previous release pinned.
 Docs that quote changed commands or output change in the pull request that
 changes them: the README; getting-started, commands, worktrees, doctor,
 output-and-exit-codes, json-output, troubleshooting, host-routes,
-checkout-index, teardown-pin, concepts, glossary, install, hooks, routing,
+overview (today's checkout-index, renamed in step 8), teardown-pin, concepts, glossary, install, hooks, routing,
 shared-services, platforms, compose, settings, lock-recovery, trust-model,
 configuration and upgrading-from-a-pre-rename-build under `docs/`;
 `treerig.example.toml`, CONTRIBUTING.md and AGENTS.md. Design notes change
