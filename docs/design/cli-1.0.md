@@ -108,13 +108,24 @@ CLI keeps Git's word, and uses three words everywhere a user sees them:
 usually means switching branches, treerig used it inconsistently (the "checkout
 index", `doctor`'s "Git no longer lists its checkout"), and the usability review
 found users don't need it. A word kept in code and design notes leaks back out
-through the messages, docs and JSON written from them. So new code, tests, docs
-and design notes don't use it, and existing uses are renamed when a pull
-request touches them anyway; there is no repository-wide scrub. Three renames
-are part of this design: the `checkout.*` doctor check IDs become `worktree.*`
-(step 18), and `internal/checkoutindex` and `docs/checkout-index.md` become
-`internal/overview` and `docs/overview.md` (step 8). No storage name uses the
-word; one that did would change only through a migration. The page at
+through the messages, docs and JSON written from them, so it goes everywhere
+by 1.0. It is not contained (about 1,180 lines in 172 Go files, 223 string
+literals, 31 goldens and 25 docs pages), and most of the user-visible uses are
+output this design rewrites anyway, so the order is:
+
+- From now on, new code, tests, docs and design notes don't use it, and each
+  pull request in the order of work removes it from the strings, docs and
+  goldens it rewrites. Two renames land with the steps that rework them: the
+  `checkout.*` doctor check IDs become `worktree.*` (step 18), and
+  `internal/checkoutindex` and `docs/checkout-index.md` become
+  `internal/overview` and `docs/overview.md` (step 8).
+- Once the redesign has landed, one pull request removes what is left
+  (identifiers, comments, test names, docs), before 1.0, while no other pull
+  request is in flight. It adds a test in `internal/style` that fails on the
+  word anywhere in the repository except Git's own commands (`git checkout`,
+  `actions/checkout`), so it can't come back.
+
+No storage name or JSON key uses the word, so none of this needs a migration. The page at
 `http://treerig.localhost` is *the overview*. *Control home*, *registration*,
 *identity marker*, *label namespace* and *pin* stay out of default output too
 (principle 4); where an error needs one, it says what it is. The
@@ -959,7 +970,9 @@ runs a new build with the previous release pinned.
 19. **The rest**: `route list|remove`, `init` validation, `open`, `backup`'s
     default, the `$` warning, `--label-namespace` gone from `remove`.
 20. **First-screen wording** and one-line descriptions, once the set is final.
-21. **Stub removal**, a release later.
+21. **"Checkout" removed** from everything still using it, with the
+    `internal/style` test that keeps it out (see [Words](#words)), before 1.0.
+22. **Stub removal**, a release later.
 
 Docs that quote changed commands or output change in the pull request that
 changes them: the README; getting-started, commands, worktrees, doctor,

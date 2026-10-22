@@ -40,10 +40,10 @@ refusal, and how a migration is added.
 **One set of words.** Users see *worktree* (the whole thing), *directory* (its
 files on disk) and *environment* (what treerig adds: containers, networks,
 volumes, data and the URL); [docs/design/cli-1.0.md](docs/design/cli-1.0.md#words)
-sets them. *Checkout* is phased out (owner decision, 2026-10-22): new code,
-tests, docs and design notes don't use it, and an existing use is renamed when a
-change touches it anyway, unless it is a storage name, which only a migration
-changes.
+sets them. *Checkout* goes from the repository by 1.0 (owner decision, 2026-10-22):
+new code, tests, docs and design notes don't use it, a change removes it from
+what it rewrites, and a last pull request removes the rest and adds a test
+that keeps it out. Git's own `git checkout` and `actions/checkout` stay.
 
 The pre-release rename (owner decision, 2026-10-15) changed every storage name
 without a migration because nothing had shipped. From the first pre-release
