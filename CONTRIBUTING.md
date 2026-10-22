@@ -37,6 +37,14 @@ carries a format version (`internal/stateformat`, pinned by its tests), and a
 build refuses a newer one; `docs/design/state.md` lists the stores, the
 refusal, and how a migration is added.
 
+**One set of words.** Users see *worktree* (the whole thing), *directory* (its
+files on disk) and *environment* (what treerig adds: containers, networks,
+volumes, data and the URL); [docs/design/cli-1.0.md](docs/design/cli-1.0.md#words)
+sets them. *Checkout* is phased out (owner decision, 2026-10-22): new code,
+tests, docs and design notes don't use it, and an existing use is renamed when a
+change touches it anyway, unless it is a storage name, which only a migration
+changes.
+
 The pre-release rename (owner decision, 2026-10-15) changed every storage name
 without a migration because nothing had shipped. From the first pre-release
 (v0.1.0-rc.2), the migration rule above applies in full.

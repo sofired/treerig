@@ -104,11 +104,17 @@ CLI keeps Git's word, and uses three words everywhere a user sees them:
 | **directory** | The worktree's files on disk, which Git created | `directory missing`, `--keep-directory`, the DIRECTORY column |
 | **environment** | What treerig adds: containers, networks, volumes, data and the URL | `down` stops the environment; `remove --keep-directory` removes the environment and keeps the directory |
 
-*Checkout* leaves user-facing text: in Git it usually means switching branches,
-treerig used it inconsistently (the "checkout index", `doctor`'s "Git no longer
-lists its checkout"), and the usability review found users don't need it. It
-stays only where it names code or files (`internal/checkoutindex`, the
-`checkout.*` doctor check IDs, `docs/checkout-index.md`). The page at
+*Checkout* is phased out, in user-facing text and internally: in Git it
+usually means switching branches, treerig used it inconsistently (the "checkout
+index", `doctor`'s "Git no longer lists its checkout"), and the usability review
+found users don't need it. A word kept in code and design notes leaks back out
+through the messages, docs and JSON written from them. So new code, tests, docs
+and design notes don't use it, and existing uses are renamed when a pull
+request touches them anyway; there is no repository-wide scrub. Three renames
+are part of this design: the `checkout.*` doctor check IDs become `worktree.*`
+(step 18), and `internal/checkoutindex` and `docs/checkout-index.md` become
+`internal/overview` and `docs/overview.md` (step 8). No storage name uses the
+word; one that did would change only through a migration. The page at
 `http://treerig.localhost` is *the overview*. *Control home*, *registration*,
 *identity marker*, *label namespace* and *pin* stay out of default output too
 (principle 4); where an error needs one, it says what it is. The
@@ -851,8 +857,8 @@ prune' in /home/sam/src/myapp to clear them.`
 
 `treerig.toml` keys, the hook protocol, `run`'s exit codes, the meaning of
 `--config`, storage names other than the new backups directory, the ownership
-rule, the lock ordering, and `--json` key names except the state values and
-the added fields. Lock holding changes only where this note says so: `remove`
+rule, the lock ordering, and `--json` key names except the state values,
+the added fields and the renamed `doctor` check IDs. Lock holding changes only where this note says so: `remove`
 (prompt before the locks, recheck after) and `rename` (locks held across the
 restart). `doctor` keeps the `verify` hook's exit code only when the hook is the
 sole problem. `teardown run` is a new permanent contract. Restarting one service and shells in containers
@@ -930,7 +936,8 @@ runs a new build with the previous release pinned.
    `status`, `list`, the index page and JSON.
 7. **`status`** with URLs and the router's state; `urls` becomes a stub.
 8. **`list`** at top level, outside repositories, `--all`, `--refresh`;
-   `worktree list` and `index` become stubs.
+   `worktree list` and `index` become stubs; `internal/checkoutindex` becomes
+   `internal/overview` and `docs/checkout-index.md` becomes `docs/overview.md`.
 9. **Quiet output and `-v`**: the backend's output mode, redaction, hook output
    to stderr, `down`, `shared` and `router down` wording, the `Progress`
    interface with the plain writer.
@@ -947,7 +954,8 @@ runs a new build with the previous release pinned.
 16. **`rename`** restarting, with locks.md first.
 17. **`unlock`** at top level with `--list`, `--domain` gone.
 18. **`doctor`**: `causedBy` and `fix`, then the runtime checks, then the new
-    default, then the exit rule.
+    default and the `checkout.*` check IDs renamed to `worktree.*`, then the
+    exit rule.
 19. **The rest**: `route list|remove`, `init` validation, `open`, `backup`'s
     default, the `$` warning, `--label-namespace` gone from `remove`.
 20. **First-screen wording** and one-line descriptions, once the set is final.
