@@ -102,8 +102,8 @@ Each was observed on a live stack.
 | `logs [service...] [-f]` | Show service logs; `-f` follows | new | 1 |
 | `open [service]` | Open a service's URL in the browser | new | 7 |
 | `down [worktree]` | Stop a worktree; data is kept | `down` | 9 |
-| `list` (`ls`) `[--all] [--json]` | Worktrees with their state and URL; every repository's outside one | `worktree list`, `index` (text) | 6, 8 |
-| `remove` (`rm`) `[worktree]` | Remove a worktree's containers, volumes and data, and its checkout | `worktree remove` | 4, 5 |
+| `list` (`ls`) `[--all [--refresh]] [--json]` | Worktrees with their state and URL; every repository's outside one | `worktree list`, `index` (text) | 6, 8 |
+| `remove` (`rm`) `[worktree] [--yes] [--keep-checkout]` | Remove a worktree's containers, volumes and data, and its checkout | `worktree remove` | 4, 5 |
 | `remove --gone [--all]` | Remove the worktrees whose checkout Git says is gone | new | 5 |
 | `rename <new-slug>` | Change this worktree's name and URL, and restart it if it runs | `worktree rename` | 10 |
 | `run <name> [-- args]` | Run a command declared in `treerig.toml` | `run` | |
@@ -190,6 +190,7 @@ Problems
 Flags:
   -h, --help       Show help
   -v, --verbose    Show what treerig runs, and every detail
+      --progress   'plain' prints one line per change and never redraws
   -V, --version    Print the version
 
 Run 'treerig help --all' for shared services, the router, locks, configuration,
@@ -284,7 +285,10 @@ with a short budget.
   none, so an interrupted one shows `not started` or `stopped`.
 - **`checkout missing` needs positive evidence**: Git ran against a reachable
   repository and lists the entry as prunable and not locked, and the checkout's
-  parent directory exists and is not an empty mount point. Otherwise the state
+  parent directory exists, is not empty, and is not a mount point or below one
+  that the mount table (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
+  doesn't list as mounted. An unmounted volume's mount point is an ordinary
+  empty directory, so emptiness is the signal. Otherwise the state
   is `unknown`, with the hint `Its parent directory is missing: is the volume
   mounted?` Git can't tell a checkout moved without `git worktree move` from a
   deleted one; `remove --gone` shows each path so the user can run `git
@@ -639,15 +643,30 @@ its own process; a development build with no pin refuses as today, and with
 `--dev-teardown` the invoked build does all of it, relocated (#7) and warning,
 as today.
 
-**Older pins.** Before the exec the gate runs the verified stored binary with
-`teardown run --help`; exit 0 means it has the stable form. A pin without it
-(0.1.x) gets `worktree remove <uuid>`, with `--yes` only if the user passed it,
+**`teardown run` is never a way around the gate.** Run directly, it enforces
+the same gate as `remove` and proceeds only as the pinned binary, the relocated
+`--dev-teardown` copy, or a release build with no pin; the same holds for
+`--gone`. A test beside `TestTeardownGate` covers it.
+
+**Older pins.** Before the exec the gate asks the pinned binary which contract
+it speaks: it runs the stored binary, through the same verified descriptor as
+the exec, with `teardown run --contract`, a short timeout, an allow-listed
+environment and capped output. Only exit 0 with stdout exactly
+`treerig-teardown-run 1` means the stable form; the number versions the
+contract. `--help` can't be the probe: cobra answers it before checking
+arguments, so an old binary exits 0 for `teardown run --help`. A test with a
+fake old pin whose `--help` exits 0 asserts the legacy path. A pin without the
+stable form (0.1.x) gets `worktree remove <uuid>`, with `--yes` only if the user passed it,
 so the old binary still prompts in its own code. The gate resolves the UUID
-read-only to do this, runs the old binary from the target's main checkout with
+and the main checkout read-only to do this, with the same Git options and
+allow-listed environment as the pinned steps, runs the old binary from the target's main checkout with
 `--config` set to its `treerig.toml`, and first prints `This pin (0.1.0)
 predates checkout removal: the checkout at /home/sam/src/myapp.feature-x is
 kept. Pin this release to remove checkouts too: 'treerig teardown pin --latest'`.
-When that `treerig.toml` is missing, it refuses and says to pin this release.
+The gate changes to that directory before the exec, since `exec` keeps the
+working directory. When that `treerig.toml` is missing, it refuses and says to
+pin this release. `remove --gone` with an older pin refuses and says to pin
+this release, since one exec can't loop over several worktrees.
 
 **The steps, in the pinned binary:**
 
@@ -658,17 +677,22 @@ When that `treerig.toml` is missing, it refuses and says to pin this release.
    they are deleted with it.
 2. Prompt, with no lock held, so the worktree isn't blocked while the user reads.
 3. Take the operation and development locks, then inventory again and recheck
-   the checkout's HEAD and status. If anything differs from what the prompt
-   said, stop with nothing deleted, and say so.
+   the checkout: its path, HEAD, status, and which worktree is the main one. If
+   anything differs from what the prompt said, stop with nothing deleted, and
+   say so.
 4. Write the `removing` marker, then tear down containers, networks, volumes,
    data and registration, proven by ownership labels, as today.
 5. Remove the checkout, still under the locks: `git -C <main worktree> -c
    core.fsmonitor=false -c core.hooksPath=/dev/null worktree remove <checkout>`,
    without `--force`. Git's environment is built from an allow-list (`PATH`,
    `HOME`, `TMPDIR`, `LANG` and `LC_*`), so no inherited `GIT_*` variable can
-   point it elsewhere; the preflight uses the same. The checkout's path comes
-   from Git's own list for its repository, never from the index card, and the
-   command never runs from inside the checkout. The pinned binary runs from the
+   point it elsewhere; the preflight uses the same. The checkout is identified
+   by identity, not by path: the recorded root (registration or index card) is
+   only where treerig starts asking Git, and the entry it removes is the one in
+   Git's list whose identity marker carries the target's worktree UUID, as
+   `worktree remove` matches today. No match means the checkout is treated as
+   missing and kept. The path passed to Git is the exact one the prompt showed
+   and step 3 confirmed, and the command never runs from inside the checkout. The pinned binary runs from the
    pin store, outside every checkout.
 
 - **Exit.** 0 when everything in the plan was done, including a checkout the
@@ -677,7 +701,10 @@ When that `treerig.toml` is missing, it refuses and says to pin this release.
   Removed feature-x, but Git kept its checkout: <Git's reason>.` and the
   command to finish it.
 - **A crash between steps 4 and 5** leaves a checkout with no record; `git
-  worktree remove` finishes it.
+  worktree remove` finishes it. The locks are released through the same paths
+  they were taken by, though the registration is gone, and `unlock` and
+  `doctor` don't treat the leftover lock files as orphans; a test crashes
+  between the two steps and checks both.
 - **Without a terminal and without `--yes`**: `[treerig] ERROR: Cannot ask for
   confirmation without a terminal. Pass --yes to remove feature-x.` With
   `--yes`, the plan is still printed to stderr, as a record.
@@ -776,10 +803,13 @@ worktree whose state is `unknown`, are listed as skipped.
 
 ## What this design does not change
 
-`treerig.toml` keys, the hook protocol and its exit codes, `run`'s exit codes,
-the meaning of `--config`, storage names other than the new backups directory,
-the ownership rule, the lock rules, and `--json` key names except the state
-values and the added fields. Restarting one service and shells in containers
+`treerig.toml` keys, the hook protocol, `run`'s exit codes, the meaning of
+`--config`, storage names other than the new backups directory, the ownership
+rule, the lock ordering, and `--json` key names except the state values and
+the added fields. Lock holding changes only where this note says so: `remove`
+(prompt before the locks, recheck after) and `rename` (locks held across the
+restart). `doctor` keeps the `verify` hook's exit code only when the hook is the
+sole problem. `teardown run` is a new permanent contract. Restarting one service and shells in containers
 stay with Docker Compose.
 
 ## What changes for existing users
@@ -794,8 +824,9 @@ changes without a deprecation period beyond the one-release stubs.
 - Renamed: `route ls|rm` to `route list|remove`, with `ls` and `rm` as short
   forms.
 - Removed flags: `--domain`, and `--label-namespace` on `remove`.
-- New: `-v`, `--progress`, `up -f`, `logs`, `open`, `list --all`, `remove
-  --gone`, `--keep-checkout`, `rename --no-restart`, `unlock --list`.
+- New: `-v`, `--progress`, `up -f`, `logs`, `open`, `list --all`, `list
+  --refresh`, `remove --gone`, `--keep-checkout`, `rename --no-restart`,
+  `unlock --list`.
 - `remove` also removes the checkout, as the plan in its prompt says. A 0.1.x
   pin keeps it, and says so.
 - `backup` without a directory writes under the treerig root.
@@ -813,7 +844,11 @@ Recommendations; the owner confirms or changes each.
 
 1. **`remove` removes the checkout**, after a preflight shown in the prompt,
    keeping dirty, detached, locked, submodule and main checkouts and the branch,
-   all inside the pinned binary. Recommended: yes.
+   all inside the pinned binary. This widens what the pin is trusted to do: it
+   decides the prompt and deletes the checkout, not only treerig's own
+   resources, and [teardown.md](teardown.md) says so (step 14). The alternative
+   is a Git step in the invoking build, which runs unpinned code on the user's
+   files. Recommended: yes.
 2. **`[commands]` stay shell-free**, with a warning for `$VAR`, not an error.
    Recommended: yes.
 3. **`dev` becomes `up -f`.** Recommended: yes.
