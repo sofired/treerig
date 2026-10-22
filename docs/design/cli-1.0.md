@@ -271,9 +271,10 @@ Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
 - **A host** names the registered worktree with exactly that host.
 - **A path** is an argument written as one: it is `.` or `..`, or it starts
   with `/`, `./`, `../` or `~`. It resolves (after `EvalSymlinks`) to the
-  worktree whose recorded root is its longest prefix, so a directory nested in
-  another resolves to the inner
-  one. A path inside a directory, not its root, is accepted only by `status`; a
+  worktree whose recorded root is its longest prefix, matched whole path
+  component by whole path component, so `/repo/app2/src` never matches the
+  root `/repo/app`, and a directory nested in another resolves to the inner
+  one. The resolver's tests include sibling roots that share a prefix. A path inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form.
 - **Anything else is a slug**: this repository's first. Outside a repository,
   or for a slug this repository doesn't have, it must be unique on the machine;
@@ -347,9 +348,12 @@ with a short budget.
   empty, and is not a mount point or below one that the mount table
   (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
   doesn't list as mounted. An unmounted volume's mount point is an ordinary
-  empty directory, so emptiness is the signal. Otherwise the state
-  is `unknown`, with the hint `Its parent directory is missing: is the volume
-  mounted?` Git can't tell a directory moved without `git worktree move` from a
+  empty directory, so emptiness is the signal. Otherwise the state is
+  `unknown`, with a hint that names the cause: `Its parent directory is
+  missing or empty: is the volume mounted?` when the parent or mount check
+  failed, `Git's records for it are damaged: 'git worktree repair' may fix
+  them.` when the directory exists but Git calls it prunable, and `treerig
+  couldn't check it: <the error>.` for a permission error or a Git failure. Git can't tell a directory moved without `git worktree move` from a
   deleted one; `remove --gone` shows each path so the user can run `git
   worktree repair` first.
 - Every text word maps to one JSON value, pinned by one test.
@@ -630,7 +634,9 @@ $ treerig doctor
 ```
 
 - **New runtime checks**, for this worktree and the shared services it uses:
-  each service is running and healthy; each routed URL answers through the
+  each service is running and healthy, or has exited cleanly (code 0), which
+  is a one-shot service such as `migrate` that has done its job and passes, as
+  in `Classify`; each routed URL of a running service answers through the
   router; the router runs when any worktree on the machine runs. Machine-wide
   checks stay cheap; runtime checks don't reach other worktrees.
 - **What fails.** A service that exited with a non-zero code, is unhealthy or
