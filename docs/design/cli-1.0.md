@@ -778,8 +778,10 @@ this release, since one exec can't loop over several worktrees.
 `directory missing`. It runs through the same gate as `remove` (`teardown run
 --gone`), and each worktree goes through the same proof and teardown, one at a
 time, holding one worktree's locks at a time. It lists them with their path,
-volumes and data size, asks once (`Remove these 3 worktrees? [y/N]`),
-continues past a failure,
+volumes and data size, then any warnings (a skipped repository, a path that
+may have moved), so they sit right above the question, and asks once with the
+count and the total data in the question itself (`Remove 3 worktrees and 4.2
+GB of data? [y/N]`). It continues past a failure,
 and exits 1 if any failed. `--all` does the same for every repository on the
 machine and never accepts `--yes`. A repository Git couldn't read, and a
 worktree whose state is `unknown`, are listed as skipped.
@@ -797,7 +799,7 @@ a yes-or-no question whose default is No.
 | Command | When it asks | Question |
 |---|---|---|
 | `remove` | always | `Remove feature-x.myapp.localhost? [y/N]` |
-| `remove --gone` | always | `Remove these 3 worktrees? [y/N]` |
+| `remove --gone` | always | `Remove 3 worktrees and 4.2 GB of data? [y/N]` |
 | `shared down --volumes` | with `--volumes`, which deletes the shared services' data | `Delete the data of myapp's shared services? [y/N]` |
 | `teardown pin` | always | `Pin this build for worktree removal? [y/N]` |
 | `restore` | always | `Replace feature-x's data with this backup? [y/N]` |
