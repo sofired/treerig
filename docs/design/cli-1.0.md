@@ -253,18 +253,21 @@ A worktree is in exactly one of these:
 |---|---|---|
 | `running` | `running` | Every service is running (and healthy, where it has a health check) |
 | `starting` | `starting` | A container is being created, or a health check hasn't passed yet |
-| `partly running` | `partly_running` | Some services run; at least one has exited, is restarting or is unhealthy |
-| `stopped` | `stopped` | Containers exist and none runs; data is kept |
-| `not started` | `not_started` | Registered, and no container exists |
+| `partly running` | `partly_running` | Some services run; at least one has exited with an error, is restarting or is unhealthy |
+| `failed` | `failed` | No service runs, and at least one exited with an error, is restarting or is unhealthy |
+| `stopped` | `stopped` | An `up` has finished before, and no service runs (after `down`, or every service exited cleanly); data is kept |
+| `not started` | `not_started` | Registered, and no `up` has ever finished |
 | `removing` | `removing` | A removal was interrupted; `treerig remove` finishes it |
 | `checkout missing` | `checkout_missing` | Git, asked successfully, no longer has its checkout (below) |
 | `unknown` | `unknown` | Docker or Git didn't answer, so the state can't be told |
 
-Containers decide: a registered worktree with any container is judged by its
-services, so a first `up` that fails with one service running is `partly
-running`, and `not started` means no container exists. `removing` and `checkout
-missing` come before the container states; `starting` comes before `partly
-running`.
+The first that applies wins: `removing`, `checkout missing`, `unknown`,
+`starting`, `failed`, `partly running`, `running`, `stopped`, `not started`.
+Containers decide over history, so a first `up` that fails with one service
+running is `partly running`, and one whose only service crashed is `failed`.
+Whether an `up` has ever finished is what the registration records today as
+`ready` against `pending`; `down` removes containers, so `stopped` can't depend
+on them existing.
 
 A service is `running`, `starting`, `unhealthy`, `restarting`, `exited`
 (JSON adds `exitCode`), `stopped`, `not created` or `unknown`. A host route is
@@ -305,7 +308,9 @@ already says none of the three vocabularies was frozen before 1.0.
 - **stdout** carries only the result: the table of `status` and `list`, the
   `is running` line and URL table of `up`, `doctor`'s verdict and problems, the
   path `backup` wrote, `open`'s URL when there is no browser, every `--json`
-  document, and the output of `run`'s own command.
+  document, the output of `run`'s own command, and the logs of `logs` and `up
+  -f`: a container's stdout on stdout and its stderr on stderr, as `dev` does
+  today.
 - **stderr** carries everything else: progress, prompts, notices, hints,
   footers, the router notice under `status`, and the output of every hook
   (`up`'s `prepare` and `seed`, `backup`, `restore`, `verify`), so `dir=$(treerig
@@ -314,6 +319,9 @@ already says none of the three vocabularies was frozen before 1.0.
   WARNING:`), and evidence and next steps follow as indented lines. Plain
   progress and notices lose the `[treerig]` prefix: they aren't errors, and the
   prefix made every line look like one.
+- Message texts in this note are shown without the `[treerig] ERROR:` or
+  `[treerig] WARNING:` prefix that every error and warning carries, except
+  where a mock shows a whole run.
 - Commands in messages are in single quotes (`run 'treerig up' again`), and
   messages are ASCII: separators are commas.
 
@@ -340,7 +348,9 @@ uses an in-repo renderer.
   state is carried by words, never by colour alone. Agents that run treerig on
   a pseudo-terminal pass `--progress=plain`.
 - **Prompts** need stdin and stderr to be terminals and `CI` to be unset;
-  otherwise the command says to pass `--yes`.
+  otherwise the command says why and to pass `--yes` (`Cannot ask for
+  confirmation: CI is set. Pass --yes to remove feature-x.`, or `... without a
+  terminal ...`).
 - **Cooked mode only.** Nothing puts the terminal in raw mode, so Ctrl-C stays a
   SIGINT to the foreground process group and the signal handling and exit
   codes in [output-and-exit-codes.md](../output-and-exit-codes.md) hold.
@@ -401,7 +411,8 @@ plain. Before printing them, after the locks are released, `up` waits up to 10
 seconds for the router to have loaded each route, by the rule `doctor`'s route
 probe uses (a 404 counts as the router's own only when the target answers
 differently when asked directly). A route that is loaded but whose service
-doesn't answer yet is still printed, and stderr adds `web isn't answering yet:
+doesn't answer yet is still printed, so stdout stays a stable table for
+scripts; this is the one case principle 6 allows, and stderr adds `web isn't answering yet:
 http://feature-x.myapp.localhost`. A worktree with no routed service prints `No
 service is routed: add a [service.<name>] table to treerig.toml.` on stderr and
 no table.
@@ -564,7 +575,7 @@ $ treerig doctor
   router; the router runs when any worktree on the machine runs. Machine-wide
   checks stay cheap; runtime checks don't reach other worktrees.
 - **What fails.** A service that exited with a non-zero code, is unhealthy or
-  keeps restarting; a worktree that is `partly running`; the router stopped
+  keeps restarting; a worktree that is `partly running` or `failed`; the router stopped
   while a worktree runs; a URL of a running service that doesn't answer. A
   worktree stopped with `down` is fine, and so is a stopped router when no
   worktree runs.
@@ -619,15 +630,17 @@ Kept /home/sam/src/myapp.feature-x. When you are done with it: 'git worktree rem
 Every line is stderr; `remove` writes nothing to stdout. The reason a checkout
 is kept is one of:
 
-| Case | Reason |
-|---|---|
-| Modified or untracked files | `it has uncommitted changes` |
-| Detached HEAD with commits no branch holds | `it is on a detached HEAD with commits no branch has` |
-| Locked with `git worktree lock` | `Git has it locked` |
-| Submodules | `it has submodules, which Git won't remove` |
-| The repository's main worktree | `it is the repository's main worktree` |
-| The preflight failed or timed out | `Git couldn't check it` |
-| `--keep-checkout` | `you asked to keep it` |
+| Case | Reason | Next step printed |
+|---|---|---|
+| Modified or untracked files | `it has uncommitted changes` | `git worktree remove <path>`, adding `--force` if the changes can go |
+| Detached HEAD with commits no branch holds | `it is on a detached HEAD with commits no branch has` | `git branch <name>` in the checkout, then `git worktree remove <path>` |
+| Locked with `git worktree lock` | `Git has it locked` | `git worktree unlock <path>`, then `git worktree remove <path>` |
+| Submodules | `it has submodules, which Git won't remove` | `git worktree remove --force <path>` once you've checked them |
+| The repository's main worktree | `it is the repository's main worktree` | none: `The repository's main worktree is never removed.` |
+| The preflight failed or timed out | `Git couldn't check it` | `git worktree remove <path>` |
+| `--keep-checkout` | `you asked to keep it` | none |
+
+Paths with spaces are quoted in the printed commands.
 
 **Who does what.** The gate stays as [teardown.md](teardown.md) describes it:
 the first act of `remove`, before any lock, and it `exec`s, so nothing of the
