@@ -51,9 +51,9 @@ Each was observed on a live stack.
    after `worktree remove`. Without a terminal it fails with `Interactive
    confirmation required: "<host>".` and doesn't mention `--yes`.
 6. **Three vocabularies for "is it running".** `worktree list` says `ready` for
-   a worktree that is down; `status` says `running`, `stopped` or `absent`; the
-   index says `[Running]` or `[Stopped]`. `status` has no URLs and `urls` has no
-   state.
+   a worktree that is down and `pending` for one whose first `up` failed;
+   `status` says `running`, `stopped` or `absent`; the index says `[Running]` or
+   `[Stopped]`. `status` has no URLs and `urls` has no state.
 7. **The first screen is a flat list of 19 entries.** `up` and `status` sit
    beside `teardown`, `router`, `index` and `completion`; several one-line
    descriptions are paragraphs; the synopsis is jargon. Users' first guesses
@@ -77,15 +77,16 @@ Each was observed on a live stack.
 1. **Daily verbs are short, top level, and act on the worktree you are in.**
    Nouns (`shared`, `route`, `router`, `config`, `teardown`) manage those things.
 2. **One word, one meaning.** `list` and `remove` everywhere, with `ls` and
-   `rm` as their short forms everywhere. One set of state words in every
-   command, on the index page and in `--json`.
+   `rm` as their short forms everywhere, because those are what users typed
+   first. One set of state words in every command, on the index page and in
+   `--json`.
 3. **A worktree is named the way treerig printed it**: UUID, host, path or slug.
 4. **Quiet by default.** treerig says what happened in its own words. Compose's
    transcript, paths under the control home, IDs, digests and labels appear
    with `-v`, or when they are the evidence for a failure.
 5. **A failure says what broke, shows the evidence, and gives the next step.**
    The evidence is the failing thing's own output, never the command treerig ran.
-6. **Never show a URL that treerig knows does not answer.**
+6. **Never show a URL that treerig knows does not answer without saying so.**
 7. **stdout is the result, stderr is the conversation** (see
    [Streams](#streams)). `--json` is the machine contract.
 8. **Contributor and recovery commands stay off the first screen**, and the
@@ -104,32 +105,32 @@ Each was observed on a live stack.
 | `list` (`ls`) `[--all] [--json]` | Worktrees with their state and URL; every repository's outside one | `worktree list`, `index` (text) | 6, 8 |
 | `remove` (`rm`) `[worktree]` | Remove a worktree's containers, volumes and data, and its checkout | `worktree remove` | 4, 5 |
 | `remove --gone [--all]` | Remove the worktrees whose checkout Git says is gone | new | 5 |
-| `rename <new-slug>` | Change this worktree's slug and host, and restart it if it runs | `worktree rename` | 10 |
+| `rename <new-slug>` | Change this worktree's name and URL, and restart it if it runs | `worktree rename` | 10 |
 | `run <name> [-- args]` | Run a command declared in `treerig.toml` | `run` | |
 | `backup [dir]`, `restore <dir>` | Run the backup or restore hook | same | 10 |
 | `route add\|list\|remove` | Route a process on your machine through a worktree URL | `route add\|ls\|rm` | 2 |
 | `doctor [--json]` | Does this machine and this worktree work, and if not, why | `doctor`, `router status` | 1, 2 |
 | `shared up\|down\|status` | Shared services | same | |
 | `router down` | Stop the shared router, to free its port | `router down` | |
-| `unlock [worktree] [--router\|--registry\|--shared]` | Clear a lock left by a crashed command | `worktree unlock` | |
+| `unlock [worktree] [--router\|--registry\|--shared\|--list]` | Clear a lock left by a crashed command | `worktree unlock` | |
 | `config validate\|show\|schema` | Check the file without Docker; print it; print its JSON Schema | same | 9 |
 | `teardown pin\|status` | Pin a verified build for removal; show what removal will run | same | |
 | `completion <shell>` | A shell completion script | same | |
 
 `-v` (`--verbose`) is accepted by every command (see [Verbose output](#verbose-output)).
 `--json` is accepted by `status`, `list`, `doctor`, `shared status`, `route
-list` and `teardown status`, as today plus `list --all`.
+list` and `teardown status`.
 
 ### Removed, and where each job goes
 
 - **`dev`** becomes `up -f` (see [`up -f`](#up--f)).
 - **`urls`** goes into `status`, whose stdout is the service table with URLs;
   scripts read `status --json`.
-- **`index`** goes into `list --all` (read-only text and JSON, including the
-  shared services' web UIs and the Docker error fields `index --json` carries
-  today). The page at `http://treerig.localhost` stays; `up`, `down` and
-  `remove` keep refreshing it, `doctor` reports a stale page, and `list --all
-  --refresh` rebuilds it.
+- **`index`** goes into `list --all` (text and JSON, including the shared
+  services' web UIs and the Docker error fields `index --json` carries today).
+  The page at `http://treerig.localhost` stays; `up`, `down` and `remove` keep
+  refreshing it, `doctor` reports a stale page, and `list --all --refresh`
+  rebuilds it.
 - **`worktree list|remove|rename|unlock`** become `list`, `remove`, `rename` and
   `unlock`. `unlock` is not a worktree verb: it also clears the registry's, the
   router's and a repository's shared-services locks.
@@ -137,19 +138,25 @@ list` and `teardown status`, as today plus `list --all`.
   status`** goes into `doctor` and `status`.
 - **`--domain`** (on `remove` and `unlock`) goes: the host names the domain.
 - **`--label-namespace` on `remove`** goes: removal reads the namespace from the
-  registration, then the index card, then this repository's `treerig.toml`, and
-  never from the resources it is about to delete. If none has it, the error
-  says to run `treerig remove` from a checkout of the repository that created
-  the worktree. `shared down` keeps the flag, hidden, until the shared stack's
-  state records its namespace (a [state.md](state.md) format change).
+  registration, then the index card, then the target repository's
+  `treerig.toml`, and never from the resources it is about to delete. The
+  namespace only selects the label key; the identity labels must still match in
+  full. If none has it, the error says to run `treerig remove` from a checkout
+  of the repository that created the worktree. `shared down` keeps the flag,
+  hidden, until the shared stack's state records its namespace (a
+  [state.md](state.md) format change).
 
-For one release, each removed command is a hidden stub that names its
-replacement (`'treerig urls' is now 'treerig status'.`) and exits with the
-usage-error code. The stubs go in the next release.
+For one release, each removed command is a hidden stub that prints its
+replacement (`'treerig urls' is now 'treerig status'.`) and exits 1, as an
+unknown command does. Stubs disable flag parsing, so `index --json` gets the
+pointer and not a flag error. They go in the next release.
 
-`ps`, `stop` and `start` are not aliases (each would be a second word for one
-meaning); an unknown command suggests the right one: `Unknown command 'stop'.
-Did you mean 'down'?`
+`ps`, `stop` and `start` are not aliases, since each would be a second word for
+one meaning; an unknown command suggests the right one: `Unknown command
+'stop'. Did you mean 'down'?`
+
+Restarting one service and running a shell in a container stay with Docker
+Compose; `status -v` prints the Compose project name to use.
 
 ## The first screen
 
@@ -209,82 +216,102 @@ and is added to each command that reads `treerig.toml`, so help, completion and
 
 ## Naming a worktree
 
-Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`), it
-is matched in this order, and the first match wins:
+Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
 
-1. **A UUID** (the 36-character form). Always unique; every recovery command
-   treerig prints uses it.
-2. **A host**: a registered host, matched exactly.
-3. **A path**: an argument that starts with `/`, `./`, `../` or `~`, or that
-   names an existing directory. It resolves (after `EvalSymlinks`) to the
-   worktree whose recorded root is its longest prefix, so a checkout nested in
-   another resolves to the inner one. A path that names a directory inside a
-   checkout, not its root, is accepted only by read-only verbs (`status`); a
-   destructive verb asks for the root or another form. A path that also
-   matches a host or slug is refused as ambiguous, listing both.
-4. **A slug**: this repository's first. Outside a repository, or for a slug
-   this repository doesn't have, it must be unique on the machine; otherwise
-   the error lists the matching hosts and UUIDs.
+- **A UUID** (the 36-character form) names that worktree. Every recovery command
+  treerig prints uses it.
+- **A host** names the registered worktree with exactly that host.
+- **A path** is an argument written as one: it starts with `/`, `./`, `../` or
+  `~`. It resolves (after `EvalSymlinks`) to the worktree whose recorded root is
+  its longest prefix, so a checkout nested in another resolves to the inner
+  one. A path inside a checkout, not its root, is accepted only by `status`; a
+  destructive verb asks for the root or another form.
+- **Anything else is a slug**: this repository's first. Outside a repository,
+  or for a slug this repository doesn't have, it must be unique on the machine;
+  otherwise the error lists the matching hosts and UUIDs.
 
-No argument means the worktree you are in. The resolver lives in
-`internal/registry`, beside `FindGlobal`, and completion uses the same one.
+No argument means the worktree you are in. A bare word is never read as a
+directory, so a directory called `feature-x` can't change what `treerig remove
+feature-x` means. The resolver lives in `internal/registry`, beside
+`FindGlobal`, and completion uses the same one.
+
+For a worktree of another repository, `status` and `down` read that
+repository's `treerig.toml` and Compose file from its recorded root, and its
+namespace from the registration. When its checkout is missing they say so and
+stop.
 
 `remove`'s confirmation phrase is the slug when the slug names one worktree on
-the machine, and the host otherwise. The prompt always shows the repository
-and the checkout path.
+the machine, and the host otherwise. The prompt always shows the repository and
+the checkout path.
 
 ## State words
-
-One function in `internal/worktree` derives every state, from the registration,
-Git's list of worktrees, and one `docker ps -a` per label namespace (the
-inventory `internal/checkoutindex` runs today). `status`, `list`, `doctor`, the
-index page and every `--json` document use it, and nothing derives state any
-other way.
 
 A worktree is in exactly one of these:
 
 | Text | JSON | Meaning |
 |---|---|---|
 | `running` | `running` | Every service is running (and healthy, where it has a health check) |
+| `starting` | `starting` | A container is being created, or a health check hasn't passed yet |
 | `partly running` | `partly_running` | Some services run; at least one has exited, is restarting or is unhealthy |
-| `starting` | `starting` | Containers are being created, or a health check hasn't passed yet |
-| `stopped` | `stopped` | No service is running; data is kept |
-| `not started` | `not_started` | Registered, but no `up` has finished |
+| `stopped` | `stopped` | Containers exist and none runs; data is kept |
+| `not started` | `not_started` | Registered, and no container exists |
 | `removing` | `removing` | A removal was interrupted; `treerig remove` finishes it |
-| `checkout missing` | `checkout_missing` | Git, asked successfully, no longer lists its checkout |
+| `checkout missing` | `checkout_missing` | Git, asked successfully, no longer has its checkout (below) |
 | `unknown` | `unknown` | Docker or Git didn't answer, so the state can't be told |
+
+Containers decide: a registered worktree with any container is judged by its
+services, so a first `up` that fails with one service running is `partly
+running`, and `not started` means no container exists. `removing` and `checkout
+missing` come before the container states; `starting` comes before `partly
+running`.
 
 A service is `running`, `starting`, `unhealthy`, `restarting`, `exited`
 (JSON adds `exitCode`), `stopped`, `not created` or `unknown`. A host route is
 `listening` or `not listening`, from a TCP connect to its port on `127.0.0.1`
 with a short budget.
 
-- `removing` needs a marker written when removal starts. That is a stored-state
-  change, made as [state.md](state.md) says.
-- `checkout missing` needs positive evidence: Git ran against a reachable
-  repository and lists the entry as prunable and not locked. A failed `git`, a
-  missing main checkout or an unmounted volume gives `unknown`, never
-  `checkout missing`.
+- **Where it is computed.** A pure `Classify` function in `internal/worktree`
+  maps plain inputs to these words. A new `internal/worktreestate` package
+  gathers the inputs (the registration, `git worktree list`, and one `docker ps
+  -a` per label namespace, as `internal/checkoutindex` does today) and is what
+  `status`, `list`, `doctor` and the index page call. Across worktrees the
+  inputs come from `docker ps`'s `State` and the health suffix of its `Status`,
+  parsed against a table of Docker's wordings; for one worktree (`status`,
+  `doctor`, `up`) they come from `docker compose ps --all --format json`, which
+  carries `ExitCode`.
+- **`removing`** needs a marker written when removal starts: a stored-state
+  change, made as [state.md](state.md) says. A removal by a 0.1.x pin writes
+  none, so an interrupted one shows `not started` or `stopped`.
+- **`checkout missing` needs positive evidence**: Git ran against a reachable
+  repository and lists the entry as prunable and not locked, and the checkout's
+  parent directory exists and is not an empty mount point. Otherwise the state
+  is `unknown`, with the hint `Its parent directory is missing: is the volume
+  mounted?` Git can't tell a checkout moved without `git worktree move` from a
+  deleted one; `remove --gone` shows each path so the user can run `git
+  worktree repair` first.
 - Every text word maps to one JSON value, pinned by one test.
 - The index page shows when it was generated, since it is refreshed only by
-  `up`, `down` and `remove`.
+  `up`, `down`, `remove` and `list --all --refresh`.
 
 `ready`, `pending`, `absent`, `Partial` and `[Running]` go. `docs/commands.md`
 already says none of the three vocabularies was frozen before 1.0.
 
 ## Streams
 
-- **stdout** carries only the result: the table of `status` and `list`, the URL
-  table and the `is running` line of `up`, `doctor`'s verdict and problems, the
-  path `backup` wrote, every `--json` document.
+- **stdout** carries only the result: the table of `status` and `list`, the
+  `is running` line and URL table of `up`, `doctor`'s verdict and problems, the
+  path `backup` wrote, `open`'s URL when there is no browser, every `--json`
+  document, and the output of `run`'s own command.
 - **stderr** carries everything else: progress, prompts, notices, hints,
-  footers, the router notice under `status`, the `verify` hook's output.
+  footers, the router notice under `status`, and the output of every hook
+  (`up`'s `prepare` and `seed`, `backup`, `restore`, `verify`), so `dir=$(treerig
+  backup)` gets only the path.
 - Errors and warnings keep their prefix (`[treerig] ERROR:`, `[treerig]
   WARNING:`), and evidence and next steps follow as indented lines. Plain
-  progress and notices lose the `[treerig]` prefix (see [Owner
-  decisions](#owner-decisions)).
+  progress and notices lose the `[treerig]` prefix: they aren't errors, and the
+  prefix made every line look like one.
 - Commands in messages are in single quotes (`run 'treerig up' again`), and
-  messages are ASCII: separators are commas, not middle dots.
+  messages are ASCII: separators are commas.
 
 ## Rendering
 
@@ -308,6 +335,8 @@ uses an in-repo renderer.
   40s`) every 10 seconds, so CI and agents never see a silent minute. Every
   state is carried by words, never by colour alone. Agents that run treerig on
   a pseudo-terminal pass `--progress=plain`.
+- **Prompts** need stdin and stderr to be terminals and `CI` to be unset;
+  otherwise the command says to pass `--yes`.
 - **Cooked mode only.** Nothing puts the terminal in raw mode, so Ctrl-C stays a
   SIGINT to the foreground process group and the signal handling and exit
   codes in [output-and-exit-codes.md](../output-and-exit-codes.md) hold.
@@ -315,21 +344,26 @@ uses an in-repo renderer.
   `logs -f` stream, and their output passes through untouched.
 - **A small `Progress` interface** where `commands` uses it, with the plain
   writer as the default and in every in-process test, so the goldens stay
-  byte-exact; the live writer is tested through `internal/run/ptytest`.
-  `logger.Logger` is not widened. Untrusted text (service names, container
-  output, branch names) goes through `text.Printable` before either writer.
+  byte-exact; the live writer is tested through `internal/run/ptytest`. The
+  live writer writes to stderr directly, never through `logger.Logger`, whose
+  `text.Printable` filter would turn its control sequences into spaces; the
+  logger is not widened. Untrusted text (service names, container output,
+  branch names) goes through `text.Printable` before either writer.
 - **The data source** for per-service progress is a poll of `docker compose ps
   --all --format json` while `up` runs, which works on every Compose treerig
-  supports (2.21 and newer). `--progress json` from Compose is faster but its
-  schema is unverified across versions; it can replace the poll later.
+  supports (2.21 and newer). The poll runs at most every 2 seconds, each call
+  is bounded, a failed poll keeps the last state, and the poll stops when the
+  `up` child exits and sets no deadline of its own (`up` has none, #14).
+  Compose's `--progress json` is faster but its schema is unverified across
+  versions; it can replace the poll later.
 - **A full-screen dashboard** (`treerig ui`) is out of scope for 1.0. If one is
   added it is an optional command, it may use Bubble Tea, and it changes no
   other command's output.
 
 ## Verbose output
 
-`-v` is a persistent flag on `Env`, passed to the backend, hooks, progress and
-logger. It adds:
+`-v` is a persistent flag stored on `Env` and passed to `backend.Options`, the
+hooks runner, progress and the logger. It adds:
 
 - Compose's transcript, as today's default prints it;
 - each Docker and Compose command treerig runs, with treerig's own arguments
@@ -339,8 +373,8 @@ logger. It adds:
 
 It never prints the environment, arguments after `--`, hook or `[commands]`
 arguments, or `docker compose config` output, and it redacts `KEY=value` pairs
-and URLs with userinfo. `TREERIG_DEBUG` stays, meaning only stack traces on
-errors.
+and URLs with userinfo, through one tested function in `internal/text`.
+`TREERIG_DEBUG` stays, meaning only stack traces on errors.
 
 ## Command by command
 
@@ -349,22 +383,24 @@ errors.
 ```
 $ treerig up
 Starting feature-x.myapp.localhost
-  web     running
-  worker  running
-  mail    running (shared)
+  web            running
+  worker         running
+  mail (shared)  running
 
 feature-x.myapp.localhost is running.
-  web     http://feature-x.myapp.localhost
-  mail    http://mail.shared.myapp.localhost   (shared)
+  web            http://feature-x.myapp.localhost
+  mail (shared)  http://mail.shared.myapp.localhost
 ```
 
-The lines before the blank one are stderr; the rest is stdout. Before printing
-a URL, `up` waits for the router to serve the route (one helper, shared with
-`route add`): a reply other than the router's own 404, within 10 seconds,
-after the locks are released. A URL that isn't served yet is printed as
-`http://... (not answering yet)`. A worktree with no routed service prints `No
-service is routed: add a [service.<name>] table to treerig.toml.` on stderr
-and no table.
+The lines before the blank one are stderr; the rest is stdout, and its URLs are
+plain. Before printing them, after the locks are released, `up` waits up to 10
+seconds for the router to have loaded each route, by the rule `doctor`'s route
+probe uses (a 404 counts as the router's own only when the target answers
+differently when asked directly). A route that is loaded but whose service
+doesn't answer yet is still printed, and stderr adds `web isn't answering yet:
+http://feature-x.myapp.localhost`. A worktree with no routed service prints `No
+service is routed: add a [service.<name>] table to treerig.toml.` on stderr and
+no table.
 
 A failed `up`:
 
@@ -380,7 +416,7 @@ Starting crash.myapp.localhost
     FATAL db refused
   web is running: http://crash.myapp.localhost
   Fix worker, then run 'treerig up' again.
-  Full log: treerig logs worker
+  Full log: 'treerig logs worker'
 ```
 
 Each kind of failure has its own evidence:
@@ -391,16 +427,17 @@ Each kind of failure has its own evidence:
 | A service is unhealthy, or still starting at Compose's wait timeout | its health check's last result and last 10 lines |
 | A service keeps restarting | its restart count and last 10 lines |
 | A dependency failed | the dependency's own evidence, as above |
-| An image fails to build or pull | the last 20 lines of the build or pull output |
+| An image fails to build or pull | the last 20 lines of the build or pull output, kept in a ring buffer while `up` runs |
 | A port is taken | the port and the service |
 | A hook fails | the hook's output, already on stderr; its exit code is passed through (124 on timeout) |
 | Docker doesn't answer | `Docker isn't answering. Start Docker, then run 'treerig up' again.` |
 
 Evidence lines pass through `text.Printable`, are cut at 200 characters, go to
-stderr only and never into `--json`. Collecting them (`ps --all` for exit
-codes, `logs --no-log-prefix --tail N` per failed service) has a 10-second
-budget in all; past it, `up` says `Service logs unavailable` and still reports
-the original failure. Logs can contain secrets, and treerig can't redact them;
+stderr only and never into `--json`. Collecting them (`ps --all` for exit codes,
+`logs --no-log-prefix --tail N` per failed service) runs on a fresh context,
+even after Ctrl-C, with a 10-second budget in all; past it, `up` says `Service
+logs unavailable` and still reports the original failure. Logs can contain
+secrets and treerig can't redact them;
 [output-and-exit-codes.md](../output-and-exit-codes.md) says so. `up` exits 1,
 or with the hook's own code. `-v` adds Compose's transcript and the command.
 
@@ -417,8 +454,10 @@ and a closed stdout (`up -f | head`) releases the lock too. The notice is
 reworded: `Following the logs of feature-x. Press Ctrl-C to stop following;
 the services keep running.`
 
-`logs -f` takes no lock: it is a viewer, and it ends when the project has no
-containers left.
+`logs -f` takes no lock: it is a viewer. Compose's follower can keep waiting
+after the containers are gone ([locks.md](locks.md#the-development-session-dev-5)),
+so `logs -f` checks every 5 seconds and ends when the project has no containers
+left.
 
 ### `status`
 
@@ -434,13 +473,14 @@ feature-x.myapp.localhost   partly running
 
 `status` probes nothing over HTTP. A URL is shown when its service is running
 and the router's container is up; with the router stopped the URL column is
-`-` and stderr says `The router is stopped, so no URL loads. Run 'treerig up'
-to start it.` `status --json` always carries each service's `url`, `state` and
-`reachable`, so scripts that read `urls` can read it instead. `status` exits 0
-whatever the state, since it reports and `doctor` is the check that fails, and
-1 when Docker doesn't answer and the state is `unknown`. In a worktree that
-isn't registered it prints `feature-x is not registered. Run 'treerig up' to
-create its environment.` on stderr and exits 0.
+`-` and stderr says `The router is stopped, so no URL loads. Run 'treerig up' to
+start it.` `status --json` is always printed, and carries each service's `url`
+and `state`, the router's state (`running`, `stopped` or `unknown`) and, when
+Docker didn't answer, `dockerError`; scripts that read `urls` read it instead.
+`status` exits 0 whatever the state, since it reports and `doctor` is the check
+that fails, and 1 when Docker doesn't answer. In a worktree that isn't
+registered it prints `feature-x is not registered. Run 'treerig up' to create
+its environment.` on stderr and exits 0.
 
 ### `list`
 
@@ -456,21 +496,27 @@ On stderr, only when stderr is a terminal:
 
 ```
 1 checkout is gone: 'treerig remove --gone' lists what it would remove and asks.
-Every repository: treerig list --all, or http://treerig.localhost
+Every repository: 'treerig list --all', or http://treerig.localhost
 ```
 
 - The URL column shows the first routed service, with `+2 more` when there are
-  others; `list --json` carries all of them.
-- Paths are absolute.
+  others, and `-` while the worktree or the router is stopped; `list --json`
+  carries all of them.
+- Paths are absolute. The footer's first line reads `2 checkouts are gone` for
+  more than one.
 - Outside a repository, or with `--all`, a REPOSITORY column comes first and
   every registered worktree on the machine is listed. Neither needs a
-  `treerig.toml`: they use `ContextWithoutConfig`.
+  `treerig.toml`: they use `ContextWithoutConfig`, which still loads settings
+  for the router's port.
 - The cost is one `docker ps -a` per label namespace and one `git worktree
   list` per repository, each with a timeout; a repository that doesn't answer
   shows `unknown`.
 - The index address in the footer is the real one (with the router's port when
   it isn't 80), and the line is left out when the router isn't running.
-- `list` is read-only: it takes no router lock and writes nothing.
+- `list` takes no router lock and writes nothing, except `--refresh`, which
+  rebuilds the index page under the router lock.
+- `list` exits 0, and 1 when Docker didn't answer (the table is still printed,
+  with `unknown` rows), as `status` does.
 
 ### `doctor`
 
@@ -490,13 +536,23 @@ $ treerig doctor
 2 problems.
 
   worker is not running: it exited with code 3.
-    See why: treerig logs worker
+    See why: 'treerig logs worker'
 
   The router is not running, so no worktree URL loads.
     Port 80 on 127.0.0.1 is not available.
     Free it, or set [router] port in /home/sam/.treerig/settings.toml.
 
-Everything else works. Every check: treerig doctor -v
+Everything else works. Every check: 'treerig doctor -v'
+```
+
+With Docker down:
+
+```
+$ treerig doctor
+1 problem.
+
+  Docker isn't answering, so nothing that needs it was checked.
+    Start Docker, then run 'treerig doctor' again.
 ```
 
 - **New runtime checks**, for this worktree and the shared services it uses:
@@ -508,11 +564,13 @@ Everything else works. Every check: treerig doctor -v
   while a worktree runs; a URL of a running service that doesn't answer. A
   worktree stopped with `down` is fine, and so is a stopped router when no
   worktree runs.
+- **Warnings** don't fail: a run with only warnings prints `Everything works,
+  with 1 warning.` and lists it.
 - **Causes before symptoms.** Checks declare what they depend on. When Docker
   doesn't answer, every check that needs it is `skip` ("not checked: Docker
   isn't answering"), and the first Docker timeout short-circuits the rest. In
   text, a symptom is listed under its cause; in `--json` every check stays,
-  with a new `causedBy` field and a `fix` field. Check IDs don't change.
+  with new `causedBy` and `fix` fields. Check IDs don't change.
 - **Locks.** A runtime check on a worktree whose operation lock is held (an
   `up` in progress) is `skip`.
 - **Pin.** A pin that fails or warns (`registry.teardown-pin`) is a problem in
@@ -520,10 +578,11 @@ Everything else works. Every check: treerig doctor -v
   `treerig teardown pin --latest`.
 - **Time.** The runtime section has one deadline and runs its probes
   concurrently; a slow Docker is a warning, not a hang.
-- **Exit.** 1 when there is a problem; the `verify` hook's own code when the
-  hook ran and failed (124 on timeout); otherwise 0. The hook's output stays on
-  stderr. OS-specific hints (`ss`, `lsof`) appear with `-v` only.
+- **Exit.** 0 with no problem. When the `verify` hook failed and is the only
+  problem, its own code (124 on timeout); otherwise 1. The hook's output stays
+  on stderr. OS-specific hints (`ss`, `lsof`) appear with `-v` only.
 - **The index page** is reported stale when it is older than the registry.
+- **Backups** under the treerig root are listed with their size by `doctor -v`.
 
 [doctor.md](../doctor.md) is rewritten around this.
 
@@ -535,64 +594,109 @@ Remove feature-x (feature-x.myapp.localhost) in myapp?
   This deletes 2 containers, 1 network, 2 volumes and its data,
   and its checkout at /home/sam/src/myapp.feature-x, including 214 ignored
   files (.env, node_modules/, db.sqlite3, ...). The branch feature-x is kept.
+  1 backup is kept, under /home/sam/.treerig/backups.
 Type feature-x to confirm: feature-x
 Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data, checkout.
 ```
 
-**Before the prompt**, under the operation lock, treerig inventories what it
-will delete and checks the checkout with `git status --porcelain --ignored` and
-`git worktree list --porcelain`. The checkout is kept, and the prompt says so
-and why, when it has modified or untracked files, is on a detached HEAD whose
-commits no branch holds, is locked (`git worktree lock`), has submodules, or is
-the repository's main worktree. Ignored files don't keep it, but the prompt
-names them, since they are deleted with it. `--keep-checkout` keeps it anyway.
-The decision is made before anything is deleted, and the inventory is checked
-again after confirmation.
+When the checkout is kept:
 
-**The pinned teardown** ([teardown.md](teardown.md)) does what it does today:
-containers, networks, volumes, data and registration, proven by ownership
-labels. The gate no longer passes the caller's argv. The invoking process
-resolves the worktree, confirms, and then runs the pinned binary with a stable
-internal form: a hidden `treerig teardown run <uuid>` for pins of a release that
-has it, and `worktree remove <uuid> --yes` for older ones (0.1.x). `teardown
-run` never changes shape, so a pin keeps working across releases. A pin too old
-to remove the way it was asked says so, instead of failing as an unknown
-command.
+```
+$ treerig remove feature-x
+Remove feature-x (feature-x.myapp.localhost) in myapp?
+  This deletes 2 containers, 1 network, 2 volumes and its data.
+  Its checkout at /home/sam/src/myapp.feature-x is kept: it has uncommitted changes.
+  The branch feature-x is kept.
+Type feature-x to confirm: feature-x
+Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data.
+Kept /home/sam/src/myapp.feature-x. When you are done with it: 'git worktree remove /home/sam/src/myapp.feature-x'
+```
 
-**The Git step** runs in the invoking process after the pinned teardown exits
-0, never inside it, so the pin's contract stays "what treerig created". It runs
-`git -C <main worktree> -c core.fsmonitor=false -c core.hooksPath=/dev/null
-worktree remove <checkout>`, without `--force`, with `GIT_DIR`, `GIT_WORK_TREE`,
-`GIT_COMMON_DIR` and `GIT_INDEX_FILE` removed from its environment, and never
-from inside the checkout. The preflight `git status` uses the same options. The
-target's checkout path comes from Git's own list for its repository, not from
-the index card. [teardown.md](teardown.md) gains this scope before it is built.
+Every line is stderr; `remove` writes nothing to stdout. The reason a checkout
+is kept is one of:
+
+| Case | Reason |
+|---|---|
+| Modified or untracked files | `it has uncommitted changes` |
+| Detached HEAD with commits no branch holds | `it is on a detached HEAD with commits no branch has` |
+| Locked with `git worktree lock` | `Git has it locked` |
+| Submodules | `it has submodules, which Git won't remove` |
+| The repository's main worktree | `it is the repository's main worktree` |
+| The preflight failed or timed out | `Git couldn't check it` |
+| `--keep-checkout` | `you asked to keep it` |
+
+**Who does what.** The gate stays as [teardown.md](teardown.md) describes it:
+the first act of `remove`, before any lock, and it `exec`s, so nothing of the
+invoked build runs after it. What changes is what the pinned binary is asked to
+do. It receives a stable hidden form, `treerig teardown run [<worktree>] [--yes]
+[--keep-checkout] [--gone [--all]] [-v]`, with the arguments as the user gave
+them, and it does all of the steps below: it resolves the worktree, checks the
+checkout, prompts, tears down, and removes the checkout. So trusted code also
+decides what the prompt says and removes the checkout. `teardown run` is a
+permanent contract, listed beside the pin's others in
+[teardown.md](teardown.md). A release build with no pin runs the same code in
+its own process; a development build with no pin refuses as today, and with
+`--dev-teardown` the invoked build does all of it, relocated (#7) and warning,
+as today.
+
+**Older pins.** Before the exec the gate runs the verified stored binary with
+`teardown run --help`; exit 0 means it has the stable form. A pin without it
+(0.1.x) gets `worktree remove <uuid>`, with `--yes` only if the user passed it,
+so the old binary still prompts in its own code. The gate resolves the UUID
+read-only to do this, runs the old binary from the target's main checkout with
+`--config` set to its `treerig.toml`, and first prints `This pin (0.1.0)
+predates checkout removal: the checkout at /home/sam/src/myapp.feature-x is
+kept. Pin this release to remove checkouts too: 'treerig teardown pin --latest'`.
+When that `treerig.toml` is missing, it refuses and says to pin this release.
+
+**The steps, in the pinned binary:**
+
+1. Resolve the worktree. With no lock held, inventory what will be deleted and
+   check the checkout with `git status --porcelain --ignored` and `git worktree
+   list --porcelain`, with a timeout. A preflight that fails or times out keeps
+   the checkout. Ignored files don't keep it, but the prompt names them, since
+   they are deleted with it.
+2. Prompt, with no lock held, so the worktree isn't blocked while the user reads.
+3. Take the operation and development locks, then inventory again and recheck
+   the checkout's HEAD and status. If anything differs from what the prompt
+   said, stop with nothing deleted, and say so.
+4. Write the `removing` marker, then tear down containers, networks, volumes,
+   data and registration, proven by ownership labels, as today.
+5. Remove the checkout, still under the locks: `git -C <main worktree> -c
+   core.fsmonitor=false -c core.hooksPath=/dev/null worktree remove <checkout>`,
+   without `--force`. Git's environment is built from an allow-list (`PATH`,
+   `HOME`, `TMPDIR`, `LANG` and `LC_*`), so no inherited `GIT_*` variable can
+   point it elsewhere; the preflight uses the same. The checkout's path comes
+   from Git's own list for its repository, never from the index card, and the
+   command never runs from inside the checkout. The pinned binary runs from the
+   pin store, outside every checkout.
 
 - **Exit.** 0 when everything in the plan was done, including a checkout the
-  plan said it would keep. 1 when the teardown fails, or when Git refuses
-  something the preflight didn't foresee; then: `[treerig] ERROR: Removed
-  feature-x, but Git kept its checkout: <Git's reason>.` and the command to
-  finish it.
-- **A crash between teardown and the Git step** leaves a checkout with no
-  record. That is safe, and `git worktree remove` finishes it.
+  plan said it would keep. 1 when the teardown fails, when step 3 stops, or when
+  Git refuses something the preflight didn't foresee; then `[treerig] ERROR:
+  Removed feature-x, but Git kept its checkout: <Git's reason>.` and the
+  command to finish it.
+- **A crash between steps 4 and 5** leaves a checkout with no record; `git
+  worktree remove` finishes it.
 - **Without a terminal and without `--yes`**: `[treerig] ERROR: Cannot ask for
   confirmation without a terminal. Pass --yes to remove feature-x.` With
   `--yes`, the plan is still printed to stderr, as a record.
 - **With a pin**, one line says so: `Removing with the pinned treerig 0.1.0.`
   The digest path and the second pinned-binary line go to `-v`.
-- **The worktree you are in**: the remaining steps run from the main worktree,
-  and the last line is `You were in it. Run: cd /home/sam/src/myapp`.
+- **The worktree you are in**: the last line is `You were in it. Run: cd
+  /home/sam/src/myapp`.
 - **One worktree per call.** `remove` takes one argument.
 
 ### `remove --gone`
 
-`remove --gone` removes every worktree of this repository that Git lists as
-prunable and not locked, in a repository Git could read. Each goes through the
-same proof, teardown and pin as `remove <worktree>`, one at a time, holding one
-lock at a time. It lists them with their volumes and data size, asks once
-(type the count), continues past a failure, and exits 1 if any failed. `--all`
-does the same for every repository on the machine and never accepts `--yes`.
-A repository Git couldn't read is listed as skipped.
+`remove --gone` removes every worktree of this repository whose state is
+`checkout missing`. It runs through the same gate as `remove` (`teardown run
+--gone`), and each worktree goes through the same proof and teardown, one at a
+time, holding one worktree's locks at a time. It lists them with their path,
+volumes and data size, asks once (type the count), continues past a failure,
+and exits 1 if any failed. `--all` does the same for every repository on the
+machine and never accepts `--yes`. A repository Git couldn't read, and a
+worktree whose state is `unknown`, are listed as skipped.
 
 ### Everything else
 
@@ -600,30 +704,37 @@ A repository Git couldn't read is listed as skipped.
   Nothing to stop.` (or `is not registered`), exit 0. It still runs `compose
   down` while any container or network remains, and drops only Compose's
   `No resource found to remove` warning, matched exactly.
-- **`rename <new-slug>`** runs under the operation and development locks as
-  today; if the services run, it then runs `up`, so Compose recreates the
-  containers whose environment changed. The Compose project name and volumes
-  don't change. It prints the plan first, refuses during an `up -f` session,
-  and `--no-restart` leaves the services stopped. If the `up` fails, the rename
-  stands and the message says to run `treerig up`. This is written into
-  [locks.md](locks.md) before it is built. It prints the new URL only when the
-  worktree runs and the router does: `feature-x is now login:
-  http://login.myapp.localhost`.
+- **`rename <new-slug>`** renames under the operation and development locks as
+  today. If the services run, it then starts them through an `up` that runs
+  under the locks it already holds (an `upLocked` that `up` also uses), so
+  Compose recreates the containers whose environment changed and no other
+  command can slip in between. The lock is then held as long as `up --build`
+  takes. The Compose project name and volumes don't change. It prints the plan
+  first, refuses during an `up -f` session, and `--no-restart` leaves the
+  services stopped. If the `up` fails, the rename stands and the message says to
+  run `treerig up`. This goes into [locks.md](locks.md), with the nested-lock
+  test, before it is built. It prints the new URL only when the worktree runs
+  and the router does: `feature-x is now login: http://login.myapp.localhost`.
 - **`route add`** waits for the route as `up` does. On timeout it keeps the
   route, warns, and exits 0.
 - **`open [service]`** opens the first routed service, or the named one, but
   only a URL treerig built for a route the router serves, with scheme `http`, a
   host ending in `.localhost` or a loopback address, and the router's port. The
-  opener (`xdg-open` or `open`) gets the URL as an argument, never through a
-  shell. With no opener (SSH, CI, an agent) it prints the URL on stdout and
-  exits 0. `open` reads `BROWSER` and `DISPLAY` only through the entry point.
-- **`backup [dir]`** with no directory writes `<treerig root>/backups/<repo>/<slug>/<timestamp>/`,
-  created with mode 0700 and refusing an existing path, outside every checkout
-  and kept by `remove`. It prints the path on stdout. An explicit directory
-  inside the worktree's home still warns that `remove` deletes it.
+  opener (`BROWSER`, `xdg-open` or `open`) gets the URL as an argument, never
+  through a shell. With no opener (SSH, CI, an agent) it prints the URL on
+  stdout and exits 0. It exits 1 when the service isn't running: `web is not
+  running. Run 'treerig up'.` `open` reads `BROWSER` and `DISPLAY` only through
+  the entry point.
+- **`backup [dir]`** with no directory writes `<treerig root>/backups/<worktree
+  UUID>/<timestamp>/`, with the repository and slug in a manifest beside the
+  bundle, so a rename keeps the history. It is created with mode 0700, refuses
+  an existing path, lives outside every checkout, and is kept by `remove`. The
+  path is a new storage location, added to `internal/layout` and
+  [state.md](state.md). `backup` prints the path on stdout. An explicit
+  directory inside the worktree's home still warns that `remove` deletes it.
 - **`unlock`** with no argument clears this worktree's lock as `worktree unlock`
   does; `--router`, `--registry` and `--shared` name the machine's locks, and
-  `unlock --list` lists the held ones. The checks before clearing are unchanged
+  `--list` lists the held ones. The checks before clearing are unchanged
   ([lock-recovery.md](../lock-recovery.md)).
 - **`router down`**: `Router stopped. 2 worktrees keep running, but their URLs
   don't load until you run 'treerig up'.` No Compose lines.
@@ -647,22 +758,29 @@ A repository Git couldn't read is listed as skipped.
 
 | Command | 0 | 1 | Other |
 |---|---|---|---|
-| `up` | running | did not start | a hook's own code; 130/143/129 ending `up -f` |
-| `status` | any state | Docker didn't answer | |
+| `up` | running | did not start | a hook's own code; 130, 143 or 129 ending `up -f` |
+| `status`, `list` | any state | Docker didn't answer (output still printed) | |
+| `logs` | logs shown | the worktree isn't registered | 130 ending `-f` |
+| `open` | opened, or URL printed | service not running | |
 | `down` | stopped, or nothing to stop | failed | |
-| `remove` | the plan was done | teardown failed, or Git refused unexpectedly | |
+| `remove` | the plan was done | teardown failed, the recheck stopped it, or Git refused unexpectedly | |
 | `remove --gone` | every one removed | any failed | |
-| `doctor` | no problem | a problem | the `verify` hook's own code |
-| `route add` | routed (even if not answering yet) | not routed | |
-| removed command stubs | | | the usage-error code |
+| `rename` | renamed (and restarted) | not renamed, or renamed but `up` failed | |
+| `unlock` | cleared, or listed | refused by the checks | |
+| `doctor` | no problem | a problem | the `verify` hook's code when it is the only problem |
+| `config validate` | valid | invalid | |
+| `route add` | routed, even if not answering yet | not routed | |
+| removed command stubs | | always | |
 
 [output-and-exit-codes.md](../output-and-exit-codes.md) gains this table.
 
 ## What this design does not change
 
 `treerig.toml` keys, the hook protocol and its exit codes, `run`'s exit codes,
-the meaning of `--config`, storage names, the ownership rule, the lock rules,
-and `--json` key names except the state values and the added fields.
+the meaning of `--config`, storage names other than the new backups directory,
+the ownership rule, the lock rules, and `--json` key names except the state
+values and the added fields. Restarting one service and shells in containers
+stay with Docker Compose.
 
 ## What changes for existing users
 
@@ -671,28 +789,31 @@ changes without a deprecation period beyond the one-release stubs.
 
 - Removed: `dev` (`up -f`), `urls` (`status`), `index` (`list --all`),
   `worktree list|remove|rename|unlock` (`list`, `remove`, `rename`, `unlock`),
-  `router up`, `router status`.
+  `router up`, `router status`. Each stays for one release as a stub that names
+  its replacement and exits 1.
 - Renamed: `route ls|rm` to `route list|remove`, with `ls` and `rm` as short
   forms.
 - Removed flags: `--domain`, and `--label-namespace` on `remove`.
 - New: `-v`, `--progress`, `up -f`, `logs`, `open`, `list --all`, `remove
   --gone`, `--keep-checkout`, `rename --no-restart`, `unlock --list`.
-- `remove` also removes the checkout, as the plan in its prompt says.
+- `remove` also removes the checkout, as the plan in its prompt says. A 0.1.x
+  pin keeps it, and says so.
 - `backup` without a directory writes under the treerig root.
+- Hook output moves from stdout to stderr.
 - State words change in text and in JSON.
 - The default text of `up`, `status`, `list`, `doctor`, `remove`, `down`,
   `router down` and the errors changes; plain notices lose `[treerig]`.
 - Exit codes: `down` with nothing to stop exits 0; `doctor` fails on a crashed
   service, a stopped router with worktrees running, and a URL that doesn't
-  answer; `status` exits 1 when Docker doesn't answer.
+  answer; `status` and `list` exit 1 when Docker doesn't answer.
 
 ## Owner decisions
 
 Recommendations; the owner confirms or changes each.
 
 1. **`remove` removes the checkout**, after a preflight shown in the prompt,
-   keeping dirty, detached, locked and main checkouts and the branch.
-   Recommended: yes.
+   keeping dirty, detached, locked, submodule and main checkouts and the branch,
+   all inside the pinned binary. Recommended: yes.
 2. **`[commands]` stay shell-free**, with a warning for `$VAR`, not an error.
    Recommended: yes.
 3. **`dev` becomes `up -f`.** Recommended: yes.
@@ -705,6 +826,7 @@ Recommendations; the owner confirms or changes each.
    Recommended: yes.
 7. **State values change in `--json`.** Recommended: yes.
 8. **`backup` defaults under the treerig root.** Recommended: yes.
+9. **Hook output moves to stderr.** Recommended: yes.
 
 ## Order of work
 
@@ -722,29 +844,31 @@ runs a new build with the previous release pinned.
 4. **Config-free context** for `list`, `unlock`, `remove <worktree>` and
    completion.
 5. **Name resolver** in `internal/registry`, used by completion.
-6. **State function** in `internal/worktree`, the `removing` marker, and the
-   new words in `status`, `list`, the index page and JSON.
+6. **State**: `Classify` in `internal/worktree`, gathering in
+   `internal/worktreestate`, the `removing` marker, and the new words in
+   `status`, `list`, the index page and JSON.
 7. **`status`** with URLs and the router's state; `urls` becomes a stub.
-8. **`list`** at top level, outside repositories, `--all`; `worktree list` and
-   `index` become stubs.
-9. **Quiet output and `-v`**: the backend's output mode, redaction, `down`,
-   `shared` and `router down` wording, the `Progress` interface with the plain
-   writer.
-10. **`up` failure summary**: exit codes from `ps`, `logs --tail`, the evidence
-    budget, the failure table.
+8. **`list`** at top level, outside repositories, `--all`, `--refresh`;
+   `worktree list` and `index` become stubs.
+9. **Quiet output and `-v`**: the backend's output mode, redaction, hook output
+   to stderr, `down`, `shared` and `router down` wording, the `Progress`
+   interface with the plain writer.
+10. **`up` failure summary**: exit codes from `ps`, `logs --tail`, the build
+    ring buffer, the evidence budget, the failure table.
 11. **`logs`**, then **`up -f`** with `dev` as a stub, and the locks.md update.
 12. **Live progress writer.**
 13. **Route wait** for `up` and `route add`.
-14. **Teardown gate contract**: `teardown run`, the argv by pin version, the
-    teardown.md update, the release-smoke leg.
-15. **`remove`** at top level, its prompt and preflight, then the Git step,
-    then `--gone`.
+14. **Teardown gate contract**: [teardown.md](teardown.md) first (`teardown
+    run`, the probe for older pins, the steps, the Git step's scope and
+    environment), then the code and the release-smoke leg.
+15. **`remove`** at top level with `--domain` gone, its prompt and preflight,
+    then the checkout step, then `--gone`.
 16. **`rename`** restarting, with locks.md first.
-17. **`unlock`** at top level with `--list`.
+17. **`unlock`** at top level with `--list`, `--domain` gone.
 18. **`doctor`**: `causedBy` and `fix`, then the runtime checks, then the new
     default, then the exit rule.
-19. **The rest**: `init` validation, `open`, `backup`'s default, the `$`
-    warning, `--domain` and `--label-namespace` removal.
+19. **The rest**: `route list|remove`, `init` validation, `open`, `backup`'s
+    default, the `$` warning, `--label-namespace` gone from `remove`.
 20. **First-screen wording** and one-line descriptions, once the set is final.
 21. **Stub removal**, a release later.
 
@@ -754,7 +878,8 @@ output-and-exit-codes, json-output, troubleshooting, host-routes,
 checkout-index, teardown-pin, concepts, glossary, install, hooks, routing,
 shared-services, platforms, compose, settings, lock-recovery, trust-model,
 configuration and upgrading-from-a-pre-rename-build under `docs/`;
-`treerig.example.toml`, CONTRIBUTING.md and AGENTS.md. Design notes (locks,
-routing, teardown) get a one-line note that the command names they use were
-replaced in 1.0, besides the changes above. A final grep for every removed name
-comes back empty outside design notes and release notes.
+`treerig.example.toml`, CONTRIBUTING.md and AGENTS.md. Design notes change
+where this design changes what they decide (locks, teardown, state), and each
+note that uses a replaced command name gets a one-line note that the names were
+replaced in 1.0. A final grep for every removed name comes back empty outside
+design notes and release notes.
