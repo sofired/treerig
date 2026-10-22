@@ -5,7 +5,8 @@
 **Basis.** Two usability reviews of v0.1.0, by a CLI interface designer and a
 usability specialist, each run against a live stack on a release build in
 October 2026, and a terminal-UI evaluation with working prototypes. Their
-reports are not in the repository; [What the reviews found](#what-the-reviews-found)
+reports are not in the repository; [What the reviews
+found](#what-the-reviews-found)
 keeps what they observed.
 
 Nothing in the command line is frozen before 1.0, so this design renames and
@@ -128,7 +129,8 @@ output this design rewrites anyway, so the order is:
   the sentences in CONTRIBUTING.md and AGENTS.md that state this rule; and the
   test's own file.
 
-No storage name or JSON key uses the word, so none of this needs a migration. The page at
+No storage name or JSON key uses the word, so none of this needs a migration.
+The page at
 `http://treerig.localhost` is *the overview*. *Control home*, *registration*,
 *identity marker*, *label namespace* and *pin* stay out of default output too
 (principle 4); where an error needs one, it says what it is. The
@@ -160,7 +162,8 @@ requests that change each behaviour.
 | `teardown pin\|status` | Pin a verified build for removal; show what removal will run | same | |
 | `completion <shell>` | A shell completion script | same | |
 
-`-v` (`--verbose`) is accepted by every command (see [Verbose output](#verbose-output)).
+`-v` (`--verbose`) is accepted by every command (see [Verbose
+output](#verbose-output)).
 `--json` is accepted by `status`, `list`, `doctor`, `shared status`, `route
 list` and `teardown status`.
 
@@ -268,7 +271,8 @@ Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
 - **A host** names the registered worktree with exactly that host.
 - **A path** is an argument written as one: it is `.` or `..`, or it starts
   with `/`, `./`, `../` or `~`. It resolves (after `EvalSymlinks`) to the
-  worktree whose recorded root is its longest prefix, so a directory nested in another resolves to the inner
+  worktree whose recorded root is its longest prefix, so a directory nested in
+  another resolves to the inner
   one. A path inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form.
 - **Anything else is a slug**: this repository's first. Outside a repository,
@@ -340,7 +344,8 @@ with a short budget.
   itself doesn't exist (Git also reports an existing directory as prunable when
   its administrative files are gone, and that one is `unknown`, not missing, as
   is a path that can't be checked); and the directory's parent exists, is not
-  empty, and is not a mount point or below one that the mount table (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
+  empty, and is not a mount point or below one that the mount table
+  (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
   doesn't list as mounted. An unmounted volume's mount point is an ordinary
   empty directory, so emptiness is the signal. Otherwise the state
   is `unknown`, with the hint `Its parent directory is missing: is the volume
@@ -388,7 +393,8 @@ uses an in-repo renderer.
 
 - **One decision, at the entry point.** `cmd/treerig` decides the mode from
   whether stderr is a terminal, `TERM`, `NO_COLOR`, `FORCE_COLOR`, `CI` and
-  `--progress`, and passes it in. Library code never reads environment variables or
+  `--progress`, and passes it in. Library code never reads environment
+  variables or
   probes the terminal. The colour rule is the existing `colourFor`.
 - **Live mode**: stderr is a terminal, `TERM` isn't `dumb`, `CI` is unset and
   `--progress` isn't `plain`. Per-service lines are redrawn in place; the cursor
@@ -464,7 +470,8 @@ probe uses (a 404 counts as the router's own only when the target answers
 differently when asked directly). A route that is loaded but whose service
 doesn't answer yet is still printed, so stdout stays a stable table for
 scripts; this is the one case principle 6 allows, and stderr adds `web isn't
-answering yet: http://feature-x.myapp.localhost`. A worktree with no routed service prints `No
+answering yet: http://feature-x.myapp.localhost`. A worktree with no routed
+service prints `No
 service is routed: add a [service.<name>] table to treerig.toml.` on stderr and
 no table.
 
@@ -521,7 +528,8 @@ reworded: `Following the logs of feature-x. Press Ctrl-C to stop following;
 the services keep running.`
 
 `logs -f` takes no lock: it is a viewer. Compose's follower can keep waiting
-after the containers are gone ([locks.md](locks.md#the-development-session-dev-5)),
+after the containers are gone
+([locks.md](locks.md#the-development-session-dev-5)),
 so `logs -f` checks every 5 seconds and ends when the project has no containers
 left.
 
@@ -627,7 +635,8 @@ $ treerig doctor
   checks stay cheap; runtime checks don't reach other worktrees.
 - **What fails.** A service that exited with a non-zero code, is unhealthy or
   keeps restarting; a worktree that is `partly running` or `failed`; the
-  router stopped while a worktree runs; a URL of a running service that doesn't answer. A
+  router stopped while a worktree runs; a URL of a running service that doesn't
+  answer. A
   worktree stopped with `down` is fine, and so is a stopped router when no
   worktree runs.
 - **Warnings** don't fail: a run with only warnings prints `Everything works,
@@ -726,10 +735,13 @@ fake old pin whose `--help` exits 0 asserts the legacy path. A pin without the
 stable form (0.1.x) gets `worktree remove <uuid>`, with `--yes` only if the
 user passed it, so the old binary still prompts in its own code. The gate
 resolves the UUID and the main worktree read-only to do this, with the same Git
-options and allow-listed environment variables as the pinned steps, runs the old binary
-from the target's main worktree with `--config` set to its `treerig.toml`, and first prints `This pin (0.1.0)
+options and allow-listed environment variables as the pinned steps, runs the
+old binary
+from the target's main worktree with `--config` set to its `treerig.toml`, and
+first prints `This pin (0.1.0)
 predates directory removal: the directory at /home/sam/src/myapp.feature-x is
-kept. Pin this release to remove directories too: 'treerig teardown pin --latest'`.
+kept. Pin this release to remove directories too: 'treerig teardown pin
+--latest'`.
 The gate changes to that directory before the exec, since `exec` keeps the
 working directory. When that `treerig.toml` is missing, it refuses and says to
 pin this release. `remove --gone` with an older pin refuses and says to pin
@@ -873,7 +885,8 @@ a yes-or-no question whose default is No.
 - **`rename <new-slug>`** renames under the operation and development locks as
   today. If the services run, it then starts them through an `up` that runs
   under the locks it already holds (an `upLocked` that `up` also uses), so
-  Compose recreates the containers whose environment variables changed and no other
+  Compose recreates the containers whose environment variables changed and no
+  other
   command can slip in between. The lock is then held as long as `up --build`
   takes. The Compose project name and volumes don't change. It prints the plan
   first, refuses during an `up -f` session, and `--no-restart` leaves the
@@ -946,10 +959,12 @@ a yes-or-no question whose default is No.
 `treerig.toml` keys, the hook protocol, `run`'s exit codes, the meaning of
 `--config`, storage names other than the new backups directory, the ownership
 rule, the lock ordering, and `--json` key names except the state values,
-the added fields and the renamed `doctor` check IDs. Lock holding changes only where this note says so: `remove`
+the added fields and the renamed `doctor` check IDs. Lock holding changes only
+where this note says so: `remove`
 (prompt before the locks, recheck after) and `rename` (locks held across the
 restart). `doctor` keeps the `verify` hook's exit code only when the hook is the
-sole problem. `teardown run` is a new permanent contract. Restarting one service and shells in containers
+sole problem. `teardown run` is a new permanent contract. Restarting one
+service and shells in containers
 stay with Docker Compose.
 
 ## What changes for existing users
@@ -1061,7 +1076,8 @@ runs a new build with the previous release pinned.
 Docs that quote changed commands or output change in the pull request that
 changes them: the README; getting-started, commands, worktrees, doctor,
 output-and-exit-codes, json-output, troubleshooting, host-routes,
-overview (today's checkout-index, renamed in step 8), teardown-pin, concepts, glossary, install, hooks, routing,
+overview (today's checkout-index, renamed in step 8), teardown-pin, concepts,
+glossary, install, hooks, routing,
 shared-services, platforms, compose, settings, lock-recovery, trust-model,
 configuration and upgrading-from-a-pre-rename-build under `docs/`;
 `treerig.example.toml`, CONTRIBUTING.md and AGENTS.md. Design notes change
