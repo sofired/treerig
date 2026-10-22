@@ -650,7 +650,7 @@ Removing feature-x (feature-x.myapp.localhost) in myapp
   and its directory at /home/sam/src/myapp.feature-x, including 214 ignored
   files (.env, node_modules/, db.sqlite3, ...). The branch feature-x is kept.
   1 backup is kept, under /home/sam/.treerig/backups.
-Remove feature-x? [y/N] y
+Remove feature-x.myapp.localhost? [y/N] y
 Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data, directory.
 ```
 
@@ -662,7 +662,7 @@ Removing feature-x (feature-x.myapp.localhost) in myapp
   deletes 2 containers, 1 network, 2 volumes and its data.
   Its directory at /home/sam/src/myapp.feature-x is kept: it has uncommitted changes.
   The branch feature-x is kept.
-Remove feature-x? [y/N] y
+Remove feature-x.myapp.localhost? [y/N] y
 Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data.
 Kept /home/sam/src/myapp.feature-x. When you are done with it: 'git worktree remove /home/sam/src/myapp.feature-x'
 ```
@@ -796,14 +796,21 @@ a yes-or-no question whose default is No.
 
 | Command | When it asks | Question |
 |---|---|---|
-| `remove` | always | `Remove feature-x? [y/N]` |
+| `remove` | always | `Remove feature-x.myapp.localhost? [y/N]` |
 | `remove --gone` | always | `Remove these 3 worktrees? [y/N]` |
 | `shared down --volumes` | with `--volumes`, which deletes the shared services' data | `Delete the data of myapp's shared services? [y/N]` |
 | `teardown pin` | always | `Pin this build for worktree removal? [y/N]` |
 | `restore` | always | `Replace feature-x's data with this backup? [y/N]` |
 
-- Only `y` or `yes`, in any case, goes ahead. Anything else, including an empty
-  answer, prints `Cancelled; nothing changed.` and exits 1.
+- Only `y` or `yes`, in any case, followed by Enter, goes ahead. Anything
+  else, including an empty answer or end of input without a newline, prints
+  `Cancelled; nothing changed.` and exits 1.
+- Input typed or pasted before the question appears never answers it: unread
+  terminal input is discarded (`tcflush`, through the existing TTY code)
+  immediately before the question is written. A pty test queues `y` before the
+  prompt and expects the command to cancel.
+- `remove`'s question names the host, so the last line before the answer
+  carries the unambiguous name.
 - `--yes` skips the question, and the plan is still printed to stderr as a
   record. `remove --gone --all` never accepts `--yes`.
 - Prompts need stdin and stderr to be terminals and `CI` to be unset (see
@@ -812,7 +819,9 @@ a yes-or-no question whose default is No.
   informed, so each plan names its target in full: the worktree's slug, host,
   repository and directory for `remove`; every worktree, its path and data size
   for `--gone`; the project and its volumes for `shared down --volumes`; the
-  release, source, signer and digest for `teardown pin`.
+  release, source, signer and digest for `teardown pin`, which keeps today's
+  `no signature was checked` line for `--file` and its comparison with the pin
+  it replaces.
 - **`restore`** now asks, because it replaces a worktree's data. Its plan says
   what the backup is and what it replaces:
 
@@ -820,13 +829,15 @@ a yes-or-no question whose default is No.
   Restoring feature-x (feature-x.myapp.localhost) from
   /home/sam/.treerig/backups/1b0c.../20261021T140312Z
     a backup of feature-x, taken 2026-10-21 14:03
-    runs the restore hook, which replaces feature-x's current data.
+    runs the restore hook (./scripts/restore.sh), which replaces feature-x's
+    current data.
   Replace feature-x's data with this backup? [y/N]
   ```
 
   The backup's origin comes from the manifest `backup` writes beside a default
   bundle; a directory without one says `a backup treerig has no record of`, and
-  a backup of another worktree says so (`a backup of login, taken ...`).
+  a backup of another worktree says so (`a backup of login, taken ...`). The
+  manifest's text goes through `text.Printable`.
 
 ### Everything else
 
