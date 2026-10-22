@@ -412,8 +412,8 @@ seconds for the router to have loaded each route, by the rule `doctor`'s route
 probe uses (a 404 counts as the router's own only when the target answers
 differently when asked directly). A route that is loaded but whose service
 doesn't answer yet is still printed, so stdout stays a stable table for
-scripts; this is the one case principle 6 allows, and stderr adds `web isn't answering yet:
-http://feature-x.myapp.localhost`. A worktree with no routed service prints `No
+scripts; this is the one case principle 6 allows, and stderr adds `web isn't
+answering yet: http://feature-x.myapp.localhost`. A worktree with no routed service prints `No
 service is routed: add a [service.<name>] table to treerig.toml.` on stderr and
 no table.
 
@@ -575,8 +575,8 @@ $ treerig doctor
   router; the router runs when any worktree on the machine runs. Machine-wide
   checks stay cheap; runtime checks don't reach other worktrees.
 - **What fails.** A service that exited with a non-zero code, is unhealthy or
-  keeps restarting; a worktree that is `partly running` or `failed`; the router stopped
-  while a worktree runs; a URL of a running service that doesn't answer. A
+  keeps restarting; a worktree that is `partly running` or `failed`; the
+  router stopped while a worktree runs; a URL of a running service that doesn't answer. A
   worktree stopped with `down` is fine, and so is a stopped router when no
   worktree runs.
 - **Warnings** don't fail: a run with only warnings prints `Everything works,
