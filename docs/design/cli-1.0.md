@@ -267,8 +267,8 @@ Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
   treerig prints uses it.
 - **A host** names the registered worktree with exactly that host.
 - **A path** is an argument written as one: it is `.` or `..`, or it starts
-  with `/`, `./`, `../` or `~`. It resolves (after `EvalSymlinks`) to the worktree whose recorded root is
-  its longest prefix, so a directory nested in another resolves to the inner
+  with `/`, `./`, `../` or `~`. It resolves (after `EvalSymlinks`) to the
+  worktree whose recorded root is its longest prefix, so a directory nested in another resolves to the inner
   one. A path inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form.
 - **Anything else is a slug**: this repository's first. Outside a repository,
@@ -339,8 +339,8 @@ with a short budget.
   repository and lists the entry as prunable and not locked; the directory
   itself doesn't exist (Git also reports an existing directory as prunable when
   its administrative files are gone, and that one is `unknown`, not missing, as
-  is a path that can't be checked); and the directory's parent exists, is not empty, and is not a mount point or below one
-  that the mount table (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
+  is a path that can't be checked); and the directory's parent exists, is not
+  empty, and is not a mount point or below one that the mount table (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
   doesn't list as mounted. An unmounted volume's mount point is an ordinary
   empty directory, so emptiness is the signal. Otherwise the state
   is `unknown`, with the hint `Its parent directory is missing: is the volume
