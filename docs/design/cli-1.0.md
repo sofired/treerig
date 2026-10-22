@@ -274,7 +274,8 @@ Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
   worktree whose recorded root is its longest prefix, matched whole path
   component by whole path component, so `/repo/app2/src` never matches the
   root `/repo/app`, and a directory nested in another resolves to the inner
-  one. The resolver's tests include sibling roots that share a prefix. A path inside a directory, not its root, is accepted only by `status`; a
+  one. The resolver's tests include sibling roots that share a prefix. A path
+  inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form.
 - **Anything else is a slug**: this repository's first. Outside a repository,
   or for a slug this repository doesn't have, it must be unique on the machine;
@@ -353,7 +354,8 @@ with a short budget.
   missing or empty: is the volume mounted?` when the parent or mount check
   failed, `Git's records for it are damaged: 'git worktree repair' may fix
   them.` when the directory exists but Git calls it prunable, and `treerig
-  couldn't check it: <the error>.` for a permission error or a Git failure. Git can't tell a directory moved without `git worktree move` from a
+  couldn't check it: <the error>.` for a permission error or a Git failure.
+  Git can't tell a directory moved without `git worktree move` from a
   deleted one; `remove --gone` shows each path so the user can run `git
   worktree repair` first.
 - Every text word maps to one JSON value, pinned by one test.
