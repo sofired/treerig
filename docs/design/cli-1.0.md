@@ -116,7 +116,7 @@ output this design rewrites anyway, so the order is:
 - From now on, new code, tests, docs and design notes don't use it, and each
   pull request in the order of work removes it from the strings, docs and
   goldens it rewrites. Two renames land with the steps that rework them: the
-  `checkout.*` doctor check IDs become `worktree.*` (step 18), and
+  `checkout.*` doctor check IDs become `worktree.*` (step 19), and
   `internal/checkoutindex` and `docs/checkout-index.md` become
   `internal/overview` and `docs/overview.md` (step 8).
 - Once the redesign has landed, one pull request removes what is left
@@ -281,9 +281,9 @@ repository's `treerig.toml` and Compose file from its recorded root, and its
 namespace from the registration. When its directory is missing they say so and
 stop.
 
-`remove`'s confirmation phrase is the slug when the slug names one worktree on
-the machine, and the host otherwise. The prompt always shows the repository and
-the directory path.
+`remove`'s prompt always shows the worktree's slug and host, its repository
+and its directory, so the answer is about one named worktree (see
+[Confirmations](#confirmations)).
 
 ## State words
 
@@ -645,12 +645,12 @@ $ treerig doctor
 
 ```
 $ treerig remove feature-x
-Remove feature-x (feature-x.myapp.localhost) in myapp?
-  This deletes 2 containers, 1 network, 2 volumes and its data,
+Removing feature-x (feature-x.myapp.localhost) in myapp
+  deletes 2 containers, 1 network, 2 volumes and its data,
   and its directory at /home/sam/src/myapp.feature-x, including 214 ignored
   files (.env, node_modules/, db.sqlite3, ...). The branch feature-x is kept.
   1 backup is kept, under /home/sam/.treerig/backups.
-Type feature-x to confirm: feature-x
+Remove feature-x? [y/N] y
 Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data, directory.
 ```
 
@@ -658,11 +658,11 @@ When the directory is kept:
 
 ```
 $ treerig remove feature-x
-Remove feature-x (feature-x.myapp.localhost) in myapp?
-  This deletes 2 containers, 1 network, 2 volumes and its data.
+Removing feature-x (feature-x.myapp.localhost) in myapp
+  deletes 2 containers, 1 network, 2 volumes and its data.
   Its directory at /home/sam/src/myapp.feature-x is kept: it has uncommitted changes.
   The branch feature-x is kept.
-Type feature-x to confirm: feature-x
+Remove feature-x? [y/N] y
 Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data.
 Kept /home/sam/src/myapp.feature-x. When you are done with it: 'git worktree remove /home/sam/src/myapp.feature-x'
 ```
@@ -778,7 +778,8 @@ this release, since one exec can't loop over several worktrees.
 `directory missing`. It runs through the same gate as `remove` (`teardown run
 --gone`), and each worktree goes through the same proof and teardown, one at a
 time, holding one worktree's locks at a time. It lists them with their path,
-volumes and data size, asks once (type the count), continues past a failure,
+volumes and data size, asks once (`Remove these 3 worktrees? [y/N]`),
+continues past a failure,
 and exits 1 if any failed. `--all` does the same for every repository on the
 machine and never accepts `--yes`. A repository Git couldn't read, and a
 worktree whose state is `unknown`, are listed as skipped.
@@ -787,6 +788,45 @@ worktree whose state is `unknown`, are listed as skipped.
 only Git write in the CLI. Git keeps listing the gone entries as prunable, so
 `--gone` ends with the next step: `Git still lists them: run 'git worktree
 prune' in /home/sam/src/myapp to clear them.`
+
+### Confirmations
+
+Five commands ask before they act, all the same way: they print the plan, then
+a yes-or-no question whose default is No.
+
+| Command | When it asks | Question |
+|---|---|---|
+| `remove` | always | `Remove feature-x? [y/N]` |
+| `remove --gone` | always | `Remove these 3 worktrees? [y/N]` |
+| `shared down --volumes` | with `--volumes`, which deletes the shared services' data | `Delete the data of myapp's shared services? [y/N]` |
+| `teardown pin` | always | `Pin this build for worktree removal? [y/N]` |
+| `restore` | always | `Replace feature-x's data with this backup? [y/N]` |
+
+- Only `y` or `yes`, in any case, goes ahead. Anything else, including an empty
+  answer, prints `Cancelled; nothing changed.` and exits 1.
+- `--yes` skips the question, and the plan is still printed to stderr as a
+  record. `remove --gone --all` never accepts `--yes`.
+- Prompts need stdin and stderr to be terminals and `CI` to be unset (see
+  [Rendering](#rendering)).
+- Nothing asks you to type a name or phrase. The plan is what makes the answer
+  informed, so each plan names its target in full: the worktree's slug, host,
+  repository and directory for `remove`; every worktree, its path and data size
+  for `--gone`; the project and its volumes for `shared down --volumes`; the
+  release, source, signer and digest for `teardown pin`.
+- **`restore`** now asks, because it replaces a worktree's data. Its plan says
+  what the backup is and what it replaces:
+
+  ```
+  Restoring feature-x (feature-x.myapp.localhost) from
+  /home/sam/.treerig/backups/1b0c.../20261021T140312Z
+    a backup of feature-x, taken 2026-10-21 14:03
+    runs the restore hook, which replaces feature-x's current data.
+  Replace feature-x's data with this backup? [y/N]
+  ```
+
+  The backup's origin comes from the manifest `backup` writes beside a default
+  bundle; a directory without one says `a backup treerig has no record of`, and
+  a backup of another worktree says so (`a backup of login, taken ...`).
 
 ### Everything else
 
@@ -853,12 +893,13 @@ prune' in /home/sam/src/myapp to clear them.`
 | `logs` | logs shown | the worktree isn't registered | 130 ending `-f` |
 | `open` | opened, or URL printed | service not running | |
 | `down` | stopped, or nothing to stop | failed | |
-| `remove` | the plan was done | teardown failed, the recheck stopped it, or Git refused unexpectedly | |
-| `remove --gone` | every one removed | any failed | |
+| `remove` | the plan was done | declined, teardown failed, the recheck stopped it, or Git refused unexpectedly | |
+| `remove --gone` | every one removed | declined, or any failed | |
 | `rename` | renamed (and restarted) | not renamed, or renamed but `up` failed | |
 | `unlock` | cleared, or listed | refused by the checks | |
 | `doctor` | no problem | a problem | the `verify` hook's code when it is the only problem |
 | `config validate` | valid | invalid | |
+| `restore` | restored | declined, or the restore hook failed | the hook's own code |
 | `route add` | routed, even if not answering yet | not routed | |
 | removed command stubs | | always | |
 
@@ -893,6 +934,8 @@ changes without a deprecation period beyond the one-release stubs.
 - `remove` also removes the directory, as the plan in its prompt says. A 0.1.x
   pin keeps it, and says so.
 - `backup` without a directory writes under the treerig root.
+- Confirmations are `[y/N]` questions instead of a typed name or phrase, and
+  `restore` now asks, so a script that runs `restore` passes `--yes`.
 - Hook output moves from stdout to stderr.
 - State words change in text and in JSON.
 - The default text of `up`, `status`, `list`, `doctor`, `remove`, `down`,
@@ -925,6 +968,9 @@ Recommendations; the owner confirms or changes each.
 7. **State values change in `--json`.** Recommended: yes.
 8. **`backup` defaults under the treerig root.** Recommended: yes.
 9. **Hook output moves to stderr.** Recommended: yes.
+10. **Confirmations are `[y/N]`**, default No, for `remove`, `remove --gone`,
+    `shared down --volumes`, `teardown pin` and the newly prompting `restore`;
+    nothing asks to type a name or phrase. Recommended: yes.
 
 ## Order of work
 
@@ -964,15 +1010,17 @@ runs a new build with the previous release pinned.
     then the directory step, then `--gone`.
 16. **`rename`** restarting, with locks.md first.
 17. **`unlock`** at top level with `--list`, `--domain` gone.
-18. **`doctor`**: `causedBy` and `fix`, then the runtime checks, then the new
+18. **Confirmations**: `[y/N]` in `internal/commands/prompt.go` for every
+    prompt, and `restore`'s new prompt and plan.
+19. **`doctor`**: `causedBy` and `fix`, then the runtime checks, then the new
     default and the `checkout.*` check IDs renamed to `worktree.*`, then the
     exit rule.
-19. **The rest**: `route list|remove`, `init` validation, `open`, `backup`'s
+20. **The rest**: `route list|remove`, `init` validation, `open`, `backup`'s
     default, the `$` warning, `--label-namespace` gone from `remove`.
-20. **First-screen wording** and one-line descriptions, once the set is final.
-21. **"Checkout" removed** from everything still using it, with the
+21. **First-screen wording** and one-line descriptions, once the set is final.
+22. **"Checkout" removed** from everything still using it, with the
     `internal/style` test that keeps it out (see [Words](#words)), before 1.0.
-22. **Stub removal**, a release later.
+23. **Stub removal**, a release later.
 
 Docs that quote changed commands or output change in the pull request that
 changes them: the README; getting-started, commands, worktrees, doctor,
