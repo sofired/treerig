@@ -17,12 +17,12 @@ lists every break for the release notes.
 decisions](#owner-decisions). Implementers: everything, then [Order of
 work](#order-of-work).
 
-**Terms** are as in the [glossary](../glossary.md). Here, *worktree* is a
-worktree treerig manages, *checkout* is its directory on disk, *slug* is its
-short name (`feature-x`) and *host* is its hostname
-(`feature-x.myapp.localhost`). `trig` is the same program as `treerig`;
-everything here applies to it. treerig runs on Linux and macOS only, so TTY and
-signal handling are Unix-only.
+**Terms.** [Words](#words) sets the words users see: *worktree*, *directory*
+and *environment*. This note uses them the same way; *slug* is a worktree's
+short name (`feature-x`) and *host* its hostname (`feature-x.myapp.localhost`).
+Other terms are as in the [glossary](../glossary.md). `trig` is the same
+program as `treerig`; everything here applies to it. treerig runs on Linux and
+macOS only, so TTY and signal handling are Unix-only.
 
 ## What the reviews found
 
@@ -47,7 +47,7 @@ Each was observed on a live stack.
    removal prompt asks for it, but `worktree remove <host>` fails with `No
    worktree is registered as <host>`. A slug used in two repositories (`main`)
    is refused as ambiguous even inside one of them.
-5. **Removing a worktree is two steps and says so nowhere.** The checkout stays
+5. **Removing a worktree is two steps and says so nowhere.** The directory stays
    after `worktree remove`. Without a terminal it fails with `Interactive
    confirmation required: "<host>".` and doesn't mention `--yes`.
 6. **Three vocabularies for "is it running".** `worktree list` says `ready` for
@@ -92,6 +92,29 @@ Each was observed on a live stack.
 8. **Contributor and recovery commands stay off the first screen**, and the
    errors that need them name them.
 
+## Words
+
+A treerig worktree and a Git worktree are one-to-one: `git worktree add`
+creates one, and treerig gives it a slug, a URL and services of its own. So the
+CLI keeps Git's word, and uses three words everywhere a user sees them:
+
+| Word | Means | Examples |
+|---|---|---|
+| **worktree** | The whole thing: what `list` shows and `remove` removes | `remove feature-x`, `list` |
+| **directory** | The worktree's files on disk, which Git created | `directory missing`, `--keep-directory`, the DIRECTORY column |
+| **environment** | What treerig adds: containers, networks, volumes, data and the URL | `down` stops the environment; `remove --keep-directory` removes the environment and keeps the directory |
+
+*Checkout* leaves user-facing text: in Git it usually means switching branches,
+treerig used it inconsistently (the "checkout index", `doctor`'s "Git no longer
+lists its checkout"), and the usability review found users don't need it. It
+stays only where it names code or files (`internal/checkoutindex`, the
+`checkout.*` doctor check IDs, `docs/checkout-index.md`). The page at
+`http://treerig.localhost` is *the overview*. *Control home*, *registration*,
+*identity marker*, *label namespace* and *pin* stay out of default output too
+(principle 4); where an error needs one, it says what it is. The
+[glossary](../glossary.md) and the user docs follow these words in the pull
+requests that change each behaviour.
+
 ## The command set
 
 | Command | What it does | Replaces | Answers |
@@ -101,10 +124,10 @@ Each was observed on a live stack.
 | `status [worktree] [--json]` | Services, their state and URLs, and the router's state | `status`, `urls` | 3, 6 |
 | `logs [service...] [-f]` | Show service logs; `-f` follows | new | 1 |
 | `open [service]` | Open a service's URL in the browser | new | 7 |
-| `down [worktree]` | Stop a worktree; data is kept | `down` | 9 |
+| `down [worktree]` | Stop a worktree's environment; data is kept | `down` | 9 |
 | `list` (`ls`) `[--all [--refresh]] [--json]` | Worktrees with their state and URL; every repository's outside one | `worktree list`, `index` (text) | 6, 8 |
-| `remove` (`rm`) `[worktree] [--yes] [--keep-checkout]` | Remove a worktree's containers, volumes and data, and its checkout | `worktree remove` | 4, 5 |
-| `remove --gone [--all]` | Remove the worktrees whose checkout Git says is gone | new | 5 |
+| `remove` (`rm`) `[worktree] [--yes] [--keep-directory]` | Remove a worktree: its environment and its directory | `worktree remove` | 4, 5 |
+| `remove --gone [--all]` | Remove the worktrees whose directory Git says is gone | new | 5 |
 | `rename <new-slug>` | Change this worktree's name and URL, and restart it if it runs | `worktree rename` | 10 |
 | `run <name> [-- args]` | Run a command declared in `treerig.toml` | `run` | |
 | `backup [dir]`, `restore <dir>` | Run the backup or restore hook | same | 10 |
@@ -128,7 +151,7 @@ list` and `teardown status`.
   scripts read `status --json`.
 - **`index`** goes into `list --all` (text and JSON, including the shared
   services' web UIs and the Docker error fields `index --json` carries today).
-  The page at `http://treerig.localhost` stays; `up`, `down` and `remove` keep
+  The overview page at `http://treerig.localhost` stays; `up`, `down` and `remove` keep
   refreshing it, `doctor` reports a stale page, and `list --all --refresh`
   rebuilds it.
 - **`worktree list|remove|rename|unlock`** become `list`, `remove`, `rename` and
@@ -141,8 +164,8 @@ list` and `teardown status`.
   registration, then the index card, then the target repository's
   `treerig.toml`, and never from the resources it is about to delete. The
   namespace only selects the label key; the identity labels must still match in
-  full. If none has it, the error says to run `treerig remove` from a checkout
-  of the repository that created the worktree. `shared down` keeps the flag,
+  full. If none has it, the error says to run `treerig remove` from inside
+  the repository that created the worktree. `shared down` keeps the flag,
   hidden, until the shared stack's state records its namespace (a
   [state.md](state.md) format change).
 
@@ -173,9 +196,9 @@ Start here
 Day to day
   status      What is running here, and its URLs
   logs        Show service logs (-f to follow)
-  down        Stop this worktree; data is kept
+  down        Stop this worktree's environment; data is kept
   list        List worktrees, with their state and URLs
-  remove      Remove a worktree: its services, data and checkout
+  remove      Remove a worktree: its environment and directory
   rename      Change this worktree's name and URL
 
 Project tasks
@@ -224,8 +247,8 @@ Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
 - **A host** names the registered worktree with exactly that host.
 - **A path** is an argument written as one: it starts with `/`, `./`, `../` or
   `~`. It resolves (after `EvalSymlinks`) to the worktree whose recorded root is
-  its longest prefix, so a checkout nested in another resolves to the inner
-  one. A path inside a checkout, not its root, is accepted only by `status`; a
+  its longest prefix, so a directory nested in another resolves to the inner
+  one. A path inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form.
 - **Anything else is a slug**: this repository's first. Outside a repository,
   or for a slug this repository doesn't have, it must be unique on the machine;
@@ -238,12 +261,12 @@ feature-x` means. The resolver lives in `internal/registry`, beside
 
 For a worktree of another repository, `status` and `down` read that
 repository's `treerig.toml` and Compose file from its recorded root, and its
-namespace from the registration. When its checkout is missing they say so and
+namespace from the registration. When its directory is missing they say so and
 stop.
 
 `remove`'s confirmation phrase is the slug when the slug names one worktree on
 the machine, and the host otherwise. The prompt always shows the repository and
-the checkout path.
+the directory path.
 
 ## State words
 
@@ -258,10 +281,10 @@ A worktree is in exactly one of these:
 | `stopped` | `stopped` | An `up` has finished before, and no service runs (after `down`, or every service exited cleanly); data is kept |
 | `not started` | `not_started` | Registered, and no `up` has ever finished |
 | `removing` | `removing` | A removal was interrupted; `treerig remove` finishes it |
-| `checkout missing` | `checkout_missing` | Git, asked successfully, no longer has its checkout (below) |
+| `directory missing` | `directory_missing` | Git, asked successfully, no longer has its directory (below) |
 | `unknown` | `unknown` | Docker or Git didn't answer, so the state can't be told |
 
-The first that applies wins: `removing`, `checkout missing`, `unknown`,
+The first that applies wins: `removing`, `directory missing`, `unknown`,
 `starting`, `failed`, `partly running`, `running`, `stopped`, `not started`.
 Containers decide over history, so a first `up` that fails with one service
 running is `partly running`, and one whose only service crashed is `failed`.
@@ -286,14 +309,14 @@ with a short budget.
 - **`removing`** needs a marker written when removal starts: a stored-state
   change, made as [state.md](state.md) says. A removal by a 0.1.x pin writes
   none, so an interrupted one shows `not started` or `stopped`.
-- **`checkout missing` needs positive evidence**: Git ran against a reachable
-  repository and lists the entry as prunable and not locked, and the checkout's
-  parent directory exists, is not empty, and is not a mount point or below one
+- **`directory missing` needs positive evidence**: Git ran against a reachable
+  repository and lists the entry as prunable and not locked, and the directory's
+  parent exists, is not empty, and is not a mount point or below one
   that the mount table (`/proc/self/mountinfo` on Linux, `getmntinfo` on macOS)
   doesn't list as mounted. An unmounted volume's mount point is an ordinary
   empty directory, so emptiness is the signal. Otherwise the state
   is `unknown`, with the hint `Its parent directory is missing: is the volume
-  mounted?` Git can't tell a checkout moved without `git worktree move` from a
+  mounted?` Git can't tell a directory moved without `git worktree move` from a
   deleted one; `remove --gone` shows each path so the user can run `git
   worktree repair` first.
 - Every text word maps to one JSON value, pinned by one test.
@@ -337,7 +360,7 @@ uses an in-repo renderer.
 
 - **One decision, at the entry point.** `cmd/treerig` decides the mode from
   whether stderr is a terminal, `TERM`, `NO_COLOR`, `FORCE_COLOR`, `CI` and
-  `--progress`, and passes it in. Library code never reads the environment or
+  `--progress`, and passes it in. Library code never reads environment variables or
   probes the terminal. The colour rule is the existing `colourFor`.
 - **Live mode**: stderr is a terminal, `TERM` isn't `dumb`, `CI` is unset and
   `--progress` isn't `plain`. Per-service lines are redrawn in place; the cursor
@@ -385,7 +408,7 @@ hooks runner, progress and the logger. It adds:
 - paths under the control home and the treerig root, IDs and digests;
 - for `doctor`, every check (today's full report).
 
-It never prints the environment, arguments after `--`, hook or `[commands]`
+It never prints environment variables, arguments after `--`, hook or `[commands]`
 arguments, or `docker compose config` output, and it redacts `KEY=value` pairs
 and URLs with userinfo, through one tested function in `internal/text`.
 `TREERIG_DEBUG` stays, meaning only stack traces on errors.
@@ -501,23 +524,23 @@ its environment.` on stderr and exits 0.
 
 ```
 $ treerig list
-   WORKTREE   STATE             URL                                  CHECKOUT
+   WORKTREE   STATE             URL                                  DIRECTORY
 *  main       running           http://main.myapp.localhost          /home/sam/src/myapp
    feature-x  stopped           -                                    /home/sam/src/myapp.feature-x
-   old-spike  checkout missing  -                                    /home/sam/src/myapp.old-spike
+   old-spike  directory missing  -                                    /home/sam/src/myapp.old-spike
 ```
 
 On stderr, only when stderr is a terminal:
 
 ```
-1 checkout is gone: 'treerig remove --gone' lists what it would remove and asks.
+1 directory is gone: 'treerig remove --gone' lists what it would remove and asks.
 Every repository: 'treerig list --all', or http://treerig.localhost
 ```
 
 - The URL column shows the first routed service, with `+2 more` when there are
   others, and `-` while the worktree or the router is stopped; `list --json`
   carries all of them.
-- Paths are absolute. The footer's first line reads `2 checkouts are gone` for
+- Paths are absolute. The footer's first line reads `2 directories are gone` for
   more than one.
 - Outside a repository, or with `--all`, a REPOSITORY column comes first and
   every registered worktree on the machine is listed. Neither needs a
@@ -607,38 +630,38 @@ $ treerig doctor
 $ treerig remove feature-x
 Remove feature-x (feature-x.myapp.localhost) in myapp?
   This deletes 2 containers, 1 network, 2 volumes and its data,
-  and its checkout at /home/sam/src/myapp.feature-x, including 214 ignored
+  and its directory at /home/sam/src/myapp.feature-x, including 214 ignored
   files (.env, node_modules/, db.sqlite3, ...). The branch feature-x is kept.
   1 backup is kept, under /home/sam/.treerig/backups.
 Type feature-x to confirm: feature-x
-Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data, checkout.
+Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data, directory.
 ```
 
-When the checkout is kept:
+When the directory is kept:
 
 ```
 $ treerig remove feature-x
 Remove feature-x (feature-x.myapp.localhost) in myapp?
   This deletes 2 containers, 1 network, 2 volumes and its data.
-  Its checkout at /home/sam/src/myapp.feature-x is kept: it has uncommitted changes.
+  Its directory at /home/sam/src/myapp.feature-x is kept: it has uncommitted changes.
   The branch feature-x is kept.
 Type feature-x to confirm: feature-x
 Removed feature-x (feature-x.myapp.localhost): 2 containers, 1 network, 2 volumes, data.
 Kept /home/sam/src/myapp.feature-x. When you are done with it: 'git worktree remove /home/sam/src/myapp.feature-x'
 ```
 
-Every line is stderr; `remove` writes nothing to stdout. The reason a checkout
+Every line is stderr; `remove` writes nothing to stdout. The reason a directory
 is kept is one of:
 
 | Case | Reason | Next step printed |
 |---|---|---|
 | Modified or untracked files | `it has uncommitted changes` | `git worktree remove <path>`, adding `--force` if the changes can go |
-| Detached HEAD with commits no branch holds | `it is on a detached HEAD with commits no branch has` | `git branch <name>` in the checkout, then `git worktree remove <path>` |
+| Detached HEAD with commits no branch holds | `it is on a detached HEAD with commits no branch has` | `git branch <name>` in the directory, then `git worktree remove <path>` |
 | Locked with `git worktree lock` | `Git has it locked` | `git worktree unlock <path>`, then `git worktree remove <path>` |
 | Submodules | `it has submodules, which Git won't remove` | `git worktree remove --force <path>` once you've checked them |
 | The repository's main worktree | `it is the repository's main worktree` | none: `The repository's main worktree is never removed.` |
 | The preflight failed or timed out | `Git couldn't check it` | `git worktree remove <path>` |
-| `--keep-checkout` | `you asked to keep it` | none |
+| `--keep-directory` | `you asked to keep it` | none |
 
 Paths with spaces are quoted in the printed commands.
 
@@ -646,10 +669,10 @@ Paths with spaces are quoted in the printed commands.
 the first act of `remove`, before any lock, and it `exec`s, so nothing of the
 invoked build runs after it. What changes is what the pinned binary is asked to
 do. It receives a stable hidden form, `treerig teardown run [<worktree>] [--yes]
-[--keep-checkout] [--gone [--all]] [-v]`, with the arguments as the user gave
+[--keep-directory] [--gone [--all]] [-v]`, with the arguments as the user gave
 them, and it does all of the steps below: it resolves the worktree, checks the
-checkout, prompts, tears down, and removes the checkout. So trusted code also
-decides what the prompt says and removes the checkout. `teardown run` is a
+directory, prompts, tears down, and removes the directory. So trusted code also
+decides what the prompt says and removes the directory. `teardown run` is a
 permanent contract, listed beside the pin's others in
 [teardown.md](teardown.md). A release build with no pin runs the same code in
 its own process; a development build with no pin refuses as today, and with
@@ -664,18 +687,18 @@ the same gate as `remove` and proceeds only as the pinned binary, the relocated
 **Older pins.** Before the exec the gate asks the pinned binary which contract
 it speaks: it runs the stored binary, through the same verified descriptor as
 the exec, with `teardown run --contract`, a short timeout, an allow-listed
-environment and capped output. Only exit 0 with stdout exactly
+environment variables and capped output. Only exit 0 with stdout exactly
 `treerig-teardown-run 1` means the stable form; the number versions the
 contract. `--help` can't be the probe: cobra answers it before checking
 arguments, so an old binary exits 0 for `teardown run --help`. A test with a
 fake old pin whose `--help` exits 0 asserts the legacy path. A pin without the
-stable form (0.1.x) gets `worktree remove <uuid>`, with `--yes` only if the user passed it,
-so the old binary still prompts in its own code. The gate resolves the UUID
-and the main checkout read-only to do this, with the same Git options and
-allow-listed environment as the pinned steps, runs the old binary from the target's main checkout with
-`--config` set to its `treerig.toml`, and first prints `This pin (0.1.0)
-predates checkout removal: the checkout at /home/sam/src/myapp.feature-x is
-kept. Pin this release to remove checkouts too: 'treerig teardown pin --latest'`.
+stable form (0.1.x) gets `worktree remove <uuid>`, with `--yes` only if the
+user passed it, so the old binary still prompts in its own code. The gate
+resolves the UUID and the main worktree read-only to do this, with the same Git
+options and allow-listed environment variables as the pinned steps, runs the old binary
+from the target's main worktree with `--config` set to its `treerig.toml`, and first prints `This pin (0.1.0)
+predates directory removal: the directory at /home/sam/src/myapp.feature-x is
+kept. Pin this release to remove directories too: 'treerig teardown pin --latest'`.
 The gate changes to that directory before the exec, since `exec` keeps the
 working directory. When that `treerig.toml` is missing, it refuses and says to
 pin this release. `remove --gone` with an older pin refuses and says to pin
@@ -684,36 +707,37 @@ this release, since one exec can't loop over several worktrees.
 **The steps, in the pinned binary:**
 
 1. Resolve the worktree. With no lock held, inventory what will be deleted and
-   check the checkout with `git status --porcelain --ignored` and `git worktree
+   check the directory with `git status --porcelain --ignored` and `git worktree
    list --porcelain`, with a timeout. A preflight that fails or times out keeps
-   the checkout. Ignored files don't keep it, but the prompt names them, since
+   the directory. Ignored files don't keep it, but the prompt names them, since
    they are deleted with it.
 2. Prompt, with no lock held, so the worktree isn't blocked while the user reads.
 3. Take the operation and development locks, then inventory again and recheck
-   the checkout: its path, HEAD, status, and which worktree is the main one. If
+   the directory: its path, HEAD, status, and which worktree is the main one. If
    anything differs from what the prompt said, stop with nothing deleted, and
    say so.
 4. Write the `removing` marker, then tear down containers, networks, volumes,
    data and registration, proven by ownership labels, as today.
-5. Remove the checkout, still under the locks: `git -C <main worktree> -c
-   core.fsmonitor=false -c core.hooksPath=/dev/null worktree remove <checkout>`,
-   without `--force`. Git's environment is built from an allow-list (`PATH`,
+5. Remove the directory, still under the locks: `git -C <main worktree> -c
+   core.fsmonitor=false -c core.hooksPath=/dev/null worktree remove <directory>`,
+   without `--force`. Git's environment variables come from an allow-list (`PATH`,
    `HOME`, `TMPDIR`, `LANG` and `LC_*`), so no inherited `GIT_*` variable can
-   point it elsewhere; the preflight uses the same. The checkout is identified
+   point it elsewhere; the preflight uses the same. The directory is identified
    by identity, not by path: the recorded root (registration or index card) is
    only where treerig starts asking Git, and the entry it removes is the one in
    Git's list whose identity marker carries the target's worktree UUID, as
-   `worktree remove` matches today. No match means the checkout is treated as
+   `worktree remove` matches today. No match means the directory is treated as
    missing and kept. The path passed to Git is the exact one the prompt showed
-   and step 3 confirmed, and the command never runs from inside the checkout. The pinned binary runs from the
-   pin store, outside every checkout.
+   and step 3 confirmed, and the command never runs from inside the directory.
+   The pinned binary runs from the pin store, outside every worktree's
+   directory.
 
-- **Exit.** 0 when everything in the plan was done, including a checkout the
+- **Exit.** 0 when everything in the plan was done, including a directory the
   plan said it would keep. 1 when the teardown fails, when step 3 stops, or when
   Git refuses something the preflight didn't foresee; then `[treerig] ERROR:
-  Removed feature-x, but Git kept its checkout: <Git's reason>.` and the
+  Removed feature-x, but Git kept its directory: <Git's reason>.` and the
   command to finish it.
-- **A crash between steps 4 and 5** leaves a checkout with no record; `git
+- **A crash between steps 4 and 5** leaves a directory with no record; `git
   worktree remove` finishes it. The locks are released through the same paths
   they were taken by, though the registration is gone, and `unlock` and
   `doctor` don't treat the leftover lock files as orphans; a test crashes
@@ -726,17 +750,26 @@ this release, since one exec can't loop over several worktrees.
 - **The worktree you are in**: the last line is `You were in it. Run: cd
   /home/sam/src/myapp`.
 - **One worktree per call.** `remove` takes one argument.
+- **Keeping the worktree.** `down` stops the environment and keeps its data;
+  `remove --keep-directory` deletes the environment, data included, and leaves
+  a plain Git worktree, so the next `up` there starts afresh (a new
+  registration and empty volumes). That is today's `worktree remove`.
 
 ### `remove --gone`
 
 `remove --gone` removes every worktree of this repository whose state is
-`checkout missing`. It runs through the same gate as `remove` (`teardown run
+`directory missing`. It runs through the same gate as `remove` (`teardown run
 --gone`), and each worktree goes through the same proof and teardown, one at a
 time, holding one worktree's locks at a time. It lists them with their path,
 volumes and data size, asks once (type the count), continues past a failure,
 and exits 1 if any failed. `--all` does the same for every repository on the
 machine and never accepts `--yes`. A repository Git couldn't read, and a
 worktree whose state is `unknown`, are listed as skipped.
+
+`--gone` changes nothing in Git: `remove` running `git worktree remove` is the
+only Git write in the CLI. Git keeps listing the gone entries as prunable, so
+`--gone` ends with the next step: `Git still lists them: run 'git worktree
+prune' in /home/sam/src/myapp to clear them.`
 
 ### Everything else
 
@@ -747,7 +780,7 @@ worktree whose state is `unknown`, are listed as skipped.
 - **`rename <new-slug>`** renames under the operation and development locks as
   today. If the services run, it then starts them through an `up` that runs
   under the locks it already holds (an `upLocked` that `up` also uses), so
-  Compose recreates the containers whose environment changed and no other
+  Compose recreates the containers whose environment variables changed and no other
   command can slip in between. The lock is then held as long as `up --build`
   takes. The Compose project name and volumes don't change. It prints the plan
   first, refuses during an `up -f` session, and `--no-restart` leaves the
@@ -768,7 +801,7 @@ worktree whose state is `unknown`, are listed as skipped.
 - **`backup [dir]`** with no directory writes `<treerig root>/backups/<worktree
   UUID>/<timestamp>/`, with the repository and slug in a manifest beside the
   bundle, so a rename keeps the history. It is created with mode 0700, refuses
-  an existing path, lives outside every checkout, and is kept by `remove`. The
+  an existing path, lives outside every directory, and is kept by `remove`. The
   path is a new storage location, added to `internal/layout` and
   [state.md](state.md). `backup` prints the path on stdout. An explicit
   directory inside the worktree's home still warns that `remove` deletes it.
@@ -838,9 +871,9 @@ changes without a deprecation period beyond the one-release stubs.
   forms.
 - Removed flags: `--domain`, and `--label-namespace` on `remove`.
 - New: `-v`, `--progress`, `up -f`, `logs`, `open`, `list --all`, `list
-  --refresh`, `remove --gone`, `--keep-checkout`, `rename --no-restart`,
+  --refresh`, `remove --gone`, `--keep-directory`, `rename --no-restart`,
   `unlock --list`.
-- `remove` also removes the checkout, as the plan in its prompt says. A 0.1.x
+- `remove` also removes the directory, as the plan in its prompt says. A 0.1.x
   pin keeps it, and says so.
 - `backup` without a directory writes under the treerig root.
 - Hook output moves from stdout to stderr.
@@ -855,10 +888,10 @@ changes without a deprecation period beyond the one-release stubs.
 
 Recommendations; the owner confirms or changes each.
 
-1. **`remove` removes the checkout**, after a preflight shown in the prompt,
-   keeping dirty, detached, locked, submodule and main checkouts and the branch,
+1. **`remove` removes the directory**, after a preflight shown in the prompt,
+   keeping dirty, detached, locked, submodule and main directories and the branch,
    all inside the pinned binary. This widens what the pin is trusted to do: it
-   decides the prompt and deletes the checkout, not only treerig's own
+   decides the prompt and deletes the directory, not only treerig's own
    resources, and [teardown.md](teardown.md) says so (step 14). The alternative
    is a Git step in the invoking build, which runs unpinned code on the user's
    files. Recommended: yes.
@@ -908,9 +941,9 @@ runs a new build with the previous release pinned.
 13. **Route wait** for `up` and `route add`.
 14. **Teardown gate contract**: [teardown.md](teardown.md) first (`teardown
     run`, the probe for older pins, the steps, the Git step's scope and
-    environment), then the code and the release-smoke leg.
+    environment variables), then the code and the release-smoke leg.
 15. **`remove`** at top level with `--domain` gone, its prompt and preflight,
-    then the checkout step, then `--gone`.
+    then the directory step, then `--gone`.
 16. **`rename`** restarting, with locks.md first.
 17. **`unlock`** at top level with `--list`, `--domain` gone.
 18. **`doctor`**: `causedBy` and `fix`, then the runtime checks, then the new
