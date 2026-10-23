@@ -80,8 +80,9 @@ func TestTeardownGate(t *testing.T) {
 	t.Run("with no pin, a release build removes with itself, relocated through bin/, and says nothing about a pin", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
 		result := runTreerig(t, released, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{timeout: 60 * time.Second})
-		// Past the gate, the removal stops at the first thing that needs a treerig.toml.
-		if result.Code != 1 || result.Stdout != "" || !strings.HasPrefix(result.Stderr, "[treerig] ERROR: No treerig.toml found in ") ||
+		// Past the gate, the removal needs no treerig.toml, and stops because
+		// the scratch directory is no Git worktree and no worktree was named.
+		if result.Code != 1 || result.Stdout != "" || !strings.HasPrefix(result.Stderr, "[treerig] ERROR: There is no worktree to remove here: ") ||
 			strings.Contains(result.Stderr, "Refusing") || strings.Contains(result.Stderr, "WARNING") || strings.Contains(result.Stderr, "pinned") {
 			t.Fatalf("remove = %+v", result)
 		}

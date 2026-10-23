@@ -307,10 +307,10 @@ func TestRemoveOfAnotherRepositorysWorktreeFindsItsStackUnderTheRecordedNamespac
 	if !w.Docker.Exists("container", stack) {
 		t.Error("the shared container was removed with the worktree")
 	}
-	// The hint must not suggest `shared down` here: run from this checkout
+	// The hint must not suggest `shared down` here: run from this worktree
 	// it would act on this repository's stack, not the removed one's.
-	if out := lines(here); !strings.Contains(out, "that repository's shared services are still running (mailpit). Run 'treerig shared down' from a checkout of that repository") {
-		t.Errorf("no hint naming the other repository's checkout:\n%s", out)
+	if out := lines(here); !strings.Contains(out, "that repository's shared services are still running (mailpit). Run 'treerig shared down' from inside that repository") {
+		t.Errorf("no hint naming the other repository:\n%s", out)
 	}
 }
 

@@ -68,9 +68,13 @@ func newTeardownFixture(t *testing.T) *teardownFixture {
 		t.Fatal(err)
 	}
 	f.digest = binstore.Hash(f.content)
+	// A Git that knows no directory: a removal that gets past the gate here
+	// finds itself outside every repository and stops, whatever it is asked.
+	runner, _ := registrytest.NewFakeRunner()
 	f.env = &commands.Env{
 		CommandName: "treerig",
 		Logger:      f.log,
+		Runner:      runner,
 		Getenv: func(key string) (string, bool) {
 			switch key {
 			case "HOME":

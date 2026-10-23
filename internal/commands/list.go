@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -11,12 +12,12 @@ import (
 	"github.com/sofired/treerig/internal/text"
 )
 
-// Read-only. Telling a registration from a checkout that is gone needs Git,
+// Read-only. Telling a registration from a worktree that is gone needs Git,
 // so it is only offered for the repository the command runs in; records
 // from other repositories are listed as the registry knows them.
 
 // WorktreeState is a row's state. "missing" is the index's word for the same
-// thing: registered, but the checkout is gone.
+// thing: registered, but the worktree is gone.
 type WorktreeState string
 
 const (
@@ -42,9 +43,11 @@ type ListedRegistration struct {
 	Current bool    `json:"current"`
 }
 
-// List is `worktree list`.
+// List is `worktree list`. It needs no treerig.toml (ContextWithoutConfig):
+// outside a repository it lists the worktrees of every repository, as --all
+// does.
 func List(ctx context.Context, env *Env, options ListOptions) error {
-	cctx, err := Context(env)
+	cctx, err := ContextWithoutConfig(env)
 	if err != nil {
 		return err
 	}
@@ -54,11 +57,19 @@ func List(ctx context.Context, env *Env, options ListOptions) error {
 
 // ListWithContext is `list`, operating directly on a CommandContext so it
 // can be tested without a config file on disk.
+//
+// Outside every Git work tree there is no "this repository", so the command
+// lists every registered worktree, exactly as --all does. Inside one, with or
+// without a usable treerig.toml, it lists that repository's worktrees; when
+// there are none it says so and points at --all.
 func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOptions) ([]ListedRegistration, error) {
 	reg := cctx.Registry
-	repositoryID, present, err := reg.Identities.RepositoryID(ctx, reg.Identities.Root)
+	repositoryID, present, inside, err := reg.Identities.Repository(ctx, reg.Identities.Root)
 	if err != nil {
 		return nil, err
+	}
+	if !inside {
+		options.All = true
 	}
 	var current *registry.WorktreeIdentity
 	if present {
@@ -108,7 +119,7 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 			seenRoot, seenBranch = &identity.Root, &identity.Branch
 		} else if seen, err := card.ReadIndexCard(cctx.ControlHome, record.RepositoryID, record.WorktreeID); err == nil && seen != nil {
 			// A read error (as opposed to a genuinely absent card) is
-			// swallowed here rather than surfaced: unlike the checkout
+			// swallowed here rather than surfaced: unlike the
 			// index, which reports a read failure as Unknown rather than
 			// folding it into "no card", `list` has no per-row Unknown
 			// state to report one into, so the
@@ -152,6 +163,9 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 		// Prose, not data: stdout stays empty, the way `status` answers.
 		// `--json` is the scriptable form and says `[]`.
 		cctx.Logger.Info(EmptyTable(options.All))
+		if !options.All {
+			cctx.Logger.Info(fmt.Sprintf("Every repository: '%s worktree list --all'", cctx.CommandName))
+		}
 	} else {
 		for _, line := range FormatTable(rows, options.All) {
 			cctx.Logger.Output(line)

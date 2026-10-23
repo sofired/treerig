@@ -318,9 +318,10 @@ read-only: no lock is taken, Docker is never touched, and nothing is
 written:
 
 - `worktree remove` and `worktree unlock` complete a registered worktree's
-  slug, described with its domain and its last-known path; `worktree
-  unlock` also offers a worktree it can still recover a stale lock for even
-  though it was never registered (or is no longer), named by its UUID.
+  slug, described with its domain and its last-known path, from any directory:
+  no `treerig.toml` is needed. `worktree unlock` also offers a worktree it can
+  still recover a stale lock for even though it was never registered (or is no
+  longer), named by its UUID.
 - `worktree rename` completes nothing: the new slug is yours to choose.
 - `--domain` on `worktree remove` and `worktree unlock` completes a
   registered domain, and narrows the slugs offered to that domain once one

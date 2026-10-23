@@ -590,9 +590,13 @@ Every repository: 'treerig list --all', or http://treerig.localhost
 - Paths are absolute. The footer's first line reads `2 directories are gone` for
   more than one.
 - Outside a repository, or with `--all`, a REPOSITORY column comes first and
-  every registered worktree on the machine is listed. Neither needs a
-  `treerig.toml`: they use `ContextWithoutConfig`, which still loads settings
-  for the router's port.
+  every registered worktree on the machine is listed. "Outside a repository"
+  means outside every Git work tree. Neither needs a `treerig.toml`: they use
+  `ContextWithoutConfig`, which still loads settings for the router's port and
+  sets a `treerig.toml` that does not parse aside with a warning. Inside a Git
+  repository, with a usable `treerig.toml`, a broken one or none, `list` shows
+  that repository's worktrees; when treerig knows none, it says so and the
+  stderr hint names `list --all`.
 - The cost is one `docker ps -a` per label namespace and one `git worktree
   list` per repository, each with a timeout; a repository that doesn't answer
   shows `unknown`.

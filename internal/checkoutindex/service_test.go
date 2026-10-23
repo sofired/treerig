@@ -45,13 +45,18 @@ type fakeIdentities struct {
 	repositoryID        string
 	repositoryIDPresent bool
 	repositoryIDErr     error
-	identities          []registry.WorktreeIdentity
-	identitiesErr       error
+	// outside makes Repository answer that the directory is in no Git work tree.
+	outside       bool
+	identities    []registry.WorktreeIdentity
+	identitiesErr error
 }
 
-// RepositoryID answers the fixed values f was built with.
-func (f *fakeIdentities) RepositoryID(context.Context, string) (string, bool, error) {
-	return f.repositoryID, f.repositoryIDPresent, f.repositoryIDErr
+// Repository answers the fixed values f was built with.
+func (f *fakeIdentities) Repository(context.Context, string) (string, bool, bool, error) {
+	if f.outside {
+		return "", false, false, nil
+	}
+	return f.repositoryID, f.repositoryIDPresent, true, f.repositoryIDErr
 }
 
 // ActiveIdentities answers f.identities, or f.identitiesErr.
@@ -522,7 +527,7 @@ func TestServiceRefresh(t *testing.T) {
 	t.Run("says the repository could not be identified, rather than blaming the worktree list", func(t *testing.T) {
 		docker := &dockerFake{}
 		h := newServiceHarness(t, docker, []registry.RegisteredWorktree{a, b}, nil)
-		h.service.opts.Identities = &fakeIdentities{repositoryIDErr: errors.New("fatal: not a git repository")}
+		h.service.opts.Identities = &fakeIdentities{repositoryIDErr: errors.New("fatal: detected dubious ownership in repository")}
 
 		snapshot, err := h.service.Refresh(context.Background())
 		if err != nil {
@@ -537,6 +542,24 @@ func TestServiceRefresh(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestServiceOutsideAnyRepository is the index refreshed by a command run from
+// a directory in no Git work tree: no current repository, and nothing to report
+// about Git failing to identify one.
+func TestServiceOutsideAnyRepository(t *testing.T) {
+	regs := testRegistrations()
+	docker := &dockerFake{}
+	h := newServiceHarness(t, docker, []registry.RegisteredWorktree{regs[0], regs[1]}, nil)
+	h.service.opts.Identities = &fakeIdentities{outside: true}
+
+	snapshot, err := h.service.Refresh(context.Background())
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if snapshot.IdentityError != nil {
+		t.Fatalf("identityError = %+v, want none outside a repository", snapshot.IdentityError)
+	}
 }
 
 // TestServiceCountsUnindexedServiceTowardStatus is #16: a service the

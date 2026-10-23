@@ -35,6 +35,55 @@ with a message on stderr and its own exit code (1 when it exited 0). A
 `kill -9` of treerig itself frees the lock with the process but leaves the log
 follower running on its own; end it with `kill`.
 
+## Running without a treerig.toml
+
+`worktree list`, `worktree unlock` and `worktree remove <slug|uuid>` work from
+labels and records alone, so they need no `treerig.toml`, and you can run them
+from any directory, inside a repository or not. So does the completion of
+worktree names. They still take `--config <path>` and use that file when it
+parses; a `--config` that names a file that is not there is an error, as for
+every other command.
+
+- **`worktree list`** lists this repository's worktrees when you run it inside
+  a Git repository, whether or not it has a usable `treerig.toml`. When treerig
+  knows none there, it says `No worktrees are registered for this repository.`
+  and, on stderr, `Every repository: 'treerig worktree list --all'`. Outside
+  every Git work tree there is no "this repository", so it lists every
+  registered worktree on the machine, exactly as `--all` does; an empty
+  registry then says `No worktrees are registered on this machine.` Outside a
+  repository the table has no live Git state to read, so BRANCH and ROOT show
+  what `up` last recorded, or `-`.
+- **`worktree unlock <slug|uuid>`** finds the worktree by slug or UUID on the
+  whole machine. With no name it unlocks the worktree you are in, and outside
+  a Git worktree it says so and asks for a name.
+- **`worktree remove <slug|uuid>`** finds the worktree the same way and takes
+  the Docker label namespace of its resources from its registration, then from
+  its index card, and never from the resources it is about to delete. When
+  neither records it, and no `treerig.toml` can say, it stops with nothing
+  removed and tells you to run `treerig worktree remove <slug>` from inside the
+  repository that created the worktree, or to pass `--label-namespace`. With no
+  name it removes the worktree you are in; outside a Git worktree it says so
+  and asks for a name. Run from outside the repository, it leaves the
+  worktree's identity marker in its directory, which `worktree remove` run from
+  inside the repository would remove.
+- **A `treerig.toml` that does not parse** is set aside with a warning
+  (`Ignoring treerig.toml for this command: <path> is not valid TOML: …`)
+  rather than stopping these commands: removing a worktree whose branch broke
+  its config, or clearing its lock, must still work. The commands that start or
+  inspect a project (`up`, `status`, `config validate` and the rest) still
+  refuse it.
+
+On a development build with no pin, the pin check comes before the check for
+a worktree to remove, so a bare `worktree remove` outside a repository asks for
+a pin first.
+
+A pinned teardown binary from before this change (0.1.x) still reads a
+`treerig.toml` first, so a removal through such a pin from a directory without
+one stops with `No treerig.toml found`. When the pin is a release older than the
+build you run, treerig says before it runs the pin that it may need one: run
+the removal from inside the worktree's repository, or pass `--config <that
+repository's treerig.toml>` (see [Teardown pin](teardown-pin.md)).
+
 ## Removing a worktree
 
 `worktree remove` is the only destructive verb. It inventories everything
@@ -44,8 +93,9 @@ type the hostname to confirm (`--yes` skips the prompt). Then, in an order
 chosen so that an interrupted removal can simply be run again: Docker
 resources, the home directory, the registration, the identity marker.
 `treerig worktree remove <slug|uuid>` removes another worktree, including one
-whose checkout is already gone; `--label-namespace` supplies the Docker label
-namespace of its resources when nothing on disk records it.
+whose directory is already gone, and needs no `treerig.toml`
+([below](#running-without-a-treerigtoml)); `--label-namespace` supplies the
+Docker label namespace of its resources when nothing on disk records it.
 
 A SIGINT, SIGTERM or SIGHUP that arrives once the removal has started
 destroying things leaves the worktree `pending`, and treerig says so on stderr

@@ -1,0 +1,1 @@
+[treerig] ERROR: There is no worktree to unlock here: FIXTURE is not inside a Git worktree. Name one with 'treerig worktree unlock <slug|uuid>'.

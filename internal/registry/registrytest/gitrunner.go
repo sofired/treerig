@@ -117,7 +117,9 @@ func (g *GitRunner) Handler() fakerun.Handler {
 		item, ok := g.identities[root]
 		g.mu.Unlock()
 		if !ok {
-			return run.Result{}, fmt.Errorf("unknown Git worktree: %s", root)
+			// What Git says outside every repository; run.Finish turns it
+			// into the failure a caller without AllowFailure sees.
+			return run.Result{ExitCode: 128, Stderr: "fatal: not a git repository (or any of the parent directories): .git\n"}, nil
 		}
 		stdout := item.branch + "\n"
 		switch {

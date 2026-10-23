@@ -489,6 +489,56 @@ backup  = "./backup.sh"
 		}
 	})
 
+	t.Run("runs worktree list and worktree unlock outside a repository, and still refuses a --config that is not there", func(t *testing.T) {
+		cwd := registrytest.TempDir(t) // no Git repository and no treerig.toml anywhere above this directory
+
+		list := runTreerig(t, binary, cwd, []string{"worktree", "list"}, treerigOptions{})
+		if list.Code != 0 || list.Stdout != "" || list.Stderr != "[treerig] No worktrees are registered on this machine.\n" {
+			t.Errorf("worktree list = %+v, want the empty-machine notice on stderr and nothing on stdout", list)
+		}
+		listJSON := runTreerig(t, binary, cwd, []string{"worktree", "list", "--json"}, treerigOptions{})
+		if listJSON.Code != 0 || strings.TrimSpace(listJSON.Stdout) != "[]" || listJSON.Stderr != "" {
+			t.Errorf("worktree list --json = %+v, want an empty array", listJSON)
+		}
+
+		unknown := runTreerig(t, binary, cwd, []string{"worktree", "unlock", "nobody"}, treerigOptions{})
+		if unknown.Code != 1 || unknown.Stdout != "" || unknown.Stderr != "[treerig] ERROR: No worktree is registered as nobody.\n" {
+			t.Errorf("worktree unlock nobody = %+v", unknown)
+		}
+		bare := runTreerig(t, binary, cwd, []string{"worktree", "unlock"}, treerigOptions{})
+		if bare.Code != 1 || bare.Stdout != "" || !strings.Contains(bare.Stderr, "There is no worktree to unlock here: ") || strings.Contains(bare.Stderr, "No treerig.toml") {
+			t.Errorf("worktree unlock = %+v", bare)
+		}
+
+		missing := filepath.Join(cwd, "nowhere", "treerig.toml")
+		for _, args := range [][]string{{"worktree", "list"}, {"worktree", "unlock", "nobody"}, {"worktree", "remove", "--yes", "--dev-teardown", "nobody"}} {
+			result := runTreerig(t, binary, cwd, append(args, "--config", missing), treerigOptions{})
+			if result.Code != 1 || result.Stdout != "" || !strings.HasSuffix(result.Stderr, "ERROR: No treerig.toml at "+missing+".\n") {
+				t.Errorf("%v --config <missing> = %+v", args, result)
+			}
+		}
+
+		// Inside a Git repository treerig has never seen, a treerig.toml that
+		// does not parse is set aside with a warning, and the command lists that
+		// repository's worktrees (none), pointing at --all.
+		repo := writeStreamsProject(t, "not = [valid")
+		gitInitCommit(t, repo)
+		inRepo := runTreerig(t, binary, repo, []string{"worktree", "list"}, treerigOptions{})
+		if inRepo.Code != 0 || inRepo.Stdout != "" ||
+			!strings.Contains(inRepo.Stderr, "[treerig] WARNING: Ignoring treerig.toml for this command: ") ||
+			!strings.Contains(inRepo.Stderr, "[treerig] No worktrees are registered for this repository.\n") ||
+			!strings.HasSuffix(inRepo.Stderr, "[treerig] Every repository: 'treerig worktree list --all'\n") {
+			t.Errorf("worktree list in a repository with a broken treerig.toml = %+v", inRepo)
+		}
+
+		// Names complete too: an empty registry offers none, and says so with
+		// the directive alone.
+		complete := runTreerig(t, binary, cwd, []string{"__complete", "worktree", "remove", ""}, treerigOptions{})
+		if complete.Code != 0 || complete.Stdout != ":36\n" {
+			t.Errorf("__complete worktree remove = %+v", complete)
+		}
+	})
+
 	t.Run("keeps worktree unlock off stdout: a refusal is an error, nothing held is a notice", func(t *testing.T) {
 		cwd := writeStreamsProject(t, streamsConfig)
 		gitInitCommit(t, cwd)
@@ -500,7 +550,7 @@ backup  = "./backup.sh"
 		if neverUp.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", neverUp.Stdout)
 		}
-		if !strings.Contains(neverUp.Stderr, "This checkout has never been brought up, so it holds no lock. Name another with 'treerig worktree unlock <slug|uuid>'.") {
+		if !strings.Contains(neverUp.Stderr, "This worktree has never been brought up, so it holds no lock. Name another with 'treerig worktree unlock <slug|uuid>'.") {
 			t.Errorf("stderr = %q, want the never-up refusal", neverUp.Stderr)
 		}
 

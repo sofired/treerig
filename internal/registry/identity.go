@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/sofired/treerig/internal/brand"
@@ -75,6 +76,11 @@ type IdentityService struct {
 	// Root is the checkout this service answers for.
 	Root   string
 	runner run.Runner
+	// environ is the process environment the first Git question of Repository
+	// runs in, with the C locale added so Git's refusal reads the same on every
+	// machine. Nil inherits this process's own, and then a localised refusal
+	// is an error instead of an answer.
+	environ []string
 }
 
 // NewIdentityService answers identity questions for the checkout at root.
@@ -347,13 +353,73 @@ func (s *IdentityService) Ensure(ctx context.Context, worktree string) (*Worktre
 	return identity, nil
 }
 
+// notARepository is the text of Git's refusal outside every repository, in
+// the C locale Repository asks in.
+const notARepository = "not a git repository"
+
+// topLevel asks Git for the top level of the work tree containing worktree.
+// Only Git's refusal for a directory outside every repository is returned as
+// refusal, with the failure the caller can report as it always has; every
+// other failure (an unsafe directory, a corrupt repository, a bare one, Git
+// not starting) is err, carrying Git's own words.
+func (s *IdentityService) topLevel(ctx context.Context, worktree string) (top string, refusal, err error) {
+	spec := run.Spec{
+		Command:      "git",
+		Args:         []string{"-C", worktree, "rev-parse", "--show-toplevel"},
+		AllowFailure: true,
+	}
+	if s.environ != nil {
+		spec.Env = append(slices.Clone(s.environ), "LC_ALL=C")
+	}
+	result, err := s.runner.Run(ctx, spec)
+	if err != nil {
+		return "", nil, err
+	}
+	if result.ExitCode == 0 && !result.TimedOut && !result.OutputOverflow && result.Signal == 0 {
+		return strings.TrimSpace(result.Stdout), nil, nil
+	}
+	failure := run.Failure(spec, result)
+	if result.ExitCode != 0 && !result.TimedOut && result.Signal == 0 && strings.Contains(result.Stderr, notARepository) {
+		return "", failure, nil
+	}
+	return "", nil, failure
+}
+
+// Repository is the one question every command that may run outside a
+// repository asks first: whether worktree is inside a Git work tree at all
+// (inside), and if it is, treerig's identity for the repository (id, with
+// present false when treerig has none yet). Git's refusal for a directory
+// outside every repository is inside false with no error; any other Git
+// failure is an error. It runs the same Git calls RepositoryID does.
+func (s *IdentityService) Repository(ctx context.Context, worktree string) (id string, present, inside bool, err error) {
+	top, refusal, err := s.topLevel(ctx, worktree)
+	if err != nil {
+		return "", false, false, err
+	}
+	if refusal != nil {
+		return "", false, false, nil
+	}
+	id, present, err = s.repositoryAt(ctx, top)
+	return id, present, true, err
+}
+
 // RepositoryID answers just the repository identity, without touching the
-// worktree marker.
+// worktree marker. Outside every repository it is an error, as it is for the
+// commands that have a treerig.toml and so a repository to be in.
 func (s *IdentityService) RepositoryID(ctx context.Context, worktree string) (id string, present bool, err error) {
-	topLevel, err := s.gitValue(ctx, worktree, []string{"rev-parse", "--show-toplevel"})
+	top, refusal, err := s.topLevel(ctx, worktree)
 	if err != nil {
 		return "", false, err
 	}
+	if refusal != nil {
+		return "", false, refusal
+	}
+	return s.repositoryAt(ctx, top)
+}
+
+// repositoryAt is the repository identity of the work tree whose top level Git
+// printed.
+func (s *IdentityService) repositoryAt(ctx context.Context, topLevel string) (id string, present bool, err error) {
 	root, err := CanonicalPath(topLevel)
 	if err != nil {
 		return "", false, err

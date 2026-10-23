@@ -6,7 +6,8 @@ Usage:
   treerig worktree unlock [identifier] [flags]
 
 Flags:
-      --config string         path to treerig.toml (default: nearest above cwd)
+      --config string         path to treerig.toml (default: nearest above cwd,
+                              if any)
       --domain string         narrow a slug registered under more than one
                               domain
   -h, --help                  help for unlock

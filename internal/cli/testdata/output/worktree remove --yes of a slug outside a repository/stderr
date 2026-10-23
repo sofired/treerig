@@ -1,0 +1,6 @@
+[treerig] Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove the worktree feature-login.
+[treerig] Running as the pinned teardown binary (version 0.0.0-dev).
+[treerig] Stopping feature-login.acme.localhost.
+[treerig] Removing feature-login.acme.localhost.
+[treerig] Removed volume v1.
+[treerig] Removed feature-login.acme.localhost: 1 container, 1 volume, home directory, registration.

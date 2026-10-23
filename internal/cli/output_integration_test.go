@@ -438,6 +438,16 @@ func TestOutputGoldens(t *testing.T) {
 		// are covered by internal/lock's own tests instead.
 		{name: "worktree unlock of an unknown identifier", args: []string{"worktree", "unlock", "nope"}},
 		{name: "worktree unlock with nothing held", args: []string{"worktree", "unlock"}},
+		// #200: the same verbs from a directory that is no repository and has no
+		// treerig.toml above it. list shows every registered worktree, as
+		// --all does; remove and unlock find their target by slug and need
+		// nothing else; with no name there is nothing to act on.
+		{name: "worktree list outside a repository", args: []string{"worktree", "list"}, outsideCheckout: true},
+		{name: "worktree list --json outside a repository", args: []string{"worktree", "list", "--json"}, outsideCheckout: true},
+		{name: "worktree remove --yes of a slug outside a repository", args: []string{"worktree", "remove", "--yes", "feature-login"}, outsideCheckout: true},
+		{name: "worktree remove outside a repository, naming nothing", args: []string{"worktree", "remove", "--yes"}, outsideCheckout: true},
+		{name: "worktree unlock of a slug outside a repository", args: []string{"worktree", "unlock", "feature-login"}, outsideCheckout: true},
+		{name: "worktree unlock outside a repository, naming nothing", args: []string{"worktree", "unlock"}, outsideCheckout: true},
 		// doctor: every other line (Prerequisites' Git/Docker checks,
 		// Registry, Locks, Router, This checkout) is byte-identical once the
 		// Node.js, treerig root and router state lines are excluded — the
