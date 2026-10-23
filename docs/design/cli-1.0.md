@@ -271,9 +271,13 @@ refused when that command takes none.
 
 Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
 
+The forms cannot be confused with each other, so the order does not change an
+answer:
+
 - **A UUID** (the 36-character form) names that worktree. Every recovery command
   treerig prints uses it.
-- **A host** names the registered worktree with exactly that host.
+- **A host** names the registered worktree with exactly that host (compared
+  without regard to case).
 - **A path** is an argument written as one: it is `.` or `..`, or it starts
   with `/`, `./`, `../` or `~`. It resolves (after `EvalSymlinks`) to the
   worktree whose recorded root is its longest prefix, matched whole path
@@ -281,15 +285,22 @@ Wherever a worktree is an argument (`status`, `down`, `remove`, `unlock`):
   root `/repo/app`, and a directory nested in another resolves to the inner
   one. The resolver's tests include sibling roots that share a prefix. A path
   inside a directory, not its root, is accepted only by `status`; a
-  destructive verb asks for the root or another form.
+  destructive verb asks for the root or another form. Roots are matched by file
+identity where the directory exists, so a case-insensitive filesystem's second
+spelling still finds it. A worktree whose index card is oversized or does not
+parse has no recorded root and is skipped, so a read-only caller's path inside
+its directory can resolve to an outer worktree; a destructive verb cannot be
+misled that way, since it accepts only a root. The resolver returns the
+recorded root with the worktree (`Resolved.Root`), so a caller that needs the
+directory (`status`, #203) does not read the card again.
 - **Anything else is a slug**: this repository's first. Outside a repository,
   or for a slug this repository doesn't have, it must be unique on the machine;
   otherwise the error lists the matching hosts and UUIDs.
 
 No argument means the worktree you are in. A bare word is never read as a
 directory, so a directory called `feature-x` can't change what `treerig remove
-feature-x` means. The resolver lives in `internal/registry`, beside
-`FindGlobal`, and completion uses the same one.
+feature-x` means. The resolver lives in `internal/registry`, and
+completion uses the same one.
 
 For a worktree of another repository, `status` and `down` read that
 repository's `treerig.toml` and Compose file from its recorded root, and its

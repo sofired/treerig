@@ -8,11 +8,14 @@ recovered: an unreleased record alone does not prove the holder is gone.
 `worktree unlock` runs the same check on demand, so a lock nobody is waiting on
 can be cleared right away.
 
-`worktree unlock [slug|uuid]` clears a worktree's locks (its operation lock,
-and its development-session lock if that is held too). It needs no
-`treerig.toml`, so a worktree named by slug or UUID can be unlocked from any
-directory. It clears them only when all of this holds — checked
-automatically, without ever waiting to acquire the lock itself:
+`worktree unlock [worktree]` clears a worktree's locks (its operation lock, and
+its development-session lock if that is held too). It needs no `treerig.toml`,
+so a worktree can be unlocked from any directory, named by its UUID, its host,
+the path to its directory or its slug (see
+[Naming a worktree](worktrees.md#naming-a-worktree)); a path to something
+inside the directory, not the directory itself, is refused. It clears the locks
+only when all of this holds, checked automatically, without ever waiting to
+acquire the lock itself:
 
 - the lock itself is free: `flock(2)` proves this instantly, so a lock
   actually held by a live process is always refused straight away, before

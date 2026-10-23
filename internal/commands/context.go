@@ -268,3 +268,15 @@ func buildContext(env *Env, loaded *config.Loaded, fallbackRoot string) (*Comman
 		Lifecycle:            env.Lifecycle,
 	}, nil
 }
+
+// nameOptions are the registry.NameOptions every command that takes a worktree
+// reads its argument with: the working directory a relative path starts from,
+// and the home directory a "~" stands for. repositoryID is the repository the
+// command runs in when the caller already asked Git (nil asks only when it
+// matters). withinDirectory is for a read-only command, which may name a
+// worktree by a path inside its directory.
+func (c *CommandContext) nameOptions(domain string, repositoryID *string, withinDirectory bool) registry.NameOptions {
+	return registry.NameOptions{
+		Domain: domain, Cwd: c.Cwd, Home: c.UserHome, RepositoryID: repositoryID, WithinDirectory: withinDirectory,
+	}
+}

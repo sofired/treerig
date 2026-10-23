@@ -1,6 +1,7 @@
-feature-login	acme.localhost — /checkouts/feature-login
+feature-login.acme.localhost	acme.localhost — /worktrees/feature-login
+feature-login.widgets.localhost	widgets.localhost — /worktrees/widgets-login
 feature-payments	acme.localhost
-odd-worktree	odd .localhost — /checkouts/odd worktree
-widgets-main	widgets.localhost — /checkouts/widgets-main
+odd-worktree	odd .localhost — /worktrees/odd worktree
+widgets-main	widgets.localhost — /worktrees/widgets-main
 44444444-4444-4444-8444-444444444444	recoverable, not registered
 :36

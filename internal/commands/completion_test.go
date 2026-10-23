@@ -25,7 +25,7 @@ func TestRegisteredWorktreeCandidates(t *testing.T) {
 		// feature-other gets no card, so its own candidate completes with no known path.
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		candidates, err := commands.RegisteredWorktreeCandidates(ctx, cctx.CommandContext)
+		candidates, err := commands.RegisteredWorktreeCandidates(ctx, cctx.CommandContext, "")
 		if err != nil {
 			t.Fatalf("RegisteredWorktreeCandidates: %v", err)
 		}
@@ -35,6 +35,9 @@ func TestRegisteredWorktreeCandidates(t *testing.T) {
 		if candidates[0].Slug != "feature-login" || candidates[0].Domain != acmeDomain || candidates[0].Root != w.Root {
 			t.Fatalf("unexpected candidate 0: %+v", candidates[0])
 		}
+		if candidates[0].Name != "feature-login" || candidates[1].Name != "feature-other" {
+			t.Fatalf("expected each offered by its slug: %+v", candidates)
+		}
 		if candidates[1].Slug != "feature-other" || candidates[1].Root != "" {
 			t.Fatalf("unexpected candidate 1 (expected no known path): %+v", candidates[1])
 		}
@@ -43,7 +46,7 @@ func TestRegisteredWorktreeCandidates(t *testing.T) {
 	t.Run("a repository with nothing registered answers no candidates and no error", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		candidates, err := commands.RegisteredWorktreeCandidates(ctx, cctx.CommandContext)
+		candidates, err := commands.RegisteredWorktreeCandidates(ctx, cctx.CommandContext, "")
 		if err != nil {
 			t.Fatalf("RegisteredWorktreeCandidates: %v", err)
 		}

@@ -550,7 +550,7 @@ backup  = "./backup.sh"
 		if neverUp.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", neverUp.Stdout)
 		}
-		if !strings.Contains(neverUp.Stderr, "This worktree has never been brought up, so it holds no lock. Name another with 'treerig worktree unlock <slug|uuid>'.") {
+		if !strings.Contains(neverUp.Stderr, "This worktree has never been brought up, so it holds no lock. Name another with 'treerig worktree unlock <worktree>'.") {
 			t.Errorf("stderr = %q, want the never-up refusal", neverUp.Stderr)
 		}
 

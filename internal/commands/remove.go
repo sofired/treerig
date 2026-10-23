@@ -54,8 +54,9 @@ type RemoveResult struct {
 	NetworkKept bool
 }
 
-// Remove is `worktree remove`. A worktree named by slug or UUID needs no
-// treerig.toml (ContextWithoutConfig), so it can be removed from anywhere; with
+// Remove is `worktree remove`. A worktree named by UUID, host, the path to its
+// directory or slug needs no treerig.toml (ContextWithoutConfig), so it can be
+// removed from anywhere; with
 // no name it removes the worktree it is run from. A treerig.toml that does not
 // parse is warned about and set aside: removing a worktree whose branch broke
 // its config is a job this command has to do.
@@ -97,9 +98,22 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			text.Printable(cctx.Cwd), text.Printable(options.Identifier), text.OneLine(err.Error(), 200)))
 		repositoryID, present, inside = "", false, false
 	}
-	target, err := resolveRemoveTarget(ctx, cctx, options, inside)
+	scope := repositoryID
+	if !present {
+		scope = ""
+	}
+	target, err := resolveRemoveTarget(ctx, cctx, options, inside, scope)
 	if err != nil {
 		return nil, err
+	}
+	// What an interrupted removal tells the user to run again. A UUID or a host
+	// reads the same from anywhere; a slug may name another worktree from another
+	// repository, and a path reads from the directory it is run in, so those are
+	// named by UUID instead.
+	retry := options
+	if options.Identifier != "" && !registry.IsUUID(options.Identifier) &&
+		!strings.EqualFold(options.Identifier, layout.WorktreeHost(target.Slug, target.Domain)) {
+		retry.Identifier, retry.Domain = target.WorktreeID, ""
 	}
 	ref := toRef(*target)
 	host := layout.WorktreeHost(target.Slug, target.Domain)
@@ -287,7 +301,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	if err != nil {
 		// After the locks are released, so the notice is the last thing
 		// said before the process dies by the signal.
-		if notice := interruptNotice(marked, context.Cause(ctx), err, result, host, removeNextSteps(cctx.CommandName, options, here)); notice != "" {
+		if notice := interruptNotice(marked, context.Cause(ctx), err, result, host, removeNextSteps(cctx.CommandName, retry, here)); notice != "" {
 			cctx.Logger.Info(notice)
 		}
 		return nil, err
@@ -310,14 +324,17 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 
 // resolveRemoveTarget finds the registration to remove: the current
 // worktree's own when options.Identifier is empty (inside says whether the
-// command runs from a Git work tree at all), or a global lookup by
-// slug or uuid (optionally narrowed by options.Domain) otherwise. It errors
-// rather than guessing when neither resolves to a registration.
-func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options RemoveOptions, inside bool) (*registry.RegisteredWorktree, error) {
+// command runs from a Git work tree at all), or the worktree the name
+// identifies otherwise (registry.Registry.Resolve: a UUID, a host, a path to
+// its root, or a slug, which options.Domain narrows). repositoryID is the
+// repository the command runs in, "" outside one. It errors rather than
+// guessing when neither resolves to a registration. Removal is destructive, so
+// a path must name the worktree's root.
+func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options RemoveOptions, inside bool, repositoryID string) (*registry.RegisteredWorktree, error) {
 	if options.Identifier == "" {
 		if !inside {
 			return nil, clierr.Newf("There is no worktree to remove here: %s is not inside a Git worktree. "+
-				"Name one with '%s worktree remove <slug|uuid>'.", cctx.Cwd, cctx.CommandName)
+				"Name one with '%s worktree remove <worktree>'.", cctx.Cwd, cctx.CommandName)
 		}
 		current, err := cctx.Registry.Current(ctx)
 		if err != nil {
@@ -325,22 +342,15 @@ func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options Remo
 		}
 		if current == nil {
 			return nil, clierr.Newf("This worktree is not registered; nothing to remove. "+
-				"Name another with '%s worktree remove <slug|uuid>'.", cctx.CommandName)
+				"Name another with '%s worktree remove <worktree>'.", cctx.CommandName)
 		}
 		return &current.RegisteredWorktree, nil
 	}
-	found, err := cctx.Registry.FindGlobal(ctx, options.Identifier, options.Domain)
+	resolved, err := cctx.Registry.Resolve(ctx, options.Identifier, cctx.nameOptions(options.Domain, &repositoryID, false))
 	if err != nil {
 		return nil, err
 	}
-	if found == nil {
-		where := ""
-		if options.Domain != "" {
-			where = " under " + options.Domain
-		}
-		return nil, clierr.Newf("No worktree is registered as %s%s.", options.Identifier, where)
-	}
-	return found, nil
+	return &resolved.Record, nil
 }
 
 // targetIdentity is the target's Git identity among this repository's live

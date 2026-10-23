@@ -1,3 +1,3 @@
 [treerig] Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove this worktree.
 [treerig] Running as the pinned teardown binary (version 0.0.0-dev).
-[treerig] ERROR: There is no worktree to remove here: FIXTURE is not inside a Git worktree. Name one with 'treerig worktree remove <slug|uuid>'.
+[treerig] ERROR: There is no worktree to remove here: FIXTURE is not inside a Git worktree. Name one with 'treerig worktree remove <worktree>'.

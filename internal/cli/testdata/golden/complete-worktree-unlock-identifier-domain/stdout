@@ -1,2 +1,3 @@
-widgets-main	widgets.localhost — /checkouts/widgets-main
+feature-login	widgets.localhost — /worktrees/widgets-login
+widgets-main	widgets.localhost — /worktrees/widgets-main
 :36
