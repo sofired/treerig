@@ -72,6 +72,9 @@ break them are not merged.
   rename.
 - **Only the entry point reads the environment.** Library code receives argv
   names, the working directory and environment values as parameters.
+- **No new "checkout".** Write *worktree*, *directory* or *environment*
+  instead, and remove an existing "checkout" from code or text you are
+  rewriting anyway. Git's own `git checkout` and `actions/checkout` stay.
 - **The frozen goldens are hand-maintained fixtures.**
   `internal/cli/testdata/golden` and `internal/cli/testdata/output` pin
   exact CLI output; a difference from them is a change to review, not
