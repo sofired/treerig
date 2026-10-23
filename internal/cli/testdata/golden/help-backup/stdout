@@ -11,8 +11,10 @@ Usage:
   treerig backup [dir] [flags]
 
 Flags:
-  -h, --help   help for backup
+      --config string   path to treerig.toml (default: nearest above cwd)
+  -h, --help            help for backup
 
 Global Flags:
-      --config string   path to treerig.toml (default: nearest above cwd)
-  -V, --version         output the version number
+      --progress mode   how to show progress: auto (redraw on a terminal) or
+                        plain (one line per change) (default "auto")
+  -v, --verbose         show what treerig runs, and every detail

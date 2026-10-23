@@ -1,0 +1,5 @@
+--progress	how to show progress: auto (redraw on a terminal) or plain (one line per change) (default "auto")
+--verbose	show what treerig runs, and every detail
+--all	also list the commands the default screen leaves out
+--help	help for help
+:4

@@ -34,16 +34,20 @@ func terminalWidth(w io.Writer) int {
 	return int(size.Col)
 }
 
-// writeHelp writes cmd's help to w, wrapped to w's width.
-func writeHelp(cmd *cobra.Command, w io.Writer) {
-	_, _ = io.WriteString(w, renderHelp(cmd, terminalWidth(w)))
+// writeHelp writes cmd's help to w, wrapped to w's width. all also lists the
+// commands of the More group, which the default screen leaves out
+// (`treerig help --all`).
+func writeHelp(cmd *cobra.Command, w io.Writer, all bool) {
+	_, _ = io.WriteString(w, renderHelp(cmd, terminalWidth(w), all))
 }
 
 // renderHelp is cobra's default help and usage output for cmd, with every
 // description wrapped to width: cobra itself prints each line whole. Its
-// sections are the ones this tree uses — description, usage, commands,
-// flags, global flags — in cobra's own order and spacing.
-func renderHelp(cmd *cobra.Command, width int) string {
+// sections are the ones this tree uses — description, usage, commands (in
+// groups when cmd has them), flags, global flags — in cobra's own order and
+// spacing. Without all, the More group is left out and the closing lines say
+// how to see it; with all, the output is cobra's own.
+func renderHelp(cmd *cobra.Command, width int, all bool) string {
 	var b strings.Builder
 	about := cmd.Long
 	if about == "" {
@@ -62,14 +66,7 @@ func renderHelp(cmd *cobra.Command, width int) string {
 	}
 	if cmd.HasAvailableSubCommands() {
 		b.WriteString("\n  " + cmd.CommandPath() + " [command]")
-		b.WriteString("\n\nAvailable Commands:")
-		for _, sub := range cmd.Commands() {
-			if !sub.IsAvailableCommand() && sub.Name() != "help" {
-				continue
-			}
-			pad := sub.NamePadding()
-			fmt.Fprintf(&b, "\n  %-*s %s", pad, sub.Name(), wrapIndented(sub.Short, width, pad+3))
-		}
+		writeCommands(&b, cmd, width, all)
 	}
 	if cmd.HasAvailableLocalFlags() {
 		b.WriteString("\n\nFlags:\n")
@@ -81,6 +78,9 @@ func renderHelp(cmd *cobra.Command, width int) string {
 	}
 	if cmd.HasAvailableSubCommands() {
 		fmt.Fprintf(&b, "\n\nUse \"%s [command] --help\" for more information about a command.", cmd.CommandPath())
+		if !all && hasMoreGroup(cmd) {
+			b.WriteString("\n" + wrapIndented(fmt.Sprintf("Use \"%s help --all\" for shared services, the router, configuration, the teardown pin and completion.", cmd.CommandPath()), width, 0))
+		}
 	}
 	b.WriteString("\n")
 	// A description moved below its name leaves the name's padding behind.
@@ -89,6 +89,66 @@ func renderHelp(cmd *cobra.Command, width int) string {
 		lines[i] = strings.TrimRight(line, " ")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// listedCommand is whether help lists sub: the commands cobra calls
+// available, and the help command, which cobra lists whatever else it is.
+func listedCommand(sub *cobra.Command) bool {
+	return sub.IsAvailableCommand() || sub.Name() == "help"
+}
+
+// writeCommands writes cmd's subcommands to b. With no groups that is one
+// "Available Commands:" list in the order they were added. With groups it is
+// one titled list per group, in the order the groups were added, then the
+// commands that belong to none under "Additional Commands:", as cobra does.
+// The More group is left out unless all.
+func writeCommands(b *strings.Builder, cmd *cobra.Command, width int, all bool) {
+	line := func(sub *cobra.Command) {
+		pad := sub.NamePadding()
+		fmt.Fprintf(b, "\n  %-*s %s", pad, sub.Name(), wrapIndented(sub.Short, width, pad+3))
+	}
+	if len(cmd.Groups()) == 0 {
+		b.WriteString("\n\nAvailable Commands:")
+		for _, sub := range cmd.Commands() {
+			if listedCommand(sub) {
+				line(sub)
+			}
+		}
+		return
+	}
+	for _, group := range cmd.Groups() {
+		if group.ID == moreGroup && !all {
+			continue
+		}
+		b.WriteString("\n\n" + group.Title)
+		for _, sub := range cmd.Commands() {
+			if sub.GroupID == group.ID && listedCommand(sub) {
+				line(sub)
+			}
+		}
+	}
+	first := true
+	for _, sub := range cmd.Commands() {
+		if sub.GroupID != "" || !listedCommand(sub) {
+			continue
+		}
+		if first {
+			b.WriteString("\n\nAdditional Commands:")
+			first = false
+		}
+		line(sub)
+	}
+}
+
+// hasMoreGroup is whether cmd has a More group with a command listed in it:
+// whether the default screen leaves anything out for `help --all` to show.
+func hasMoreGroup(cmd *cobra.Command) bool {
+	for _, sub := range cmd.Commands() {
+		if sub.GroupID == moreGroup && listedCommand(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapFlagUsages rewraps pflag's unwrapped flag listing to width with

@@ -261,6 +261,11 @@ by hand and ignores cobra's groups, so it learns groups (`cmd.Groups()` and each
 command's `GroupID`) and `--all`. `--config` stops being a root persistent flag
 and is added to each command that reads `treerig.toml`, so help, completion and
 `init`'s refusal all follow from where it is declared. `-V` is on the root only.
+A command that reads no `treerig.toml` refuses `--config` and says why (`'treerig
+router status' reads no treerig.toml, so it does not take --config.`). Written
+before the command's name, `--config` still reaches a command that takes it
+(cobra skips the flag it does not know while it finds the command), but it is
+refused when that command takes none.
 
 ## Naming a worktree
 

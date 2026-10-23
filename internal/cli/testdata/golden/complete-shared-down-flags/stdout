@@ -1,5 +1,6 @@
+--progress	how to show progress: auto (redraw on a terminal) or plain (one line per change) (default "auto")
+--verbose	show what treerig runs, and every detail
 --config	path to treerig.toml (default: nearest above cwd)
---version	output the version number
 --help	help for down
 --label-namespace	supply the Docker label namespace when there is no usable treerig.toml to say it
 --volumes	also delete the data volumes and release the pinned ports

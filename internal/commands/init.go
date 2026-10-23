@@ -32,6 +32,8 @@ var composeFileNames = []string{"compose.yaml", "compose.yml", "docker-compose.y
 // Its notices go to stderr; it prints nothing on stdout, since there is no
 // report to pipe.
 func Init(ctx context.Context, env *Env) error {
+	// The command line never gets here with a path: init declares no --config
+	// and flagError explains why. This is the same refusal for a direct caller.
 	if env.ConfigPath != "" {
 		return clierr.Newf("'%s init' writes %s at the root of the Git repository you run it in; it does not take --config.",
 			env.CommandName, brand.ConfigFile)

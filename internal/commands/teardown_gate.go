@@ -379,7 +379,7 @@ func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 	env.Logger.Info(withHint(notice, hint))
 	// The caller's argv[0] is kept, so the program still calls itself trig or
 	// treerig and not the hash it is stored under.
-	err = env.Exec(execPath, env.Args, childEnviron(env.Environ))
+	err = env.Exec(execPath, pinnedChildArgs(env.Args), childEnviron(env.Environ))
 	// Exec returns only when it failed; a nil return from a fake is refused
 	// too, since nothing may go on in this process unpinned.
 	if err == nil {
@@ -399,4 +399,44 @@ func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 	}
 	return refuseRemove(target, fmt.Sprintf("could not run the pinned teardown binary %s (%s). Pin it again with %s.",
 		text.Printable(check.Path), reason, again), err)
+}
+
+// removeValueFlags are the flags of `worktree remove` that take their value
+// as the next argument (--flag value, not --flag=value). The list is kept
+// here by hand: this package cannot see the command line's flag set.
+var removeValueFlags = map[string]bool{"--domain": true, "--label-namespace": true, "--config": true}
+
+// pinnedChildArgs is argv as the pinned teardown binary is run with it: the
+// caller's own arguments without -v/--verbose and --progress, which an older
+// pinned build does not know and would refuse after the gate has already
+// announced the removal. The value of a flag in removeValueFlags is never stripped. Arguments
+// after a bare "--" and argv[0] are kept as they are. A -v inside a cluster of other short flags is left alone: no
+// flag of `worktree remove` has a short form but -h and -v.
+//
+// TODO(#210): the stable teardown-run contract replaces this filter.
+func pinnedChildArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	out := []string{args[0]}
+	rest := args[1:]
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		switch {
+		case a == "--":
+			return append(out, rest[i:]...)
+		case removeValueFlags[a] && i+1 < len(rest):
+			// The next token is this flag's value, whatever it looks like.
+			out = append(out, a, rest[i+1])
+			i++
+		case a == "--verbose", strings.HasPrefix(a, "--verbose="), strings.HasPrefix(a, "--progress="):
+		case a == "--progress" && i+1 < len(rest):
+			i++ // and its value
+		case len(a) > 1 && a[0] == '-' && strings.Trim(a[1:], "v") == "":
+			// -v, or -vv
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
 }

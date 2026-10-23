@@ -1,5 +1,5 @@
---config	path to treerig.toml (default: nearest above cwd)
---version	output the version number
+--progress	how to show progress: auto (redraw on a terminal) or plain (one line per change) (default "auto")
+--verbose	show what treerig runs, and every detail
 --help	help for status
 --json	machine-readable output
 :4

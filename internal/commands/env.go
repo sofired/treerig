@@ -43,7 +43,19 @@ type Env struct {
 	Cwd string
 	// ConfigPath is --config; empty means the nearest treerig.toml above Cwd.
 	ConfigPath string
-	Runner     run.Runner
+	// Verbose is -v/--verbose. Nothing reads it yet: the flag is accepted
+	// by every command ahead of the verbose output it will switch on
+	// (docs/design/cli-1.0.md, "Verbose output").
+	//
+	// TODO(#205): pass it to the backend, hooks, progress and the logger.
+	Verbose bool
+	// Progress is --progress, already validated by the command line; the
+	// zero value means ProgressAuto. Nothing reads it yet
+	// (docs/design/cli-1.0.md, "Rendering").
+	//
+	// TODO(#208): the entry point's one decision about live or plain output.
+	Progress ProgressMode
+	Runner   run.Runner
 	// Releases downloads a release for `teardown pin --release` and
 	// `--latest`: an HTTPS fetcher over the *http.Client cli.MainProcess builds
 	// (releasefetch.NewHTTP). Nil from cli.Main and from hand-built test Envs,
@@ -101,6 +113,20 @@ type Env struct {
 	// internal/cli's TestEnvBuilderRelocationWiring.
 	Exec func(path string, argv, envv []string) error
 }
+
+// ProgressMode is how progress is shown: --progress's value.
+type ProgressMode string
+
+// The values --progress takes.
+const (
+	// ProgressAuto redraws on a terminal and prints plain lines elsewhere.
+	ProgressAuto ProgressMode = "auto"
+	// ProgressPlain prints one line per change and never redraws.
+	ProgressPlain ProgressMode = "plain"
+)
+
+// ProgressModes are the values --progress takes, in the order help lists them.
+var ProgressModes = []ProgressMode{ProgressAuto, ProgressPlain}
 
 // ListOptions are `worktree list`'s flags.
 type ListOptions struct {

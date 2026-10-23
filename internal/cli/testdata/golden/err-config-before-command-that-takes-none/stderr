@@ -1,0 +1,1 @@
+[treerig] ERROR: 'treerig init' writes treerig.toml at the root of the Git repository you run it in; it does not take --config.

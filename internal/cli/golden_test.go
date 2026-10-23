@@ -33,6 +33,12 @@ package cli_test
 // and the err-*-rename cases pin `worktree rename` (#11); the other worktree
 // goldens list it.
 //
+// help-all, help-cmd-all-status and help-help pin `help --all` (#199); the
+// verbose-*, progress-*, err-progress-*, err-version-* and err-config-* cases
+// and complete-root-flags pin where -v, --progress, -V and --config are
+// declared: -v and --progress on every command, -V on the root only,
+// --config on each command that reads treerig.toml.
+//
 // Every case here stays within this package's remit — parsing, help,
 // suggestions and the report()/TREERIG_DEBUG-hint path — so none of them
 // depend on a command's own body. Two specific exceptions are documented at
@@ -67,6 +73,9 @@ var goldenCases = []goldenCase{
 	{"help-root-long", []string{"--help"}},
 	{"help-root-short", []string{"-h"}},
 	{"help-root-command", []string{"help"}},
+	{"help-all", []string{"help", "--all"}},
+	{"help-cmd-all-status", []string{"help", "--all", "status"}},
+	{"help-help", []string{"help", "--help"}},
 	{"help-init", []string{"init", "--help"}},
 	{"help-config", []string{"config", "--help"}},
 	{"help-config-short", []string{"config", "-h"}},
@@ -133,9 +142,33 @@ var goldenCases = []goldenCase{
 	{"help-cmd-worktree-bogus", []string{"help", "worktree", "bogus"}},
 	{"help-cmd-leaf-extra", []string{"help", "status", "extra"}},
 
-	// --- version ---
+	// --- version, which only the root has ---
 	{"version-short", []string{"-V"}},
 	{"version-long", []string{"--version"}},
+	{"err-version-flag-on-subcommand", []string{"worktree", "list", "-V"}},
+	{"err-version-long-on-subcommand", []string{"status", "--version"}},
+	{"err-version-short-in-cluster-on-subcommand", []string{"status", "-hV"}},
+	{"err-version-short-on-run", []string{"run", "plan", "-V"}},
+
+	// --- -v/--verbose and --progress, the root's persistent flags: on
+	// every page's Global Flags, and distinct from -V. Neither does anything
+	// yet, so a bare root (help, exit 1) shows they parse. ---
+	{"verbose-short", []string{"-v"}},
+	{"verbose-long", []string{"--verbose"}},
+	{"verbose-and-version", []string{"-vV"}},
+	{"verbose-after-subcommand", []string{"config", "-v"}},
+	{"progress-plain", []string{"--progress=plain"}},
+	{"progress-auto", []string{"--progress", "auto"}},
+	{"err-progress-bad-value", []string{"--progress=fancy"}},
+	{"err-progress-bad-value-after-subcommand", []string{"status", "--progress", "fancy"}},
+	{"err-missing-option-arg-progress", []string{"--progress"}},
+	{"err-unknown-option-long-suggest-verbose", []string{"--verbos"}},
+	{"err-unknown-option-long-suggest-progress", []string{"status", "--progres"}},
+	{"complete-root-flags", []string{"__complete", "--"}},
+	{"complete-root-short-flags", []string{"__complete", "-"}},
+	{"complete-progress-values", []string{"__complete", "--progress", ""}},
+	{"complete-progress-values-on-subcommand", []string{"__complete", "status", "--progress", "p"}},
+	{"complete-status-flags", []string{"__complete", "status", "--"}},
 
 	// --- bare groups: help to stderr, exit 1 ---
 	{"bare-root", nil},
@@ -152,6 +185,8 @@ var goldenCases = []goldenCase{
 	{"help-completion-zsh", []string{"completion", "zsh", "--help"}},
 	{"err-unknown-command-in-completion-group", []string{"completion", "tcsh"}},
 	{"complete-root", []string{"__complete", ""}},
+	{"complete-help-flags", []string{"__complete", "help", "--"}},
+	{"complete-config-flag-on-router", []string{"__complete", "router", "up", "--"}},
 	{"complete-init", []string{"__complete", "init", ""}},
 	{"complete-init-flags", []string{"__complete", "init", "--"}},
 	{"complete-config", []string{"__complete", "config", ""}},
@@ -237,7 +272,7 @@ var goldenCases = []goldenCase{
 	{"err-unknown-option-short-combo", []string{"-hx"}},
 
 	// --- missing option argument ---
-	{"err-missing-option-arg-config", []string{"--config"}},
+	{"err-missing-option-arg-config", []string{"status", "--config"}},
 	{"err-missing-option-arg-domain", []string{"worktree", "remove", "--domain"}},
 	{"err-missing-option-arg-label-namespace", []string{"worktree", "remove", "--label-namespace"}},
 
@@ -268,15 +303,26 @@ var goldenCases = []goldenCase{
 	// same as "-hx" above — "-V" is consumed, then the cluster fails on "e",
 	// exit 1 to stderr rather than printing the version, exit 0 to stdout.
 	{"combo-version-short-suffix", []string{"-Vextra"}},
-	// --config is root-scoped and recognised wherever it appears in the
-	// argument list, not just before the first subcommand name.
-	{"config-after-subcommand-version", []string{"worktree", "list", "-V"}},
+	// --config belongs to each command that reads treerig.toml, so it is
+	// recognised anywhere after that command's name, and nowhere else: not
+	// before it, and not on a command that reads none.
 	{"config-after-subcommand-help", []string{"worktree", "list", "-h"}},
-	{"config-inline-equals", []string{"--config=/nonexistent-treerig-config-x7z.toml", "config", "validate"}},
-	// A required option's value is whatever token follows, even one that
-	// looks like another flag: --config eats "--help" here, leaving a bare
-	// invocation (full help to stderr, exit 1) rather than showing help.
-	{"config-eats-next-token", []string{"--config", "--help"}},
+	{"config-inline-equals", []string{"config", "validate", "--config=/nonexistent-treerig-config-x7z.toml"}},
+	// Cobra finds the command by skipping a flag it does not know, and the
+	// command then parses the whole argument list, so --config ahead of a
+	// command that takes it still works. These pin that flag stripping, not a
+	// feature: the root itself has no --config.
+	{"config-before-command", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "config", "validate"}},
+	{"err-config-before-command-that-takes-none", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "init"}},
+	{"err-config-and-unknown-command", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "bogus"}},
+	{"err-config-and-no-command", []string{"--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"err-config-on-group", []string{"route", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"err-config-on-router-status", []string{"router", "status", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"err-config-on-teardown-pin", []string{"teardown", "pin", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"err-config-on-completion", []string{"completion", "bash", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"err-config-on-router", []string{"router", "down", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"err-config-on-teardown-status", []string{"teardown", "status", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"err-config-on-config-schema", []string{"config", "schema", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 
 	// --- cases that reach an actual command body, to prove --config really
 	// reaches commands.Env.ConfigPath for each of them. Their exact wording
@@ -287,8 +333,9 @@ var goldenCases = []goldenCase{
 	// unlike, say, these same commands run with no --config at all, whose
 	// "no treerig.toml" message would embed wherever this repository happens
 	// to be checked out. ---
-	// init refuses --config before it looks at Git or the filesystem, so this
-	// case writes nothing, wherever the tests run. The cases that reach the
+	// init declares no --config, so the flag is refused at parse time, before
+	// it looks at Git or the filesystem, and this case writes nothing,
+	// wherever the tests run. The cases that reach the
 	// write (a fresh repository, an existing treerig.toml, no repository) need a
 	// directory of their own and live in TestInit and the streams contract.
 	{"init-config-flag", []string{"init", "--config", "/nonexistent-treerig-config-x7z.toml"}},

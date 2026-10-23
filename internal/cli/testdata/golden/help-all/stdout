@@ -4,34 +4,44 @@ Usage:
   treerig [flags]
   treerig [command]
 
-Available Commands:
+Start here
   init        write a starter treerig.toml at the repository root
-  config      inspect the project configuration
+  up          register this worktree, start its services, and run its hooks
+
+Day to day
   dev         start this worktree's services, then follow their logs until
               Ctrl-C
-  up          register this worktree, start its services, and run its hooks
   down        stop this worktree's services; data is kept
   status      show service status for this worktree
   urls        print this worktree's routed URLs
+  worktree    manage registered worktrees
+
+Project tasks
   run         run one of the project's named commands from treerig.toml
               [commands]
   backup      run the backup hook, writing a bundle into a directory
   restore     run the restore hook on a bundle directory
-  index       refresh the machine-wide checkout index and print it
-  doctor      check prerequisites, the registry, the router, and this checkout's
-              verify hook
-  router      manage the shared local router
   route       route processes running on the host through this worktree's
               hostname
+
+Problems
+  doctor      check prerequisites, the registry, the router, and this checkout's
+              verify hook
+
+More
+  config      inspect the project configuration
+  index       refresh the machine-wide checkout index and print it
+  router      manage the shared local router
   shared      manage the repository's shared services
-  worktree    manage registered worktrees
   teardown    pin and check the trusted treerig build for worktree removal
   completion  print a shell completion script
   help        display help for command
 
 Flags:
-      --config string   path to treerig.toml (default: nearest above cwd)
   -h, --help            help for treerig
+      --progress mode   how to show progress: auto (redraw on a terminal) or
+                        plain (one line per change) (default "auto")
+  -v, --verbose         show what treerig runs, and every detail
   -V, --version         output the version number
 
 Use "treerig [command] --help" for more information about a command.

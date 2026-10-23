@@ -1,0 +1,1 @@
+[treerig] ERROR: 'treerig config schema' reads no treerig.toml, so it does not take --config.
