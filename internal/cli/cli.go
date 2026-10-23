@@ -92,6 +92,8 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv la
 	p := &program{
 		buildEnv: envBuilder(commandName, invocation, console, getenv, stdin, stderr, life, args, executable, execFn, releases, passwdHome),
 		exitCode: exitCode,
+		// The console is the logger every Env gets, so -v reaches it here.
+		verbosity: console,
 	}
 	root := buildProgram(commandName, brand.Version, p, stdout, stderr)
 	if rest == nil {

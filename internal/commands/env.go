@@ -43,17 +43,19 @@ type Env struct {
 	Cwd string
 	// ConfigPath is --config; empty means the nearest treerig.toml above Cwd.
 	ConfigPath string
-	// Verbose is -v/--verbose. Nothing reads it yet: the flag is accepted
-	// by every command ahead of the verbose output it will switch on
-	// (docs/design/cli-1.0.md, "Verbose output").
-	//
-	// TODO(#205): pass it to the backend, hooks, progress and the logger.
+	// Verbose is -v/--verbose (docs/design/cli-1.0.md, "Verbose output"). It
+	// reaches the Compose runtimes, the router and the shared stack, which then
+	// show Compose's transcript, and the logger, which then prints Detail
+	// lines: each Docker command with treerig's own arguments, and paths, IDs
+	// and exit codes. It never prints the environment, arguments after "--",
+	// or hook or [commands] arguments, and redacts through text.Redact.
 	Verbose bool
-	// Progress is --progress, already validated by the command line; the
-	// zero value means ProgressAuto. Nothing reads it yet
-	// (docs/design/cli-1.0.md, "Rendering").
+	// Progress is how progress is shown, decided once by the command line
+	// from --progress and CI (docs/design/cli-1.0.md, "Rendering"); the zero
+	// value means ProgressAuto. Only the plain writer exists: every mode
+	// reads as plain.
 	//
-	// TODO(#208): the entry point's one decision about live or plain output.
+	// TODO(#208): ProgressAuto draws the live view on a terminal.
 	Progress ProgressMode
 	Runner   run.Runner
 	// Releases downloads a release for `teardown pin --release` and

@@ -38,20 +38,48 @@ control home inside a checkout, a pin store others can write, a `noexec` mount)
 is a warning on stderr in both forms, and exit 1, so stdout stays the report or
 the document.
 
-`up`, `dev`, `down`, `backup`, `restore`, `router down` and `worktree remove`
-are the exception: they pass your hooks' and Compose's own stdout through as
-those programs wrote it, and `up` adds its URL table there. `worktree remove`
-prints two lines naming the pinned binary when a pin is used (the one it runs,
-and the pinned binary saying it ran), and any refusal of the teardown check, on
-stderr, never on stdout. `dev` is `up` and then the followed logs, which keep their streams: a
+Every command that runs `docker compose up` or `down` (`up`, `dev`, `down`,
+`router up`, `router down`, `shared up`, `worktree remove` and `worktree
+rename`) tells what happened in treerig's own words, on stderr, and `up` adds
+its URL table on stdout. Docker Compose's own progress (`Container web
+Started`) is not passed through: pass `-v` to see it, on stderr (see [Verbose
+output](#verbose-output)). A failure still quotes the last 50 lines of what
+Compose said. **Changed in 1.0:** the output of every hook (`prepare`, `seed`,
+`backup`, `restore` and `verify`) goes to stderr whichever stream the hook wrote
+it on, so `dir=$(treerig backup)` gets the path `backup` wrote and nothing else;
+a script that read a hook's output from stdout adds `2>&1` to read it from the
+same pipe, which also carries treerig's own notices and warnings (see
+[Hooks](hooks.md#output-and-exit-codes)). `worktree remove` prints two lines
+naming the pinned binary when a pin is used (the one it runs, and the pinned
+binary saying it ran), and any refusal of the teardown check, on stderr, never
+on stdout. `dev` is `up` and then the followed logs, which keep their streams: a
 container's stdout on treerig's stdout, its stderr on treerig's stderr, and one
-notice on stderr when following starts. `backup` and `restore` write their own closing line, and any
-warning, to stderr, so a script that needs a bundle's path passes it a
-directory. `shared up` passes Compose's stdout through the same way; `shared
-down` writes only notices and warnings, to stderr. `run` is the same, more
-strictly: the command it runs writes straight to treerig's stdout and stderr, and
-treerig adds nothing while it runs, so `treerig run plan > out` holds only what
-`plan` wrote.
+notice on stderr when following starts. `backup` writes the path of the bundle
+it wrote to stdout and its closing line, and any warning, to stderr; `restore`
+writes only to stderr. `shared down` names services in its progress lines; the
+`--volumes` prompt still lists the containers and volumes it will remove, since
+that list is the proof of what goes. `run` is the stricter case: the command it
+runs writes straight to treerig's stdout and stderr, and treerig adds nothing
+while it runs, so `treerig run plan > out` holds only what `plan` wrote.
+
+`down` says `<host> is not running. Nothing to stop.` when the worktree has
+nothing running, and `This worktree is not registered. Nothing to stop.` when it
+was never brought up. Both exit 0. While a stopped container or a network of the
+worktree remains, `down` still runs `docker compose down` to remove it, and
+says nothing about it but that nothing was running. `router down` says `Router
+stopped.`, and, when worktrees had route files, `Router stopped. 2 worktrees
+were routed through it; their URLs don't load until you run 'treerig up' in
+each.` (a route file can outlive a service that was stopped by hand, so it does
+not say they run); with no router running it says `The router is not running.
+Nothing to stop.`
+
+A long step prints one line when it starts (`Starting all services for
+feature-x.myapp.localhost.`) and a line every ten seconds while it runs (`still
+starting all services for feature-x.myapp.localhost, 40s: <the last line Compose
+wrote>`), so a pipe, CI or an agent never sees a silent minute and a hung start
+leaves its last words. A terminal gets the same lines until the live view
+arrives (#208). `CI` set, a stderr that is not a terminal, `TERM=dumb` and
+`--progress=plain` select this form; it is the only one today.
 
 `status` and `list` share one set of [state
 words](commands.md). When Docker cannot be asked, each of them still prints
@@ -114,3 +142,29 @@ its `[hooks.timeout]` limit is stopped and treerig exits 124, not the hook's own
 code ([`hooks.md`](hooks.md#timeouts)). A `dev` session that you end
 ends with the status of the signal that ended it: 130 for Ctrl-C, 143 for
 SIGTERM, 129 for SIGHUP.
+
+## Verbose output
+
+`-v` (`--verbose`), accepted by every command, adds to stderr:
+
+- Docker Compose's transcript of every command that runs `docker compose up` or
+  `down` (see above), as Compose wrote it;
+- each Docker and Compose command treerig runs, with treerig's own arguments
+  only (`[treerig] docker compose --project-name treerig-… down
+  --remove-orphans`);
+- for a hook, its exit code and how long it ran.
+
+It never prints the environment, anything after a `--`, the arguments of a hook
+or a `[commands]` entry, or the output of `docker compose config`. In treerig's
+own verbose lines, the value after a flag such as `--password` or `--token`, the
+value of a pair after `-e`, `--env` or `--build-arg`, the value of a `--flag=value`
+whose flag name looks like a secret, the value of a `KEY=value` pair whose name
+is upper case or contains pass, secret, token, key, auth, cred and similar
+words, an `Authorization` header, a bearer token, and the user and password of a
+URL are replaced by `<redacted>`. **Compose's transcript is not redacted**, and
+neither is your hooks' output: treerig cannot redact what it does not write, and
+a log line can carry a secret. `TREERIG_DEBUG=1` is separate and means only the
+stack trace behind a failure.
+
+Not shown yet: the paths, IDs and digests that other commands know (#211,
+#215), and `doctor`'s every check under `-v` (#215).

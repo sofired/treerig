@@ -3,7 +3,6 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -124,11 +123,86 @@ func TestWorktreeDown(t *testing.T) {
 		}
 	})
 
-	t.Run("asks for an up first when the worktree is not registered", func(t *testing.T) {
+	// downCalls are the recorded `compose down` calls.
+	downCalls := func(w *commandstest.World) []run.Spec {
+		var calls []run.Spec
+		for _, spec := range w.Runner.Calls() {
+			if spec.Command == "docker" && slices.Contains(spec.Args, "compose") && slices.Contains(spec.Args, "down") {
+				calls = append(calls, spec)
+			}
+		}
+		return calls
+	}
+
+	t.Run("says nothing was running, and runs no Compose, when the project has nothing left", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
-		err := commands.DownWithContext(ctx, w.Context("", acme, nil).CommandContext)
-		if err == nil || !regexp.MustCompile(regexp.QuoteMeta("This worktree is not registered. Run 'treerig up' first.")).MatchString(err.Error()) {
+		w.Register("", acme, "feature-login", brand.LabelNamespace)
+		tc := w.Context("", acme, nil)
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+			t.Fatalf("Down: %v", err)
+		}
+		lines, printed := tc.Logger.Snapshot()
+		if want := []string{"info: feature-login.acme.localhost is not running. Nothing to stop."}; !slices.Equal(lines, want) || len(printed) != 0 {
+			t.Fatalf("lines = %q, printed = %q, want %q", lines, printed, want)
+		}
+		if calls := downCalls(w); len(calls) != 0 {
+			t.Fatalf("ran compose down %d time(s) with nothing to remove", len(calls))
+		}
+	})
+
+	t.Run("still runs Compose, and says nothing was running, while a stopped container remains", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		for _, id := range w.Docker.Owned(ref, brand.LabelNamespace) {
+			if !strings.HasPrefix(id, "v") {
+				w.Docker.SetStatus(id, "exited")
+			}
+		}
+		tc := w.Context("", acme, nil)
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+			t.Fatalf("Down: %v", err)
+		}
+		lines, _ := tc.Logger.Snapshot()
+		if want := []string{"info: feature-login.acme.localhost is not running. Nothing to stop."}; !slices.Equal(lines, want) {
+			t.Fatalf("lines = %q, want %q", lines, want)
+		}
+		if calls := downCalls(w); len(calls) != 1 {
+			t.Fatalf("ran compose down %d time(s), want 1 to remove the stopped container", len(calls))
+		}
+		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 1 || !strings.HasPrefix(left[0], "v") {
+			t.Fatalf("owned after down = %v, want only the data volume", left)
+		}
+	})
+
+	t.Run("keeps Compose's transcript off unless -v is set", func(t *testing.T) {
+		for _, verbose := range []bool{false, true} {
+			w := commandstest.New(t, "feature/login", acme)
+			w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+			tc := w.Context("", acme, nil)
+			tc.Verbose = verbose
+			if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+				t.Fatalf("Down: %v", err)
+			}
+			want := run.Capture
+			if verbose {
+				want = run.TeeToStderr
+			}
+			calls := downCalls(w)
+			if len(calls) != 1 || calls[0].Output != want {
+				t.Fatalf("verbose %v: down calls = %+v, want one with output %v", verbose, calls, want)
+			}
+		}
+	})
+
+	t.Run("says there is nothing to stop, and exits 0, when the worktree is not registered", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
 			t.Fatalf("err = %v", err)
+		}
+		lines, printed := tc.Logger.Snapshot()
+		if want := []string{"info: This worktree is not registered. Nothing to stop."}; !slices.Equal(lines, want) || len(printed) != 0 {
+			t.Fatalf("lines = %q, printed = %q", lines, printed)
 		}
 		scan, err := registry.ScanRegistrations(w.ControlHome)
 		if err != nil {

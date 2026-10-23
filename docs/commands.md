@@ -233,6 +233,13 @@ at a time, within that one second.
 - **The overview** at `http://treerig.localhost` shows the state as a pill, and
   `list --all --json` has it as `entries[].state`. The page it writes says so
   when Docker does not answer.
+- **`down`** stops what runs and says `feature-x.myapp.localhost is down.`. A
+  worktree with nothing running reads `feature-x.myapp.localhost is not running.
+  Nothing to stop.`, and one that was never brought up `This worktree is not
+  registered. Nothing to stop.`; both exit 0. While a stopped container or a network of the
+  worktree remains, `down` removes it all the same, without a word about it.
+  Docker Compose's own output is shown only with `-v`
+  ([Output and exit codes](output-and-exit-codes.md#verbose-output)).
 - **`doctor`** warns about a registration Git no longer lists, as `directory
   missing`, or as unknown, with the cause.
 

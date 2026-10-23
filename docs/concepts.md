@@ -143,5 +143,6 @@ Compose file, so `worktree remove` reaps it.
 `treerig backup ~/backups/before-upgrade` then `treerig restore
 ~/backups/before-upgrade`. With no directory, `backup` writes under the
 worktree's home, which `worktree remove` deletes (its confirmation counts the
-bundles); give it a directory to keep one. A restore overwrites the
-worktree's live data.
+bundles); give it a directory to keep one. `backup` prints the path of the bundle
+it wrote on stdout (the hook's own output goes to stderr), so `dir=$(treerig
+backup)` captures it. A restore overwrites the worktree's live data.

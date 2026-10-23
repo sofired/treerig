@@ -20,6 +20,7 @@ Jump to:
 - [Rootless or remote Docker is refused](#rootless-or-remote-docker-is-refused)
 - [Docker Compose is too old](#docker-compose-is-too-old)
 - [A pinned port is held](#a-pinned-port-is-held)
+- [`up` prints no Docker Compose output](#up-prints-no-docker-compose-output)
 
 ## A hostname does not resolve
 
@@ -295,3 +296,20 @@ Stop what holds it, or run 'treerig up --reallocate-port <service>' to give the 
 **Fix:** stop the holder, or run `treerig up --reallocate-port api` to give that service a new port. See [Ports](routing.md#ports).
 
 **Why:** something else took the port treerig pinned for the service: another treerig worktree, a container (named in the message), or another process. `up` proves a container is the worktree's own by its labels, never by its name.
+
+## `up` prints no Docker Compose output
+
+`up`, `down`, `router down`, `shared up` and the other commands that run `docker
+compose up` or `down` print a few lines of their own and leave out Compose's
+progress (`Container web  Started`). A failure still quotes the last 50 lines of
+what Compose said.
+
+**Fix:** add `-v`: `treerig up -v`. Compose's output is then shown as it writes
+it, on stderr, and each Docker command treerig runs is listed with treerig's own
+arguments only. A hook's own output is always shown, on stderr. To see the
+stack trace behind a failure, set `TREERIG_DEBUG=1` instead.
+
+In CI, run with `-v` when a job fails and you need Compose's output. treerig's
+own `-v` lines hide environment variable and secret values, but Compose's
+transcript is shown as Compose wrote it and is not redacted, so a job log that
+is public can carry a secret that Compose or a container printed.

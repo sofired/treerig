@@ -214,6 +214,7 @@ case " $* " in
       ps) case " $* " in
             *"label=dev.treerig.managed=true --format"*) [ -e "$state/c1" ] && printf 'running\tUp 5 minutes\t`+fixtureRepo+`\t`+fixtureWt+`\tapi\t\tc1\n'; exit 0 ;;
             *"label=dev.treerig.shared=true"*) exit 0 ;;
+            *"label=com.docker.compose.project="*"--format {{.State}}"*) [ -e "$state/c1" ] && echo running; exit 0 ;;
           esac; [ -e "$state/c1" ] && echo c1 ;;
       volume) [ -e "$state/v1" ] && echo v1 ;;
     esac

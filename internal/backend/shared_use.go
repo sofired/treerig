@@ -165,7 +165,7 @@ func (c *Compose) SharedConsumers(ctx context.Context, ref worktree.Ref, shared 
 
 // psIDs lists container IDs, running or not, matching every label filter.
 func (c *Compose) psIDs(ctx context.Context, labels []string) ([]string, error) {
-	return c.list(ctx, resourceTypes[0], labels)
+	return c.list(ctx, resourceTypeOf("container"), labels)
 }
 
 // NetworkProof is a worktree network's ownership check: whether it carries
@@ -223,7 +223,7 @@ func (c *Compose) ProveNetwork(ctx context.Context, ref worktree.Ref, idOrName s
 // disappear before inspection are omitted.
 func (c *Compose) OwnedNetworks(ctx context.Context, ref worktree.Ref) ([]NetworkProof, error) {
 	namespace := c.options.LabelNamespace
-	kind := resourceTypes[slices.IndexFunc(resourceTypes, func(k resourceType) bool { return k.kind == "network" })]
+	kind := resourceTypeOf("network")
 	byProject, err := c.list(ctx, kind, []string{ComposeProjectLabel + "=" + c.project(ref)})
 	if err != nil {
 		return nil, err

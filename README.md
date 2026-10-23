@@ -35,8 +35,8 @@ $ cd ../myapp.feature-login && treerig up
 web  http://feature-login.myapp.localhost
 ```
 
-*Illustrative output: `up` also prints Compose's progress before its URL
-lines.*
+*Illustrative output: `up` also prints a line for each step on stderr before
+its URL lines; `-v` adds Docker Compose's own progress.*
 
 - **A URL per worktree**, from one shared router that listens only on
   loopback. You don't edit any ports.

@@ -1513,7 +1513,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 			Shared: sharedAddrsFor(opts.ControlHome, registration.RepositoryID, loaded.Config),
 			// TREERIG_SHARED_URL_<NAME>, only with a resolved router port, as above
 			SharedURLs: sharedVerifyURLs(opts, registration.RepositoryID, loaded.Config),
-		}, hooks.RunOptions{Output: hooks.Stderr})
+		}, hooks.RunOptions{})
 		if hookErr != nil {
 			var cancelled *clierr.Cancelled
 			if errors.As(hookErr, &cancelled) {

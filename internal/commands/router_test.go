@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -483,6 +484,154 @@ func TestRouterDown(t *testing.T) {
 			t.Errorf("expected a down call, got %v", fake.Argv())
 		}
 	})
+}
+
+func TestRouterDownWords(t *testing.T) {
+	// routedEnv is a running router, owned by the root the test resolved, whose
+	// state directory holds one route file for each of the given worktrees.
+	routedEnv := func(t *testing.T, worktrees ...string) (*commands.Env, *logger.Recording, *fakerun.Runner) {
+		t.Helper()
+		home := registrytest.TempDir(t)
+		getenv := routerEnvGetenv(map[string]string{"HOME": home})
+		root := filepath.Join(home, ".treerig")
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		state := layout.RouterStateFrom(root)
+		for _, id := range worktrees {
+			doc := router.NewFragmentDocument("r-"+id, "Host(`"+id+".localhost`)", 30001)
+			if err := router.WriteFragment(state, "0a000000-0000-4000-8000-000000000001", id, "web", doc); err != nil {
+				t.Fatal(err)
+			}
+		}
+		docker := &healthyRouterDocker{}
+		docker.owned(root)
+		fake := &fakerun.Runner{Handler: docker.Run}
+		rec := &logger.Recording{}
+		return &commands.Env{CommandName: "treerig", Logger: rec, Getenv: getenv, Runner: fake}, rec, fake
+	}
+	const w1, w2 = "0b000000-0000-4000-8000-000000000001", "0b000000-0000-4000-8000-000000000002"
+
+	t.Run("says how many worktrees keep running and what that costs them", func(t *testing.T) {
+		env, rec, _ := routedEnv(t, w1, w2)
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		lines, printed := rec.Snapshot()
+		want := []string{"info: Router stopped. 2 worktrees were routed through it; their URLs don't load until you run 'treerig up' in each."}
+		if !slices.Equal(lines, want) || len(printed) != 0 {
+			t.Fatalf("lines = %q, printed = %q, want %q", lines, printed, want)
+		}
+	})
+
+	t.Run("counts a worktree once however many services it routes", func(t *testing.T) {
+		env, rec, _ := routedEnv(t, w1)
+		state := layout.RouterStateFrom(filepath.Join(mustHome(t, env), ".treerig"))
+		doc := router.NewFragmentDocument("r-api", "Host(`api.localhost`)", 30002)
+		if err := router.WriteFragment(state, "0a000000-0000-4000-8000-000000000001", w1, "api", doc); err != nil {
+			t.Fatal(err)
+		}
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		lines, _ := rec.Snapshot()
+		want := []string{"info: Router stopped. 1 worktree was routed through it; its URLs don't load until you run 'treerig up' there."}
+		if !slices.Equal(lines, want) {
+			t.Fatalf("lines = %q, want %q", lines, want)
+		}
+	})
+
+	t.Run("says only that it stopped when no worktree is routed", func(t *testing.T) {
+		env, rec, _ := routedEnv(t)
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		if lines, _ := rec.Snapshot(); !slices.Equal(lines, []string{"info: Router stopped."}) {
+			t.Fatalf("lines = %q", lines)
+		}
+	})
+
+	t.Run("says nothing was running when there is no router, and still cleans up", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		fake := &fakerun.Runner{}
+		rec := &logger.Recording{}
+		env := &commands.Env{CommandName: "treerig", Logger: rec, Getenv: routerEnvGetenv(map[string]string{"HOME": home}), Runner: fake}
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		if lines, _ := rec.Snapshot(); !slices.Equal(lines, []string{"info: The router is not running. Nothing to stop."}) {
+			t.Fatalf("lines = %q", lines)
+		}
+		if !slices.ContainsFunc(fake.Argv(), func(line string) bool { return strings.Contains(line, " down --remove-orphans") }) {
+			t.Errorf("no compose down call in %v", fake.Argv())
+		}
+	})
+
+	t.Run("counts a stale route file too, and so does not claim the worktree runs", func(t *testing.T) {
+		// A route file outlives a service that was stopped by hand: the router
+		// cannot tell, so the message says only that it routed the worktree.
+		env, rec, _ := routedEnv(t, w1)
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		lines, _ := rec.Snapshot()
+		if len(lines) != 1 || strings.Contains(lines[0], "keep running") || !strings.Contains(lines[0], "was routed through it") {
+			t.Fatalf("lines = %q", lines)
+		}
+	})
+
+	t.Run("uses neutral words, and tells why with -v, when the route files cannot be listed", func(t *testing.T) {
+		env, rec, _ := routedEnv(t)
+		rec.Verbose = true
+		// A file where the dynamic configuration directory belongs.
+		state := layout.RouterStateFrom(filepath.Join(mustHome(t, env), ".treerig"))
+		if err := os.RemoveAll(state.DynamicDir); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(state.DynamicDir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(state.DynamicDir, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		lines, _ := rec.Snapshot()
+		want := "info: Router stopped. URLs of worktrees routed through it don't load until you run 'treerig up' in each."
+		if !slices.Contains(lines, want) || !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "detail: Could not count the worktrees") }) {
+			t.Fatalf("lines = %q", lines)
+		}
+	})
+
+	t.Run("keeps Compose's transcript off unless -v asks for it", func(t *testing.T) {
+		for _, verbose := range []bool{false, true} {
+			env, _, fake := routedEnv(t)
+			env.Verbose = verbose
+			if err := commands.RouterDown(context.Background(), env); err != nil {
+				t.Fatalf("RouterDown: %v", err)
+			}
+			want := run.Capture
+			if verbose {
+				want = run.TeeToStderr
+			}
+			for _, call := range fake.Calls() {
+				if slices.Contains(call.Args, "down") && call.Output != want {
+					t.Errorf("verbose %v: down output = %v, want %v", verbose, call.Output, want)
+				}
+			}
+		}
+	})
+}
+
+// mustHome is the HOME the env's Getenv answers.
+func mustHome(t *testing.T, env *commands.Env) string {
+	t.Helper()
+	home, ok := env.Getenv("HOME")
+	if !ok {
+		t.Fatal("no HOME")
+	}
+	return home
 }
 
 // slicesContainsLine reports whether want is one of lines, exactly.
