@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/worktree"
@@ -24,7 +24,7 @@ const acmeDomain = "acme.localhost"
 // for what `up` (not part of this package) would have registered.
 func register(t *testing.T, w *commandstest.World, root, domain, slug string, initialization string) *registry.WorktreeIdentity {
 	t.Helper()
-	identities := registry.NewIdentityService(root, w.Runner)
+	identities := registry.NewIdentityService(root, w.Runner, nil)
 	identity, err := registrytest.Register(context.Background(), w.ControlHome, identities, root, domain, slug, nil, initialization)
 	if err != nil {
 		t.Fatalf("Register: %v", err)
@@ -32,32 +32,33 @@ func register(t *testing.T, w *commandstest.World, root, domain, slug string, in
 	return identity
 }
 
-func TestWorktreeList(t *testing.T) {
+func TestList(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("lists this repository with branch, root, and state, marking the current worktree", func(t *testing.T) {
+	t.Run("lists this repository with state and directory, marking the current worktree", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		other := w.Worktree("other", "feature/other")
 		register(t, w, w.Root, acmeDomain, "feature-login", "complete")
 		register(t, w, other, acmeDomain, "feature-other", "complete")
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
+		rows := rowsReport.Entries
 
 		if len(rows) != 2 {
 			t.Fatalf("expected 2 rows, got %+v", rows)
 		}
 		if rows[0].Host != "feature-login.acme.localhost" || rows[0].State != worktree.StateStopped ||
 			rows[0].Branch == nil || *rows[0].Branch != "feature/login" ||
-			rows[0].Root == nil || *rows[0].Root != w.Root || !rows[0].Current {
+			rows[0].Root != w.Root || !rows[0].Current {
 			t.Fatalf("unexpected row 0: %+v", rows[0])
 		}
 		if rows[1].Host != "feature-other.acme.localhost" || rows[1].State != worktree.StateStopped ||
 			rows[1].Branch == nil || *rows[1].Branch != "feature/other" ||
-			rows[1].Root == nil || *rows[1].Root != other || rows[1].Current {
+			rows[1].Root != other || rows[1].Current {
 			t.Fatalf("unexpected row 1: %+v", rows[1])
 		}
 
@@ -65,14 +66,14 @@ func TestWorktreeList(t *testing.T) {
 		if len(lines) != 3 {
 			t.Fatalf("expected a header and 2 rows, got %+v", lines)
 		}
-		if !strings.HasPrefix(lines[0], "  HOST") {
+		if !strings.HasPrefix(lines[0], "   WORKTREE") {
 			t.Fatalf("unexpected header: %q", lines[0])
 		}
-		if !strings.HasPrefix(lines[1], "* feature-login.acme.localhost") {
-			t.Fatalf("expected the current row marked with '*': %q", lines[1])
+		if !strings.HasPrefix(lines[1], "*  feature-login") || !strings.HasSuffix(lines[1], w.Root) {
+			t.Fatalf("expected the current row marked with '*', and ending in its directory: %q", lines[1])
 		}
-		if !strings.HasPrefix(lines[2], "  feature-other.acme.localhost") {
-			t.Fatalf("expected the other row unmarked: %q", lines[2])
+		if !strings.HasPrefix(lines[2], "   feature-other") || !strings.HasSuffix(lines[2], other) {
+			t.Fatalf("expected the other row unmarked, and ending in its directory: %q", lines[2])
 		}
 	})
 
@@ -95,10 +96,11 @@ func TestWorktreeList(t *testing.T) {
 		}
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
+		rows := rowsReport.Entries
 
 		got := map[string][2]string{}
 		for _, row := range rows {
@@ -138,11 +140,12 @@ func TestWorktreeList(t *testing.T) {
 		w.Git.SetActive([]string{w.Root})
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
-		got := map[string]commands.ListedRegistration{}
+		rows := rowsReport.Entries
+		got := map[string]commands.ListEntry{}
 		for _, row := range rows {
 			got[row.Slug] = row
 		}
@@ -184,10 +187,11 @@ func TestWorktreeList(t *testing.T) {
 		}
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
+		rows := rowsReport.Entries
 		got := map[string]worktree.State{}
 		for _, row := range rows {
 			got[row.Slug] = row.State
@@ -220,10 +224,11 @@ func TestWorktreeList(t *testing.T) {
 		w.Docker.FailCall("ps", "Cannot connect to the Docker daemon at unix:///var/run/docker.sock", 1, -1)
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
 		if err == nil || !strings.HasPrefix(err.Error(), "Docker is not available: ") || clierr.Code(err) != 1 {
 			t.Fatalf("err = %v, want Docker's cause, exit 1", err)
 		}
+		rows := rowsReport.Entries
 		if len(rows) != 2 || rows[0].State != worktree.StateUnknown || rows[1].State != worktree.StateUnknown ||
 			!strings.HasPrefix(rows[0].Hint, "Docker is not available: ") {
 			t.Fatalf("rows = %+v", rows)
@@ -251,10 +256,11 @@ func TestWorktreeList(t *testing.T) {
 			t.Fatalf("Removing = %v, %v", removing, err)
 		}
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{JSON: true})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{JSON: true})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
+		rows := rowsReport.Entries
 		if len(rows) != 1 || rows[0].State != worktree.StateRemoving {
 			t.Fatalf("rows = %+v", rows)
 		}
@@ -263,27 +269,22 @@ func TestWorktreeList(t *testing.T) {
 		}
 	})
 
-	t.Run("says a detached worktree is detached, in the index's words", func(t *testing.T) {
+	t.Run("reports a detached worktree's branch as empty, which is not the same as unknown", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		detached := w.Worktree("detached", "")
 		register(t, w, detached, acmeDomain, "detached", "complete")
 
 		cctx := w.Context(detached, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		report, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{JSON: true})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
+		rows := report.Entries
 		if len(rows) != 1 || rows[0].Branch == nil || *rows[0].Branch != "" {
 			t.Fatalf("expected a single detached row, got %+v", rows)
 		}
-		found := false
-		for _, line := range cctx.Logger.Printed {
-			if strings.Contains(line, "(detached)") {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("expected the table to say (detached), got %+v", cctx.Logger.Printed)
+		if printed := strings.Join(cctx.Logger.Printed, "\n"); !strings.Contains(printed, `"branch": ""`) {
+			t.Fatalf("expected the document to say the branch is empty, got %s", printed)
 		}
 	})
 
@@ -296,18 +297,20 @@ func TestWorktreeList(t *testing.T) {
 		w.WriteIndexCard(widgetsIdentity.RepositoryID, widgetsIdentity.WorktreeID, "widgets", "widgets.localhost", "main",
 			"main.widgets.localhost", widgets, "main")
 
-		local, err := commands.ListWithContext(ctx, w.Context(w.Root, acmeDomain, nil).CommandContext, commands.ListOptions{})
+		localReport, err := commands.ListWithContext(ctx, w.Context(w.Root, acmeDomain, nil).CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
+		local := localReport.Entries
 		if len(local) != 1 || local[0].Host != "feature-login.acme.localhost" {
 			t.Fatalf("expected only the local repository, got %+v", local)
 		}
 
-		everything, err := commands.ListWithContext(ctx, w.Context(w.Root, acmeDomain, nil).CommandContext, commands.ListOptions{All: true})
+		everythingReport, err := commands.ListWithContext(ctx, w.Context(w.Root, acmeDomain, nil).CommandContext, commands.ListOptions{All: true})
 		if err != nil {
 			t.Fatalf("ListWithContext --all: %v", err)
 		}
+		everything := everythingReport.Entries
 		if len(everything) != 2 {
 			t.Fatalf("expected both repositories, got %+v", everything)
 		}
@@ -321,10 +324,11 @@ func TestWorktreeList(t *testing.T) {
 		// With the other repository's card gone, nothing records its branch.
 		cardPath := cardPathFor(w, widgetsIdentity.RepositoryID, widgetsIdentity.WorktreeID)
 		removeFile(t, cardPath)
-		forgotten, err := commands.ListWithContext(ctx, w.Context(w.Root, acmeDomain, nil).CommandContext, commands.ListOptions{All: true})
+		forgottenReport, err := commands.ListWithContext(ctx, w.Context(w.Root, acmeDomain, nil).CommandContext, commands.ListOptions{All: true})
 		if err != nil {
 			t.Fatalf("ListWithContext --all: %v", err)
 		}
+		forgotten := forgottenReport.Entries
 		if forgotten[0].Branch == nil || *forgotten[0].Branch != "feature/login" {
 			t.Fatalf("expected the local row to still know its branch: %+v", forgotten[0])
 		}
@@ -333,31 +337,32 @@ func TestWorktreeList(t *testing.T) {
 		}
 	})
 
-	t.Run("--json prints the rows", func(t *testing.T) {
+	t.Run("--json prints the document", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		register(t, w, w.Root, acmeDomain, "feature-login", "complete")
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{JSON: true})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{JSON: true})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
-		var parsed []commands.ListedRegistration
+		rows := rowsReport.Entries
+		var parsed commands.ListReport
 		if err := json.Unmarshal([]byte(strings.Join(cctx.Logger.Printed, "\n")), &parsed); err != nil {
 			t.Fatalf("unmarshal printed JSON: %v", err)
 		}
-		if len(parsed) != len(rows) || parsed[0].Slug != rows[0].Slug {
+		if len(parsed.Entries) != len(rows) || parsed.Entries[0].Slug != rows[0].Slug || !parsed.Entries[0].Current {
 			t.Fatalf("printed JSON does not match rows: printed=%+v rows=%+v", parsed, rows)
 		}
 	})
 
-	t.Run("keeps a branch name from driving the terminal, in the table and in the JSON", func(t *testing.T) {
+	t.Run("keeps a directory name from driving the terminal, in the table and in the JSON", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
-		// A clone chooses its own branch names: an escape sequence here
+		// A clone chooses its own directory names: an escape sequence here
 		// would move a real cursor, and a right-to-left override would
 		// reverse the row.
-		hostileBranch := "feature/\u001b[2Kx"
-		hostile := w.Worktree("hostile", hostileBranch)
+		hostileName := "ho\u001b[2Kstile"
+		hostile := w.Worktree(hostileName, "hostile")
 		register(t, w, hostile, acmeDomain, "hostile", "complete")
 
 		cctx := w.Context(hostile, acmeDomain, nil)
@@ -368,7 +373,7 @@ func TestWorktreeList(t *testing.T) {
 		if strings.ContainsRune(table, '\u001b') {
 			t.Fatalf("expected the escape character to be filtered: %q", table)
 		}
-		if !strings.Contains(table, "�") {
+		if !strings.Contains(table, "\ufffd") {
 			t.Fatalf("expected the replacement character in the table: %q", table)
 		}
 
@@ -383,12 +388,12 @@ func TestWorktreeList(t *testing.T) {
 		if !strings.Contains(printed, `\u001b`) {
 			t.Fatalf("expected the escape to survive as \\u001b: %q", printed)
 		}
-		var parsed []commands.ListedRegistration
+		var parsed commands.ListReport
 		if err := json.Unmarshal([]byte(printed), &parsed); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-		if len(parsed) != 1 || parsed[0].Branch == nil || *parsed[0].Branch != hostileBranch {
-			t.Fatalf("expected the branch to round-trip exactly through JSON: %+v", parsed)
+		if len(parsed.Entries) != 1 || parsed.Entries[0].Root != hostile {
+			t.Fatalf("expected the directory to round-trip exactly through JSON: %+v", parsed.Entries)
 		}
 	})
 
@@ -396,10 +401,11 @@ func TestWorktreeList(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		cctx := w.Context(w.Root, acmeDomain, nil)
 
-		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		rowsReport, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatalf("ListWithContext: %v", err)
 		}
+		rows := rowsReport.Entries
 		if len(rows) != 0 {
 			t.Fatalf("expected no rows, got %+v", rows)
 		}
@@ -409,7 +415,7 @@ func TestWorktreeList(t *testing.T) {
 		}
 		found := false
 		for _, line := range cctx.Logger.Lines {
-			if line == "info: No worktrees are registered for this repository." {
+			if line == "info: No worktrees are registered for this repository. Run 'treerig up' to register this worktree." {
 				found = true
 			}
 		}

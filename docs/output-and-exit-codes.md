@@ -2,13 +2,25 @@
 
 Which stream each command writes to, and the exit codes treerig uses.
 
-The commands that produce data — `index`, `status`, `router status`,
-`shared status`, `route ls`, `config show`, `config validate`, `worktree list`, `doctor`, `teardown status` — write that data to stdout
-and nothing else, so `treerig index > page.txt` and
-`treerig worktree list --json | jq` get what they asked for. Progress, waiting
-notices, confirmation prompts, warnings and failures go to stderr. Seven of
-these (`index`, `status`, `shared status`, `route ls`, `worktree list`, `doctor` and `teardown status`) take `--json`:
+The commands that produce data — `list`, `status`, `router status`,
+`shared status`, `route ls`, `config show`, `config validate`, `doctor`, `teardown status` — write that data to stdout
+and nothing else, so `treerig list > worktrees.txt` and
+`treerig list --json | jq` get what they asked for. Progress, waiting
+notices, confirmation prompts, warnings, failures and footers go to stderr.
+Six of these (`list`, `status`, `shared status`, `route ls`, `doctor` and `teardown status`) take `--json`:
 see [Machine-readable output](json-output.md).
+
+`list` adds up to two lines to stderr only when stderr is a terminal, so that a
+person sees them and a script that captures stderr does not: how many
+directories are gone (`1 directory is gone: 'treerig worktree remove old-spike'
+removes its worktree.`), and where the rest of the machine is. On a terminal,
+inside a repository, `treerig list` ends with the page's address when the router
+serves this root's URLs (`Every repository: 'treerig list --all', or
+http://treerig.localhost`, with the router's port when it is not 80); with
+`--all` it does not, since it already lists everything. `--json` prints neither.
+`treerig worktree list` and `treerig index` are hidden stubs for one release:
+each prints a pointer to `list` (`[treerig] ERROR: 'treerig index' is now
+'treerig list --all'.`) on stderr, nothing on stdout, and exits 1.
 
 `worktree rename` writes only its notice, to stderr, and nothing to stdout.
 
@@ -41,12 +53,12 @@ strictly: the command it runs writes straight to treerig's stdout and stderr, an
 treerig adds nothing while it runs, so `treerig run plan > out` holds only what
 `plan` wrote.
 
-`status`, `worktree list` and `index` share one set of [state
+`status` and `list` share one set of [state
 words](commands.md). When Docker cannot be asked, each of them still prints
 everything it can (the states that need Docker read `unknown`) and then exits 1
 with the cause on stderr, once. `status` does the same when Compose, not Docker,
-cannot read the worktree. `worktree list` and `index` give Docker about five
-seconds a label namespace.
+cannot read the worktree. `list` gives Docker about five seconds a label
+namespace, and Git five seconds a repository.
 
 `status` prints its table (or, with `--json`, its document) whatever the state.
 It exits 0 whatever the state, and 1 when it couldn't read the worktree: Docker

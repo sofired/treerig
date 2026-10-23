@@ -242,6 +242,8 @@ func (g *Gatherer) readKills(ctx context.Context, containers []Container) error 
 			return nil
 		})
 	}
+	// The workers return nil, whatever the inspect said (an unreadable
+	// container stays unknown), so there is no error to take from Wait.
 	_ = group.Wait()
 	return ctx.Err()
 }

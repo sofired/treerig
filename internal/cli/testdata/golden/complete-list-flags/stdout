@@ -1,0 +1,8 @@
+--progress	how to show progress: auto (redraw on a terminal) or plain (one line per change) (default "auto")
+--verbose	show what treerig runs, and every detail
+--all	every repository on this machine
+--config	path to treerig.toml (default: nearest above cwd, if any)
+--help	help for list
+--json	machine-readable output
+--refresh	rebuild the overview page (needs --all inside a repository)
+:4

@@ -60,10 +60,15 @@ Five things follow from that, and this tool does not change them:
   Compose network's container IP can reach it whether or not a service is shared.
   Its declared ports are also published on `127.0.0.1`, open to every local
   user like a routed service's.
-- **The index page is machine-wide and unauthenticated.** It lists every
-  checkout's branch, path, hostnames and service links. It is served through
+- **The overview is machine-wide and unauthenticated.** It lists every
+  worktree's branch, path, hostnames and service links. It is served through
   the proxy like any route, and from a loopback port of its own that any
   local user can reach.
+
+When treerig asks Git who a directory belongs to, it uses your own Git
+configuration (global, system and XDG, so your `safe.directory` entries apply)
+and nothing from the inherited `GIT_*` environment, with the file system
+monitor and hooks disabled and a time and output limit on every call.
 
 What the tool does guarantee is ownership: every resource it creates carries
 its [ownership labels](concepts.md#ownership-labels), and it refuses to touch

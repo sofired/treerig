@@ -78,8 +78,7 @@ func New(opts Options) *Registry {
 	if log == nil {
 		log = logger.Silent{}
 	}
-	identities := NewIdentityService(opts.Root, opts.Runner)
-	identities.environ = opts.Environ
+	identities := NewIdentityService(opts.Root, opts.Runner, opts.Environ)
 	return &Registry{
 		ControlHome:    layout.ControlLayout(opts.ControlHome).ControlHome,
 		Identities:     identities,

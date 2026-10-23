@@ -1,0 +1,30 @@
+List this repository's worktrees with their state, the URL of the first service
+that loads (and how many more there are) and their directory. Outside a
+repository, or with --all, it lists every registered worktree on the machine,
+with the repository first, and needs no treerig.toml. A URL is shown only while
+its service runs and the router's container is up; nothing is fetched over HTTP.
+On a terminal, stderr also says how many directories are gone and, inside a
+repository, where the overview page is. --refresh, with --all (or outside a
+repository), rebuilds the overview page under the router's lock; otherwise list
+takes no lock and writes nothing. It exits 0, and 1 when Docker didn't answer:
+the table is still printed, with unknown states.
+
+Usage:
+  treerig list [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+      --all             every repository on this machine
+      --config string   path to treerig.toml (default: nearest above cwd, if
+                        any)
+  -h, --help            help for list
+      --json            machine-readable output
+      --refresh         rebuild the overview page (needs --all inside a
+                        repository)
+
+Global Flags:
+      --progress mode   how to show progress: auto (redraw on a terminal) or
+                        plain (one line per change) (default "auto")
+  -v, --verbose         show what treerig runs, and every detail

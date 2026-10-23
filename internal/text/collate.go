@@ -9,7 +9,7 @@ import (
 
 // enCollatorOnce and enCollatorVal build the en collator once, on first use,
 // rather than at package initialization: every command imports internal/text,
-// but only the checkout index (internal/checkoutindex) actually calls
+// but only the overview (internal/overview) actually calls
 // Collate, and golang.org/x/text/collate's tables add about 1.6 MB to a
 // binary that would otherwise pay for them on every startup, including
 // `--help`.
@@ -35,7 +35,7 @@ var (
 
 // Collate orders two strings the way `a.localeCompare(b, 'en')` does: 0 if
 // they collate equal, negative if a sorts before b, positive if it sorts
-// after. Every checkout-index sort
+// after. Every overview sort
 // (domain, project, branch, slug) uses it, because the fields it orders
 // carry whatever a Git branch or a config's project name allows — accented
 // letters, CJK, emoji — not just the restricted alphabet [a-z0-9.-] that

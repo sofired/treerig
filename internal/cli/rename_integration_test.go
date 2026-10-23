@@ -4,7 +4,7 @@ package cli_test
 
 // `worktree rename`, through the real binary (#11): the argument contract,
 // and the whole story the issue asks for — after a rename `up`, `down` and
-// the index work under the new slug, with nothing left under the old. The
+// the overview work under the new slug, with nothing left under the old. The
 // fake docker is the one `up` is tested with, which reports no containers, so
 // the refusal that depends on them is pinned by internal/commands' own tests.
 
@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -74,9 +75,13 @@ func TestWorktreeRenameThroughTheBinary(t *testing.T) {
 			!strings.Contains(stderr, "[treerig] Renamed feature-login.acme.localhost to login.acme.localhost. Run 'treerig up' to start it there.\n") {
 			t.Fatalf("rename: exit %d\nstdout: %q\nstderr: %q", code, stdout, stderr)
 		}
-		list, _, _ := renameRun(t, f, binary, "worktree", "list")
-		if !strings.Contains(list, "login.acme.localhost") || strings.Contains(list, "feature-login") {
-			t.Fatalf("worktree list = %q", list)
+		list, _, _ := renameRun(t, f, binary, "list")
+		var slugs []string
+		for _, row := range strings.Split(strings.TrimSpace(list), "\n")[1:] {
+			slugs = append(slugs, strings.Fields(strings.TrimLeft(row, "* "))[0])
+		}
+		if !slices.Equal(slugs, []string{"login"}) {
+			t.Fatalf("list = %q, want one worktree, named login", list)
 		}
 
 		urls, stderr, code := renameRun(t, f, binary, "up")

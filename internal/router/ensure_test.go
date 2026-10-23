@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/router"
 )
 
@@ -68,7 +68,7 @@ func TestRouterServiceEnsure(t *testing.T) {
 			t.Errorf("IndexFile mode = %o, want 0644", got)
 		}
 		// The page links its icons, so they are written before it, readable the same way.
-		for _, name := range checkoutindex.IconNames() {
+		for _, name := range overview.IconNames() {
 			if got := fileMode(t, filepath.Join(w.State.IndexDir, name)); got != 0o644 {
 				t.Errorf("%s mode = %o, want 0644", name, got)
 			}
@@ -401,7 +401,7 @@ func TestEnsureChecksThePortsAreFree(t *testing.T) {
 			t.Fatal("expected a refusal")
 		}
 		for _, want := range []string{
-			"127.0.0.1:" + strconv.Itoa(seedIndexPort) + " (the checkout index) is held by",
+			"127.0.0.1:" + strconv.Itoa(seedIndexPort) + " (the overview) is held by",
 			"127.0.0.1:" + strconv.Itoa(seedPingPort) + " (the router's ping) is held by",
 			"remove " + w.State.StateFile + " so the next start picks another port",
 		} {
@@ -677,7 +677,7 @@ func TestEnsureAllocatesTheRouterStatePorts(t *testing.T) {
 			w.Probe.Busy[port] = true
 		}
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "No free port for the checkout index") {
+		if err == nil || !strings.Contains(err.Error(), "No free port for the overview") {
 			t.Fatalf("got %v", err)
 		}
 	})
@@ -838,7 +838,7 @@ func TestRouterEnsureIconFailure(t *testing.T) {
 		var missing []string
 		w := newWorldOpts(t, "", 80, func(o *router.Options) {
 			o.Page = func(time.Time) ([]byte, error) {
-				for _, name := range checkoutindex.IconNames() {
+				for _, name := range overview.IconNames() {
 					if info, err := os.Lstat(filepath.Join(state.IndexDir, name)); err != nil || !info.Mode().IsRegular() {
 						missing = append(missing, name)
 					}
@@ -860,13 +860,13 @@ func TestRouterEnsureIconFailure(t *testing.T) {
 
 	t.Run("an icon that cannot be written and is missing fails the start and writes no page", func(t *testing.T) {
 		w := newWorld(t, 80, "")
-		blocked := filepath.Join(w.State.IndexDir, checkoutindex.IconNames()[0])
+		blocked := filepath.Join(w.State.IndexDir, overview.IconNames()[0])
 		if err := os.MkdirAll(blocked, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), checkoutindex.IconNames()[0]) {
-			t.Fatalf("Ensure error = %v, want one naming %s", err, checkoutindex.IconNames()[0])
+		if err == nil || !strings.Contains(err.Error(), overview.IconNames()[0]) {
+			t.Fatalf("Ensure error = %v, want one naming %s", err, overview.IconNames()[0])
 		}
 		if _, statErr := os.Stat(w.State.IndexFile); !os.IsNotExist(statErr) {
 			t.Errorf("a placeholder page was written with an icon missing: %v", statErr)

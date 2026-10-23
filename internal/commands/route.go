@@ -84,7 +84,7 @@ func checkRouteFields(options RouteAddOptions) error {
 // already recorded in every field is the heal for a recorded route whose file
 // is missing: it rewrites the file and changes no record. The file and the
 // URL are built from the record as it stands under the registry lock, not
-// from the earlier read. Afterwards it refreshes the checkout index and says
+// from the earlier read. Afterwards it refreshes the overview and says
 // what the port answers on.
 func RouteAddWithContext(ctx context.Context, cctx *CommandContext, modes RouteModes, options RouteAddOptions) error {
 	if err := checkRouteFields(options); err != nil {
@@ -130,7 +130,7 @@ func RouteAddWithContext(ctx context.Context, cctx *CommandContext, modes RouteM
 		return err
 	}
 
-	refreshIndexBestEffort(ctx, cctx, "route add")
+	refreshOverviewBestEffort(ctx, cctx, "route add")
 	url := hostRouteURL(cctx, locked, route)
 	if healed {
 		cctx.Logger.Info(fmt.Sprintf("Host route %s was already recorded; wrote its route file again: %s to 127.0.0.1:%d.", route.Name, url, route.Port))
@@ -266,7 +266,7 @@ func RouteRmWithContext(ctx context.Context, cctx *CommandContext, name string) 
 	if err != nil {
 		return err
 	}
-	refreshIndexBestEffort(ctx, cctx, "route rm")
+	refreshOverviewBestEffort(ctx, cctx, "route rm")
 	cctx.Logger.Info(fmt.Sprintf("Removed host route %s (%s).", name, removedURL))
 	return nil
 }

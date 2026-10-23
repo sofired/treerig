@@ -105,6 +105,7 @@ var rootGroups = map[string]string{
 	"dev":        dayGroup,
 	"down":       dayGroup,
 	"status":     dayGroup,
+	"list":       dayGroup,
 	"worktree":   dayGroup,
 	"run":        tasksGroup,
 	"backup":     tasksGroup,
@@ -112,7 +113,6 @@ var rootGroups = map[string]string{
 	"route":      tasksGroup,
 	"doctor":     problemsGroup,
 	"config":     moreGroup,
-	"index":      moreGroup,
 	"router":     moreGroup,
 	"shared":     moreGroup,
 	"teardown":   moreGroup,
@@ -126,16 +126,16 @@ var rootGroups = map[string]string{
 var configCommands = []string{
 	"config validate", "config show",
 	"dev", "up", "down", "status",
-	"run", "backup", "restore", "index", "doctor",
+	"list", "run", "backup", "restore", "doctor",
 	"route add", "route rm", "route ls",
 	"shared up", "shared down", "shared status",
-	"worktree list", "worktree remove", "worktree rename", "worktree unlock",
+	"worktree remove", "worktree rename", "worktree unlock",
 }
 
 // configOptional are the configCommands that work without a treerig.toml (they
 // use commands.ContextWithoutConfig), so their --config says the default may
 // not exist.
-var configOptional = []string{"status", "worktree list", "worktree remove", "worktree unlock"}
+var configOptional = []string{"status", "list", "worktree remove", "worktree unlock"}
 
 // declareGroupsAndConfig gives each of the root's commands its help group
 // (rootGroups) and each command that reads treerig.toml its --config flag
@@ -348,6 +348,26 @@ func unknownSubcommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return errors.New(msg)
+}
+
+// removedCommand is a command that no longer exists, for one release: hidden,
+// it names its replacement as an error and exits 1, as an unknown command does.
+// path is the command as typed ("worktree list") and replacement what to type
+// instead. Flag parsing is off, so 'index --json' gets the pointer and not a
+// flag error (docs/design/cli-1.0.md, "Removed, and where each job goes").
+func removedCommand(commandName, path, replacement string) *cobra.Command {
+	words := strings.Fields(path)
+	pointer := fmt.Sprintf("'%s %s' is now '%s %s'.", commandName, path, commandName, replacement)
+	return &cobra.Command{
+		Use:                words[len(words)-1],
+		Long:               pointer,
+		Hidden:             true,
+		DisableFlagParsing: true,
+		Args:               cobra.ArbitraryArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return clierr.New(pointer)
+		},
+	}
 }
 
 // bareGroup is a command group's own RunE for when it is invoked with no
@@ -739,16 +759,37 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	// as an unknown command does. Flag parsing is off so 'urls --json' gets the
 	// pointer and not a flag error (docs/design/cli-1.0.md, "Removed, and where
 	// each job goes").
-	root.AddCommand(&cobra.Command{
-		Use:                "urls",
-		Long:               fmt.Sprintf("'%s urls' is now '%s status'.", commandName, commandName),
-		Hidden:             true,
-		DisableFlagParsing: true,
-		Args:               cobra.ArbitraryArgs,
+	root.AddCommand(removedCommand(commandName, "urls", "status"))
+
+	// The other removed commands, the same way: 'index --json' and
+	// 'worktree list --json' get the pointer too.
+	root.AddCommand(removedCommand(commandName, "index", "list --all"))
+
+	// list, in the day-to-day group; `ls` is its short form.
+	var listAll, listRefresh, listJSON bool
+	listCmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "list this repository's worktrees, or every worktree on this machine",
+		Long: "List this repository's worktrees with their state, the URL of the first service that loads (and how many more there are) and their directory. " +
+			"Outside a repository, or with --all, it lists every registered worktree on the machine, with the repository first, and needs no treerig.toml. " +
+			"A URL is shown only while its service runs and the router's container is up; nothing is fetched over HTTP. " +
+			"On a terminal, stderr also says how many directories are gone and, inside a repository, where the overview page is. " +
+			"--refresh, with --all (or outside a repository), rebuilds the overview page under the router's lock; otherwise list takes no lock and writes nothing. " +
+			"It exits 0, and 1 when Docker didn't answer: the table is still printed, with unknown states.",
+		Args: maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return clierr.Newf("'%s urls' is now '%s status'.", commandName, commandName)
+			env, err := p.env(cmd)
+			if err != nil {
+				return err
+			}
+			return commands.List(cmd.Context(), env, commands.ListOptions{All: listAll, Refresh: listRefresh, JSON: listJSON})
 		},
-	})
+	}
+	listCmd.Flags().BoolVar(&listAll, "all", false, "every repository on this machine")
+	listCmd.Flags().BoolVar(&listRefresh, "refresh", false, "rebuild the overview page (needs --all inside a repository)")
+	listCmd.Flags().BoolVar(&listJSON, "json", false, "machine-readable output")
+	root.AddCommand(listCmd)
 
 	run := &cobra.Command{
 		Use:   "run [name] [-- args...]",
@@ -818,22 +859,6 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	}
 	restore.ValidArgsFunction = directoryCompletionFunc
 	root.AddCommand(restore)
-
-	var indexJSON bool
-	indexCmd := &cobra.Command{
-		Use:   "index",
-		Short: "refresh the machine-wide overview of worktrees and print it",
-		Args:  maxArgs(0),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			env, err := p.env(cmd)
-			if err != nil {
-				return err
-			}
-			return commands.RefreshIndex(cmd.Context(), env, commands.OutputOptions{JSON: indexJSON})
-		},
-	}
-	indexCmd.Flags().BoolVar(&indexJSON, "json", false, "machine-readable output")
-	root.AddCommand(indexCmd)
 
 	var doctorJSON bool
 	doctorCmd := &cobra.Command{
@@ -1058,23 +1083,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		RunE:  bareGroup(p),
 	}
 
-	list := &cobra.Command{
-		Use:   "list",
-		Short: "list this repository's worktrees, or every registered worktree outside a repository",
-		Args:  maxArgs(0),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			env, err := p.env(cmd)
-			if err != nil {
-				return err
-			}
-			all, _ := cmd.Flags().GetBool("all")
-			jsonOut, _ := cmd.Flags().GetBool("json")
-			return commands.List(cmd.Context(), env, commands.ListOptions{All: all, JSON: jsonOut})
-		},
-	}
-	list.Flags().Bool("all", false, "every repository and domain on this machine")
-	list.Flags().Bool("json", false, "machine-readable output")
-	worktree.AddCommand(list)
+	worktree.AddCommand(removedCommand(commandName, "worktree list", "list"))
 
 	remove := &cobra.Command{
 		Use:   "remove [worktree]",
@@ -1116,7 +1125,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Short: "change this worktree's slug, and with it its hostname",
 		Long: "Rename the worktree you run it from: change the slug it is registered under, so it routes as <new-slug>.<domain>. " +
 			"A slug is a lowercase hostname label: letters, digits and inner hyphens, at most 63 characters. " +
-			"The registration and index entry move to the new slug and any leftover route files are removed; `up` writes them at the new hostname. " +
+			"The registration and index card move to the new slug and any leftover route files are removed; `up` writes them at the new hostname. " +
 			"The data directory, volumes and pinned ports are keyed by the worktree's ID and stay as they are. " +
 			fmt.Sprintf("It refuses a slug another worktree holds in the same domain, the reserved slug \"shared\", and a worktree that still has containers, running or stopped: run `%s down` first.", commandName),
 		Args: func(cmd *cobra.Command, args []string) error {

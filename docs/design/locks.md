@@ -3,6 +3,8 @@
 `internal/lock`, `internal/procid`, `internal/run/osrun`, and `internal/lifecycle`
 implement treerig's synchronization and process handling.
 
+> In 1.0 the command `worktree list` is `list`, `index` is `list --all`, and the old index page is the overview ([the command line](cli-1.0.md#removed-and-where-each-job-goes)). This note keeps the names it was written with.
+
 ## Design
 
 The kernel's `flock(2)` on the lock's own target file is the only lock

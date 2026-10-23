@@ -175,7 +175,7 @@ func sharedRoutedPort(service config.SharedService) int {
 }
 
 // hadRoute reports whether any of names has a route file now, so a caller
-// that is about to remove them knows the checkout index is about to change.
+// that is about to remove them knows the overview is about to change.
 func hadRoute(cctx *CommandContext, repositoryID string, names []string) bool {
 	for _, name := range names {
 		if !registry.ValidSharedName(name) {
@@ -189,7 +189,7 @@ func hadRoute(cctx *CommandContext, repositoryID string, names []string) bool {
 }
 
 // hasRoutedRecord reports whether any of names has a record that routes a web
-// UI, so the checkout index is refreshed after the service goes even when its
+// UI, so the overview is refreshed after the service goes even when its
 // route file was already gone. An unreadable record counts as not.
 func hasRoutedRecord(cctx *CommandContext, repositoryID string, names []string) bool {
 	store := cctx.Registry.Store(repositoryID)

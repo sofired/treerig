@@ -422,7 +422,7 @@ func TestWorktreeRemove(t *testing.T) {
 		widgets := w.Worktree("widgets", "main", filepath.Join(w.Base, "widgets-common"))
 		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		// Registered by a tool version that recorded no namespace, and never brought up: no card either.
-		identities := registry.NewIdentityService(widgets, w.Runner)
+		identities := registry.NewIdentityService(widgets, w.Runner, nil)
 		identity, err := identities.Ensure(ctx, widgets)
 		if err != nil {
 			t.Fatal(err)

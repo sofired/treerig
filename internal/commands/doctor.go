@@ -42,7 +42,6 @@ import (
 	"time"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/docker"
@@ -51,6 +50,7 @@ import (
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/ports"
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/registry"
@@ -415,7 +415,7 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 			continue
 		}
 		checks = append(checks, Check{Status: StatusFail, ID: "registry.index-host", Instance: record.WorktreeID, Subject: router.IndexHost, Detail: fmt.Sprintf(
-			"is the checkout index's own address, and worktree %s is registered to it. Set another domain in that checkout's %s and run '%s up' there.",
+			"is the overview's own address, and worktree %s is registered to it. Set another domain in that worktree's %s and run '%s up' there.",
 			record.WorktreeID, brand.ConfigFile, commandName)})
 	}
 	return checks

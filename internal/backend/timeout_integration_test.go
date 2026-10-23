@@ -3,7 +3,7 @@
 // #14: a `docker` that never answers must not hang the Compose backend's
 // bounded calls, or a mutation holding the worktree lock around one,
 // forever. Mirrors internal/router's own TestRouterUpTimesOutOnAHungDocker
-// and internal/checkoutindex's own TestServiceRefreshTimesOutOnAHungDocker:
+// and internal/overview's own TestServiceRefreshTimesOutOnAHungDocker:
 // a real, hanging subprocess (found only through this test's own PATH
 // override), run through the real osrun.Runner, so the real
 // timeout-and-kill machinery in internal/run/osrun is what is exercised —

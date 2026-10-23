@@ -12,10 +12,10 @@ import (
 
 	"github.com/sofired/treerig/internal/backend"
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/text"
@@ -322,7 +322,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 	// Best effort: prints nothing when the refresh succeeds.
-	refreshIndexBestEffort(ctx, cctx, "worktree remove")
+	refreshOverviewBestEffort(ctx, cctx, "worktree remove")
 	switch {
 	case result.AlreadyGone:
 	case result.NetworkKept:

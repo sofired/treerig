@@ -40,6 +40,10 @@ func couldNotCheck(err error) string {
 	return hintCouldNotCheck + text.OneLine(err.Error(), 200) + "."
 }
 
+// GitHint is the hint every worktree of a repository carries when Git could not
+// be asked about it (err is why).
+func GitHint(err error) string { return couldNotCheck(err) }
+
 // mountTable reads the mount table, once per Gatherer.
 func (g *Gatherer) mountTable() (Mounts, error) {
 	g.mountsOnce.Do(func() { g.mounts, g.mountsErr = g.readMounts() })

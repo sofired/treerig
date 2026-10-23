@@ -133,7 +133,7 @@ func TestRootHelpIsGrouped(t *testing.T) {
 	if !strings.Contains(def, `Use "treerig help --all" for shared services`) {
 		t.Errorf("default screen does not mention help --all:\n%s", def)
 	}
-	for _, name := range []string{"shared", "router", "config", "teardown", "completion", "index", "help"} {
+	for _, name := range []string{"shared", "router", "config", "teardown", "completion", "help"} {
 		if !strings.Contains(all, "\n  "+name+" ") {
 			t.Errorf("help --all does not list %q:\n%s", name, all)
 		}
@@ -142,7 +142,7 @@ func TestRootHelpIsGrouped(t *testing.T) {
 		t.Errorf("help --all should show More and not advertise itself:\n%s", all)
 	}
 	// Everything a user needs today is on the default screen.
-	for _, name := range []string{"init", "up", "dev", "down", "status", "worktree", "run", "backup", "restore", "route", "doctor"} {
+	for _, name := range []string{"init", "up", "dev", "down", "status", "list", "worktree", "run", "backup", "restore", "route", "doctor"} {
 		if !strings.Contains(def, "\n  "+name+" ") {
 			t.Errorf("default screen does not list %q:\n%s", name, def)
 		}
@@ -325,44 +325,83 @@ func TestDevTeardownIsHiddenButAccepted(t *testing.T) {
 // A removed command is a hidden stub that names its replacement and exits 1,
 // whatever it is given, flags included.
 func TestRemovedCommandStubs(t *testing.T) {
-	for _, args := range [][]string{
-		{"urls"}, {"urls", "--json"}, {"urls", "--help"}, {"urls", "-v"}, {"urls", "--config", "x.toml"}, {"urls", "somewhere", "--unknown"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := Main(append([]string{"treerig"}, args...), strings.NewReader(""), &stdout, &stderr, func(string) (string, bool) { return "", false })
-			if code != 1 || stdout.Len() != 0 || stderr.String() != "[treerig] ERROR: 'treerig urls' is now 'treerig status'.\n" {
-				t.Errorf("exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	stubs := []struct {
+		path        []string
+		replacement string
+	}{
+		{[]string{"urls"}, "status"},
+		{[]string{"index"}, "list --all"},
+		{[]string{"worktree", "list"}, "list"},
+	}
+	for _, stub := range stubs {
+		path := strings.Join(stub.path, " ")
+		pointer := func(name string) string {
+			return "'" + name + " " + path + "' is now '" + name + " " + stub.replacement + "'."
+		}
+		t.Run(path, func(t *testing.T) {
+			for _, extra := range [][]string{nil, {"--json"}, {"--help"}, {"-v"}, {"--config", "x.toml"}, {"--all", "--refresh"}, {"somewhere", "--unknown"}} {
+				args := append(append([]string{"treerig"}, stub.path...), extra...)
+				var stdout, stderr bytes.Buffer
+				code := Main(args, strings.NewReader(""), &stdout, &stderr, func(string) (string, bool) { return "", false })
+				if code != 1 || stdout.Len() != 0 || stderr.String() != "[treerig] ERROR: "+pointer("treerig")+"\n" {
+					t.Errorf("%v: exit %d, stdout %q, stderr %q", args, code, stdout.String(), stderr.String())
+				}
 			}
+
+			t.Run("it names the command it was invoked as", func(t *testing.T) {
+				var stderr bytes.Buffer
+				code := Main(append([]string{"trig"}, stub.path...), strings.NewReader(""), io.Discard, &stderr, func(string) (string, bool) { return "", false })
+				if code != 1 || stderr.String() != "[trig] ERROR: "+pointer("trig")+"\n" {
+					t.Errorf("exit %d, stderr %q", code, stderr.String())
+				}
+			})
+
+			t.Run("help about it gives the pointer too", func(t *testing.T) {
+				var stdout bytes.Buffer
+				code := Main(append([]string{"treerig", "help"}, stub.path...), strings.NewReader(""), &stdout, io.Discard, func(string) (string, bool) { return "", false })
+				if code != 0 || !strings.HasPrefix(stdout.String(), pointer("treerig")+"\n") {
+					t.Errorf("exit %d, stdout %q", code, stdout.String())
+				}
+			})
+
+			t.Run("it is hidden from help and from the groups", func(t *testing.T) {
+				root, _ := testProgram()
+				cmd, _, err := root.Find(stub.path)
+				if err != nil || !cmd.Hidden || !cmd.DisableFlagParsing || cmd.GroupID != "" {
+					t.Fatalf("stub = %+v, %v", cmd, err)
+				}
+				for _, all := range []bool{false, true} {
+					help := renderHelp(root, 80, all)
+					if len(stub.path) > 1 {
+						group, _, _ := root.Find(stub.path[:1])
+						help = renderHelp(group, 80, all)
+					}
+					if strings.Contains(help, "\n  "+stub.path[len(stub.path)-1]+" ") {
+						t.Errorf("help (all = %v) lists the stub:\n%s", all, help)
+					}
+				}
+			})
 		})
 	}
+}
 
-	t.Run("it names the command it was invoked as", func(t *testing.T) {
-		var stderr bytes.Buffer
-		code := Main([]string{"trig", "urls"}, strings.NewReader(""), io.Discard, &stderr, func(string) (string, bool) { return "", false })
-		if code != 1 || stderr.String() != "[trig] ERROR: 'trig urls' is now 'trig status'.\n" {
-			t.Errorf("exit %d, stderr %q", code, stderr.String())
+// `ls` is the short form of `list`, and `list` reads treerig.toml only when
+// there is one.
+func TestListCommand(t *testing.T) {
+	root, _ := testProgram()
+	list, _, err := root.Find([]string{"ls"})
+	if err != nil || list.Name() != "list" || list.GroupID != dayGroup {
+		t.Fatalf("ls = %+v, %v", list, err)
+	}
+	for _, name := range []string{"all", "refresh", "json", configFlag} {
+		if list.Flags().Lookup(name) == nil {
+			t.Errorf("list has no --%s", name)
 		}
-	})
-
-	t.Run("help about it gives the pointer too", func(t *testing.T) {
-		var stdout bytes.Buffer
-		code := Main([]string{"treerig", "help", "urls"}, strings.NewReader(""), &stdout, io.Discard, func(string) (string, bool) { return "", false })
-		if code != 0 || !strings.HasPrefix(stdout.String(), "'treerig urls' is now 'treerig status'.\n") {
-			t.Errorf("exit %d, stdout %q", code, stdout.String())
-		}
-	})
-
-	t.Run("it is hidden from help and from the groups", func(t *testing.T) {
-		root, _ := testProgram()
-		urls, _, err := root.Find([]string{"urls"})
-		if err != nil || !urls.Hidden || !urls.DisableFlagParsing || urls.GroupID != "" {
-			t.Fatalf("urls = %+v, %v", urls, err)
-		}
-		for _, all := range []bool{false, true} {
-			if strings.Contains(renderHelp(root, 80, all), "urls") {
-				t.Errorf("help (all = %v) lists the stub", all)
-			}
-		}
-	})
+	}
+	if usage := list.Flags().Lookup(configFlag).Usage; !strings.Contains(usage, "if any") {
+		t.Errorf("--config says %q, want it to say the file is optional", usage)
+	}
+	if help := renderHelp(list, 80, false); !strings.Contains(help, "Aliases:\n  list, ls\n") {
+		t.Errorf("help does not name the alias:\n%s", help)
+	}
 }
