@@ -160,3 +160,23 @@ func (g *Gatherer) parentEvidence(path string) evidence {
 	}
 	return evidence{directory: worktree.DirectoryGone}
 }
+
+// RecordedDirectory judges the directory a worktree was last seen in by the
+// filesystem alone, with the same evidence rule as the listing: it is gone only
+// when it is absent and its parent is a real, non-empty directory that is not
+// below an automount placeholder. It is DirectoryPresent when it is there, and
+// DirectoryUndetermined, with the cause as a sentence, when nothing can be said
+// (a path that cannot be checked, a parent that is missing or empty, a mount
+// table that cannot be read). It does not ask Git: `status` uses it for a
+// worktree of another repository, where Git is not asked.
+func (g *Gatherer) RecordedDirectory(path string) (worktree.Directory, string) {
+	there, err := pathExists(path)
+	switch {
+	case err != nil:
+		return worktree.DirectoryUndetermined, couldNotCheck(err)
+	case there:
+		return worktree.DirectoryPresent, ""
+	}
+	found := g.parentEvidence(path)
+	return found.directory, found.hint
+}

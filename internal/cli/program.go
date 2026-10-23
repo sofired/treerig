@@ -105,7 +105,6 @@ var rootGroups = map[string]string{
 	"dev":        dayGroup,
 	"down":       dayGroup,
 	"status":     dayGroup,
-	"urls":       dayGroup,
 	"worktree":   dayGroup,
 	"run":        tasksGroup,
 	"backup":     tasksGroup,
@@ -126,7 +125,7 @@ var rootGroups = map[string]string{
 // read none. The commands in configOptional also run without one.
 var configCommands = []string{
 	"config validate", "config show",
-	"dev", "up", "down", "status", "urls",
+	"dev", "up", "down", "status",
 	"run", "backup", "restore", "index", "doctor",
 	"route add", "route rm", "route ls",
 	"shared up", "shared down", "shared status",
@@ -136,7 +135,7 @@ var configCommands = []string{
 // configOptional are the configCommands that work without a treerig.toml (they
 // use commands.ContextWithoutConfig), so their --config says the default may
 // not exist.
-var configOptional = []string{"worktree list", "worktree remove", "worktree unlock"}
+var configOptional = []string{"status", "worktree list", "worktree remove", "worktree unlock"}
 
 // declareGroupsAndConfig gives each of the root's commands its help group
 // (rootGroups) and each command that reads treerig.toml its --config flag
@@ -717,35 +716,39 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 
 	var statusJSON bool
 	statusCmd := &cobra.Command{
-		Use:   "status",
-		Short: "show service status for this worktree",
-		Args:  maxArgs(0),
+		Use:   "status [worktree]",
+		Short: "show a worktree's services, their state and URLs",
+		Long: "Show a worktree's services, their state and URLs. A URL is shown only while its service runs and the router's container is up; " +
+			"nothing is fetched over HTTP. With no router serving the URLs, it says why on stderr and shows `-` for every URL; --json also carries the router's state. " +
+			"A worktree of another repository is read from its own directory, and a path may lie inside the directory. " +
+			"It exits 0 whatever the state, and 1 when it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, or its treerig.toml wouldn't load.\n\n" + worktreeNameHelp,
+		Args: maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)
 			if err != nil {
 				return err
 			}
-			return commands.Status(cmd.Context(), env, commands.OutputOptions{JSON: statusJSON})
+			return commands.Status(cmd.Context(), env, commands.StatusOptions{JSON: statusJSON, Worktree: arg0(args)})
 		},
 	}
 	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "machine-readable output")
+	statusCmd.ValidArgsFunction = identifierCompletionFunc(p, false)
 	root.AddCommand(statusCmd)
 
-	var urlsJSON bool
-	urlsCmd := &cobra.Command{
-		Use:   "urls",
-		Short: "print this worktree's routed URLs",
-		Args:  maxArgs(0),
+	// A removed command, for one release: it names its replacement and exits 1,
+	// as an unknown command does. Flag parsing is off so 'urls --json' gets the
+	// pointer and not a flag error (docs/design/cli-1.0.md, "Removed, and where
+	// each job goes").
+	root.AddCommand(&cobra.Command{
+		Use:                "urls",
+		Long:               fmt.Sprintf("'%s urls' is now '%s status'.", commandName, commandName),
+		Hidden:             true,
+		DisableFlagParsing: true,
+		Args:               cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			env, err := p.env(cmd)
-			if err != nil {
-				return err
-			}
-			return commands.Urls(cmd.Context(), env, commands.OutputOptions{JSON: urlsJSON})
+			return clierr.Newf("'%s urls' is now '%s status'.", commandName, commandName)
 		},
-	}
-	urlsCmd.Flags().BoolVar(&urlsJSON, "json", false, "machine-readable output")
-	root.AddCommand(urlsCmd)
+	})
 
 	run := &cobra.Command{
 		Use:   "run [name] [-- args...]",

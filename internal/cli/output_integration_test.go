@@ -9,14 +9,17 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 )
 
 // envGetenv adapts a process env slice ("KEY=VALUE" entries, as cmd.Env
@@ -202,7 +205,8 @@ state="`+f.state+`"
 echo "$*" >> "$state/argv"
 case " $* " in
   *" compose "*" config "*) echo '{"name":"x","services":{"api":{"image":"busybox"},"mail":{"image":"busybox"}}}'; exit 0 ;;
-  *" --project-name treerig-router "*" ps "*" --quiet "*) echo routerc1; exit 0 ;;
+  *" --project-name treerig-router ps "*" --quiet "*) echo routerc1; exit 0 ;;
+  *" inspect routerc1 "*) echo '[{"State":{"Status":"running"},"Config":{"Labels":{"`+router.RouterHomeLabel+`":"`+f.controlHome+`","`+router.RouterPortLabel+`":"80"}}}]'; exit 0 ;;
   *" compose "*" ps "*) [ -e "$state/c1" ] && echo '{"Service":"api","State":"running","Health":""}'; exit 0 ;;
   *" compose "*" down "*) rm -f "$state/c1"; exit 0 ;;
   *" --filter "*)
@@ -229,6 +233,39 @@ exit 0
 	write(filepath.Join(f.state, "c1"), "", 0o600)
 	write(filepath.Join(f.state, "v1"), "", 0o600)
 	return f
+}
+
+// replaceInFakeDocker rewrites the fake docker script, failing the test when
+// old is not in it.
+func replaceInFakeDocker(t *testing.T, f outputFixture, old, replacement string) {
+	t.Helper()
+	script := filepath.Join(f.bin, "docker")
+	contents, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := strings.Replace(string(contents), old, replacement, 1)
+	if changed == string(contents) {
+		t.Fatalf("the fake docker has no %q", old)
+	}
+	if err := os.WriteFile(script, []byte(changed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeFixtureCard writes the index card an `up` would have left, recording
+// root as the directory the worktree was last seen in.
+func writeFixtureCard(t *testing.T, f outputFixture, root string) {
+	t.Helper()
+	path := card.IndexCardPath(f.controlHome, fixtureRepo, fixtureWt)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	contents := `{"version": 1, "project": "acme", "domain": "acme.localhost", "slug": "feature-login", "host": "feature-login.acme.localhost", ` +
+		`"root": ` + strconv.Quote(root) + `, "branch": "feature/login", "labelNamespace": "dev.treerig", "services": [], "updatedAt": "2026-01-01T00:00:00.000Z"}`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // dockerNotAnswering is the setup of a case whose Docker answers every call
@@ -429,7 +466,10 @@ func TestOutputGoldens(t *testing.T) {
 		// for "doctor with hooks configured" below.
 		setup func(t *testing.T, f outputFixture)
 	}{
-		{name: "status", args: []string{"status"}},
+		// status asks Compose for the services while it asks Docker whether the
+		// router's container is up, so the order of those calls in the transcript
+		// is not itself meaningful (#203): unorderedDocker compares them as a set.
+		{name: "status", args: []string{"status"}, unorderedDocker: true},
 		// The state words for a worktree whose removal was interrupted, and for
 		// Docker not answering: still printed, the cause on stderr, and status
 		// exits 1 for the daemon as it did before.
@@ -443,9 +483,64 @@ func TestOutputGoldens(t *testing.T) {
 				}
 			},
 		},
-		{name: "status, Docker not answering", args: []string{"status"}, setup: dockerNotAnswering},
+		// The URL column follows the router (#203): with its container gone, no URL
+		// is shown and stderr says why.
+		{
+			name: "status, router stopped", args: []string{"status"}, unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) { replaceInFakeDocker(t, f, "echo routerc1; exit 0", "exit 0") },
+		},
+		{
+			name: "status --json, router stopped", args: []string{"status", "--json"}, unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) { replaceInFakeDocker(t, f, "echo routerc1; exit 0", "exit 0") },
+		},
+		// A router on another port than this root's serves no URL of it.
+		{
+			name: "status, router on another port", args: []string{"status"}, unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) { replaceInFakeDocker(t, f, `"80"}}}]`, `"8080"}}}]`) },
+		},
+		// A worktree is named by its slug from a directory that is no repository:
+		// its treerig.toml is read from the directory its card recorded.
+		{
+			name: "status of a named worktree, outside a repository", args: []string{"status", "feature-login"},
+			outsideCheckout: true, unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) { writeFixtureCard(t, f, f.checkout) },
+		},
+		{
+			name: "status --json of a named worktree whose directory is gone", args: []string{"status", "--json", "feature-login"},
+			outsideCheckout: true,
+			setup: func(t *testing.T, f outputFixture) {
+				writeFixtureCard(t, f, filepath.Join(f.base, "gone"))
+			},
+		},
+		{
+			name: "status of a named worktree whose directory is gone", args: []string{"status", "feature-login"},
+			outsideCheckout: true,
+			setup: func(t *testing.T, f outputFixture) {
+				writeFixtureCard(t, f, filepath.Join(f.base, "gone"))
+			},
+		},
+		{
+			name: "status of a worktree that is not registered", args: []string{"status"},
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				if err := os.Remove(layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt).RecordPath); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "status --json of a worktree that is not registered", args: []string{"status", "--json"},
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				if err := os.Remove(layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt).RecordPath); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{name: "status, Docker not answering", args: []string{"status"}, setup: dockerNotAnswering, unorderedDocker: true},
 		{name: "worktree list, Docker not answering", args: []string{"worktree", "list"}, setup: dockerNotAnswering},
 		{name: "index, Docker not answering", args: []string{"index"}, setup: dockerNotAnswering, checkIndexPage: true},
+		// urls is a hidden stub that names its replacement and exits 1 (#203).
 		{name: "urls", args: []string{"urls"}},
 		// index's own stdout embeds snapshot.GeneratedAt, real wall-clock
 		// time at the moment each build's own process ran; normalizeTimestamp
@@ -457,7 +552,7 @@ func TestOutputGoldens(t *testing.T) {
 		{name: "worktree list --json", args: []string{"worktree", "list", "--json"}},
 		// #27: the JSON forms of the four verbs above and doctor's, one
 		// document each on stdout, the text form's exit code.
-		{name: "status --json", args: []string{"status", "--json"}},
+		{name: "status --json", args: []string{"status", "--json"}, unorderedDocker: true},
 		{name: "urls --json", args: []string{"urls", "--json"}},
 		{name: "index --json", args: []string{"index", "--json"}, checkIndexPage: true},
 		{

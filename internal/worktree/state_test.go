@@ -251,6 +251,30 @@ func TestStateWordsMapToJSON(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("maps every host route state word to one snake case JSON value", func(t *testing.T) {
+		want := map[worktree.RouteState]string{
+			worktree.Listening:    "listening",
+			worktree.NotListening: "not_listening",
+		}
+		if len(want) != len(worktree.RouteStates) {
+			t.Fatalf("the table has %d states and RouteStates lists %d", len(want), len(worktree.RouteStates))
+		}
+		for _, state := range worktree.RouteStates {
+			data, err := json.Marshal(state)
+			if err != nil || string(data) != `"`+want[state]+`"` {
+				t.Fatalf("%q: Marshal = %s, %v, want %q", state, data, err, want[state])
+			}
+			var back worktree.RouteState
+			if err := json.Unmarshal(data, &back); err != nil || back != state {
+				t.Fatalf("%q: Unmarshal = %q, %v", state, back, err)
+			}
+		}
+		var back worktree.RouteState
+		if err := json.Unmarshal([]byte(`"not listening"`), &back); err == nil {
+			t.Fatal("the text word is not the JSON spelling and must not be read as one")
+		}
+	})
 }
 
 func TestContainerStatus(t *testing.T) {

@@ -101,9 +101,13 @@ func (c *Compose) ownershipLabels(ref worktree.Ref, withFormat bool) *jsonKV {
 // composeConfigJSON is `docker compose config --format json` against the
 // consumer's file alone, shared by readModel (the lossy map form Status
 // uses) and readOrderedModel (the order-preserving form Up needs).
-func (c *Compose) composeConfigJSON(ctx context.Context, ref worktree.Ref) (string, error) {
+//
+// extra are further `config` flags: Status passes --no-interpolate, since it
+// reads the service names alone and must neither need the file's variables
+// nor fail on one a required-variable check (${VAR:?}) refuses.
+func (c *Compose) composeConfigJSON(ctx context.Context, ref worktree.Ref, extra ...string) (string, error) {
 	file := c.options.ComposeFile
-	result, err := c.compose(ctx, ref, []string{"config", "--format", "json"}, []string{file},
+	result, err := c.compose(ctx, ref, append([]string{"config", "--format", "json"}, extra...), []string{file},
 		run.Spec{AllowFailure: true, Timeout: c.timeouts.Probe})
 	if err != nil {
 		return "", err

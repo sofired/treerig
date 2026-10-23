@@ -2,12 +2,12 @@
 
 Which stream each command writes to, and the exit codes treerig uses.
 
-The commands that produce data — `index`, `status`, `urls`, `router status`,
+The commands that produce data — `index`, `status`, `router status`,
 `shared status`, `route ls`, `config show`, `config validate`, `worktree list`, `doctor`, `teardown status` — write that data to stdout
 and nothing else, so `treerig index > page.txt` and
 `treerig worktree list --json | jq` get what they asked for. Progress, waiting
-notices, confirmation prompts, warnings and failures go to stderr. Eight of
-these (`index`, `status`, `urls`, `shared status`, `route ls`, `worktree list`, `doctor` and `teardown status`) take `--json`:
+notices, confirmation prompts, warnings and failures go to stderr. Seven of
+these (`index`, `status`, `shared status`, `route ls`, `worktree list`, `doctor` and `teardown status`) take `--json`:
 see [Machine-readable output](json-output.md).
 
 `worktree rename` writes only its notice, to stderr, and nothing to stdout.
@@ -48,6 +48,22 @@ with the cause on stderr, once. `status` does the same when Compose, not Docker,
 cannot read the worktree. `worktree list` and `index` give Docker about five
 seconds a label namespace.
 
+`status` prints its table (or, with `--json`, its document) whatever the state.
+It exits 0 whatever the state, and 1 when it couldn't read the worktree: Docker
+didn't answer, Compose couldn't read it, its treerig.toml wouldn't load, or its
+Compose file is too large or not a regular file. A failed or stopped worktree
+and a missing directory are states it reports with exit 0, since `doctor` is
+the check that fails. A worktree that is not registered is the notice
+`<slug> is not registered. Run 'treerig up' to create its environment.` on
+stderr, nothing on stdout (`--json`: `{"registered": false, "services": []}`)
+and exit 0. When something is routed and the router is the reason no URL loads
+(its container is stopped, runs on another port, belongs to another treerig
+root or could not be read), `status` says which on stderr and shows `-` for
+every URL. It fetches nothing over HTTP. The command it replaced, `urls`, is a
+hidden stub that prints `'treerig urls' is now 'treerig status'.` on stderr and
+exits 1 for one release, whatever flags it is given (`help urls` prints the same
+text on stdout, exit 0).
+
 `router status` has a vocabulary of its own, about the shared router rather than
 any worktree: `running on <address>, <mode> mode`, `not running (would use
 <address>)`, `degraded on <address>, <mode> mode` when a container is down or
@@ -56,8 +72,8 @@ that case is a `Router state unknown:` line on stderr. Each reported problem is
 its own `Router problem:` line on stderr, followed by the container's last
 log lines for one that is not running or not healthy. A running router whose
 container carries no mode label reads `running on <address>, mode unknown`.
-Both `running` and `not running` exit 0, because "is it there?" is the question and both are answers; `degraded` and
-an unreachable Docker exit 1. Whenever the status line is printed, a second
+Both `running` and `not running` exit 0, because "is it there?" is the
+question and both are answers; `degraded` and an unreachable Docker exit 1. Whenever the status line is printed, a second
 stdout line follows it saying which port was resolved and from where —
 `port <n> from <settings file>`, `port <n> from TREERIG_ROUTER_PORT (overriding
 <settings file>)` or `port <n> by default (<settings file> sets none)`; it too

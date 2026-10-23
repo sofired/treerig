@@ -631,3 +631,53 @@ func TestAnsweredRepository(t *testing.T) {
 		t.Fatalf("Entries = %v, %v", entries, err)
 	}
 }
+
+func TestRecordedDirectory(t *testing.T) {
+	g := worktreestate.New(worktreestate.Options{
+		Mounts: func() (worktreestate.Mounts, error) { return worktreestate.Mounts{"/": "ext4"}, nil },
+	})
+	parent := registrytest.TempDir(t)
+	if err := os.Mkdir(filepath.Join(parent, "sibling"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a directory that is there is present", func(t *testing.T) {
+		if got, hint := g.RecordedDirectory(filepath.Join(parent, "sibling")); got != worktree.DirectoryPresent || hint != "" {
+			t.Fatalf("got %v, %q", got, hint)
+		}
+	})
+
+	t.Run("an absent one beside other files is gone", func(t *testing.T) {
+		if got, hint := g.RecordedDirectory(filepath.Join(parent, "gone")); got != worktree.DirectoryGone || hint != "" {
+			t.Fatalf("got %v, %q", got, hint)
+		}
+	})
+
+	t.Run("one whose parent is missing or empty may be an unmounted volume", func(t *testing.T) {
+		empty := filepath.Join(parent, "mountpoint")
+		if err := os.Mkdir(empty, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{filepath.Join(empty, "gone"), filepath.Join(parent, "nowhere", "gone")} {
+			got, hint := g.RecordedDirectory(path)
+			if got != worktree.DirectoryUndetermined || !strings.Contains(hint, "is the volume mounted?") {
+				t.Fatalf("%s: got %v, %q", path, got, hint)
+			}
+		}
+	})
+
+	t.Run("one below an automount placeholder, or with an unreadable mount table, is undetermined", func(t *testing.T) {
+		auto := worktreestate.New(worktreestate.Options{
+			Mounts: func() (worktreestate.Mounts, error) { return worktreestate.Mounts{parent: "autofs"}, nil },
+		})
+		if got, _ := auto.RecordedDirectory(filepath.Join(parent, "gone")); got != worktree.DirectoryUndetermined {
+			t.Fatalf("automount: got %v", got)
+		}
+		broken := worktreestate.New(worktreestate.Options{
+			Mounts: func() (worktreestate.Mounts, error) { return nil, errors.New("no /proc here") },
+		})
+		if got, hint := broken.RecordedDirectory(filepath.Join(parent, "gone")); got != worktree.DirectoryUndetermined || !strings.Contains(hint, "no /proc here") {
+			t.Fatalf("mount table: got %v, %q", got, hint)
+		}
+	})
+}

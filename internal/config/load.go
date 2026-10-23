@@ -3,9 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
@@ -68,13 +70,81 @@ func issuesError(file string, issues []shape.Issue) error {
 	return clierr.Newf("%s is not a valid %s:\n%s", file, brand.ConfigFile, strings.Join(lines, "\n"))
 }
 
+// MaxFileSize is the most a treerig.toml, or the Compose file `status` hands to
+// Compose for another worktree, may hold. It is far more than any real file,
+// so only something that is not a configuration file at all reaches it.
+const MaxFileSize = 1 << 20
+
+// ReadRegularFile reads path, which must be a regular file (after following
+// symbolic links) of at most limit bytes: a device, a pipe or a directory is
+// refused before anything is read from it, and a file that grows past limit
+// while it is read is refused too. It opens without blocking, since opening a
+// pipe that has no writer would otherwise wait for one forever; the type is
+// then checked on the open descriptor, and only a regular file is read.
+func ReadRegularFile(path string, limit int64) ([]byte, error) {
+	file, err := openWithoutBlocking(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	if err := checkRegular(file, path, limit); err != nil {
+		return nil, err
+	}
+	contents, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(contents)) > limit {
+		return nil, tooLarge(path, limit)
+	}
+	return contents, nil
+}
+
+// CheckRegularFile is ReadRegularFile's check without the read: path must be a
+// regular file of at most limit bytes.
+func CheckRegularFile(path string, limit int64) error {
+	file, err := openWithoutBlocking(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return checkRegular(file, path, limit)
+}
+
+// openWithoutBlocking opens path for reading with O_NONBLOCK, so that a pipe
+// with no writer opens at once and checkRegular can refuse it.
+func openWithoutBlocking(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+}
+
+// checkRegular refuses an open file that is not a regular file, or is larger
+// than limit.
+func checkRegular(file *os.File, path string, limit int64) error {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	switch {
+	case !info.Mode().IsRegular():
+		return clierr.Newf("%s is not a regular file.", path)
+	case info.Size() > limit:
+		return tooLarge(path, limit)
+	}
+	return nil
+}
+
+// tooLarge is the refusal of a file past the limit.
+func tooLarge(path string, limit int64) error {
+	return clierr.Newf("%s is larger than %d bytes, which is more than a configuration file holds.", path, limit)
+}
+
 // Load reads and validates one file.
 func Load(file string) (*Loaded, error) {
 	resolved, err := layout.Resolve(file)
 	if err != nil {
 		return nil, err
 	}
-	contents, err := os.ReadFile(resolved)
+	contents, err := ReadRegularFile(resolved, MaxFileSize)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			missing := clierr.Newf("No %s at %s.", brand.ConfigFile, resolved)

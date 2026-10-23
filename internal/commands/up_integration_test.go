@@ -347,7 +347,10 @@ func TestUpEndToEnd(t *testing.T) {
 		if state, _ := w.initialization(t); state != registry.Complete {
 			t.Fatalf("initialization = %v, want complete", state)
 		}
-		statuses, err := commands.StatusWithContext(context.Background(), cctx, commands.OutputOptions{})
+		// Status asks Docker whether the shared router runs; it must not look at
+		// the machine's own router, so it is pointed at a project nothing runs.
+		cctx.RouterProject = "treerig-up-it-no-router"
+		statuses, err := commands.StatusWithContext(context.Background(), cctx, commands.StatusOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

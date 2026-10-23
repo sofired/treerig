@@ -114,15 +114,83 @@ every declared service. A service that is not routed and was never started
 therefore makes `status` say `partly running` where `worktree list` says
 `running`. Recording every declared service in the card is a follow-up (#204).
 
+## A host route
+
+A [host route](host-routes.md) has no container, so it has two words of its own,
+which `status` prints in the STATE column and `status --json` spells with an
+underscore:
+
+| Text | JSON | Means |
+|---|---|---|
+| `listening` | `listening` | A connection to its port on `127.0.0.1` succeeded. Something listens there, not necessarily the process this route was made for. |
+| `not listening` | `not_listening` | None did within about a second. Nothing is wrong with treerig: the dev server is not running. |
+
+The ports of all of a worktree's host routes are tried together, at most eight
+at a time, within that one second.
+
 ## Where each command shows them
 
-- **`status`** prints the worktree's state beside its host, then each service.
-  With Docker not answering the worktree is `unknown`, the table is still
-  printed, and the command exits 1. If Compose, not Docker, cannot read the
-  worktree (a bad Compose file, a Compose that is too old), the hint says
-  `Compose couldn't read this worktree: …` instead. `status --json` carries
-  `state` (and `hint` for an unknown one) and each service's `state`. Shared
-  services use the service words.
+- **`status [worktree]`** prints the worktree's state beside its host, then a
+  table of SERVICE, STATE and URL:
+
+  ```text
+  feature-x.myapp.localhost   partly running
+    SERVICE           STATE            URL
+    web               running          http://feature-x.myapp.localhost
+    worker            exited (code 3)  -
+    app (host route)  listening        http://app.feature-x.myapp.localhost
+    mail (shared)     running          http://mail.shared.myapp.localhost
+  ```
+
+  A name carries its kind: `(host route)` for a route to a process on your
+  machine (the words above) and `(shared)` for one of the repository's shared
+  services, whose state uses the service words. A shared service this worktree
+  uses but the shared container is not attached to reads `running (not
+  connected)`. For a connection problem run `treerig doctor`, and for
+  addresses, the definition and who started it run `treerig shared status`
+  (`status --json` has them too).
+
+  A URL is shown only when its service is running (a host route: listening)
+  **and** the router's container is up, started by this treerig root and
+  serving the port the URLs name; otherwise the column says `-`. Nothing is
+  fetched over HTTP, so a URL shown is a URL that should load, not one that was
+  checked. Stderr says why when something is routed and the router is the
+  reason:
+
+  | The router is | stderr |
+  |---|---|
+  | stopped | `The router is stopped, so no URL loads. Run 'treerig up' to start it.` |
+  | on another port | `The router runs on port N, not M. Run 'treerig router up'.` |
+  | another treerig root's | `The router belongs to a different treerig root, so no URL is shown. Run 'treerig router down', then 'treerig up'.` |
+  | unreadable | `The router's state couldn't be read, so no URL is shown. Run 'treerig doctor' to see why.` |
+
+  With Docker not answering the worktree is `unknown`, the header is still
+  printed, and the command exits 1 with the cause on stderr. If Compose, not
+  Docker, cannot read the worktree (a bad Compose file, a Compose that is too
+  old), the hint says `Compose couldn't read this worktree: …` instead.
+  `status --json` carries `state` (and `hint` for an unknown one), `router`,
+  `dockerError`, and each service's `state` and `url`. Shared services use the
+  service words.
+
+  `status` exits 0 whatever the state, and 1 when it couldn't read the
+  worktree: Docker didn't answer, Compose couldn't read it, its treerig.toml
+  wouldn't load, or its Compose file is too large or not a regular file. Every
+  `status` asks Compose for the services with `docker compose config
+  --no-interpolate`, so no variable of the file is needed or expanded (if a
+  Compose release refuses that, it asks once more without the flag). Name
+  another worktree by its UUID, its host, its slug or a path, which may point
+  inside its directory. For one of another repository, `status` reads that
+  repository's `treerig.toml` and Compose file from the directory the worktree
+  was last seen in, and takes the worktree's label namespace from its
+  registration. The directory is judged as the listing judges it: gone only
+  when it is absent and its parent is a real, non-empty directory, otherwise
+  `unknown` with the cause. A directory that is missing, undetermined, now in
+  another repository, or never recorded gets its header (`directory missing` or
+  `unknown`), a line on stderr that ends with `Directory: <path>` (or, for a
+  worktree no `up` has recorded a directory for, says that treerig has no
+  record of where it lives), and nothing more, exit 0. Neither file is read if
+  it is not a regular file or is larger than 1 MiB. In a worktree that is not
+  registered, `status` says so on stderr, prints nothing on stdout and exits 0.
 - **`worktree list`** has a STATE column, and `--json` a `state` and, for an
   unknown one, a `hint` (on stderr in the text form, unless it is the one cause
   already given once). It asks Docker once per label namespace, with a budget of

@@ -392,3 +392,69 @@ func TestRouterStatusReadsTheContainers(t *testing.T) {
 		}
 	})
 }
+
+func TestRouterObservedState(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a healthy router of this root is running, with its port", func(t *testing.T) {
+		w := newWorld(t, 8080, "")
+		got := w.Router.State(ctx)
+		if got.Condition != router.ConditionRunning || got.Port != 8080 || got.Foreign || got.Detail != "" {
+			t.Fatalf("state = %+v", got)
+		}
+	})
+
+	t.Run("no container is stopped, and so is one that does not run", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		doc := routerDoc(router.ModeHost, 80)
+		doc.State.Status = "exited"
+		w.Fake.setDoc("router-1", doc)
+		if got := w.Router.State(ctx); got.Condition != router.ConditionStopped || got.Port != 0 {
+			t.Fatalf("exited: state = %+v", got)
+		}
+		w.Fake.setIDs(map[string]string{})
+		if got := w.Router.State(ctx); got.Condition != router.ConditionStopped {
+			t.Fatalf("absent: state = %+v", got)
+		}
+	})
+
+	t.Run("a container that cannot be inspected is unknown, though Running calls it up", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.deleteDoc("router-1")
+		got := w.Router.State(ctx)
+		if got.Condition != router.ConditionUnknown || !strings.Contains(got.Detail, "could not be inspected") {
+			t.Fatalf("state = %+v", got)
+		}
+		running, err := w.Router.Running(ctx)
+		if err != nil || !running.Up || running.Inspected {
+			t.Fatalf("Running = %+v, %v", running, err)
+		}
+	})
+
+	t.Run("a router another treerig root started, or nobody labelled, is foreign", func(t *testing.T) {
+		w := newWorldOpts(t, "", 80, func(o *router.Options) { o.Home = "/home/b/.treerig" })
+		doc := routerDoc(router.ModeHost, 80)
+		doc.Config.Labels[router.RouterHomeLabel] = "/home/a/.treerig"
+		w.Fake.setDoc("router-1", doc)
+		got := w.Router.State(ctx)
+		if got.Condition != router.ConditionRunning || !got.Foreign || !strings.Contains(got.Detail, "/home/a/.treerig") {
+			t.Fatalf("state = %+v", got)
+		}
+		delete(doc.Config.Labels, router.RouterHomeLabel)
+		w.Fake.setDoc("router-1", doc)
+		if got := w.Router.State(ctx); !got.Foreign {
+			t.Fatalf("unlabelled: state = %+v", got)
+		}
+	})
+
+	t.Run("Docker not answering is unknown, with the reason", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.mu.Lock()
+		w.Fake.psExitCode, w.Fake.psStderr = 1, "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
+		w.Fake.mu.Unlock()
+		got := w.Router.State(ctx)
+		if got.Condition != router.ConditionUnknown || !strings.Contains(got.Detail, "Docker is not available") {
+			t.Fatalf("state = %+v", got)
+		}
+	})
+}
