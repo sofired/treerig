@@ -68,7 +68,7 @@ func TestTeardownPinAndStatus(t *testing.T) {
 	t.Run("pins the running binary, leaves stdout empty, and status finds it intact and the running build to be the pin", func(t *testing.T) {
 		dir := scratchTeardownRoot(t)
 		pinned := runTreerig(t, binary, dir, []string{"teardown", "pin", "--file", binary, "--sha256", digest, "--release", "my-build", "--yes"}, treerigOptions{})
-		if pinned.Code != 0 || pinned.Stdout != "" || !strings.HasPrefix(pinned.Stderr, "[treerig] Pinned the teardown binary: release my-build (") {
+		if pinned.Code != 0 || pinned.Stdout != "" || !strings.HasPrefix(pinned.Stderr, "Pinned the teardown binary: release my-build (") {
 			t.Fatalf("pin = %+v", pinned)
 		}
 		teardownDir := filepath.Join(dir, "control-home", "control-home", "teardown")
@@ -117,7 +117,7 @@ func TestTeardownPinAndStatus(t *testing.T) {
 		dir := scratchTeardownRoot(t)
 		released := buildVersioned(t, "0.1.0-rc.3")
 		result := runTreerig(t, released, dir, []string{"teardown", "status"}, treerigOptions{})
-		wantErr := "[treerig] No teardown binary is pinned, and a release build needs none. Pin one with `treerig teardown pin --release 0.1.0-rc.3` to make removal run a verified, pinned build.\n"
+		wantErr := "No teardown binary is pinned, and a release build needs none. Pin one with `treerig teardown pin --release 0.1.0-rc.3` to make removal run a verified, pinned build.\n"
 		if result.Code != 0 || result.Stdout != "worktree remove: will run this build (a release; no pin needed)\n" || result.Stderr != wantErr {
 			t.Fatalf("status = %+v", result)
 		}
@@ -247,7 +247,7 @@ func TestTeardownPinDownloadsThroughTheProxyTheEnvironmentNames(t *testing.T) {
 		path: tools + ":" + os.Getenv("PATH"),
 		env:  map[string]string{"HTTPS_PROXY": proxy.URL, "https_proxy": proxy.URL, "NO_PROXY": "", "no_proxy": ""},
 	})
-	if result.Code != 1 || result.Stdout != "" || !strings.Contains(result.Stderr, "[treerig] Downloading https://github.com/sofired/treerig/releases/download/v1.2.3/checksums.txt…\n[treerig] ERROR: Refusing to pin 1.2.3: ") || !strings.HasSuffix(result.Stderr, " Nothing was pinned. Check your network connection and HTTPS_PROXY settings, then run it again.\n") {
+	if result.Code != 1 || result.Stdout != "" || !strings.Contains(result.Stderr, "Downloading https://github.com/sofired/treerig/releases/download/v1.2.3/checksums.txt…\n[treerig] ERROR: Refusing to pin 1.2.3: ") || !strings.HasSuffix(result.Stderr, " Nothing was pinned. Check your network connection and HTTPS_PROXY settings, then run it again.\n") {
 		t.Fatalf("pin = %+v", result)
 	}
 	mu.Lock()

@@ -97,8 +97,8 @@ func TestTeardownGate(t *testing.T) {
 	t.Run("a pin wins for a release build, and --dev-teardown bypasses it with the warning", func(t *testing.T) {
 		dir, stored := pinnedRoot(t)
 		result := runTreerig(t, released, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{})
-		want := "[treerig] Running the pinned teardown binary " + stored + " (release pinned-label) to remove this worktree.\n" +
-			"[treerig] Running as the pinned teardown binary (version pinned-test).\n"
+		want := "Running the pinned teardown binary " + stored + " (release pinned-label) to remove this worktree.\n" +
+			"Running as the pinned teardown binary (version pinned-test).\n"
 		if result.Code != 1 || !strings.HasPrefix(result.Stderr, want) {
 			t.Fatalf("remove = %+v\nwant stderr to start with\n%s", result, want)
 		}
@@ -120,8 +120,8 @@ func TestTeardownGate(t *testing.T) {
 	t.Run("runs the pinned build, not the one that was invoked, under the caller's name", func(t *testing.T) {
 		dir, stored := pinnedRoot(t)
 		result := runTreerig(t, invoked, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{argv0: "trig"})
-		want := "[trig] Running the pinned teardown binary " + stored + " (release pinned-label) to remove this worktree.\n" +
-			"[trig] Running as the pinned teardown binary (version pinned-test).\n"
+		want := "Running the pinned teardown binary " + stored + " (release pinned-label) to remove this worktree.\n" +
+			"Running as the pinned teardown binary (version pinned-test).\n"
 		if result.Code != 1 || result.Stdout != "" || !strings.HasPrefix(result.Stderr, want) {
 			t.Fatalf("remove = %+v\nwant stderr to start with\n%s", result, want)
 		}
@@ -164,7 +164,7 @@ func TestTeardownGate(t *testing.T) {
 			t.Fatal(err)
 		}
 		result := runTreerig(t, invoked, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{})
-		wantStart := "[treerig] Running the pinned teardown binary " + stored + " (release pinned-label) to remove this worktree.\n" +
+		wantStart := "Running the pinned teardown binary " + stored + " (release pinned-label) to remove this worktree.\n" +
 			"[treerig] ERROR: Refusing to remove this worktree: could not run the pinned teardown binary " + stored + " (permission denied). " +
 			"If the filesystem holding the control home (" + filepath.Join(dir, "control-home", "control-home") + ") cannot run programs, remount it with exec, or move the control home with TREERIG_CONTROL_HOME. Nothing was removed.\n"
 		if result.Code != 1 || result.Stdout != "" || result.Stderr != wantStart {
@@ -175,7 +175,7 @@ func TestTeardownGate(t *testing.T) {
 	t.Run("a pinned binary run directly proceeds only when the pin names it, and refuses --dev-teardown", func(t *testing.T) {
 		dir, stored := pinnedRoot(t)
 		direct := runTreerig(t, stored, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{argv0: "treerig"})
-		if direct.Code != 1 || !strings.HasPrefix(direct.Stderr, "[treerig] Running as the pinned teardown binary (version pinned-test).\n") {
+		if direct.Code != 1 || !strings.HasPrefix(direct.Stderr, "Running as the pinned teardown binary (version pinned-test).\n") {
 			t.Fatalf("direct = %+v", direct)
 		}
 		dev := runTreerig(t, stored, dir, []string{"worktree", "remove", "--yes", "--dev-teardown"}, treerigOptions{argv0: "treerig"})
@@ -266,8 +266,8 @@ func TestTeardownGate(t *testing.T) {
 			t.Fatalf("pin = %+v", result)
 		}
 		result := runTreerig(t, invoked, dir, []string{"worktree", "remove", "--yes"}, opts)
-		parent := "[treerig] Running the pinned teardown binary " + filepath.Join(link, "teardown", pinnedDigest) + " (release linked) to remove this worktree.\n"
-		child := "[treerig] Running as the pinned teardown binary (version pinned-test).\n"
+		parent := "Running the pinned teardown binary " + filepath.Join(link, "teardown", pinnedDigest) + " (release linked) to remove this worktree.\n"
+		child := "Running as the pinned teardown binary (version pinned-test).\n"
 		if result.Code != 1 || !strings.HasPrefix(result.Stderr, parent+child) {
 			t.Fatalf("remove = %+v\nwant stderr to start with\n%s%s", result, parent, child)
 		}

@@ -66,7 +66,7 @@ func TestConsoleStreamRouting(t *testing.T) {
 		if stdout.Len() != 0 {
 			t.Errorf("Info/Warn/Error wrote to stdout: %q", stdout.String())
 		}
-		want := "[treerig] Waiting for the shared router lock.\n" +
+		want := "Waiting for the shared router lock.\n" +
 			"[treerig] WARNING: Could not refresh the checkout index.\n" +
 			"[treerig] ERROR: Docker is not available.\n"
 		if got := stderr.String(); got != want {
@@ -78,8 +78,11 @@ func TestConsoleStreamRouting(t *testing.T) {
 func TestConsolePrefixes(t *testing.T) {
 	t.Run("answers to the name it was invoked as", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		NewConsole("duke", &stdout, &stderr).Info("Ready.")
-		if got, want := stderr.String(), "[duke] Ready.\n"; got != want {
+		c := NewConsole("duke", &stdout, &stderr)
+		c.Info("Ready.")
+		c.Warn("Careful.")
+		c.Error("Broken.")
+		if got, want := stderr.String(), "Ready.\n[duke] WARNING: Careful.\n[duke] ERROR: Broken.\n"; got != want {
 			t.Errorf("stderr = %q, want %q", got, want)
 		}
 	})
@@ -224,7 +227,7 @@ func TestConsoleConcurrentWrites(t *testing.T) {
 		wg.Wait()
 
 		for _, w := range stderr.all() {
-			if w != "[treerig] concurrent info\n" {
+			if w != "concurrent info\n" {
 				t.Fatalf("stderr write corrupted: %q", w)
 			}
 		}

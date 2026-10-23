@@ -1,6 +1,8 @@
 # The command line for 1.0
 
-**Status.** Proposed. Nothing here is built.
+**Status.** Decided by the owner on 2026-10-23 and being built, in the order
+of work, tracked in #220. Built so far: plain notices without the prefix
+(#198).
 
 **Basis.** Two usability reviews of v0.1.0, by a CLI interface designer and a
 usability specialist, each run against a live stack on a release build in
@@ -14,8 +16,8 @@ removes commands and changes output and exit codes where that gives a better
 experience. [What changes for existing users](#what-changes-for-existing-users)
 lists every break for the release notes.
 
-**Reading guide.** The owner: the principles, the command set and [Owner
-decisions](#owner-decisions). Implementers: everything, then [Order of
+**Reading guide.** For the shape: the principles, the command set and [Owner
+decisions](#owner-decisions). For building it: everything, then [Order of
 work](#order-of-work).
 
 **Terms.** [Words](#words) sets the words users see: *worktree*, *directory*
@@ -383,7 +385,8 @@ already says none of the three vocabularies was frozen before 1.0.
   prefix made every line look like one.
 - Message texts in this note are shown without the `[treerig] ERROR:` or
   `[treerig] WARNING:` prefix that every error and warning carries, except
-  where a mock shows a whole run.
+  where a mock shows a whole run. Plain notices have no prefix, so they appear
+  as printed.
 - Commands in messages are in single quotes (`run 'treerig up' again`), and
   messages are ASCII: separators are commas.
 
@@ -1005,7 +1008,7 @@ changes without a deprecation period beyond the one-release stubs.
 
 ## Owner decisions
 
-Recommendations; the owner confirms or changes each.
+Decided by the owner on 2026-10-23, as recommended.
 
 1. **`remove` removes the directory**, after a preflight shown in the prompt,
    keeping dirty, detached, locked, submodule and main directories and the branch,
@@ -1013,23 +1016,23 @@ Recommendations; the owner confirms or changes each.
    decides the prompt and deletes the directory, not only treerig's own
    resources, and [teardown.md](teardown.md) says so (step 14). The alternative
    is a Git step in the invoking build, which runs unpinned code on the user's
-   files. Recommended: yes.
+   files. Decided: yes.
 2. **`[commands]` stay shell-free**, with a warning for `$VAR`, not an error.
-   Recommended: yes.
-3. **`dev` becomes `up -f`.** Recommended: yes.
-4. **An in-repo renderer, not Bubble Tea**, for 1.0. Recommended: yes.
+   Decided: yes.
+3. **`dev` becomes `up -f`.** Decided: yes.
+4. **An in-repo renderer, not Bubble Tea**, for 1.0. Decided: yes.
 5. **Plain notices lose the `[treerig]` prefix**; errors and warnings keep it.
    It touches nearly every output fixture, in one mechanical pull request.
-   Recommended: yes.
+   Decided: yes.
 6. **`doctor` fails on runtime problems** (a crashed service, a stopped router
    while worktrees run, a dead URL), not on a deliberate `down`.
-   Recommended: yes.
-7. **State values change in `--json`.** Recommended: yes.
-8. **`backup` defaults under the treerig root.** Recommended: yes.
-9. **Hook output moves to stderr.** Recommended: yes.
+   Decided: yes.
+7. **State values change in `--json`.** Decided: yes.
+8. **`backup` defaults under the treerig root.** Decided: yes.
+9. **Hook output moves to stderr.** Decided: yes.
 10. **Confirmations are `[y/N]`**, default No, for `remove`, `remove --gone`,
     `shared down --volumes`, `teardown pin` and the newly prompting `restore`;
-    nothing asks to type a name or phrase. Recommended: yes.
+    nothing asks to type a name or phrase. Decided: yes.
 
 ## Order of work
 
@@ -1040,7 +1043,7 @@ description. `release-smoke.sh` picks its expectations from the release under
 test, because it runs from `main` against older tags, and a release-smoke leg
 runs a new build with the previous release pinned.
 
-1. **This design**, merged once the owner decides.
+1. **This design**, merged and decided (#197).
 2. **Prefix** (decision 5): plain notices lose `[treerig]`. Mechanical.
 3. **Help mechanism**: groups, `help --all`, `--config` per command, `-v` (a
    no-op at first), `--progress`, hidden flags. Wording unchanged.

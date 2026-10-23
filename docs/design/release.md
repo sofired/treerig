@@ -64,8 +64,8 @@ trust boundary and no new storage name: labels, directories, environment
 variables and the teardown pin all keep the `treerig` names.
 
 `brand.CLIName` follows `argv[0]`, so run through the link, the help text, the
-usage lines and the `[trig]` message prefix say `trig`. Hints and stored text
-keep naming `treerig` by design (`brand.Name`; for one, the missing-config hint
+usage lines and the `[trig]` error and warning prefix say `trig`. Hints and
+stored text keep naming `treerig` by design (`brand.Name`; for one, the missing-config hint
 in `internal/config/load.go`, which is not handed the invoked name). The
 completion scripts are generated per name, so `trig` has its own;
 `completions.sh` writes them by running the binary through a `trig` symlink.
