@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-shell="7W06yJ-6E_EYldKA">
+<html lang="en" data-shell="zeXhQZbxSdKgXV07">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -85,7 +85,7 @@
        longer fits either: shed the directory column — it comes back under the
        branch, so nothing is unreachable — and stack the service text. */
     @media (max-width: 900px) {
-      .checkout { display: none; }
+      .directory { display: none; }
       .path-compact { display: block; margin-top: 4px; color: #5f6b7a; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; overflow-wrap: anywhere; }
       thead th:nth-child(1) { width: 26%; } thead th:nth-child(2) { width: 22%; } thead th:nth-child(4) { width: 22%; } thead th:nth-child(5) { width: 30%; }
       .service-purpose { font-size: 11px; }

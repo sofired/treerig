@@ -51,7 +51,7 @@ type Service struct {
 	Path *string `json:"path,omitempty"`
 	// Port is the container port; nil means the first it exposes or publishes.
 	Port *int `json:"port,omitempty"`
-	// Index is presence on the shared checkout index; nil keeps the service internal.
+	// Index is presence on the shared overview; nil keeps the service internal.
 	Index *ServiceIndex `json:"index,omitempty"`
 }
 

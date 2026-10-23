@@ -6,10 +6,6 @@ What the terms in these docs mean, with a link to the page that explains each on
 
 A directory that the `backup` hook fills and the `restore` hook reads. treerig marks it `.incomplete` until the hook exits zero. See [The bundle directory](hooks.md#the-bundle-directory).
 
-## Checkout
-
-The directory where one worktree's files are checked out: the files you edit. See [Worktrees](worktrees.md).
-
 ## Container port
 
 The port an app listens on inside its container, which you `expose` in your Compose file or set as `port` in `[service.<name>]`. It is not the pinned port. See [Writing your compose.yaml](compose.md#ports).
@@ -21,6 +17,10 @@ The directory where treerig keeps what each worktree owns: its private directory
 ## Development session
 
 What `treerig dev` holds while it follows a worktree's logs. While it is attached, `worktree remove` and a second `dev` refuse. See [Development sessions](worktrees.md#development-sessions).
+
+## Directory
+
+A worktree's files on disk, which Git created: the files you edit. `list` shows it in the DIRECTORY column, and `directory missing` is the state of a worktree whose directory is gone. See [Worktrees](worktrees.md).
 
 ## Domain
 
@@ -34,13 +34,13 @@ An executable you name in the `[hooks]` table of `treerig.toml`. treerig runs it
 
 A route from a worktree's hostname to a process on your machine, such as a dev server, rather than to a Compose service. You add one with `treerig route add`. See [Host routes](host-routes.md).
 
-## Overview (the index)
-
-The overview is the page at `http://treerig.localhost` that lists every worktree on the machine, with its state and links. `treerig index` prints the same thing as text. See [The overview](checkout-index.md).
-
 ## Label namespace
 
 The prefix of the Docker labels treerig puts on what it creates: `dev.treerig` by default, so `dev.treerig.managed` and so on. The `project.label-namespace` key exists only to adopt resources that a predecessor tool created. See [Ownership labels](concepts.md#ownership-labels).
+
+## Overview
+
+The overview is the page at `http://treerig.localhost` that lists every worktree on the machine, with its state and links. `treerig list --all` prints the same worktrees as a table. See [The overview](overview.md).
 
 ## Ownership labels
 
@@ -52,7 +52,7 @@ The port on `127.0.0.1` that a routed service is published on. It is allocated o
 
 ## Registration
 
-treerig's record of a worktree: its slug, domain, pinned ports and host routes. `treerig worktree list` shows each one. See [Worktrees](worktrees.md).
+treerig's record of a worktree: its slug, domain, pinned ports and host routes. `treerig list` shows each one. See [Worktrees](worktrees.md).
 
 ## Router
 
@@ -80,4 +80,4 @@ The worktree's private directory under the control home, `${TREERIG_WORKTREE_HOM
 
 ## Worktree
 
-A Git worktree that treerig manages: a checkout of a branch with its own identity, Compose project, data directory and hostname. See [Identity](concepts.md#identity) and [Worktrees](worktrees.md).
+A Git worktree that treerig manages: a branch's directory with its own identity, Compose project, data directory and hostname. See [Identity](concepts.md#identity) and [Worktrees](worktrees.md).

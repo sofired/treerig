@@ -34,8 +34,9 @@ package cli_test
 // goldens list it.
 //
 // help-status, status-missing-file, complete-status-flags and
-// err-excess-arguments-status pin `status [worktree]` (#203); urls-stub* pin
-// the hidden stub `urls` became.
+// err-excess-arguments-status pin `status [worktree]` (#203); urls-stub*, index-stub* and worktree-list-stub* pin
+// the hidden stubs `urls` (#203), `index` and `worktree list` (#204) became;
+// list-missing-file, help-list and complete-list-flags pin `list` (#204).
 //
 // help-all, help-cmd-all-status and help-help pin `help --all` (#199); the
 // verbose-*, progress-*, err-progress-*, err-version-* and err-config-* cases
@@ -93,7 +94,8 @@ var goldenCases = []goldenCase{
 	{"help-run", []string{"run", "--help"}},
 	{"help-backup", []string{"backup", "--help"}},
 	{"help-restore", []string{"restore", "--help"}},
-	{"help-index", []string{"index", "--help"}},
+	{"help-list", []string{"list", "--help"}},
+	{"help-ls", []string{"ls", "--help"}},
 	{"help-doctor", []string{"doctor", "--help"}},
 	{"help-router", []string{"router", "--help"}},
 	{"help-router-short", []string{"router", "-h"}},
@@ -110,7 +112,6 @@ var goldenCases = []goldenCase{
 	{"help-route-ls", []string{"route", "ls", "--help"}},
 	{"help-worktree", []string{"worktree", "--help"}},
 	{"help-worktree-short", []string{"worktree", "-h"}},
-	{"help-worktree-list", []string{"worktree", "list", "--help"}},
 	{"help-worktree-remove", []string{"worktree", "remove", "--help"}},
 	{"help-worktree-rename", []string{"worktree", "rename", "--help"}},
 	{"help-worktree-unlock", []string{"worktree", "unlock", "--help"}},
@@ -130,7 +131,7 @@ var goldenCases = []goldenCase{
 	{"help-cmd-route-add", []string{"help", "route", "add"}},
 	{"help-cmd-worktree", []string{"help", "worktree"}},
 	{"help-cmd-worktree-remove", []string{"help", "worktree", "remove"}},
-	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
+	{"help-cmd-list", []string{"help", "list"}},
 	{"help-cmd-worktree-rename", []string{"help", "worktree", "rename"}},
 	{"help-cmd-dev", []string{"help", "dev"}},
 	{"help-cmd-run", []string{"help", "run"}},
@@ -148,7 +149,7 @@ var goldenCases = []goldenCase{
 	// --- version, which only the root has ---
 	{"version-short", []string{"-V"}},
 	{"version-long", []string{"--version"}},
-	{"err-version-flag-on-subcommand", []string{"worktree", "list", "-V"}},
+	{"err-version-flag-on-subcommand", []string{"list", "-V"}},
 	{"err-version-long-on-subcommand", []string{"status", "--version"}},
 	{"err-version-short-in-cluster-on-subcommand", []string{"status", "-hV"}},
 	{"err-version-short-on-run", []string{"run", "plan", "-V"}},
@@ -172,6 +173,8 @@ var goldenCases = []goldenCase{
 	{"complete-progress-values", []string{"__complete", "--progress", ""}},
 	{"complete-progress-values-on-subcommand", []string{"__complete", "status", "--progress", "p"}},
 	{"complete-status-flags", []string{"__complete", "status", "--"}},
+	{"complete-list-flags", []string{"__complete", "list", "--"}},
+	{"complete-ls-flags", []string{"__complete", "ls", "--"}},
 
 	// --- bare groups: help to stderr, exit 1 ---
 	{"bare-root", nil},
@@ -261,11 +264,11 @@ var goldenCases = []goldenCase{
 	// --- unknown option, with and without a suggestion, short and long ---
 	{"err-unknown-option-long", []string{"--frobnicate"}},
 	{"err-unknown-option-long-suggest", []string{"--hepl"}},
-	{"err-unknown-option-long-suggest-nested", []string{"worktree", "list", "--al"}},
+	{"err-unknown-option-long-suggest-nested", []string{"list", "--al"}},
 	{"err-unknown-option-long-suggest-domain", []string{"worktree", "remove", "--domai", "foo"}},
 	{"err-unknown-option-long-suggest-unlock", []string{"worktree", "unlock", "--holder-unverifable"}},
 	{"err-unknown-option-short", []string{"-x"}},
-	{"err-unknown-option-short-nested", []string{"worktree", "list", "-x"}},
+	{"err-unknown-option-short-nested", []string{"list", "-x"}},
 	{"err-unknown-option-short-leaf", []string{"worktree", "remove", "-x"}},
 	// "-hx": pflag reads a clustered short flag left to right, so "-h"
 	// itself is recognised before "x" is found not to be — the shorthand
@@ -307,7 +310,7 @@ var goldenCases = []goldenCase{
 	// --config belongs to each command that reads treerig.toml, so it is
 	// recognised anywhere after that command's name, and nowhere else: not
 	// before it, and not on a command that reads none.
-	{"config-after-subcommand-help", []string{"worktree", "list", "-h"}},
+	{"config-after-subcommand-help", []string{"list", "-h"}},
 	{"config-inline-equals", []string{"config", "validate", "--config=/nonexistent-treerig-config-x7z.toml"}},
 	// Cobra finds the command by skipping a flag it does not know, and the
 	// command then parses the whole argument list, so --config ahead of a
@@ -342,7 +345,7 @@ var goldenCases = []goldenCase{
 	{"init-config-flag", []string{"init", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"config-validate-missing-file", []string{"config", "validate", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-treerig-config-x7z.toml"}},
-	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"list-missing-file", []string{"list", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"status-missing-file", []string{"status", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	// urls is a hidden stub (#203): flag parsing is off, so each of these gets
 	// the pointer and not a flag error.
@@ -350,6 +353,18 @@ var goldenCases = []goldenCase{
 	{"urls-stub-json", []string{"urls", "--json"}},
 	{"urls-stub-help", []string{"urls", "--help"}},
 	{"urls-stub-config", []string{"urls", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	// index and worktree list are hidden stubs the same way (#204).
+	{"index-stub", []string{"index"}},
+	{"index-stub-json", []string{"index", "--json"}},
+	{"index-stub-help", []string{"index", "--help"}},
+	{"index-stub-config", []string{"index", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"worktree-list-stub", []string{"worktree", "list"}},
+	{"worktree-list-stub-json", []string{"worktree", "list", "--json"}},
+	{"worktree-list-stub-all", []string{"worktree", "list", "--all"}},
+	{"worktree-list-stub-help", []string{"worktree", "list", "--help"}},
+	{"worktree-list-stub-config", []string{"worktree", "list", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"help-cmd-index", []string{"help", "index"}},
+	{"help-cmd-worktree-list", []string{"help", "worktree", "list"}},
 	{"backup-missing-file", []string{"backup", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"restore-missing-file", []string{"restore", "somewhere", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"run-missing-file", []string{"run", "plan", "--config", "/nonexistent-treerig-config-x7z.toml"}},

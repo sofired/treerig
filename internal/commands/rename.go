@@ -12,7 +12,7 @@ package commands
 //     the record, see moveRoutes;
 //   - the index card (slug, host and service URLs): rewritten before the
 //     record, see moveIndexCard;
-//   - the checkout index page: refreshed afterwards, best effort;
+//   - the overview page: refreshed afterwards, best effort;
 //   - the hostname the worktree's containers were created with
 //     (TREERIG_SLUG and TREERIG_HOST reach Compose, so a container carries them):
 //     this is why a rename refuses while any container of the worktree
@@ -33,9 +33,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/text"
@@ -140,7 +140,7 @@ func RenameWithContext(ctx context.Context, cctx *CommandContext, options Rename
 		return nil, err
 	}
 	// Best effort: a stale index is an inconvenience, not a failed rename.
-	refreshIndexBestEffort(ctx, cctx, "worktree rename")
+	refreshOverviewBestEffort(ctx, cctx, "worktree rename")
 	newHost := layout.WorktreeHost(result.Current.Slug, result.Current.Domain)
 	cctx.Logger.Info(fmt.Sprintf("Renamed %s to %s. Run '%s up' to start it there.", host, newHost, cctx.CommandName))
 	return result, nil
@@ -180,7 +180,7 @@ func moveRoutes(cctx *CommandContext, renamed registry.RegisteredWorktree) error
 }
 
 // moveIndexCard points the worktree's index card at its new hostname, so the
-// checkout index keeps listing its services. It moves from whatever host the
+// overview keeps listing its services. It moves from whatever host the
 // card itself names, so a card a failed attempt already moved is moved on.
 func moveIndexCard(cctx *CommandContext, previous, renamed registry.RegisteredWorktree) (bool, error) {
 	moved, err := card.Rehost(cctx.ControlHome, renamed.RepositoryID, renamed.WorktreeID, renamed.Slug, layout.WorktreeHost(renamed.Slug, renamed.Domain))
@@ -191,7 +191,7 @@ func moveIndexCard(cctx *CommandContext, previous, renamed registry.RegisteredWo
 }
 
 // lastKnownRoot is where holder's checkout last was, from its index card,
-// printable, or "" when it has none; the way `worktree list` names a worktree.
+// printable, or "" when it has none; the way `list` names a worktree.
 func lastKnownRoot(cctx *CommandContext, holder registry.RegisteredWorktree) string {
 	seen, err := card.ReadIndexCard(cctx.ControlHome, holder.RepositoryID, holder.WorktreeID)
 	if err != nil || seen == nil || seen.Root == "" {

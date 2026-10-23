@@ -97,7 +97,7 @@ func (r worktreeRoutes) All() []worktree.ServiceRoute {
 }
 
 // ServiceURLs are the services' URLs with their [service.<name>.index]
-// metadata: what the checkout index card records. A host route is left out
+// metadata: what the index card records. A host route is left out
 // on purpose: the index counts a card's services against the containers it
 // finds, and a host process is not one.
 func (r worktreeRoutes) ServiceURLs() []ServiceURL {

@@ -70,7 +70,7 @@ func decodeOneDocument(t *testing.T, stdout string, value any) {
 	}
 }
 
-// TestJSONOutputThroughTheProgram runs the four --json verbs through
+// TestJSONOutputThroughTheProgram runs the --json verbs through
 // cli.Main: stdout is one parseable document, and the exit code and stderr
 // are the text form's.
 func TestJSONOutputThroughTheProgram(t *testing.T) {
@@ -112,12 +112,24 @@ func TestJSONOutputThroughTheProgram(t *testing.T) {
 		}
 	})
 
-	t.Run("index --json prints the snapshot, with services unchecked, and exits 1, when Docker is not there", func(t *testing.T) {
-		code, stdout, _ := run("index", "--json")
-		var report commands.IndexReport
+	t.Run("list --all --json prints the document, and needs no Docker when nothing is registered", func(t *testing.T) {
+		code, stdout, stderr := run("list", "--all", "--json")
+		var report commands.ListReport
 		decodeOneDocument(t, stdout, &report)
-		if code != 1 || report.DockerReachable || report.DockerError == nil {
-			t.Fatalf("code = %d, report = %+v", code, report)
+		if code != 0 || !report.DockerReachable || report.DockerError != nil || report.Entries == nil || len(report.Entries) != 0 || stderr != "" {
+			t.Fatalf("code = %d, report = %+v, stderr = %q", code, report, stderr)
+		}
+	})
+
+	t.Run("index --json and worktree list --json get the pointer to list, exit 1, and print no document", func(t *testing.T) {
+		for args, pointer := range map[string]string{
+			"index --json":         "'treerig index' is now 'treerig list --all'.",
+			"worktree list --json": "'treerig worktree list' is now 'treerig list'.",
+		} {
+			code, stdout, stderr := run(strings.Fields(args)...)
+			if code != 1 || stdout != "" || stderr != "[treerig] ERROR: "+pointer+"\n" {
+				t.Fatalf("%s: code = %d, stdout = %q, stderr = %q", args, code, stdout, stderr)
+			}
 		}
 	})
 }

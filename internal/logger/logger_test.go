@@ -60,14 +60,14 @@ func TestConsoleStreamRouting(t *testing.T) {
 		c := NewConsole("treerig", &stdout, &stderr)
 
 		c.Info("Waiting for the shared router lock.")
-		c.Warn("Could not refresh the checkout index.")
+		c.Warn("Could not refresh the overview.")
 		c.Error("Docker is not available.")
 
 		if stdout.Len() != 0 {
 			t.Errorf("Info/Warn/Error wrote to stdout: %q", stdout.String())
 		}
 		want := "[treerig] Waiting for the shared router lock.\n" +
-			"[treerig] WARNING: Could not refresh the checkout index.\n" +
+			"[treerig] WARNING: Could not refresh the overview.\n" +
 			"[treerig] ERROR: Docker is not available.\n"
 		if got := stderr.String(); got != want {
 			t.Errorf("stderr = %q, want %q", got, want)

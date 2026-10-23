@@ -1,6 +1,6 @@
 # State words
 
-What `status`, `worktree list`, `index`, the overview page and their `--json`
+What `status`, `list`, the overview page and their `--json`
 documents say about a worktree and its services. One set of words is used
 everywhere: it is computed in one place, from the same inputs, so no command
 can disagree with another.
@@ -77,8 +77,14 @@ treerig has no identity for somewhere else: that one might be this worktree,
 moved. The result records whether the verdict came from Git's entry for the
 worktree's own identity or from the recorded directory alone.
 
-Only the repository a command runs in is asked: another repository's worktrees
-are listed with the state their containers and history give.
+`status` asks Git about the repository of the worktree it runs in (a worktree
+of another repository is judged by its recorded directory alone). `list --all`,
+`list` outside a repository, and the overview ask Git about every repository
+that has a worktree: the one the command runs in, and any other through a
+directory one of its worktrees last ran from. Each repository answers within
+five seconds, and one that does not shows its worktrees as `unknown` with the
+cause. A repository whose recorded directories are all gone is judged by those
+directories alone.
 
 ## A service
 
@@ -101,18 +107,19 @@ replica; the worktree's state counts every replica.
 
 Every command asks Docker about each container that exited 137, to tell a stop
 from an out-of-memory kill: `status` through `docker compose ps`,
-`worktree list` and `index` through `docker ps`, followed by one `docker
+`list` and the overview through `docker ps`, followed by one `docker
 inspect` of each such container (concurrently, under one shared deadline). Exit
 137 is `stopped` when Docker says the kernel did not do it, `exited (code 137)`
 when it did, and `unknown` (`Whether <service> was stopped or killed for running
 out of memory (it exited 137) couldn't be read.`) when the inspect failed.
 Exit 143 is always `stopped`.
 
-The list and the overview also know only the services the last `up` recorded in
+`list` and the overview also know only the services the last `up` recorded in
 the worktree's index card, which holds the routed ones; `status` asks Compose for
 every declared service. A service that is not routed and was never started
-therefore makes `status` say `partly running` where `worktree list` says
-`running`. Recording every declared service in the card is a follow-up (#204).
+therefore makes `status` say `partly running` where `list` says `running`.
+Recording every declared service in the card needs a new version of the card
+(see [stored state](design/state.md)), and is tracked in #227.
 
 ## A host route
 
@@ -191,16 +198,41 @@ at a time, within that one second.
   record of where it lives), and nothing more, exit 0. Neither file is read if
   it is not a regular file or is larger than 1 MiB. In a worktree that is not
   registered, `status` says so on stderr, prints nothing on stdout and exits 0.
-- **`worktree list`** has a STATE column, and `--json` a `state` and, for an
-  unknown one, a `hint` (on stderr in the text form, unless it is the one cause
-  already given once). It asks Docker once per label namespace, with a budget of
-  about five seconds each, and Git once for the current repository. With Docker
-  not answering every worktree is `unknown`, the table is still printed, and
-  the command exits 1 with the cause once.
-- **`index`** and the page at `http://treerig.localhost` show the state as a
-  pill, and `index --json` has it as `entries[].status` (the key predates the
-  words). `index` makes the same Docker budget and exits 1 the same way when
-  Docker does not answer; the page it wrote says so.
+- **`list`** (`ls`) prints a table of the repository's worktrees, and with
+  `--all`, or outside a repository, of every registered worktree on the
+  machine, with a REPOSITORY column first. `*` marks the one you are in:
+
+  ```text
+     WORKTREE   STATE              URL                          DIRECTORY
+  *  main       running            http://main.myapp.localhost  /home/sam/src/myapp
+     feature-x  stopped            -                            /home/sam/src/myapp.feature-x
+     old-spike  directory missing  -                            /home/sam/src/myapp.old-spike
+  ```
+
+  The URL column follows the rule of `status`: the first routed service that
+  runs, with `+2 more` when others do, and `-` when none does, because the
+  worktree is stopped or the router is not serving this root's URLs (stderr says
+  why, as `status` does). Only the services the last `up` routed are known
+  (above); a host route is not asked about. A directory is absolute, `-` when
+  nothing recorded one. `--json` has a `state` and, for an unknown one, a
+  `hint` (on stderr in the text form, unless it is the one cause already given
+  once), and every URL.
+
+  `list` asks Docker once per label namespace, with a budget of about five
+  seconds each, and Git once per repository, eight at a time and within five
+  seconds together. With Docker not answering every worktree is `unknown`, the
+  table is still printed, and the command exits 1 with the cause once. On a
+  terminal, stderr ends with how many directories are gone and, inside a
+  repository, with the overview's address (`Every repository: 'treerig list
+  --all', or http://treerig.localhost`) when the router serves this root's URLs;
+  with `--all` it does not, since it already lists everything. Neither line is
+  printed into a pipe or with `--json`. `list --all --refresh` (or `list
+  --refresh` outside a repository) rebuilds the [overview](overview.md) page
+  under the router's lock; nothing else about `list` takes a lock or writes. It
+  needs no `treerig.toml`.
+- **The overview** at `http://treerig.localhost` shows the state as a pill, and
+  `list --all --json` has it as `entries[].state`. The page it writes says so
+  when Docker does not answer.
 - **`doctor`** warns about a registration Git no longer lists, as `directory
   missing`, or as unknown, with the cause.
 

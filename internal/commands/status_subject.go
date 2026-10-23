@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
@@ -99,7 +99,7 @@ func (s *statusSubject) checkDirectory(ctx context.Context, gatherer *worktreest
 	// Another repository's worktree, or this one with a treerig.toml that was
 	// set aside: its own directory says what it declares, provided it is still
 	// the worktree's.
-	if id, present, inside, err := registry.NewIdentityService(s.root, cctx.Runner).Repository(ctx, s.root); err == nil && inside && present && id != s.record.RepositoryID {
+	if id, present, inside, err := registry.NewIdentityService(s.root, cctx.Runner, cctx.Environ).Repository(ctx, s.root); err == nil && inside && present && id != s.record.RepositoryID {
 		reason := "The directory recorded for it now belongs to another repository."
 		return &statusStop{
 			directory: worktree.DirectoryPresent,

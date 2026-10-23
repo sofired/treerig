@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en" data-shell="zeXhQZbxSdKgXV07">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-YYMLY+TOMsdLLOBuH14uRnfTcmPWOiHcZYwGSQpcCWY='; connect-src 'self'; form-action 'none'; base-uri 'none'">
+  <noscript><meta http-equiv="refresh" content="60"></noscript>
+  <link rel="icon" type="image/png" sizes="32x32" media="(prefers-color-scheme: dark)" href="favicon-32-dark.png">
+  <link rel="icon" type="image/png" sizes="32x32" media="(prefers-color-scheme: light)" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" media="(prefers-color-scheme: dark)" href="favicon-16-dark.png">
+  <link rel="icon" type="image/png" sizes="16x16" media="(prefers-color-scheme: light)" href="favicon-16.png">
+  <link rel="icon" type="image/svg+xml" sizes="any" media="(prefers-color-scheme: dark)" href="favicon-master-dark.svg">
+  <link rel="icon" type="image/svg+xml" sizes="any" media="(prefers-color-scheme: light)" href="favicon-master.svg">
+  <title>Worktrees (1)</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; color: #18212b; background: #f4f6f8; }
+    header { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px 24px; padding: 28px 32px 20px; border-bottom: 1px solid #cbd2d9; background: #fff; }
+    /* The margin, not justify-content: when the button wraps to its own line it
+       must stay under the timestamp rather than jumping to the far corner. */
+    h1 { margin: 0 auto 0 0; font-size: 24px; line-height: 1.2; }
+    /* A domain, a project name or a path in a notice can be one long word;
+       neither may push the page sideways. */
+    h2 { margin: 28px 0 10px; font-size: 15px; color: #52606d; overflow-wrap: anywhere; }
+    .updated { margin: 0; color: #52606d; font-size: 13px; }
+    /* A visible border: this is the page's only control, and has to read as one. */
+    .pause { padding: 5px 10px; border: 1px solid #7b8794; border-radius: 6px; background: #f4f6f8; color: #3e4c59; font: inherit; font-size: 12px; cursor: pointer; }
+    .pause:hover { background: #e4e7eb; }
+    main { padding: 4px 32px 32px; }
+    /* A fixed layout with percentage columns always fits, so this is a net for
+       content that somehow does not; the script keeps it keyboard-reachable
+       if it ever catches something. */
+    .table-wrap { overflow-x: auto; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; }
+    .table-wrap:focus-visible { outline: 2px solid #075985; outline-offset: -2px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    thead th { padding: 10px 14px; color: #52606d; background: #eef1f4; font-size: 12px; font-weight: 700; text-align: left; text-transform: uppercase; }
+    td, tbody th { padding: 14px; border-top: 1px solid #e4e7eb; font-size: 14px; font-weight: 400; text-align: left; vertical-align: top; }
+    /* A long branch name has to break inside its fixed column, not run over the host. */
+    tbody th { color: inherit; overflow-wrap: break-word; }
+    /* The state column is wide enough for a remedy to wrap at spaces, not mid-word. */
+    thead th:nth-child(1) { width: 16%; } thead th:nth-child(2) { width: 21%; } thead th:nth-child(3) { width: 18%; } thead th:nth-child(4) { width: 17%; } thead th:nth-child(5) { width: 28%; }
+    /* Fixed columns: a host with no hyphen must still break rather than overflow its cell. */
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+    .path { display: block; overflow-wrap: anywhere; }
+    .path-compact, .host-compact { display: none; }
+    .stale { color: #7f1d1d; font-weight: 650; }
+    .waiting { color: #52606d; font-weight: 650; }
+    .legend { margin: 18px 2px 0; color: #52606d; font-size: 12px; }
+    .legend dt { display: inline; font-weight: 700; }
+    .legend dt::after { content: ":"; }
+    .legend dd { display: inline; margin: 0; }
+    .muted { color: #5f6b7a; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .services ul { margin: 0; padding: 0; list-style: none; }
+    /* Stacked by default: two columns inside a quarter of the table starve each
+       other, and a service name can be one unbreakable word. The min-width on
+       the items is what lets them shrink at all — a grid item's own floor is
+       its min-content width otherwise. */
+    .service-link { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0 -6px; padding: 4px 6px; border-radius: 4px; color: inherit; line-height: 1.35; text-decoration: none; }
+    a.service-link:hover, a.service-link:focus-visible { background: #eef6f9; }
+    /* Break anywhere in a service name, which can be one unbreakable word;
+       prose has break opportunities a browser should be allowed to find. */
+    .service-label { min-width: 0; overflow-wrap: anywhere; }
+    .service-purpose { min-width: 0; overflow-wrap: break-word; hyphens: auto; }
+    .service-label { color: #075985; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+    .service-purpose { color: #52606d; font-size: 12px; }
+    .service-disabled .service-label, .service-disabled .service-purpose { color: #5f6b7a; text-decoration: none; }
+    .status { display: inline-block; min-width: 68px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; text-align: center; }
+    .status-running { color: #14532d; background: #dcfce7; }
+    .status-starting { color: #1e3a8a; background: #dbeafe; }
+    .status-partly-running { color: #713f12; background: #fef3c7; }
+    .status-failed { color: #7f1d1d; background: #fee2e2; }
+    .status-stopped { color: #374151; background: #e5e7eb; }
+    .status-not-started { color: #4b5563; background: #f3f4f6; box-shadow: inset 0 0 0 1px #d1d5db; }
+    .status-removing { color: #7c2d12; background: #ffedd5; }
+    .status-directory-missing { color: #7f1d1d; background: #fee2e2; }
+    .status-unknown { color: #4c1d95; background: #ede9fe; }
+    .guidance { margin-top: 7px; color: #7f1d1d; font-size: 11px; }
+    /* The remedy is there to be read and copied: wrap between words where it can. */
+    .guidance code { overflow-wrap: break-word; }
+    .empty { padding: 36px; color: #52606d; text-align: center; }
+    .notice { margin: 16px 0 0; padding: 10px 14px; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; color: #78350f; font-size: 13px; overflow-wrap: anywhere; }
+    /* Where the two service columns start starving each other the table no
+       longer fits either: shed the directory column — it comes back under the
+       branch, so nothing is unreachable — and stack the service text. */
+    @media (max-width: 900px) {
+      .directory { display: none; }
+      .path-compact { display: block; margin-top: 4px; color: #5f6b7a; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; overflow-wrap: anywhere; }
+      thead th:nth-child(1) { width: 26%; } thead th:nth-child(2) { width: 22%; } thead th:nth-child(4) { width: 22%; } thead th:nth-child(5) { width: 30%; }
+      .service-purpose { font-size: 11px; }
+    }
+    @media (max-width: 640px) {
+      header, main { padding-left: 16px; padding-right: 16px; }
+      thead th { padding-left: 8px; padding-right: 8px; }
+      td, tbody th { padding: 10px 8px; }
+      thead th:nth-child(1) { width: 28%; } thead th:nth-child(2) { width: 22%; } thead th:nth-child(4) { width: 24%; } thead th:nth-child(5) { width: 26%; }
+      /* The pill has to fit inside its cell at phone widths, not spill into the services. */
+      .status { min-width: 0; padding: 3px 6px; white-space: normal; }
+    }
+    /* The narrowest the page claims to support, which is also 400% zoom on a
+       1280px window: the status word needs most of what the path gives up. */
+    @media (max-width: 400px) {
+      /* A hostname in a 35px column reads four characters at a time; under the
+         branch it reads whole, and nothing has to scroll to it. */
+      .host { display: none; }
+      .host-compact { display: block; margin-top: 4px; }
+      thead th:nth-child(1) { width: 42%; } thead th:nth-child(4) { width: 30%; } thead th:nth-child(5) { width: 28%; }
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e5e7eb; background: #111827; }
+      header, .table-wrap { background: #1f2937; border-color: #374151; }
+      thead th { color: #9ca3af; background: #111827; }
+      td, tbody th { border-color: #374151; }
+      h2, .updated, .legend, .service-purpose { color: #9ca3af; }
+      .muted, .service-disabled .service-label, .service-disabled .service-purpose, .path-compact { color: #9ca3af; }
+      .pause { background: #111827; border-color: #7b8794; color: #e5e7eb; }
+      .pause:hover { background: #374151; }
+      .service-label { color: #7dd3fc; }
+      a.service-link:hover, a.service-link:focus-visible { background: #0c4a6e; }
+      a.service-link:hover .service-purpose, a.service-link:focus-visible .service-purpose { color: #cbd5e1; }
+      .status-running { color: #bbf7d0; background: #14532d; }
+      .status-starting { color: #bfdbfe; background: #1e3a8a; }
+      .status-partly-running { color: #fde68a; background: #713f12; }
+      .status-failed { color: #fecaca; background: #7f1d1d; }
+      .status-stopped { color: #e5e7eb; background: #374151; }
+      .status-not-started { color: #d1d5db; background: #1f2937; box-shadow: inset 0 0 0 1px #4b5563; }
+      .status-removing { color: #fed7aa; background: #7c2d12; }
+      .status-directory-missing { color: #fecaca; background: #7f1d1d; }
+      .status-unknown { color: #ddd6fe; background: #4c1d95; }
+      .guidance, .stale { color: #fca5a5; }
+      .waiting { color: #9ca3af; }
+      .table-wrap:focus-visible { outline-color: #7dd3fc; }
+      .empty { color: #9ca3af; }
+      .notice { background: #451a03; border-color: #92400e; color: #fde68a; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Worktrees</h1>
+    <p class="updated">Updated <time datetime="TIMESTAMP">TIMESTAMP</time> <span class="stale" id="index-stale" role="status"></span></p>
+  </header>
+  <p class="sr-only" id="index-announcer" aria-live="polite"></p>
+  <main data-body="FINGERPRINT"><dl class="legend"><div><dt>removing</dt> <dd>a removal was interrupted: &#39;treerig worktree remove&#39; finishes it.</dd></div><div><dt>directory missing</dt> <dd>Git no longer has the worktree&#39;s directory.</dd></div><div><dt>unknown</dt> <dd>treerig couldn&#39;t tell (Docker or Git didn&#39;t answer, or a record couldn&#39;t be read); the row says why.</dd></div><div><dt>starting</dt> <dd>a health check has not passed yet.</dd></div><div><dt>failed</dt> <dd>no service runs, and one exited with an error, keeps restarting or is unhealthy.</dd></div><div><dt>partly running</dt> <dd>some services run and others don&#39;t.</dd></div><div><dt>running</dt> <dd>every service that has not finished is up.</dd></div><div><dt>stopped</dt> <dd>&#39;treerig up&#39; has finished before, and nothing runs now.</dd></div><div><dt>not started</dt> <dd>&#39;treerig up&#39; has not finished yet.</dd></div></dl>
+    <section>
+      <h2 id="worktrees-0">acme.localhost</h2>
+      <!-- The script makes this focusable if it ever scrolls; a region that
+           does not scroll would only be a tab stop that does nothing. -->
+      <div class="table-wrap" role="region" aria-labelledby="worktrees-0">
+        <table>
+          <thead><tr><th scope="col">Branch</th><th scope="col" class="host">Host</th><th scope="col" class="directory">Directory</th><th scope="col">State</th><th scope="col">Services</th></tr></thead>
+          <tbody><tr>
+      <th scope="row"><strong>feature/login</strong><span class="path-compact">~/checkout</span><span class="host-compact"><code>feature-login.acme.localhost</code></span></th>
+      <td class="host"><code>feature-login.acme.localhost</code></td>
+      <td class="directory"><span class="path" title="FIXTURE/checkout">~/checkout</span></td>
+      <td><span class="status status-running">running</span></td>
+      <td class="services"><span class="muted">—</span></td>
+    </tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    function planIndexUpdate(current               , html        )              {
+  // Every sentinel is split, because this function's own source is embedded in
+  // the page it parses: spelled out whole, each would also match the copy of
+  // itself further down the document.
+  const mainOpen = '<' + 'main';
+  const mainClose = '</' + 'main>';
+  const titleOpen = '<' + 'title>';
+  const titleClose = '</' + 'title>';
+  const stampTag = '<' + 'time datetime="';
+  const shellTag = 'data-' + 'shell="';
+  const bodyTag = 'data-' + 'body="';
+  // An attribute value, refused when the tag ends before the closing quote: a
+  // response cut mid-attribute must not read as the rest of the document.
+  function value(tag        , from        )                     {
+    const at = html.indexOf(tag, from);
+    if (at < 0) return undefined;
+    const quote = html.indexOf('"', at + tag.length);
+    const tagEnd = html.indexOf('>', at + tag.length);
+    if (quote < 0 || (tagEnd >= 0 && tagEnd < quote)) return undefined;
+    return html.slice(at + tag.length, quote);
+  }
+  const mainAt = html.indexOf(mainOpen);
+  const titleAt = html.indexOf(titleOpen);
+  if (mainAt < 0 || titleAt < 0) return { kind: 'foreign' };
+  const mainTagEnd = html.indexOf('>', mainAt);
+  const mainEnd = html.indexOf(mainClose, mainAt);
+  const titleEnd = html.indexOf(titleClose, titleAt);
+  const stamp = value(stampTag, 0);
+  const shell = value(shellTag, 0);
+  const body = value(bodyTag, mainAt);
+  if (mainTagEnd < 0 || mainEnd < mainTagEnd || titleEnd < 0) return { kind: 'foreign' };
+  if (stamp === undefined || stamp === '' || shell === undefined || body === undefined) return { kind: 'foreign' };
+  if (stamp === current) return { kind: 'unchanged' };
+  return {
+    kind: 'update',
+    stamp,
+    shell,
+    body,
+    title: html.slice(titleAt + titleOpen.length, titleEnd),
+    main: html.slice(mainTagEnd + 1, mainEnd)
+  };
+}
+    (function () {
+      var stamp = document.querySelector('header time');
+      var header = document.querySelector('header');
+      var announcer = document.getElementById('index-announcer');
+      var warning = document.getElementById('index-stale');
+      if (!stamp || !header) return;
+      function localise(el) {
+        var when = new Date(el.getAttribute('datetime') || '');
+        if (!isNaN(when.getTime())) el.textContent = when.toLocaleString();
+      }
+      localise(stamp);
+      // A table only needs to be reachable from the keyboard while it has
+      // something off-screen to scroll to.
+      function reachable() {
+        var wraps = document.querySelectorAll('.table-wrap');
+        for (var index = 0; index < wraps.length; index += 1) {
+          if (wraps[index].scrollWidth > wraps[index].clientWidth) wraps[index].setAttribute('tabindex', '0');
+          else wraps[index].removeAttribute('tabindex');
+        }
+      }
+      reachable();
+      window.addEventListener('resize', reachable);
+      var paused = false;
+      var toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'pause';
+      // The name carries the state, so there is no aria-pressed to contradict
+      // it: a toggle may change one or the other, never both.
+      function label() { toggle.textContent = paused ? 'Resume updates' : 'Pause updates'; }
+      // Opened from disk rather than through the router: fetch is blocked, so
+      // the only thing left is to reload the whole file — and the reader still
+      // gets to stop it.
+      if (location.protocol === 'file:') {
+        var reloadTimer;
+        // A hidden tab is not being read; reloading it would only throw away
+        // the reader's place before they come back to it.
+        function again() {
+          reloadTimer = setTimeout(function () {
+            if (document.hidden) again(); else location.reload();
+          }, 60000);
+        }
+        toggle.addEventListener('click', function () {
+          paused = !paused;
+          label();
+          if (paused) clearTimeout(reloadTimer); else again();
+        });
+        label();
+        header.appendChild(toggle);
+        again();
+        return;
+      }
+      // Asked once: an engine that does not know the selector throws for it,
+      // and a throw inside the loop is how a page stops updating for good.
+      var knowsFocusVisible = (function () {
+        try {
+          document.documentElement.matches(':focus-visible');
+          return true;
+        } catch (error) {
+          return false;
+        }
+      })();
+      var inFlight = false;
+      var failures = 0;
+      var waiting = null;
+      var reloaded = false;
+      var timer;
+      function schedule() { clearTimeout(timer); timer = setTimeout(tick, 15000); }
+      // Written only when it changes: it is a live region, and assigning the
+      // same sentence every fifteen seconds announces it again.
+      function marker(text, kind) {
+        if (!warning || warning.textContent === text) return;
+        warning.textContent = text;
+        warning.className = kind;
+      }
+      // Four quiet failures is a page that has stopped working, not a blip.
+      function failed() {
+        failures = failures + 1;
+        if (failures >= 4) marker('Not updating.', 'stale');
+      }
+      // Keyed by the shell it reloaded for, so a tab that sees two builds
+      // alternate does not reload every fifteen seconds; the in-memory flag
+      // covers a browser that refuses to store anything.
+      function reloadOnce(shell) {
+        var key = 'treerig-shell:' + shell;
+        try {
+          if (sessionStorage.getItem(key)) { marker('Not updating.', 'stale'); return; }
+          sessionStorage.setItem(key, '1');
+        } catch (error) {
+          // Nothing can be remembered across a reload, so a reload cannot be
+          // latched: reloading anyway is how a tab ends up reloading every
+          // fifteen seconds with no way to stop it. Say so instead.
+          marker('Not updating.', 'stale');
+          return;
+        }
+        reloaded = true;
+        location.reload();
+      }
+      function apply(main, plan) {
+        waiting = null;
+        if (plan.body !== main.getAttribute('data-body')) {
+          main.innerHTML = plan.main;
+          main.setAttribute('data-body', plan.body);
+          reachable();
+          if (announcer) announcer.textContent = plan.title + ' updated.';
+        }
+        if (failures === 0) marker('', '');
+        stamp.setAttribute('datetime', plan.stamp);
+        localise(stamp);
+        document.title = plan.title;
+      }
+      // Only a keyboard reader loses their place to a swap. A click leaves
+      // focus on the link just followed, and must not hold anything up.
+      function held(main) {
+        var active = document.activeElement;
+        return !!(knowsFocusVisible && active && main.contains(active) &&
+          active.matches && active.matches(':focus-visible'));
+      }
+      function tick() {
+        clearTimeout(timer);
+        // Once a reload is asked for this page is finished; a browser takes a
+        // moment to act on it, and nothing should poll in the meantime.
+        if (paused || inFlight || reloaded) return;
+        try {
+          var main = document.querySelector('main');
+          // A hidden tab does not need the traffic.
+          if (document.hidden || !main) { schedule(); return; }
+          var request = { cache: 'no-cache', redirect: 'error' };
+          if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+            request.signal = AbortSignal.timeout(10000);
+          }
+          inFlight = true;
+          fetch(location.pathname, request)
+            .then(function (response) {
+              return response.ok ? response.text() : Promise.reject(new Error(String(response.status)));
+            })
+            .then(function (html) {
+              var plan = planIndexUpdate(stamp.getAttribute('datetime'), html);
+              // Something answered, but it is not this page: that is a failure
+              // to read the index, however healthy the response looked.
+              if (plan.kind === 'foreign') { failed(); return; }
+              failures = 0;
+              if (plan.kind === 'unchanged') { marker('', ''); return; }
+              if (paused) return;
+              // A newer treerig wrote that page: its markup belongs to a
+              // stylesheet and a script this tab does not have.
+              if (plan.shell !== document.documentElement.getAttribute('data-shell')) {
+                reloadOnce(plan.shell);
+                return;
+              }
+              // Every regeneration moves the stamp, most change nothing on the
+              // page: advance the clock quietly, and only swap — losing a
+              // selection, spending an announcement — for a real change.
+              // Reading inside the table: keep the rows rather than pulling
+              // them out from under them, and put them in as soon as the
+              // reader leaves. The stamp stays put until they are shown.
+              if (plan.body !== main.getAttribute('data-body') && held(main)) {
+                waiting = plan;
+                marker('New rows waiting.', 'waiting');
+                return;
+              }
+              apply(main, plan);
+            })
+            .catch(function () {
+              // The router is down, or a regeneration is in flight: the next
+              // tick will do. Say so only once it has clearly stopped working.
+              failed();
+            })
+            .then(function () { inFlight = false; schedule(); });
+        } catch (error) {
+          // Nothing may leave the loop unarmed, and nothing may leave it
+          // looking healthy while it fetches nothing.
+          inFlight = false;
+          failed();
+          schedule();
+        }
+      }
+      toggle.addEventListener('click', function () {
+        paused = !paused;
+        label();
+        // The held rows are kept, but the marker promising them is not: while
+        // paused nothing will put them in.
+        if (paused) { clearTimeout(timer); if (waiting) marker('', ''); } else tick();
+      });
+      label();
+      header.appendChild(toggle);
+      document.addEventListener('visibilitychange', function () { if (!document.hidden && !paused) tick(); });
+      // Rows held for a reader go in the moment they leave the table, rather
+      // than waiting out the rest of the interval. Nothing is fetched here:
+      // focus moves within a table would otherwise pull the page per keystroke.
+      document.addEventListener('focusout', function () {
+        if (paused || !waiting) return;
+        // focusout runs before focus lands, so let it.
+        setTimeout(function () {
+          var main = document.querySelector('main');
+          if (!paused && waiting && main && !held(main)) apply(main, waiting);
+        }, 0);
+      });
+      schedule();
+    })();
+  </script>
+</body>
+</html>

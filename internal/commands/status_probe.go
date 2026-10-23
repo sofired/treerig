@@ -60,5 +60,7 @@ func probeHostRoutes(ctx context.Context, probe ports.ListenerProbe, budget time
 			return nil
 		})
 	}
+	// The workers return nil: a port that does not answer is a state, not an
+	// error, so there is nothing to take from Wait.
 	_ = group.Wait()
 }

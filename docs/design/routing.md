@@ -1,6 +1,6 @@
 # Routing: pinned loopback ports and a loopback proxy
 
-> In 1.0 the command `urls` is `status` ([the command line](cli-1.0.md#removed-and-where-each-job-goes)). This note keeps the names it was written with.
+> In 1.0 the command `urls` is `status`, `worktree list` is `list`, `index` is `list --all`, and the old index page is the overview ([the command line](cli-1.0.md#removed-and-where-each-job-goes)). This note keeps the names it was written with.
 
 How treerig routes `<service>.<slug>.<domain>` to a worktree's services, and
 why. This note is where the spike evidence and the approved decisions live;

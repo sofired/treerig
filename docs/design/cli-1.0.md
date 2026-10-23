@@ -415,11 +415,14 @@ with a short budget.
   service. A declared service that is not routed and was never started makes
   `status` say `partly running` where `list` says `running`. After `up
   --services …` the left-out services are `not created`, so the worktree reads
-  `partly running` until a plain `up`. Recording every declared service in the
-  card is a follow-up for #204.
-- **`list` and `index` as built** give Docker about five seconds a label
-  namespace, print the cause once, and exit 1 when Docker did not answer, as
-  `status` does.
+  `partly running` until a plain `up`. #204 did not record every declared
+  service in the card: the card is strict about its keys and reads any other
+  version as no card, so a new key is a new card version, which every `up`
+  writes and every older build then reads as no card (see [state.md](state.md)).
+  It is tracked in #227, and the two commands still disagree until it lands.
+- **`list` as built** (#204) gives Docker about five seconds a label namespace,
+  prints the cause once, and exits 1 when Docker did not answer, as `status`
+  does; see [`list`](#list) for the rest.
 - Every text word maps to one JSON value, pinned by one test.
 - The overview page shows when it was generated, since it is refreshed only by
   `up`, `down`, `remove`, `rename` and `list --all --refresh`.
@@ -726,6 +729,86 @@ Every repository: 'treerig list --all', or http://treerig.localhost
   rebuilds the index page under the router lock.
 - `list` exits 0, and 1 when Docker didn't answer (the table is still printed,
   with `unknown` rows), as `status` does.
+
+As built (#204):
+
+- **Columns.** A marker column holds `*` for the worktree the command ran in
+  (none outside a repository). REPOSITORY is the project name the last `up`
+  recorded, and the domain when nothing was; WORKTREE is the slug. Rows are in
+  the overview's order (domain, project, then branch or slug, with the
+  worktrees whose directory is gone last). DIRECTORY is the live path where Git
+  was asked, else the one the last `up` recorded, and `-` for none. Every cell
+  goes through `text.Printable`.
+- **URL.** The first routed service that runs (a container of it is running and
+  healthy), in the order `treerig.toml` declares them, from the services the
+  card holds under the worktree's own host and the router's port. `+N more`
+  counts the other running ones. Host routes are left out: telling whether
+  their process listens takes a connect each, which a listing does not make.
+  The router is read once, at the same time as Docker and within the same five
+  seconds, and with nothing to list it is not read. The notices of `status`
+  about the router (stopped, another port, another root's, unreadable) are said
+  once on stderr when a service runs whose URL they hide.
+- **Git.** One `git worktree list` per repository that has a worktree, eight at
+  a time, the whole phase within one five-second deadline (`worktreestate`'s
+  `AskRepositories`; the repository the command runs in is asked at the same
+  time, under the same bound, and Docker's inventory too). The repository the
+  command runs in is asked through the working directory, any other through the
+  first recorded directory (an absolute path to a directory) whose listing has
+  an entry of that repository's identity; a directory that now belongs to
+  another repository is passed over. A repository none of whose recorded
+  directories exists is judged by those directories alone; one no card has a
+  directory for is not asked about (its rows have no directory evidence, as
+  before). Each repository's work runs in a goroutine the caller abandons at the
+  deadline, so a hung mount cannot hold the command: it makes that repository's
+  rows `unknown`, with `treerig couldn't check it: Git did not answer within
+  5s.` (or Git's own words, or `The directories it was last seen in now belong
+  to another repository`). `list` says so once as a warning; the refresh after
+  `up`, `down`, `remove` and `rename`, which builds the page the same way and
+  now also asks about other repositories, does not, so a repository that stays
+  offline is not reported after every command.
+- **Git's own run.** Every identity read runs `git -c core.fsmonitor=false -c
+  core.hooksPath=/dev/null -c safe.bareRepository=explicit` with an environment
+  of `PATH`, `HOME`, `TMPDIR`, `LANG` and `LC_*` from the entry point's, and
+  the variables that say where the user's own Git configuration is
+  (`XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
+  `GIT_CONFIG_NOSYSTEM`; it holds their `safe.directory` entries), then
+  `LC_ALL=C` and `GIT_OPTIONAL_LOCKS=0`. No other `GIT_*` variable is inherited
+  (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CONFIG_COUNT` and its `KEY_n`/`VALUE_n`,
+  `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`), and the `-c` settings win over the
+  user's configuration. Each run has a 30-second timeout and a 4 MiB output
+  cap; every constructor of the identity service takes the environment, so no
+  caller skips the allow-list. `safe.bareRepository=explicit` refuses to find a
+  bare repository by discovery, but a linked worktree's `.git` file names its
+  repository, so `-C <worktree>` still answers for the `.bare` and gitfile
+  layout; a test pins it.
+- **The router's lock.** The snapshot is read before the lock is taken, which
+  is held only to write the page, so a hung Git or Docker cannot hold `up`
+  behind it. Under the lock a refresh reads the existing page's generation time
+  (one bounded read of its head) and does not write when the page there is
+  newer than its snapshot, so a refresh that read earlier and finished later
+  cannot replace a newer page. A lifecycle refresh gives Docker
+  and Git the same five seconds, and `up` announces its URLs before it
+  refreshes.
+- **Nothing registered.** `list` asks Docker and Git nothing and exits 0 on a
+  machine, or in a repository, with no worktree to list, so it works where
+  Docker is not installed.
+- **Stderr.** The footers are printed only when stderr is a terminal and the
+  output is not `--json`. Until `remove --gone` lands (#211) the first reads `1
+  directory is gone: 'treerig worktree remove old-spike' removes its worktree.`
+  or `2 directories are gone: 'treerig worktree remove <slug>' removes one
+  worktree.`; the second is `Every repository: 'treerig list --all', or
+  http://treerig.localhost[:port]`, left out when the listing is already every
+  repository and when the router does not serve this root's URLs. `--refresh`
+  without `--all` inside a repository is an error: `--refresh rebuilds the
+  overview, which lists every repository: add --all.` Outside a repository
+  `--refresh` alone is enough.
+- **JSON.** One object, `index --json`'s document with `entries[].status` named
+  `state` as in every other command, and with `router`, `entries[].current` and
+  `entries[].urls` added; `worktree list --json`'s array and its
+  `labelNamespace` are gone. See [json-output.md](../json-output.md).
+- **The stubs.** `index` prints `'treerig index' is now 'treerig list --all'.`
+  and `worktree list` prints `'treerig worktree list' is now 'treerig list'.`,
+  both as errors, with flag parsing off, exit 1.
 
 ### `doctor`
 
@@ -1132,10 +1215,17 @@ changes without a deprecation period beyond the one-release stubs.
   `not_created`, a `running` service with `detail` `unhealthy` is `unhealthy`,
   a restarting one is `restarting` (it was `starting`), and `exited` carries
   `exitCode`; `index` `entries[].status` `partial` is `partly_running` and
-  `missing` is `directory_missing`; `status --json`, `worktree list` and
-  `index` gain `state`, `hint` and `exitCode` keys; `status --json` is printed
-  with exit 1 when Docker does not answer instead of nothing, and `worktree
-  list` and `index` exit 1 then too.
+  `missing` is `directory_missing`; `status --json` and `list --json` gain
+  `state`, `hint` and `exitCode` keys; `status --json` is printed with exit 1
+  when Docker does not answer instead of nothing, and `list`, which replaces
+  `worktree list` and `index`, exits 1 then too.
+- `worktree list --json` and `index --json` become one document, `list
+  --json`: an object where `worktree list` printed an array, `entries[].status`
+  renamed `entries[].state`, `entries[].current`, `entries[].urls` and `router`
+  added (absent when there is nothing to list), `labelNamespace` gone,
+  entries in the overview's order (domain, project, branch or slug, directories
+  that are gone last) and not domain then slug, and no rebuild of the page
+  unless `--refresh` says so.
 - The default text of `up`, `status`, `list`, `doctor`, `remove`, `down`,
   `router down` and the errors changes; plain notices lose `[treerig]`.
 - Exit codes: `down` with nothing to stop exits 0; `doctor` fails on a crashed

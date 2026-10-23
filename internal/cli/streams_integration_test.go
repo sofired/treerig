@@ -489,16 +489,20 @@ backup  = "./backup.sh"
 		}
 	})
 
-	t.Run("runs worktree list and worktree unlock outside a repository, and still refuses a --config that is not there", func(t *testing.T) {
+	t.Run("runs list and worktree unlock outside a repository, and still refuses a --config that is not there", func(t *testing.T) {
 		cwd := registrytest.TempDir(t) // no Git repository and no treerig.toml anywhere above this directory
 
-		list := runTreerig(t, binary, cwd, []string{"worktree", "list"}, treerigOptions{})
+		list := runTreerig(t, binary, cwd, []string{"list"}, treerigOptions{})
 		if list.Code != 0 || list.Stdout != "" || list.Stderr != "[treerig] No worktrees are registered on this machine.\n" {
-			t.Errorf("worktree list = %+v, want the empty-machine notice on stderr and nothing on stdout", list)
+			t.Errorf("list = %+v, want the empty-machine notice on stderr and nothing on stdout", list)
 		}
-		listJSON := runTreerig(t, binary, cwd, []string{"worktree", "list", "--json"}, treerigOptions{})
-		if listJSON.Code != 0 || strings.TrimSpace(listJSON.Stdout) != "[]" || listJSON.Stderr != "" {
-			t.Errorf("worktree list --json = %+v, want an empty array", listJSON)
+		listJSON := runTreerig(t, binary, cwd, []string{"list", "--json"}, treerigOptions{})
+		var document struct {
+			Entries []json.RawMessage `json:"entries"`
+		}
+		if listJSON.Code != 0 || listJSON.Stderr != "" || json.Unmarshal([]byte(listJSON.Stdout), &document) != nil ||
+			document.Entries == nil || len(document.Entries) != 0 {
+			t.Errorf("list --json = %+v, want a document with no entries", listJSON)
 		}
 
 		unknown := runTreerig(t, binary, cwd, []string{"worktree", "unlock", "nobody"}, treerigOptions{})
@@ -511,7 +515,7 @@ backup  = "./backup.sh"
 		}
 
 		missing := filepath.Join(cwd, "nowhere", "treerig.toml")
-		for _, args := range [][]string{{"worktree", "list"}, {"worktree", "unlock", "nobody"}, {"worktree", "remove", "--yes", "--dev-teardown", "nobody"}} {
+		for _, args := range [][]string{{"list"}, {"worktree", "unlock", "nobody"}, {"worktree", "remove", "--yes", "--dev-teardown", "nobody"}} {
 			result := runTreerig(t, binary, cwd, append(args, "--config", missing), treerigOptions{})
 			if result.Code != 1 || result.Stdout != "" || !strings.HasSuffix(result.Stderr, "ERROR: No treerig.toml at "+missing+".\n") {
 				t.Errorf("%v --config <missing> = %+v", args, result)
@@ -523,12 +527,12 @@ backup  = "./backup.sh"
 		// repository's worktrees (none), pointing at --all.
 		repo := writeStreamsProject(t, "not = [valid")
 		gitInitCommit(t, repo)
-		inRepo := runTreerig(t, binary, repo, []string{"worktree", "list"}, treerigOptions{})
+		inRepo := runTreerig(t, binary, repo, []string{"list"}, treerigOptions{})
 		if inRepo.Code != 0 || inRepo.Stdout != "" ||
 			!strings.Contains(inRepo.Stderr, "[treerig] WARNING: Ignoring treerig.toml for this command: ") ||
-			!strings.Contains(inRepo.Stderr, "[treerig] No worktrees are registered for this repository.\n") ||
-			!strings.HasSuffix(inRepo.Stderr, "[treerig] Every repository: 'treerig worktree list --all'\n") {
-			t.Errorf("worktree list in a repository with a broken treerig.toml = %+v", inRepo)
+			!strings.Contains(inRepo.Stderr, "[treerig] No worktrees are registered for this repository. Run 'treerig up' to register this worktree.\n") ||
+			!strings.HasSuffix(inRepo.Stderr, "[treerig] Every repository: 'treerig list --all'\n") {
+			t.Errorf("list in a repository with a broken treerig.toml = %+v", inRepo)
 		}
 
 		// Names complete too: an empty registry offers none, and says so with
@@ -587,7 +591,7 @@ backup  = "./backup.sh"
 		cwd := writeStreamsProject(t, streamsConfig)
 		gitInitCommit(t, cwd)
 
-		result := runTreerig(t, binary, cwd, []string{"worktree", "list", "--json"}, treerigOptions{})
+		result := runTreerig(t, binary, cwd, []string{"list", "--json"}, treerigOptions{})
 
 		if result.Code != 0 {
 			t.Errorf("exit code = %d, want 0", result.Code)
@@ -595,12 +599,14 @@ backup  = "./backup.sh"
 		if result.Stderr != "" {
 			t.Errorf("stderr = %q, want empty", result.Stderr)
 		}
-		var list []any
-		if err := json.Unmarshal([]byte(result.Stdout), &list); err != nil {
+		var document struct {
+			Entries []any `json:"entries"`
+		}
+		if err := json.Unmarshal([]byte(result.Stdout), &document); err != nil {
 			t.Fatalf("parsing stdout as JSON: %v\nstdout=%q", err, result.Stdout)
 		}
-		if len(list) != 0 {
-			t.Errorf("list = %v, want empty", list)
+		if document.Entries == nil || len(document.Entries) != 0 {
+			t.Errorf("entries = %v, want empty", document.Entries)
 		}
 	})
 

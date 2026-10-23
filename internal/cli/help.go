@@ -66,6 +66,11 @@ func renderHelp(cmd *cobra.Command, width int, all bool) string {
 	}
 	if cmd.HasAvailableSubCommands() {
 		b.WriteString("\n  " + cmd.CommandPath() + " [command]")
+	}
+	if len(cmd.Aliases) > 0 {
+		b.WriteString("\n\nAliases:\n  " + cmd.NameAndAliases())
+	}
+	if cmd.HasAvailableSubCommands() {
 		writeCommands(&b, cmd, width, all)
 	}
 	if cmd.HasAvailableLocalFlags() {

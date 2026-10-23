@@ -8,7 +8,7 @@ package router_test
 // fixture uses a unique Compose project, label namespace, router port and
 // scratch treerig root, and cleans up after itself, so it can run beside a
 // developer's real router and beside another Docker suite on the same
-// daemon. Ports for the checkout index and the host-mode ping come from a
+// daemon. Ports for the overview and the host-mode ping come from a
 // range of their own inside the test range, never the default one. Tests
 // that need a routed worktree live with `up` in
 // internal/commands/up_routes_docker_integration_test.go.
@@ -521,7 +521,7 @@ func TestSharedRouterInHostModeOnARealDaemon(t *testing.T) {
 		}
 	})
 
-	t.Run("serves the checkout index through the proxy, and publishes it on its own loopback port", func(t *testing.T) {
+	t.Run("serves the overview through the proxy, and publishes it on its own loopback port", func(t *testing.T) {
 		routeAnswers(t, port, router.IndexHost, liveAnswer{http.StatusOK, "No worktrees have been indexed yet"})
 		doc := w.inspect(w.containerID("index"))
 		bindings := doc.NetworkSettings.Ports["8080/tcp"]

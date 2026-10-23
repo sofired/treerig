@@ -45,7 +45,7 @@ func sharedSection(ctx context.Context, opts doctorOptions) ([]Check, error) {
 		return nil, nil
 	}
 	return guarded("shared.scan", "shared services", func() ([]Check, error) {
-		identities := registry.NewIdentityService(loaded.Root, opts.Runner)
+		identities := registry.NewIdentityService(loaded.Root, opts.Runner, opts.Environ)
 		repositoryID, present, err := identities.RepositoryID(ctx, loaded.Root)
 		if err != nil {
 			if len(declared) == 0 {

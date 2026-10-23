@@ -7,7 +7,7 @@ package commands
 //
 // Only `router up` takes the router's lock to hold across work, and takes it
 // alone (never alongside a worktree's own locks): see routerLockScope
-// (index.go) and lifecycle.Requests.Router. The checkout index's best-effort
+// (overview.go) and lifecycle.Requests.Router. The overview's best-effort
 // refresh also takes it, briefly, and a `dev` session does so while holding
 // its worktree's development lock — the one sanctioned edge from a
 // worktree-level lock to this one (docs/design/locks.md). `router status` and `router down` take no lock
@@ -20,10 +20,10 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/settings"
@@ -197,7 +197,7 @@ func routerServiceForDown(env *Env) (*router.Router, error) {
 // release/abandon and defer signals, the way CommandContext.mutate holds a
 // worktree's locks around a mutation. state is always one a caller already
 // resolved through resolveRouterState (home.go), never re-derived from raw
-// env here: routerLockScope (index.go) builds the same scope from it, the
+// env here: routerLockScope (overview.go) builds the same scope from it, the
 // one place that does, so there is no second, raw-env path to the router's
 // lock target alongside home.go's (#80).
 func routerHold(ctx context.Context, env *Env, state layout.RouterLayout, projectName string, action func(context.Context) error) error {
@@ -272,7 +272,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 	// `down` and `worktree remove` do (best effort: a stale or still-missing
 	// index must not turn a clean router start into a failure).
 	//
-	// This checkout index is bound to whatever repository env.Cwd happens to
+	// This overview is bound to whatever repository env.Cwd happens to
 	// be in, only for the "is this row local" distinction a snapshot makes;
 	// `router up` needs no project config, and the machine-wide page it
 	// writes covers every registered checkout regardless of cwd.
@@ -280,7 +280,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 		ControlHome: controlHome, Root: env.Cwd, Runner: env.Runner, Logger: env.Logger,
 		CommandName: env.CommandName, Invocation: env.Invocation, UserHome: userHome,
 	})
-	index := checkoutindex.NewService(checkoutindex.Options{
+	index := overview.NewService(overview.Options{
 		ControlHome: controlHome,
 		RouterPort:  svc.Port,
 		IndexFile:   state.IndexFile,

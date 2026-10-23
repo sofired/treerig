@@ -30,9 +30,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/router"
 )
 
@@ -271,8 +271,8 @@ func TestIndexIconsAreServedOnARealDaemon(t *testing.T) {
 				t.Error("the page carries a data: source")
 			}
 			hrefs := regexp.MustCompile(`<link rel="icon" type="([^"]+)"[^>]* href="([^"]+)">`).FindAllSubmatch(page, -1)
-			if len(hrefs) != len(checkoutindex.IconNames()) {
-				t.Fatalf("the page links %d icons, want %d", len(hrefs), len(checkoutindex.IconNames()))
+			if len(hrefs) != len(overview.IconNames()) {
+				t.Fatalf("the page links %d icons, want %d", len(hrefs), len(overview.IconNames()))
 			}
 			for _, link := range hrefs {
 				name, declared := string(link[2]), string(link[1])

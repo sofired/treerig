@@ -67,13 +67,13 @@ func (r *FakeRouter) Ensures() int {
 }
 
 // FakeIndex is a commands.Index double: it records every refresh reason
-// instead of touching a real checkout index.
+// instead of touching a real overview.
 type FakeIndex struct {
 	mu      sync.Mutex
 	reasons []string
 }
 
-// RefreshBestEffort records reason instead of touching a real checkout index; see Reasons.
+// RefreshBestEffort records reason instead of touching a real overview; see Reasons.
 func (i *FakeIndex) RefreshBestEffort(_ context.Context, reason string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()

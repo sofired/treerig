@@ -28,13 +28,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
@@ -432,7 +432,7 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 	if err := files.SecureControlDirectories(layout.ControlLayout(f.controlHome), userHome); err != nil {
 		f.t.Fatal(err)
 	}
-	identities := registry.NewIdentityService(root, f.runner)
+	identities := registry.NewIdentityService(root, f.runner, nil)
 	identity, err := registrytest.Register(context.Background(), f.controlHome, identities, root, fixtureDomain, slug, nil, "complete")
 	if err != nil {
 		f.t.Fatal(err)
