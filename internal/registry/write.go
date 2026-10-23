@@ -337,6 +337,21 @@ func refuseUnreadable(what, consequence string, problems []RegistryProblem) erro
 	)
 }
 
+// dropRemovalMarker deletes worktreeID's removal marker, which being absent
+// already is fine. Removal finishing is the one thing that deletes it besides
+// ClearRemoving.
+func (s *Store) dropRemovalMarker(worktreeID string) error {
+	// Only a marker this build can read is deleted: a newer or foreign one is
+	// refused, not cleared (docs/design/state.md).
+	if _, err := s.Removing(worktreeID); err != nil {
+		return err
+	}
+	if err := os.Remove(s.removalMarkerPath(worktreeID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // Remove deletes a registration, reporting whether there was one to delete.
 // A record that now names another slug changed concurrently, and is kept.
 func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, writer Writer) (bool, error) {
@@ -345,12 +360,19 @@ func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, wri
 	}
 	removed := false
 	err := s.withRegistryLock(ctx, writer, func(context.Context) error {
+		// Before the record goes: a marker that cannot be deleted must not
+		// leave a deleted record behind it.
+		if _, err := s.Removing(worktreeID); err != nil {
+			return err
+		}
 		current, err := s.Find(worktreeID)
 		if err != nil {
 			return err
 		}
 		if current == nil {
-			return nil
+			// A marker with no registration is what a removal that died
+			// between the two deletions left; it names nothing.
+			return s.dropRemovalMarker(worktreeID)
 		}
 		if current.Slug != expectedSlug {
 			return clierr.Newf("Worktree %s changed concurrently; its registration was retained.", expectedSlug)
@@ -359,7 +381,10 @@ func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, wri
 			return err
 		}
 		removed = true
-		return nil
+		// The record first: a removal that dies between the two leaves a
+		// marker no registration points at, never a registration that looks
+		// finished.
+		return s.dropRemovalMarker(worktreeID)
 	})
 	return removed, err
 }

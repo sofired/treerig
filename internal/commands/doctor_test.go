@@ -285,18 +285,39 @@ func TestDoctorInACheckout(t *testing.T) {
 		wantLine(t, report, "skip", "verify hook", "none configured")
 	})
 
-	t.Run("warns about a registration whose checkout Git no longer lists", func(t *testing.T) {
+	t.Run("warns about a registration whose directory is gone and that Git no longer lists", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		withDoctorDocker(w, "24.0.0", "2.24.0")
 		writeCheckoutConfig(t, w.Root, acme, "")
+		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		other := w.Worktree("gone", "feature/gone")
 		ref := w.Register(other, acme, "feature-gone", brand.LabelNamespace, "api")
-		w.Git.SetActive([]string{w.Root}) // git worktree list no longer shows "gone"
+		// `up` wrote a card while it was live, saying where it was.
+		w.WriteIndexCard(ref.RepositoryID, ref.WorktreeID, "acme", acme, "feature-gone", "feature-gone."+acme, other, "feature/gone")
+		// `git worktree remove gone`: Git forgets it and its directory goes.
+		w.Git.SetActive([]string{w.Root})
+		if err := os.RemoveAll(other); err != nil {
+			t.Fatal(err)
+		}
 		env := doctorEnv(t, w, w.Root)
 
 		_, report, _ := runDoctor(t, env)
 		wantLine(t, report, "warn", "feature-gone.acme.localhost",
-			"registered, but Git no longer lists its checkout. Remove what it left with 'treerig worktree remove "+ref.WorktreeID+"'.")
+			"registered, but its directory is gone: Git no longer has it. Remove what it left with 'treerig worktree remove "+ref.WorktreeID+"'.")
+	})
+
+	t.Run("warns, with the cause, about a registration Git no longer lists when it cannot tell whether the directory is gone", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		withDoctorDocker(w, "24.0.0", "2.24.0")
+		writeCheckoutConfig(t, w.Root, acme, "")
+		other := w.Worktree("gone", "feature/gone")
+		w.Register(other, acme, "feature-gone", brand.LabelNamespace, "api")
+		w.Git.SetActive([]string{w.Root}) // no card records where it was
+		env := doctorEnv(t, w, w.Root)
+
+		_, report, _ := runDoctor(t, env)
+		wantLine(t, report, "warn", "feature-gone.acme.localhost",
+			"registered, but Git no longer lists it, and treerig cannot tell whether its directory is gone. Git does not list it and no directory was recorded for it: run 'treerig worktree remove feature-gone' if it is gone.")
 	})
 
 	t.Run("runs the verify hook with its output on stderr, and passes when it exits 0", func(t *testing.T) {

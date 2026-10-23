@@ -1,0 +1,1 @@
+ps --all --filter label=dev.treerig.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.treerig.repository-uuid"}}	{{.Label "dev.treerig.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.treerig.shared"}}	{{.ID}}

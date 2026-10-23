@@ -819,7 +819,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	var indexJSON bool
 	indexCmd := &cobra.Command{
 		Use:   "index",
-		Short: "refresh the machine-wide checkout index and print it",
+		Short: "refresh the machine-wide overview of worktrees and print it",
 		Args:  maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)

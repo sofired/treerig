@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // "survives the round trip through the page as plain JavaScript" is left
@@ -16,7 +18,7 @@ import (
 // planIndexUpdate reads, defaulting title, shell, and body when
 // titleShellBody omits them.
 func planTestPage(stamp, main string, titleShellBody ...string) string {
-	title, shell, body := "Checkouts (1)", "shell-1", "body-1"
+	title, shell, body := "Worktrees (1)", "shell-1", "body-1"
 	if len(titleShellBody) > 0 {
 		title = titleShellBody[0]
 	}
@@ -40,7 +42,7 @@ var planTestEntry = func() IndexEntry {
 	return IndexEntry{
 		RepositoryID: testRepo, WorktreeID: testWorktreeIDs[0], Project: "acme", Domain: "acme.localhost", Slug: "feature-a",
 		Host: "feature-a.acme.localhost", Branch: strPtr("feature/a"), Root: "/Users/dev/worktrees/feature-a",
-		Status: StatusRunning,
+		State: worktree.StateRunning,
 	}
 }
 
@@ -48,9 +50,9 @@ var planTestEntry = func() IndexEntry {
 func TestPlanIndexUpdate(t *testing.T) {
 	t.Run("reports the stamp, title, fingerprints and table of a page whose stamp has moved", func(t *testing.T) {
 		current := "2026-09-21T12:00:00.000Z"
-		page := planTestPage("2026-09-21T12:30:00.000Z", "<p>rows</p>", "Checkouts (2)")
+		page := planTestPage("2026-09-21T12:30:00.000Z", "<p>rows</p>", "Worktrees (2)")
 		got := planIndexUpdate(&current, page)
-		want := indexUpdate{Kind: indexUpdateReady, Stamp: "2026-09-21T12:30:00.000Z", Title: "Checkouts (2)", Main: "<p>rows</p>", Shell: "shell-1", Body: "body-1"}
+		want := indexUpdate{Kind: indexUpdateReady, Stamp: "2026-09-21T12:30:00.000Z", Title: "Worktrees (2)", Main: "<p>rows</p>", Shell: "shell-1", Body: "body-1"}
 		if got != want {
 			t.Errorf("got %+v, want %+v", got, want)
 		}
@@ -108,7 +110,7 @@ func TestPlanIndexUpdate(t *testing.T) {
 		if plan.Stamp != "2026-09-21T12:30:00.000Z" {
 			t.Errorf("stamp = %q", plan.Stamp)
 		}
-		if plan.Title != "Checkouts (0)" {
+		if plan.Title != "Worktrees (0)" {
 			t.Errorf("title = %q", plan.Title)
 		}
 		// Exactly the body, to the byte. The page embeds this function's

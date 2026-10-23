@@ -1,3 +1,3 @@
 ps -aq --filter label=dev.treerig.managed=true --filter label=dev.treerig.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.treerig.shared=true
 compose --project-name treerig-5ae52fc96f4e40fdd30f35b5 down --remove-orphans
-ps --all --filter label=dev.treerig.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.treerig.repository-uuid"}}	{{.Label "dev.treerig.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.treerig.shared"}}
+ps --all --filter label=dev.treerig.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.treerig.repository-uuid"}}	{{.Label "dev.treerig.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.treerig.shared"}}	{{.ID}}

@@ -102,8 +102,8 @@ start.
 | `router.port` | `router` | | the resolved router port and where it came from |
 | `checkout.config` | `checkout` | | this checkout's `treerig.toml` |
 | `checkout.worktree` | `checkout` | | whether this worktree is registered |
-| `checkout.missing` | `checkout` | worktree ID | a registration whose checkout Git no longer lists |
-| `checkout.missing-scan` | `checkout` | | the scan for missing checkouts failed |
+| `checkout.missing` | `checkout` | worktree ID | a registration of this repository that Git no longer lists: `warn` that its directory is gone (`directory missing`, judged on positive evidence), or that treerig cannot tell whether it is, with the cause (see [State words](commands.md#directory-missing)) |
+| `checkout.missing-scan` | `checkout` | | the scan for missing worktrees failed |
 | `checkout.ports` | `checkout` | the routed service's name | whether its allocated loopback port is free or held by this worktree's own container (`fail` when anything else holds it, `skip` before one is allocated) |
 | `checkout.published-port` | `checkout` | the routed service's name | a routed service whose own Compose file also publishes a fixed host port |
 | `checkout.published-port-scan` | `checkout` | | reading the Compose file's published ports failed |
@@ -115,7 +115,7 @@ start.
 | `shared.scan` | `shared` | | the Shared services section could not be built |
 | `shared.services` | `shared` | | the shared services could not be listed, the repository has never been brought up, or Docker is not answering (`skip`, `fail`), or there is nothing to report |
 | `shared.definition` | `shared` | | the shared Compose file cannot be used (`fail`): it does not parse, builds an image, publishes `ports:`, or bind-mounts a path inside a worktree |
-| `shared.service` | `shared` | the shared service's name | its state: `ok` running, `warn` stopped, unhealthy or running with a different definition than this worktree's, `skip` absent |
+| `shared.service` | `shared` | the shared service's name | its state ([state words](commands.md)): `ok` when it runs (`running`, or `starting` while its health check passes); `warn` when it is `stopped`, `exited`, `unhealthy` or `restarting`, or runs with a different definition than this worktree's; `skip` when it is `not created` |
 | `shared.port` | `shared` | `<name>:<container port>` | whether the pinned loopback port is published by the running container, or free while it is down (`warn` otherwise) |
 | `shared.route` | `shared` | the shared service's name | a running service whose web UI is routed: `ok` when its route file exists, `warn` when it does not (`shared up` writes it); also `warn` for a route file whose service is not running (the hostname answers 502) |
 | `shared.record` | `shared` | the shared service's name | a running service whose pinned ports this control home has no record of |

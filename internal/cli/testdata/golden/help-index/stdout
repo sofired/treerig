@@ -1,4 +1,4 @@
-refresh the machine-wide checkout index and print it
+refresh the machine-wide overview of worktrees and print it
 
 Usage:
   treerig index [flags]

@@ -218,12 +218,12 @@ func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Ro
 // status --json`.
 type SharedStatusEntry struct {
 	Name string `json:"name"`
-	// State is running, starting, stopped, absent or unknown: the words a
-	// worktree's own services use. Starting is a container restarting or
-	// running with its health check still pending.
-	State string `json:"state"`
-	// Detail is "unhealthy" for a running service failing its health check,
-	// and Docker's reason for an unknown state.
+	// State is the words a worktree's own services use (JSON: running,
+	// starting, unhealthy, restarting, exited, stopped, not_created,
+	// unknown). ExitCode is present for an exited service.
+	State    worktree.ServiceState `json:"state"`
+	ExitCode *int                  `json:"exitCode,omitempty"`
+	// Detail is Docker's reason for an unknown state.
 	Detail string `json:"detail,omitempty"`
 	// URL is where the proxy serves the service's web UI,
 	// http://<name>.shared.<domain>, from its record; absent when the
@@ -300,7 +300,11 @@ func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, wor
 	entries := make([]SharedStatusEntry, 0, len(services))
 	for _, service := range services {
 		instance := instances[service.Name]
-		entry := SharedStatusEntry{Name: service.Name, State: string(instance.State), Detail: instance.Detail, Addrs: []SharedStatusAddr{}, Definition: "unknown"}
+		entry := SharedStatusEntry{Name: service.Name, State: instance.State, Detail: instance.Detail, Addrs: []SharedStatusAddr{}, Definition: "unknown"}
+		if instance.State == worktree.Exited {
+			code := instance.ExitCode
+			entry.ExitCode = &code
+		}
 		record, recordErr := store.FindShared(service.Name)
 		if recordErr != nil {
 			cctx.Logger.Warn(fmt.Sprintf("Could not read the record of %s's pinned ports, so its addresses are left out: %s", service.Name, text.OneLine(recordErr.Error(), 300)))
@@ -392,14 +396,14 @@ func renderShared(statuses []SharedStatusEntry, indent string) []string {
 			}
 			notes = append(notes, "started by "+entry.DefinedBy)
 		}
-		line := fmt.Sprintf("%s%s  %s", indent, text.PadEnd(entry.Name, width), entry.State)
+		line := fmt.Sprintf("%s%s  %s", indent, text.PadEnd(entry.Name, width), sharedStateText(entry))
 		if len(notes) > 0 {
 			line += "  (" + strings.Join(notes, ", ") + ")"
 		}
 		lines = append(lines, text.Printable(line))
 		if entry.URL != "" {
 			note := ""
-			if entry.State == string(shared.Absent) || entry.State == string(shared.Stopped) {
+			if entry.State == worktree.NotCreated || entry.State == worktree.Stopped || entry.State == worktree.Exited {
 				// Its route file is gone or answers 502; the address is only
 				// where it will be once it runs.
 				note = " (not running)"
@@ -411,6 +415,16 @@ func renderShared(statuses []SharedStatusEntry, indent string) []string {
 		}
 	}
 	return lines
+}
+
+// sharedStateText is a shared service's state as the text form prints it: the
+// word, and the exit code of one that exited.
+func sharedStateText(entry SharedStatusEntry) string {
+	status := worktree.ServiceStatus{State: entry.State}
+	if entry.ExitCode != nil {
+		status.ExitCode = *entry.ExitCode
+	}
+	return status.Text()
 }
 
 // SharedStatusReport is `shared status --json`'s document.
@@ -461,7 +475,7 @@ func SharedStatusWithContext(ctx context.Context, cctx *CommandContext, options 
 	} else {
 		// Never brought up: nothing can be running, and nothing is pinned.
 		for _, service := range cfg.SharedServices() {
-			statuses = append(statuses, SharedStatusEntry{Name: service.Name, State: string(shared.Absent), Addrs: []SharedStatusAddr{}, Definition: "unknown"})
+			statuses = append(statuses, SharedStatusEntry{Name: service.Name, State: worktree.NotCreated, Addrs: []SharedStatusAddr{}, Definition: "unknown"})
 		}
 	}
 	if options.JSON {

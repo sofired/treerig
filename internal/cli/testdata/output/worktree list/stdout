@@ -1,2 +1,2 @@
-  HOST                          STATE  BRANCH         ROOT
-* feature-login.acme.localhost  ready  feature/login  FIXTURE/checkout
+  HOST                          STATE    BRANCH         ROOT
+* feature-login.acme.localhost  running  feature/login  FIXTURE/checkout

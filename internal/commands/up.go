@@ -291,6 +291,18 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 			return err
 		}
 
+		// A removal that was started and never finished (the worktree reads as
+		// removing) is called off by bringing the worktree up again: the
+		// marker would otherwise outrank everything the containers say. A
+		// marker of a newer format is refused, not cleared.
+		if removing, err := store.Removing(ref.WorktreeID); err != nil {
+			return err
+		} else if removing {
+			if err := store.ClearRemoving(ctx, ref.WorktreeID, cctx.writer()); err != nil {
+				return err
+			}
+		}
+
 		initialization, err := store.Initialization(ref.WorktreeID, ref.Slug)
 		if err != nil {
 			return err
@@ -335,7 +347,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		// [service.<name>.index] block (#16): Label (and Purpose alongside it) is
 		// "" for one that never opted in, which keeps it off the page as a
 		// link but still lets the index count it — a stopped, unindexed
-		// service must still turn a Running row into Partial, since it is a
+		// service must still turn a running row into partly running, since it is a
 		// real declared service that is not answering, not one the page
 		// simply never knew about. See card.IndexService's own comment.
 		// The card lists the services only: a host process is no container for

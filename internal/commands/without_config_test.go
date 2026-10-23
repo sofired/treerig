@@ -145,7 +145,7 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(rows) != 1 || rows[0].Host != "feature-login.acme.localhost" || !rows[0].Current || rows[0].State != commands.StateReady {
+		if len(rows) != 1 || rows[0].Host != "feature-login.acme.localhost" || !rows[0].Current || rows[0].State != worktree.StateRunning {
 			t.Fatalf("rows = %+v, want this repository's one worktree, current", rows)
 		}
 	})

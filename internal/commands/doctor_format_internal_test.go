@@ -167,7 +167,7 @@ func TestDoctorReportsNewerFormats(t *testing.T) {
 		}
 	})
 
-	t.Run("reports a checkout's unreadable identity marker once, not again under missing checkouts", func(t *testing.T) {
+	t.Run("reports a checkout's unreadable identity marker once, not again under missing worktrees", func(t *testing.T) {
 		f := newCheckoutFixture(t, "./verify")
 		opts := f.opts()
 		failure := errors.New("Invalid identity marker: x. A marker is the line \"format 1\" and then the checkout's UUID.")

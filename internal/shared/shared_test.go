@@ -409,10 +409,10 @@ func TestUp(t *testing.T) {
 
 func TestInstances(t *testing.T) {
 	ctx := context.Background()
-	t.Run("is absent when Docker answers and there is no container", func(t *testing.T) {
+	t.Run("is not created when Docker answers and there is no container", func(t *testing.T) {
 		f := newFixture(t)
 		instance, err := f.stack.Instance(ctx, "mailpit")
-		if err != nil || instance.State != shared.Absent || instance.Live() {
+		if err != nil || instance.State != worktree.NotCreated || instance.Live() {
 			t.Fatalf("instance = %+v, %v", instance, err)
 		}
 	})
@@ -425,35 +425,42 @@ func TestInstances(t *testing.T) {
 			t.Fatal(err)
 		}
 		hash, _ := definition.Hash("mailpit")
-		if instance.State != shared.Running || !instance.Live() || instance.Definition != hash || instance.DefinedBy != worktreeA {
+		if instance.State != worktree.Running || !instance.Live() || instance.Definition != hash || instance.DefinedBy != worktreeA {
 			t.Fatalf("instance = %+v", instance)
 		}
 	})
 
-	t.Run("uses the worktree service words: running, starting, stopped, with unhealthy as a detail", func(t *testing.T) {
+	t.Run("uses the worktree service words", func(t *testing.T) {
 		f := newFixture(t)
 		f.start("mailpit")
 		id := f.docker.ContainerNamed(project + "-mailpit-1")
 		f.docker.SetHealth(id, "unhealthy")
-		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != shared.Running || got.Detail != "unhealthy" || !got.Live() {
+		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != worktree.Unhealthy || got.Detail != "" || !got.Live() {
 			t.Errorf("unhealthy: %+v", got)
 		}
 		f.docker.SetHealth(id, "starting")
-		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != shared.Starting || got.Detail != "" || !got.Live() {
+		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != worktree.Starting || got.Detail != "" || !got.Live() {
 			t.Errorf("a pending health check: %+v", got)
 		}
 		f.docker.SetHealth(id, "healthy")
-		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != shared.Running || got.Detail != "" {
+		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != worktree.Running || got.Detail != "" {
 			t.Errorf("healthy: %+v", got)
 		}
-		for _, status := range []string{"exited", "created", "dead", "paused"} {
+		f.docker.SetStatus(id, "exited")
+		f.docker.SetExitCode(id, 3)
+		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != worktree.Exited || got.ExitCode != 3 || got.Live() {
+			t.Errorf("exited: %+v", got)
+		}
+		// A created container is one an up failed to start: nothing runs, and
+		// shared up replaces it rather than waiting on it.
+		for _, status := range []string{"dead", "paused", "created"} {
 			f.docker.SetStatus(id, status)
-			if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != shared.Stopped || got.Live() {
+			if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != worktree.Stopped || got.Live() {
 				t.Errorf("%s: %+v", status, got)
 			}
 		}
 		f.docker.SetStatus(id, "restarting")
-		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != shared.Starting || !got.Live() {
+		if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != worktree.Restarting || !got.Live() {
 			t.Errorf("restarting: %+v", got)
 		}
 	})
@@ -491,7 +498,7 @@ func TestInstances(t *testing.T) {
 		id := f.docker.ContainerNamed(project + "-mailpit-1")
 		f.docker.FailCall("container inspect "+id, "Error response from daemon: No such container: "+id, 1, 1)
 		got, err := f.stack.Instance(ctx, "mailpit")
-		if err != nil || got.State != shared.Absent {
+		if err != nil || got.State != worktree.NotCreated {
 			t.Fatalf("instance = %+v, %v", got, err)
 		}
 	})
@@ -517,7 +524,7 @@ func TestInstances(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if found["mailpit"].State != shared.Running || found["db"].State != shared.Running || found["other"].State != shared.Absent {
+		if found["mailpit"].State != worktree.Running || found["db"].State != worktree.Running || found["other"].State != worktree.NotCreated {
 			t.Fatalf("found = %+v", found)
 		}
 		if f.docker.Count("ps -aq")-listings != 1 {
@@ -1084,10 +1091,10 @@ func TestStatusesSurviveOneBadContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := found["mailpit"]; got.State != shared.Unknown || !strings.Contains(got.Detail, "levitating") {
+	if got := found["mailpit"]; got.State != worktree.Unknown || !strings.Contains(got.Detail, "levitating") {
 		t.Errorf("mailpit = %+v", got)
 	}
-	if found["db"].State != shared.Running || found["other"].State != shared.Absent {
+	if found["db"].State != worktree.Running || found["other"].State != worktree.NotCreated {
 		t.Errorf("the others = %+v, %+v", found["db"], found["other"])
 	}
 	if len(unproven) != 1 || unproven[0].ID != stray || !strings.Contains(unproven[0].Error(), "Refusing to touch container") {

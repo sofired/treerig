@@ -35,13 +35,15 @@ to load data into an unmigrated schema.
 
 `up` runs `prepare` every time, once the services report healthy. It runs
 `seed` only the first time a worktree comes up — more precisely, while the
-worktree's registration is still *pending*, which it stays until `prepare`
-and `seed` have both exited zero. A failed first `up` therefore seeds on the
-retry; a successful one never seeds again until the environment is removed.
+worktree's registration is still *pending* (the worktree reads `not started`),
+which it stays until `prepare` and `seed` have both exited zero. A failed first
+`up` therefore seeds on the retry; a successful one never seeds again until the
+environment is removed.
 An interrupted `worktree remove` also returns the registration to pending,
 since its volumes may already be gone, so the next `up` seeds again rather
 than starting on empty stores. The interrupted command says so and names the
-two ways on: `worktree remove` finishes the removal, `up` starts it again.
+two ways on: `worktree remove` finishes the removal, `up` starts it again. Until
+then the worktree reads as `removing` in `status` and `worktree list`.
 Write `prepare` to be idempotent; write `seed` assuming an empty, migrated
 store.
 
@@ -223,8 +225,8 @@ that started it, included. Then:
   with when it was stopped. A hook that fails by itself says
   `The prepare hook failed (exit N).` and keeps its own code.
 - In `up`, the sequencer stops there as it does for any failure: `seed` does
-  not run after a `prepare` that timed out, the worktree stays pending, and
-  the next `up` runs them again. The worktree's operation lock is released on
+  not run after a `prepare` that timed out, the worktree stays pending (it
+  reads `not started`), and the next `up` runs them again. The worktree's operation lock is released on
   the way out, as after any other failed hook, so the next command does not
   wait on it.
 - In `doctor`, the `verify hook` line is `fail` with the same sentence, and
