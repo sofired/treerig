@@ -32,7 +32,8 @@ type Logger interface {
 	Output(message string)
 }
 
-// Console prefixes human-facing lines with the command name.
+// Console prefixes warnings and errors with the command name; plain notices
+// carry no prefix.
 type Console struct {
 	prefix string
 	stdout io.Writer
@@ -45,8 +46,11 @@ func NewConsole(commandName string, stdout, stderr io.Writer) *Console {
 	return &Console{prefix: "[" + commandName + "]", stdout: stdout, stderr: stderr}
 }
 
-// Info writes "[name] message".
-func (c *Console) Info(message string) { c.say(c.prefix + " " + message) }
+// Info writes the message with no prefix: plain progress and notices aren't
+// errors, and a prefix made every line look like one. A caller never begins a
+// notice with borrowed text: with no prefix in front, a first line such as a
+// container's "[treerig] ERROR: ..." would read as this tool's own.
+func (c *Console) Info(message string) { c.say(message) }
 
 // Warn writes "[name] WARNING: message".
 func (c *Console) Warn(message string) { c.say(c.prefix + " WARNING: " + message) }
@@ -71,7 +75,7 @@ func (c *Console) Raw(message string) {
 
 // say filters each line and indents continuations: borrowed text controls
 // where its own line breaks are, and an unindented continuation could read as
-// a line this tool wrote.
+// a separate line this tool wrote, such as an error.
 func (c *Console) say(message string) {
 	lines := strings.Split(message, "\n")
 	for i, line := range lines {

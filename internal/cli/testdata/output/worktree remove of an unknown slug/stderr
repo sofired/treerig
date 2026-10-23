@@ -1,3 +1,3 @@
-[treerig] Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove the worktree nope.
-[treerig] Running as the pinned teardown binary (version 0.0.0-dev).
+Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove the worktree nope.
+Running as the pinned teardown binary (version 0.0.0-dev).
 [treerig] ERROR: No worktree is registered as nope.

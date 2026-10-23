@@ -354,8 +354,8 @@ func TestUpThroughTheBinary(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
 		for _, line := range []string{
-			"[treerig] Starting api for feature-login.acme.localhost.\n",
-			"[treerig] feature-login.acme.localhost is up.\n",
+			"Starting api for feature-login.acme.localhost.\n",
+			"feature-login.acme.localhost is up.\n",
 		} {
 			if !strings.Contains(stderr.String(), line) {
 				t.Fatalf("stderr = %q, want it to contain %q", stderr.String(), line)
