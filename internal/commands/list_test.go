@@ -8,11 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/commands/commandstest"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 const acmeDomain = "acme.localhost"
@@ -47,12 +50,12 @@ func TestWorktreeList(t *testing.T) {
 		if len(rows) != 2 {
 			t.Fatalf("expected 2 rows, got %+v", rows)
 		}
-		if rows[0].Host != "feature-login.acme.localhost" || rows[0].State != commands.StateReady ||
+		if rows[0].Host != "feature-login.acme.localhost" || rows[0].State != worktree.StateStopped ||
 			rows[0].Branch == nil || *rows[0].Branch != "feature/login" ||
 			rows[0].Root == nil || *rows[0].Root != w.Root || !rows[0].Current {
 			t.Fatalf("unexpected row 0: %+v", rows[0])
 		}
-		if rows[1].Host != "feature-other.acme.localhost" || rows[1].State != commands.StateReady ||
+		if rows[1].Host != "feature-other.acme.localhost" || rows[1].State != worktree.StateStopped ||
 			rows[1].Branch == nil || *rows[1].Branch != "feature/other" ||
 			rows[1].Root == nil || *rows[1].Root != other || rows[1].Current {
 			t.Fatalf("unexpected row 1: %+v", rows[1])
@@ -73,7 +76,7 @@ func TestWorktreeList(t *testing.T) {
 		}
 	})
 
-	t.Run("reports a registration whose worktree Git no longer lists as missing (with its last-seen branch), and one whose first up never finished as pending", func(t *testing.T) {
+	t.Run("tells a worktree whose directory is gone, one never brought up, and one brought down apart, with the last-seen branch", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		gone := w.Worktree("gone", "feature/gone")
 		half := w.Worktree("half", "feature/half")
@@ -82,11 +85,14 @@ func TestWorktreeList(t *testing.T) {
 		register(t, w, half, acmeDomain, "feature-half", "pending") // registered, never brought up
 
 		// `up` would have written a card while `gone` was still live; that
-		// card is what lets a missing row still say where it was last seen.
+		// card is what lets a row whose directory is gone still say where it
+		// was last seen.
 		w.WriteIndexCard(goneIdentity.RepositoryID, goneIdentity.WorktreeID, "acme", acmeDomain, "feature-gone",
 			"feature-gone."+acmeDomain, gone, "feature/gone")
-		// Simulate `git worktree remove gone`.
-		w.Git.SetActive(activeWithout(w.Git.Active(), gone))
+		// `rm -rf gone`: Git still lists it, now as prunable.
+		if err := os.RemoveAll(gone); err != nil {
+			t.Fatal(err)
+		}
 
 		cctx := w.Context(w.Root, acmeDomain, nil)
 		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
@@ -100,12 +106,12 @@ func TestWorktreeList(t *testing.T) {
 			if row.Branch != nil {
 				branch = *row.Branch
 			}
-			got[row.Slug] = [2]string{string(row.State), branch}
+			got[row.Slug] = [2]string{row.State.String(), branch}
 		}
 		want := map[string][2]string{
-			"feature-gone":  {"missing", "feature/gone"},
-			"feature-half":  {"pending", "feature/half"},
-			"feature-login": {"ready", "feature/login"},
+			"feature-gone":  {"directory missing", "feature/gone"},
+			"feature-half":  {"not started", "feature/half"},
+			"feature-login": {"stopped", "feature/login"},
 		}
 		for slug, expect := range want {
 			if got[slug] != expect {
@@ -114,7 +120,150 @@ func TestWorktreeList(t *testing.T) {
 		}
 	})
 
-	t.Run("says a detached checkout is detached, in the index's words", func(t *testing.T) {
+	t.Run("calls a worktree Git no longer lists gone when the directory it was last seen in is, and unknown when nothing recorded one", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acmeDomain)
+		pruned := w.Worktree("pruned", "feature/pruned")
+		unrecorded := w.Worktree("unrecorded", "feature/unrecorded")
+		register(t, w, w.Root, acmeDomain, "feature-login", "complete")
+		prunedIdentity := register(t, w, pruned, acmeDomain, "feature-pruned", "complete")
+		register(t, w, unrecorded, acmeDomain, "feature-unrecorded", "complete")
+		w.WriteIndexCard(prunedIdentity.RepositoryID, prunedIdentity.WorktreeID, "acme", acmeDomain, "feature-pruned",
+			"feature-pruned."+acmeDomain, pruned, "feature/pruned")
+		// `git worktree remove` for both: Git forgets them and their directories.
+		for _, root := range []string{pruned, unrecorded} {
+			if err := os.RemoveAll(root); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w.Git.SetActive([]string{w.Root})
+
+		cctx := w.Context(w.Root, acmeDomain, nil)
+		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		if err != nil {
+			t.Fatalf("ListWithContext: %v", err)
+		}
+		got := map[string]commands.ListedRegistration{}
+		for _, row := range rows {
+			got[row.Slug] = row
+		}
+		if got["feature-pruned"].State != worktree.StateDirectoryMissing {
+			t.Fatalf("pruned: %+v", got["feature-pruned"])
+		}
+		if row := got["feature-unrecorded"]; row.State != worktree.StateUnknown || row.Hint != "Git does not list it and no directory was recorded for it: run 'treerig worktree remove feature-unrecorded' if it is gone." {
+			t.Fatalf("unrecorded: %+v", row)
+		}
+		hinted := false
+		for _, line := range cctx.Logger.Lines {
+			hinted = hinted || strings.Contains(line, "feature-unrecorded.acme.localhost is unknown. Git does not list it")
+		}
+		if !hinted {
+			t.Fatalf("the cause of an unknown row is on stderr: %+v", cctx.Logger.Lines)
+		}
+	})
+
+	t.Run("shows what the containers say, with one docker ps for the whole listing", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acmeDomain)
+		w.Docker.Services = []string{"api", "worker"}
+		other := w.Worktree("other", "feature/other")
+		third := w.Worktree("third", "feature/third")
+		login := register(t, w, w.Root, acmeDomain, "feature-login", "complete")
+		otherIdentity := register(t, w, other, acmeDomain, "feature-other", "complete")
+		thirdIdentity := register(t, w, third, acmeDomain, "feature-third", "complete")
+		ref := func(identity *registry.WorktreeIdentity, slug string) worktree.Ref {
+			return worktree.Ref{RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID, Slug: slug}
+		}
+		w.Docker.Up(ref(login, "feature-login"), brand.LabelNamespace, "api", "worker")
+		crashed := w.Docker.Up(ref(otherIdentity, "feature-other"), brand.LabelNamespace, "api", "worker")
+		w.Docker.SetStatus(crashed[1], "exited")
+		w.Docker.SetExitCode(crashed[1], 3)
+		starting := w.Docker.Up(ref(thirdIdentity, "feature-third"), brand.LabelNamespace, "api")
+		w.Docker.SetHealth(starting[0], "starting")
+		for _, slug := range []string{"feature-login", "feature-other", "feature-third"} {
+			identity := map[string]*registry.WorktreeIdentity{"feature-login": login, "feature-other": otherIdentity, "feature-third": thirdIdentity}[slug]
+			w.WriteIndexCard(identity.RepositoryID, identity.WorktreeID, "acme", acmeDomain, slug, slug+"."+acmeDomain, w.Root, "main")
+		}
+
+		cctx := w.Context(w.Root, acmeDomain, nil)
+		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		if err != nil {
+			t.Fatalf("ListWithContext: %v", err)
+		}
+		got := map[string]worktree.State{}
+		for _, row := range rows {
+			got[row.Slug] = row.State
+		}
+		want := map[string]worktree.State{
+			"feature-login": worktree.StateRunning,
+			"feature-other": worktree.StatePartlyRunning,
+			"feature-third": worktree.StateStarting,
+		}
+		for slug, state := range want {
+			if got[slug] != state {
+				t.Fatalf("%s = %q, want %q", slug, got[slug], state)
+			}
+		}
+		psCalls := 0
+		for _, call := range w.Docker.Calls() {
+			if strings.HasPrefix(call, "ps ") {
+				psCalls++
+			}
+		}
+		if psCalls != 1 {
+			t.Fatalf("docker ps ran %d times, want once for the one label namespace; calls: %v", psCalls, w.Docker.Calls())
+		}
+	})
+
+	t.Run("lists every worktree as unknown, fails with the cause said once, when Docker does not answer", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acmeDomain)
+		register(t, w, w.Root, acmeDomain, "feature-login", "complete")
+		register(t, w, w.Worktree("other", "feature/other"), acmeDomain, "feature-other", "complete")
+		w.Docker.FailCall("ps", "Cannot connect to the Docker daemon at unix:///var/run/docker.sock", 1, -1)
+
+		cctx := w.Context(w.Root, acmeDomain, nil)
+		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		if err == nil || !strings.HasPrefix(err.Error(), "Docker is not available: ") || clierr.Code(err) != 1 {
+			t.Fatalf("err = %v, want Docker's cause, exit 1", err)
+		}
+		if len(rows) != 2 || rows[0].State != worktree.StateUnknown || rows[1].State != worktree.StateUnknown ||
+			!strings.HasPrefix(rows[0].Hint, "Docker is not available: ") {
+			t.Fatalf("rows = %+v", rows)
+		}
+		if len(cctx.Logger.Printed) != 3 || !strings.Contains(cctx.Logger.Printed[1], "unknown") {
+			t.Fatalf("the table is still printed: %+v", cctx.Logger.Printed)
+		}
+		// The cause is the error, once: not a warning, and not a line per row.
+		for _, line := range cctx.Logger.Lines {
+			if strings.Contains(line, "Docker") {
+				t.Fatalf("the cause was repeated on stderr: %+v", cctx.Logger.Lines)
+			}
+		}
+	})
+
+	t.Run("reports a worktree whose removal was interrupted as removing", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acmeDomain)
+		identity := register(t, w, w.Root, acmeDomain, "feature-login", "complete")
+		store := registry.NewStore(w.ControlHome, identity.RepositoryID)
+		marker := filepath.Join(w.ControlHome, "repositories", identity.RepositoryID, "worktrees", identity.WorktreeID+".removing")
+		if err := os.WriteFile(marker, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if removing, err := store.Removing(identity.WorktreeID); err != nil || !removing {
+			t.Fatalf("Removing = %v, %v", removing, err)
+		}
+		cctx := w.Context(w.Root, acmeDomain, nil)
+		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{JSON: true})
+		if err != nil {
+			t.Fatalf("ListWithContext: %v", err)
+		}
+		if len(rows) != 1 || rows[0].State != worktree.StateRemoving {
+			t.Fatalf("rows = %+v", rows)
+		}
+		if printed := strings.Join(cctx.Logger.Printed, "\n"); !strings.Contains(printed, `"state": "removing"`) {
+			t.Fatalf("printed = %s", printed)
+		}
+	})
+
+	t.Run("says a detached worktree is detached, in the index's words", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acmeDomain)
 		detached := w.Worktree("detached", "")
 		register(t, w, detached, acmeDomain, "detached", "complete")
@@ -285,16 +434,4 @@ func removeFile(t *testing.T, path string) {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove %s: %v", path, err)
 	}
-}
-
-// activeWithout returns active with remove's root filtered out, for a test
-// that wants "every registered worktree except the one just removed".
-func activeWithout(active []string, remove string) []string {
-	out := make([]string, 0, len(active))
-	for _, root := range active {
-		if root != remove {
-			out = append(out, root)
-		}
-	}
-	return out
 }

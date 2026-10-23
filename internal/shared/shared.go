@@ -26,6 +26,7 @@ import (
 	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/stateformat"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // Compose's own labels.
@@ -136,30 +137,19 @@ func (s *Stack) verify(kind, id string, labels map[string]string) error {
 }
 
 // State is where a shared service stands, in the words a worktree's own
-// services use (worktree.ServiceState): running, starting (restarting, or
-// running with its health check still pending), stopped, absent. A running
-// container whose health check fails is Running with Detail "unhealthy".
-type State string
-
-// The states of a shared service.
-const (
-	Running  State = "running"
-	Starting State = "starting"
-	Stopped  State = "stopped"
-	Absent   State = "absent"
-	// Unknown is a service whose container could not be read or is
-	// inconsistent; Detail says why. Only Statuses answers it: a start fails
-	// instead of guessing.
-	Unknown State = "unknown"
-)
+// services use (worktree.ServiceState): running, starting, unhealthy,
+// restarting, exited, stopped, not created or unknown.
+type State = worktree.ServiceState
 
 // Instance is one shared service as Docker has it.
 type Instance struct {
 	// Service is the service's name in the shared Compose file.
 	Service string
-	// State is running, starting, stopped or absent.
+	// State is where the service stands; NotCreated when it has no container.
 	State State
-	// Detail is "unhealthy" for a running container failing its health check.
+	// ExitCode is how an Exited service ended.
+	ExitCode int
+	// Detail is Docker's reason for an Unknown state.
 	Detail string
 	// Container is the service's container; the zero value when Absent.
 	Container docker.Container
@@ -170,9 +160,12 @@ type Instance struct {
 	DefinedBy string
 }
 
-// Live reports whether the instance is up: running or still starting.
-// Anything else is started by the caller's definition, not reused.
-func (i Instance) Live() bool { return i.State == Running || i.State == Starting }
+// Live reports whether the instance is up: running, still starting, failing
+// its health check or restarting. Anything else is started by the caller's
+// definition, not reused.
+func (i Instance) Live() bool {
+	return i.State == worktree.Running || i.State == worktree.Starting || i.State == worktree.Unhealthy || i.State == worktree.Restarting
+}
 
 // Attached reports whether the instance's container is attached to the
 // network with this ID.
@@ -185,25 +178,16 @@ func (i Instance) Attached(networkID string) bool {
 	return false
 }
 
-// stateOf maps a container's Docker state to a State and its detail. A state
-// it does not know is an error: if the state of a container cannot be
-// determined, nothing may assume it is absent or stopped (decision 18).
-func stateOf(container docker.Container) (State, string, error) {
-	switch container.Status {
-	case "running":
-		switch container.Health {
-		case "starting":
-			return Starting, "", nil
-		case "unhealthy":
-			return Running, "unhealthy", nil
-		}
-		return Running, "", nil
-	case "restarting":
-		return Starting, "", nil
-	case "created", "exited", "dead", "paused", "removing":
-		return Stopped, "", nil
+// stateOf maps a container's Docker state to a State and, for one that
+// exited, its exit code. A state it does not know is an error: if the state
+// of a container cannot be determined, nothing may assume it is absent or
+// stopped (decision 18).
+func stateOf(container docker.Container) (State, int, error) {
+	reading := worktree.ContainerStatus(container.Status, container.Health, container.ExitCode, true, container.OOMKilled, true)
+	if reading.State == worktree.Unknown {
+		return "", 0, clierr.Newf("Could not tell what state the shared container %s is in (Docker says %q); not assuming it is stopped or gone.", container.Name, container.Status)
 	}
-	return "", "", clierr.Newf("Could not tell what state the shared container %s is in (Docker says %q); not assuming it is stopped or gone.", container.Name, container.Status)
+	return reading.State, reading.ExitCode, nil
 }
 
 // list is every ID of a kind carrying all of the label filters, sorted and
@@ -391,7 +375,7 @@ func (s *Stack) Statuses(ctx context.Context, names []string) (found map[string]
 	for _, name := range names {
 		instance, instanceErr := s.instanceIn(containers, name)
 		if instanceErr != nil {
-			instance = Instance{Service: name, State: Unknown, Detail: instanceErr.Error()}
+			instance = Instance{Service: name, State: worktree.Unknown, Detail: instanceErr.Error()}
 		}
 		found[name] = instance
 	}
@@ -408,16 +392,16 @@ func (s *Stack) instanceIn(containers []docker.Container, name string) (Instance
 	}
 	switch len(matches) {
 	case 0:
-		return Instance{Service: name, State: Absent}, nil
+		return Instance{Service: name, State: worktree.NotCreated}, nil
 	case 1:
 		container := matches[0]
-		state, detail, err := stateOf(container)
+		state, exitCode, err := stateOf(container)
 		if err != nil {
 			return Instance{}, err
 		}
 		ns := s.o.LabelNamespace
 		return Instance{
-			Service: name, State: state, Detail: detail, Container: container,
+			Service: name, State: state, ExitCode: exitCode, Container: container,
 			Definition: container.Labels[brand.SharedDefinitionLabel(ns)],
 			DefinedBy:  container.Labels[brand.SharedDefinedByLabel(ns)],
 		}, nil

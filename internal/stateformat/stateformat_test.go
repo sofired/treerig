@@ -24,6 +24,7 @@ func TestVersions(t *testing.T) {
 			"lock record":     {stateformat.LockRecord, 1},
 			"docker label":    {stateformat.DockerLabel, 1},
 			"teardown pin":    {stateformat.TeardownPin, 1},
+			"removal marker":  {stateformat.RemovalMarker, 1},
 		} {
 			if got[0] != got[1] {
 				t.Errorf("%s = %d, want %d", name, got[0], got[1])

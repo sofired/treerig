@@ -21,12 +21,16 @@ import (
 
 	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/run/osrun"
+	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // fakeRegistry is a checkoutindex.Registry double.
@@ -46,8 +50,12 @@ type fakeIdentities struct {
 	repositoryIDPresent bool
 	repositoryIDErr     error
 	// outside makes Repository answer that the directory is in no Git work tree.
-	outside       bool
+	outside bool
+	// identities are worktrees Git lists whose directories are there; entries,
+	// when set, are what Git lists instead, for a test that needs a directory
+	// that is gone.
 	identities    []registry.WorktreeIdentity
+	entries       []registry.WorktreeEntry
 	identitiesErr error
 }
 
@@ -59,9 +67,23 @@ func (f *fakeIdentities) Repository(context.Context, string) (string, bool, bool
 	return f.repositoryID, f.repositoryIDPresent, true, f.repositoryIDErr
 }
 
-// ActiveIdentities answers f.identities, or f.identitiesErr.
-func (f *fakeIdentities) ActiveIdentities(context.Context) ([]registry.WorktreeIdentity, error) {
-	return f.identities, f.identitiesErr
+// Entries answers what Git lists: f.entries, or one existing entry per
+// identity; or f.identitiesErr.
+func (f *fakeIdentities) Entries(context.Context) ([]registry.WorktreeEntry, error) {
+	if f.identitiesErr != nil {
+		return nil, f.identitiesErr
+	}
+	if f.entries != nil {
+		return f.entries, nil
+	}
+	entries := make([]registry.WorktreeEntry, len(f.identities))
+	for i, identity := range f.identities {
+		entries[i] = registry.WorktreeEntry{
+			ListedWorktree: registry.ListedWorktree{Root: identity.Root, Branch: identity.Branch},
+			Exists:         true, RepositoryID: identity.RepositoryID, WorktreeID: identity.WorktreeID,
+		}
+	}
+	return entries, nil
 }
 
 // dockerFake is a run.Runner double answering `docker ps` calls.
@@ -114,13 +136,30 @@ type serviceHarness struct {
 func newServiceHarness(t *testing.T, docker *dockerFake, registrations []registry.RegisteredWorktree, identities []registry.WorktreeIdentity) *serviceHarness {
 	t.Helper()
 	controlHome := t.TempDir()
+	// The registrations are on disk too: the state of one is told partly
+	// from its record (whether an up ever finished, whether a removal began).
+	// The control home is claimed first, as `up` leaves one, so a test that
+	// writes more state into it later is not refused for finding a record.
+	if err := files.SecureControlDirectories(layout.ControlLayout(controlHome), t.TempDir()); err != nil {
+		t.Fatalf("SecureControlDirectories: %v", err)
+	}
+	for _, record := range registrations {
+		if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
+			Version: 1, RepositoryID: record.RepositoryID, WorktreeID: record.WorktreeID,
+			Slug: record.Slug, Domain: record.Domain, Initialization: "complete",
+		}); err != nil {
+			t.Fatalf("WriteRecord: %v", err)
+		}
+	}
 	log := &logger.Recording{}
 	svc := NewService(Options{
 		ControlHome: controlHome,
-		RouterPort:  8080,
-		IndexFile:   filepath.Join(t.TempDir(), "index.html"),
-		Lock:        lock.Scope{Target: filepath.Join(t.TempDir(), "lock"), Description: "shared router"},
-		Registry:    &fakeRegistry{registrations: registrations},
+		// No mount table to read, so a test never depends on the machine's.
+		Mounts:     func() (worktreestate.Mounts, error) { return worktreestate.Mounts{}, nil },
+		RouterPort: 8080,
+		IndexFile:  filepath.Join(t.TempDir(), "index.html"),
+		Lock:       lock.Scope{Target: filepath.Join(t.TempDir(), "lock"), Description: "shared router"},
+		Registry:   &fakeRegistry{registrations: registrations},
 		Identities: &fakeIdentities{
 			repositoryID: testRepo, repositoryIDPresent: true, identities: identities,
 		},
@@ -189,7 +228,7 @@ func filterArgs(calls []run.Spec) []string {
 // dockerLine is one `docker ps --format` row for record's own repository and
 // worktree IDs.
 func dockerLine(record registry.RegisteredWorktree, service, state, status string) string {
-	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service, ""}, "\t")
+	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service, "", "id-" + service}, "\t")
 }
 
 // TestServiceRefresh covers Service.Refresh, plus #1's own lock timeout
@@ -202,6 +241,21 @@ func TestServiceRefresh(t *testing.T) {
 		docker := &dockerFake{stdout: dockerLine(a, "api", "running", "Up 20 seconds (healthy)")}
 		h := newServiceHarness(t, docker, []registry.RegisteredWorktree{a, b}, []registry.WorktreeIdentity{testIdentity(a, "feature/a")})
 		writeTestCard(t, h.controlHome, a, []card.IndexService{{Name: "api", URL: "http://feature-a.acme.localhost:8080", Label: "API", Purpose: "REST"}})
+		// feature-b is a worktree whose directory is gone: Git lists it
+		// prunable, and the directory it was in is still there with other
+		// things in it.
+		src := registrytest.TempDir(t)
+		if err := os.MkdirAll(filepath.Join(src, "feature-a"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		identityA := testIdentity(a, "feature/a")
+		h.service.opts.Identities = &fakeIdentities{
+			repositoryID: testRepo, repositoryIDPresent: true,
+			entries: []registry.WorktreeEntry{
+				{ListedWorktree: registry.ListedWorktree{Root: identityA.Root, Branch: "feature/a"}, Exists: true, RepositoryID: testRepo, WorktreeID: a.WorktreeID},
+				{ListedWorktree: registry.ListedWorktree{Root: filepath.Join(src, "feature-b"), Branch: "feature/b", Prunable: true}, RepositoryID: testRepo, WorktreeID: b.WorktreeID},
+			},
+		}
 
 		snapshot, err := h.service.Refresh(context.Background())
 		if err != nil {
@@ -210,7 +264,7 @@ func TestServiceRefresh(t *testing.T) {
 		if h.service.URL() != "http://treerig.localhost:8080" {
 			t.Fatalf("URL = %q", h.service.URL())
 		}
-		if len(snapshot.Entries) != 2 || snapshot.Entries[0].Status != StatusRunning || snapshot.Entries[1].Status != StatusMissing {
+		if len(snapshot.Entries) != 2 || snapshot.Entries[0].State != worktree.StateRunning || snapshot.Entries[1].State != worktree.StateDirectoryMissing {
 			t.Fatalf("entries = %+v", snapshot.Entries)
 		}
 		page, err := os.ReadFile(h.service.opts.IndexFile)
@@ -257,8 +311,8 @@ func TestServiceRefresh(t *testing.T) {
 		if snapshot.DockerReachable {
 			t.Fatalf("expected DockerReachable false")
 		}
-		if snapshot.Entries[0].Status != StatusUnknown {
-			t.Fatalf("status = %v", snapshot.Entries[0].Status)
+		if snapshot.Entries[0].State != worktree.StateUnknown {
+			t.Fatalf("status = %v", snapshot.Entries[0].State)
 		}
 		if !containsSubstring(snapshotLines(h.logger), "could not be listed") {
 			t.Fatalf("lines = %v", snapshotLines(h.logger))
@@ -273,8 +327,8 @@ func TestServiceRefresh(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Refresh: %v", err)
 		}
-		if snapshot.Entries[0].Status != StatusUnknown {
-			t.Fatalf("status = %v", snapshot.Entries[0].Status)
+		if snapshot.Entries[0].State != worktree.StateUnknown {
+			t.Fatalf("status = %v", snapshot.Entries[0].State)
 		}
 		want := "could not be listed: Docker is not available: the `docker` command is not on PATH (ENOENT); is Docker installed?"
 		if !containsSubstring(snapshotLines(h.logger), want) {
@@ -314,7 +368,7 @@ func TestServiceRefresh(t *testing.T) {
 		if snapshot.DockerReachable {
 			t.Fatalf("expected DockerReachable false")
 		}
-		if !containsSubstring(snapshotLines(h.logger), "did not answer within 30s") {
+		if !containsSubstring(snapshotLines(h.logger), "didn't answer within 30s") {
 			t.Fatalf("lines = %v", snapshotLines(h.logger))
 		}
 	})
@@ -515,7 +569,7 @@ func TestServiceRefresh(t *testing.T) {
 			t.Fatalf("Refresh: %v", err)
 		}
 		for _, entry := range snapshot.Entries {
-			if entry.Status != StatusUnknown {
+			if entry.State != worktree.StateUnknown {
 				t.Fatalf("entries = %+v", snapshot.Entries)
 			}
 		}
@@ -537,7 +591,7 @@ func TestServiceRefresh(t *testing.T) {
 			t.Fatalf("identityError = %+v", snapshot.IdentityError)
 		}
 		for _, entry := range snapshot.Entries {
-			if entry.Status != StatusStopped {
+			if entry.State != worktree.StateStopped {
 				t.Fatalf("entries = %+v", snapshot.Entries)
 			}
 		}
@@ -582,8 +636,8 @@ func TestServiceCountsUnindexedServiceTowardStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	if snapshot.Entries[0].Status != StatusPartial {
-		t.Fatalf("status = %v, want partial", snapshot.Entries[0].Status)
+	if snapshot.Entries[0].State != worktree.StatePartlyRunning {
+		t.Fatalf("status = %v, want partial", snapshot.Entries[0].State)
 	}
 	// mail has no label, so it is counted but never becomes a link.
 	for _, service := range snapshot.Entries[0].Services {
@@ -630,7 +684,7 @@ func TestBuildSnapshotIdentityFailureInvariant(t *testing.T) {
 		snapshot := BuildSnapshot(SnapshotInput{
 			Registrations:       []registry.RegisteredWorktree{a},
 			CurrentRepositoryID: &repositoryID,
-			Containers:          []ContainerRecord{},
+			Containers:          []worktreestate.Container{},
 			IdentityError:       &IdentityFailureInput{Reason: "boom"},
 		})
 		if snapshot.IdentityError == nil || !snapshot.IdentityError.RowsUnknown {
@@ -639,15 +693,15 @@ func TestBuildSnapshotIdentityFailureInvariant(t *testing.T) {
 		// A row with no live identity of a repository this build could not
 		// even identify is not "missing" — it was never comparable in the
 		// first place — so it reads Unknown instead.
-		if snapshot.Entries[0].Status != StatusUnknown {
-			t.Fatalf("status = %v, want unknown", snapshot.Entries[0].Status)
+		if snapshot.Entries[0].State != worktree.StateUnknown {
+			t.Fatalf("status = %v, want unknown", snapshot.Entries[0].State)
 		}
 	})
 
 	t.Run("an unidentified repository's own identity failure computes RowsUnknown false", func(t *testing.T) {
 		snapshot := BuildSnapshot(SnapshotInput{
 			Registrations: []registry.RegisteredWorktree{a},
-			Containers:    []ContainerRecord{},
+			Containers:    []worktreestate.Container{},
 			IdentityError: &IdentityFailureInput{Reason: "boom"},
 		})
 		if snapshot.IdentityError == nil || snapshot.IdentityError.RowsUnknown {
@@ -806,8 +860,22 @@ func TestServiceCardReadFailureNotice(t *testing.T) {
 	if snapshot.CardReadFailures != 1 {
 		t.Fatalf("CardReadFailures = %d, want 1", snapshot.CardReadFailures)
 	}
+	// The worktree whose card could not be read is unknown, naming why; the
+	// other, whose card was simply never written, is stopped.
+	for _, entry := range snapshot.Entries {
+		switch entry.Slug {
+		case a.Slug:
+			if entry.State != worktree.StateUnknown || !strings.Contains(entry.Hint, "simulated EMFILE") {
+				t.Fatalf("a = %+v, want unknown naming the failed read", entry)
+			}
+		case b.Slug:
+			if entry.State != worktree.StateStopped {
+				t.Fatalf("b = %+v", entry)
+			}
+		}
+	}
 	html := RenderIndexHTML(snapshot)
-	if !strings.Contains(html, "One checkout&#39;s index card could not be read, so its state shows Unknown") {
+	if !strings.Contains(html, "One worktree&#39;s index card could not be read, so its state shows unknown") {
 		t.Fatalf("HTML page missing the card-read-failure notice:\n%s", html)
 	}
 	if !strings.Contains(html, "<code>treerig index</code>") {
@@ -820,7 +888,7 @@ func TestServiceCardReadFailureNotice(t *testing.T) {
 	if !strings.Contains(text, "index card could not be read") {
 		t.Fatalf("text page missing the card-read-failure notice:\n%s", text)
 	}
-	if !strings.Contains(text, "too many open files") {
+	if !strings.Contains(strings.Join(strings.Fields(text), " "), "too many open files") {
 		t.Fatalf("text page missing the card-read-failure notice's cause:\n%s", text)
 	}
 }
@@ -842,6 +910,12 @@ func TestServiceRefreshTimesOutOnAHungDocker(t *testing.T) {
 
 	regs := testRegistrations()
 	controlHome := t.TempDir()
+	if _, err := registrytest.WriteRecord(controlHome, registrytest.RecordJSON{
+		Version: 1, RepositoryID: regs[0].RepositoryID, WorktreeID: regs[0].WorktreeID,
+		Slug: regs[0].Slug, Domain: regs[0].Domain, Initialization: "complete",
+	}); err != nil {
+		t.Fatalf("WriteRecord: %v", err)
+	}
 	log := &logger.Recording{}
 	svc := NewService(Options{
 		ControlHome: controlHome,
@@ -871,14 +945,14 @@ func TestServiceRefreshTimesOutOnAHungDocker(t *testing.T) {
 	if snapshot.DockerReachable {
 		t.Fatalf("expected DockerReachable false")
 	}
-	if !containsSubstring(snapshotLines(log), "did not answer within") {
+	if !containsSubstring(snapshotLines(log), "didn't answer within") {
 		t.Fatalf("lines = %v", snapshotLines(log))
 	}
 	page, err := os.ReadFile(svc.opts.IndexFile)
 	if err != nil {
 		t.Fatalf("read index file: %v", err)
 	}
-	if !strings.Contains(string(page), "did not answer within") {
+	if !strings.Contains(string(page), "answer within") {
 		t.Fatalf("page does not say the states are unknown: %s", page)
 	}
 }

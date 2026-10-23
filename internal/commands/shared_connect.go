@@ -144,7 +144,7 @@ func ensureSharedLocked(ctx context.Context, cctx *CommandContext, repositoryID,
 				service.Name, instance.Container.Name, cctx.CommandName, service.Name, cctx.CommandName, service.Name, moves[0])
 		}
 		switch {
-		case instance.State == shared.Absent:
+		case instance.State == worktree.NotCreated:
 			start = append(start, service.Name)
 			continue
 		case !instance.Live():
@@ -153,10 +153,10 @@ func ensureSharedLocked(ctx context.Context, cctx *CommandContext, repositoryID,
 			recreate = append(recreate, service.Name)
 			continue
 		}
-		if instance.Detail == "unhealthy" {
+		if instance.State == worktree.Unhealthy {
 			cctx.Logger.Warn(fmt.Sprintf("Shared service %s is running but its health check fails.", service.Name))
 		}
-		if instance.State == shared.Starting {
+		if instance.State == worktree.Starting || instance.State == worktree.Restarting {
 			cctx.Logger.Info(fmt.Sprintf("Shared service %s is still starting (its container is restarting or its health check is pending); using it.", service.Name))
 		}
 		who := definedByHost(cctx, repositoryID, instance.DefinedBy)
@@ -315,7 +315,7 @@ func sharedToPin(ctx context.Context, cctx *CommandContext, stack *shared.Stack,
 		return nil, nil, err
 	}
 	for _, service := range cctx.Loaded.Config.SharedServices() {
-		if slices.Contains(candidates, service.Name) && instances[service.Name].State == shared.Absent {
+		if slices.Contains(candidates, service.Name) && instances[service.Name].State == worktree.NotCreated {
 			toPin = append(toPin, service)
 			needed = append(needed, service.Name)
 		}

@@ -318,10 +318,10 @@ A worktree is in exactly one of these:
 | Text | JSON | Meaning |
 |---|---|---|
 | `running` | `running` | At least one service runs, and every service that hasn't exited cleanly is running (and healthy, where it has a health check) |
-| `starting` | `starting` | A container is being created, or a health check hasn't passed yet |
-| `partly running` | `partly_running` | Some services run; at least one has exited with an error, is restarting or is unhealthy |
+| `starting` | `starting` | A running service's health check hasn't passed yet |
+| `partly running` | `partly_running` | Some services run; at least one other has exited with an error, is restarting, is unhealthy, is stopped or was never created |
 | `failed` | `failed` | No service runs, and at least one exited with an error, is restarting or is unhealthy |
-| `stopped` | `stopped` | An `up` has finished before, and no service runs (after `down`, or every service exited cleanly); data is kept |
+| `stopped` | `stopped` | An `up` has finished before, and no service runs (after `down`, `docker compose stop` or a reboot, or every service exited cleanly); data is kept |
 | `not started` | `not_started` | Registered, and no `up` has ever finished |
 | `removing` | `removing` | A removal was interrupted; `treerig remove` finishes it |
 | `directory missing` | `directory_missing` | Git, asked successfully, no longer has its directory (below) |
@@ -374,6 +374,52 @@ with a short budget.
   Git can't tell a directory moved without `git worktree move` from a
   deleted one; `remove --gone` shows each path so the user can run `git
   worktree repair` first.
+  As built (#202): the mount table is read once per run, and "a mount point that
+  the table doesn't list as mounted" is read as a parent that is, or is below, an
+  automount placeholder (an `autofs` entry), since a table of mounted filesystems
+  can't list an unmounted one. A table that can't be read, or a platform with
+  none, is `unknown`: `treerig couldn't check it: <the error>.` Two causes beside
+  the three above get a hint of their own: `Git has it locked, so its directory
+  may be on a drive that is not connected.` (a locked entry whose directory is
+  absent) and `Git does not list it and no directory was recorded for it.` A
+  worktree Git no longer lists at all is judged by the same checks on the
+  directory the last `up` recorded, so one that `git worktree remove` or `prune`
+  forgot reads `directory missing` when that directory's parent is intact, unless
+  Git lists an entry whose identity could not be read or that has none and lives
+  elsewhere: it might be this worktree, moved. A verdict carries whether it came
+  from the entry with the worktree's own UUID or from the recorded directory
+  alone, so `remove --gone` (#211) can require the first. `Git does not call it
+  prunable (Git 2.31 or newer says so).` is the hint for an absent directory Git
+  lists but does not call prunable. A mount table with a line treerig cannot
+  read is treated as unreadable, not skipped. Hints carry the next step where
+  there is one: a locked entry says `connect it, or run 'git worktree unlock'`,
+  and an unlisted one `run 'treerig worktree remove <slug>' if it is gone`.
+- **Services and exits (as built).** A service is `stopped`, not `starting`,
+  when its container is `created` (an `up` that failed to start it leaves it
+  there for good). Exit 137 and 143 (SIGKILL, SIGTERM: `compose stop`, a reboot,
+  a daemon restart) are `stopped`, not `exited`, unless Docker reports
+  OOMKilled. 143 is always `stopped`. 137 is the one exit that needs Docker:
+  every path (Compose's `ps` for `status`; `docker ps` for `list`
+  and the overview, which now also prints the container ID) runs `docker
+  inspect` on each container that exited 137, concurrently, eight at a time,
+  under one shared deadline, and reads OOMKilled. If the inspect fails or the
+  flag cannot be read, the service is `unknown` (`exited 137, cause not read`),
+  never assumed to be a stop, so every command agrees. An exited container whose code Compose did not
+  report is inspected for it; if that fails the worktree is `unknown`
+  (`No exit code was reported for <service>, which exited.`). A Compose failure
+  that is not Docker being unavailable is `Compose couldn't read this
+  worktree: …`, not "Docker didn't answer".
+- **`status` and `list` can disagree (as built).** The index card holds the
+  services `up` routed, so `list` and the overview count only those (plus any
+  container Docker lists), while `status` asks Compose for every declared
+  service. A declared service that is not routed and was never started makes
+  `status` say `partly running` where `list` says `running`. After `up
+  --services …` the left-out services are `not created`, so the worktree reads
+  `partly running` until a plain `up`. Recording every declared service in the
+  card is a follow-up for #204.
+- **`list` and `index` as built** give Docker about five seconds a label
+  namespace, print the cause once, and exit 1 when Docker did not answer, as
+  `status` does.
 - Every text word maps to one JSON value, pinned by one test.
 - The overview page shows when it was generated, since it is refreshed only by
   `up`, `down`, `remove`, `rename` and `list --all --refresh`.
@@ -1016,7 +1062,16 @@ changes without a deprecation period beyond the one-release stubs.
 - Confirmations are `[y/N]` questions instead of a typed name or phrase, and
   `restore` now asks, so a script that runs `restore` passes `--yes`.
 - Hook output moves from stdout to stderr.
-- State words change in text and in JSON.
+- State words change in text and in JSON, with these breaking changes for
+  scripts: `worktree list` `state` was `ready`, `pending` or `missing` and is
+  now one of the nine; `status` and `shared status` service `state` `absent` is
+  `not_created`, a `running` service with `detail` `unhealthy` is `unhealthy`,
+  a restarting one is `restarting` (it was `starting`), and `exited` carries
+  `exitCode`; `index` `entries[].status` `partial` is `partly_running` and
+  `missing` is `directory_missing`; `status --json`, `worktree list` and
+  `index` gain `state`, `hint` and `exitCode` keys; `status --json` is printed
+  with exit 1 when Docker does not answer instead of nothing, and `worktree
+  list` and `index` exit 1 then too.
 - The default text of `up`, `status`, `list`, `doctor`, `remove`, `down`,
   `router down` and the errors changes; plain notices lose `[treerig]`.
 - Exit codes: `down` with nothing to stop exits 0; `doctor` fails on a crashed

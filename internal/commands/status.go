@@ -2,19 +2,27 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/sofired/treerig/internal/docker"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // StatusReport is `status --json`'s document. Registered is false, with no
-// Host and no services, for a worktree that was never registered.
+// Host and no services, for a worktree that was never registered. State is the
+// worktree's state in the words every command uses (running, starting,
+// partly_running, failed, stopped, not_started, removing, directory_missing,
+// unknown); Hint names the cause of an unknown one.
 type StatusReport struct {
 	Registered bool            `json:"registered"`
 	Host       *string         `json:"host,omitempty"`
+	State      *worktree.State `json:"state,omitempty"`
+	Hint       string          `json:"hint,omitempty"`
 	Services   []StatusService `json:"services"`
 	// Shared is the declared shared services; present only when treerig.toml
 	// declares some.
@@ -22,14 +30,17 @@ type StatusReport struct {
 }
 
 // StatusService is one declared service's state. State is one of the
-// worktree.ServiceState words; Detail is absent when there is nothing to add.
-// Port is the routed service's loopback port (#119); absent for a service
-// that is not routed or has none yet.
+// worktree.ServiceState words (JSON: running, starting, unhealthy, restarting,
+// exited, stopped, not_created, unknown); ExitCode is present for an exited
+// service; Detail is Docker's own word for an unknown one. Port is the routed
+// service's loopback port (#119); absent for a service that is not routed or
+// has none yet.
 type StatusService struct {
-	Service string `json:"service"`
-	State   string `json:"state"`
-	Detail  string `json:"detail,omitempty"`
-	Port    int    `json:"port,omitempty"`
+	Service  string                `json:"service"`
+	State    worktree.ServiceState `json:"state"`
+	ExitCode *int                  `json:"exitCode,omitempty"`
+	Detail   string                `json:"detail,omitempty"`
+	Port     int                   `json:"port,omitempty"`
 }
 
 // Status is `status`.
@@ -66,10 +77,30 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 		return nil, nil
 	}
 	ref := toRef(registration.RegisteredWorktree)
-	statuses, err := cctx.RuntimeFor(cctx.Loaded.Config.LabelNamespace(), &registration.RegisteredWorktree, cctx.RouterPort).Status(ctx, ref)
-	if err != nil {
-		return nil, err
+	// Docker (or Compose) not answering is not the end of the report: the
+	// worktree is then unknown, and the failure is returned once it is printed.
+	containers, statusErr := cctx.RuntimeFor(cctx.Loaded.Config.LabelNamespace(), &registration.RegisteredWorktree, cctx.RouterPort).Status(ctx, ref)
+	if statusErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		containers = nil
 	}
+	// Which of them failed decides what the unknown state says: a Docker that
+	// is not there is one thing, a Compose file or a Compose that cannot read
+	// this worktree is another.
+	servicesHint := ""
+	if statusErr != nil {
+		var unavailable *docker.UnavailableError
+		if errors.As(statusErr, &unavailable) {
+			servicesHint = worktreestate.DockerHint(unavailable.Error())
+		} else {
+			servicesHint = "Compose couldn't read this worktree: " + text.OneLine(statusErr.Error(), 250)
+		}
+	}
+	state := worktreestate.New(worktreestate.Options{ControlHome: cctx.ControlHome, Runner: cctx.Runner}).
+		Current(registration.RegisteredWorktree, containers, worktree.DirectoryPresent, servicesHint)
+	statuses := worktree.Summarize(containers)
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
 	sharedEntries, err := sharedStatuses(ctx, cctx, ref.RepositoryID, ref.WorktreeID)
 	if err != nil {
@@ -84,17 +115,22 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 		sharedEntries = nil
 	}
 	if options.JSON {
-		report := StatusReport{Registered: true, Host: &host, Services: make([]StatusService, 0, len(statuses)), Shared: sharedEntries}
+		report := StatusReport{Registered: true, Host: &host, State: &state.State, Hint: state.Hint, Services: make([]StatusService, 0, len(statuses)), Shared: sharedEntries}
 		for _, entry := range statuses {
-			report.Services = append(report.Services, StatusService{Service: entry.Service, State: string(entry.State), Detail: entry.Detail, Port: registration.Ports[entry.Service]})
+			service := StatusService{Service: entry.Service, State: entry.State, Detail: entry.Detail, Port: registration.Ports[entry.Service]}
+			if entry.State == worktree.Exited {
+				code := entry.ExitCode
+				service.ExitCode = &code
+			}
+			report.Services = append(report.Services, service)
 		}
 		if err := printJSON(cctx, report); err != nil {
 			return nil, err
 		}
-		return statuses, nil
+		return statuses, statusErr
 	}
-	cctx.Logger.Output(text.Printable(host))
-	if len(statuses) == 0 {
+	cctx.Logger.Output(text.Printable(fmt.Sprintf("%s   %s", host, state.State)))
+	if len(statuses) == 0 && statusErr == nil {
 		cctx.Logger.Output("  (no services)")
 	}
 	width := 0
@@ -107,7 +143,7 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 			detail = "  (" + entry.Detail + ")"
 		}
 		// The service names come from the branch's own compose file.
-		cctx.Logger.Output(text.Printable(fmt.Sprintf("  %s  %s%s", text.PadEnd(entry.Service, width), entry.State, detail)))
+		cctx.Logger.Output(text.Printable(fmt.Sprintf("  %s  %s%s", text.PadEnd(entry.Service, width), entry.Text(), detail)))
 	}
 	if len(sharedEntries) > 0 {
 		cctx.Logger.Output("  shared services")
@@ -115,7 +151,10 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 			cctx.Logger.Output(line)
 		}
 	}
-	return statuses, nil
+	if state.Hint != "" && statusErr == nil {
+		cctx.Logger.Info(text.Printable(fmt.Sprintf("%s is unknown. %s", host, state.Hint)))
+	}
+	return statuses, statusErr
 }
 
 // toRef is what a backend needs to know about a registered worktree.

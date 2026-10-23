@@ -8,13 +8,16 @@ package commands
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/checkoutindex"
+	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // routerLockScope is the one place in this build that builds the shared
@@ -61,7 +64,7 @@ func routerLockScope(state layout.RouterLayout, projectName string) lock.Scope {
 // index page into whatever the symlink points at — RouterUp's own "refuses a
 // symlinked state directory" test is exactly this check; newCheckoutIndex
 // used to skip it entirely.
-func newCheckoutIndex(cctx *CommandContext) (*checkoutindex.Service, error) {
+func newCheckoutIndex(cctx *CommandContext, inventoryTimeout time.Duration) (*checkoutindex.Service, error) {
 	if err := router.SecureState(cctx.RouterState); err != nil {
 		return nil, err
 	}
@@ -76,6 +79,8 @@ func newCheckoutIndex(cctx *CommandContext) (*checkoutindex.Service, error) {
 		Runner:       cctx.Runner,
 		Logger:       cctx.Logger,
 		Invocation:   cctx.Invocation,
+		// Zero keeps the service's own bound; `index` passes a short one.
+		InventoryTimeout: inventoryTimeout,
 	}), nil
 }
 
@@ -87,7 +92,7 @@ func newCheckoutIndex(cctx *CommandContext) (*checkoutindex.Service, error) {
 // refresh that built fine but failed midway, and skip the refresh, rather
 // than failing the command that asked for it.
 func refreshIndexBestEffort(ctx context.Context, cctx *CommandContext, reason string) {
-	index, err := newCheckoutIndex(cctx)
+	index, err := newCheckoutIndex(cctx, 0)
 	if err != nil {
 		cctx.Logger.Warn(fmt.Sprintf("Could not refresh the checkout index after %s: %s", reason, err))
 		return
@@ -106,7 +111,7 @@ func RefreshIndex(ctx context.Context, env *Env, options OutputOptions) error {
 	if err != nil {
 		return err
 	}
-	index, err := newCheckoutIndex(cctx)
+	index, err := newCheckoutIndex(cctx, listDockerBudget)
 	if err != nil {
 		return err
 	}
@@ -115,9 +120,18 @@ func RefreshIndex(ctx context.Context, env *Env, options OutputOptions) error {
 		return err
 	}
 	if options.JSON {
-		return printJSON(cctx, indexReport(snapshot, index.URL()))
+		if err := printJSON(cctx, indexReport(snapshot, index.URL())); err != nil {
+			return err
+		}
+	} else {
+		cctx.Logger.Output(checkoutindex.FormatIndexText(snapshot, index.URL()))
 	}
-	cctx.Logger.Output(checkoutindex.FormatIndexText(snapshot, index.URL()))
+	// The page and the output are complete either way; Docker not answering
+	// still fails the command, as it does `status` and `worktree list`.
+	if !snapshot.DockerReachable && snapshot.DockerError != nil {
+		// The cause is in the output and in the warning above; the error says what it cost.
+		return clierr.New("The overview shows every state that needs Docker as unknown.")
+	}
 	return nil
 }
 
@@ -157,19 +171,24 @@ type IndexIdentityError struct {
 	RowsUnknown bool   `json:"rowsUnknown"`
 }
 
-// IndexReportEntry is one checkout. Branch is "" for a detached HEAD and
+// IndexReportEntry is one worktree. Branch is "" for a detached HEAD and
 // absent when nothing knows; Root is absent when unknown.
 type IndexReportEntry struct {
-	RepositoryID string               `json:"repositoryId"`
-	WorktreeID   string               `json:"worktreeId"`
-	Project      string               `json:"project"`
-	Domain       string               `json:"domain"`
-	Slug         string               `json:"slug"`
-	Host         string               `json:"host"`
-	Branch       *string              `json:"branch,omitempty"`
-	Root         string               `json:"root,omitempty"`
-	Status       string               `json:"status"`
-	Services     []IndexReportService `json:"services"`
+	RepositoryID string  `json:"repositoryId"`
+	WorktreeID   string  `json:"worktreeId"`
+	Project      string  `json:"project"`
+	Domain       string  `json:"domain"`
+	Slug         string  `json:"slug"`
+	Host         string  `json:"host"`
+	Branch       *string `json:"branch,omitempty"`
+	Root         string  `json:"root,omitempty"`
+	// Status is the worktree's state, in the words every command uses and
+	// snake case: running, starting, partly_running, failed, stopped,
+	// not_started, removing, directory_missing or unknown. Hint names the
+	// cause of an unknown one.
+	Status   string               `json:"status"`
+	Hint     string               `json:"hint,omitempty"`
+	Services []IndexReportService `json:"services"`
 }
 
 // IndexReportService is one declared service of a checkout.
@@ -179,7 +198,7 @@ type IndexReportService struct {
 	Purpose string `json:"purpose,omitempty"`
 	URL     string `json:"url"`
 	// Available is set only when it was checked: Docker answered and the
-	// checkout is not missing. Absent means unknown, never false.
+	// worktree's directory is not missing. Absent means unknown, never false.
 	Available *bool `json:"available,omitempty"`
 }
 
@@ -197,7 +216,7 @@ func indexReport(snapshot checkoutindex.IndexSnapshot, url string) IndexReport {
 	}
 	for _, entry := range snapshot.Entries {
 		services := make([]IndexReportService, 0, len(entry.Services))
-		checked := snapshot.DockerReachable && entry.Status != checkoutindex.StatusMissing
+		checked := snapshot.DockerReachable && entry.State != worktree.StateDirectoryMissing
 		for _, service := range entry.Services {
 			reported := IndexReportService{Service: service.Name, Label: service.Label, Purpose: service.Purpose, URL: service.URL}
 			if checked {
@@ -209,7 +228,7 @@ func indexReport(snapshot checkoutindex.IndexSnapshot, url string) IndexReport {
 		report.Entries = append(report.Entries, IndexReportEntry{
 			RepositoryID: entry.RepositoryID, WorktreeID: entry.WorktreeID, Project: entry.Project,
 			Domain: entry.Domain, Slug: entry.Slug, Host: entry.Host, Branch: entry.Branch,
-			Root: entry.Root, Status: string(entry.Status), Services: services,
+			Root: entry.Root, Status: entry.State.JSON(), Hint: entry.Hint, Services: services,
 		})
 	}
 	for _, service := range snapshot.Shared {

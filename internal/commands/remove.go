@@ -140,6 +140,13 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		stackNamespace = cctx.stackNamespace()
 	}
 
+	// A removal marker this build cannot read (a newer format, or not one it
+	// wrote) refuses the removal here, before the inventory and the prompt:
+	// nothing is asked or touched on the strength of state it cannot judge.
+	if _, err := cctx.Registry.Store(target.RepositoryID).Removing(target.WorktreeID); err != nil {
+		return nil, err
+	}
+
 	// Everything that will go, verified before anything is touched. A resource
 	// that cannot be proven ours fails here, before the prompt.
 	planned, err := runtime.Inventory(ctx, ref)
@@ -187,6 +194,14 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			if identity, err = targetIdentity(ctx, cctx, target.WorktreeID); err != nil {
 				return err
 			}
+		}
+		// Teardown starts here, so the marker goes down before anything is
+		// changed: a removal that is interrupted from now on leaves the
+		// worktree reading as removing until it is run again, and the
+		// registration deletion below takes the marker with it. A marker of a
+		// newer format refuses the removal before it touches anything.
+		if err := store.MarkRemoving(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
+			return err
 		}
 		// Unroutes before this worktree's own resources are reaped — see
 		// unrouteWorktree's own comment. Runs regardless of which resource
@@ -662,9 +677,9 @@ func interruptNotice(marked bool, cause, err error, result *RemoveResult, host s
 	}
 	steps := fmt.Sprintf("'%s' finishes the removal", next.finish)
 	if next.restart != "" {
-		steps += fmt.Sprintf(", '%s' starts it again and runs the seed hook again", next.restart)
+		steps += fmt.Sprintf(", '%s' calls it off and runs the seed hook again", next.restart)
 	}
-	return text.Printable(fmt.Sprintf("Interrupted (%s) while removing %s. %s. It is still registered, now pending: %s.",
+	return text.Printable(fmt.Sprintf("Interrupted (%s) while removing %s. %s. It is still registered and now reads 'removing': %s.",
 		clierr.SignalName(interrupted.Signal), host, removed, steps))
 }
 

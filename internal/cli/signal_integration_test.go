@@ -298,8 +298,8 @@ func TestInterruptedMutation(t *testing.T) {
 				// An interruption past the pending mark says what it left (#149);
 				// one before it left nothing to say.
 				notice := "Interrupted (" + clierr.SignalName(sig) + ") while removing feature-login.acme.localhost. " +
-					"Removed so far: nothing confirmed yet. It is still registered, now pending: " +
-					"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again."
+					"Removed so far: nothing confirmed yet. It is still registered and now reads 'removing': " +
+					"'treerig worktree remove' finishes the removal, 'treerig up' calls it off and runs the seed hook again."
 				if at == hangInReap {
 					if !strings.Contains(stderr.String(), notice+"\n") {
 						t.Fatalf("stderr lacks the interruption notice %q:\n%s", notice, stderr.String())

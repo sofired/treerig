@@ -29,26 +29,26 @@ func TestInterruptNotice(t *testing.T) {
 		{
 			name: "resources and the home directory, with both next steps", marked: true, cause: sigint, err: sigint,
 			result: &RemoveResult{Resources: volume, Home: true}, next: both,
-			want: prefix + "Removed so far (at least): 1 volume, home directory. It is still registered, now pending: " +
-				"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again.",
+			want: prefix + "Removed so far (at least): 1 volume, home directory. It is still registered and now reads 'removing': " +
+				"'treerig worktree remove' finishes the removal, 'treerig up' calls it off and runs the seed hook again.",
 		},
 		{
 			name: "the home directory alone", marked: true, cause: sigint, err: sigint,
 			result: &RemoveResult{Home: true}, next: both,
-			want: prefix + "Removed so far (at least): home directory. It is still registered, now pending: " +
-				"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again.",
+			want: prefix + "Removed so far (at least): home directory. It is still registered and now reads 'removing': " +
+				"'treerig worktree remove' finishes the removal, 'treerig up' calls it off and runs the seed hook again.",
 		},
 		{
 			name: "nothing confirmed, and no up for another worktree", marked: true, cause: sigint, err: sigint,
 			result: &RemoveResult{}, next: nextSteps{finish: "treerig worktree remove other"},
-			want: prefix + "Removed so far: nothing confirmed yet. It is still registered, now pending: " +
+			want: prefix + "Removed so far: nothing confirmed yet. It is still registered and now reads 'removing': " +
 				"'treerig worktree remove other' finishes the removal.",
 		},
 		{
 			name: "the signal named is the cause's, not the error's", marked: true, cause: sighup, err: sigint,
 			result: &RemoveResult{}, next: both,
-			want: "Interrupted (SIGHUP) while removing " + host + ". Removed so far: nothing confirmed yet. It is still registered, now pending: " +
-				"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again.",
+			want: "Interrupted (SIGHUP) while removing " + host + ". Removed so far: nothing confirmed yet. It is still registered and now reads 'removing': " +
+				"'treerig worktree remove' finishes the removal, 'treerig up' calls it off and runs the seed hook again.",
 		},
 		{name: "the registration was never marked pending", marked: false, cause: sigint, err: sigint, result: &RemoveResult{}, next: both},
 		{name: "the registration is already gone", marked: true, cause: sigint, err: sigint, result: &RemoveResult{Registration: true}, next: both},

@@ -160,6 +160,9 @@ func TestWorktreeLayout(t *testing.T) {
 		if want := filepath.Join("/control", "repositories", repository, "worktrees", worktree+".json"); l.RecordPath != want {
 			t.Fatalf("RecordPath = %q, want %q", l.RecordPath, want)
 		}
+		if want := filepath.Join("/control", "repositories", repository, "worktrees", worktree+".removing"); l.RemovalPath != want {
+			t.Fatalf("RemovalPath = %q, want %q", l.RemovalPath, want)
+		}
 		if want := filepath.Join("/control", "repositories", repository, "instances", ".deleting-"+worktree); l.QuarantinePath != want {
 			t.Fatalf("QuarantinePath = %q, want %q", l.QuarantinePath, want)
 		}

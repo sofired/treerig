@@ -1,0 +1,2 @@
+[treerig] WARNING: The overview cannot show what runs because containers could not be listed: Docker is not available: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?
+[treerig] ERROR: The overview shows every state that needs Docker as unknown.

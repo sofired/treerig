@@ -59,6 +59,13 @@ type WorktreeIdentity struct {
 type ListedWorktree struct {
 	Root   string
 	Branch string
+	// Prunable is Git's own verdict that the entry points at nothing it can
+	// use (its directory is gone, or its administrative files are); Git older
+	// than 2.31 never says so. PrunableReason is Git's words for it.
+	Prunable       bool
+	PrunableReason string
+	// Locked is an entry `git worktree lock` protects from pruning.
+	Locked bool
 }
 
 // InspectOptions controls Inspect.
@@ -490,17 +497,26 @@ func (s *IdentityService) List(ctx context.Context) ([]ListedWorktree, error) {
 			continue
 		}
 		branch := ""
+		listed := ListedWorktree{}
 		for _, field := range fields {
-			if strings.HasPrefix(field, "branch refs/heads/") {
-				branch = field[len("branch refs/heads/"):]
-				break
+			switch {
+			case strings.HasPrefix(field, "branch refs/heads/"):
+				if branch == "" {
+					branch = field[len("branch refs/heads/"):]
+				}
+			case field == "prunable" || strings.HasPrefix(field, "prunable "):
+				listed.Prunable = true
+				listed.PrunableReason = strings.TrimPrefix(strings.TrimPrefix(field, "prunable"), " ")
+			case field == "locked" || strings.HasPrefix(field, "locked "):
+				listed.Locked = true
 			}
 		}
 		root, err := CanonicalPath(worktreeDir)
 		if err != nil {
 			return nil, err
 		}
-		worktrees = append(worktrees, ListedWorktree{Root: root, Branch: branch})
+		listed.Root, listed.Branch = root, branch
+		worktrees = append(worktrees, listed)
 	}
 	return worktrees, nil
 }
@@ -531,4 +547,135 @@ func (s *IdentityService) ActiveIdentities(ctx context.Context) ([]WorktreeIdent
 		}
 	}
 	return identities, nil
+}
+
+// WorktreeEntry is one worktree Git lists, with what is on disk beneath it and
+// the treerig identity it carries, for deciding what became of a registration.
+type WorktreeEntry struct {
+	ListedWorktree
+	// Exists is whether Root is there; StatErr is why that could not be told
+	// (a permission error, say), in which case Exists is false.
+	Exists  bool
+	StatErr error
+	// RepositoryID and WorktreeID are the entry's identity, empty when it has
+	// none yet (never registered) or it could not be read (IdentityErr).
+	RepositoryID string
+	WorktreeID   string
+	IdentityErr  error
+}
+
+// Entries is every worktree Git lists, each with its identity, and without
+// the failure of one stopping the rest: a marker one entry carries that this
+// build cannot read is that entry's IdentityErr, where ActiveIdentities would
+// fail the whole call. A directory that is gone (a prunable entry) keeps its
+// identity in its Git directory, so it is read from there; Git itself failing
+// is the call's error.
+func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) {
+	listed, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]WorktreeEntry, len(listed))
+	var commonDir, repositoryID string
+	var commonErr error
+	var haveCommon bool
+	common := func() (string, string, error) {
+		if haveCommon {
+			return commonDir, repositoryID, commonErr
+		}
+		haveCommon = true
+		raw, err := s.gitValue(ctx, s.Root, []string{"rev-parse", "--path-format=absolute", "--git-common-dir"})
+		if err == nil {
+			commonDir, err = CanonicalPath(raw)
+		}
+		if err == nil {
+			marker := filepath.Join(commonDir, repositoryMarkerRelative)
+			if err = assertIdentityMarkerPath(commonDir, marker); err == nil {
+				repositoryID, _, err = readUUID(marker)
+			}
+		}
+		commonErr = err
+		return commonDir, repositoryID, commonErr
+	}
+	for i, worktree := range listed {
+		entry := WorktreeEntry{ListedWorktree: worktree}
+		info, statErr := os.Stat(worktree.Root)
+		switch {
+		case statErr == nil:
+			entry.Exists = info.IsDir()
+		case !errors.Is(statErr, fs.ErrNotExist):
+			entry.StatErr = statErr
+		}
+		switch {
+		case entry.StatErr != nil:
+		case entry.Exists && !worktree.Prunable:
+			identity, err := s.Inspect(ctx, worktree.Root, InspectOptions{})
+			switch {
+			case err != nil:
+				entry.IdentityErr = err
+			case identity != nil:
+				entry.RepositoryID, entry.WorktreeID = identity.RepositoryID, identity.WorktreeID
+			}
+		case i > 0:
+			// Gone, or damaged: Git's directory for the entry still holds the
+			// marker, but only while Git has not pruned it.
+			dir, repository, err := common()
+			if err != nil {
+				entry.IdentityErr = err
+				break
+			}
+			id, err := identityFromGitDir(dir, worktree.Root)
+			entry.WorktreeID, entry.IdentityErr = id, err
+			if id != "" {
+				entry.RepositoryID = repository
+			}
+		}
+		entries[i] = entry
+	}
+	return entries, nil
+}
+
+// identityFromGitDir finds the worktree whose files were at root among the
+// linked worktrees Git keeps under commonDir/worktrees, and reads its
+// worktree marker. It answers "" with no error for one that is not there or
+// carries no marker.
+func identityFromGitDir(commonDir, root string) (string, error) {
+	administrative := filepath.Join(commonDir, "worktrees")
+	children, err := os.ReadDir(administrative)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	want := filepath.Join(root, ".git")
+	for _, child := range children {
+		if !child.IsDir() {
+			continue
+		}
+		dir := filepath.Join(administrative, child.Name())
+		data, err := os.ReadFile(filepath.Join(dir, "gitdir"))
+		if err != nil {
+			continue
+		}
+		recorded := strings.TrimSpace(string(data))
+		if !filepath.IsAbs(recorded) {
+			recorded = filepath.Join(dir, recorded)
+		}
+		canonical, err := CanonicalPath(recorded)
+		if err != nil || canonical != want {
+			continue
+		}
+		canonicalDir, err := CanonicalPath(dir)
+		if err != nil {
+			return "", err
+		}
+		marker := filepath.Join(canonicalDir, worktreeMarkerRelative)
+		if err := assertIdentityMarkerPath(canonicalDir, marker); err != nil {
+			return "", err
+		}
+		id, _, err := readUUID(marker)
+		return id, err
+	}
+	return "", nil
 }

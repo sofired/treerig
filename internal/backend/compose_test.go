@@ -67,9 +67,11 @@ func composeModelWithDebugProfile() map[string]any {
 // dockerFake answers every docker and compose invocation the runtime makes,
 // with knobs for the failure modes.
 type dockerFake struct {
-	mu          sync.Mutex
-	calls       []run.Spec
-	psLines     []map[string]any
+	mu      sync.Mutex
+	calls   []run.Spec
+	psLines []map[string]any
+	// inspectDocs are `container inspect` documents by container ID.
+	inspectDocs map[string]string
 	psOutput    *string
 	resources   map[string][]string
 	labels      map[string]map[string]string
@@ -171,6 +173,12 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 			}
 		}
 		return ok("")
+	}
+	if len(args) >= 3 && args[0] == "container" && args[1] == "inspect" {
+		if doc, found := f.inspectDocs[args[2]]; found {
+			return ok("[" + doc + "]")
+		}
+		return run.Finish(spec, run.Result{Stderr: "Error: No such container: " + args[2], ExitCode: 1})
 	}
 	if slices.Contains(args, "--filter") {
 		kind := args[0]
@@ -415,12 +423,12 @@ func TestDownStatus(t *testing.T) {
 			}
 		}
 	})
-	t.Run("status maps Compose states and reports declared services that have no container as absent", func(t *testing.T) {
+	t.Run("status maps Compose states and reports declared services that have no container as not created", func(t *testing.T) {
 		fake := newFake()
 		fake.psLines = []map[string]any{
 			{"Service": "api", "State": "running", "Health": "healthy"},
 			{"Service": "worker", "State": "running", "Health": "starting"},
-			{"Service": "noise", "State": "exited", "Health": ""},
+			{"Service": "noise", "State": "exited", "Health": "", "ExitCode": 0},
 		}
 		rt, _ := newRuntime(t, fake)
 		got, err := rt.Status(ctx, ref)
@@ -429,8 +437,8 @@ func TestDownStatus(t *testing.T) {
 		}
 		want := []worktree.ServiceStatus{
 			{Service: "api", State: worktree.Running},
-			{Service: "builder", State: worktree.Absent},
-			{Service: "quiet", State: worktree.Absent},
+			{Service: "builder", State: worktree.NotCreated},
+			{Service: "quiet", State: worktree.NotCreated},
 			{Service: "worker", State: worktree.Starting},
 		}
 		if !reflect.DeepEqual(got, want) {
@@ -445,22 +453,22 @@ func TestDownStatus(t *testing.T) {
 	})
 	t.Run("status accepts the single-array form older Compose releases print", func(t *testing.T) {
 		fake := newFake()
-		output := `[{"Service":"api","State":"running"},{"Service":"worker","State":"exited"}]`
+		output := `[{"Service":"api","State":"running"},{"Service":"worker","State":"exited","ExitCode":3}]`
 		fake.psOutput = &output
 		rt, _ := newRuntime(t, fake)
 		got, err := rt.Status(ctx, ref)
 		if err != nil {
 			t.Fatal(err)
 		}
-		states := map[string]worktree.ServiceState{}
+		states := map[string]worktree.ServiceStatus{}
 		for _, status := range got {
-			states[status.Service] = status.State
+			states[status.Service] = status
 		}
-		if states["api"] != worktree.Running || states["worker"] != worktree.Stopped {
+		if states["api"].State != worktree.Running || states["worker"] != (worktree.ServiceStatus{Service: "worker", State: worktree.Exited, ExitCode: 3}) {
 			t.Fatalf("states = %v", states)
 		}
 	})
-	t.Run("status treats an empty array or null — older Compose with no containers — as everything absent", func(t *testing.T) {
+	t.Run("status treats an empty array or null — older Compose with no containers — as everything not created", func(t *testing.T) {
 		for _, output := range []string{"[]", "[]\n", "null"} {
 			fake := newFake()
 			fake.psOutput = &output
@@ -470,13 +478,13 @@ func TestDownStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, status := range got {
-				if status.State != worktree.Absent {
+				if status.State != worktree.NotCreated {
 					t.Fatalf("%q: %+v", output, got)
 				}
 			}
 		}
 	})
-	t.Run("status refuses to report anything absent when the ps output is unreadable, even partially", func(t *testing.T) {
+	t.Run("status refuses to report anything not created when the ps output is unreadable, even partially", func(t *testing.T) {
 		for _, output := range []string{
 			"NAME   IMAGE   COMMAND\ntreerig-x-api-1   busybox   \"sleep\"",
 			"{\"Service\":\"api\",\"State\":\"running\"}\n{\"Service\":\"worker\",\"State\":\"runn",
@@ -491,17 +499,72 @@ func TestDownStatus(t *testing.T) {
 			}
 		}
 	})
-	t.Run("status surfaces an unhealthy running container without inventing a state", func(t *testing.T) {
+	t.Run("status names an unhealthy container, an exit code and every replica, without inventing a state", func(t *testing.T) {
 		fake := newFake()
-		fake.psLines = []map[string]any{{"Service": "api", "State": "running", "Health": "unhealthy"}, {"Service": "worker", "State": "exited"}}
+		fake.psLines = []map[string]any{
+			{"Service": "api", "State": "running", "Health": "unhealthy"},
+			{"Service": "worker", "State": "exited", "ExitCode": 3},
+			{"Service": "worker", "State": "running"},
+			{"Service": "quiet", "State": "created"},
+			{"Service": "builder", "State": "exited"},
+		}
 		rt, _ := newRuntime(t, fake)
 		got, err := rt.Status(ctx, ref)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got[0] != (worktree.ServiceStatus{Service: "api", State: worktree.Running, Detail: "unhealthy"}) ||
-			got[3] != (worktree.ServiceStatus{Service: "worker", State: worktree.Stopped}) {
+		want := []worktree.ServiceStatus{
+			{Service: "api", State: worktree.Unhealthy},
+			{Service: "builder", State: worktree.Unknown, Detail: "exited"},
+			{Service: "quiet", State: worktree.Stopped},
+			{Service: "worker", State: worktree.Exited, ExitCode: 3},
+			{Service: "worker", State: worktree.Running},
+		}
+		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("status asks Docker about an exit by SIGKILL, and about an exit Compose gave no code for", func(t *testing.T) {
+		fake := newFake()
+		fake.inspectDocs = map[string]string{
+			"stopped": `{"Id":"stopped","Name":"/a","State":{"Status":"exited","ExitCode":137,"OOMKilled":false},"Config":{"Labels":{}}}`,
+			"oom":     `{"Id":"oom","Name":"/b","State":{"Status":"exited","ExitCode":137,"OOMKilled":true},"Config":{"Labels":{}}}`,
+			"nocode":  `{"Id":"nocode","Name":"/c","State":{"Status":"exited","ExitCode":3,"OOMKilled":false},"Config":{"Labels":{}}}`,
+		}
+		fake.psLines = []map[string]any{
+			{"ID": "stopped", "Service": "api", "State": "exited", "ExitCode": 137},
+			{"ID": "oom", "Service": "builder", "State": "exited", "ExitCode": 137},
+			{"ID": "nocode", "Service": "quiet", "State": "exited"},
+			{"ID": "gone", "Service": "worker", "State": "exited"},
+			{"ID": "unread", "Service": "worker", "State": "exited", "ExitCode": 137},
+		}
+		rt, _ := newRuntime(t, fake)
+		got, err := rt.Status(ctx, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []worktree.ServiceStatus{
+			{Service: "api", State: worktree.Stopped},
+			{Service: "builder", State: worktree.Exited, ExitCode: 137},
+			{Service: "quiet", State: worktree.Exited, ExitCode: 3},
+			{Service: "worker", State: worktree.Unknown, Detail: "exited"},
+			{Service: "worker", State: worktree.Unknown, Detail: worktree.CauseNotRead},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("status leaves an exit by anything but SIGKILL alone, with no inspect", func(t *testing.T) {
+		fake := newFake()
+		fake.psLines = []map[string]any{{"ID": "x", "Service": "api", "State": "exited", "ExitCode": 3}, {"ID": "y", "Service": "worker", "State": "running"}}
+		rt, _ := newRuntime(t, fake)
+		if _, err := rt.Status(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+		for _, call := range fake.calls {
+			if len(call.Args) > 1 && call.Args[1] == "inspect" {
+				t.Fatalf("inspected a container nothing needed to ask about: %v", call.Args)
+			}
 		}
 	})
 	// Something else may still be attached to one of the worktree's networks

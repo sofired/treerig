@@ -41,8 +41,15 @@ strictly: the command it runs writes straight to treerig's stdout and stderr, an
 treerig adds nothing while it runs, so `treerig run plan > out` holds only what
 `plan` wrote.
 
-`router status` has a fourth vocabulary, about the shared router rather than
-any checkout: `running on <address>, <mode> mode`, `not running (would use
+`status`, `worktree list` and `index` share one set of [state
+words](commands.md). When Docker cannot be asked, each of them still prints
+everything it can (the states that need Docker read `unknown`) and then exits 1
+with the cause on stderr, once. `status` does the same when Compose, not Docker,
+cannot read the worktree. `worktree list` and `index` give Docker about five
+seconds a label namespace.
+
+`router status` has a vocabulary of its own, about the shared router rather than
+any worktree: `running on <address>, <mode> mode`, `not running (would use
 <address>)`, `degraded on <address>, <mode> mode` when a container is down or
 unhealthy, and nothing at all on stdout when Docker could not be asked —
 that case is a `Router state unknown:` line on stderr. Each reported problem is

@@ -104,6 +104,43 @@ func TestUpWithContext(t *testing.T) {
 		}
 	})
 
+	t.Run("calls off an interrupted removal: the worktree stops reading as removing once it is up again", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		first := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, first.RepositoryID, first.WorktreeID)
+		if err := os.WriteFile(paths.RemovalPath, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+
+		if _, err := up(t, tc, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+			t.Fatalf("Up: %v", err)
+		}
+		if removing, err := tc.Registry.Store(first.RepositoryID).Removing(first.WorktreeID); err != nil || removing {
+			t.Fatalf("Removing = %v, %v; the marker should be gone", removing, err)
+		}
+	})
+
+	t.Run("refuses a removal marker of a newer format rather than clearing it", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		first := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, first.RepositoryID, first.WorktreeID)
+		if err := os.WriteFile(paths.RemovalPath, []byte("format 2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+
+		_, err := up(t, tc, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{})
+		if err == nil || !strings.Contains(err.Error(), "written by a newer treerig") {
+			t.Fatalf("err = %v", err)
+		}
+		if data, _ := os.ReadFile(paths.RemovalPath); string(data) != "format 2\n" {
+			t.Fatalf("the newer marker was changed: %q", data)
+		}
+	})
+
 	t.Run("runs only prepare on a later up, since seed only runs the first time", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)

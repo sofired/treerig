@@ -45,7 +45,7 @@ above it, and the filesystem root are always refused, whether reached through
 Everything treerig writes and reads back says which
 format wrote it: the control home's marker, the identity markers in the Git
 directory, registrations and shared-service records, the router's `state.json`,
-a lock's holder record, a worktree's index card, and a `dev.treerig.format` label
+a lock's holder record, a worktree's index card, a worktree's removal marker, and a `dev.treerig.format` label
 on every container, network and image treerig creates for a worktree or a shared
 stack (named volumes carry none: Compose would offer to recreate a volume whose
 label changed, losing its data). A build that finds a newer format than it

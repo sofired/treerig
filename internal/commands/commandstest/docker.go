@@ -57,6 +57,7 @@ type Docker struct {
 	// compose.go. All of it is zero for a test that does not use it.
 	status       map[string]string               // container id → Docker state, "running" when absent
 	health       map[string]string               // container id → health status
+	exitCodes    map[string]int                  // container id → how it exited, 0 when absent
 	attached     map[string]map[string][]string  // container id → network id → aliases
 	mounts       map[string][]string             // container id → volume names
 	mountPaths   map[string]string               // volume name → where its containers mount it
@@ -131,7 +132,7 @@ func NewDocker(services ...string) *Docker {
 		names:     map[string]string{},
 		tampers:   map[string]tamper{},
 		Services:  services,
-		status:    map[string]string{}, health: map[string]string{},
+		status:    map[string]string{}, health: map[string]string{}, exitCodes: map[string]int{},
 		attached: map[string]map[string][]string{}, mounts: map[string][]string{}, mountPaths: map[string]string{},
 		bindings: map[string]map[string][]binding{}, networkNames: map[string]string{},
 		sharedServices: map[string]map[string]any{},
@@ -353,7 +354,9 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			for _, id := range sortedKeys(d.resources["container"]) {
 				labels := d.resources["container"][id]
 				if labels["com.docker.compose.project"] == project {
-					encoded, _ := json.Marshal(map[string]any{"Service": labels["com.docker.compose.service"], "State": "running", "Health": ""})
+					encoded, _ := json.Marshal(map[string]any{
+						"Service": labels["com.docker.compose.service"], "State": d.statusOf(id), "Health": d.health[id], "ExitCode": d.exitCodes[id],
+					})
 					lines = append(lines, string(encoded))
 				}
 			}
@@ -386,7 +389,7 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 		var ids []string
 		for _, id := range sortedKeys(d.resources[kind]) {
 			labels := d.resources[kind][id]
-			if kind == "container" && args[0] == "ps" && !slices.Contains(args, "-a") && !slices.Contains(args, "-aq") && d.statusOf(id) != "running" {
+			if kind == "container" && args[0] == "ps" && !slices.Contains(args, "-a") && !slices.Contains(args, "-aq") && !slices.Contains(args, "--all") && d.statusOf(id) != "running" {
 				continue
 			}
 			matches := true
@@ -396,6 +399,19 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			if matches {
 				ids = append(ids, id)
 			}
+		}
+		// The overview's inventory: state, status, then the labels it names,
+		// tab-separated, one container per line, as `docker ps --format` prints.
+		if template := after(args, "--format"); args[0] == "ps" && strings.HasPrefix(template, "{{.State}}\t{{.Status}}\t") {
+			var rows []string
+			for _, id := range ids {
+				fields := []string{d.statusOf(id), d.statusText(id)}
+				for _, match := range labelName.FindAllStringSubmatch(template, -1) {
+					fields = append(fields, d.resources[kind][id][match[1]])
+				}
+				rows = append(rows, strings.Join(append(fields, id), "\t"))
+			}
+			return ok(strings.Join(rows, "\n"))
 		}
 		// A listing that asks for one label beside each ID, as the pre-start
 		// check for resources of a newer format does: "{{.ID}}<tab>{{.Label "x"}}".

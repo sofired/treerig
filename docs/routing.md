@@ -69,7 +69,7 @@ worktrees and the router, and no host firewall sits between them, so routing
 works under ufw's default-deny policy. Routes are read only from Traefik's
 file provider: `up` writes one dynamic-configuration file per routed service
 into a directory mounted read-only into the container, and `down` and
-`worktree remove` remove it again. The checkout index is routed the same
+`worktree remove` remove it again. The overview is routed the same
 way, on a loopback port of its own. A route file is judged only when this
 control home holds a record for its repository and worktree. If that record
 holds no port for the service the file is removed, and if it holds another one

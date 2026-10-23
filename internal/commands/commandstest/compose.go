@@ -186,6 +186,41 @@ func (d *Docker) Count(sub string) int {
 	return n
 }
 
+// SetExitCode sets how a container ended, for Compose's ps and Docker's status
+// text; zero unless a test said otherwise.
+func (d *Docker) SetExitCode(id string, code int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.exitCodes[id] = code
+}
+
+// statusText is a container's Docker status column: the wording `docker ps`
+// uses for its state, health and exit code.
+func (d *Docker) statusText(id string) string {
+	switch state := d.statusOf(id); state {
+	case "running":
+		switch d.health[id] {
+		case "healthy":
+			return "Up 5 minutes (healthy)"
+		case "unhealthy":
+			return "Up 5 minutes (unhealthy)"
+		case "starting":
+			return "Up 5 seconds (health: starting)"
+		}
+		return "Up 5 minutes"
+	case "exited":
+		return fmt.Sprintf("Exited (%d) 5 minutes ago", d.exitCodes[id])
+	case "restarting":
+		return "Restarting (1) 5 seconds ago"
+	case "paused":
+		return "Up 5 minutes (Paused)"
+	case "created":
+		return "Created"
+	default:
+		return state
+	}
+}
+
 // statusOf is a container's Docker state; running unless a test said otherwise.
 func (d *Docker) statusOf(id string) string {
 	if status, ok := d.status[id]; ok {
@@ -361,7 +396,7 @@ func (d *Docker) containerDocument(id string, labels map[string]string) string {
 	for _, name := range d.mounts[id] {
 		mounts = append(mounts, map[string]any{"Type": "volume", "Name": name, "Destination": d.mountPaths[name]})
 	}
-	state := map[string]any{"Status": d.statusOf(id)}
+	state := map[string]any{"Status": d.statusOf(id), "ExitCode": d.exitCodes[id]}
 	if health, ok := d.health[id]; ok {
 		state["Health"] = map[string]any{"Status": health}
 	}
