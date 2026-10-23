@@ -1,1 +1,1 @@
-[treerig] ERROR: "treerig status" takes no arguments, got 1: "extra"
+[treerig] ERROR: "treerig status" takes at most 1 argument, got 2: "one" "two"

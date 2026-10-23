@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/worktree"
 )
@@ -783,4 +785,34 @@ func (d *Docker) Published(id string, containerPort int) []string {
 		out = append(out, b.ip+":"+b.port)
 	}
 	return out
+}
+
+// AddRouter puts the shared router's container in the daemon, serving port 80
+// for the treerig root the world's contexts have (none): running, or stopped
+// when running is false. Without it the router has no container, which
+// `status` reads as stopped.
+func (d *Docker) AddRouter(running bool) string { return d.AddRouterOnPort(running, 80) }
+
+// AddRouterOnPort is AddRouter for a router that serves port.
+func (d *Docker) AddRouterOnPort(running bool, port int) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	id := d.add("container", map[string]string{
+		"com.docker.compose.project": router.DefaultName,
+		"com.docker.compose.service": router.RouterService,
+		router.RouterHomeLabel:       "",
+		router.RouterPortLabel:       strconv.Itoa(port),
+	})
+	if !running {
+		d.status[id] = "exited"
+	}
+	return id
+}
+
+// SetLabel sets one label of a container, as a router started by another
+// treerig root carries its own RouterHomeLabel.
+func (d *Docker) SetLabel(id, name, value string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.resources["container"][id][name] = value
 }

@@ -64,7 +64,7 @@ func TestRunning(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := (router.Running{Present: true, Up: true, Mode: router.ModeBridge, Port: 8080}); running != want {
+		if want := (router.Running{Present: true, Up: true, Inspected: true, Mode: router.ModeBridge, Port: 8080}); running != want {
 			t.Fatalf("Running = %+v, want %+v", running, want)
 		}
 	})

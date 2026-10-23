@@ -620,9 +620,72 @@ start it.` `status --json` is always printed, and carries each service's `url`
 and `state`, the router's state (`running`, `stopped` or `unknown`) and, when
 Docker didn't answer, `dockerError`; scripts that read `urls` read it instead.
 `status` exits 0 whatever the state, since it reports and `doctor` is the check
-that fails, and 1 when Docker doesn't answer. In a worktree that isn't
+that fails, and 1 when it couldn't read the worktree: Docker didn't answer,
+Compose couldn't read it, or its treerig.toml wouldn't load. In a worktree that isn't
 registered it prints `feature-x is not registered. Run 'treerig up' to create
 its environment.` on stderr and exits 0.
+
+As built (#203):
+
+- **Rows.** The table lists the Compose services (sorted, as before), then the
+  worktree's host routes, then its shared services. The shared services' detail
+  lines (addresses, definition, who started it) are no longer in the text form:
+  they are in `status --json` and `shared status`, and a consumer here that the
+  shared container is not attached to reads `running (not connected)`. A
+  shared service's URL follows the same rule as a service's, in the text form
+  and in `status --json`, which has an entry type of its own for it
+  (`shared status --json` keeps the routed address whether it runs or not).
+- **JSON.** `services` holds the host routes after the services, with
+  `"hostRoute": true`, a `state` of `listening` or `not_listening` and their
+  `port`; each entry has `url` when it has one to show. `router` is `{"state":
+  "running" | "stopped" | "unknown", "port"?, "detail"?}`, absent when `status`
+  stopped before it read the services. `dockerError` is set only for Docker
+  itself not answering (`Docker is not available: …`); a Compose failure is the
+  `hint`.
+- **The router.** `router.State` reads the container once (one `docker compose
+  ps`, one `docker inspect`), asked while Compose is. It is `unknown` when
+  Docker did not answer or the container could not be inspected (`Running`
+  still calls such a container up, which is what `doctor` wants). A running
+  router that another treerig root started, that has no ownership label, or
+  that serves another port than this root's shows no URLs, and stderr says
+  which: `The router is stopped, so no URL loads. Run 'treerig up' to start
+  it.`, `The router runs on port N, not M. Run 'treerig router up'.`, `The
+  router belongs to a different treerig root, so no URL is shown. Run 'treerig
+  router down', then 'treerig up'.` or `The router's state couldn't be read, so
+  no URL is shown. Run 'treerig doctor' to see why.` None is said when nothing
+  is routed.
+- **Host routes.** One TCP connect to `127.0.0.1:<port>` each, eight at a time,
+  within one second together; a connect that has not finished by then is `not
+  listening`. IPv6 is not tried: the router reaches a host process on IPv4.
+  `listening` means a TCP listener is there, not that it is this worktree's
+  process.
+- **A named worktree.** `status` resolves it with `WithinDirectory`, so a path
+  inside its directory names it, and reads the treerig.toml in the directory its
+  index card recorded (`Resolved.Root`). The directory is judged by
+  `worktreestate.Gatherer.RecordedDirectory`, the listing's evidence rule
+  without the Git entry (Git is not asked about another repository): gone only
+  when it is absent and its parent is a real, non-empty directory outside an
+  automount; otherwise `unknown`, with the listing's hint. When Git can say which
+  repository the directory is in and it is not the worktree's, the directory is
+  not read (`unknown`). The label namespace is the registration's, then the
+  card's, then that treerig.toml's. Neither the treerig.toml nor the Compose file
+  is read past 1 MiB or when it is not a regular file. Compose is asked for the
+  services with `config --no-interpolate` (every `status`, not only a named
+  worktree's), the one flag the minimum Compose (2.21) is certain to have;
+  when Compose refuses that, it is asked once more without the flag. Without a name `status` needs a treerig.toml above
+  the working directory, as before; with one it needs none. Every case that
+  stops before the services (a worktree with no recorded directory, a missing
+  or undetermined directory, one that is now another repository's) prints the
+  header and a line on stderr that ends with `Directory: <path>` where there is
+  one, and exits 0, since `status` reports states. A directory that is there
+  with no loadable treerig.toml, or a Compose file that is too large, is an
+  error, exit 1.
+- **Not registered.** The slug in the sentence is the one `up` would give: from
+  the branch when Git has an identity for the directory, else from the directory's
+  name.
+- **The stub.** `urls` prints `'treerig urls' is now 'treerig status'.` as an
+  error (`[treerig] ERROR:` prefix, exit 1), with flag parsing off; `help urls`
+  says the same.
 
 ### `list`
 
@@ -1012,7 +1075,8 @@ a yes-or-no question whose default is No.
 | Command | 0 | 1 | Other |
 |---|---|---|---|
 | `up` | running | did not start | a hook's own code; 130, 143 or 129 ending `up -f` |
-| `status`, `list` | any state | Docker didn't answer (output still printed) | |
+| `status` | any state | it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, or its treerig.toml wouldn't load (output printed where there is any) | |
+| `list` | any state | Docker didn't answer (output still printed) | |
 | `logs` | logs shown | the worktree isn't registered | 130 ending `-f` |
 | `open` | opened, or URL printed | service not running | |
 | `down` | stopped, or nothing to stop | failed | |

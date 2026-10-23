@@ -150,6 +150,42 @@ func (s *ServiceState) UnmarshalText(text []byte) error {
 	return fmt.Errorf("%q is not a service state", text)
 }
 
+// RouteState is whether the process behind a host route answers on its port.
+// It is the state word of a host route the way ServiceState is a service's: a
+// host route has no container, so there is nothing else to ask.
+type RouteState string
+
+// The host route states.
+const (
+	// Listening is a port that accepts a connection on 127.0.0.1.
+	Listening RouteState = "listening"
+	// NotListening is a port that does not, in the short time `status` waits.
+	NotListening RouteState = "not listening"
+)
+
+// RouteStates is every host route state.
+var RouteStates = []RouteState{Listening, NotListening}
+
+// String is the state as text output prints it.
+func (s RouteState) String() string { return string(s) }
+
+// JSON is the state as --json spells it: the text word in snake case.
+func (s RouteState) JSON() string { return strings.ReplaceAll(string(s), " ", "_") }
+
+// MarshalText makes encoding/json write a RouteState in its JSON spelling.
+func (s RouteState) MarshalText() ([]byte, error) { return []byte(s.JSON()), nil }
+
+// UnmarshalText reads a RouteState from its JSON spelling.
+func (s *RouteState) UnmarshalText(text []byte) error {
+	for _, state := range RouteStates {
+		if state.JSON() == string(text) {
+			*s = state
+			return nil
+		}
+	}
+	return fmt.Errorf("%q is not a host route state", text)
+}
+
 // ServiceStatus is one declared service's state, or one of its containers'.
 type ServiceStatus struct {
 	Service string

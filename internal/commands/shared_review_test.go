@@ -510,7 +510,7 @@ func TestAStartingServiceIsSaidToBeStarting(t *testing.T) {
 		t.Fatalf("output:\n%s", lines(second))
 	}
 	second.Logger.Lines, second.Logger.Printed = nil, nil
-	if _, err := commands.StatusWithContext(context.Background(), second.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+	if _, err := commands.StatusWithContext(context.Background(), second.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 		t.Fatal(err)
 	}
 	_, printed := second.Logger.Snapshot()
@@ -563,7 +563,7 @@ func TestStatusUsesTheServiceWordsAndSurvivesOneBadContainer(t *testing.T) {
 		}
 		// And the text form of `status` still prints.
 		tc.Logger.Lines, tc.Logger.Printed = nil, nil
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatalf("status: %v", err)
 		}
 	})
@@ -632,12 +632,26 @@ func TestStatusTellsNotUsedHereFromNotConnected(t *testing.T) {
 	if got := text(second); !strings.Contains(got, "not connected") {
 		t.Errorf("not connected:\n%s", got)
 	}
+	statusRow := func() string {
+		second.Logger.Lines, second.Logger.Printed = nil, nil
+		if _, err := commands.StatusWithContext(ctx, second.CommandContext, commands.StatusOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		_, printed := second.Logger.Snapshot()
+		return printed[len(printed)-1]
+	}
+	if got := statusRow(); !strings.HasPrefix(strings.Join(strings.Fields(got), " "), "mailpit (shared) running (not connected)") {
+		t.Errorf("status row of a consumer the container left: %q", got)
+	}
 	// Not used here: no service of this worktree that uses it is running.
 	if err := commands.DownWithContext(ctx, second.CommandContext); err != nil {
 		t.Fatal(err)
 	}
 	if got := text(second); !strings.Contains(got, "not used here") || strings.Contains(got, "not connected") {
 		t.Errorf("not used here:\n%s", got)
+	}
+	if got := statusRow(); strings.Contains(got, "not connected") {
+		t.Errorf("status row with no consumer running: %q", got)
 	}
 	var report commands.SharedStatusReport
 	second.Logger.Lines, second.Logger.Printed = nil, nil

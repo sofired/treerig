@@ -421,7 +421,7 @@ when you remove `treerig`.
 ## Calling it something else
 
 Name the binary or symlink whatever you like. Help text, the log prefix, and
-most "run `X urls`" hints follow the name it was invoked as, which is read
+most "run `X up`" hints follow the name it was invoked as, which is read
 from `argv[0]` and from nowhere else. A few hints, such as the one shown when
 no `treerig.toml` is found, always name `treerig`; either name works, because
 both run the same program:

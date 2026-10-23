@@ -33,6 +33,10 @@ package cli_test
 // and the err-*-rename cases pin `worktree rename` (#11); the other worktree
 // goldens list it.
 //
+// help-status, status-missing-file, complete-status-flags and
+// err-excess-arguments-status pin `status [worktree]` (#203); urls-stub* pin
+// the hidden stub `urls` became.
+//
 // help-all, help-cmd-all-status and help-help pin `help --all` (#199); the
 // verbose-*, progress-*, err-progress-*, err-version-* and err-config-* cases
 // and complete-root-flags pin where -v, --progress, -V and --config are
@@ -86,7 +90,6 @@ var goldenCases = []goldenCase{
 	{"help-up", []string{"up", "--help"}},
 	{"help-down", []string{"down", "--help"}},
 	{"help-status", []string{"status", "--help"}},
-	{"help-urls", []string{"urls", "--help"}},
 	{"help-run", []string{"run", "--help"}},
 	{"help-backup", []string{"backup", "--help"}},
 	{"help-restore", []string{"restore", "--help"}},
@@ -290,7 +293,7 @@ var goldenCases = []goldenCase{
 	{"err-excess-arguments-rename", []string{"worktree", "rename", "a", "b"}},
 	{"err-excess-arguments-remove-one", []string{"worktree", "remove", "foo", "bar"}},
 	{"err-excess-arguments-remove-two", []string{"worktree", "remove", "a", "b", "c"}},
-	{"err-excess-arguments-status", []string{"status", "extra"}},
+	{"err-excess-arguments-status", []string{"status", "one", "two"}},
 	{"err-excess-arguments-init", []string{"init", "extra"}},
 	{"err-excess-arguments-dev", []string{"dev", "extra"}},
 	{"err-excess-arguments-config-schema", []string{"config", "schema", "extra"}},
@@ -340,7 +343,13 @@ var goldenCases = []goldenCase{
 	{"config-validate-missing-file", []string{"config", "validate", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"config-show-missing-file", []string{"config", "show", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"worktree-list-missing-file", []string{"worktree", "list", "--config", "/nonexistent-treerig-config-x7z.toml"}},
-	{"urls-missing-file", []string{"urls", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	{"status-missing-file", []string{"status", "--config", "/nonexistent-treerig-config-x7z.toml"}},
+	// urls is a hidden stub (#203): flag parsing is off, so each of these gets
+	// the pointer and not a flag error.
+	{"urls-stub", []string{"urls"}},
+	{"urls-stub-json", []string{"urls", "--json"}},
+	{"urls-stub-help", []string{"urls", "--help"}},
+	{"urls-stub-config", []string{"urls", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"backup-missing-file", []string{"backup", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"restore-missing-file", []string{"restore", "somewhere", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"run-missing-file", []string{"run", "plan", "--config", "/nonexistent-treerig-config-x7z.toml"}},

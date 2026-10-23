@@ -1,0 +1,1 @@
+[treerig] The directory of feature-login.acme.localhost is missing, so its services can't be listed. If a drive is not connected, connect it. Otherwise run 'treerig worktree remove feature-login.acme.localhost'. Directory: FIXTURE/gone

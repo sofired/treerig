@@ -1,0 +1,18 @@
+{
+  "registered": true,
+  "host": "feature-login.acme.localhost",
+  "state": "partly_running",
+  "router": {
+    "state": "stopped"
+  },
+  "services": [
+    {
+      "service": "api",
+      "state": "running"
+    },
+    {
+      "service": "mail",
+      "state": "not_created"
+    }
+  ]
+}

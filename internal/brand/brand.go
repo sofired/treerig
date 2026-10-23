@@ -2,7 +2,7 @@
 // kinds matters.
 //
 // PRESENTATION — what people see: the command name in help text, the log
-// prefix, "run `X urls`" hints. This follows whatever the binary was installed
+// prefix, "run `X up`" hints. This follows whatever the binary was installed
 // or symlinked as, so a project that ships the tool as `duke` sees `duke`
 // everywhere. Nothing is configured; see [CLIName].
 //

@@ -3,8 +3,7 @@ config	inspect the project configuration
 dev	start this worktree's services, then follow their logs until Ctrl-C
 up	register this worktree, start its services, and run its hooks
 down	stop this worktree's services; data is kept
-status	show service status for this worktree
-urls	print this worktree's routed URLs
+status	show a worktree's services, their state and URLs
 run	run one of the project's named commands from treerig.toml [commands]
 backup	run the backup hook, writing a bundle into a directory
 restore	run the restore hook on a bundle directory
