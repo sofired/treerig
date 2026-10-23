@@ -83,6 +83,8 @@ type interrupted struct {
 	lines  []string
 	state  registry.WorktreeInitialization
 	paths  layout.Worktree
+	// targetID is the UUID of the worktree the removal targeted.
+	targetID string
 }
 
 // remove runs the interruption's removal and reports what it left.
@@ -118,13 +120,18 @@ func (i interruption) remove(t *testing.T) interrupted {
 
 	options := i.options
 	options.Yes = true
+	if options.Identifier == "." {
+		// A path form needs the directory the card records, and a working directory to read from.
+		w.WriteIndexCard(ref.RepositoryID, ref.WorktreeID, "acme", acme, "feature-login", "feature-login."+acme, w.Root, "feature/login")
+		tc.Cwd = w.Root
+	}
 	result, err := commands.RemoveWithContext(ctx, tc.CommandContext, &commands.Env{CommandName: name}, options)
 	lines, _ := tc.Logger.Snapshot()
 	state, stateErr := tc.Registry.Store(target.RepositoryID).Initialization(target.WorktreeID, slug)
 	if stateErr != nil && !i.proceed {
 		t.Fatal(stateErr)
 	}
-	return interrupted{err: err, result: result, lines: lines, state: state, paths: paths}
+	return interrupted{err: err, result: result, lines: lines, state: state, paths: paths, targetID: target.WorktreeID}
 }
 
 // interruptedLines is the lines of the notice an interrupted removal prints.
@@ -199,17 +206,32 @@ func TestWorktreeRemoveInterrupted(t *testing.T) {
 		}
 	})
 
-	t.Run("names the command as it was run, and the target as it was named", func(t *testing.T) {
+	t.Run("names the command as it was run, and a target given as a slug by its UUID", func(t *testing.T) {
 		out := interruption{match: " volume rm ", nth: 1, commandName: "bt", options: commands.RemoveOptions{Identifier: "feature-login", Domain: acme}}.remove(t)
 		wantNotice(t, out.lines, "Interrupted (SIGINT) while removing "+host+". Removed so far: nothing confirmed yet. "+
-			"It is still registered, now pending: 'bt worktree remove feature-login --domain "+acme+"' finishes the removal, "+
+			"It is still registered, now pending: 'bt worktree remove "+out.targetID+"' finishes the removal, "+
 			"'bt up' starts it again and runs the seed hook again.")
+	})
+
+	t.Run("names a target given as a path by its UUID, which reads the same from any directory", func(t *testing.T) {
+		out := interruption{match: " volume rm ", nth: 1, options: commands.RemoveOptions{Identifier: "."}}.remove(t)
+		uuid := out.targetID
+		wantNotice(t, out.lines, "Interrupted (SIGINT) while removing "+host+". Removed so far: nothing confirmed yet. "+
+			"It is still registered, now pending: 'treerig worktree remove "+uuid+"' finishes the removal, "+
+			"'treerig up' starts it again and runs the seed hook again.")
+	})
+
+	t.Run("keeps a target given as a host or a UUID as it was named", func(t *testing.T) {
+		out := interruption{match: " volume rm ", nth: 1, options: commands.RemoveOptions{Identifier: host}}.remove(t)
+		wantNotice(t, out.lines, "Interrupted (SIGINT) while removing "+host+". Removed so far: nothing confirmed yet. "+
+			"It is still registered, now pending: 'treerig worktree remove "+host+"' finishes the removal, "+
+			"'treerig up' starts it again and runs the seed hook again.")
 	})
 
 	t.Run("leaves out up when the target is another worktree", func(t *testing.T) {
 		out := interruption{match: " volume rm ", nth: 1, others: true, options: commands.RemoveOptions{Identifier: "feature-other"}}.remove(t)
 		wantNotice(t, out.lines, "Interrupted (SIGINT) while removing feature-other.acme.localhost. Removed so far: nothing confirmed yet. "+
-			"It is still registered, now pending: 'treerig worktree remove feature-other' finishes the removal.")
+			"It is still registered, now pending: 'treerig worktree remove "+out.targetID+"' finishes the removal.")
 	})
 
 	t.Run("keeps the registration and the home", func(t *testing.T) {

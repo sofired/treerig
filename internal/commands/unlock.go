@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/sofired/treerig/internal/brand"
@@ -33,7 +32,8 @@ import (
 
 // UnlockOptions are `worktree unlock`'s argument and flags.
 type UnlockOptions struct {
-	// Identifier is a slug or worktree UUID; this checkout when empty. Must
+	// Identifier names the worktree (registry.Registry.Resolve); the worktree
+	// the command runs in when empty. Must
 	// be empty when Registry or Router is set (#21): those name a single
 	// machine-wide lock, not a worktree, and UnlockGlobal refuses a
 	// non-empty Identifier or Domain rather than silently ignoring it.
@@ -73,10 +73,6 @@ type UnlockResult struct {
 	Cleared []ClearedLock
 }
 
-// uuidPattern matches a worktree UUID, for the extra clause a refusal adds
-// when the identifier looks like one.
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 // unlockTarget is the worktree to unlock, named the way its locks are.
 type unlockTarget struct {
 	repositoryID string
@@ -90,7 +86,7 @@ type unlockTarget struct {
 // machine-wide lock rather than a worktree, so they run before any context is
 // built — UnlockGlobal needs none, the same way `doctor` and the router verbs
 // read Env directly. Every other form uses ContextWithoutConfig, so none needs
-// a treerig.toml: a worktree named by slug or UUID is unlocked from anywhere,
+// a treerig.toml: a worktree named by UUID, host, path or slug is unlocked from anywhere,
 // and a treerig.toml that does not parse is warned about and set aside.
 func Unlock(ctx context.Context, env *Env, options UnlockOptions) error {
 	if options.Shared && (options.Registry || options.Router) {
@@ -489,39 +485,37 @@ func (c *CommandContext) environWorktreeID() (string, bool) {
 	return "", false
 }
 
-// resolveUnlockTarget is the worktree to unlock: one named by slug or UUID
-// anywhere on this machine — by UUID even if it never registered — or else
-// this checkout, by its identity markers.
+// resolveUnlockTarget is the worktree to unlock: one named anywhere on this
+// machine (registry.Registry.Resolve: a UUID, a host, the path to its
+// directory, or a slug) — by UUID even if it never registered — or else the
+// worktree this command runs in, by its identity markers. Unlocking clears a
+// lock, so a path must name the directory itself, not something inside it.
 func resolveUnlockTarget(ctx context.Context, cctx *CommandContext, options UnlockOptions) (*unlockTarget, error) {
 	if options.Identifier != "" {
-		found, err := cctx.Registry.FindGlobal(ctx, options.Identifier, options.Domain)
-		if err != nil {
-			return nil, err
-		}
-		if found != nil {
+		resolved, err := cctx.Registry.Resolve(ctx, options.Identifier, cctx.nameOptions(options.Domain, nil, false))
+		if err == nil {
+			found := resolved.Record
 			return &unlockTarget{
 				repositoryID: found.RepositoryID, worktreeID: found.WorktreeID, name: found.Slug,
 				host: layout.WorktreeHost(found.Slug, found.Domain),
 			}, nil
 		}
-		// A worktree whose first `up` died before it registered, and whose
-		// checkout may be gone too, is still named by its UUID in the locks it left.
-		repositoryID, orphanFound, err := findOrphanWorktree(cctx.ControlHome, options.Identifier)
-		if err != nil {
+		if !errors.Is(err, registry.ErrNoWorktree) || !registry.IsUUID(options.Identifier) {
 			return nil, err
 		}
+		// A worktree whose first `up` died before it registered, and whose
+		// directory may be gone too, is still named by its UUID in the locks it
+		// left. Lock files are named by the lowercase UUID, so the spelling is
+		// folded once, for the match and for the lock that is then cleared.
+		orphanID := strings.ToLower(options.Identifier)
+		repositoryID, orphanFound, orphanErr := findOrphanWorktree(cctx.ControlHome, orphanID)
+		if orphanErr != nil {
+			return nil, orphanErr
+		}
 		if orphanFound {
-			return &unlockTarget{repositoryID: repositoryID, worktreeID: options.Identifier, name: options.Identifier}, nil
+			return &unlockTarget{repositoryID: repositoryID, worktreeID: orphanID, name: orphanID}, nil
 		}
-		where := ""
-		if options.Domain != "" {
-			where = " under " + options.Domain
-		}
-		byUUID := ""
-		if uuidPattern.MatchString(options.Identifier) {
-			byUUID = ", and no lock is held for a worktree of that UUID"
-		}
-		return nil, clierr.Newf("No worktree is registered as %s%s%s.", options.Identifier, where, byUUID)
+		return nil, clierr.Newf("No worktree is registered as %s, and no lock is held for a worktree of that UUID.", options.Identifier)
 	}
 
 	flag := ""
@@ -534,7 +528,7 @@ func resolveUnlockTarget(ctx context.Context, cctx *CommandContext, options Unlo
 	}
 	if !inside {
 		return nil, clierr.Newf(
-			"There is no worktree to unlock here: %s is not inside a Git worktree. Name one with '%s worktree unlock %s<slug|uuid>'.", cctx.Cwd, cctx.CommandName, flag)
+			"There is no worktree to unlock here: %s is not inside a Git worktree. Name one with '%s worktree unlock %s<worktree>'.", cctx.Cwd, cctx.CommandName, flag)
 	}
 	identity, err := cctx.Registry.Identities.Inspect(ctx, cctx.Registry.Identities.Root, registry.InspectOptions{})
 	if err != nil {
@@ -542,7 +536,7 @@ func resolveUnlockTarget(ctx context.Context, cctx *CommandContext, options Unlo
 	}
 	if identity == nil {
 		return nil, clierr.Newf(
-			"This worktree has never been brought up, so it holds no lock. Name another with '%s worktree unlock %s<slug|uuid>'.", cctx.CommandName, flag)
+			"This worktree has never been brought up, so it holds no lock. Name another with '%s worktree unlock %s<worktree>'.", cctx.CommandName, flag)
 	}
 	record, err := cctx.Registry.Store(identity.RepositoryID).Find(identity.WorktreeID)
 	if err != nil {
@@ -638,7 +632,7 @@ func OrphanWorktrees(controlHome string) ([]OrphanWorktree, error) {
 	var orphans []OrphanWorktree
 	seen := map[OrphanWorktree]bool{}
 	for _, repository := range repositories {
-		if !repository.IsDir() || !uuidPattern.MatchString(repository.Name()) {
+		if !repository.IsDir() || !registry.IsUUID(repository.Name()) {
 			continue
 		}
 		entries, err := os.ReadDir(filepath.Join(worktreesDir, repository.Name()))
@@ -650,7 +644,7 @@ func OrphanWorktrees(controlHome string) ([]OrphanWorktree, error) {
 		}
 		for _, entry := range entries {
 			worktreeID := worktreeIDOf(entry.Name())
-			if !uuidPattern.MatchString(worktreeID) {
+			if !registry.IsUUID(worktreeID) {
 				continue
 			}
 			candidate := OrphanWorktree{RepositoryID: repository.Name(), WorktreeID: worktreeID}

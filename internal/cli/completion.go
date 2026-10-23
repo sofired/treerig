@@ -65,7 +65,7 @@ func withPrefix(comps []cobra.Completion, toComplete string) []cobra.Completion 
 // completion could make, a treerig.toml that does not parse and an
 // unreadable registry record alike: a warning has no place in a shell's
 // completion list.
-func worktreeCandidates(p *program, cmd *cobra.Command) (*commands.CommandContext, []commands.RegisteredWorktreeCandidate, error) {
+func worktreeCandidates(p *program, cmd *cobra.Command, domain string) (*commands.CommandContext, []commands.RegisteredWorktreeCandidate, error) {
 	env, err := p.env(cmd)
 	if err != nil {
 		return nil, nil, err
@@ -75,7 +75,7 @@ func worktreeCandidates(p *program, cmd *cobra.Command) (*commands.CommandContex
 	if err != nil {
 		return nil, nil, err
 	}
-	candidates, err := commands.RegisteredWorktreeCandidates(completionContext(), cctx)
+	candidates, err := commands.RegisteredWorktreeCandidates(completionContext(), cctx, domain)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -103,11 +103,14 @@ func describeWorktreeCandidate(c commands.RegisteredWorktreeCandidate) string {
 
 // identifierCompletionFunc is `worktree remove`'s and `worktree unlock`'s
 // own ValidArgsFunction: every worktree registered anywhere on this
-// machine — registry.Registry.FindGlobal's own search space, not just the
-// repository the command runs in — sorted by slug and each described by
-// its domain and its last-known path, narrowed to --domain once one is
-// already given. Both commands take at most one identifier, so nothing is
-// offered once one is already there. unlock's own (includeOrphans true)
+// machine, sorted by slug and each described by its domain and its
+// last-known path, narrowed to --domain once one is already given. Each is
+// offered under the name registry.Registry.Resolve reads back as that
+// worktree alone (its slug, else its host, else its UUID), so completion never
+// offers a name the command would refuse as ambiguous. A word that starts like a
+// path ("/", "." or "~") is the shell's to complete, as directories. Both
+// commands take at most one identifier, so nothing is offered once one is
+// already there. unlock's own (includeOrphans true)
 // also offers, after every registered slug and sorted by UUID, a worktree
 // resolveUnlockTarget can still recover a stale lock for even though it
 // was never registered (or is no longer), named only by its own UUID — the
@@ -118,21 +121,21 @@ func identifierCompletionFunc(p *program, includeOrphans bool) func(cmd *cobra.C
 		if len(args) > 0 {
 			return noCompletions()
 		}
-		cctx, candidates, err := worktreeCandidates(p, cmd)
+		if isPathPrefix(toComplete) {
+			return nil, cobra.ShellCompDirectiveFilterDirs
+		}
+		domain, _ := cmd.Flags().GetString("domain")
+		cctx, candidates, err := worktreeCandidates(p, cmd, domain)
 		if err != nil {
 			return noCompletions()
 		}
-		domain, _ := cmd.Flags().GetString("domain")
 		// candidates is already sorted by slug (RegisteredWorktreeCandidates),
 		// so appending in order keeps that as this list's own primary order.
 		registered := make(map[string]bool, len(candidates))
 		var comps []cobra.Completion
 		for _, c := range candidates {
 			registered[c.WorktreeID] = true
-			if domain != "" && c.Domain != domain {
-				continue
-			}
-			comps = append(comps, cobra.CompletionWithDesc(c.Slug, describeWorktreeCandidate(c)))
+			comps = append(comps, cobra.CompletionWithDesc(c.Name, describeWorktreeCandidate(c)))
 		}
 		if includeOrphans && domain == "" {
 			if orphans, err := commands.OrphanWorktrees(cctx.ControlHome); err == nil {
@@ -153,13 +156,21 @@ func identifierCompletionFunc(p *program, includeOrphans bool) func(cmd *cobra.C
 	}
 }
 
+// isPathPrefix reports whether word could be the start of a path form of a
+// worktree name ("/", "./", "../" or "~"; a lone "." included), which is a
+// directory for the shell to complete, not a registered name. It is the prefix
+// of registry.IsPathName's rule: keep the two in step.
+func isPathPrefix(word string) bool {
+	return strings.HasPrefix(word, "/") || strings.HasPrefix(word, ".") || strings.HasPrefix(word, "~")
+}
+
 // domainCompletionFunc is `worktree remove --domain`'s and `worktree
 // unlock --domain`'s own flag completion function: every domain a worktree
 // is registered under anywhere on this machine, deduplicated and sorted,
 // leaving out any that carries a control character.
 func domainCompletionFunc(p *program) func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
-		_, candidates, err := worktreeCandidates(p, cmd)
+		_, candidates, err := worktreeCandidates(p, cmd, "")
 		if err != nil {
 			return noCompletions()
 		}

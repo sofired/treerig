@@ -270,6 +270,21 @@ func TestWorktreeUnlock(t *testing.T) {
 		wantErr(t, err, `No worktree is registered as ffffffff-ffff-4fff-8fff-ffffffffffff, and no lock is held for a worktree of that UUID\.`)
 	})
 
+	t.Run("reaches an unregistered worktree named by its UUID in upper case, clearing the lock its lowercase file holds", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		ref := worktree.Ref{RepositoryID: "a08b4892-5111-49f1-a47a-5ab988c7f676", WorktreeID: "2b41d9d4-ed88-49c1-be9c-5439bdf6a431"}
+		killDeadHolder(t, w.ControlHome, ref)
+
+		result, err := unlock(t, tc, commands.UnlockOptions{Identifier: strings.ToUpper(ref.WorktreeID)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Name != ref.WorktreeID || len(result.Cleared) != 2 {
+			t.Fatalf("result = %+v", result)
+		}
+	})
+
 	// This scenario does not apply to Go: lock.Clear holds the flock for the
 	// whole judge-then-clear sequence in one call, so nothing else can
 	// reclaim the lock in between, and there is no second look to race.

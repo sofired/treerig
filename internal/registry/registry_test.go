@@ -184,66 +184,6 @@ func writeOtherRepositoryRecord(controlHome string) error {
 	return err
 }
 
-func TestRegistryFindGlobal(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("finds by worktree UUID across repositories", func(t *testing.T) {
-		f := newRegistryFixture(t, "feature/login", acmeDomain)
-		if err := writeOtherRepositoryRecord(f.controlHome); err != nil {
-			t.Fatalf("fixture record: %v", err)
-		}
-
-		found, err := f.registry.FindGlobal(ctx, wtB, "")
-		if err != nil {
-			t.Fatalf("FindGlobal: %v", err)
-		}
-		if found == nil || found.Slug != "other-clone" {
-			t.Fatalf("unexpected result: %+v", found)
-		}
-	})
-
-	t.Run("answers nil for an identifier that matches nothing", func(t *testing.T) {
-		f := newRegistryFixture(t, "feature/login", acmeDomain)
-		found, err := f.registry.FindGlobal(ctx, "nope", "")
-		if err != nil || found != nil {
-			t.Fatalf("expected (nil, nil), got (%+v, %v)", found, err)
-		}
-	})
-
-	t.Run("narrows an ambiguous slug by domain, and refuses to guess without one", func(t *testing.T) {
-		f := newRegistryFixture(t, "feature/login", acmeDomain)
-		const widgetsDomain = "widgets.localhost"
-		writeMinimalRecord(t, f.controlHome, repoA, wtA, "feature-login", acmeDomain, "complete")
-		writeMinimalRecord(t, f.controlHome, repoB, wtB, "feature-login", widgetsDomain, "complete")
-
-		_, err := f.registry.FindGlobal(ctx, "feature-login", "")
-		requireErrorContainsRegistry(t, err, "specify a domain")
-
-		acme, err := f.registry.FindGlobal(ctx, "feature-login", acmeDomain)
-		if err != nil || acme == nil || acme.WorktreeID != wtA {
-			t.Fatalf("unexpected result: %+v, %v", acme, err)
-		}
-		widgets, err := f.registry.FindGlobal(ctx, "feature-login", widgetsDomain)
-		if err != nil || widgets == nil || widgets.WorktreeID != wtB {
-			t.Fatalf("unexpected result: %+v, %v", widgets, err)
-		}
-		none, err := f.registry.FindGlobal(ctx, "feature-login", "nowhere.localhost")
-		if err != nil || none != nil {
-			t.Fatalf("expected (nil, nil) for an unclaimed domain, got (%+v, %v)", none, err)
-		}
-	})
-
-	t.Run("names every claimant when a hostname is registered to more than one worktree", func(t *testing.T) {
-		f := newRegistryFixture(t, "feature/login", acmeDomain)
-		writeMinimalRecord(t, f.controlHome, repoA, wtA, "feature-shared", acmeDomain, "complete")
-		writeMinimalRecord(t, f.controlHome, repoB, wtB, "feature-shared", acmeDomain, "complete")
-
-		_, err := f.registry.FindGlobal(ctx, "feature-shared", acmeDomain)
-		requireErrorContainsRegistry(t, err, "registered to more than one worktree")
-		requireErrorContainsRegistry(t, err, "address one by its UUID")
-	})
-}
-
 func TestRegistryPruneCandidates(t *testing.T) {
 	ctx := context.Background()
 

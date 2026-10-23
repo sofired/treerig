@@ -81,9 +81,9 @@ func newerHint(commandName string, pin teardown.Pin, version string) string {
 // needsConfigHint is the sentence that goes with the notice of a run through a
 // pinned release older than the running build, when there is no treerig.toml
 // to find from here (no --config, none above the working directory). This
-// build removes a worktree named by slug or UUID from anywhere, but an older
-// pin (0.1.x) reads a treerig.toml first and stops with "No treerig.toml
-// found", which would read as if the worktree needed one. All treerig knows is
+// build removes a named worktree from anywhere, but an older pin (0.1.x)
+// reads a treerig.toml first, knows only a slug or a UUID, and stops with "No
+// treerig.toml found", which would read as if the worktree needed one. All treerig knows is
 // that the pin is older, so it says "may", and gives the two ways that work
 // with every pin. A file pin is the caller's own binary, a pin that is not
 // older than the running build is as capable as it is, and a development build

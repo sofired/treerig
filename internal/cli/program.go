@@ -541,6 +541,10 @@ func arg0(args []string) string {
 	return args[0]
 }
 
+// worktreeNameHelp is the last paragraph of the Long text of the commands that take a worktree: the
+// forms registry.Registry.Resolve reads, in one sentence.
+const worktreeNameHelp = "Name the worktree by its UUID, its host, the path to its directory (./ ../ / ~) or its slug. With no name, the worktree you are in."
+
 // buildProgram assembles this binary's own cobra command tree, verb for
 // verb, in the order its help output lists them. A fresh tree is built on
 // every call — a cobra.Command's own parsed flag values live on the Command
@@ -1070,8 +1074,9 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	worktree.AddCommand(list)
 
 	remove := &cobra.Command{
-		Use:   "remove [identifier]",
+		Use:   "remove [worktree]",
 		Short: "remove a worktree's environment: containers, volumes, networks, images, home, and registration",
+		Long:  "Remove a worktree's environment: containers, volumes, networks, images, home, and registration.\n\n" + worktreeNameHelp,
 		Args:  maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)
@@ -1131,7 +1136,8 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	worktree.AddCommand(rename)
 
 	unlock := &cobra.Command{
-		Use:   "unlock [identifier]",
+		Use:   "unlock [worktree]",
+		Long:  "Clear a dead holder's lock on a worktree, its repository's shared services, the registry, or the router, once the holder, and anything it left running, is checked gone.\n\n" + worktreeNameHelp,
 		Short: "clear a dead holder's lock on a worktree, its repository's shared services, the registry, or the router, once the holder, and anything it left running, is checked gone",
 		Args:  maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
