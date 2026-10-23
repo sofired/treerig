@@ -6,6 +6,7 @@ Usage:
   treerig worktree unlock [identifier] [flags]
 
 Flags:
+      --config string         path to treerig.toml (default: nearest above cwd)
       --domain string         narrow a slug registered under more than one
                               domain
   -h, --help                  help for unlock
@@ -20,5 +21,6 @@ Flags:
                               repository instead of the worktree's own locks
 
 Global Flags:
-      --config string   path to treerig.toml (default: nearest above cwd)
-  -V, --version         output the version number
+      --progress mode   how to show progress: auto (redraw on a terminal) or
+                        plain (one line per change) (default "auto")
+  -v, --verbose         show what treerig runs, and every detail

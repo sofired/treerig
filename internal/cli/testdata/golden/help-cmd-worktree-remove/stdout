@@ -5,8 +5,8 @@ Usage:
   treerig worktree remove [identifier] [flags]
 
 Flags:
-      --dev-teardown             remove with this build's own code, not a pinned
-                                 teardown binary
+      --config string            path to treerig.toml (default: nearest above
+                                 cwd)
       --domain string            narrow a slug registered under more than one
                                  domain
   -h, --help                     help for remove
@@ -16,5 +16,6 @@ Flags:
       --yes                      skip the confirmation phrase
 
 Global Flags:
-      --config string   path to treerig.toml (default: nearest above cwd)
-  -V, --version         output the version number
+      --progress mode   how to show progress: auto (redraw on a terminal) or
+                        plain (one line per change) (default "auto")
+  -v, --verbose         show what treerig runs, and every detail

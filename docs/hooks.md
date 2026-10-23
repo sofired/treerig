@@ -460,9 +460,9 @@ is never taken for an argument or the other way round:
 treerig run apply -- -auto-approve -var "region=eu west"
 ```
 
-Flags after the command name are still treerig's own: `--config`, `-V` and
-`-h` there are read by treerig, not passed on, and any other flag is an error
-that says so. The command's own flags go after `--`.
+Flags after the command name are still treerig's own: `--config`, `-v`,
+`--progress` and `-h` there are read by treerig, not passed on, and any other
+flag is an error that says so. The command's own flags go after `--`.
 
 ### What a command gets
 

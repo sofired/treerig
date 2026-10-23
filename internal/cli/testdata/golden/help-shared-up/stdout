@@ -9,6 +9,8 @@ Usage:
   treerig shared up [name...] [flags]
 
 Flags:
+      --config string                 path to treerig.toml (default: nearest
+                                      above cwd)
   -h, --help                          help for up
       --reallocate-port stringArray   move a container port to a new loopback
                                       port, as <name>:<container port>; refused
@@ -17,5 +19,6 @@ Flags:
                                       worktree's definition, keeping their data
 
 Global Flags:
-      --config string   path to treerig.toml (default: nearest above cwd)
-  -V, --version         output the version number
+      --progress mode   how to show progress: auto (redraw on a terminal) or
+                        plain (one line per change) (default "auto")
+  -v, --verbose         show what treerig runs, and every detail

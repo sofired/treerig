@@ -158,5 +158,7 @@ the Compose file found at the root, `compose.yaml` if none.
 - **No YAML.** The Compose file is only named, never read: treerig has no YAML
   parser, and `config validate` after `init` should not depend on one. The
   starter's service is a placeholder to rename.
-- **`--config` is refused.** `init` reads no configuration; accepting a path
-  it then ignored would hide a mistake.
+- **`--config` is refused.** `init` reads no configuration, so it does not
+  declare the flag, and the error says why: `'treerig init' writes treerig.toml
+  at the root of the Git repository you run it in; it does not take --config.`
+  Accepting a path it then ignored would hide a mistake.

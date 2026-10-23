@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -261,6 +262,61 @@ func TestTeardownGate(t *testing.T) {
 		want := "info: Running the pinned teardown binary " + f.stored(digest) + " (release my-build) to remove this worktree."
 		if !strings.HasPrefix(f.logged(), want) {
 			t.Fatalf("stderr = %q, want it to start with %q", f.logged(), want)
+		}
+	})
+
+	t.Run("hands the pinned child no -v, --verbose or --progress, which an older pin would refuse", func(t *testing.T) {
+		for _, c := range []struct{ name, args, want string }{
+			{"short", "trig worktree remove x -v --yes", "trig worktree remove x --yes"},
+			{"repeated short", "trig worktree remove -vv x", "trig worktree remove x"},
+			{"long", "trig worktree remove --verbose x", "trig worktree remove x"},
+			{"long with a value", "trig worktree remove --verbose=true x", "trig worktree remove x"},
+			{"progress with a value", "trig -v --progress plain worktree remove x", "trig worktree remove x"},
+			{"progress joined", "trig worktree remove --progress=plain x", "trig worktree remove x"},
+			{"after the dashes they are the caller's", "trig worktree remove -- -v", "trig worktree remove -- -v"},
+			{"a flag's value is never stripped", "trig worktree remove --domain -v slug", "trig worktree remove --domain -v slug"},
+			{"nor a value after a stripped flag", "trig worktree remove -v --label-namespace --progress x", "trig worktree remove --label-namespace --progress x"},
+			{"others stay", "trig worktree remove --domain d --yes x", "trig worktree remove --domain d --yes x"},
+		} {
+			f := newGateFixture(t)
+			f.pinnedFile(t)
+			f.env.Args = strings.Fields(c.args)
+			// The fake pinned child: like a 0.1.x build, it knows none of the flags.
+			f.env.Exec = func(path string, argv, envv []string) error {
+				for i := 1; i < len(argv); i++ {
+					a := argv[i]
+					if a == "--" {
+						break
+					}
+					if a == "--domain" || a == "--label-namespace" {
+						i++ // its value is the child's to read
+						continue
+					}
+					if a == "-v" || a == "-vv" || strings.HasPrefix(a, "--verbose") || strings.HasPrefix(a, "--progress") || a == "plain" {
+						f.calls = append(f.calls, execCall{path: path, argv: argv})
+						return fmt.Errorf("unknown flag: %s", a)
+					}
+				}
+				f.calls = append(f.calls, execCall{path: path, argv: argv})
+				return errExecStopped
+			}
+			if err := f.remove(commands.RemoveOptions{Yes: true}); !errors.Is(err, errExecStopped) {
+				t.Errorf("%s: err = %v, want the fake child to accept its argv", c.name, err)
+				continue
+			}
+			if got := strings.Join(f.calls[0].argv, " "); got != c.want {
+				t.Errorf("%s: argv = %q, want %q", c.name, got, c.want)
+			}
+		}
+	})
+
+	t.Run("hands the relocated --dev-teardown copy the caller's argv as it is", func(t *testing.T) {
+		f := newGateFixture(t)
+		f.env.Args = []string{"trig", "worktree", "remove", "--dev-teardown", "-v", "--progress", "plain"}
+		f.execErr = nil
+		_ = f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true})
+		if len(f.calls) != 1 || strings.Join(f.calls[0].argv, " ") != "trig worktree remove --dev-teardown -v --progress plain" {
+			t.Fatalf("exec calls = %+v, want the caller's argv unchanged", f.calls)
 		}
 	})
 
