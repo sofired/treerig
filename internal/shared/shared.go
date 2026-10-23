@@ -79,11 +79,23 @@ type Options struct {
 	WaitTimeoutSeconds *int
 	Runner             run.Runner
 	Logger             logger.Logger
+	// Verbose is -v: Compose's transcript of starting the services is shown, on stderr.
+	Verbose bool
+	// Observe is called with each line Compose writes while a service starts.
+	Observe func(line string)
 }
 
 // Stack is one repository's shared Compose project.
 type Stack struct {
 	o Options
+}
+
+// Observing returns the stack with observe called for each line Compose writes
+// while a service starts; the receiver is not changed.
+func (s *Stack) Observing(observe func(line string)) *Stack {
+	clone := *s
+	clone.o.Observe = observe
+	return &clone
 }
 
 // New makes the stack for o.RepositoryID.

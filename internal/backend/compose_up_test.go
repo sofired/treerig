@@ -312,8 +312,8 @@ func TestComposeUp(t *testing.T) {
 		if !slices.Equal(up[0].Args, want) {
 			t.Fatalf("up args = %v, want %v", up[0].Args, want)
 		}
-		if up[0].Output != run.Tee {
-			t.Fatalf("expected the up call to tee output, got %v", up[0].Output)
+		if up[0].Output != run.Capture {
+			t.Fatalf("expected the up call to capture Compose's transcript, got %v", up[0].Output)
 		}
 	})
 

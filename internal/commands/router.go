@@ -168,6 +168,8 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 		ModeOverride:        mode,
 		DockerHost:          dockerHost,
 		ClientOS:            env.OS,
+		Verbose:             env.Verbose,
+		Progress:            progressFor(env),
 	})
 }
 
@@ -190,6 +192,7 @@ func routerServiceForDown(env *Env) (*router.Router, error) {
 		Invocation:  env.Invocation,
 		CommandName: env.CommandName,
 		Home:        home,
+		Verbose:     env.Verbose,
 	})
 }
 
@@ -334,11 +337,52 @@ func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
 }
 
 // RouterDown is `router down`: stop the shared router; worktree services
-// keep running but are no longer routed.
+// are not touched, but nothing routes to them any more. It says so in its own
+// words, counting the worktrees that had a route file, and shows Compose's
+// transcript only with -v. It cannot say whether those worktrees run: a route
+// file can outlive a stopped service.
 func RouterDown(ctx context.Context, env *Env) error {
+	home, _, err := checkedHome(env.Getenv)
+	if err != nil {
+		return err
+	}
 	svc, err := routerServiceForDown(env)
 	if err != nil {
 		return err
 	}
-	return svc.Down(ctx)
+	// Both best effort: stopping the router must not wait on either, and a
+	// router whose container cannot be read is stopped as if it ran.
+	state, stateErr := svc.Running(ctx)
+	if stateErr != nil {
+		env.Logger.Detail(fmt.Sprintf("Could not read the router's container before stopping it: %s", stateErr))
+	}
+	wasRunning := stateErr != nil || state.Present
+	routed, routedErr := router.RoutedWorktrees(layout.RouterStateFrom(home))
+	if routedErr != nil {
+		env.Logger.Detail(fmt.Sprintf("Could not count the worktrees with route files: %s", routedErr))
+	}
+	if err := svc.Down(ctx); err != nil {
+		return err
+	}
+	if !wasRunning {
+		env.Logger.Info("The router is not running. Nothing to stop.")
+		return nil
+	}
+	env.Logger.Info(routerStoppedMessage(env.CommandName, routed, routedErr == nil))
+	return nil
+}
+
+// routerStoppedMessage is what `router down` says once the router is gone,
+// with the number of worktrees that had route files, when it could be read.
+func routerStoppedMessage(commandName string, routed int, counted bool) string {
+	switch {
+	case !counted:
+		return fmt.Sprintf("Router stopped. URLs of worktrees routed through it don't load until you run '%s up' in each.", commandName)
+	case routed == 0:
+		return "Router stopped."
+	case routed == 1:
+		return fmt.Sprintf("Router stopped. 1 worktree was routed through it; its URLs don't load until you run '%s up' there.", commandName)
+	default:
+		return fmt.Sprintf("Router stopped. %d worktrees were routed through it; their URLs don't load until you run '%s up' in each.", routed, commandName)
+	}
 }

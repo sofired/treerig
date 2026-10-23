@@ -447,6 +447,10 @@ func TestSharedDown(t *testing.T) {
 		if !strings.Contains(lines(tc), "1 worktree(s) use mailpit, which is no longer running; 'treerig up' or 'treerig shared up' starts it again.") {
 			t.Errorf("output:\n%s", lines(tc))
 		}
+		// The progress line names the service, not the container.
+		if !slices.Contains(strings.Split(lines(tc), "\n"), "info: Stopping mailpit.") {
+			t.Errorf("no line names the service being stopped:\n%s", lines(tc))
+		}
 		// The worktree's own resources are untouched.
 		if left := w.Docker.Owned(refOf(result), brand.LabelNamespace); len(left) == 0 {
 			t.Fatal("shared down removed the worktree's resources")
@@ -563,7 +567,7 @@ func TestSharedDown(t *testing.T) {
 		if err := commands.SharedDownWithContext(context.Background(), bare.CommandContext, env, commands.SharedDownOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(lines(bare), "No shared services of this repository to stop (Docker label namespace dev.treerig)") {
+		if !strings.Contains(lines(bare), "No shared services of this repository to stop.") {
 			t.Fatalf("output:\n%s", lines(bare))
 		}
 		if len(w.Docker.Find("container", map[string]string{"dev.example.shared": "true"})) != 1 {

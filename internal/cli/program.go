@@ -14,6 +14,9 @@ import (
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // init turns off cobra's alphabetical sorting of subcommands, a
@@ -36,7 +39,10 @@ var errVersionRequested = errors.New("cli: version requested")
 // decides its own exit code (doctor, router status) records it.
 type program struct {
 	buildEnv func(configPath string) (*commands.Env, error)
-	exitCode *int
+	// verbosity is told -v once the command line is parsed; nil in a hand-built
+	// program that has no logger of its own.
+	verbosity logger.Verbosity
+	exitCode  *int
 }
 
 // env resolves cmd's own --config (declared by addConfigFlag on each command
@@ -58,7 +64,42 @@ func (p *program) env(cmd *cobra.Command) (*commands.Env, error) {
 	if env.Progress == "" {
 		env.Progress = commands.ProgressAuto
 	}
+	env.Progress = decideProgress(env.Progress, env.Getenv, env.StderrIsTTY)
+	p.applyVerbose(env)
 	return env, nil
+}
+
+// decideProgress is the one decision about how progress is shown, made here
+// and passed down so that no library code reads the environment or probes the
+// terminal (docs/design/cli-1.0.md, "Rendering"): plain when --progress=plain
+// says so, when CI is set, when stderr is not a terminal and when TERM is
+// "dumb"; auto otherwise.
+func decideProgress(requested commands.ProgressMode, getenv layout.Getenv, stderrIsTTY bool) commands.ProgressMode {
+	if requested == commands.ProgressPlain || !stderrIsTTY {
+		return commands.ProgressPlain
+	}
+	if getenv != nil {
+		if ci, _ := getenv("CI"); ci != "" {
+			return commands.ProgressPlain
+		}
+		if term, _ := getenv("TERM"); term == "dumb" {
+			return commands.ProgressPlain
+		}
+	}
+	return requested
+}
+
+// applyVerbose hands -v to what the env holds: the logger prints its Detail
+// lines, and the runner says each Docker command before running it. The
+// backend, the router and the shared stack take env.Verbose themselves, to
+// show Compose's transcript.
+func (p *program) applyVerbose(env *commands.Env) {
+	if p.verbosity != nil {
+		p.verbosity.SetVerbose(env.Verbose)
+	}
+	if env.Verbose && env.Logger != nil && env.Runner != nil {
+		env.Runner = docker.Traced(env.Runner, env.Logger.Detail)
+	}
 }
 
 // The names of the flags this tree declares in more than one place, or reads

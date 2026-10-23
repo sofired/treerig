@@ -100,6 +100,9 @@ type dockerFake struct {
 	// timed-out down must not be read as Compose's own "has active
 	// endpoints" refusal even if its stderr happened to contain that text.
 	downTimedOut bool
+	// upExitCode/upStderr make `compose … up …` fail the same way.
+	upExitCode int
+	upStderr   string
 }
 
 // newFake builds a dockerFake with its resource and label maps ready to
@@ -151,6 +154,10 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 					}
 					encoded, _ := json.Marshal(model)
 					return ok(string(encoded))
+				case "up":
+					if f.upExitCode != 0 {
+						return run.Finish(spec, run.Result{Stderr: f.upStderr, ExitCode: f.upExitCode})
+					}
 				case "down":
 					if f.downTimedOut {
 						return run.Finish(spec, run.Result{Stderr: f.downStderr, ExitCode: 1, TimedOut: true})

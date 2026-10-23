@@ -15,6 +15,7 @@ import (
 	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/ports"
 	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/settings"
@@ -97,6 +98,11 @@ type CommandContext struct {
 	Table procid.Table
 	// Lifecycle holds mutations' locks and defers signals; nil builds one that never listens.
 	Lifecycle *lifecycle.Lifecycle
+	// Verbose is Env.Verbose.
+	Verbose bool
+	// Progress shows a long phase (Env.Progress picks the writer); nil, as in
+	// a hand-built context, is the plain writer over Logger.
+	Progress progress.Progress
 	// StderrIsTTY says stderr is a terminal, which is when a command may add
 	// the footers that only a person at a terminal reads (Env.StderrIsTTY).
 	StderrIsTTY bool
@@ -135,6 +141,7 @@ func (c *CommandContext) RuntimeFor(namespace string, registered *registry.Regis
 		Runner:         c.Runner,
 		Logger:         c.Logger,
 		Environ:        c.Environ,
+		Verbose:        c.Verbose,
 	}
 	// Without a treerig.toml (ContextWithoutConfig) there is no Compose file,
 	// project or domain to hand over: the label-only calls LabelRuntime is for
@@ -278,8 +285,22 @@ func buildContext(env *Env, loaded *config.Loaded, fallbackRoot string) (*Comman
 		Table:                env.Table,
 		Lifecycle:            env.Lifecycle,
 		StderrIsTTY:          env.StderrIsTTY,
+		Verbose:              env.Verbose,
+		Progress:             progressFor(env),
 	}, nil
 }
+
+// phase shows one long phase through c.Progress.
+func (c *CommandContext) phase(spec progress.PhaseSpec, action func() error) error {
+	return progress.Or(c.Progress, c.Logger).Phase(spec, action)
+}
+
+// progressFor is the writer the env's mode asks for. Only the plain one exists
+// so far, and it is also what a hand-built Env gets, which keeps every
+// in-process golden byte-exact.
+//
+// TODO(#208): ProgressAuto on a terminal returns the live writer.
+func progressFor(env *Env) progress.Progress { return progress.NewPlain(env.Logger) }
 
 // nameOptions are the registry.NameOptions every command that takes a worktree
 // reads its argument with: the working directory a relative path starts from,

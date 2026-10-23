@@ -408,3 +408,57 @@ func requireMessage(t *testing.T, err error, code int, message string) {
 		t.Fatalf("expected a clierr.Exiter, got %T", err)
 	}
 }
+
+func TestRunHookStreams(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("streams every stage's output to stderr, never stdout", func(t *testing.T) {
+		for _, stage := range []config.HookStage{config.Prepare, config.Seed, config.Backup, config.Restore, config.Verify} {
+			runner := recordingRunner(nil)
+			line := "./hook.sh"
+			cfg := config.Hooks{Prepare: &line, Seed: &line, Backup: &line, Restore: &line, Verify: &line}
+			if _, err := hooks.RunHook(ctx, stage, newContext(runner, cfg), hooks.RunOptions{}); err != nil {
+				t.Fatalf("%s: %v", stage, err)
+			}
+			calls := runner.Calls()
+			if len(calls) != 1 || calls[0].Output != run.TeeToStderr {
+				t.Errorf("%s hook output = %+v, want TeeToStderr", stage, calls)
+			}
+		}
+	})
+
+	t.Run("says its exit code and time with -v, and never its arguments or environment", func(t *testing.T) {
+		runner := recordingRunner(nil)
+		rec := &logger.Recording{Verbose: true}
+		hctx := newContext(runner, config.Hooks{Prepare: str("./hook.sh --token=hunter2")})
+		hctx.Logger = rec
+		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		lines, _ := rec.Snapshot()
+		var detail []string
+		for _, line := range lines {
+			if strings.HasPrefix(line, "detail: ") {
+				detail = append(detail, line)
+			}
+		}
+		if len(detail) != 1 || detail[0] != "detail: The prepare hook exited 0 after less than a second." {
+			t.Fatalf("detail lines = %q", detail)
+		}
+		if joined := strings.Join(lines, "\n"); strings.Contains(joined, "hunter2") || strings.Contains(joined, "TREERIG_") {
+			t.Errorf("a hook's argument or environment reached the output: %q", lines)
+		}
+	})
+
+	t.Run("says nothing extra without -v", func(t *testing.T) {
+		rec := &logger.Recording{}
+		hctx := newContext(recordingRunner(nil), config.Hooks{Prepare: str("./hook.sh")})
+		hctx.Logger = rec
+		if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if lines, _ := rec.Snapshot(); !slices.Equal(lines, []string{"info: Running prepare hook."}) {
+			t.Fatalf("lines = %q", lines)
+		}
+	})
+}

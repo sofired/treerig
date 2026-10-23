@@ -16,6 +16,7 @@ import (
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/hooks"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
 )
 
@@ -166,13 +167,13 @@ func runBundleHook(ctx context.Context, cctx *CommandContext, stage config.HookS
 				ConfigFile:  cctx.Loaded.File,
 				ProjectRoot: cctx.Loaded.Root,
 			},
-			Ref: ref, Hooks: cfg.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ, ComposeFile: cctx.ComposeFile(),
+			Ref: ref, Hooks: cfg.Hooks, Logger: cctx.Logger, Progress: cctx.Progress, Runner: cctx.Runner, Environ: cctx.Environ, ComposeFile: cctx.ComposeFile(),
 			// The same routes as `up`'s hooks and every Compose call: services
 			// and host routes (#177).
 			Routes: routesOf(cfg, ref.Slug, found.Domain, cctx.RouterPort, found.Ports, found.HostRoutes).All(),
 			Shared: sharedAddrs(cctx, ref.RepositoryID),
 		}
-		_, hookErr := hooks.RunHook(ctx, stage, hctx, hooks.RunOptions{Argument: &bundle, Output: hooks.Terminal})
+		_, hookErr := hooks.RunHook(ctx, stage, hctx, hooks.RunOptions{Argument: &bundle})
 		if stage != config.Backup {
 			return hookErr
 		}
@@ -193,6 +194,9 @@ func runBundleHook(ctx context.Context, cctx *CommandContext, stage config.HookS
 		return err
 	}
 	if stage == config.Backup {
+		// The path alone is the result, so `dir=$(treerig backup)` gets it:
+		// the hook's own output went to stderr.
+		cctx.Logger.Output(text.Printable(bundle))
 		cctx.Logger.Info(fmt.Sprintf("Backed up %s to %s.", host, bundle))
 		if inHome {
 			cctx.Logger.Info(fmt.Sprintf("That is inside the worktree's home, which '%s worktree remove' deletes; give '%s backup' a directory to keep a bundle longer.",

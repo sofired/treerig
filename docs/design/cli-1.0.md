@@ -518,6 +518,89 @@ arguments, or `docker compose config` output, and it redacts `KEY=value` pairs
 and URLs with userinfo, through one tested function in `internal/text`.
 `TREERIG_DEBUG` stays, meaning only stack traces on errors.
 
+As built (#205):
+
+- **Quiet by default.** The backend, the router and the shared stack take
+  `Options.Verbose`. Without it Compose's `up` and `down` are captured
+  (`run.Transcript`), so nothing of the transcript is shown. With it the
+  transcript goes to stderr, as Compose wrote it (both of Compose's streams; the
+  old pass-through kept each on its own). `dev` and `up -f` are unchanged here:
+  their followed logs keep their streams.
+- **Evidence without `-v`.** A failure quotes the last 50 lines of the captured
+  output in every branch (`run.Failure`: an exit, a timeout, a signal, an
+  overflow), after a line saying how many were left out. `backend.UpError`
+  carries the whole `run.Result` of a failed `compose up` for the failure
+  summary (#206); the 20-line build ring buffer and the evidence budget are
+  that issue's work. `run.Failure` is shared, so every caller now quotes a
+  bounded tail (git, hooks and `compose config` included), which changes the
+  text of a long failure; a tail is at most 50 lines, 500 bytes a line and 8
+  KiB, and is not redacted, because diagnostics such as `COMPOSE_PROJECT_NAME`
+  matter there. The heartbeat carries the last line Compose wrote that was not
+  hidden (`run.Spec.Observe`, `progress.Latest`): through `text.Printable` and
+  `text.Redact`, cut at 120 characters, so a hung or killed start leaves its
+  last words without leaving a secret.
+- **The Docker command line.** With `-v` the command line wraps the runner in
+  `docker.Traced`, which says each command `docker.Run` builds, through
+  `logger.Detail`: `docker compose --project-name … down --remove-orphans`. A
+  hook, a `[commands]` entry or `git` never goes through it, the line ends at a
+  `--`, and the wrapper keeps the inner runner's `Quiesce`. Each argument is
+  redacted before it is quoted (`text.RedactArguments`): the argument after
+  `--password`, `--token` and the like, the value of a pair after `-e`, `--env`
+  and `--build-arg`, the value of a `--flag=value` whose name looks like a secret,
+  and then what `text.Redact` finds in it. `Console.Detail` runs `text.Redact`
+  over any line it is given: the value of a `KEY=value` pair whose name is upper
+  case or contains pass, pwd, secret, token, key, auth, cred, signature, bearer,
+  private or jwt; an `Authorization` header; a bearer token; and the userinfo of
+  a URL. A Docker filter such as `label=com.docker.compose.project=x` is not a
+  pair it hides.
+- **The logger.** `Logger.Detail` prints nothing unless `Console.SetVerbose` was
+  called, which the command line does through `logger.Verbosity` for every
+  command; `Recording` has a `Verbose` field for tests. A hook run with `-v`
+  adds `The prepare hook exited 0 after 3s.`.
+- **Hook output** is `TeeToStderr` for every stage; `hooks.OutputMode` is gone.
+  `backup` writes the path of the bundle on stdout, through `text.Printable`.
+- **`down`** asks Docker what is left first (`Compose.Leftover`: one listing of
+  the project's containers with their states, one of its networks, under a
+  deadline of its own; past it, `Docker didn't answer within 30s while checking
+  what is left of <host>. Run 'treerig doctor' to see why.`, exit 124), and
+  opens the `Stopping` phase only when something runs. Nothing left is `<host>
+  is not running. Nothing to stop.` with no `compose down`; stopped containers
+  or a network left are removed by `compose down` without a phase (`-v` says
+  so) and reported the same way; a running worktree is stopped as before. A
+  worktree that is not registered is `This worktree is not registered.
+  Nothing to stop.`, exit 0. `docker.IsNoResourceWarning` matches Compose's `No
+  resource found to remove` line whole, in the logfmt form of Compose 2.2x and
+  later and the plain form before, and `run.Spec.HideLine` keeps it off a shown
+  transcript and out of a quoted failure.
+- **`router down`** counts the worktrees that have a route file for a service
+  (`router.RoutedWorktrees`). A route file can outlive a service stopped by
+  hand, so it says `N worktrees were routed through it; their URLs don't load
+  until you run 'treerig up' in each.` and never that they keep running; with no
+  count it says so neutrally and `-v` says why. No router running is `The router
+  is not running. Nothing to stop.`, and `compose down` still runs. `up` and
+  `router up` wrap the start of a router that was not running in `Starting the
+  router.` with the heartbeat.
+- **`shared down`** says `Stopping <service>.`; the prompt of `shared down
+  --volumes` still lists the containers and volumes it removes by name, since
+  that list is the proof of what goes. The empty case drops the label namespace
+  from its default line (`-v` names it).
+- **Progress.** `progress.Progress` has one method, `Phase(PhaseSpec, action)`;
+  `PhaseSpec` has `Verb`, `What`, `Passthrough` (a hook: its output owns the
+  terminal) and `Note`. `progress.Plain` is the one writer: `Starting web for
+  feature-x.` when it starts and `still starting web for feature-x, 40s: <note>`
+  every ten seconds (the old `(Ns elapsed)` is gone), on a terminal too until the
+  live view exists. The live writer (#208) still needs a poll source for
+  per-service state, which arrives as another `PhaseSpec` field.
+  `cli.decideProgress` is the one decision: plain for `--progress=plain`, `CI`, a
+  stderr that is not a terminal and `TERM=dumb`; every mode builds the plain
+  writer for now.
+- **Not yet.** `-v` shows Docker and Compose commands only. The paths, IDs and
+  digests other commands know, and `doctor`'s every check, wait for the commands
+  that print them (#211, #215).
+- **Marking treerig's own lines** (the note from #198's review) waits for the
+  pull request that drops the `[treerig]` prefix: until then the prefix does the
+  marking, and `Console.say` is the one place a marker would go.
+
 ## Command by command
 
 ### `up`
@@ -1098,10 +1181,10 @@ a yes-or-no question whose default is No.
 
 ### Everything else
 
-- **`down [worktree]`** with nothing to stop: `feature-x is not running.
-  Nothing to stop.` (or `is not registered`), exit 0. It still runs `compose
-  down` while any container or network remains, and drops only Compose's
-  `No resource found to remove` warning, matched exactly.
+- **`down [worktree]`** with nothing to stop: `feature-x.myapp.localhost is
+  not running. Nothing to stop.` (or `is not registered`), exit 0. It still runs
+  `compose down` while any container or network remains, and drops only
+  Compose's `No resource found to remove` warning, matched exactly.
 - **`rename <new-slug>`** renames under the operation and development locks as
   today. If the services run, it then starts them through an `up` that runs
   under the locks it already holds (an `upLocked` that `up` also uses), so
@@ -1135,8 +1218,8 @@ a yes-or-no question whose default is No.
   does; `--router`, `--registry` and `--shared` name the machine's locks, and
   `--list` lists the held ones. The checks before clearing are unchanged
   ([lock-recovery.md](../lock-recovery.md)).
-- **`router down`**: `Router stopped. 2 worktrees keep running, but their URLs
-  don't load until you run 'treerig up'.` No Compose lines.
+- **`router down`**: `Router stopped. 2 worktrees were routed through it; their
+  URLs don't load until you run 'treerig up' in each.` No Compose lines.
 - **`config validate`** stays, for CI and pre-commit hooks: it needs no Docker.
   It stops printing the control home. It and `doctor` warn about a
   `[commands]` entry with `$` followed by a name or `{`: `commands.<name>: runs
@@ -1208,7 +1291,8 @@ changes without a deprecation period beyond the one-release stubs.
 - `backup` without a directory writes under the treerig root.
 - Confirmations are `[y/N]` questions instead of a typed name or phrase, and
   `restore` now asks, so a script that runs `restore` passes `--yes`.
-- Hook output moves from stdout to stderr.
+- Hook output moves from stdout to stderr: a script that read a hook's output
+  from stdout adds `2>&1`. `backup` prints the path it wrote on stdout.
 - State words change in text and in JSON, with these breaking changes for
   scripts: `worktree list` `state` was `ready`, `pending` or `missing` and is
   now one of the nine; `status` and `shared status` service `state` `absent` is
@@ -1228,6 +1312,9 @@ changes without a deprecation period beyond the one-release stubs.
   unless `--refresh` says so.
 - The default text of `up`, `status`, `list`, `doctor`, `remove`, `down`,
   `router down` and the errors changes; plain notices lose `[treerig]`.
+- Docker Compose's own progress is no longer printed by `up`, `down`, `router
+  down`, `shared up`, `worktree remove` or `rename`; `-v` shows it. Failures
+  still quote the last 50 lines of it.
 - Exit codes: `down` with nothing to stop exits 0; `doctor` fails on a crashed
   service, a stopped router with worktrees running, and a URL that doesn't
   answer; `status` and `list` exit 1 when Docker doesn't answer.
@@ -1284,8 +1371,8 @@ runs a new build with the previous release pinned.
    `worktree list` and `index` become stubs; `internal/checkoutindex` becomes
    `internal/overview` and `docs/checkout-index.md` becomes `docs/overview.md`.
 9. **Quiet output and `-v`**: the backend's output mode, redaction, hook output
-   to stderr, `down`, `shared` and `router down` wording, the `Progress`
-   interface with the plain writer.
+   to stderr, `backup`'s path on stdout, `down`, `shared` and `router down`
+   wording, the `Progress` interface with the plain writer.
 10. **`up` failure summary**: exit codes from `ps`, `logs --tail`, the build
     ring buffer, the evidence budget, the failure table.
 11. **`logs`**, then **`up -f`** with `dev` as a stub, and the locks.md update.

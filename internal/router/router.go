@@ -32,6 +32,7 @@ import (
 	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/ports"
+	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/text"
 )
@@ -165,6 +166,12 @@ type Options struct {
 	Page         PlaceholderPage
 	// Timeouts overrides this router's per-call docker timeouts (#14).
 	Timeouts Timeouts
+	// Verbose is -v: Compose's transcript of stopping the router is shown, on
+	// stderr. Without it the caller tells what happened in its own words.
+	Verbose bool
+	// Progress shows the start of a router that was not running; nil is the
+	// plain writer over Logger.
+	Progress progress.Progress
 	// Home is the treerig root (TREERIG_HOME) this Router's state was resolved
 	// from — stamped on both containers as RouterHomeLabel and checked by
 	// Ensure before it ever touches a router another treerig root started
@@ -217,6 +224,8 @@ type Router struct {
 	commandName    string
 	page           PlaceholderPage
 	timeouts       Timeouts
+	verbose        bool
+	progress       progress.Progress
 	home           string
 	controlHome    string
 	registrations  Registrations
@@ -264,6 +273,8 @@ func New(options Options) (*Router, error) {
 		settingsPath:   options.SettingsPath,
 		page:           page,
 		timeouts:       options.Timeouts.withDefaults(),
+		verbose:        options.Verbose,
+		progress:       progress.Or(options.Progress, options.Logger),
 		home:           options.Home,
 		controlHome:    options.ControlHome,
 		registrations:  options.Registrations,
@@ -826,8 +837,19 @@ func (r *Router) Ensure(ctx context.Context) error {
 	if err := r.write(time.Now(), options); err != nil {
 		return err
 	}
-	if err := r.start(ctx); err != nil {
-		return err
+	// A router that already runs is not started again in any way a person
+	// waits for, so only one that is not up gets a phase.
+	var startErr error
+	if wasRunning {
+		startErr = r.start(ctx, nil)
+	} else {
+		var latest progress.Latest
+		startErr = r.progress.Phase(progress.PhaseSpec{Verb: "Starting", What: "the router", Note: latest.Get}, func() error {
+			return r.start(ctx, latest.Set)
+		})
+	}
+	if startErr != nil {
+		return startErr
 	}
 	// Best effort: route files that cannot be reconciled this run (an
 	// unreadable record) must not turn an otherwise healthy router start
@@ -869,8 +891,8 @@ func (r *Router) repairRoutes(ctx context.Context) error {
 // is reported in terms of the port most likely to blame, followed by the
 // containers' last log lines: a port taken after the check above otherwise
 // crash-loops the proxy with Compose reporting only "unhealthy".
-func (r *Router) start(ctx context.Context) error {
-	result, err := r.compose(ctx, []string{"up", "--detach", "--wait", "--remove-orphans"}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Start})
+func (r *Router) start(ctx context.Context, observe func(line string)) error {
+	result, err := r.compose(ctx, []string{"up", "--detach", "--wait", "--remove-orphans"}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Start, Observe: observe})
 	if err != nil {
 		return err
 	}
@@ -1370,7 +1392,10 @@ func StatusReport(status RouterStatus) Report {
 // because it still catches one-off `compose run` containers of the project.
 func (r *Router) Down(ctx context.Context) error {
 	args := []string{"compose", "--project-name", r.ProjectName, "down", "--remove-orphans"}
-	spec := run.Spec{AllowFailure: true, Output: run.Tee, Env: docker.ComposeEnvironment(r.environ), Timeout: r.timeouts.Down}
+	spec := run.Spec{
+		AllowFailure: true, Output: run.Transcript(r.verbose), HideLine: docker.IsNoResourceWarning,
+		Env: docker.ComposeEnvironment(r.environ), Timeout: r.timeouts.Down,
+	}
 	result, err := docker.Run(ctx, r.runner, args, spec)
 	if err != nil {
 		return err
@@ -1386,9 +1411,9 @@ func (r *Router) Down(ctx context.Context) error {
 	if result.TimedOut || result.OutputOverflow || result.Signal != 0 {
 		return run.Failure(run.Spec{Command: "docker", Args: args, Timeout: spec.Timeout}, result)
 	}
-	detail := strings.TrimSpace(result.Stderr)
+	detail := strings.TrimSpace(docker.WithoutNoResourceWarning(result.Stderr))
 	if detail == "" {
-		detail = strings.TrimSpace(result.Stdout)
+		detail = strings.TrimSpace(docker.WithoutNoResourceWarning(result.Stdout))
 	}
 	return clierr.Newf("The shared router did not stop cleanly:\n%s", detail)
 }

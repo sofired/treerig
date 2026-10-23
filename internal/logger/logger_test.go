@@ -322,3 +322,48 @@ func TestRecording(t *testing.T) {
 		}
 	})
 }
+
+func TestConsoleDetail(t *testing.T) {
+	t.Run("says nothing without -v", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		c := NewConsole("treerig", &stdout, &stderr)
+		c.Detail("docker ps -aq")
+		if stdout.Len() != 0 || stderr.Len() != 0 {
+			t.Fatalf("stdout %q, stderr %q", stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("writes a redacted line to stderr with -v, never to stdout", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		c := NewConsole("treerig", &stdout, &stderr)
+		c.SetVerbose(true)
+		c.Detail("docker run -e API_TOKEN=abc https://u:p@example.com/x")
+		if want := "[treerig] docker run -e API_TOKEN=<redacted> https://<redacted>@example.com/x\n"; stderr.String() != want {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("stdout = %q", stdout.String())
+		}
+	})
+
+	t.Run("filters what could drive a terminal like any other line", func(t *testing.T) {
+		var stderr bytes.Buffer
+		c := NewConsole("treerig", &bytes.Buffer{}, &stderr)
+		c.SetVerbose(true)
+		c.Detail("a\x1b[2Kb")
+		if want := "[treerig] a�[2Kb\n"; stderr.String() != want {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	})
+}
+
+func TestRecordingDetail(t *testing.T) {
+	r := &Recording{}
+	r.Detail("dropped")
+	r.Verbose = true
+	r.Detail("kept TOKEN=abc")
+	lines, _ := r.Snapshot()
+	if len(lines) != 1 || lines[0] != "detail: kept TOKEN=<redacted>" {
+		t.Fatalf("lines = %q", lines)
+	}
+}

@@ -666,9 +666,32 @@ func (c *Compose) Up(ctx context.Context, ref worktree.Ref, services []string) e
 	}
 	args := []string{"up", "--detach", "--build", "--remove-orphans", "--wait", "--wait-timeout", strconv.Itoa(timeout)}
 	args = append(args, services...)
-	_, err = c.compose(ctx, ref, args, overrideFiles, run.Spec{Output: run.Tee})
-	return err
+	spec := run.Spec{AllowFailure: true, Output: run.Transcript(c.options.Verbose), Observe: c.options.Observe}
+	result, err := c.compose(ctx, ref, args, overrideFiles, spec)
+	if err != nil {
+		return err
+	}
+	if _, rejected := run.Finish(run.Spec{}, result); rejected != nil {
+		failure := run.Failure(run.Spec{Command: "docker", Args: c.composeArgs(ref, args, overrideFiles)}, result)
+		return &UpError{Err: failure, Result: result}
+	}
+	return nil
 }
+
+// UpError is a `compose up` that did not succeed: the failure as it is reported
+// (wrapping a *clierr.Error, so its exit code and text are unchanged), and the
+// whole of what Compose wrote, which the failure quotes only the end of. The
+// failure summary of docs/design/cli-1.0.md ("up") starts from Result (#206).
+type UpError struct {
+	Err    error
+	Result run.Result
+}
+
+// Error is the failure's text.
+func (e *UpError) Error() string { return e.Err.Error() }
+
+// Unwrap is the failure.
+func (e *UpError) Unwrap() error { return e.Err }
 
 // refuseNewerFormats refuses to start a worktree that owns a container,
 // network or image a newer treerig stamped. Up calls it once the override is
