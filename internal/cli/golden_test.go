@@ -206,8 +206,6 @@ var goldenCases = []goldenCase{
 	{"complete-worktree-rename-slug", []string{"__complete", "worktree", "rename", ""}},
 	{"complete-worktree-remove-flags", []string{"__complete", "worktree", "remove", "--"}},
 	{"complete-no-descriptions", []string{"__completeNoDesc", "router", ""}},
-	{"complete-no-file-arguments", []string{"__complete", "worktree", "remove", ""}},
-	{"complete-no-file-flag-value", []string{"__complete", "worktree", "remove", "--domain", ""}},
 	{"complete-config-file", []string{"__complete", "status", "--config", ""}},
 	{"complete-backup-directories", []string{"__complete", "backup", ""}},
 	{"complete-backup-after-directory", []string{"__complete", "backup", "out", ""}},

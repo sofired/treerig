@@ -533,12 +533,52 @@ func TestTeardownGate(t *testing.T) {
 
 	t.Run("appends the newer-build hint to the line it prints before running a stale pin", func(t *testing.T) {
 		f := newGateFixture(t)
+		f.env.ConfigPath = filepath.Join(f.dir, "treerig.toml") // a treerig.toml is in reach: no config hint
 		f.releasePin(t, "1.2.3", "release build")
 		_ = f.remove(commands.RemoveOptions{Yes: true, Version: "1.3.0"})
 		want := "info: Running the pinned teardown binary " + f.stored(binstore.Hash([]byte("release build"))) + " (release 1.2.3) to remove this worktree. " +
 			"The running build (1.3.0) is newer than the pinned release (1.2.3). Pin the new build with `treerig teardown pin --latest` to update it."
 		if !strings.HasPrefix(f.logged(), want+"\n") && f.logged() != want {
 			t.Fatalf("stderr = %q\nwant     %q", f.logged(), want)
+		}
+	})
+
+	t.Run("says what an older pin may need when there is no treerig.toml for it to read, and only then", func(t *testing.T) {
+		const hint = "This pin (1.2.3) may need a treerig.toml: if it stops with \"No treerig.toml found\", run the removal from inside the worktree's repository, or pass --config <that repository's treerig.toml>."
+		tomlAbove := func(t *testing.T, f *gateFixture) {
+			if err := os.WriteFile(filepath.Join(f.dir, "treerig.toml"), []byte("[project]\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, tc := range []struct {
+			name    string
+			version string
+			setup   func(t *testing.T, f *gateFixture)
+			want    bool
+		}{
+			{"a pin older than the running build", "1.3.0", func(t *testing.T, f *gateFixture) { f.releasePin(t, "1.2.3", "release build") }, true},
+			{"a pin equal to the running build", "1.2.3", func(t *testing.T, f *gateFixture) { f.releasePin(t, "1.2.3", "release build") }, false},
+			{"a pin newer than the running build", "1.2.0", func(t *testing.T, f *gateFixture) { f.releasePin(t, "1.2.3", "release build") }, false},
+			{"a release pin under a development build", "0.0.0-dev", func(t *testing.T, f *gateFixture) { f.releasePin(t, "1.2.3", "release build") }, false},
+			{"a file pin", "1.3.0", func(t *testing.T, f *gateFixture) { f.pinnedFile(t) }, false},
+			{"an older pin with a treerig.toml above the working directory", "1.3.0", func(t *testing.T, f *gateFixture) {
+				tomlAbove(t, f)
+				f.releasePin(t, "1.2.3", "release build")
+			}, false},
+			{"an older pin with --config", "1.3.0", func(t *testing.T, f *gateFixture) {
+				f.env.ConfigPath = filepath.Join(f.dir, "elsewhere", "treerig.toml")
+				f.releasePin(t, "1.2.3", "release build")
+			}, false},
+		} {
+			f := newGateFixture(t)
+			tc.setup(t, f)
+			_ = f.remove(commands.RemoveOptions{Identifier: "feature-x", Yes: true, Version: tc.version})
+			if len(f.calls) != 1 {
+				t.Fatalf("%s: calls %v, want the pinned run", tc.name, f.calls)
+			}
+			if got := strings.Contains(f.logged(), hint); got != tc.want {
+				t.Fatalf("%s: hint shown = %v, want %v\nstderr = %q", tc.name, got, tc.want, f.logged())
+			}
 		}
 	})
 
@@ -735,8 +775,8 @@ func TestDevTeardown(t *testing.T) {
 			f.env.Args = []string{"trig", "worktree", "remove", "--dev-teardown", "--yes"}
 			f.execErr = nil
 			// The fake exec returns nil, so the relocation "succeeds" and the removal goes on.
-			if err := f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true, Version: "0.1.0-rc.3"}); err == nil || !strings.Contains(err.Error(), "No treerig.toml") {
-				t.Fatalf("pinned=%v: err = %v, want the removal to go on to the missing treerig.toml", pinned, err)
+			if err := f.remove(commands.RemoveOptions{Yes: true, DevTeardown: true, Version: "0.1.0-rc.3"}); err == nil || !strings.Contains(err.Error(), "There is no worktree to remove here") {
+				t.Fatalf("pinned=%v: err = %v, want the removal to go on to find no worktree here", pinned, err)
 			}
 			hash, _ := binstore.HashFile(f.running)
 			if !strings.HasPrefix(f.logged(), "warn: Removing with this build's own code (version 0.1.0-rc.3, sha256 "+hash+")") {

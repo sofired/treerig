@@ -54,12 +54,16 @@ type RemoveResult struct {
 	NetworkKept bool
 }
 
-// Remove is `worktree remove`.
+// Remove is `worktree remove`. A worktree named by slug or UUID needs no
+// treerig.toml (ContextWithoutConfig), so it can be removed from anywhere; with
+// no name it removes the worktree it is run from. A treerig.toml that does not
+// parse is warned about and set aside: removing a worktree whose branch broke
+// its config is a job this command has to do.
 func Remove(ctx context.Context, env *Env, options RemoveOptions) error {
 	// Before anything else, the teardown gate (#146): run the pinned,
 	// verified teardown binary in place of this build, or refuse. The only
 	// way to run this build's own code is --dev-teardown, which relocates it
-	// to a standalone copy outside any checkout first (#7), so deleting the
+	// to a standalone copy outside any worktree first (#7), so deleting the
 	// worktree below can never delete the program doing the removal.
 	// RemoveWithContext, which tests call directly, is deliberately not
 	// where this lives: a test's Env has no Executable/Exec wired, so the
@@ -67,7 +71,7 @@ func Remove(ctx context.Context, env *Env, options RemoveOptions) error {
 	if err := teardownGate(ctx, env, options); err != nil {
 		return err
 	}
-	cctx, err := Context(env)
+	cctx, err := ContextWithoutConfig(env)
 	if err != nil {
 		return err
 	}
@@ -77,7 +81,23 @@ func Remove(ctx context.Context, env *Env, options RemoveOptions) error {
 
 // RemoveWithContext removes a worktree's environment; env serves the confirmation prompt.
 func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, options RemoveOptions) (*RemoveResult, error) {
-	target, err := resolveRemoveTarget(ctx, cctx, options)
+	// Where the command runs from, asked once: which repository it is in (if
+	// any) decides what no name means, and whether the target is local.
+	repositoryID, present, inside, err := cctx.Registry.Identities.Repository(ctx, cctx.Registry.Identities.Root)
+	if err != nil {
+		// A named target does not depend on where the command runs from: a
+		// Git problem here (an unsafe directory, a corrupt .git) only means the
+		// target cannot be taken for this repository's own, so the namespace
+		// must be recorded, which is the safe side. Naming nothing means "the
+		// worktree I am in", and has no answer without Git.
+		if options.Identifier == "" {
+			return nil, err
+		}
+		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s belongs to, so %s is treated as another repository's worktree: %s",
+			text.Printable(cctx.Cwd), text.Printable(options.Identifier), text.OneLine(err.Error(), 200)))
+		repositoryID, present, inside = "", false, false
+	}
+	target, err := resolveRemoveTarget(ctx, cctx, options, inside)
 	if err != nil {
 		return nil, err
 	}
@@ -90,10 +110,6 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 	paths := layout.WorktreeLayout(cctx.ControlHome, target.RepositoryID, target.WorktreeID)
-	repositoryID, present, err := cctx.Registry.Identities.RepositoryID(ctx, cctx.Registry.Identities.Root)
-	if err != nil {
-		return nil, err
-	}
 	local := present && repositoryID == target.RepositoryID
 	namespace, err := targetNamespace(cctx, target, local, options)
 	if err != nil {
@@ -101,11 +117,12 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	}
 	runtime := cctx.LabelRuntime(namespace)
 	// The shared stack is labelled under its own repository's namespace: the
-	// running command's for a worktree of this repository, whose checkout
-	// this is, and the target's recorded one for a worktree of another, which
-	// this checkout's treerig.toml says nothing about.
+	// running command's for a worktree of this repository, when its
+	// treerig.toml loaded, and the target's recorded one for a worktree of
+	// another, which this directory's treerig.toml (if any) says nothing
+	// about.
 	stackNamespace := namespace
-	if local {
+	if local && cctx.Loaded != nil {
 		stackNamespace = cctx.stackNamespace()
 	}
 
@@ -123,10 +140,10 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 
-	// Whether the target is this checkout's own worktree, which `up` can
-	// start again from here; only an interruption's notice reads it.
+	// Whether the target is the worktree this command runs from, which `up`
+	// can start again from here; only an interruption's notice reads it.
 	here := options.Identifier == ""
-	if !here {
+	if !here && present {
 		if current, err := cctx.Registry.Current(ctx); err == nil && current != nil {
 			here = current.WorktreeID == target.WorktreeID
 		}
@@ -258,6 +275,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if result.Registration, err = store.Remove(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 			return err
 		}
+		// TODO(#211): a removal from outside the repository (not local) leaves the marker in the directory too.
 		if identity != nil {
 			if err := cctx.Registry.Identities.RemoveWorktreeMarker(*identity); err != nil {
 				return err
@@ -291,11 +309,16 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 }
 
 // resolveRemoveTarget finds the registration to remove: the current
-// worktree's own when options.Identifier is empty, or a global lookup by
+// worktree's own when options.Identifier is empty (inside says whether the
+// command runs from a Git work tree at all), or a global lookup by
 // slug or uuid (optionally narrowed by options.Domain) otherwise. It errors
 // rather than guessing when neither resolves to a registration.
-func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options RemoveOptions) (*registry.RegisteredWorktree, error) {
+func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options RemoveOptions, inside bool) (*registry.RegisteredWorktree, error) {
 	if options.Identifier == "" {
+		if !inside {
+			return nil, clierr.Newf("There is no worktree to remove here: %s is not inside a Git worktree. "+
+				"Name one with '%s worktree remove <slug|uuid>'.", cctx.Cwd, cctx.CommandName)
+		}
 		current, err := cctx.Registry.Current(ctx)
 		if err != nil {
 			return nil, err
@@ -339,10 +362,11 @@ func targetIdentity(ctx context.Context, cctx *CommandContext, worktreeID string
 // targetNamespace is which labels the target's resources carry: the
 // registration (deleted last, so it survives an interrupted removal); then
 // the index card, wherever the home currently is; then, for a worktree of
-// this repository, this config. --label-namespace is for a worktree none of
-// those describe — never an override of one they do, because inventorying
-// under the wrong namespace finds nothing and would delete the registration
-// that points at the data.
+// this repository whose treerig.toml loaded, that config. Never the resources
+// about to be deleted: inventorying under the wrong namespace finds nothing
+// and would delete the registration that points at the data.
+// --label-namespace is for a worktree none of those describe, and never an
+// override of one they do.
 func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, local bool, options RemoveOptions) (string, error) {
 	flag := options.LabelNamespace
 	if flag != "" && !brand.LabelNamespacePattern.MatchString(flag) {
@@ -362,13 +386,24 @@ func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, 
 	if flag != "" {
 		return flag, nil
 	}
-	if local {
+	if local && cctx.Loaded != nil {
 		return cctx.Loaded.Config.LabelNamespace(), nil
 	}
-	return "", clierr.Newf("Cannot remove %s from this repository: it belongs to a different one, "+
-		"and nothing on disk records which Docker labels its resources carry. Run "+
-		"'%s worktree remove' from a checkout of the repository that created it, or pass "+
-		"--label-namespace (%s unless that project set project.label-namespace).", host, cctx.CommandName, brand.LabelNamespace)
+	// Nothing records it. Where the user is decides what they can do about it:
+	// a worktree of this repository whose treerig.toml was set aside needs the
+	// file fixed; any other needs the command run from inside its repository,
+	// naming the target, since a bare 'worktree remove' there would remove the
+	// worktree they are in.
+	// TODO(#211): --label-namespace goes with the flag; this then asks for nothing but the repository.
+	where, remedy := "from here:", fmt.Sprintf("Run '%s worktree remove %s' from inside the repository that created it", cctx.CommandName, target.Slug)
+	switch {
+	case local:
+		where, remedy = "from this directory: its "+brand.ConfigFile+" could not be used to find out, and", "Fix "+brand.ConfigFile
+	case cctx.Loaded != nil:
+		where = "from this repository: it belongs to a different one, and"
+	}
+	return "", clierr.Newf("Cannot remove %s %s nothing on disk records which Docker labels its resources carry. %s, or pass "+
+		"--label-namespace (%s unless that project set project.label-namespace).", host, where, remedy, brand.LabelNamespace)
 }
 
 // removeHome is rename-then-delete. The rename is atomic, so a crash leaves
@@ -555,7 +590,7 @@ func DescribePlan(host string, planned []worktree.OwnedResource, hasHome bool, b
 // removeNextSteps is the two commands an interrupted removal points to:
 // the one that finishes it, naming the target the way it was named to this
 // command, and the one that starts the worktree again, which only runs from
-// the target's own checkout (empty otherwise).
+// the target's own worktree (empty otherwise).
 func removeNextSteps(commandName string, options RemoveOptions, here bool) nextSteps {
 	// The values are echoed as typed, unquoted: slugs, UUIDs, domains and label
 	// namespaces are plain tokens, and the whole notice goes through

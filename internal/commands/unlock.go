@@ -87,9 +87,11 @@ type unlockTarget struct {
 }
 
 // Unlock is `worktree unlock`. --registry and --router (#21) name a
-// machine-wide lock rather than a worktree, so they run before Context ever
-// loads a project config — UnlockGlobal needs none, the same way `doctor`
-// and the router verbs read Env directly.
+// machine-wide lock rather than a worktree, so they run before any context is
+// built — UnlockGlobal needs none, the same way `doctor` and the router verbs
+// read Env directly. Every other form uses ContextWithoutConfig, so none needs
+// a treerig.toml: a worktree named by slug or UUID is unlocked from anywhere,
+// and a treerig.toml that does not parse is warned about and set aside.
 func Unlock(ctx context.Context, env *Env, options UnlockOptions) error {
 	if options.Shared && (options.Registry || options.Router) {
 		return clierr.New("Not clearing any lock: --shared cannot be combined with --registry or --router.")
@@ -98,18 +100,15 @@ func Unlock(ctx context.Context, env *Env, options UnlockOptions) error {
 		_, err := UnlockGlobal(ctx, env, options)
 		return err
 	}
-	if options.Shared {
-		// Recovery works from labels and records, so a missing or broken
-		// treerig.toml must not stand in its way.
-		cctx, err := ContextWithoutConfig(env)
-		if err != nil {
-			return err
-		}
-		_, err = UnlockSharedWithContext(ctx, cctx, options)
+	// Recovery works from labels and records, so a missing or broken
+	// treerig.toml must not stand in its way, and a worktree named by slug or
+	// UUID can be unlocked from anywhere.
+	cctx, err := ContextWithoutConfig(env)
+	if err != nil {
 		return err
 	}
-	cctx, err := Context(env)
-	if err != nil {
+	if options.Shared {
+		_, err = UnlockSharedWithContext(ctx, cctx, options)
 		return err
 	}
 	_, err = UnlockWithContext(ctx, cctx, options)
@@ -525,17 +524,25 @@ func resolveUnlockTarget(ctx context.Context, cctx *CommandContext, options Unlo
 		return nil, clierr.Newf("No worktree is registered as %s%s%s.", options.Identifier, where, byUUID)
 	}
 
+	flag := ""
+	if options.Shared {
+		flag = "--shared "
+	}
+	_, _, inside, err := cctx.Registry.Identities.Repository(ctx, cctx.Registry.Identities.Root)
+	if err != nil {
+		return nil, err
+	}
+	if !inside {
+		return nil, clierr.Newf(
+			"There is no worktree to unlock here: %s is not inside a Git worktree. Name one with '%s worktree unlock %s<slug|uuid>'.", cctx.Cwd, cctx.CommandName, flag)
+	}
 	identity, err := cctx.Registry.Identities.Inspect(ctx, cctx.Registry.Identities.Root, registry.InspectOptions{})
 	if err != nil {
 		return nil, err
 	}
 	if identity == nil {
-		flag := ""
-		if options.Shared {
-			flag = "--shared "
-		}
 		return nil, clierr.Newf(
-			"This checkout has never been brought up, so it holds no lock. Name another with '%s worktree unlock %s<slug|uuid>'.", cctx.CommandName, flag)
+			"This worktree has never been brought up, so it holds no lock. Name another with '%s worktree unlock %s<slug|uuid>'.", cctx.CommandName, flag)
 	}
 	record, err := cctx.Registry.Store(identity.RepositoryID).Find(identity.WorktreeID)
 	if err != nil {

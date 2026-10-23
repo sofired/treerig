@@ -229,6 +229,54 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 	return tc
 }
 
+// Outside is a directory that is in no Git work tree: the fake Git knows
+// nothing about it, as the real one knows nothing about a directory outside
+// every repository.
+func (w *World) Outside() string {
+	w.t.Helper()
+	dir := filepath.Join(w.Base, "outside")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		w.t.Fatalf("mkdir outside: %v", err)
+	}
+	return dir
+}
+
+// ContextWithoutConfig is a context with no treerig.toml, as
+// commands.ContextWithoutConfig builds one where there is none or it does not
+// parse: Loaded is nil, and the registry answers for cwd with no domain. cwd
+// defaults to Outside().
+func (w *World) ContextWithoutConfig(cwd string) *TestContext {
+	if cwd == "" {
+		cwd = w.Outside()
+	}
+	log := &logger.Recording{}
+	reg := registry.New(registry.Options{
+		ControlHome: w.ControlHome,
+		Root:        cwd,
+		Runner:      w.Runner,
+		Logger:      log,
+		CommandName: "treerig",
+		UserHome:    w.UserHome,
+	})
+	return &TestContext{
+		CommandContext: &commands.CommandContext{
+			CommandName: "treerig",
+			Invocation:  "treerig",
+			Logger:      log,
+			Runner:      w.Runner,
+			Cwd:         cwd,
+			ControlHome: w.ControlHome,
+			UserHome:    w.UserHome,
+			RouterPort:  80,
+			RouterState: w.RouterState,
+			Registry:    reg,
+			PortRange:   registrytest.PortRange,
+			PortProbe:   w.Probe,
+		},
+		Logger: log,
+	}
+}
+
 // projectName derives a Compose project name from domain: the domain with a
 // trailing ".localhost" trimmed off.
 func projectName(domain string) string {

@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 
 	"github.com/sofired/treerig/internal/backend"
@@ -116,24 +118,30 @@ func (c *CommandContext) LabelRuntime(namespace string) *backend.Compose {
 // them unset. Callers pass the router port their command works with:
 // CommandContext.RouterPort, or the running Router's Port() in `up` and `dev`.
 func (c *CommandContext) RuntimeFor(namespace string, registered *registry.RegisteredWorktree, routerPort int) *backend.Compose {
-	return backend.NewCompose(backend.Options{
-		URLVariables:   composeURLVariables(c.Loaded.Config, registered, routerPort),
-		ComposeFile:    c.ComposeFile(),
-		ProjectRoot:    c.Loaded.Root,
-		ConfigFile:     c.Loaded.File,
-		ProjectName:    c.Loaded.Config.Project.Name,
-		Domain:         c.Loaded.Config.Project.Domain,
+	options := backend.Options{
 		ControlHome:    c.ControlHome,
 		LabelNamespace: namespace,
 		Runner:         c.Runner,
 		Logger:         c.Logger,
 		Environ:        c.Environ,
-	})
+	}
+	// Without a treerig.toml (ContextWithoutConfig) there is no Compose file,
+	// project or domain to hand over: the label-only calls LabelRuntime is for
+	// never read them.
+	if c.Loaded != nil {
+		options.URLVariables = composeURLVariables(c.Loaded.Config, registered, routerPort)
+		options.ComposeFile = c.ComposeFile()
+		options.ProjectRoot = c.Loaded.Root
+		options.ConfigFile = c.Loaded.File
+		options.ProjectName = c.Loaded.Config.Project.Name
+		options.Domain = c.Loaded.Config.Project.Domain
+	}
+	return backend.NewCompose(options)
 }
 
 // Context builds a CommandContext: it loads the config (env.ConfigPath, or
 // the nearest treerig.toml above env.Cwd), resolves the control home, and
-// builds this checkout's worktree registry over it.
+// builds this worktree's registry over it.
 func Context(env *Env) (*CommandContext, error) {
 	var loaded *config.Loaded
 	var err error
@@ -149,12 +157,16 @@ func Context(env *Env) (*CommandContext, error) {
 }
 
 // ContextWithoutConfig is Context for a verb that works from labels and
-// records alone and must still run where there is no usable treerig.toml — a
-// checkout of an old branch, or a file with a mistake in it: `shared down`
-// has to be able to clean up from anywhere. It loads the config when there is
-// a usable one, and warns and goes on without it when the file is there but
-// invalid. Loaded is nil without one, so a verb that calls this reads nothing
-// from it unchecked.
+// records alone and must still run where there is no usable treerig.toml — in
+// a worktree of an old branch, beside a file with a mistake in it, or outside
+// every repository: `shared down` has to be able to clean up from anywhere, as
+// can `worktree list`, `worktree unlock` and `worktree remove <worktree>`. It
+// loads the config when there is a usable one, and warns and goes on without
+// it when the file is there but invalid. No treerig.toml anywhere above the
+// working directory is no error either, but a file named with --config that is
+// not there is a mistake in the command line, and is one. Loaded is nil
+// without a usable config, so a verb that calls this reads nothing from it
+// unchecked.
 func ContextWithoutConfig(env *Env) (*CommandContext, error) {
 	var loaded *config.Loaded
 	var err error
@@ -164,6 +176,9 @@ func ContextWithoutConfig(env *Env) (*CommandContext, error) {
 	file, fallbackRoot := env.ConfigPath, ""
 	if file != "" {
 		loaded, err = config.Load(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
 	} else {
 		found := false
 		var findErr error
@@ -176,7 +191,7 @@ func ContextWithoutConfig(env *Env) (*CommandContext, error) {
 		}
 	}
 	if err != nil {
-		env.Logger.Warn(fmt.Sprintf("Going on without %s: %s", brand.ConfigFile, err))
+		env.Logger.Warn(fmt.Sprintf("Ignoring %s for this command: %s", brand.ConfigFile, err))
 		loaded = nil
 		resolved, resolveErr := layout.Resolve(file)
 		if resolveErr != nil {
@@ -227,6 +242,7 @@ func buildContext(env *Env, loaded *config.Loaded, fallbackRoot string) (*Comman
 		CommandName:    env.CommandName,
 		Invocation:     env.Invocation,
 		UserHome:       userHome,
+		Environ:        env.Environ,
 	})
 
 	return &CommandContext{

@@ -9,9 +9,10 @@ recovered: an unreleased record alone does not prove the holder is gone.
 can be cleared right away.
 
 `worktree unlock [slug|uuid]` clears a worktree's locks (its operation lock,
-and its development-session lock if that is held too) only when all of this
-holds — checked automatically, without ever waiting to acquire the lock
-itself:
+and its development-session lock if that is held too). It needs no
+`treerig.toml`, so a worktree named by slug or UUID can be unlocked from any
+directory. It clears them only when all of this holds — checked
+automatically, without ever waiting to acquire the lock itself:
 
 - the lock itself is free: `flock(2)` proves this instantly, so a lock
   actually held by a live process is always refused straight away, before

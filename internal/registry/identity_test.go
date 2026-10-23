@@ -2,13 +2,17 @@ package registry_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
 )
 
 type identityFixture struct {
@@ -280,4 +284,89 @@ func requireErrorContainsRegistry(t *testing.T, err error, substr string) {
 	if !contains(err.Error(), substr) {
 		t.Fatalf("expected error containing %q, got %q", substr, err.Error())
 	}
+}
+
+func TestIdentityServiceRepository(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("answers the repository's identity inside a work tree, and says so", func(t *testing.T) {
+		f := newIdentityFixture(t, "feature/one")
+		created, err := f.identities.Ensure(ctx, f.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, present, inside, err := f.identities.Repository(ctx, f.root)
+		if err != nil || !inside || !present || id != created.RepositoryID {
+			t.Fatalf("Repository = %q, %v, %v, %v; want %q present and inside", id, present, inside, err, created.RepositoryID)
+		}
+	})
+
+	t.Run("inside a work tree treerig has no identity for, it is present false and inside true", func(t *testing.T) {
+		f := newIdentityFixture(t, "feature/one")
+		id, present, inside, err := f.identities.Repository(ctx, f.root)
+		if err != nil || !inside || present || id != "" {
+			t.Fatalf("Repository = %q, %v, %v, %v", id, present, inside, err)
+		}
+	})
+
+	t.Run("outside every repository is inside false and no error, asked in the C locale", func(t *testing.T) {
+		f := newIdentityFixture(t, "feature/one")
+		runner := &recordingRunner{Runner: f.runner}
+		identities := registry.New(registry.Options{ControlHome: f.base, Root: f.root, Runner: runner, Environ: []string{"PATH=/bin", "LANG=de_DE.UTF-8"}}).Identities
+		outside := filepath.Join(f.base, "elsewhere")
+		id, present, inside, err := identities.Repository(ctx, outside)
+		if err != nil || inside || present || id != "" {
+			t.Fatalf("Repository = %q, %v, %v, %v", id, present, inside, err)
+		}
+		if len(runner.specs) != 1 || !slices.Equal(runner.specs[0].Env, []string{"PATH=/bin", "LANG=de_DE.UTF-8", "LC_ALL=C"}) {
+			t.Fatalf("specs = %+v, want one call in the caller's environment plus LC_ALL=C", runner.specs)
+		}
+	})
+
+	t.Run("any other Git failure is an error carrying Git's words, not an answer", func(t *testing.T) {
+		for _, stderr := range []string{
+			"fatal: detected dubious ownership in repository at '/srv/x'",
+			"fatal: bad object HEAD",
+			"fatal: this operation must be run in a work tree",
+		} {
+			runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+				return run.Result{ExitCode: 128, Stderr: stderr + "\n"}, nil
+			}}
+			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), stderr) || inside {
+				t.Fatalf("%q: Repository = %q, %v, %v, %v; want an error naming Git's words", stderr, id, present, inside, err)
+			}
+		}
+	})
+
+	t.Run("still reports a Git that could not be started", func(t *testing.T) {
+		runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+			return run.Result{}, &run.StartError{Command: "git", Code: "ENOENT", Detail: "was not found on PATH (ENOENT).", ExitCode: 127}
+		}}
+		_, _, _, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+		var start *run.StartError
+		if !errors.As(err, &start) {
+			t.Fatalf("err = %v, want the start error", err)
+		}
+	})
+
+	t.Run("RepositoryID outside every repository is still the Git failure", func(t *testing.T) {
+		f := newIdentityFixture(t, "feature/one")
+		_, _, err := f.identities.RepositoryID(ctx, filepath.Join(f.base, "elsewhere"))
+		if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
+// recordingRunner records every spec it is asked to run, then runs it.
+type recordingRunner struct {
+	run.Runner
+	specs []run.Spec
+}
+
+// Run records spec and passes it on.
+func (r *recordingRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	r.specs = append(r.specs, spec)
+	return r.Runner.Run(ctx, spec)
 }

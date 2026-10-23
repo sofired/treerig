@@ -77,7 +77,9 @@ func Load(file string) (*Loaded, error) {
 	contents, err := os.ReadFile(resolved)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, clierr.Newf("No %s at %s.", brand.ConfigFile, resolved)
+			missing := clierr.Newf("No %s at %s.", brand.ConfigFile, resolved)
+			missing.Kind = os.ErrNotExist
+			return nil, missing
 		}
 		return nil, err
 	}

@@ -1,8 +1,8 @@
 --progress	how to show progress: auto (redraw on a terminal) or plain (one line per change) (default "auto")
 --verbose	show what treerig runs, and every detail
---config	path to treerig.toml (default: nearest above cwd)
+--config	path to treerig.toml (default: nearest above cwd, if any)
 --domain	narrow a slug registered under more than one domain
 --help	help for remove
---label-namespace	supply the Docker label namespace when nothing on disk records it (a worktree of another repository)
+--label-namespace	supply the Docker label namespace when nothing on disk records it (a worktree of another repository, or run without a treerig.toml)
 --yes	skip the confirmation phrase
 :4

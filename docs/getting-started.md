@@ -68,7 +68,7 @@ treerig down                 # stop it; data is kept
 treerig shared up            # start the shared services, or replace one, and reconnect every worktree
 treerig shared status        # their state, addresses and whether this worktree is connected
 treerig shared down          # stop them; their named volumes are kept
-treerig worktree list        # every worktree of this repository, with state
+treerig worktree list        # this repository's worktrees, with state
 treerig worktree remove      # tear it down, verified by ownership
 treerig worktree rename NEW  # change its slug, and with it its hostname
 treerig worktree unlock      # clear a dead holder's lock, once it is checked gone

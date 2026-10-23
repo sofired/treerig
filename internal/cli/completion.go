@@ -10,6 +10,7 @@ import (
 
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/text"
 )
 
@@ -50,19 +51,27 @@ func withPrefix(comps []cobra.Completion, toComplete string) []cobra.Completion 
 }
 
 // worktreeCandidates resolves cmd's own commands.Env and CommandContext —
-// the same p.env/commands.Context sequence every RunE in this tree
-// builds — and reads every registered worktree through it: the boilerplate
-// identifierCompletionFunc and domainCompletionFunc both need before they
-// can do anything else. Any failure along the way (no config found, an
-// unsafe or unresolvable home, an unreadable registry) is returned
-// unchanged, for the caller to turn into noCompletions() — this helper
-// never itself decides what "no completions" looks like.
+// the same p.env/commands.ContextWithoutConfig sequence `worktree remove`
+// and `worktree unlock` build theirs with, so completion works outside a
+// repository too — and reads every registered worktree through it: the
+// boilerplate identifierCompletionFunc and domainCompletionFunc both need
+// before they can do anything else. Any failure along the way (an unsafe or
+// unresolvable home, an unreadable registry, a --config that is not there) is
+// returned unchanged, for the caller to turn into noCompletions() — this
+// helper never itself decides what "no completions" looks like.
+//
+// The env is built per call (p.env returns a fresh one), so replacing its
+// logger with a silent one touches nothing else. It silences every warning a
+// completion could make, a treerig.toml that does not parse and an
+// unreadable registry record alike: a warning has no place in a shell's
+// completion list.
 func worktreeCandidates(p *program, cmd *cobra.Command) (*commands.CommandContext, []commands.RegisteredWorktreeCandidate, error) {
 	env, err := p.env(cmd)
 	if err != nil {
 		return nil, nil, err
 	}
-	cctx, err := commands.Context(env)
+	env.Logger = logger.Silent{}
+	cctx, err := commands.ContextWithoutConfig(env)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -80,11 +80,15 @@ const (
 )
 
 // addConfigFlag declares --config on cmd, a command that reads treerig.toml.
-// It is a flag of that command alone, so help, completion and the unknown
+// optional says the command also runs without one, which its help then says. It is a flag of that command alone, so help, completion and the unknown
 // flag error of a command that reads no configuration (init, router,
 // teardown, config schema) all follow from where it is declared.
-func addConfigFlag(cmd *cobra.Command) {
-	cmd.Flags().String(configFlag, "", fmt.Sprintf("path to %s (default: nearest above cwd)", brand.ConfigFile))
+func addConfigFlag(cmd *cobra.Command, optional bool) {
+	usage := fmt.Sprintf("path to %s (default: nearest above cwd)", brand.ConfigFile)
+	if optional {
+		usage = fmt.Sprintf("path to %s (default: nearest above cwd, if any)", brand.ConfigFile)
+	}
+	cmd.Flags().String(configFlag, "", usage)
 	_ = cmd.MarkFlagFilename(configFlag, "toml")
 }
 
@@ -119,7 +123,7 @@ var rootGroups = map[string]string{
 
 // configCommands are the commands, by path below the root, that read
 // treerig.toml and so take --config. init, config schema, router and teardown
-// read none.
+// read none. The commands in configOptional also run without one.
 var configCommands = []string{
 	"config validate", "config show",
 	"dev", "up", "down", "status", "urls",
@@ -128,6 +132,11 @@ var configCommands = []string{
 	"shared up", "shared down", "shared status",
 	"worktree list", "worktree remove", "worktree rename", "worktree unlock",
 }
+
+// configOptional are the configCommands that work without a treerig.toml (they
+// use commands.ContextWithoutConfig), so their --config says the default may
+// not exist.
+var configOptional = []string{"worktree list", "worktree remove", "worktree unlock"}
 
 // declareGroupsAndConfig gives each of the root's commands its help group
 // (rootGroups) and each command that reads treerig.toml its --config flag
@@ -142,7 +151,7 @@ func declareGroupsAndConfig(root *cobra.Command) {
 		if err != nil || len(rest) > 0 || cmd == root {
 			panic(fmt.Sprintf("cli: configCommands names no command: %q", path))
 		}
-		addConfigFlag(cmd)
+		addConfigFlag(cmd, slices.Contains(configOptional, path))
 	}
 }
 
@@ -1044,7 +1053,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 
 	list := &cobra.Command{
 		Use:   "list",
-		Short: "list registered worktrees",
+		Short: "list this repository's worktrees, or every registered worktree outside a repository",
 		Args:  maxArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)
@@ -1084,7 +1093,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		},
 	}
 	remove.Flags().String("domain", "", "narrow a slug registered under more than one domain")
-	remove.Flags().String("label-namespace", "", "supply the Docker label namespace when nothing on disk records it (a worktree of another repository)")
+	remove.Flags().String("label-namespace", "", "supply the Docker label namespace when nothing on disk records it (a worktree of another repository, or run without a treerig.toml)")
 	remove.Flags().Bool("yes", false, "skip the confirmation phrase")
 	remove.Flags().Bool("dev-teardown", false, "remove with this build's own code, not a pinned teardown binary")
 	// Still accepted, but not advertised: it is a developer's escape hatch,

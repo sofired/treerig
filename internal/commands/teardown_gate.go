@@ -17,7 +17,9 @@ import (
 	"syscall"
 
 	"github.com/sofired/treerig/internal/binstore"
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/semver"
 	"github.com/sofired/treerig/internal/stateformat"
@@ -74,6 +76,31 @@ func newerHint(commandName string, pin teardown.Pin, version string) string {
 	}
 	return fmt.Sprintf("The running build (%s) is newer than the pinned release (%s). Pin the new build with %s to update it.",
 		text.Printable(version), text.Printable(pin.Release), pinCommandFor(commandName, version))
+}
+
+// needsConfigHint is the sentence that goes with the notice of a run through a
+// pinned release older than the running build, when there is no treerig.toml
+// to find from here (no --config, none above the working directory). This
+// build removes a worktree named by slug or UUID from anywhere, but an older
+// pin (0.1.x) reads a treerig.toml first and stops with "No treerig.toml
+// found", which would read as if the worktree needed one. All treerig knows is
+// that the pin is older, so it says "may", and gives the two ways that work
+// with every pin. A file pin is the caller's own binary, a pin that is not
+// older than the running build is as capable as it is, and a development build
+// is older than no release, so none of them gets the hint; "" when there is
+// nothing to say.
+//
+// TODO(#210): the teardown-run contract replaces this guess with a probe, and
+// the gate runs an old pin from the target's main worktree with --config.
+func needsConfigHint(env *Env, version string, pin teardown.Pin) string {
+	if pin.IsFile() || !semver.Newer(version, pin.Release) || env.ConfigPath != "" {
+		return ""
+	}
+	if _, found, err := config.FindConfigFile(env.Cwd); err != nil || found {
+		return ""
+	}
+	return fmt.Sprintf("This pin (%s) may need a %s: if it stops with \"No %s found\", run the removal from inside the worktree's repository, or pass --config <that repository's %s>.",
+		text.Printable(pin.Release), brand.ConfigFile, brand.ConfigFile, brand.ConfigFile)
 }
 
 // withHint puts hint, when there is one, after detail.
@@ -376,7 +403,7 @@ func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 	}
 	notice := fmt.Sprintf("Running the pinned teardown binary %s (release %s) to remove %s.",
 		text.Printable(check.Path), text.Printable(pin.Release), target)
-	env.Logger.Info(withHint(notice, hint))
+	env.Logger.Info(withHint(withHint(notice, hint), needsConfigHint(env, version, pin)))
 	// The caller's argv[0] is kept, so the program still calls itself trig or
 	// treerig and not the hash it is stored under.
 	err = env.Exec(execPath, pinnedChildArgs(env.Args), childEnviron(env.Environ))
