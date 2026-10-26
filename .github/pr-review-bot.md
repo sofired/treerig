@@ -20,8 +20,8 @@ prove it owned. It's a Go CLI: `cmd/treerig` is the entry point and `internal/` 
 
 Report a change that breaks one of these, citing the rule.
 
-- **Ownership before removal.** Anything that removes a container, volume, network, file or directory proves it
-  belongs to the worktree first, by its ownership labels or recorded identity, never by its name.
+- **Ownership before removal.** Anything that removes a resource proves it belongs to the worktree first, by its
+  ownership labels, never by its name.
 - **Locks are never cleared by age alone.** Recovery is explicit and goes through `lock.Clear`.
 - **Storage names are a contract.** Values in `internal/brand` name things on disk and in Docker. Changing one needs
   a migration. Every stored state carries a format version (`internal/stateformat`), and a build refuses a newer one.
