@@ -2,6 +2,12 @@
 
 Development sessions, removing a worktree, and renaming one.
 
+Jump to:
+
+- [Development sessions](#development-sessions)
+- [Removing a worktree](#removing-a-worktree)
+- [Renaming a worktree](#renaming-a-worktree)
+
 ## Development sessions
 
 `dev` is `up` followed by `docker compose logs --follow` on the worktree's
@@ -44,7 +50,7 @@ type the hostname to confirm (`--yes` skips the prompt). Then, in an order
 chosen so that an interrupted removal can simply be run again: Docker
 resources, the home directory, the registration, the identity marker.
 `treerig worktree remove <slug|uuid>` removes another worktree, including one
-whose checkout is already gone; `--label-namespace` supplies the Docker label
+whose directory is already gone; `--label-namespace` supplies the Docker label
 namespace of its resources when nothing on disk records it.
 
 A SIGINT, SIGTERM or SIGHUP that arrives once the removal has started
@@ -71,7 +77,7 @@ Before `worktree remove` does anything else, it decides which code does the remo
   (`treerig teardown pin`, [Teardown pin](teardown-pin.md)), it checks the pinned
   file's sha256 against the pin, then replaces itself with that file, passing the
   same arguments and environment. The pinned binary lives in the control home,
-  outside every checkout, and the control home is refused if it is inside a git
+  outside every worktree, and the control home is refused if it is inside a git
   work tree or if its pin store is owned by someone else or writable by others.
   The exec drops the `LD_*`, `DYLD_*`, `GODEBUG` and `GOFLAGS` variables from the
   environment, and prints two lines on stderr: one before the exec naming the file
@@ -83,8 +89,8 @@ Before `worktree remove` does anything else, it decides which code does the remo
   build you invoked is newer than the pin, as `teardown status` does.
 - **No pin, a release build:** it removes with itself. You have nothing to set up.
   It is first copied, as itself, into a content-addressed store under the control
-  home (`bin/`, outside any checkout), and the removal is handed to the copy, so
-  deleting the checkout cannot delete the running program.
+  home (`bin/`, outside any worktree), and the removal is handed to the copy, so
+  deleting the worktree directory cannot delete the running program.
 - **No pin, a development build** (built from source, a snapshot, anything
   `0.0.0-…`): it refuses, because a development build may carry code from a
   branch. Pin a build ([Getting a pin](teardown-pin.md#getting-a-pin)) or use
@@ -96,9 +102,9 @@ flag and nothing else: no setting, no `treerig.toml` key and no environment
 variable turns it on, and nothing remembers it. It prints a warning on every run
 that names the version and the sha256 of the code that is about to run. That
 build is first copied, as itself, into a content-addressed store under the
-control home (`bin/`, outside any checkout), and the removal is handed to the
-copy, so deleting the checkout cannot delete the running program either (an
-unpinned release build does the same). The copy is exactly the invoked binary
+control home (`bin/`, outside any worktree), and the removal is handed to the
+copy, so deleting the worktree directory cannot delete the running program
+either (an unpinned release build does the same). The copy is exactly the invoked binary
 and no more: a build made from a branch still runs that branch's code. Copies
 are content-addressed, so a rebuild that changes nothing installs nothing new;
 one that has not been installed or reused in the last 30 days, or that is not
@@ -130,7 +136,7 @@ Everything keyed by the worktree's IDs stays exactly as it is: the Compose
 project name, and with it every container, network and volume name, the home
 directory, the locks and the pinned loopback ports. treerig renames and deletes
 no volume. What carries the slug moves to the new one: the registration and
-the worktree's index entry, and the checkout index is refreshed. Route files
+the worktree's index entry, and the worktree index is refreshed. Route files
 are removed, not moved: a worktree with no containers has none that are live,
 and `up` writes them at the new hostname. A Compose file that builds
 `${TREERIG_SLUG}` or `${TREERIG_HOST}` into a volume name would name a new volume
@@ -148,3 +154,9 @@ own hooks. If it is interrupted, the old slug stays registered until the
 record is replaced, last; run the command again, with the same slug or a
 different one. Hooks are not told of a rename; the next `up` runs them with
 the new `TREERIG_SLUG` and `TREERIG_HOST`.
+
+## Related reading
+
+- [How treerig works](concepts.md) — identity, slugs and resource ownership.
+- [Teardown pin](teardown-pin.md) — choosing and verifying the removal binary.
+- [Lock recovery](lock-recovery.md) — resolving a held or unreleased lock.
