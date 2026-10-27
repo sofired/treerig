@@ -61,7 +61,7 @@ A route from a worktree's hostname to a process on your machine, such as a dev s
 
 ## Index
 
-The page at `http://treerig.localhost` that lists every worktree on the machine, with its status and links. `treerig index` prints the same thing as text. See [Worktree index](checkout-index.md).
+The page at `http://treerig.localhost` that lists every worktree on the machine, with its status and links. `treerig index` prints the same thing as text. See [Checkout index](checkout-index.md).
 
 ## Label namespace
 
