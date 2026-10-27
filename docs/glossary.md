@@ -2,13 +2,32 @@
 
 What the terms in these docs mean, with a link to the page that explains each one.
 
+Browse alphabetically:
+
+- [Bundle](#bundle)
+- [Container port](#container-port)
+- [Control home](#control-home)
+- [Development session](#development-session)
+- [Directory](#directory)
+- [Domain](#domain)
+- [Hook](#hook)
+- [Host route](#host-route)
+- [Index](#index)
+- [Label namespace](#label-namespace)
+- [Ownership labels](#ownership-labels)
+- [Pinned port](#pinned-port)
+- [Registration](#registration)
+- [Router](#router)
+- [Shared service](#shared-service)
+- [Slug](#slug)
+- [Teardown pin](#teardown-pin)
+- [treerig root](#treerig-root)
+- [Worktree](#worktree)
+- [Worktree home](#worktree-home)
+
 ## Bundle
 
 A directory that the `backup` hook fills and the `restore` hook reads. treerig marks it `.incomplete` until the hook exits zero. See [The bundle directory](hooks.md#the-bundle-directory).
-
-## Checkout
-
-The directory where one worktree's files are checked out: the files you edit. See [Worktrees](worktrees.md).
 
 ## Container port
 
@@ -21,6 +40,12 @@ The directory where treerig keeps what each worktree owns: its private directory
 ## Development session
 
 What `treerig dev` holds while it follows a worktree's logs. While it is attached, `worktree remove` and a second `dev` refuse. See [Development sessions](worktrees.md#development-sessions).
+
+<a id="checkout"></a>
+
+## Directory
+
+The directory containing a worktree's files: the files you edit. See [Worktrees](worktrees.md).
 
 ## Domain
 
@@ -36,7 +61,7 @@ A route from a worktree's hostname to a process on your machine, such as a dev s
 
 ## Index
 
-The page at `http://treerig.localhost` that lists every checkout on the machine, with its status and links. `treerig index` prints the same thing as text. See [Checkout index](checkout-index.md).
+The page at `http://treerig.localhost` that lists every worktree on the machine, with its status and links. `treerig index` prints the same thing as text. See [Worktree index](checkout-index.md).
 
 ## Label namespace
 
@@ -74,10 +99,10 @@ A treerig build that you install and verify once with `treerig teardown pin`, wh
 
 The directory where treerig keeps what belongs to the machine rather than to a project: `~/.treerig` by default, or whatever `TREERIG_HOME` names. It holds `settings.toml`, the router's state and, by default, the [control home](#control-home). See [Settings](settings.md).
 
+## Worktree
+
+A Git worktree that treerig manages: a directory for a branch with its own identity, Compose project, data directory and hostname. See [Identity](concepts.md#identity) and [Worktrees](worktrees.md).
+
 ## Worktree home
 
 The worktree's private directory under the control home, `${TREERIG_WORKTREE_HOME}`. `worktree remove` deletes it. See [Homes](concepts.md#homes).
-
-## Worktree
-
-A Git worktree that treerig manages: a checkout of a branch with its own identity, Compose project, data directory and hostname. See [Identity](concepts.md#identity) and [Worktrees](worktrees.md).

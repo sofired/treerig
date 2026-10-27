@@ -2,6 +2,16 @@
 
 The ideas behind treerig: identity, slugs, locks, homes, ownership labels, hooks and backups. Ports and the router are in [routing.md](routing.md); shared services are in [shared-services.md](shared-services.md). The [Glossary](glossary.md) defines the terms.
 
+Jump to:
+
+- [Identity](#identity)
+- [Slugs](#slugs)
+- [Locks](#locks)
+- [Homes](#homes)
+- [Ownership labels](#ownership-labels)
+- [Hooks](#hooks)
+- [Backup and restore](#backup-and-restore)
+
 ```
 treerig.toml ──reads──▶  treerig  ──spawns──▶  your hooks (any language)
                            │
@@ -145,3 +155,9 @@ Compose file, so `worktree remove` reaps it.
 worktree's home, which `worktree remove` deletes (its confirmation counts the
 bundles); give it a directory to keep one. A restore overwrites the
 worktree's live data.
+
+## Related reading
+
+- [Glossary](glossary.md) — definitions of the terms used here.
+- [Worktrees](worktrees.md) — development sessions, removal and renaming.
+- [Configuration](configuration.md) — the keys in `treerig.toml`.
