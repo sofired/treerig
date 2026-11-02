@@ -88,7 +88,8 @@ type Result struct {
 	State worktree.State
 	// Hint names the cause of an unknown state.
 	Hint string
-	// Basis is how the directory was judged, whatever the state came out as.
+	// Basis is how the directory was judged, whatever the state came out as;
+	// BasisNone when no verdict was reached (the directory is undetermined).
 	Basis Basis
 }
 
@@ -216,10 +217,15 @@ func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) 
 			} else {
 				entry, matched := entryFor(answered.entries, record.WorktreeID, subject.RecordedRoot)
 				found = g.directoryOf(entry, answered.entries, subject.RecordedRoot, record.Slug, nil)
-				if entry != nil {
-					basis = matched
-				} else {
-					basis = BasisRecordedRoot
+				// A basis is only for a verdict reached: undetermined (an
+				// entry nobody can identify, a damaged one, a parent that
+				// cannot be checked) judged nothing.
+				if found.directory == worktree.DirectoryPresent || found.directory == worktree.DirectoryGone {
+					if entry != nil {
+						basis = matched
+					} else {
+						basis = BasisRecordedRoot
+					}
 				}
 			}
 			in.Directory, in.DirectoryHint = found.directory, found.hint

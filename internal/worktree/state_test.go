@@ -167,6 +167,12 @@ func TestClassifyMapsEveryCombinationToOneState(t *testing.T) {
 		if hint != "web is in a state treerig has no word for." {
 			t.Fatalf("zero state hint = %q", hint)
 		}
+		paused := worktree.Classify(worktree.Inputs{Services: []worktree.ServiceStatus{
+			{Service: "web", State: worktree.Running}, {Service: "db", State: worktree.Unknown, Detail: worktree.PausedDetail},
+		}})
+		if paused.State != worktree.StateUnknown || paused.Hint != "db is paused, which treerig has no word for: unpause it with 'docker compose unpause', or run 'treerig down'." {
+			t.Fatalf("paused = %+v", paused)
+		}
 		hint = worktree.Classify(worktree.Inputs{Services: []worktree.ServiceStatus{{Service: "job", State: worktree.Unknown, Detail: worktree.CauseNotRead}}}).Hint
 		if hint != "Whether job was stopped or killed for running out of memory (it exited 137) couldn't be read." {
 			t.Fatalf("cause hint = %q", hint)
@@ -272,7 +278,7 @@ func TestContainerStatus(t *testing.T) {
 		{"created", "created", "", 0, false, worktree.ServiceStatus{State: worktree.Stopped}},
 		{"killed by SIGKILL, with the cause not read", "exited", "", 137, true, worktree.ServiceStatus{State: worktree.Unknown, Detail: worktree.CauseNotRead}},
 		{"ended by SIGTERM", "exited", "", 143, true, worktree.ServiceStatus{State: worktree.Stopped}},
-		{"a paused one", "paused", "", 0, false, worktree.ServiceStatus{State: worktree.Stopped}},
+		{"a paused one, which is frozen rather than stopped", "paused", "", 0, false, worktree.ServiceStatus{State: worktree.Unknown, Detail: worktree.PausedDetail}},
 		{"dead", "dead", "", 0, false, worktree.ServiceStatus{State: worktree.Stopped}},
 		{"being removed", "removing", "", 0, false, worktree.ServiceStatus{State: worktree.Stopped}},
 		{"a word Docker adds later", "frozen", "", 0, false, worktree.ServiceStatus{State: worktree.Unknown, Detail: "frozen"}},

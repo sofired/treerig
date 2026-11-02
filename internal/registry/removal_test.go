@@ -181,6 +181,31 @@ func TestRemovalMarker(t *testing.T) {
 		}
 	})
 
+	t.Run("reports the registration gone, with the marker named, when only the marker cannot be deleted", func(t *testing.T) {
+		store, controlHome := setup(t)
+		if err := store.MarkRemoving(ctx, wtA, "feature-login", testWriter); err != nil {
+			t.Fatal(err)
+		}
+		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		store.FailMarkerRemoval(errors.New("disk on fire"))
+		removed, err := store.Remove(ctx, wtA, "feature-login", testWriter)
+		if !removed || err == nil || !strings.Contains(err.Error(), file) || !strings.Contains(err.Error(), "disk on fire") {
+			t.Fatalf("Remove = %v, %v; want removed with an error naming the marker", removed, err)
+		}
+		if _, statErr := os.Stat(store.RecordPath(wtA)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("the registration is still there: %v", statErr)
+		}
+		// Nothing needs the marker once no registration names it: the next
+		// Remove, with the deletion working, takes it away.
+		fresh := registry.NewStore(controlHome, repoA)
+		if removed, err := fresh.Remove(ctx, wtA, "feature-login", testWriter); err != nil || removed {
+			t.Fatalf("second Remove = %v, %v; want no registration and no error", removed, err)
+		}
+		if removing, _ := fresh.Removing(wtA); removing {
+			t.Fatal("the orphaned marker survived the second Remove")
+		}
+	})
+
 	t.Run("does not take a file with no version, or an unknown one, for a marker", func(t *testing.T) {
 		store, controlHome := setup(t)
 		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")

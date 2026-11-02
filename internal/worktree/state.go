@@ -109,8 +109,9 @@ const (
 	// Exited is a container that ran and ended; ServiceStatus.ExitCode says how.
 	Exited ServiceState = "exited"
 	// Stopped is a container that exists and does not run, and did not crash:
-	// created and never started, paused, dead, being removed, or ended by
-	// SIGKILL or SIGTERM (as `compose stop` and a reboot do).
+	// created and never started, dead, being removed, or ended by SIGKILL or
+	// SIGTERM (as `compose stop` and a reboot do). A paused container is not
+	// one: it is frozen, not stopped, and is Unknown.
 	Stopped ServiceState = "stopped"
 	// NotCreated is a declared service with no container at all, as after `down`.
 	NotCreated ServiceState = "not created"
@@ -178,6 +179,9 @@ const (
 	// not asked, or would not say, whether the out-of-memory killer did it.
 	CauseNotRead = "exited 137, cause not read"
 
+	// PausedDetail is the Detail of a paused container.
+	PausedDetail = "paused"
+
 	exitKilled     = 137
 	exitTerminated = 143
 )
@@ -196,7 +200,9 @@ const (
 // oomRead and not oomKilled, Exited when oomKilled, and Unknown when the caller
 // could not read the flag. An exited container whose code is not known, and a
 // state word not named here, are Unknown, so nothing guesses that a service is
-// finished or stopped.
+// finished or stopped. A paused container is one of them: its processes are
+// frozen and resume on an unpause, so it is neither running nor stopped, and
+// its Detail is "paused" (the hint says how to go on).
 func ContainerStatus(state, health string, exitCode int, exitKnown, oomKilled, oomRead bool) ServiceStatus {
 	switch word := strings.ToLower(state); word {
 	case "running":
@@ -224,7 +230,9 @@ func ContainerStatus(state, health string, exitCode int, exitKnown, oomKilled, o
 			return ServiceStatus{State: Stopped}
 		}
 		return ServiceStatus{State: Exited, ExitCode: exitCode}
-	case "paused", "dead", "removing":
+	case "paused":
+		return ServiceStatus{State: Unknown, Detail: PausedDetail}
+	case "dead", "removing":
 		return ServiceStatus{State: Stopped}
 	}
 	return ServiceStatus{State: Unknown, Detail: state}
@@ -360,6 +368,8 @@ func unknownServiceHint(service ServiceStatus) string {
 		return "Whether " + name + " was stopped or killed for running out of memory (it exited 137) couldn't be read."
 	case service.State == Unknown && service.Detail == "exited":
 		return "No exit code was reported for " + name + ", which exited."
+	case service.State == Unknown && service.Detail == PausedDetail:
+		return name + " is paused, which treerig has no word for: unpause it with 'docker compose unpause', or run 'treerig down'."
 	case service.State == Unknown && service.Detail != "":
 		return name + " is in a state treerig has no word for (Docker says " + service.Detail + ")."
 	case service.State == Unknown || service.State == "":
