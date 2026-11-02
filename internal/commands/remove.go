@@ -302,8 +302,14 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if err := store.ReleasePorts(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 			return err
 		}
+		// removed with an error is the registration gone and only its marker
+		// left (Store.Remove): a warning, since the rest of the removal still
+		// has to run and nothing reads a marker no registration names.
 		if result.Registration, err = store.Remove(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
-			return err
+			if !result.Registration {
+				return err
+			}
+			cctx.Logger.Warn(fmt.Sprintf("%s: %v. Delete the file by hand.", host, err))
 		}
 		// TODO(#211): a removal from outside the repository (not local) leaves the marker in the directory too.
 		if identity != nil {

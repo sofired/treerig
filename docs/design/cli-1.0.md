@@ -343,7 +343,10 @@ Whether an `up` has ever finished is what the registration records today as
 on them existing.
 
 A service is `running`, `starting`, `unhealthy`, `restarting`, `exited`
-(JSON adds `exitCode`), `stopped`, `not created` or `unknown`. A host route is
+(JSON adds `exitCode`), `stopped`, `not created` or `unknown`. A paused
+container is `unknown` with `detail` `paused`, not `stopped`: its processes are
+frozen and resume on an unpause, so calling it stopped would guess, and the
+hint says to unpause it or run `down`. A host route is
 `listening` or `not listening`, from a TCP connect to its port on `127.0.0.1`
 with a short budget.
 
@@ -760,8 +763,12 @@ As built (#203):
   automount; otherwise `unknown`, with the listing's hint. When Git can say which
   repository the directory is in and it is not the worktree's, the directory is
   not read (`unknown`). The label namespace is the registration's, then the
-  card's, then that treerig.toml's. Neither the treerig.toml nor the Compose file
-  is read past 1 MiB or when it is not a regular file. Compose is asked for the
+  card's, then that treerig.toml's. The treerig.toml is read only if it is a
+  regular file of at most 1 MiB (checked on the open descriptor). The Compose
+  file gets the same check before Compose is started, once, by path: it refuses
+  what would hang or flood Compose, and is not a security boundary, since
+  Compose reopens the file and also reads `include`, `extends`, `env_file` and
+  override files that are not checked. Compose is asked for the
   services with `config --no-interpolate` (every `status`, not only a named
   worktree's), the one flag the minimum Compose (2.21) is certain to have;
   when Compose refuses that, it is asked once more without the flag. Without a name `status` needs a treerig.toml above
