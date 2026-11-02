@@ -538,10 +538,13 @@ As built (#205):
   bounded tail (git, hooks and `compose config` included), which changes the
   text of a long failure; a tail is at most 50 lines, 500 bytes a line and 8
   KiB, and is not redacted, because diagnostics such as `COMPOSE_PROJECT_NAME`
-  matter there. The heartbeat carries the last line Compose wrote that was not
-  hidden (`run.Spec.Observe`, `progress.Latest`): through `text.Printable` and
-  `text.Redact`, cut at 120 characters, so a hung or killed start leaves its
-  last words without leaving a secret.
+  matter there. The heartbeat carries the last status line Compose wrote
+  that was not hidden (`run.Spec.Observe`, `progress.Latest`), and only that
+  shape: `Container web-1  Starting` and its like (resource kind, name, state),
+  rebuilt from its parts. Any other line (a build step, a pull layer, a warning)
+  can echo a command, a URL or a variable that `text.Redact` would not catch,
+  and the heartbeat runs without `-v`, into CI logs, so it is left out. A hung or
+  killed start still leaves the last resource it was working on.
 - **The Docker command line.** With `-v` the command line wraps the runner in
   `docker.Traced`, which says each command `docker.Run` builds, through
   `logger.Detail`: `docker compose --project-name … down --remove-orphans`. A

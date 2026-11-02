@@ -899,10 +899,7 @@ func (r *Router) start(ctx context.Context, observe func(line string)) error {
 	if result.ExitCode == 0 {
 		return nil
 	}
-	detail := strings.TrimSpace(result.Stderr)
-	if detail == "" {
-		detail = strings.TrimSpace(result.Stdout)
-	}
+	detail := run.Tail(firstNonBlank(result.Stderr, result.Stdout), run.FailureTailLines)
 	message := fmt.Sprintf(
 		"The shared router failed to start. Make sure 127.0.0.1:%d is free, or choose another port with %s_ROUTER_PORT or [router] port in %s.\n%s",
 		r.Port, brand.EnvPrefix, r.settingsFile(), detail)
@@ -1386,6 +1383,16 @@ func StatusReport(status RouterStatus) Report {
 	return Report{Output: []string{output}, Errors: errs, Failed: len(status.Problems) > 0}
 }
 
+// firstNonBlank is the first of values with something in it.
+func firstNonBlank(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // Down stops the router. It acts on the Compose project by name alone, so
 // the router is removable from a treerig root that never wrote a stack file —
 // the one a refusal tells the user to run this from. --remove-orphans stays
@@ -1411,10 +1418,9 @@ func (r *Router) Down(ctx context.Context) error {
 	if result.TimedOut || result.OutputOverflow || result.Signal != 0 {
 		return run.Failure(run.Spec{Command: "docker", Args: args, Timeout: spec.Timeout}, result)
 	}
-	detail := strings.TrimSpace(docker.WithoutNoResourceWarning(result.Stderr))
-	if detail == "" {
-		detail = strings.TrimSpace(docker.WithoutNoResourceWarning(result.Stdout))
-	}
+	// Bounded like run.Failure's: with the transcript captured, a noisy
+	// failure can have written up to the output limit.
+	detail := run.Tail(firstNonBlank(docker.WithoutNoResourceWarning(result.Stderr), docker.WithoutNoResourceWarning(result.Stdout)), run.FailureTailLines)
 	return clierr.Newf("The shared router did not stop cleanly:\n%s", detail)
 }
 

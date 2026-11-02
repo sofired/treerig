@@ -6,8 +6,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/commands/commandstest"
 	"github.com/sofired/treerig/internal/config"
@@ -171,6 +173,50 @@ func TestWorktreeDown(t *testing.T) {
 		}
 		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 1 || !strings.HasPrefix(left[0], "v") {
 			t.Fatalf("owned after down = %v, want only the data volume", left)
+		}
+	})
+
+	// What the daemon's silence looks like depends on the runner: it can hand
+	// back the error of a cancelled call (the probe deadline passed), or a
+	// Result that says the call timed out. Both must end `down` with exit 124.
+	t.Run("exits 124 when Docker does not answer in time while checking what is left", func(t *testing.T) {
+		isLeftoverProbe := func(spec run.Spec) bool {
+			return spec.Command == "docker" && slices.Contains(spec.Args, "ps") && slices.Contains(spec.Args, "{{.State}}")
+		}
+		for _, tc := range []struct {
+			name    string
+			handler func(ctx context.Context) (run.Result, error)
+			message string
+		}{
+			{"the runner returns the cancelled call's error", func(ctx context.Context) (run.Result, error) {
+				<-ctx.Done()
+				return run.Result{}, ctx.Err()
+			}, "Docker didn't answer within 20ms while checking what is left of feature-login.acme.localhost. Run 'treerig doctor' to see why."},
+			{"the runner returns a Result that timed out", func(context.Context) (run.Result, error) {
+				return run.Result{TimedOut: true, ExitCode: -1}, nil
+			}, "timed out"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				w := commandstest.New(t, "feature/login", acme)
+				w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+				inner := w.Runner.Handler
+				w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+					if isLeftoverProbe(spec) {
+						return tc.handler(ctx)
+					}
+					return inner(ctx, spec)
+				}
+				cctx := w.Context("", acme, nil)
+				cctx.DockerTimeouts.Probe = 20 * time.Millisecond
+
+				err := commands.DownWithContext(ctx, cctx.CommandContext)
+				if err == nil || clierr.Code(err) != 124 || !strings.Contains(err.Error(), tc.message) {
+					t.Fatalf("err = %v (code %d), want exit 124 mentioning %q", err, clierr.Code(err), tc.message)
+				}
+				if calls := downCalls(w); len(calls) != 0 {
+					t.Fatalf("ran compose down %d time(s) after the probe failed", len(calls))
+				}
+			})
 		}
 	})
 

@@ -12,6 +12,7 @@ package progress
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +45,8 @@ type PhaseSpec struct {
 	Passthrough bool
 	// Note, when set, answers what the action last reported (the last line
 	// Compose wrote), for the heartbeat to carry: a stuck or killed `up` then
-	// leaves its last words without -v. It may be called from another
+	// leaves the resource it was on without -v. Only a Compose status line is
+	// shown (see composeStatus); any other text is dropped. It may be called from another
 	// goroutine; see Latest.
 	Note func() string
 }
@@ -157,10 +159,25 @@ func (p *Plain) Phase(spec PhaseSpec, action func() error) error {
 	return action()
 }
 
-// clip is a note made safe to print, with secrets in it redacted (Compose
-// echoes URLs and variables), and cut to noteLimit characters.
+// composeStatus is the one shape of Compose line a note carries: a resource and
+// where it is ("Container web-1  Starting", with or without the ✔ or spinner
+// Compose draws before it). Anything else Compose writes (build steps, pull
+// layers, warnings, errors) can echo commands, URLs or variables, which no
+// redaction list can promise to catch, and the heartbeat runs without -v, into
+// CI logs; so only this shape is shown, rebuilt from its parts.
+var composeStatus = regexp.MustCompile(
+	`^\s*(?:\S\s+)?(Container|Network|Volume|Image|Service)\s+([A-Za-z0-9][A-Za-z0-9_.-]*)\s+` +
+		`(Creating|Created|Starting|Started|Waiting|Healthy|Unhealthy|Running|Recreate|Recreated|Restarting|Stopping|Stopped|Killing|Killed|Removing|Removed|Pulling|Pulled|Building|Built|Exited|Error)\s*$`)
+
+// clip is a note made safe to print: the Compose status in line, if it is one,
+// as "Container web-1 Starting" and cut to noteLimit characters; "" for any
+// other line.
 func clip(note string) string {
-	note = strings.TrimSpace(text.Redact(text.Printable(note)))
+	m := composeStatus.FindStringSubmatch(text.Printable(note))
+	if m == nil {
+		return ""
+	}
+	note = m[1] + " " + m[2] + " " + m[3]
 	runes := []rune(note)
 	if len(runes) > noteLimit {
 		return strings.TrimSpace(string(runes[:noteLimit-3])) + "..."

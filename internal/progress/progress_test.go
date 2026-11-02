@@ -303,42 +303,34 @@ func TestPlainPhaseResult(t *testing.T) {
 }
 
 func TestPhaseNote(t *testing.T) {
-	t.Run("carries the last thing the action said, safe to print and cut short", func(t *testing.T) {
-		defer progress.SetHeartbeatForTest(time.Millisecond)()
-		log := newSyncLogger(2)
-		var latest progress.Latest
-		latest.Set("")
-		latest.Set(" Container web \x1b[2K " + strings.Repeat("x", 300))
-		if err := progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Starting", What: "web", Note: latest.Get}, func() error {
-			select {
-			case <-log.reached:
-				return nil
-			case <-time.After(failsafe):
-				return errors.New("no heartbeat")
+	t.Run("carries the last Compose status line, rebuilt from its parts and cut short", func(t *testing.T) {
+		for _, tc := range []struct{ said, want string }{
+			{" Container web-1  Starting", "Container web-1 Starting"},
+			{" \u2714 Container web-1  Healthy ", "Container web-1 Healthy"},
+			{"\u280b Network app_default  Created", "Network app_default Created"},
+			{"Service web Building", "Service web Building"},
+		} {
+			if got := heartbeatNote(t, tc.said); got != tc.want {
+				t.Errorf("%q: note = %q, want %q", tc.said, got, tc.want)
 			}
-		}); err != nil {
-			t.Fatal(err)
 		}
-		line := log.lines[1]
-		if !strings.HasPrefix(line, "still starting web, ") || !strings.Contains(line, ": Container web \ufffd[2K xxx") || !strings.HasSuffix(line, "...") {
-			t.Fatalf("heartbeat = %q", line)
-		}
-		if note := line[strings.Index(line, ": ")+2:]; len([]rune(note)) > 120 {
-			t.Fatalf("note has %d characters", len([]rune(note)))
+		if got := heartbeatNote(t, " Container "+strings.Repeat("x", 300)+"  Started"); len([]rune(got)) != 120 || !strings.HasSuffix(got, "...") {
+			t.Errorf("long note = %q", got)
 		}
 	})
 
-	t.Run("hides the secrets in a note", func(t *testing.T) {
-		defer progress.SetHeartbeatForTest(time.Millisecond)()
-		log := newSyncLogger(2)
-		var latest progress.Latest
-		latest.Set("pulling https://u:p@registry.example/img with TOKEN=abc123")
-		_ = progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Starting", What: "web", Note: latest.Get}, func() error {
-			<-log.reached
-			return nil
-		})
-		if strings.Contains(log.lines[1], "u:p@") || strings.Contains(log.lines[1], "abc123") || !strings.Contains(log.lines[1], "https://<redacted>@registry.example/img with TOKEN=<redacted>") {
-			t.Fatalf("heartbeat = %q", log.lines[1])
+	t.Run("carries nothing else Compose says, which may echo a secret", func(t *testing.T) {
+		for _, said := range []string{
+			"pulling https://u:p@registry.example/img with TOKEN=abc123",
+			"#12 [web 3/5] RUN curl -H 'X-Api-Key: abc123' https://example.test",
+			" Container TOKEN=abc123  Starting",
+			" Container web-1  Starting \x1b[2K; echo abc123",
+			"Error response from daemon: password abc123",
+			"Container web-1 is unhealthy",
+		} {
+			if got := heartbeatNote(t, said); got != "" {
+				t.Errorf("%q: note = %q, want none", said, got)
+			}
 		}
 	})
 
@@ -363,4 +355,20 @@ func TestOr(t *testing.T) {
 	if _, ok := progress.Or(nil, logger.Silent{}).(*progress.Plain); !ok {
 		t.Error("Or(nil) is not the plain writer")
 	}
+}
+
+// heartbeatNote is the note after ": " in the first heartbeat of a phase whose
+// action last said line, or "" when the heartbeat carries none.
+func heartbeatNote(t *testing.T, line string) string {
+	t.Helper()
+	defer progress.SetHeartbeatForTest(time.Millisecond)()
+	log := newSyncLogger(2)
+	var latest progress.Latest
+	latest.Set(line)
+	_ = progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Starting", What: "web", Note: latest.Get}, func() error {
+		<-log.reached
+		return nil
+	})
+	_, note, _ := strings.Cut(log.lines[1], ": ")
+	return note
 }

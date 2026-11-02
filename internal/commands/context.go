@@ -69,6 +69,10 @@ type CommandContext struct {
 	// HostRouteBudget is how long `status` gives the connects to every host
 	// route's port together; zero means a second.
 	HostRouteBudget time.Duration
+	// DockerTimeouts overrides the Compose runtime's per-call deadlines
+	// (RuntimeFor); the zero value keeps the defaults. Only a test that needs
+	// a deadline to pass sets it.
+	DockerTimeouts backend.Timeouts
 	// PortRange is where routed services' loopback ports are allocated from
 	// (settings.toml's [ports] range, else layout.DefaultPortRange, #119);
 	// the zero value means the default.
@@ -142,6 +146,7 @@ func (c *CommandContext) RuntimeFor(namespace string, registered *registry.Regis
 		Logger:         c.Logger,
 		Environ:        c.Environ,
 		Verbose:        c.Verbose,
+		Timeouts:       c.DockerTimeouts,
 	}
 	// Without a treerig.toml (ContextWithoutConfig) there is no Compose file,
 	// project or domain to hand over: the label-only calls LabelRuntime is for
