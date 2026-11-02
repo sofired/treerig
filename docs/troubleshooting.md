@@ -2,7 +2,7 @@
 
 The failures people hit most: the message you see, how to fix it, and why it happens.
 
-Start with `treerig doctor`: it checks prerequisites, the registry, locks, the router and this checkout, and it names what is wrong. The entries below quote what treerig prints; a name, path, port or number in a quote stands for your own. Run as `trig`, the `[treerig]` prefix reads `[trig]`, and some hints still say `treerig`; either name works.
+Start with `treerig doctor`: it checks prerequisites, the registry, locks, the router and this checkout, and it names what is wrong. The entries below quote what treerig prints; a name, path, port or number in a quote stands for your own. Run as `trig`, the `[treerig]` prefix on errors and warnings reads `[trig]`, and some hints still say `treerig`; either name works.
 
 Jump to:
 
