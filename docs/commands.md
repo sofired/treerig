@@ -188,8 +188,13 @@ at a time, within that one second.
   another repository, or never recorded gets its header (`directory missing` or
   `unknown`), a line on stderr that ends with `Directory: <path>` (or, for a
   worktree no `up` has recorded a directory for, says that treerig has no
-  record of where it lives), and nothing more, exit 0. Neither file is read if
-  it is not a regular file or is larger than 1 MiB. In a worktree that is not
+  record of where it lives), and nothing more, exit 0. `status` itself
+  reads the treerig.toml only if it is a regular file of at most 1 MiB; it
+  looks at the Compose file the same way before starting Compose, to refuse a
+  FIFO, a device or a huge file that would hang or flood it. That look is not
+  a security boundary: Compose opens the file itself, and also reads the files
+  it includes or extends, its `env_file`s and its override files, none of which
+  `status` checks. Name only worktrees you trust. In a worktree that is not
   registered, `status` says so on stderr, prints nothing on stdout and exits 0.
 - **`worktree list`** has a STATE column, and `--json` a `state` and, for an
   unknown one, a `hint` (on stderr in the text form, unless it is the one cause
