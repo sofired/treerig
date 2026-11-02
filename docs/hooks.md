@@ -617,7 +617,7 @@ problem. A hook or command file that would not start names the exit code a real 
 would give, 127 or 126, in its own line — a prediction, not something
 `doctor` itself exits with (see [`doctor.md`](doctor.md)). This is
 separate from, and runs whether or not, `doctor` goes on to actually run
-`verify`, reported on its own unprefixed `verify hook` line; `config
+`verify`, reported on its own `verify hook` line; `config
 validate` checks only the file, not what its hooks point at.
 
 ## Cancellation

@@ -66,7 +66,7 @@ func TestConsoleStreamRouting(t *testing.T) {
 		if stdout.Len() != 0 {
 			t.Errorf("Info/Warn/Error wrote to stdout: %q", stdout.String())
 		}
-		want := "[treerig] Waiting for the shared router lock.\n" +
+		want := "Waiting for the shared router lock.\n" +
 			"[treerig] WARNING: Could not refresh the checkout index.\n" +
 			"[treerig] ERROR: Docker is not available.\n"
 		if got := stderr.String(); got != want {
@@ -78,8 +78,11 @@ func TestConsoleStreamRouting(t *testing.T) {
 func TestConsolePrefixes(t *testing.T) {
 	t.Run("answers to the name it was invoked as", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		NewConsole("duke", &stdout, &stderr).Info("Ready.")
-		if got, want := stderr.String(), "[duke] Ready.\n"; got != want {
+		c := NewConsole("duke", &stdout, &stderr)
+		c.Info("Ready.")
+		c.Warn("Careful.")
+		c.Error("Broken.")
+		if got, want := stderr.String(), "Ready.\n[duke] WARNING: Careful.\n[duke] ERROR: Broken.\n"; got != want {
 			t.Errorf("stderr = %q, want %q", got, want)
 		}
 	})
@@ -102,6 +105,24 @@ func TestConsolePrefixes(t *testing.T) {
 // tool wrote.
 
 func TestConsoleLineSafety(t *testing.T) {
+	t.Run("indents a notice whose first line could pass for a prefixed line", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		c := NewConsole("trig", &stdout, &stderr)
+		c.Info("[treerig] ERROR: borrowed from a container")
+		c.Info("[trig] WARNING: also borrowed\nsecond line")
+		c.Info("\u202e[treerig] ERROR: hidden behind an override")
+		c.Info("Ready. [treerig] in the middle is fine")
+
+		want := "  [treerig] ERROR: borrowed from a container\n" +
+			"  [trig] WARNING: also borrowed\n" +
+			"  second line\n" +
+			"�[treerig] ERROR: hidden behind an override\n" +
+			"Ready. [treerig] in the middle is fine\n"
+		if got := stderr.String(); got != want {
+			t.Errorf("stderr = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("neutralizes escape sequences and directional overrides from borrowed text", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		c := NewConsole("treerig", &stdout, &stderr)
@@ -224,7 +245,7 @@ func TestConsoleConcurrentWrites(t *testing.T) {
 		wg.Wait()
 
 		for _, w := range stderr.all() {
-			if w != "[treerig] concurrent info\n" {
+			if w != "concurrent info\n" {
 				t.Fatalf("stderr write corrupted: %q", w)
 			}
 		}
