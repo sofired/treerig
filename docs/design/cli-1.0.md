@@ -343,7 +343,10 @@ Whether an `up` has ever finished is what the registration records today as
 on them existing.
 
 A service is `running`, `starting`, `unhealthy`, `restarting`, `exited`
-(JSON adds `exitCode`), `stopped`, `not created` or `unknown`. A host route is
+(JSON adds `exitCode`), `stopped`, `not created` or `unknown`. A paused
+container is `unknown` with `detail` `paused`, not `stopped`: its processes are
+frozen and resume on an unpause, so calling it stopped would guess, and the
+hint says to unpause it or run `down`. A host route is
 `listening` or `not listening`, from a TCP connect to its port on `127.0.0.1`
 with a short budget.
 

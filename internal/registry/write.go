@@ -346,7 +346,11 @@ func (s *Store) dropRemovalMarker(worktreeID string) error {
 	if _, err := s.Removing(worktreeID); err != nil {
 		return err
 	}
-	if err := os.Remove(s.removalMarkerPath(worktreeID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	remove := os.Remove
+	if s.removeFile != nil {
+		remove = s.removeFile
+	}
+	if err := remove(s.removalMarkerPath(worktreeID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -354,6 +358,13 @@ func (s *Store) dropRemovalMarker(worktreeID string) error {
 
 // Remove deletes a registration, reporting whether there was one to delete.
 // A record that now names another slug changed concurrently, and is kept.
+//
+// removed is true together with an error only when the registration is gone
+// and its removal marker could not be deleted: the error names the marker,
+// and the caller treats it as a warning, since nothing depends on the marker
+// once no registration names it (a later Remove or an `up` that registers the
+// worktree again deletes it). Every other error leaves the registration where
+// it was, with removed false.
 func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, writer Writer) (bool, error) {
 	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID), writer.UserHome); err != nil {
 		return false, err
@@ -384,7 +395,10 @@ func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, wri
 		// The record first: a removal that dies between the two leaves a
 		// marker no registration points at, never a registration that looks
 		// finished.
-		return s.dropRemovalMarker(worktreeID)
+		if err := s.dropRemovalMarker(worktreeID); err != nil {
+			return fmt.Errorf("the registration is gone, but its removal marker %s was not deleted: %w", s.removalMarkerPath(worktreeID), err)
+		}
+		return nil
 	})
 	return removed, err
 }

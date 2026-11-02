@@ -518,6 +518,11 @@ func TestGatherDirectory(t *testing.T) {
 		if byMatchedRoot.State != worktree.StateDirectoryMissing || byMatchedRoot.Basis != worktreestate.BasisRecordedRoot {
 			t.Fatalf("by an entry at the recorded directory: %+v", byMatchedRoot)
 		}
+		damaged := entry("", filepath.Join(filepath.Dir(root), "damaged"), func(e *registry.WorktreeEntry) { e.RepositoryID, e.Prunable = "", true })
+		undetermined := stateOf(t, w.gather(local(damaged), worktreestate.Subject{Registration: record, RecordedRoot: root}), record)
+		if undetermined.State != worktree.StateUnknown || undetermined.Basis != worktreestate.BasisNone {
+			t.Fatalf("no verdict reached must carry no basis: %+v", undetermined)
+		}
 		foreign := w.register(wtB, "foreign", "complete")
 		nobody := stateOf(t, w.gather(nil, worktreestate.Subject{Registration: foreign}), foreign)
 		if nobody.Basis != worktreestate.BasisNone {

@@ -453,7 +453,7 @@ func TestInstances(t *testing.T) {
 		}
 		// A created container is one an up failed to start: nothing runs, and
 		// shared up replaces it rather than waiting on it.
-		for _, status := range []string{"dead", "paused", "created"} {
+		for _, status := range []string{"dead", "created"} {
 			f.docker.SetStatus(id, status)
 			if got, _ := f.stack.Instance(ctx, "mailpit"); got.State != worktree.Stopped || got.Live() {
 				t.Errorf("%s: %+v", status, got)
@@ -468,9 +468,13 @@ func TestInstances(t *testing.T) {
 	t.Run("fails closed on a state it does not know, rather than calling it absent or stopped", func(t *testing.T) {
 		f := newFixture(t)
 		f.start("mailpit")
-		f.docker.SetStatus(f.docker.ContainerNamed(project+"-mailpit-1"), "levitating")
-		if _, err := f.stack.Instance(ctx, "mailpit"); err == nil || !strings.Contains(err.Error(), "Could not tell what state") {
-			t.Fatalf("err = %v", err)
+		// A paused container is frozen, not stopped: shared up must not replace
+		// it on a guess.
+		for _, status := range []string{"levitating", "paused"} {
+			f.docker.SetStatus(f.docker.ContainerNamed(project+"-mailpit-1"), status)
+			if _, err := f.stack.Instance(ctx, "mailpit"); err == nil || !strings.Contains(err.Error(), "Could not tell what state") {
+				t.Fatalf("%s: err = %v", status, err)
+			}
 		}
 	})
 
