@@ -196,6 +196,9 @@ func (i Instance) Attached(networkID string) bool {
 // stopped (decision 18).
 func stateOf(container docker.Container) (State, int, error) {
 	reading := worktree.ContainerStatus(container.Status, container.Health, container.ExitCode, true, container.OOMKilled, true)
+	if reading.State == worktree.Unknown && reading.Detail == worktree.PausedDetail {
+		return "", 0, clierr.Newf("The shared container %s is paused, so treerig can't tell whether it is running. Run 'docker unpause %s', or 'treerig shared down' to stop it.", container.Name, container.Name)
+	}
 	if reading.State == worktree.Unknown {
 		return "", 0, clierr.Newf("Could not tell what state the shared container %s is in (Docker says %q); not assuming it is stopped or gone.", container.Name, container.Status)
 	}
