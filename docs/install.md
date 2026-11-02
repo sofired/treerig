@@ -395,7 +395,7 @@ With a release archive or a source build, make the link yourself.
 
 `trig` is a short name for the same program: a symlink named `trig` that points
 at `treerig`. Run through it, the help text, usage lines and the `[trig]`
-message prefix say `trig`.
+prefix on errors and warnings say `trig`.
 
 `trig` is only a name. The config file (`treerig.toml`), the `TREERIG_*`
 variables, the labels and the directories keep their `treerig` names. Some
@@ -419,8 +419,8 @@ when you remove `treerig`.
 
 ## Calling it something else
 
-Name the binary or symlink whatever you like. Help text, the log prefix, and
-most "run `X urls`" hints follow the name it was invoked as, which is read
+Name the binary or symlink whatever you like. Help text, the `[name]` prefix on
+errors and warnings, and most "run `X urls`" hints follow the name it was invoked as, which is read
 from `argv[0]` and from nowhere else. A few hints, such as the one shown when
 no `treerig.toml` is found, always name `treerig`; either name works, because
 both run the same program:

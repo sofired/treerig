@@ -1,3 +1,3 @@
-[treerig] Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove this worktree.
-[treerig] Running as the pinned teardown binary (version 0.0.0-dev).
+Running the pinned teardown binary FIXTURE/control/teardown/DIGEST (release golden-pin) to remove this worktree.
+Running as the pinned teardown binary (version 0.0.0-dev).
 [treerig] ERROR: Refusing to touch the container c1 (service api): it is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again.

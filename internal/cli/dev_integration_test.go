@@ -90,9 +90,9 @@ func TestDevThroughTheBinary(t *testing.T) {
 		// stderr are separate pipes, copied separately: stderr can still be
 		// behind once the follower's line is on stdout, so each is waited for.
 		for _, line := range []string{
-			"[treerig] Starting all services for feature-login.acme.localhost.\n",
-			"[treerig] feature-login.acme.localhost is up.\n",
-			"[treerig] Following the logs of feature-login.acme.localhost. Press Ctrl-C to end the session.\n",
+			"Starting all services for feature-login.acme.localhost.\n",
+			"feature-login.acme.localhost is up.\n",
+			"Following the logs of feature-login.acme.localhost. Press Ctrl-C to end the session.\n",
 		} {
 			waitForOutput(t, stderr, line)
 		}
@@ -235,7 +235,7 @@ func TestDevInterrupted(t *testing.T) {
 					t.Fatalf("the follower's group survived: %d is alive", pid)
 				}
 			}
-			notice := fmt.Sprintf("[treerig] The development session of feature-login.acme.localhost ended (%s). Its services are still running; \"treerig down\" stops them.\n", clierr.SignalName(sig))
+			notice := fmt.Sprintf("The development session of feature-login.acme.localhost ended (%s). Its services are still running; \"treerig down\" stops them.\n", clierr.SignalName(sig))
 			if !strings.Contains(stderr.String(), notice) {
 				t.Fatalf("stderr = %q, want the notice %q", stderr.String(), notice)
 			}
@@ -265,7 +265,7 @@ func TestDevOnATerminal(t *testing.T) {
 		if !status.Exited() || status.ExitStatus() != 128+int(syscall.SIGINT) {
 			t.Fatalf("status = %+v, want exit %d\ntreerig printed: %q", status, 128+int(syscall.SIGINT), ptytest.Transcript(ptmx))
 		}
-		ptytest.ReadUntil(t, ptmx, `[treerig] The development session of feature-login.acme.localhost ended (SIGINT). Its services are still running; "treerig down" stops them.`)
+		ptytest.ReadUntil(t, ptmx, `The development session of feature-login.acme.localhost ended (SIGINT). Its services are still running; "treerig down" stops them.`)
 		if transcript := ptytest.Transcript(ptmx); strings.Contains(transcript, "ERROR") {
 			t.Fatalf("a session the user ended was reported as an error: %q", transcript)
 		}
