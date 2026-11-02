@@ -460,7 +460,7 @@ backup  = "./backup.sh"
 		if !regexp.MustCompile(`(?m)^ {2}ok {4}router +not running`).MatchString(result.Stdout) {
 			t.Errorf("stdout = %q, want an ok router check", result.Stdout)
 		}
-		if !regexp.MustCompile(`(?m)^\[treerig\] No checks failed \(1 warning\(s\), 1 skipped\)\.$`).MatchString(result.Stderr) {
+		if !regexp.MustCompile(`(?m)^No checks failed \(1 warning\(s\), 1 skipped\)\.$`).MatchString(result.Stderr) {
 			t.Errorf("stderr = %q, want the no-failures notice", result.Stderr)
 		}
 		// The one warning is that nothing is pinned for `worktree remove`; it is
@@ -493,7 +493,7 @@ backup  = "./backup.sh"
 		cwd := registrytest.TempDir(t) // no Git repository and no treerig.toml anywhere above this directory
 
 		list := runTreerig(t, binary, cwd, []string{"list"}, treerigOptions{})
-		if list.Code != 0 || list.Stdout != "" || list.Stderr != "[treerig] No worktrees are registered on this machine.\n" {
+		if list.Code != 0 || list.Stdout != "" || list.Stderr != "No worktrees are registered on this machine.\n" {
 			t.Errorf("list = %+v, want the empty-machine notice on stderr and nothing on stdout", list)
 		}
 		listJSON := runTreerig(t, binary, cwd, []string{"list", "--json"}, treerigOptions{})
@@ -530,8 +530,8 @@ backup  = "./backup.sh"
 		inRepo := runTreerig(t, binary, repo, []string{"list"}, treerigOptions{})
 		if inRepo.Code != 0 || inRepo.Stdout != "" ||
 			!strings.Contains(inRepo.Stderr, "[treerig] WARNING: Ignoring treerig.toml for this command: ") ||
-			!strings.Contains(inRepo.Stderr, "[treerig] No worktrees are registered for this repository. Run 'treerig up' to register this worktree.\n") ||
-			!strings.HasSuffix(inRepo.Stderr, "[treerig] Every repository: 'treerig list --all'\n") {
+			!strings.Contains(inRepo.Stderr, "No worktrees are registered for this repository. Run 'treerig up' to register this worktree.\n") ||
+			!strings.HasSuffix(inRepo.Stderr, "Every repository: 'treerig list --all'\n") {
 			t.Errorf("list in a repository with a broken treerig.toml = %+v", inRepo)
 		}
 
