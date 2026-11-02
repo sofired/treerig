@@ -103,7 +103,11 @@ asked to remove. A file named `<worktree>.removing` is not read as a record
 `format 1`, written atomically under the registry lock. `Store.Remove` deletes it
 with the registration, after the record, so a removal that dies between the two
 leaves a marker no registration points at, never a registration that looks
-finished; `up` clears one it finds, which calls the removal off. A removal by a
+finished; `up` clears one it finds, which calls the removal off. `remove` holds the
+worktree's operation lock from writing the marker to its last deletion, and `up`
+looks only once it holds the same lock, so a marker `up` finds is an interrupted
+removal's, never one still running; a removal in progress makes `up` wait for
+the lock like any other verb. A removal by a
 0.1.x pin writes none, so an interrupted one reads as `not started` or `stopped`. A 0.1.x pin that finishes a removal this build began leaves the marker behind,
 with no registration for it to name: harmless, since a worktree with no
 registration is not listed, and removed by the next `Store.Remove` or cleared by

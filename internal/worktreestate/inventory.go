@@ -18,10 +18,14 @@ import (
 	"github.com/sofired/treerig/internal/worktree"
 )
 
-// DefaultInventoryTimeout bounds one `docker ps` call: 30s, the same bound
-// doctor uses for the same kind of introspection call, and the same 30s
-// every other introspection docker call this codebase makes
-// (internal/backend/compose.go's own timeouts comment).
+// DefaultInventoryTimeout bounds one inventory (the `docker ps` calls and the
+// inspects after them, together): 30s, the same bound doctor uses for the same
+// kind of introspection call, and the same 30s every other introspection
+// docker call this codebase makes (internal/backend/compose.go's own timeouts
+// comment). `list` and `index`, which are read and not waited for, pass the
+// 5s listDockerBudget instead (internal/commands/list.go); `status`, `doctor`
+// and the best-effort index refresh after `down`, `remove` and `router up`
+// keep this one.
 const DefaultInventoryTimeout = 30 * time.Second
 
 // Container is one managed container, as `docker ps -a` reports it.
@@ -181,6 +185,7 @@ type answer struct {
 // aborts the whole call promptly rather than waiting out every remaining
 // namespace's own timeout.
 func (g *Gatherer) Inventory(ctx context.Context, namespaces []string) (Inventory, error) {
+	started := time.Now()
 	answers := make([]answer, len(namespaces))
 	group, groupCtx := errgroup.WithContext(ctx)
 	for i, namespace := range namespaces {
@@ -208,7 +213,10 @@ func (g *Gatherer) Inventory(ctx context.Context, namespaces []string) (Inventor
 	for _, a := range answers {
 		all = append(all, a.records...)
 	}
-	if err := g.readKills(ctx, all); err != nil {
+	// One budget for the whole call: the inspects get what the `docker ps`
+	// calls left of it, so a slow daemon costs the inventory timeout once, not
+	// once for each phase.
+	if err := g.readKills(ctx, all, g.inventoryTimeout-time.Since(started)); err != nil {
 		return Inventory{}, err
 	}
 	return Inventory{Answered: true, Containers: all}, nil
@@ -220,11 +228,15 @@ const inspectConcurrency = 8
 // readKills asks Docker about each container that exited 137, the one exit
 // `docker ps` cannot explain: a stop (`compose stop`, a reboot) and the
 // out-of-memory killer both leave it. The inspects run concurrently under one
-// shared deadline (the inventory timeout), so many such containers cost no more
-// than one. A container that cannot be inspected stays unknown: nothing assumes
-// it was a stop. Only a cancellation is an error.
-func (g *Gatherer) readKills(ctx context.Context, containers []Container) error {
-	deadline, cancel := context.WithTimeout(ctx, g.inventoryTimeout)
+// shared deadline (budget, what the inventory timeout has left), so many such
+// containers cost no more than one. A container that cannot be inspected, or
+// that there is no budget left to inspect, stays unknown: nothing assumes it
+// was a stop. Only a cancellation is an error.
+func (g *Gatherer) readKills(ctx context.Context, containers []Container, budget time.Duration) error {
+	if budget <= 0 {
+		return ctx.Err()
+	}
+	deadline, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	var group errgroup.Group
 	group.SetLimit(inspectConcurrency)
@@ -234,7 +246,7 @@ func (g *Gatherer) readKills(ctx context.Context, containers []Container) error 
 			continue
 		}
 		group.Go(func() error {
-			inspected, found, err := docker.InspectContainer(deadline, g.runner, container.ID, g.inventoryTimeout)
+			inspected, found, err := docker.InspectContainer(deadline, g.runner, container.ID, budget)
 			if err == nil && found {
 				reading := worktree.ContainerStatus("exited", "", inspected.ExitCode, true, inspected.OOMKilled, true)
 				container.State, container.ExitCode, container.Detail = reading.State, reading.ExitCode, text.Printable(reading.Detail)

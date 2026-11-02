@@ -98,9 +98,9 @@ word; `status --json` prints the JSON value, and `exitCode` beside `exited`.
 | `unhealthy` | `unhealthy` | Running, and failing its health check. |
 | `restarting` | `restarting` | Docker keeps restarting it. |
 | `exited (code N)` | `exited` | It ran and ended with code N. Exit 137 counts as a crash only when Docker reports the kernel's out-of-memory killer did it. |
-| `stopped` | `stopped` | A container that exists and does not run, and did not crash: created and never started, paused, dead, being removed, or ended by `SIGKILL` or `SIGTERM` (exit 137 or 143, which `docker compose stop`, a reboot or a daemon restart leave behind). |
+| `stopped` | `stopped` | A container that exists and does not run, and did not crash: created and never started, dead, being removed, or ended by `SIGKILL` or `SIGTERM` (exit 137 or 143, which `docker compose stop`, a reboot or a daemon restart leave behind). |
 | `not created` | `not_created` | Declared, and no container at all, as after `down`. |
-| `unknown` | `unknown` | A state treerig has no word for; `detail` is Docker's own. |
+| `unknown` | `unknown` | A state treerig has no word for; `detail` is Docker's own. A paused container is one (`detail` `paused`): it is frozen, neither running nor stopped, and the hint says to unpause it or run `down`. |
 
 A scaled service has a container per replica. `status` shows it as its worst
 replica; the worktree's state counts every replica.
@@ -195,8 +195,13 @@ at a time, within that one second.
   another repository, or never recorded gets its header (`directory missing` or
   `unknown`), a line on stderr that ends with `Directory: <path>` (or, for a
   worktree no `up` has recorded a directory for, says that treerig has no
-  record of where it lives), and nothing more, exit 0. Neither file is read if
-  it is not a regular file or is larger than 1 MiB. In a worktree that is not
+  record of where it lives), and nothing more, exit 0. `status` itself
+  reads the treerig.toml only if it is a regular file of at most 1 MiB; it
+  looks at the Compose file the same way before starting Compose, to refuse a
+  FIFO, a device or a huge file that would hang or flood it. That look is not
+  a security boundary: Compose opens the file itself, and also reads the files
+  it includes or extends, its `env_file`s and its override files, none of which
+  `status` checks. Name only worktrees you trust. In a worktree that is not
   registered, `status` says so on stderr, prints nothing on stdout and exits 0.
 - **`list`** (`ls`) prints a table of the repository's worktrees, and with
   `--all`, or outside a repository, of every registered worktree on the

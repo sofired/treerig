@@ -54,7 +54,7 @@ func TestParseInventory(t *testing.T) {
 			{"one SIGKILL ended, before Inventory asks Docker why", "exited", "Exited (137) 3 days ago", worktree.ServiceStatus{State: worktree.Unknown, Detail: worktree.CauseNotRead}},
 			{"one SIGTERM ended", "exited", "Exited (143) 3 days ago", worktree.ServiceStatus{State: worktree.Stopped}},
 			{"one that exited with 139", "exited", "Exited (139) 3 days ago", worktree.ServiceStatus{State: worktree.Exited, ExitCode: 139}},
-			{"a paused one", "paused", "Up 5 minutes (Paused)", worktree.ServiceStatus{State: worktree.Stopped}},
+			{"a paused one", "paused", "Up 5 minutes (Paused)", worktree.ServiceStatus{State: worktree.Unknown, Detail: worktree.PausedDetail}},
 			{"a dead one", "dead", "Dead", worktree.ServiceStatus{State: worktree.Stopped}},
 			{"one being removed", "removing", "Removal In Progress", worktree.ServiceStatus{State: worktree.Stopped}},
 			{"an exit with no code to read", "exited", "Exited", worktree.ServiceStatus{State: worktree.Unknown, Detail: "exited"}},
@@ -261,6 +261,29 @@ func TestInventory(t *testing.T) {
 		_, err := worktreestate.New(worktreestate.Options{Runner: d.runner()}).Inventory(ctx, namespaces)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v, want the cancellation", err)
+		}
+	})
+
+	t.Run("spends the timeout once across the docker ps and the inspects after it", func(t *testing.T) {
+		const budget = time.Second
+		const slow = 400 * time.Millisecond
+		var mu sync.Mutex
+		var inspects []time.Duration
+		runner := &fakerun.Runner{Handler: func(_ context.Context, spec run.Spec) (run.Result, error) {
+			if spec.Args[0] == "container" {
+				mu.Lock()
+				inspects = append(inspects, spec.Timeout)
+				mu.Unlock()
+				return run.Result{ExitCode: 1, Stderr: "Error: No such container"}, nil
+			}
+			time.Sleep(slow) // a daemon that is slow to answer `docker ps`
+			return run.Result{Stdout: line(repoA, wtA, "api", "exited", "Exited (137) 1 hour ago")}, nil
+		}}
+		if _, err := worktreestate.New(worktreestate.Options{Runner: runner, InventoryTimeout: budget}).Inventory(ctx, namespaces[:1]); err != nil {
+			t.Fatal(err)
+		}
+		if len(inspects) != 1 || inspects[0] > budget-slow {
+			t.Fatalf("inspect timeouts = %v, want one of at most %v (what the docker ps left of %v)", inspects, budget-slow, budget)
 		}
 	})
 

@@ -72,7 +72,8 @@ func issuesError(file string, issues []shape.Issue) error {
 
 // MaxFileSize is the most a treerig.toml, or the Compose file `status` hands to
 // Compose for another worktree, may hold. It is far more than any real file,
-// so only something that is not a configuration file at all reaches it.
+// so only something that is not a configuration file at all reaches it. It is
+// a guard against a hang or a flood, not against a hostile file.
 const MaxFileSize = 1 << 20
 
 // ReadRegularFile reads path, which must be a regular file (after following
@@ -101,7 +102,10 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 }
 
 // CheckRegularFile is ReadRegularFile's check without the read: path must be a
-// regular file of at most limit bytes.
+// regular file of at most limit bytes. Unlike ReadRegularFile it only advises:
+// whoever opens path afterwards opens it afresh, so the file may have changed
+// by then, and it says nothing about other files that one reads. It keeps a
+// FIFO, a device or a huge file from hanging or flooding that reader.
 func CheckRegularFile(path string, limit int64) error {
 	file, err := openWithoutBlocking(path)
 	if err != nil {
