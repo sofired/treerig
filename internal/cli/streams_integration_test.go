@@ -493,7 +493,7 @@ backup  = "./backup.sh"
 		cwd := registrytest.TempDir(t) // no Git repository and no treerig.toml anywhere above this directory
 
 		list := runTreerig(t, binary, cwd, []string{"worktree", "list"}, treerigOptions{})
-		if list.Code != 0 || list.Stdout != "" || list.Stderr != "[treerig] No worktrees are registered on this machine.\n" {
+		if list.Code != 0 || list.Stdout != "" || list.Stderr != "No worktrees are registered on this machine.\n" {
 			t.Errorf("worktree list = %+v, want the empty-machine notice on stderr and nothing on stdout", list)
 		}
 		listJSON := runTreerig(t, binary, cwd, []string{"worktree", "list", "--json"}, treerigOptions{})
@@ -526,8 +526,8 @@ backup  = "./backup.sh"
 		inRepo := runTreerig(t, binary, repo, []string{"worktree", "list"}, treerigOptions{})
 		if inRepo.Code != 0 || inRepo.Stdout != "" ||
 			!strings.Contains(inRepo.Stderr, "[treerig] WARNING: Ignoring treerig.toml for this command: ") ||
-			!strings.Contains(inRepo.Stderr, "[treerig] No worktrees are registered for this repository.\n") ||
-			!strings.HasSuffix(inRepo.Stderr, "[treerig] Every repository: 'treerig worktree list --all'\n") {
+			!strings.Contains(inRepo.Stderr, "No worktrees are registered for this repository.\n") ||
+			!strings.HasSuffix(inRepo.Stderr, "Every repository: 'treerig worktree list --all'\n") {
 			t.Errorf("worktree list in a repository with a broken treerig.toml = %+v", inRepo)
 		}
 
