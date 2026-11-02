@@ -346,7 +346,9 @@ A service is `running`, `starting`, `unhealthy`, `restarting`, `exited`
 (JSON adds `exitCode`), `stopped`, `not created` or `unknown`. A paused
 container is `unknown` with `detail` `paused`, not `stopped`: its processes are
 frozen and resume on an unpause, so calling it stopped would guess, and the
-hint says to unpause it or run `down`. A host route is
+hint says to run `down`, then `up`. A paused shared container fails `up` and
+`shared up` closed (decision 18 of `routing.md`), naming `docker unpause` and
+`shared down`. A host route is
 `listening` or `not listening`, from a TCP connect to its port on `127.0.0.1`
 with a short budget.
 

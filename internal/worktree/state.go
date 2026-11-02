@@ -405,7 +405,7 @@ func unknownServiceHint(service ServiceStatus) string {
 	case service.State == Unknown && service.Detail == "exited":
 		return "No exit code was reported for " + name + ", which exited."
 	case service.State == Unknown && service.Detail == PausedDetail:
-		return name + " is paused, which treerig has no word for: unpause it with 'docker compose unpause', or run 'treerig down'."
+		return name + " is paused, which treerig has no word for: run 'treerig down' to stop it, then 'treerig up'."
 	case service.State == Unknown && service.Detail != "":
 		return name + " is in a state treerig has no word for (Docker says " + service.Detail + ")."
 	case service.State == Unknown || service.State == "":
