@@ -47,10 +47,23 @@ func NewConsole(commandName string, stdout, stderr io.Writer) *Console {
 }
 
 // Info writes the message with no prefix: plain progress and notices aren't
-// errors, and a prefix made every line look like one. A caller never begins a
-// notice with borrowed text: with no prefix in front, a first line such as a
-// container's "[treerig] ERROR: ..." would read as this tool's own.
-func (c *Console) Info(message string) { c.say(message) }
+// errors, and a prefix made every line look like one. Without a prefix, a
+// notice whose first line came from elsewhere, such as a container's
+// "[treerig] ERROR: ...", would read as this tool's own error or warning. Every
+// prefix this tool writes begins with "[", so a notice whose first line does is
+// indented like a continuation line and can't pass for one.
+func (c *Console) Info(message string) {
+	if strings.HasPrefix(text.Printable(firstLine(message)), "[") {
+		message = "  " + message
+	}
+	c.say(message)
+}
+
+// firstLine returns message up to its first line break.
+func firstLine(message string) string {
+	line, _, _ := strings.Cut(message, "\n")
+	return line
+}
 
 // Warn writes "[name] WARNING: message".
 func (c *Console) Warn(message string) { c.say(c.prefix + " WARNING: " + message) }

@@ -105,6 +105,24 @@ func TestConsolePrefixes(t *testing.T) {
 // tool wrote.
 
 func TestConsoleLineSafety(t *testing.T) {
+	t.Run("indents a notice whose first line could pass for a prefixed line", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		c := NewConsole("trig", &stdout, &stderr)
+		c.Info("[treerig] ERROR: borrowed from a container")
+		c.Info("[trig] WARNING: also borrowed\nsecond line")
+		c.Info("\u202e[treerig] ERROR: hidden behind an override")
+		c.Info("Ready. [treerig] in the middle is fine")
+
+		want := "  [treerig] ERROR: borrowed from a container\n" +
+			"  [trig] WARNING: also borrowed\n" +
+			"  second line\n" +
+			"�[treerig] ERROR: hidden behind an override\n" +
+			"Ready. [treerig] in the middle is fine\n"
+		if got := stderr.String(); got != want {
+			t.Errorf("stderr = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("neutralizes escape sequences and directional overrides from borrowed text", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		c := NewConsole("treerig", &stdout, &stderr)
