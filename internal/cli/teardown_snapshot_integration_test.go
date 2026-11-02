@@ -38,8 +38,8 @@ func TestSnapshotBinaryThroughTheGate(t *testing.T) {
 	// thing that needs a treerig.toml, so nothing is touched.
 	stored := filepath.Join(dir, "control-home", "control-home", "teardown", digest)
 	result := runTreerig(t, binary, dir, []string{"worktree", "remove", "--yes"}, treerigOptions{timeout: time.Minute})
-	want := "[treerig] Running the pinned teardown binary " + stored + " (release snapshot) to remove this worktree.\n" +
-		"[treerig] Running as the pinned teardown binary (version " + version + ").\n"
+	want := "Running the pinned teardown binary " + stored + " (release snapshot) to remove this worktree.\n" +
+		"Running as the pinned teardown binary (version " + version + ").\n"
 	if result.Code != 1 || result.Stdout != "" || !strings.HasPrefix(result.Stderr, want) || strings.Contains(result.Stderr, "Refusing") {
 		t.Fatalf("remove = %+v\nwant stderr to start with\n%s", result, want)
 	}

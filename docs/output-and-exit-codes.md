@@ -7,6 +7,9 @@ The commands that produce data — `list`, `status`, `router status`,
 and nothing else, so `treerig list > worktrees.txt` and
 `treerig list --json | jq` get what they asked for. Progress, waiting
 notices, confirmation prompts, warnings, failures and footers go to stderr.
+Errors and warnings start with `[treerig] ERROR:` or `[treerig] WARNING:` (the
+name you ran it as, so `[trig]` under `trig`); progress and other notices carry
+no prefix, so a script matches on the prefix, not on its absence.
 Six of these (`list`, `status`, `shared status`, `route ls`, `doctor` and `teardown status`) take `--json`:
 see [Machine-readable output](json-output.md).
 
