@@ -2,6 +2,7 @@ package commands_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -145,8 +146,8 @@ func TestUpWithContext(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
 		defer cancel()
-		if _, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); err == nil {
-			t.Fatal("up went ahead under a held operation lock")
+		if _, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("up = %v, want it still waiting for the held operation lock when its context ends", err)
 		}
 		if removing, err := tc.Registry.Store(first.RepositoryID).Removing(first.WorktreeID); err != nil || !removing {
 			t.Fatalf("Removing = %v, %v; the marker must survive a removal in progress", removing, err)

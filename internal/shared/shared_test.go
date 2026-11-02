@@ -468,13 +468,16 @@ func TestInstances(t *testing.T) {
 	t.Run("fails closed on a state it does not know, rather than calling it absent or stopped", func(t *testing.T) {
 		f := newFixture(t)
 		f.start("mailpit")
+		f.docker.SetStatus(f.docker.ContainerNamed(project+"-mailpit-1"), "levitating")
+		if _, err := f.stack.Instance(ctx, "mailpit"); err == nil || !strings.Contains(err.Error(), "Could not tell what state") {
+			t.Fatalf("levitating: err = %v", err)
+		}
 		// A paused container is frozen, not stopped: shared up must not replace
-		// it on a guess.
-		for _, status := range []string{"levitating", "paused"} {
-			f.docker.SetStatus(f.docker.ContainerNamed(project+"-mailpit-1"), status)
-			if _, err := f.stack.Instance(ctx, "mailpit"); err == nil || !strings.Contains(err.Error(), "Could not tell what state") {
-				t.Fatalf("%s: err = %v", status, err)
-			}
+		// it on a guess, and the refusal says how to get out of it.
+		f.docker.SetStatus(f.docker.ContainerNamed(project+"-mailpit-1"), "paused")
+		if _, err := f.stack.Instance(ctx, "mailpit"); err == nil || !strings.Contains(err.Error(), "is paused") ||
+			!strings.Contains(err.Error(), "Run 'docker unpause "+project+"-mailpit-1', or 'treerig shared down' to stop it.") {
+			t.Fatalf("paused: err = %v", err)
 		}
 	})
 

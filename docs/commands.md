@@ -100,7 +100,7 @@ word; `status --json` prints the JSON value, and `exitCode` beside `exited`.
 | `exited (code N)` | `exited` | It ran and ended with code N. Exit 137 counts as a crash only when Docker reports the kernel's out-of-memory killer did it. |
 | `stopped` | `stopped` | A container that exists and does not run, and did not crash: created and never started, dead, being removed, or ended by `SIGKILL` or `SIGTERM` (exit 137 or 143, which `docker compose stop`, a reboot or a daemon restart leave behind). |
 | `not created` | `not_created` | Declared, and no container at all, as after `down`. |
-| `unknown` | `unknown` | A state treerig has no word for; `detail` is Docker's own. A paused container is one (`detail` `paused`): it is frozen, neither running nor stopped, and the hint says to unpause it or run `down`. |
+| `unknown` | `unknown` | A state treerig has no word for; `detail` is Docker's own. A paused container is one (`detail` `paused`): it is frozen, neither running nor stopped, and the hint says to run `down` and then `up`. A paused shared container stops `up` and `shared up`, with an error that names `docker unpause` and `shared down`, rather than have it replaced on a guess. |
 
 A scaled service has a container per replica. `status` shows it as its worst
 replica; the worktree's state counts every replica.
