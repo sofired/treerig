@@ -71,7 +71,7 @@ func TestWorktreeRenameThroughTheBinary(t *testing.T) {
 		stdout, stderr, code := renameRun(t, f, binary, "worktree", "rename", "login")
 
 		if code != 0 || stdout != "" ||
-			!strings.Contains(stderr, "[treerig] Renamed feature-login.acme.localhost to login.acme.localhost. Run 'treerig up' to start it there.\n") {
+			!strings.Contains(stderr, "Renamed feature-login.acme.localhost to login.acme.localhost. Run 'treerig up' to start it there.\n") {
 			t.Fatalf("rename: exit %d\nstdout: %q\nstderr: %q", code, stdout, stderr)
 		}
 		list, _, _ := renameRun(t, f, binary, "worktree", "list")
