@@ -164,9 +164,11 @@ func (p *Plain) Phase(spec PhaseSpec, action func() error) error {
 // Compose draws before it). Anything else Compose writes (build steps, pull
 // layers, warnings, errors) can echo commands, URLs or variables, which no
 // redaction list can promise to catch, and the heartbeat runs without -v, into
-// CI logs; so only this shape is shown, rebuilt from its parts.
+// CI logs; so only this shape is shown, rebuilt from its parts. A name may hold
+// an image's registry and tag ("Image docker.io/library/nginx:1  Pulling") but
+// never "@", so no user:password@host can pass for one.
 var composeStatus = regexp.MustCompile(
-	`^\s*(?:\S\s+)?(Container|Network|Volume|Image|Service)\s+([A-Za-z0-9][A-Za-z0-9_.-]*)\s+` +
+	`^\s*(?:\S\s+)?(Container|Network|Volume|Image|Service)\s+([A-Za-z0-9][A-Za-z0-9_.:/-]*)\s+` +
 		`(Creating|Created|Starting|Started|Waiting|Healthy|Unhealthy|Running|Recreate|Recreated|Restarting|Stopping|Stopped|Killing|Killed|Removing|Removed|Pulling|Pulled|Building|Built|Exited|Error)\s*$`)
 
 // clip is a note made safe to print: the Compose status in line, if it is one,

@@ -309,6 +309,9 @@ func TestPhaseNote(t *testing.T) {
 			{" \u2714 Container web-1  Healthy ", "Container web-1 Healthy"},
 			{"\u280b Network app_default  Created", "Network app_default Created"},
 			{"Service web Building", "Service web Building"},
+			{" \u2714 Volume app_data  Created", "Volume app_data Created"},
+			{"\u280b Image docker.io/library/nginx:1.27  Pulling", "Image docker.io/library/nginx:1.27 Pulling"},
+			{" \u2714 Image postgres:16 Pulled", "Image postgres:16 Pulled"},
 		} {
 			if got := heartbeatNote(t, tc.said); got != tc.want {
 				t.Errorf("%q: note = %q, want %q", tc.said, got, tc.want)
@@ -324,6 +327,7 @@ func TestPhaseNote(t *testing.T) {
 			"pulling https://u:p@registry.example/img with TOKEN=abc123",
 			"#12 [web 3/5] RUN curl -H 'X-Api-Key: abc123' https://example.test",
 			" Container TOKEN=abc123  Starting",
+			" Image u:p@registry.example/img  Pulling",
 			" Container web-1  Starting \x1b[2K; echo abc123",
 			"Error response from daemon: password abc123",
 			"Container web-1 is unhealthy",
