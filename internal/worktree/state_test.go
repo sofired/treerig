@@ -170,7 +170,7 @@ func TestClassifyMapsEveryCombinationToOneState(t *testing.T) {
 		paused := worktree.Classify(worktree.Inputs{Services: []worktree.ServiceStatus{
 			{Service: "web", State: worktree.Running}, {Service: "db", State: worktree.Unknown, Detail: worktree.PausedDetail},
 		}})
-		if paused.State != worktree.StateUnknown || paused.Hint != "db is paused, which treerig has no word for: unpause it with 'docker compose unpause', or run 'treerig down'." {
+		if paused.State != worktree.StateUnknown || paused.Hint != "db is paused, which treerig has no word for: run 'treerig down' to stop it, then 'treerig up'." {
 			t.Fatalf("paused = %+v", paused)
 		}
 		hint = worktree.Classify(worktree.Inputs{Services: []worktree.ServiceStatus{{Service: "job", State: worktree.Unknown, Detail: worktree.CauseNotRead}}}).Hint
