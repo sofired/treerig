@@ -266,6 +266,11 @@ func flagError(cmd *cobra.Command, err error) error {
 // would say nothing of why these are refused.
 func misplacedFlag(cmd *cobra.Command, err error) error {
 	root := cmd.Root()
+	// pflag names the rest of the cluster after the flag it could not place
+	// ("in -Vx"), so -V is matched on that prefix, not on the whole message.
+	if strings.HasPrefix(err.Error(), "unknown shorthand flag: 'V' in -") {
+		return clierr.Newf("-V is only accepted on its own: run '%s -V'.", root.CommandPath())
+	}
 	switch err.Error() {
 	case "unknown flag: --config":
 		switch {
@@ -277,8 +282,6 @@ func misplacedFlag(cmd *cobra.Command, err error) error {
 				cmd.CommandPath(), brand.ConfigFile)
 		}
 		return clierr.Newf("'%s' reads no %s, so it does not take --config.", cmd.CommandPath(), brand.ConfigFile)
-	case "unknown shorthand flag: 'V' in -V":
-		return clierr.Newf("-V is only accepted on its own: run '%s -V'.", root.CommandPath())
 	case "unknown flag: --version":
 		return clierr.Newf("--version is only accepted on its own: run '%s --version'.", root.CommandPath())
 	}

@@ -148,6 +148,7 @@ var goldenCases = []goldenCase{
 	{"err-version-flag-on-subcommand", []string{"worktree", "list", "-V"}},
 	{"err-version-long-on-subcommand", []string{"status", "--version"}},
 	{"err-version-short-in-cluster-on-subcommand", []string{"status", "-hV"}},
+	{"err-version-short-before-a-cluster-on-subcommand", []string{"status", "-Vx"}},
 	{"err-version-short-on-run", []string{"run", "plan", "-V"}},
 
 	// --- -v/--verbose and --progress, the root's persistent flags: on
