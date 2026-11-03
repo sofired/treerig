@@ -275,6 +275,8 @@ func TestTeardownGate(t *testing.T) {
 			{"progress joined", "trig worktree remove --progress=plain x", "trig worktree remove x"},
 			{"after the dashes they are the caller's", "trig worktree remove -- -v", "trig worktree remove -- -v"},
 			{"a flag's value is never stripped", "trig worktree remove --domain -v slug", "trig worktree remove --domain -v slug"},
+			{"nor --config's", "trig worktree remove --config -v x", "trig worktree remove --config -v x"},
+			{"nor --config's when it looks like --progress", "trig worktree remove --config --progress x", "trig worktree remove --config --progress x"},
 			{"nor a value after a stripped flag", "trig worktree remove -v --label-namespace --progress x", "trig worktree remove --label-namespace --progress x"},
 			{"others stay", "trig worktree remove --domain d --yes x", "trig worktree remove --domain d --yes x"},
 		} {
@@ -288,7 +290,7 @@ func TestTeardownGate(t *testing.T) {
 					if a == "--" {
 						break
 					}
-					if a == "--domain" || a == "--label-namespace" {
+					if a == "--domain" || a == "--label-namespace" || a == "--config" {
 						i++ // its value is the child's to read
 						continue
 					}
