@@ -409,9 +409,10 @@ var removeValueFlags = map[string]bool{"--domain": true, "--label-namespace": tr
 // pinnedChildArgs is argv as the pinned teardown binary is run with it: the
 // caller's own arguments without -v/--verbose and --progress, which an older
 // pinned build does not know and would refuse after the gate has already
-// announced the removal. The value of a flag in removeValueFlags is never stripped. Arguments
-// after a bare "--" and argv[0] are kept as they are. A -v inside a cluster of other short flags is left alone: no
-// flag of `worktree remove` has a short form but -h and -v.
+// announced the removal. The value of a flag in removeValueFlags is never
+// stripped. Arguments after a bare "--" and argv[0] are kept as they are. A -v
+// inside a cluster of other short flags is left alone: no flag of `worktree
+// remove` has a short form but -h and -v.
 //
 // TODO(#210): the stable teardown-run contract replaces this filter.
 func pinnedChildArgs(args []string) []string {
