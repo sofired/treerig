@@ -315,7 +315,12 @@ var goldenCases = []goldenCase{
 	// feature: the root itself has no --config.
 	{"config-before-command", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "config", "validate"}},
 	{"err-config-before-command-that-takes-none", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "init"}},
+	// An unknown command is the mistake there, not the flag: it is reported as
+	// it is without --config, with cobra's suggestions.
 	{"err-config-and-unknown-command", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "bogus"}},
+	{"err-config-and-misspelt-command", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "stauts"}},
+	{"err-config-and-a-word-after-double-dash", []string{"--config", "/nonexistent-treerig-config-x7z.toml", "--", "stauts"}},
+	{"err-unknown-flag-and-its-value", []string{"--bogus", "value"}},
 	{"err-config-and-no-command", []string{"--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"err-config-on-group", []string{"route", "--config", "/nonexistent-treerig-config-x7z.toml"}},
 	{"err-config-on-router-status", []string{"router", "status", "--config", "/nonexistent-treerig-config-x7z.toml"}},

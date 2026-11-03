@@ -37,6 +37,8 @@ var errVersionRequested = errors.New("cli: version requested")
 type program struct {
 	buildEnv func(configPath string) (*commands.Env, error)
 	exitCode *int
+	// args is the command line after the program's name, as the root parses it.
+	args []string
 }
 
 // env resolves cmd's own --config (declared by addConfigFlag on each command
@@ -319,6 +321,32 @@ func editDistance(a, b string) int {
 	return prev[len(b)]
 }
 
+// firstPositional is the first word in args that cobra would take as a
+// command name, by cobra's own rules for finding one (stripFlags): a long
+// flag without "=" that is not a boolean, or a lone short one, takes the next
+// argument as its value, known flag or not, and nothing after "--" counts.
+func firstPositional(flags *pflag.FlagSet, args []string) (string, bool) {
+	takesValue := func(f *pflag.Flag) bool { return f == nil || f.NoOptDefVal == "" }
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return "", false
+		case strings.HasPrefix(a, "--") && !strings.Contains(a, "="):
+			if takesValue(flags.Lookup(a[2:])) {
+				i++
+			}
+		case strings.HasPrefix(a, "-") && !strings.Contains(a, "=") && len(a) == 2:
+			if takesValue(flags.ShorthandLookup(a[1:])) {
+				i++
+			}
+		case a != "" && !strings.HasPrefix(a, "-"):
+			return a, true
+		}
+	}
+	return "", false
+}
+
 // unknownSubcommand rejects a positional argument on a command group that
 // only ever dispatches to a named child (the root itself, config, router and
 // worktree): anything left over names a subcommand that does not exist. It
@@ -571,7 +599,17 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		cobra.CompletionWithDesc(string(commands.ProgressAuto), "redraw on a terminal"),
 		cobra.CompletionWithDesc(string(commands.ProgressPlain), "one line per change"),
 	}, cobra.ShellCompDirectiveNoFileComp))
-	root.SetFlagErrorFunc(flagError)
+	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		// The root parses only when no command was found, so a word left on the
+		// line names a command that does not exist: that is the mistake to
+		// report, not a flag that could have gone after it.
+		if cmd == cmd.Root() {
+			if word, ok := firstPositional(cmd.Flags(), p.args); ok {
+				return usageArgs(unknownSubcommand)(cmd, []string{word})
+			}
+		}
+		return flagError(cmd, err)
+	})
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		// Only the root has -V; no other command's flag set has "version".
 		if cmd != cmd.Root() {
