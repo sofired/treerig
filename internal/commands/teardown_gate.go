@@ -11,8 +11,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -403,8 +405,15 @@ func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 
 // removeValueFlags are the flags of `worktree remove` that take their value
 // as the next argument (--flag value, not --flag=value). The list is kept
-// here by hand: this package cannot see the command line's flag set.
+// here by hand, since this package cannot see the command line's flag set;
+// internal/cli's tests check it against that flag set (PinnedChildValueFlags).
 var removeValueFlags = map[string]bool{"--domain": true, "--label-namespace": true, "--config": true}
+
+// PinnedChildValueFlags is removeValueFlags, sorted: the flags whose next
+// argument the gate hands the pinned child untouched.
+func PinnedChildValueFlags() []string {
+	return slices.Sorted(maps.Keys(removeValueFlags))
+}
 
 // pinnedChildArgs is argv as the pinned teardown binary is run with it: the
 // caller's own arguments without -v/--verbose and --progress, which an older
