@@ -1,0 +1,1 @@
+[treerig] ERROR: 'treerig' does not take --config itself: give it to the command that reads treerig.toml, after that command's name.
