@@ -11,8 +11,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -430,15 +432,23 @@ func teardownGate(ctx context.Context, env *Env, options RemoveOptions) error {
 
 // removeValueFlags are the flags of `worktree remove` that take their value
 // as the next argument (--flag value, not --flag=value). The list is kept
-// here by hand: this package cannot see the command line's flag set.
+// here by hand, since this package cannot see the command line's flag set;
+// internal/cli's tests check it against that flag set (PinnedChildValueFlags).
 var removeValueFlags = map[string]bool{"--domain": true, "--label-namespace": true, "--config": true}
+
+// PinnedChildValueFlags is removeValueFlags, sorted: the flags whose next
+// argument the gate hands the pinned child untouched.
+func PinnedChildValueFlags() []string {
+	return slices.Sorted(maps.Keys(removeValueFlags))
+}
 
 // pinnedChildArgs is argv as the pinned teardown binary is run with it: the
 // caller's own arguments without -v/--verbose and --progress, which an older
 // pinned build does not know and would refuse after the gate has already
-// announced the removal. The value of a flag in removeValueFlags is never stripped. Arguments
-// after a bare "--" and argv[0] are kept as they are. A -v inside a cluster of other short flags is left alone: no
-// flag of `worktree remove` has a short form but -h and -v.
+// announced the removal. The value of a flag in removeValueFlags is never
+// stripped. Arguments after a bare "--" and argv[0] are kept as they are. A -v
+// inside a cluster of other short flags is left alone: no flag of `worktree
+// remove` has a short form but -h and -v.
 //
 // TODO(#210): the stable teardown-run contract replaces this filter.
 func pinnedChildArgs(args []string) []string {
