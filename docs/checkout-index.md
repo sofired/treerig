@@ -40,5 +40,5 @@ or the one `--config <path>` names — even though what it prints spans the
 machine, as does every verb that starts, stops or inspects a project. Three
 verbs and the completion of worktree names read only labels and records, and
 work without one: `worktree list` (see [Running without a treerig.toml](worktrees.md#running-without-a-treerigtoml)),
-`worktree unlock` and `worktree remove <slug|uuid>`. `router` works without
+`worktree unlock` and `worktree remove <worktree>`. `router` works without
 one too.

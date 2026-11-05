@@ -69,6 +69,7 @@ const (
 	completionWorktreeC      = "33333333-3333-4333-8333-333333333333"
 	completionOrphanRepo     = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 	completionOrphanWorktree = "44444444-4444-4444-8444-444444444444"
+	completionWorktreeD      = "66666666-6666-4666-8666-666666666666"
 	completionRepoOdd        = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	completionWorktreeOdd    = "55555555-5555-4555-8555-555555555555"
 
@@ -81,7 +82,7 @@ const (
 	// unneutralised tab or newline in a completion's value or description
 	// breaks cobra's line-based, tab-delimited value/description protocol.
 	completionOddDomain = "odd\t.localhost"
-	completionOddRoot   = "/checkouts/odd\nworktree"
+	completionOddRoot   = "/worktrees/odd\nworktree"
 )
 
 // newCompletionFixture builds completionFixture under one fresh, physical
@@ -169,11 +170,16 @@ file = "compose.yaml"
 
 	controlHome := filepath.Join(base, "control")
 	writeCompletionRecord(t, controlHome, completionRepoAcme1, completionWorktreeA, "feature-login", completionAcmeDomain)
-	writeCompletionCard(t, controlHome, completionRepoAcme1, completionWorktreeA, "feature-login", completionAcmeDomain, "/checkouts/feature-login")
+	writeCompletionCard(t, controlHome, completionRepoAcme1, completionWorktreeA, "feature-login", completionAcmeDomain, "/worktrees/feature-login")
 	writeCompletionRecord(t, controlHome, completionRepoAcme1, completionWorktreeB, "feature-payments", completionAcmeDomain)
 	// completionWorktreeB gets no card: its own row completes with no known path.
 	writeCompletionRecord(t, controlHome, completionRepoAcme2, completionWorktreeC, "widgets-main", completionWidgetsDomain)
-	writeCompletionCard(t, controlHome, completionRepoAcme2, completionWorktreeC, "widgets-main", completionWidgetsDomain, "/checkouts/widgets-main")
+	writeCompletionCard(t, controlHome, completionRepoAcme2, completionWorktreeC, "widgets-main", completionWidgetsDomain, "/worktrees/widgets-main")
+	// completionWorktreeD shares completionWorktreeA's slug in another
+	// repository and domain, so neither slug names one alone and each completes
+	// as its host (the resolver's slug rule, registry.Registry.NameCandidates).
+	writeCompletionRecord(t, controlHome, completionRepoAcme2, completionWorktreeD, "feature-login", completionWidgetsDomain)
+	writeCompletionCard(t, controlHome, completionRepoAcme2, completionWorktreeD, "feature-login", completionWidgetsDomain, "/worktrees/widgets-login")
 	// completionOddDomain/completionOddRoot pin describeWorktreeCandidate's
 	// and domainCompletionFunc's own text.Printable calls: written straight
 	// to disk (registrytest.WriteRecord/card.WriteIndexCard bypass the
@@ -347,6 +353,20 @@ func TestGoldenCompletion(t *testing.T) {
 			// completion line.
 			name: "complete-worktree-remove-identifier-odd-characters",
 			args: []string{"__complete", "worktree", "remove", "--config", fixture.configPath, "--domain", completionOddDomain, ""},
+		},
+		{
+			// A shared slug the --domain narrows is the slug again.
+			name: "complete-worktree-remove-identifier-domain-widgets",
+			args: []string{"__complete", "worktree", "remove", "--config", fixture.configPath, "--domain", completionWidgetsDomain, ""},
+		},
+		{
+			// A word written as a path is the shell's to complete, as directories.
+			name: "complete-worktree-remove-identifier-path-form",
+			args: []string{"__complete", "worktree", "remove", "--config", fixture.configPath, "./"},
+		},
+		{
+			name: "complete-worktree-unlock-identifier-path-form",
+			args: []string{"__complete", "worktree", "unlock", "--config", fixture.configPath, "~/"},
 		},
 		{
 			name: "complete-worktree-remove-domain-flag",

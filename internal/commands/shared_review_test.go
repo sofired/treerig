@@ -714,7 +714,7 @@ func TestUnlockSharedHintKeepsTheFlag(t *testing.T) {
 	w := commandstest.New(t, "feature/login", acme)
 	tc := w.Context("", acme, nil)
 	_, err := commands.UnlockSharedWithContext(context.Background(), tc.CommandContext, commands.UnlockOptions{Shared: true})
-	if err == nil || !strings.Contains(err.Error(), "Name another with 'treerig worktree unlock --shared <slug|uuid>'.") {
+	if err == nil || !strings.Contains(err.Error(), "Name another with 'treerig worktree unlock --shared <worktree>'.") {
 		t.Fatalf("err = %v", err)
 	}
 	if _, err := commands.UnlockWithContext(context.Background(), tc.CommandContext, commands.UnlockOptions{}); err == nil || strings.Contains(err.Error(), "--shared") {

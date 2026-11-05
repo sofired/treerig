@@ -1,9 +1,12 @@
-clear a dead holder's lock on a worktree, its repository's shared services, the
+Clear a dead holder's lock on a worktree, its repository's shared services, the
 registry, or the router, once the holder, and anything it left running, is
-checked gone
+checked gone.
+
+Name the worktree by its UUID, its host, the path to its directory (./ ../ / ~)
+or its slug. With no name, the worktree you are in.
 
 Usage:
-  treerig worktree unlock [identifier] [flags]
+  treerig worktree unlock [worktree] [flags]
 
 Flags:
       --config string         path to treerig.toml (default: nearest above cwd,

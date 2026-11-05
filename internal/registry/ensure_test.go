@@ -612,9 +612,9 @@ func TestScanFailureModesInEnsure(t *testing.T) {
 		if err != nil || len(all) != 1 {
 			t.Fatalf("expected one readable registration, got %+v, %v", all, err)
 		}
-		found, err := w.reg(a, oldDomain).FindGlobal(ctx, registered.WorktreeID, "")
-		if err != nil || found == nil || found.Slug != "main" {
-			t.Fatalf("unexpected findGlobal: %+v, %v", found, err)
+		found, err := w.reg(a, oldDomain).Resolve(ctx, registered.WorktreeID, registry.NameOptions{})
+		if err != nil || found == nil || found.Record.Slug != "main" {
+			t.Fatalf("unexpected Resolve: %+v, %v", found, err)
 		}
 		scan, err := w.reg(a, oldDomain).ScanAll(ctx)
 		if err != nil {
@@ -694,17 +694,17 @@ func TestScanFailureModesInEnsure(t *testing.T) {
 		if _, ok := scan.Conflicts["feature-login."+oldDomain]; !ok || len(scan.Conflicts) != 1 {
 			t.Fatalf("expected exactly one conflict on feature-login.%s, got %v", oldDomain, scan.Conflicts)
 		}
-		if found, err := reg.FindGlobal(ctx, x, ""); err != nil || found == nil || found.WorktreeID != x {
-			t.Fatalf("unexpected findGlobal by UUID: %+v, %v", found, err)
+		if found, err := reg.Resolve(ctx, x, registry.NameOptions{}); err != nil || found == nil || found.Record.WorktreeID != x {
+			t.Fatalf("unexpected Resolve by UUID: %+v, %v", found, err)
 		}
-		if _, err := reg.FindGlobal(ctx, "feature-login", oldDomain); err == nil || !contains(err.Error(), "registered to more than one worktree") {
+		if _, err := reg.Resolve(ctx, "feature-login", registry.NameOptions{Domain: oldDomain}); err == nil || !contains(err.Error(), "names more than one worktree") {
 			t.Fatalf("expected an ambiguous-hostname refusal, got %v", err)
 		}
-		if _, err := reg.FindGlobal(ctx, "feature-login", ""); err == nil || !contains(err.Error(), "registered to more than one worktree") {
-			t.Fatalf("expected an ambiguous-hostname refusal with no domain given, got %v", err)
+		if _, err := reg.Resolve(ctx, "feature-login."+oldDomain, registry.NameOptions{}); err == nil || !contains(err.Error(), "names more than one worktree") {
+			t.Fatalf("expected an ambiguous-hostname refusal when the host is named, got %v", err)
 		}
-		if found, err := reg.FindGlobal(ctx, "main", oldDomain); err != nil || found == nil || found.Slug != "main" {
-			t.Fatalf("unexpected findGlobal for an unambiguous slug: %+v, %v", found, err)
+		if found, err := reg.Resolve(ctx, "main", registry.NameOptions{Domain: oldDomain}); err != nil || found == nil || found.Record.Slug != "main" {
+			t.Fatalf("unexpected Resolve for an unambiguous slug: %+v, %v", found, err)
 		}
 		other := w.wt("other", "feature/login")
 		otherEnsured, err := w.reg(other, oldDomain).Ensure(ctx, "")

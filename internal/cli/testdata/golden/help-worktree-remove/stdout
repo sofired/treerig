@@ -1,8 +1,11 @@
-remove a worktree's environment: containers, volumes, networks, images, home,
-and registration
+Remove a worktree's environment: containers, volumes, networks, images, home,
+and registration.
+
+Name the worktree by its UUID, its host, the path to its directory (./ ../ / ~)
+or its slug. With no name, the worktree you are in.
 
 Usage:
-  treerig worktree remove [identifier] [flags]
+  treerig worktree remove [worktree] [flags]
 
 Flags:
       --config string            path to treerig.toml (default: nearest above

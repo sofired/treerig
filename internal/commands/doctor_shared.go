@@ -519,7 +519,7 @@ func sharedLockChecks(controlHome string, byRepository map[string]string, comman
 	var checks []Check
 	for _, entry := range entries {
 		id := entry.Name()
-		if entry.IsDir() || !uuidPattern.MatchString(id) {
+		if entry.IsDir() || !registry.IsUUID(id) {
 			continue
 		}
 		scope := lock.SharedScope(controlHome, id)

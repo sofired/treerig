@@ -1,6 +1,6 @@
 # Worktrees
 
-Development sessions, removing a worktree, and renaming one.
+Development sessions, naming a worktree, removing one, and renaming one.
 
 ## Development sessions
 
@@ -35,9 +35,52 @@ with a message on stderr and its own exit code (1 when it exited 0). A
 `kill -9` of treerig itself frees the lock with the process but leaves the log
 follower running on its own; end it with `kill`.
 
+## Naming a worktree
+
+`worktree remove` and `worktree unlock` take the worktree to act on as one
+argument, and shell completion offers the same names. The forms cannot be
+confused with each other, so the order below is only the order to read them in:
+
+- **A UUID** (the 36-character form) names that worktree. The recovery commands
+  treerig prints name a worktree by its UUID, because it reads the same from any
+  directory.
+- **A host** names the registered worktree with exactly that host, such as
+  `feature-x.myapp.localhost`. Case does not matter.
+- **A path**, but only when it is written as one: `.` or `..`, or anything that
+  starts with `/`, `./`, `../` or `~` (`~` and `~/path` stand for your home
+  directory; `~name` is not expanded). It names the worktree whose directory is
+  the longest match for the path, after symbolic links are resolved on both
+  sides, and a directory matches whole path component by whole path component:
+  `/src/app2/lib` is never inside `/src/app`. A directory nested in another
+  worktree's directory belongs to the inner worktree. Both commands want the
+  worktree's own directory: a path to something inside it is refused, and the
+  error gives the directory to use instead. A worktree that was never brought up
+  has no directory on record and cannot be named by a path.
+- **Anything else is a slug**, such as `feature-x`. If the repository you are in
+  has a worktree with that slug, that is the one. Outside a repository, or for a
+  slug this repository doesn't have, the slug has to belong to one worktree on
+  the machine; if several share it, the error lists their hosts and UUIDs, and
+  you name one of those.
+
+A bare word is never read as a directory, so a directory called `feature-x`
+cannot change what `treerig worktree remove feature-x` means: write
+`./feature-x` for the directory.
+
+`--domain <domain>`, which both commands still accept, narrows a slug to the
+worktrees registered under that domain before the rules above apply. It does
+nothing to a UUID, a host or a path, which already name one worktree.
+
+With no argument the command acts on the worktree you are in.
+
+`worktree remove` hands the removal to the pinned teardown binary (see
+[Teardown pin](teardown-pin.md)), and a pin installed before this change (0.1.x)
+knows only a slug or a UUID: given a host or a path it stops with an error and
+removes nothing. Install a newer pin with `treerig teardown pin` to use the
+other forms.
+
 ## Running without a treerig.toml
 
-`worktree list`, `worktree unlock` and `worktree remove <slug|uuid>` work from
+`worktree list`, `worktree unlock` and `worktree remove <worktree>` work from
 labels and records alone, so they need no `treerig.toml`, and you can run them
 from any directory, inside a repository or not. So does the completion of
 worktree names. They still take `--config <path>` and use that file when it
@@ -53,10 +96,11 @@ every other command.
   registry then says `No worktrees are registered on this machine.` Outside a
   repository the table has no live Git state to read, so BRANCH and ROOT show
   what `up` last recorded, or `-`.
-- **`worktree unlock <slug|uuid>`** finds the worktree by slug or UUID on the
-  whole machine. With no name it unlocks the worktree you are in, and outside
-  a Git worktree it says so and asks for a name.
-- **`worktree remove <slug|uuid>`** finds the worktree the same way and takes
+- **`worktree unlock <worktree>`** finds the worktree on the whole machine, by
+  any of the [names above](#naming-a-worktree). With no name it unlocks the
+  worktree you are in, and outside a Git worktree it says so and asks for a
+  name.
+- **`worktree remove <worktree>`** finds the worktree the same way and takes
   the Docker label namespace of its resources from its registration, then from
   its index card, and never from the resources it is about to delete. When
   neither records it, and no `treerig.toml` can say, it stops with nothing
@@ -92,7 +136,7 @@ refuses the whole operation if a single one fails — before it asks you to
 type the hostname to confirm (`--yes` skips the prompt). Then, in an order
 chosen so that an interrupted removal can simply be run again: Docker
 resources, the home directory, the registration, the identity marker.
-`treerig worktree remove <slug|uuid>` removes another worktree, including one
+`treerig worktree remove <worktree>` removes another worktree, including one
 whose directory is already gone, and needs no `treerig.toml`
 ([below](#running-without-a-treerigtoml)); `--label-namespace` supplies the
 Docker label namespace of its resources when nothing on disk records it.
@@ -105,7 +149,8 @@ Removed so far (at least): <what>. It is still registered, now pending:
 runs the seed hook again.` The counts are a lower bound (the resource being
 removed when the signal came is not counted), and "nothing confirmed yet"
 stands when none is known to be gone. The command names the target as you
-typed it (`'treerig worktree remove <slug|uuid> --domain <domain>'`) and leaves out
+typed it (`'treerig worktree remove <worktree> --domain <domain>'`), or by its UUID when
+you named it by a path, and leaves out
 `up` when it is another worktree's removal that was interrupted. A signal
 during the earlier `compose down` destroys nothing and prints no such notice,
 and neither does one that also left a lock unreleased: that is reported as

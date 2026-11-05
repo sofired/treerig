@@ -545,7 +545,7 @@ func readDirIfExists(dir string) ([]os.DirEntry, error) {
 // lockedWorktreeIDs scans this control home's worktree locks for every
 // worktree that has one, whether or not it is registered. A non-UUID
 // repository directory, or a non-UUID entry inside one (a `.tmp.NNN`
-// left by a write in progress, say), never matches uuidPattern and is
+// left by a write in progress, say), never matches registry.IsUUID and is
 // silently skipped — there is no separate recovery-mutex file to skip
 // around: flock(2) needs no sidecar mutex the way the heartbeat design
 // once did.
@@ -557,7 +557,7 @@ func lockedWorktreeIDs(controlHome string) ([]lockedWorktree, error) {
 	}
 	var found []lockedWorktree
 	for _, repository := range repositories {
-		if !repository.IsDir() || !uuidPattern.MatchString(repository.Name()) {
+		if !repository.IsDir() || !registry.IsUUID(repository.Name()) {
 			continue
 		}
 		entries, err := readDirIfExists(worktreesDir + "/" + repository.Name())
@@ -567,7 +567,7 @@ func lockedWorktreeIDs(controlHome string) ([]lockedWorktree, error) {
 		ids := map[string]bool{}
 		for _, entry := range entries {
 			id := worktreeIDOf(entry.Name())
-			if uuidPattern.MatchString(id) {
+			if registry.IsUUID(id) {
 				ids[id] = true
 			}
 		}

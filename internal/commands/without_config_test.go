@@ -239,7 +239,7 @@ func TestWorktreeRemoveWithoutConfig(t *testing.T) {
 		if left := w.Docker.Owned(mine, brand.LabelNamespace); len(left) != 2 {
 			t.Fatalf("the other worktree lost resources: %v", left)
 		}
-		if found, err := w.ContextWithoutConfig("").Registry.FindGlobal(ctx, "feature-login", ""); err != nil || found == nil {
+		if found, err := w.ContextWithoutConfig("").Registry.Resolve(ctx, "feature-login", registry.NameOptions{}); err != nil || found == nil {
 			t.Fatalf("the other worktree's registration: %+v, %v", found, err)
 		}
 	})
@@ -279,7 +279,7 @@ func TestWorktreeRemoveWithoutConfig(t *testing.T) {
 	t.Run("outside a repository, with no name, there is nothing to remove and it says how to name one", func(t *testing.T) {
 		w, _, _ := twoRepositories(t)
 		_, err := remove(t, w.ContextWithoutConfig(""), approved(commands.RemoveOptions{}))
-		wantErr(t, err, `^There is no worktree to remove here: .* is not inside a Git worktree\. Name one with 'treerig worktree remove <slug\|uuid>'\.$`)
+		wantErr(t, err, `^There is no worktree to remove here: .* is not inside a Git worktree\. Name one with 'treerig worktree remove <worktree>'\.$`)
 	})
 
 	t.Run("outside a repository a name nobody registered is the same error as inside one", func(t *testing.T) {
@@ -396,9 +396,9 @@ func TestWorktreeUnlockWithoutConfig(t *testing.T) {
 	t.Run("outside a repository, with no name, there is no worktree to unlock and it says how to name one", func(t *testing.T) {
 		w, _, _ := twoRepositories(t)
 		_, err := unlock(t, w.ContextWithoutConfig(""), commands.UnlockOptions{})
-		wantErr(t, err, `^There is no worktree to unlock here: .* is not inside a Git worktree\. Name one with 'treerig worktree unlock <slug\|uuid>'\.$`)
+		wantErr(t, err, `^There is no worktree to unlock here: .* is not inside a Git worktree\. Name one with 'treerig worktree unlock <worktree>'\.$`)
 		_, err = unlock(t, w.ContextWithoutConfig(""), commands.UnlockOptions{Shared: true})
-		wantErr(t, err, `Name one with 'treerig worktree unlock --shared <slug\|uuid>'\.$`)
+		wantErr(t, err, `Name one with 'treerig worktree unlock --shared <worktree>'\.$`)
 	})
 
 	t.Run("in a worktree whose treerig.toml is unusable unlocks that worktree by default", func(t *testing.T) {
