@@ -202,27 +202,34 @@ func (d *sharedDoctor) serviceCheck(service config.SharedService, instance share
 	name := service.Name
 	check := Check{ID: "shared.service", Instance: name, Subject: "shared service " + name}
 	switch instance.State {
-	case shared.Absent:
+	case worktree.NotCreated:
 		check.Status = StatusSkip
 		check.Detail = fmt.Sprintf("not running; '%s up' starts it when a worktree uses it, or '%s shared up' does", d.opts.CommandName, d.opts.CommandName)
 		return check
-	case shared.Stopped:
+	case worktree.Stopped, worktree.Exited:
 		check.Status = StatusWarn
-		check.Detail = fmt.Sprintf("its container is stopped; '%s shared up' starts it again (restart: unless-stopped in the shared file brings it back after a reboot)", d.opts.CommandName)
+		stopped := "stopped"
+		if instance.State == worktree.Exited {
+			stopped = fmt.Sprintf("exited (code %d)", instance.ExitCode)
+		}
+		check.Detail = fmt.Sprintf("its container is %s; '%s shared up' starts it again (restart: unless-stopped in the shared file brings it back after a reboot)", stopped, d.opts.CommandName)
 		return check
-	case shared.Unknown:
+	case worktree.Unknown:
 		check.Status = StatusWarn
 		check.Detail = text.OneLine(instance.Detail, 300)
 		return check
 	}
 	check.Status = StatusOK
 	check.Detail = string(instance.State)
-	switch {
-	case instance.Detail == "unhealthy":
+	switch instance.State {
+	case worktree.Unhealthy:
 		check.Status = StatusWarn
 		check.Detail = "running, but its health check fails"
-	case instance.State == shared.Starting:
-		check.Detail = "starting (restarting, or its health check has not passed yet)"
+	case worktree.Starting:
+		check.Detail = "starting (its health check has not passed yet)"
+	case worktree.Restarting:
+		check.Status = StatusWarn
+		check.Detail = "restarting"
 	}
 	if haveDefinition && definition.Has(name) {
 		if expected, err := definition.Hash(name); err == nil && expected != instance.Definition {

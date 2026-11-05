@@ -28,6 +28,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
@@ -254,11 +255,21 @@ func (f *fakeRouterSource) RunningPort(context.Context) (int, bool, error) {
 type fakeCheckoutRegistry struct {
 	current         func(ctx context.Context) (*registry.WorktreeRegistration, error)
 	pruneCandidates func(ctx context.Context) ([]registry.RegisteredWorktree, error)
+	// entries is what Git lists; nil lists nothing.
+	entries func(ctx context.Context) ([]registry.WorktreeEntry, error)
 }
 
 // Current delegates to f.current.
 func (f fakeCheckoutRegistry) Current(ctx context.Context) (*registry.WorktreeRegistration, error) {
 	return f.current(ctx)
+}
+
+// Entries delegates to f.entries, and lists nothing when it is not set.
+func (f fakeCheckoutRegistry) Entries(ctx context.Context) ([]registry.WorktreeEntry, error) {
+	if f.entries == nil {
+		return nil, nil
+	}
+	return f.entries(ctx)
 }
 
 // PruneCandidates delegates to f.pruneCandidates.
@@ -1945,7 +1956,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		want := []Check{
 			{ID: "checkout.config", Status: StatusOK, Subject: brand.ConfigFile, Detail: f.loaded.File},
 			{ID: "checkout.worktree", Status: StatusFail, Subject: "this worktree", Detail: "Command failed (git rev-parse): not a git repository"},
-			{ID: "checkout.missing-scan", Status: StatusFail, Subject: "missing checkouts", Detail: "Command failed (git worktree list): not a git repository"},
+			{ID: "checkout.missing-scan", Status: StatusFail, Subject: "missing worktrees", Detail: "Command failed (git worktree list): not a git repository"},
 			{ID: "checkout.hooks.resolve", Instance: "verify", Status: StatusOK, Subject: "verify hook file", Detail: "resolves to " + filepath.Join(f.root, "verify")},
 			{ID: "checkout.hooks.verify", Status: StatusSkip, Subject: "verify hook", Detail: "needs this worktree to be identified"},
 		}
@@ -2005,7 +2016,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok treerig.toml", "ok this worktree", "fail missing checkouts", "skip api port", "ok verify hook file", "ok verify hook"}
+		want := []string{"ok treerig.toml", "ok this worktree", "fail missing worktrees", "skip api port", "ok verify hook file", "ok verify hook"}
 		checks := section(sections, "This checkout")
 		got := make([]string, len(checks))
 		for i, c := range checks {
@@ -2034,7 +2045,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		wantCancelled(t, err, "Operation cancelled by SIGTERM.")
 	})
 
-	t.Run("warns about a registration whose checkout Git no longer lists", func(t *testing.T) {
+	t.Run("warns about a registration whose directory is gone and that Git no longer lists", func(t *testing.T) {
 		f := newCheckoutFixture(t, "")
 		f.register("feature-login")
 		gone := filepath.Join(f.base, "gone")
@@ -2046,6 +2057,13 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		f.git.Add(gone, "feature/gone", f.common)
 		registered := f.registerAt(gone, "feature-gone")
+		// `up` wrote a card while it was live, saying where it was.
+		if err := card.WriteIndexCard(f.controlHome, registered.RepositoryID, registered.WorktreeID, card.IndexCard{
+			Project: "acme", Domain: fixtureDomain, Slug: "feature-gone", Host: "feature-gone." + fixtureDomain, Root: gone,
+			Branch: "feature/gone", LabelNamespace: brand.LabelNamespace, Services: []card.IndexService{}, UpdatedAt: "2026-09-21T10:00:00.000Z",
+		}); err != nil {
+			t.Fatal(err)
+		}
 		f.git.SetActive([]string{f.root}) // git worktree list no longer shows "gone"
 		if err := os.RemoveAll(gone); err != nil {
 			t.Fatal(err)
@@ -2064,7 +2082,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal("expected a warning")
 		}
 		want := Check{ID: "checkout.missing", Instance: registered.WorktreeID, Status: StatusWarn, Subject: "feature-gone.acme.localhost", Detail: fmt.Sprintf(
-			"registered, but Git no longer lists its checkout. Remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)}
+			"registered, but its directory is gone: Git no longer has it. Remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)}
 		if *warning != want {
 			t.Fatalf("got %+v, want %+v", *warning, want)
 		}

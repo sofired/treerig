@@ -522,7 +522,7 @@ func TestSharedRouterInHostModeOnARealDaemon(t *testing.T) {
 	})
 
 	t.Run("serves the checkout index through the proxy, and publishes it on its own loopback port", func(t *testing.T) {
-		routeAnswers(t, port, router.IndexHost, liveAnswer{http.StatusOK, "No checkouts have been indexed yet"})
+		routeAnswers(t, port, router.IndexHost, liveAnswer{http.StatusOK, "No worktrees have been indexed yet"})
 		doc := w.inspect(w.containerID("index"))
 		bindings := doc.NetworkSettings.Ports["8080/tcp"]
 		if len(bindings) != 1 || bindings[0].HostIp != "127.0.0.1" || bindings[0].HostPort != strconv.Itoa(state.IndexPort) {

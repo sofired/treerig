@@ -22,6 +22,7 @@ import (
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // sharedUp runs `shared up` in tc.
@@ -728,7 +729,7 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		}
 	})
 
-	t.Run("says differs, not connected, stopped and absent as each becomes true", func(t *testing.T) {
+	t.Run("says differs, not connected, exited and not created as each becomes true", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
 		result := w.mustUp(t, tc)
@@ -745,14 +746,14 @@ func TestStatusReportsSharedServices(t *testing.T) {
 			t.Errorf("connected after the attachment went")
 		}
 		w.Docker.SetStatus(id, "exited")
-		if got := shared(t, tc)[0]; got.State != "stopped" || got.Definition != "unknown" || got.DefinedBy != "" || got.Connected {
-			t.Errorf("stopped: %+v", got)
+		if got := shared(t, tc)[0]; got.State != worktree.Exited || got.ExitCode == nil || *got.ExitCode != 0 || got.Definition != "unknown" || got.DefinedBy != "" || got.Connected {
+			t.Errorf("exited: %+v", got)
 		}
 		if err := w.sharedDown(tc, commands.SharedDownOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if got := shared(t, tc)[0]; got.State != "absent" || len(got.Addrs) != 2 {
-			t.Errorf("absent: %+v (the pinned ports remain)", got)
+		if got := shared(t, tc)[0]; got.State != worktree.NotCreated || len(got.Addrs) != 2 {
+			t.Errorf("not created: %+v (the pinned ports remain)", got)
 		}
 	})
 

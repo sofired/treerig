@@ -7,32 +7,20 @@ package checkoutindex
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/checkoutindex/card"
-	"github.com/sofired/treerig/internal/docker"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
-
-// defaultInventoryTimeout bounds one `docker ps` call: 30s, the same bound
-// doctor uses for the same kind of introspection call, and the same 30s
-// every other introspection docker call this codebase makes
-// (internal/backend/compose.go's own timeouts comment). Overridable per
-// Service (Options.InventoryTimeout) for a test that wants to observe the
-// bound itself without actually waiting on it.
-const defaultInventoryTimeout = 30 * time.Second
 
 // defaultLockTimeout bounds how long a refresh waits for the router lock:
 // the index is best-effort, so a daemon that will not answer must not hold
@@ -69,10 +57,10 @@ type Registry interface {
 }
 
 // Identities is what the checkout index reads about the current repository's
-// live worktrees, answering for whichever checkout the service was started
-// from — registry.Registry's own Identities field satisfies this.
+// worktrees, answering for whichever checkout the service was started from —
+// registry.Registry's own Identities field satisfies this.
 type Identities interface {
-	ActiveIdentities(ctx context.Context) ([]registry.WorktreeIdentity, error)
+	Entries(ctx context.Context) ([]registry.WorktreeEntry, error)
 	Repository(ctx context.Context, worktree string) (id string, present, inside bool, err error)
 }
 
@@ -116,8 +104,13 @@ type Options struct {
 	// uses defaultLockTimeout, never lock.RouterTimeout — see
 	// defaultLockTimeout's own comment.
 	LockTimeout time.Duration
-	// InventoryTimeout bounds one `docker ps` call; zero uses defaultInventoryTimeout.
+	// InventoryTimeout bounds one `docker ps` call; zero uses
+	// worktreestate.DefaultInventoryTimeout. A test overrides it to observe the
+	// bound itself without actually waiting on it.
 	InventoryTimeout time.Duration
+	// Mounts reads the mount table the worktrees' directories are judged
+	// against; nil reads the machine's. A test supplies its own.
+	Mounts func() (worktreestate.Mounts, error)
 }
 
 // Service is the checkout index tied to disk, Docker, and the shared
@@ -145,9 +138,6 @@ func NewService(opts Options) *Service {
 	}
 	if opts.LockTimeout <= 0 {
 		opts.LockTimeout = defaultLockTimeout
-	}
-	if opts.InventoryTimeout <= 0 {
-		opts.InventoryTimeout = defaultInventoryTimeout
 	}
 	if opts.Logger == nil {
 		opts.Logger = logger.Silent{}
@@ -247,135 +237,20 @@ func (s *Service) warnCardReadFailures(results []cardRead) {
 	}
 }
 
-// namespaces is every label namespace Snapshot must ask Docker about: this
-// build's own, plus one per registration, recorded on the registration
-// itself, on the card just read (which may be more current, if the
-// registration predates namespace tracking), or found on disk wherever the
-// worktree's home currently is.
+// namespaces is every label namespace Snapshot must ask Docker about.
 func (s *Service) namespaces(reads []cardRead) []string {
-	seen := map[string]struct{}{}
-	var namespaces []string
-	add := func(namespace string) {
-		if namespace == "" {
-			return
-		}
-		if _, ok := seen[namespace]; !ok {
-			seen[namespace] = struct{}{}
-			namespaces = append(namespaces, namespace)
-		}
+	registrations := make([]registry.RegisteredWorktree, len(reads))
+	cards := make([]*card.IndexCard, len(reads))
+	for i, read := range reads {
+		registrations[i], cards[i] = read.record, read.card
 	}
-	add(brand.LabelNamespace)
-	for _, read := range reads {
-		switch {
-		case read.record.LabelNamespace != nil:
-			add(*read.record.LabelNamespace)
-		case read.card != nil:
-			add(read.card.LabelNamespace)
-		default:
-			if namespace := card.RecordedLabelNamespace(s.opts.ControlHome, card.Registration{
-				RepositoryID: read.record.RepositoryID, WorktreeID: read.record.WorktreeID, LabelNamespace: read.record.LabelNamespace,
-			}); namespace != nil {
-				add(*namespace)
-			}
-		}
-	}
-	return namespaces
+	return worktreestate.Namespaces(s.opts.ControlHome, registrations, cards)
 }
 
-// inventory runs `docker ps` for one label namespace: the containers it
-// named, the reason it could not answer (Docker unavailable, a non-zero
-// exit, a timeout, or an inventory line it could not parse), or a genuine
-// error that must abort the whole refresh rather than read as "Docker could
-// not be asked" — a cancellation, most pointedly, which is let through
-// unchanged rather than folded into its string return.
-func (s *Service) inventory(ctx context.Context, namespace string) (records []ContainerRecord, reason string, err error) {
-	format := strings.Join([]string{
-		"{{.State}}", "{{.Status}}",
-		fmt.Sprintf(`{{.Label "%s.repository-uuid"}}`, namespace),
-		fmt.Sprintf(`{{.Label "%s.worktree-uuid"}}`, namespace),
-		`{{.Label "com.docker.compose.service"}}`,
-		// Present only on a container of a repository's shared services,
-		// which carries no worktree label.
-		fmt.Sprintf(`{{.Label "%s.shared"}}`, namespace),
-	}, "\t")
-	result, err := docker.Run(ctx, s.opts.Runner, []string{
-		"ps", "--all", "--filter", "label=" + namespace + ".managed=true", "--format", format,
-	}, run.Spec{AllowFailure: true, Timeout: s.opts.InventoryTimeout})
-	if err != nil {
-		var unavailable *docker.UnavailableError
-		if errors.As(err, &unavailable) {
-			return nil, unavailable.Error(), nil
-		}
-		return nil, "", err
-	}
-	if result.TimedOut {
-		return nil, fmt.Sprintf("`docker ps` did not answer within %ds", int(s.opts.InventoryTimeout.Seconds())), nil
-	}
-	if result.ExitCode != 0 {
-		return nil, docker.Said(result.Stderr, fmt.Sprintf("`docker ps` exited %d without saying why", result.ExitCode)), nil
-	}
-	records, parseErr := ParseContainerInventory(result.Stdout)
-	if parseErr != nil {
-		return nil, parseErr.Error(), nil
-	}
-	return records, "", nil
-}
-
-// containerAnswer is one namespace's inventory() answer, kept at its
-// original index so containers can merge them back in namespace order
-// however the goroutines that fetched them finished.
-type containerAnswer struct {
-	records []ContainerRecord
-	reason  string
-}
-
-// containers asks Docker about every namespace concurrently, returning the
-// merged inventory or the first failure reported, in namespace order,
-// however many namespaces there were. errgroup.WithContext cancels every other namespace's
-// still-running `docker ps` the moment one inventory() call returns a real
-// error (Docker unavailable is not one: inventory() already turns that into
-// a reason string, not an error), so a genuine failure — most pointedly the
-// caller's own context being cancelled — aborts the whole refresh promptly
-// rather than waiting out every remaining namespace's own timeout, and
-// Wait() reports whichever error actually happened first.
-func (s *Service) containers(ctx context.Context, namespaces []string) ([]ContainerRecord, *string, error) {
-	answers := make([]containerAnswer, len(namespaces))
-	group, groupCtx := errgroup.WithContext(ctx)
-	for i, namespace := range namespaces {
-		group.Go(func() error {
-			records, reason, err := s.inventory(groupCtx, namespace)
-			if err != nil {
-				return err
-			}
-			answers[i] = containerAnswer{records: records, reason: reason}
-			return nil
-		})
-	}
-	if err := group.Wait(); err != nil {
-		return nil, nil, err
-	}
-	for _, answer := range answers {
-		if answer.reason != "" {
-			s.opts.Logger.Warn("The index shows service state as Unknown because containers could not be listed: " + answer.reason)
-			reason := answer.reason
-			return nil, &reason, nil
-		}
-	}
-	// Non-nil from the start: SnapshotInput.Containers uses nil specifically
-	// to mean Docker could not be asked at all (see ParseContainerInventory's
-	// own comment), and appending zero records from an empty namespace's
-	// answer must not silently turn a successful, empty inventory back into
-	// that same nil.
-	all := []ContainerRecord{}
-	for _, answer := range answers {
-		all = append(all, answer.records...)
-	}
-	return all, nil, nil
-}
-
-// Snapshot reads the registry, every worktree's card, Git's live identities,
-// and Docker's container inventory, and builds one IndexSnapshot from them.
-// It takes no lock of its own; Refresh is what a caller actually wants.
+// Snapshot reads the registry, every worktree's card, Git's live worktrees,
+// and Docker's container inventory, classifies every registration with
+// worktreestate, and builds one IndexSnapshot from them. It takes no lock of
+// its own; Refresh is what a caller actually wants.
 func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 	registrations, err := s.opts.Registry.ListAll(ctx)
 	if err != nil {
@@ -398,6 +273,7 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 	var identities []registry.WorktreeIdentity
 	var currentRepositoryID *string
 	var identityError *IdentityFailureInput
+	var repositories map[string]worktreestate.Repository
 	// Outside every Git work tree there is no current repository to be
 	// unable to identify: the page then lists every worktree, as it does for
 	// a repository treerig has no identity for.
@@ -406,28 +282,46 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 	case err != nil:
 		reason := fmt.Sprintf("Git could not identify the repository at %s: %s", s.opts.IdentityRoot, err)
 		identityError = &IdentityFailureInput{Reason: reason}
-		s.opts.Logger.Warn(reason + ". The index cannot tell which of its checkouts are missing.")
+		s.opts.Logger.Warn(reason + ". The overview cannot tell which of its worktrees have lost their directories.")
 	case present:
 		currentRepositoryID = &repositoryID
-		identities, err = s.opts.Identities.ActiveIdentities(ctx)
-		if err != nil {
-			identities = nil
-			reason := fmt.Sprintf("Git could not list the worktrees of %s: %s", s.opts.IdentityRoot, err)
+		// Asked once, here, so the identities the rows read their branch and
+		// root from and the evidence their state is told from are one answer.
+		entries, entriesErr := s.opts.Identities.Entries(ctx)
+		if entriesErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return IndexSnapshot{}, ctxErr
+			}
+			reason := fmt.Sprintf("Git could not list the worktrees of %s: %s", s.opts.IdentityRoot, entriesErr)
 			identityError = &IdentityFailureInput{Reason: reason}
-			s.opts.Logger.Warn(reason + ". The index shows its checkouts as unknown.")
+			s.opts.Logger.Warn(reason + ". The overview shows its worktrees as unknown.")
 		}
+		identities = identitiesOf(repositoryID, entries)
+		repositories = map[string]worktreestate.Repository{repositoryID: worktreestate.Answered{Listed: entries, Err: entriesErr}}
 	}
 
-	namespaces := s.namespaces(reads)
-	containerRecords, dockerError, err := s.containers(ctx, namespaces)
+	subjects := make([]worktreestate.Subject, len(reads))
+	for i, read := range reads {
+		subjects[i] = s.subjectOf(read)
+	}
+	report, err := worktreestate.New(worktreestate.Options{
+		ControlHome: s.opts.ControlHome, Runner: s.opts.Runner,
+		InventoryTimeout: s.opts.InventoryTimeout, Mounts: s.opts.Mounts,
+	}).Gather(ctx, worktreestate.Request{Subjects: subjects, Namespaces: s.namespaces(reads), Repositories: repositories})
 	if err != nil {
 		return IndexSnapshot{}, err
+	}
+	var dockerError *string
+	if !report.Docker.Answered {
+		reason := report.Docker.Error
+		dockerError = &reason
+		s.opts.Logger.Warn("The overview cannot show what runs because containers could not be listed: " + reason)
 	}
 
 	sharedRecords, sharedProblems, err := registry.ScanSharedRecords(s.opts.ControlHome)
 	if err != nil {
 		// The shared group is an addition to the page; a control home whose
-		// shared records cannot be listed still gets its checkouts.
+		// shared records cannot be listed still gets its worktrees.
 		sharedRecords = nil
 		s.opts.Logger.Warn(fmt.Sprintf("The index leaves out shared services because their records could not be listed: %s", err))
 	}
@@ -441,13 +335,34 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 		Cards:               cards,
 		Identities:          identities,
 		CurrentRepositoryID: currentRepositoryID,
-		Containers:          containerRecords,
+		Containers:          report.Docker.Containers,
+		States:              report.States,
 		DockerError:         dockerError,
 		RouterPort:          s.opts.RouterPort,
 		IdentityError:       identityError,
 		CardReadFailures:    cardReadFailures,
 		GeneratedAt:         s.opts.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 	}), nil
+}
+
+// identitiesOf is the live worktrees among entries: those whose directory is
+// there and which carry an identity of this repository.
+func identitiesOf(repositoryID string, entries []registry.WorktreeEntry) []registry.WorktreeIdentity {
+	var identities []registry.WorktreeIdentity
+	for _, entry := range entries {
+		if entry.Exists && entry.WorktreeID != "" && entry.RepositoryID == repositoryID {
+			identities = append(identities, registry.WorktreeIdentity{
+				Root: entry.Root, Branch: entry.Branch, RepositoryID: entry.RepositoryID, WorktreeID: entry.WorktreeID,
+			})
+		}
+	}
+	return identities
+}
+
+// subjectOf is what the Gatherer is told about one registration read by
+// readCards.
+func (s *Service) subjectOf(read cardRead) worktreestate.Subject {
+	return worktreestate.SubjectOf(read.record, read.card, read.err)
 }
 
 // Refresh rebuilds the page under the shared router's lock and writes it to

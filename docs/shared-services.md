@@ -188,7 +188,7 @@ a branch that slugs to `shared` gets a suffixed slug. The route file is written 
 and removed by `shared down`; `treerig shared up` starts the router first when
 it has a web UI to route, its own or a dependency's. `TREERIG_SHARED_URL_<NAME>` gives hooks and `treerig run`
 the URL (router port included), `status` and `shared status` print it (and
-`--json` carries it as `url`), and the checkout index lists it in a group of
+`--json` carries it as `url`), and the overview lists it in a group of
 its own beneath the checkouts. Two repositories on one domain cannot both
 route a shared service of the same name: the second is refused when it would
 become routed, naming the first; rename one of the services, or run `shared
@@ -233,7 +233,7 @@ and says their data will not be reattached on the next start. If the plan grows 
 says to run it again. A name that is not a declared, running or recorded
 shared service is refused, listing the ones that are. A repository that was
 never brought up has nothing to stop: `shared down` says so and exits 0, and
-`shared status` lists the declared services as `absent`.
+`shared status` lists the declared services as `not created`.
 Removing a repository's last registered worktree prints one line pointing at
 `shared down` when the shared services are still running.
 

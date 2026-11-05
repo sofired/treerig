@@ -27,6 +27,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/commands/commandstest"
@@ -36,7 +38,7 @@ import (
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/run/osrun"
-	"golang.org/x/sys/unix"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // upConfig is a treerig.toml with a port on each service: commandstest.Docker's
@@ -349,8 +351,9 @@ func TestUpEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := fmt.Sprint(statuses); got != "[{api running } {mail running }]" {
-			t.Fatalf("status = %s", got)
+		if len(statuses) != 2 || statuses[0].Service != "api" || statuses[0].State != worktree.Running ||
+			statuses[1].Service != "mail" || statuses[1].State != worktree.Running {
+			t.Fatalf("status = %+v", statuses)
 		}
 	})
 

@@ -207,7 +207,10 @@ case " $* " in
   *" compose "*" down "*) rm -f "$state/c1"; exit 0 ;;
   *" --filter "*)
     case "$1" in
-      ps) case " $* " in *"label=dev.treerig.managed=true --format"*|*"label=dev.treerig.shared=true"*) exit 0 ;; esac; [ -e "$state/c1" ] && echo c1 ;;
+      ps) case " $* " in
+            *"label=dev.treerig.managed=true --format"*) [ -e "$state/c1" ] && printf 'running\tUp 5 minutes\t`+fixtureRepo+`\t`+fixtureWt+`\tapi\t\tc1\n'; exit 0 ;;
+            *"label=dev.treerig.shared=true"*) exit 0 ;;
+          esac; [ -e "$state/c1" ] && echo c1 ;;
       volume) [ -e "$state/v1" ] && echo v1 ;;
     esac
     exit 0 ;;
@@ -226,6 +229,26 @@ exit 0
 	write(filepath.Join(f.state, "c1"), "", 0o600)
 	write(filepath.Join(f.state, "v1"), "", 0o600)
 	return f
+}
+
+// dockerNotAnswering is the setup of a case whose Docker answers every call
+// that lists containers with the daemon's own refusal.
+func dockerNotAnswering(t *testing.T, f outputFixture) {
+	t.Helper()
+	script := filepath.Join(f.bin, "docker")
+	contents, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusal := "echo 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?' >&2; exit 1 ;;\n"
+	down := strings.Replace(string(contents), "case \" $* \" in\n",
+		"case \" $* \" in\n  *\" compose \"*\" ps \"*) "+refusal+"  *\" ps \"*\"label=dev.treerig.managed=true\"*) "+refusal, 1)
+	if down == string(contents) {
+		t.Fatal("the fake docker's case statement was not found")
+	}
+	if err := os.WriteFile(script, []byte(down), 0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // excludeLines drops every line of stdout containing substr — doctor's own
@@ -407,6 +430,22 @@ func TestOutputGoldens(t *testing.T) {
 		setup func(t *testing.T, f outputFixture)
 	}{
 		{name: "status", args: []string{"status"}},
+		// The state words for a worktree whose removal was interrupted, and for
+		// Docker not answering: still printed, the cause on stderr, and status
+		// exits 1 for the daemon as it did before.
+		{
+			name: "worktree list, an interrupted removal", args: []string{"worktree", "list"},
+			setup: func(t *testing.T, f outputFixture) {
+				t.Helper()
+				marker := layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt).RemovalPath
+				if err := os.WriteFile(marker, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{name: "status, Docker not answering", args: []string{"status"}, setup: dockerNotAnswering},
+		{name: "worktree list, Docker not answering", args: []string{"worktree", "list"}, setup: dockerNotAnswering},
+		{name: "index, Docker not answering", args: []string{"index"}, setup: dockerNotAnswering, checkIndexPage: true},
 		{name: "urls", args: []string{"urls"}},
 		// index's own stdout embeds snapshot.GeneratedAt, real wall-clock
 		// time at the moment each build's own process ran; normalizeTimestamp

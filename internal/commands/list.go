@@ -5,37 +5,37 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
-// Read-only. Telling a registration from a worktree that is gone needs Git,
-// so it is only offered for the repository the command runs in; records
-// from other repositories are listed as the registry knows them.
-
-// WorktreeState is a row's state. "missing" is the index's word for the same
-// thing: registered, but the worktree is gone.
-type WorktreeState string
-
-const (
-	StateReady   WorktreeState = "ready"
-	StatePending WorktreeState = "pending"
-	StateMissing WorktreeState = "missing"
-)
+// Read-only. Telling a worktree whose directory is gone needs Git, so it is
+// only offered for the repository the command runs in; records from other
+// repositories are listed as the registry knows them, with the state their
+// containers and history give.
 
 // ListedRegistration is one row of `worktree list`. Field order is the JSON
 // key order `--json` prints.
 type ListedRegistration struct {
-	RepositoryID   string        `json:"repositoryId"`
-	WorktreeID     string        `json:"worktreeId"`
-	Slug           string        `json:"slug"`
-	Domain         string        `json:"domain"`
-	LabelNamespace *string       `json:"labelNamespace,omitempty"`
-	Host           string        `json:"host"`
-	State          WorktreeState `json:"state"`
+	RepositoryID   string  `json:"repositoryId"`
+	WorktreeID     string  `json:"worktreeId"`
+	Slug           string  `json:"slug"`
+	Domain         string  `json:"domain"`
+	LabelNamespace *string `json:"labelNamespace,omitempty"`
+	Host           string  `json:"host"`
+	// State is the worktree's state in the words every command uses (JSON:
+	// running, starting, partly_running, failed, stopped, not_started,
+	// removing, directory_missing, unknown). Hint names the cause of an
+	// unknown one.
+	State worktree.State `json:"state"`
+	Hint  string         `json:"hint,omitempty"`
 	// Root and Branch are live from Git for this repository's worktrees;
 	// otherwise as last recorded by `up`, via its index card.
 	Root    *string `json:"root,omitempty"`
@@ -78,15 +78,24 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 			return nil, err
 		}
 	}
-	active := map[string]registry.WorktreeIdentity{}
+	// Git is asked once for the repository the command runs in: its entries
+	// say where each worktree is now, and what became of the directories of
+	// the ones that are gone.
+	active := map[string]registry.WorktreeEntry{}
+	var repositories map[string]worktreestate.Repository
 	if present {
-		activeIdentities, err := reg.Identities.ActiveIdentities(ctx)
-		if err != nil {
-			return nil, err
+		entries, entriesErr := reg.Identities.Entries(ctx)
+		if entriesErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 		}
-		for _, identity := range activeIdentities {
-			active[identity.WorktreeID] = identity
+		for _, entry := range entries {
+			if entry.Exists && entry.WorktreeID != "" && entry.RepositoryID == repositoryID {
+				active[entry.WorktreeID] = entry
+			}
 		}
+		repositories = map[string]worktreestate.Repository{repositoryID: worktreestate.Answered{Listed: entries, Err: entriesErr}}
 	}
 
 	var records []registry.RegisteredWorktree
@@ -99,47 +108,48 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 		return nil, err
 	}
 
-	rows := make([]ListedRegistration, 0, len(records))
-	for _, record := range records {
-		local := present && record.RepositoryID == repositoryID
-		var identity *registry.WorktreeIdentity
-		if local {
-			if found, ok := active[record.WorktreeID]; ok {
-				found := found
-				identity = &found
-			}
-		}
-		initialization, err := reg.Store(record.RepositoryID).Initialization(record.WorktreeID, record.Slug)
+	// The cards say which services a worktree declared and where it was last
+	// seen; they are read one by one, which is as many files as there are rows.
+	cards := make([]*card.IndexCard, len(records))
+	cardErrs := make([]error, len(records))
+	subjects := make([]worktreestate.Subject, len(records))
+	for i, record := range records {
+		cards[i], cardErrs[i] = card.ReadIndexCard(cctx.ControlHome, record.RepositoryID, record.WorktreeID)
+		subjects[i] = worktreestate.SubjectOf(record, cards[i], cardErrs[i])
+	}
+	// Nothing to classify, nothing to ask Docker.
+	report := worktreestate.Report{Docker: worktreestate.Inventory{Answered: true}}
+	if len(records) > 0 {
+		report, err = worktreestate.New(worktreestate.Options{
+			ControlHome: cctx.ControlHome, Runner: cctx.Runner, InventoryTimeout: listDockerBudget,
+		}).Gather(ctx, worktreestate.Request{
+			Subjects: subjects, Namespaces: worktreestate.Namespaces(cctx.ControlHome, records, cards), Repositories: repositories,
+		})
 		if err != nil {
 			return nil, err
 		}
+	}
+	if report.GitError != "" {
+		cctx.Logger.Warn(fmt.Sprintf("Git didn't answer, so directories are not checked: %s", text.OneLine(report.GitError, 300)))
+	}
 
+	rows := make([]ListedRegistration, 0, len(records))
+	for i, record := range records {
+		// Root and Branch are live from Git for this repository's worktrees;
+		// otherwise as the last `up` recorded them. A card that could not be
+		// read leaves them unset, as one that was never written does; the
+		// state says the difference (unknown, with the reason).
 		var seenRoot, seenBranch *string
-		if identity != nil {
-			seenRoot, seenBranch = &identity.Root, &identity.Branch
-		} else if seen, err := card.ReadIndexCard(cctx.ControlHome, record.RepositoryID, record.WorktreeID); err == nil && seen != nil {
-			// A read error (as opposed to a genuinely absent card) is
-			// swallowed here rather than surfaced: unlike the
-			// index, which reports a read failure as Unknown rather than
-			// folding it into "no card", `list` has no per-row Unknown
-			// state to report one into, so the
-			// worktree's root/branch simply stay unset for this row, same as
-			// if it had no card at all.
-			seenRoot, seenBranch = &seen.Root, &seen.Branch
+		if entry, ok := active[record.WorktreeID]; ok && present && record.RepositoryID == repositoryID {
+			seenRoot, seenBranch = &entry.Root, &entry.Branch
+		} else if cardErrs[i] == nil && cards[i] != nil {
+			seenRoot, seenBranch = &cards[i].Root, &cards[i].Branch
 		}
-
-		state := StateReady
-		switch {
-		case local && identity == nil:
-			state = StateMissing
-		case initialization == registry.Pending:
-			state = StatePending
-		}
-
+		state := report.States[worktreestate.Key(record.RepositoryID, record.WorktreeID)]
 		rows = append(rows, ListedRegistration{
 			RepositoryID: record.RepositoryID, WorktreeID: record.WorktreeID,
 			Slug: record.Slug, Domain: record.Domain, LabelNamespace: record.LabelNamespace,
-			Host: layout.WorktreeHost(record.Slug, record.Domain), State: state,
+			Host: layout.WorktreeHost(record.Slug, record.Domain), State: state.State, Hint: state.Hint,
 			Root: seenRoot, Branch: seenBranch,
 			Current: current != nil && current.WorktreeID == record.WorktreeID,
 		})
@@ -170,9 +180,26 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 		for _, line := range FormatTable(rows, options.All) {
 			cctx.Logger.Output(line)
 		}
+		// Why a row is unknown, unless it is the cause already given once.
+		dockerHint := worktreestate.DockerHint(report.Docker.Error)
+		for _, row := range rows {
+			if row.Hint != "" && row.Hint != dockerHint && row.Hint != report.GitHint {
+				cctx.Logger.Info(text.Printable(fmt.Sprintf("%s is unknown. %s", row.Host, row.Hint)))
+			}
+		}
+	}
+	// The table is printed whatever happened; Docker not answering still
+	// fails the command, as it does `status`, with the cause said once.
+	if !report.Docker.Answered {
+		return rows, clierr.New(worktreestate.DockerHint(report.Docker.Error))
 	}
 	return rows, nil
 }
+
+// listDockerBudget bounds the one `docker ps` per label namespace a listing
+// makes: a listing is read, not waited for, so a daemon that is hung is
+// reported rather than waited out.
+const listDockerBudget = 5 * time.Second
 
 // EmptyTable is what there is to say when there is no table.
 func EmptyTable(all bool) string {
@@ -205,7 +232,7 @@ func FormatTable(rows []ListedRegistration, all bool) []string {
 	// whatever a clone put there, and this table is printed to a terminal.
 	columns := []column{
 		{"HOST", func(r ListedRegistration) string { return text.Printable(r.Host) }},
-		{"STATE", func(r ListedRegistration) string { return string(r.State) }},
+		{"STATE", func(r ListedRegistration) string { return r.State.String() }},
 		// The index's word for a detached HEAD, so one state has one name;
 		// "-" for nothing recorded, which is this table's spelling and what
 		// ROOT says beside it.

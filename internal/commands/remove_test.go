@@ -112,6 +112,50 @@ func TestWorktreeRemove(t *testing.T) {
 		if last := lines[len(lines)-1]; last != "info: Removed feature-login.acme.localhost: 2 containers, 1 volume, home directory, registration, identity marker." {
 			t.Fatalf("last line = %q", last)
 		}
+		// The removal marker it wrote when it started is gone with the registration.
+		if exists(t, paths.RemovalPath) {
+			t.Fatal("the removal marker survived a completed removal")
+		}
+	})
+
+	t.Run("finishes an interrupted removal, and the marker goes with the registration", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		// What an interrupted removal left: the marker, beside a registration.
+		if err := os.WriteFile(paths.RemovalPath, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+		if result, err := remove(t, tc, approved(commands.RemoveOptions{})); err != nil || !result.Registration {
+			t.Fatalf("result = %+v, %v", result, err)
+		}
+		if exists(t, paths.RemovalPath) || exists(t, paths.RecordPath) {
+			t.Fatal("the marker or the registration survived")
+		}
+	})
+
+	t.Run("refuses a removal marker of a newer format before it touches anything", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		newer := []byte("format 2\n")
+		if err := os.WriteFile(paths.RemovalPath, newer, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "written by a newer treerig")
+		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 2 {
+			t.Fatalf("a refused removal touched the worktree's resources: %v", left)
+		}
+		if !exists(t, paths.Home) || !exists(t, paths.RecordPath) {
+			t.Fatal("a refused removal deleted the home or the registration")
+		}
+		if data, _ := os.ReadFile(paths.RemovalPath); string(data) != string(newer) {
+			t.Fatalf("the newer marker was changed: %q", data)
+		}
 	})
 
 	t.Run("reaps the local worktree through its registration's namespace, not the current config's", func(t *testing.T) {

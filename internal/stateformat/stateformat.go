@@ -56,6 +56,10 @@ const (
 	// TeardownPin is the version in the teardown pin, teardown/pin.json
 	// under the control home (docs/design/teardown.md).
 	TeardownPin = 1
+	// RemovalMarker is the version in a worktree's removal marker, written
+	// beside its registration when `worktree remove` starts
+	// (docs/design/state.md).
+	RemovalMarker = 1
 )
 
 // Verdict is how a stored version compares with the one this build writes.

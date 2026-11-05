@@ -275,6 +275,12 @@ func (r *Registry) ScanAll(ctx context.Context) (RegistryScan, error) {
 	return ScanRegistrations(r.ControlHome)
 }
 
+// Entries is every worktree Git lists for this checkout's repository, each
+// with its identity and what is on disk beneath it.
+func (r *Registry) Entries(ctx context.Context) ([]WorktreeEntry, error) {
+	return r.Identities.Entries(ctx)
+}
+
 // PruneCandidates are registrations whose worktree Git no longer lists, or
 // whose root is gone.
 func (r *Registry) PruneCandidates(ctx context.Context) ([]RegisteredWorktree, error) {

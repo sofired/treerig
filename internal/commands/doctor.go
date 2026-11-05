@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/docker"
@@ -59,6 +60,7 @@ import (
 	"github.com/sofired/treerig/internal/stateformat"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // gitMinimum is the oldest Git `git worktree list --porcelain -z` needs.
@@ -1244,11 +1246,14 @@ func checkoutIsLoaded(loaded *config.Loaded) checkoutSource {
 	return checkoutSource{kind: "loaded", loaded: loaded}
 }
 
-// checkoutRegistry is the two registry.Registry methods checkoutChecks
+// checkoutRegistry is the three registry.Registry methods checkoutChecks
 // needs. *registry.Registry satisfies it without declaring so.
 type checkoutRegistry interface {
 	Current(ctx context.Context) (*registry.WorktreeRegistration, error)
 	PruneCandidates(ctx context.Context) ([]registry.RegisteredWorktree, error)
+	// Entries is every worktree Git lists for this repository, with its
+	// identity and what is on disk beneath it.
+	Entries(ctx context.Context) ([]registry.WorktreeEntry, error)
 }
 
 // findCheckout is the config the other commands would use here, without
@@ -1349,6 +1354,54 @@ func resolutionCheck(id, instance, subject string, resolution hooks.Resolution, 
 	return failed
 }
 
+// lostWorktreeChecks warns about each registration of this repository that Git
+// no longer lists (reg.PruneCandidates), judged by worktreestate: one whose
+// directory is gone, on positive evidence, is `directory missing`; one that
+// might be gone, or whose state cannot be told, is `unknown`, with the cause.
+// Docker is not asked: this is the state of the directory, not of what runs.
+func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutRegistry) ([]Check, error) {
+	candidates, err := reg.PruneCandidates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	entries, entriesErr := reg.Entries(ctx)
+	if entriesErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, entriesErr
+	}
+	subjects := make([]worktreestate.Subject, len(candidates))
+	for i, record := range candidates {
+		indexCard, cardErr := card.ReadIndexCard(opts.ControlHome, record.RepositoryID, record.WorktreeID)
+		subjects[i] = worktreestate.SubjectOf(record, indexCard, cardErr)
+	}
+	report, err := worktreestate.New(worktreestate.Options{ControlHome: opts.ControlHome, Runner: opts.Runner}).Gather(ctx, worktreestate.Request{
+		Subjects:     subjects,
+		Repositories: map[string]worktreestate.Repository{candidates[0].RepositoryID: worktreestate.Answered{Listed: entries}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var checks []Check
+	for _, record := range candidates {
+		subject := layout.WorktreeHost(record.Slug, record.Domain)
+		switch result := report.States[worktreestate.Key(record.RepositoryID, record.WorktreeID)]; result.State {
+		case worktree.StateDirectoryMissing:
+			checks = append(checks, Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
+				"registered, but its directory is gone: Git no longer has it. Remove what it left with '%s worktree remove %s'.",
+				opts.CommandName, record.WorktreeID)})
+		case worktree.StateUnknown:
+			checks = append(checks, Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
+				"registered, but Git no longer lists it, and treerig cannot tell whether its directory is gone. %s", result.Hint)})
+		}
+	}
+	return checks, nil
+}
+
 // checkoutChecks is this worktree, registered or not, and its verify hook.
 // Each step runs on its own: a checkout Git cannot identify still has a
 // config worth reporting, and its verify hook still deserves a line saying
@@ -1397,18 +1450,8 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 	}
 
 	if regErr == nil {
-		missing, err := guarded("checkout.missing-scan", "missing checkouts", func() ([]Check, error) {
-			candidates, err := reg.PruneCandidates(ctx)
-			if err != nil {
-				return nil, err
-			}
-			out := make([]Check, len(candidates))
-			for i, record := range candidates {
-				out[i] = Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: layout.WorktreeHost(record.Slug, record.Domain), Detail: fmt.Sprintf(
-					"registered, but Git no longer lists its checkout. Remove what it left with '%s worktree remove %s'.",
-					opts.CommandName, record.WorktreeID)}
-			}
-			return out, nil
+		missing, err := guarded("checkout.missing-scan", "missing worktrees", func() ([]Check, error) {
+			return lostWorktreeChecks(ctx, opts, reg)
 		})
 		if err != nil {
 			return nil, err

@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/docker"
@@ -314,7 +316,10 @@ func (c *Compose) HasContainers(ctx context.Context, ref worktree.Ref) (bool, er
 	return strings.TrimSpace(result.Stdout) != "", nil
 }
 
-// Status lists every declared service, absent when it has no container at all.
+// Status lists the containers of every declared service, in service-name
+// order, one entry per container (a scaled service appears once per replica),
+// and a NotCreated entry for a declared service that has none, the state after
+// `down`. worktree.Summarize collapses replicas for a display.
 func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.ServiceStatus, error) {
 	config, err := c.readModel(ctx, ref)
 	if err != nil {
@@ -331,10 +336,17 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]worktree.ServiceStatus{}
+	if err := c.completeExits(ctx, records); err != nil {
+		return nil, err
+	}
+	seen := map[string][]worktree.ServiceStatus{}
 	for _, record := range records {
-		state, detail := serviceState(record)
-		seen[record.Service] = worktree.ServiceStatus{Service: record.Service, State: state, Detail: detail}
+		status := worktree.ContainerStatus(record.State, record.Health, record.ExitCode, record.ExitKnown, record.OOMKilled, record.OOMRead)
+		status.Service = record.Service
+		// Docker's own word for a state it has no name for is printed later;
+		// it is cleaned here too, as defence in depth.
+		status.Detail = text.Printable(status.Detail)
+		seen[record.Service] = append(seen[record.Service], status)
 	}
 	names := make([]string, 0, len(config.Services))
 	for name := range config.Services {
@@ -342,49 +354,71 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	}
 	// JavaScript's default sort: treerig lists service names in this order.
 	slices.SortFunc(names, text.CompareUTF16)
-	statuses := make([]worktree.ServiceStatus, len(names))
-	for i, name := range names {
-		if status, ok := seen[name]; ok {
-			statuses[i] = status
+	statuses := make([]worktree.ServiceStatus, 0, len(names))
+	for _, name := range names {
+		if containers, ok := seen[name]; ok {
+			statuses = append(statuses, containers...)
 		} else {
-			statuses[i] = worktree.ServiceStatus{Service: name, State: worktree.Absent}
+			statuses = append(statuses, worktree.ServiceStatus{Service: name, State: worktree.NotCreated})
 		}
 	}
 	return statuses, nil
 }
 
+// inspectConcurrency bounds how many containers completeExits inspects at once.
+const inspectConcurrency = 8
+
+// completeExits asks Docker about each exited container whose story Compose
+// leaves open: one that reported no exit code, and one that exited 137, which
+// is what a stop, a reboot or a daemon restart leaves and also what the
+// out-of-memory killer leaves; only Docker says which. The inspects run
+// concurrently under one shared deadline (the probe timeout), so a worktree
+// with many such containers is no slower than one. A container that cannot be
+// inspected keeps what Compose said, and an exit 137 whose flag could not be
+// read is then unknown, never assumed to be a stop. Only a cancellation is an
+// error.
+func (c *Compose) completeExits(ctx context.Context, records []psRecord) error {
+	deadline, cancel := context.WithTimeout(ctx, c.timeouts.Probe)
+	defer cancel()
+	var group errgroup.Group
+	group.SetLimit(inspectConcurrency)
+	for i := range records {
+		record := &records[i]
+		if !strings.EqualFold(record.State, "exited") || record.ID == "" || (record.ExitKnown && record.ExitCode != 137) {
+			continue
+		}
+		group.Go(func() error {
+			container, found, err := docker.InspectContainer(deadline, c.options.Runner, record.ID, c.timeouts.Probe)
+			if err == nil && found {
+				record.ExitCode, record.ExitKnown, record.OOMKilled, record.OOMRead = container.ExitCode, true, container.OOMKilled, true
+			}
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return ctx.Err()
+}
+
+// psRecord is one container of `docker compose ps --format json`.
 type psRecord struct {
+	// ID is the container's ID, when Compose reports it.
+	ID      string
 	Service string
 	State   string
 	Health  string
-}
-
-// serviceState reads one `docker compose ps` record into a ServiceState, with
-// a detail string for the cases (unhealthy, or a state this build does not
-// otherwise name) that need one.
-func serviceState(record psRecord) (worktree.ServiceState, string) {
-	state := strings.ToLower(record.State)
-	switch {
-	case state == "running":
-		switch record.Health {
-		case "starting":
-			return worktree.Starting, ""
-		case "unhealthy":
-			return worktree.Running, "unhealthy"
-		}
-		return worktree.Running, ""
-	case state == "restarting":
-		return worktree.Starting, ""
-	case slices.Contains([]string{"created", "exited", "dead", "paused", "removing"}, state):
-		return worktree.Stopped, ""
-	}
-	return worktree.Unknown, record.State
+	// ExitCode is how the container ended; ExitKnown says Compose gave one.
+	ExitCode  int
+	ExitKnown bool
+	// OOMKilled and OOMRead are filled in by completeExits, never by Compose:
+	// OOMRead says Docker was asked and answered.
+	OOMKilled bool
+	OOMRead   bool
 }
 
 // parsePsOutput reads `docker compose ps --format json`: one document per
 // line since Compose 2.21, the documented floor, and a single document — an
 // array, or null for none — before that. Output nobody can parse is refused
-// rather than read as "every service is absent": an empty list is a complete
+// rather than read as "no service has a container": an empty list is a complete
 // answer, garbage is not.
 func parsePsOutput(stdout string) ([]psRecord, error) {
 	output := strings.TrimSpace(stdout)
@@ -417,7 +451,18 @@ func parsePsOutput(stdout string) ([]psRecord, error) {
 			}
 			health = value
 		}
-		return psRecord{Service: service, State: state, Health: health}, nil
+		parsed := psRecord{Service: service, State: state, Health: health}
+		if id, ok := object["ID"].(string); ok {
+			parsed.ID = id
+		}
+		if raw, present := object["ExitCode"]; present {
+			value, ok := raw.(float64)
+			if !ok || value != float64(int(value)) {
+				return psRecord{}, unreadable()
+			}
+			parsed.ExitCode, parsed.ExitKnown = int(value), true
+		}
+		return parsed, nil
 	}
 
 	var whole any

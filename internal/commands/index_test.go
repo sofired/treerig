@@ -23,6 +23,7 @@ import (
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/run/fakerun"
 	"github.com/sofired/treerig/internal/text"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // symlinkedCommandContext builds a minimal CommandContext whose router state
@@ -61,7 +62,7 @@ func symlinkedCommandContext(t *testing.T, target string) (*CommandContext, *log
 func TestNewCheckoutIndexRefusesASymlinkedRouterStateDirectory(t *testing.T) {
 	cctx, _ := symlinkedCommandContext(t, t.TempDir())
 
-	if _, err := newCheckoutIndex(cctx); err == nil {
+	if _, err := newCheckoutIndex(cctx, 0); err == nil {
 		t.Fatal("expected newCheckoutIndex to refuse a symlinked router state directory")
 	}
 }
@@ -132,9 +133,9 @@ func TestIndexReportMapsTheSnapshot(t *testing.T) {
 		IdentityError:   &checkoutindex.IdentityFailure{Reason: "git failed", RowsUnknown: true},
 		Entries: []checkoutindex.IndexEntry{{
 			RepositoryID: "r", WorktreeID: "w", Project: "acme", Domain: "acme.localhost", Slug: "main",
-			Host: "main.acme.localhost", Branch: &branch, Root: "/src/acme", Status: checkoutindex.StatusRunning,
+			Host: "main.acme.localhost", Branch: &branch, Root: "/src/acme", State: worktree.StateRunning,
 			Services: []checkoutindex.IndexServiceLink{{Name: "api", Label: "API", URL: "http://main.acme.localhost", Available: true}},
-		}, {Slug: "bare", Status: checkoutindex.StatusMissing, Services: []checkoutindex.IndexServiceLink{{Name: "db", Label: "db", Purpose: "store"}}}},
+		}, {Slug: "bare", State: worktree.StateDirectoryMissing, Services: []checkoutindex.IndexServiceLink{{Name: "db", Label: "db", Purpose: "store"}}}},
 		CardReadFailures: 2,
 	}
 	out, err := text.SafeJSON(indexReport(snapshot, "http://index.localhost"))
@@ -178,7 +179,7 @@ func TestIndexReportMapsTheSnapshot(t *testing.T) {
       "domain": "",
       "slug": "bare",
       "host": "",
-      "status": "missing",
+      "status": "directory_missing",
       "services": [
         {
           "service": "db",

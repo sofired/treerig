@@ -95,7 +95,13 @@ every other command.
   registered worktree on the machine, exactly as `--all` does; an empty
   registry then says `No worktrees are registered on this machine.` Outside a
   repository the table has no live Git state to read, so BRANCH and ROOT show
-  what `up` last recorded, or `-`.
+  what `up` last recorded, or `-`, and no row is `directory missing`. The STATE
+  column uses the [state words](commands.md) (`running`, `partly running`,
+  `stopped`, `not started`, `directory missing`, `removing`, …): the command asks
+  Docker once per label namespace, and Git once for the current repository. If
+  Docker does not answer, every row reads `unknown`, the table is still printed,
+  and the command exits 1 with the cause once on stderr; the cause of any other
+  `unknown` row is printed on stderr too.
 - **`worktree unlock <worktree>`** finds the worktree on the whole machine, by
   any of the [names above](#naming-a-worktree). With no name it unlocks the
   worktree you are in, and outside a Git worktree it says so and asks for a
@@ -141,12 +147,25 @@ whose directory is already gone, and needs no `treerig.toml`
 ([below](#running-without-a-treerigtoml)); `--label-namespace` supplies the
 Docker label namespace of its resources when nothing on disk records it.
 
+When it starts tearing the worktree down, before it deletes anything, it writes
+a removal marker beside the registration (`<id>.removing` in the control home's
+`worktrees` directory for the repository, one line: `format 1`), and the marker
+goes when the registration does. A removal that is interrupted, or that stops
+because a network is still in use, leaves it, and the worktree reads as
+`removing` in `status`, `worktree list` and the overview until `worktree remove`
+is run again. `treerig up` calls the removal off instead: it clears the marker.
+A marker of a newer format refuses both, and is left alone. A removal run by a
+0.1.x pinned teardown binary writes no marker, so an interrupted one reads as
+`not started` or `stopped`. Any failure once teardown has started, not only a
+signal, leaves the marker: the worktree reads `removing` until the removal is run
+again and finishes. See [State words](commands.md).
+
 A SIGINT, SIGTERM or SIGHUP that arrives once the removal has started
-destroying things leaves the worktree `pending`, and treerig says so on stderr
+destroying things leaves the worktree `removing`, and treerig says so on stderr
 before it dies by the signal: `Interrupted (<signal>) while removing <host>.
-Removed so far (at least): <what>. It is still registered, now pending:
-'treerig worktree remove' finishes the removal, 'treerig up' starts it again and
-runs the seed hook again.` The counts are a lower bound (the resource being
+Removed so far (at least): <what>. It is still registered and now reads
+'removing': 'treerig worktree remove' finishes the removal, 'treerig up' calls it
+off and runs the seed hook again.` The counts are a lower bound (the resource being
 removed when the signal came is not counted), and "nothing confirmed yet"
 stands when none is known to be gone. The command names the target as you
 typed it (`'treerig worktree remove <worktree> --domain <domain>'`), or by its UUID when
@@ -155,10 +174,11 @@ you named it by a path, and leaves out
 during the earlier `compose down` destroys nothing and prints no such notice,
 and neither does one that also left a lock unreleased: that is reported as
 an error, and [Lock recovery](lock-recovery.md) applies. `doctor` deliberately
-does not flag a `pending` worktree: a new worktree is `pending` until its
+does not flag a `not started` worktree: a new worktree is `not started` until its
 first `up` finishes, and so is one whose first `up` failed, and nothing in
 the registration tells either from an interrupted removal, so a check could
-only warn about the ordinary case. `worktree list` shows it.
+only warn about the ordinary case. `worktree list` shows it as `not started`,
+or as `removing` when the removal marker is there.
 
 Before `worktree remove` does anything else, it decides which code does the removal.
 
@@ -225,7 +245,7 @@ Everything keyed by the worktree's IDs stays exactly as it is: the Compose
 project name, and with it every container, network and volume name, the home
 directory, the locks and the pinned loopback ports. treerig renames and deletes
 no volume. What carries the slug moves to the new one: the registration and
-the worktree's index entry, and the checkout index is refreshed. Route files
+the worktree's index entry, and the overview is refreshed. Route files
 are removed, not moved: a worktree with no containers has none that are live,
 and `up` writes them at the new hostname. A Compose file that builds
 `${TREERIG_SLUG}` or `${TREERIG_HOST}` into a volume name would name a new volume
