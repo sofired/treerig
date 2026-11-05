@@ -37,4 +37,4 @@ Flags:
 
 Use "treerig [command] --help" for more information about a command.
 Use "treerig help --all" for shared services, the router, configuration, the
-teardown pin and completion.
+index, the teardown pin and completion.
