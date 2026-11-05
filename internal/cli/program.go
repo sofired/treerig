@@ -590,13 +590,18 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	// flag of every command. pflag tells them apart by case.
 	root.Flags().BoolP("version", "V", false, "output the version number")
 	root.PersistentFlags().BoolP(verboseFlag, "v", false, "show what treerig runs, and every detail")
+	// TODO(#205): shown once something reads it; until then help would promise
+	// what it does not do. It still parses, so scripts and the gate's filter
+	// can rely on it.
+	_ = root.PersistentFlags().MarkHidden(verboseFlag)
 	progress := progressValue(commands.ProgressAuto)
-	root.PersistentFlags().Var(&progress, progressFlag, "how to show progress: auto (redraw on a terminal) or plain (one line per change) (default \"auto\")")
+	root.PersistentFlags().Var(&progress, progressFlag, "how to show progress: auto or plain (one line per change) (default \"auto\")")
 	// pflag quotes a default only for a "string" flag, and this one is named
 	// "mode" in help, so the default is written in the usage instead.
 	root.PersistentFlags().Lookup(progressFlag).DefValue = ""
 	_ = root.RegisterFlagCompletionFunc(progressFlag, cobra.FixedCompletions([]cobra.Completion{
-		cobra.CompletionWithDesc(string(commands.ProgressAuto), "redraw on a terminal"),
+		// TODO(#208): "redraw on a terminal", once the live writer does.
+		cobra.CompletionWithDesc(string(commands.ProgressAuto), "the default"),
 		cobra.CompletionWithDesc(string(commands.ProgressPlain), "one line per change"),
 	}, cobra.ShellCompDirectiveNoFileComp))
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
