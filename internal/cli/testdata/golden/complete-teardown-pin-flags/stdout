@@ -1,4 +1,5 @@
 --progress	how to show progress: auto or plain (one line per change) (default "auto")
+--verbose	show what treerig runs, and every detail
 --file	pin this treerig binary instead of downloading a release; needs --sha256 and --release
 --help	help for pin
 --latest	download the newest release that is not a pre-release

@@ -156,9 +156,8 @@ var goldenCases = []goldenCase{
 	{"err-version-short-on-run", []string{"run", "plan", "-V"}},
 
 	// --- -v/--verbose and --progress, the root's persistent flags: on
-	// every page's Global Flags (-v hidden until #205 wires it), and distinct
-	// from -V. Neither does anything yet, so a bare root (help, exit 1) shows
-	// they parse. ---
+	// every page's Global Flags, and distinct from -V. A bare root (help,
+	// exit 1) shows they parse. ---
 	{"verbose-short", []string{"-v"}},
 	{"verbose-long", []string{"--verbose"}},
 	{"verbose-and-version", []string{"-vV"}},

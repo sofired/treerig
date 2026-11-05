@@ -663,10 +663,6 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	// flag of every command. pflag tells them apart by case.
 	root.Flags().BoolP("version", "V", false, "output the version number")
 	root.PersistentFlags().BoolP(verboseFlag, "v", false, "show what treerig runs, and every detail")
-	// TODO(#205): shown once something reads it; until then help would promise
-	// what it does not do. It still parses, so scripts and the gate's filter
-	// can rely on it.
-	_ = root.PersistentFlags().MarkHidden(verboseFlag)
 	progress := progressValue(commands.ProgressAuto)
 	root.PersistentFlags().Var(&progress, progressFlag, "how to show progress: auto or plain (one line per change) (default \"auto\")")
 	// pflag quotes a default only for a "string" flag, and this one is named
