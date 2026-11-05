@@ -64,7 +64,7 @@ In scope:
   commands themselves are welcome too.
 - Removal of a Docker resource that treerig cannot prove it owns by its
   ownership labels.
-- The router, the index page, a routed service's pinned port, or a shared
+- The router, the overview, a routed service's pinned port, or a shared
   service's declared ports being reachable beyond loopback (`127.0.0.1`).
 - A bypass of the cosign signature check or the checksum check in
   `treerig teardown pin --release` or `--latest`.
@@ -96,7 +96,7 @@ Out of scope:
   Bringing up a worktree runs its branch's code, as you; see the
   [Trust model](docs/trust-model.md), which also lists what is open to other
   local users by design (for example, a routed service's loopback port and
-  the index page).
+  the overview).
 - Listeners and `ports:` entries that your own config or processes create, such
   as a host-route dev server bound to `0.0.0.0` or a service's own `ports:`.
 - A hostile `PATH` that supplies `cosign` from outside the checkouts treerig

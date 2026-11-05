@@ -278,7 +278,7 @@ func TestScanRegistrationsConflictsAndDomains(t *testing.T) {
 // than `localeCompare(…, 'en')`. testdata/locale-sort.json is a
 // hand-maintained fixture (its origin is in git history) holding a corpus
 // of slug- and domain-shaped strings ([a-z0-9.-], the only alphabet
-// Store.List or the checkout index ever sorts within); this test checks
+// Store.List or the overview ever sorts within); this test checks
 // Go's byte order reproduces `localeCompare('en')`'s order exactly, so no
 // collation package (x/text/collate) is needed for this schema.
 func TestListSortMatchesLocale(t *testing.T) {

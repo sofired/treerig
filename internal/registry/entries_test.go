@@ -150,7 +150,7 @@ func TestIdentityServiceEntries(t *testing.T) {
 		runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
 			return run.Result{ExitCode: 128, Stderr: "fatal: detected dubious ownership\n"}, nil
 		}}
-		service := registry.NewIdentityService(registrytest.TempDir(t), runner)
+		service := registry.NewIdentityService(registrytest.TempDir(t), runner, nil)
 		if _, err := service.Entries(ctx); err == nil {
 			t.Fatal("expected Git's failure")
 		}

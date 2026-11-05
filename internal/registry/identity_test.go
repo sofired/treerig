@@ -40,7 +40,7 @@ func newIdentityFixture(t *testing.T, branch string) identityFixture {
 	g.Add(root, branch, common)
 	return identityFixture{
 		base: base, root: root, common: common, git: g, runner: runner,
-		identities: registry.NewIdentityService(root, runner),
+		identities: registry.NewIdentityService(root, runner, nil),
 	}
 }
 
@@ -114,7 +114,7 @@ func TestIdentityServiceInspect(t *testing.T) {
 		// only the worktree's own path changed.
 		f.git.SetIdentity(moved, "feature/move", f.common, filepath.Join(f.common, "worktrees", "worktree"))
 		f.git.SetActive([]string{moved})
-		movedIdentities := registry.NewIdentityService(moved, f.runner)
+		movedIdentities := registry.NewIdentityService(moved, f.runner, nil)
 
 		second, err := movedIdentities.Inspect(ctx, moved, registry.InspectOptions{})
 		if err != nil {
@@ -144,7 +144,7 @@ func TestIdentityServiceInspect(t *testing.T) {
 			t.Fatalf("mkdir sibling git dir: %v", err)
 		}
 		f.git.Add(sibling, "feature/unregistered", f.common)
-		siblingIdentities := registry.NewIdentityService(sibling, f.runner)
+		siblingIdentities := registry.NewIdentityService(sibling, f.runner, nil)
 
 		identity, err := siblingIdentities.Inspect(ctx, sibling, registry.InspectOptions{})
 		if err != nil {
@@ -318,8 +318,41 @@ func TestIdentityServiceRepository(t *testing.T) {
 		if err != nil || inside || present || id != "" {
 			t.Fatalf("Repository = %q, %v, %v, %v", id, present, inside, err)
 		}
-		if len(runner.specs) != 1 || !slices.Equal(runner.specs[0].Env, []string{"PATH=/bin", "LANG=de_DE.UTF-8", "LC_ALL=C"}) {
-			t.Fatalf("specs = %+v, want one call in the caller's environment plus LC_ALL=C", runner.specs)
+		want := []string{"LC_ALL=C", "GIT_OPTIONAL_LOCKS=0", "PATH=/bin", "LANG=de_DE.UTF-8"}
+		if len(runner.specs) != 1 || !slices.Equal(runner.specs[0].Env, want) {
+			t.Fatalf("specs = %+v, want one call in the allow-listed environment %v", runner.specs, want)
+		}
+	})
+
+	t.Run("every Git question is bounded and runs without what a repository's configuration could execute", func(t *testing.T) {
+		f := newIdentityFixture(t, "feature/one")
+		runner := &recordingRunner{Runner: f.runner}
+		environ := []string{
+			"PATH=/bin", "HOME=/home/x", "TMPDIR=/tmp", "LANG=C.UTF-8", "LC_TIME=de_DE", "LC_ALL=de_DE",
+			"GIT_DIR=/elsewhere", "GIT_EXEC_PATH=/evil", "GIT_SSH_COMMAND=x", "EDITOR=vi", "SECRET=1",
+			"XDG_CONFIG_HOME=/home/x/.config", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+			"GIT_WORK_TREE=/w", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=/evil", "GIT_CONFIG_PARAMETERS='a=b'",
+		}
+		identities := registry.New(registry.Options{ControlHome: f.base, Root: f.root, Runner: runner, Environ: environ}).Identities
+		_, _, _, _ = identities.Repository(ctx, f.root)
+		_, _ = identities.Entries(ctx)
+		_, _ = identities.Inspect(ctx, f.root, registry.InspectOptions{})
+		if len(runner.specs) < 4 {
+			t.Fatalf("specs = %d", len(runner.specs))
+		}
+		wantEnv := []string{"LC_ALL=C", "GIT_OPTIONAL_LOCKS=0", "PATH=/bin", "HOME=/home/x", "TMPDIR=/tmp", "LANG=C.UTF-8", "LC_TIME=de_DE",
+			"XDG_CONFIG_HOME=/home/x/.config", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}
+		for _, spec := range runner.specs {
+			head := strings.Join(spec.Args[:6], " ")
+			if head != "-c core.fsmonitor=false -c core.hooksPath=/dev/null -c safe.bareRepository=explicit" {
+				t.Errorf("args = %v, want the hardening flags first", spec.Args)
+			}
+			if !slices.Equal(spec.Env, wantEnv) {
+				t.Errorf("env = %v, want %v", spec.Env, wantEnv)
+			}
+			if spec.Timeout <= 0 || spec.OutputLimit <= 0 || spec.OutputLimit > 8*1024*1024 {
+				t.Errorf("timeout %v, output limit %d: want both bounded", spec.Timeout, spec.OutputLimit)
+			}
 		}
 	})
 
@@ -332,7 +365,7 @@ func TestIdentityServiceRepository(t *testing.T) {
 			runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
 				return run.Result{ExitCode: 128, Stderr: stderr + "\n"}, nil
 			}}
-			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner, nil).Repository(ctx, t.TempDir())
 			if err == nil || !strings.Contains(err.Error(), stderr) || inside {
 				t.Fatalf("%q: Repository = %q, %v, %v, %v; want an error naming Git's words", stderr, id, present, inside, err)
 			}
@@ -343,7 +376,7 @@ func TestIdentityServiceRepository(t *testing.T) {
 		runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
 			return run.Result{}, &run.StartError{Command: "git", Code: "ENOENT", Detail: "was not found on PATH (ENOENT).", ExitCode: 127}
 		}}
-		_, _, _, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+		_, _, _, err := registry.NewIdentityService(t.TempDir(), runner, nil).Repository(ctx, t.TempDir())
 		var start *run.StartError
 		if !errors.As(err, &start) {
 			t.Fatalf("err = %v, want the start error", err)

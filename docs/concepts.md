@@ -84,7 +84,7 @@ containers that read them run as root without the capability that lets root
 bypass file permissions, and on Linux Docker Engine that leaves a 0700
 directory unreadable to them. Their parents stay owner-only — a bind mount is
 entered at its mount point, so the parents are never traversed. Only the
-index page, its favicon files and the route files are written there; nothing
+overview page, its favicon files and the route files are written there; nothing
 secret.
 
 ## Ownership labels

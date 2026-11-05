@@ -213,7 +213,7 @@ func TestRegistryPruneCandidates(t *testing.T) {
 			t.Fatalf("mkdir: %v", err)
 		}
 		f.git.Add(gone, "feature/gone", f.common)
-		goneIdentities := registry.NewIdentityService(gone, f.runner)
+		goneIdentities := registry.NewIdentityService(gone, f.runner, nil)
 		goneIdentity, err := registrytest.Register(ctx, f.controlHome, goneIdentities, gone, acmeDomain, "feature-gone", nil, "complete")
 		if err != nil {
 			t.Fatalf("Register gone: %v", err)

@@ -2,7 +2,7 @@ package router
 
 // Router state: the two ports that belong to the router rather than to any
 // worktree's registration (docs/design/routing.md, decisions 7 and 8). The
-// checkout index is published on its own loopback port, and in host mode the
+// overview is published on its own loopback port, and in host mode the
 // ping entrypoint listens on one. Both are allocated once, from the same
 // range as routed services' ports, under the router lock, and stored in one
 // file under the treerig root. Worktree allocation reads the file and treats
@@ -30,7 +30,7 @@ const stateVersion = stateformat.RouterState
 // State is the router's own allocated ports.
 type State struct {
 	Version int `json:"version"`
-	// IndexPort is the loopback port the checkout index is published on.
+	// IndexPort is the loopback port the overview is published on.
 	IndexPort int `json:"indexPort"`
 	// PingPort is the loopback port of the host-mode ping entrypoint; 0
 	// until the router first runs in host mode.
@@ -134,7 +134,7 @@ func (r *Router) ensureState(ctx context.Context, mode Mode) (State, error) {
 	if needIndex {
 		port, err := ports.Pick(ctx, r.portRange, probe, taken, "router", "index")
 		if err != nil {
-			return State{}, noStatePortError("the checkout index", r.portRange, err)
+			return State{}, noStatePortError("the overview", r.portRange, err)
 		}
 		taken[port] = true
 		next.IndexPort = port

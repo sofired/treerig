@@ -66,7 +66,7 @@ internal/
   hooks/                  hook protocol and sequencer
   progress/               phase logging with an elapsed-time heartbeat
   ports/                  the lock-free loopback port allocator and its free-port probe
-  checkoutindex/          per-worktree cards, the snapshot, and the rendered page
+  overview/               per-worktree cards, the snapshot, and the rendered overview page
   router/                 the shared router's Compose stack per network mode, mode
                           detection, its file-provider route files and their
                           repair, and the ports it keeps
@@ -79,7 +79,7 @@ internal/
                           the state words
   worktreestate/          gathers those inputs (registrations and their history, Git's
                           worktree list, one `docker ps -a` per label namespace, the
-                          mount table) for `status`, `worktree list`, the overview
+                          mount table) for `status`, `list`, the overview
                           and `doctor`
   registry/               identity markers, slugs, the registry
   lock/                   flock-based locks and their checked recovery

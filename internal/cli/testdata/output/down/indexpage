@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-shell="7W06yJ-6E_EYldKA">
+<html lang="en" data-shell="zeXhQZbxSdKgXV07">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -85,7 +85,7 @@
        longer fits either: shed the directory column — it comes back under the
        branch, so nothing is unreachable — and stack the service text. */
     @media (max-width: 900px) {
-      .checkout { display: none; }
+      .directory { display: none; }
       .path-compact { display: block; margin-top: 4px; color: #5f6b7a; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; overflow-wrap: anywhere; }
       thead th:nth-child(1) { width: 26%; } thead th:nth-child(2) { width: 22%; } thead th:nth-child(4) { width: 22%; } thead th:nth-child(5) { width: 30%; }
       .service-purpose { font-size: 11px; }
@@ -144,16 +144,16 @@
   <p class="sr-only" id="index-announcer" aria-live="polite"></p>
   <main data-body="FINGERPRINT"><dl class="legend"><div><dt>removing</dt> <dd>a removal was interrupted: &#39;treerig worktree remove&#39; finishes it.</dd></div><div><dt>directory missing</dt> <dd>Git no longer has the worktree&#39;s directory.</dd></div><div><dt>unknown</dt> <dd>treerig couldn&#39;t tell (Docker or Git didn&#39;t answer, or a record couldn&#39;t be read); the row says why.</dd></div><div><dt>starting</dt> <dd>a health check has not passed yet.</dd></div><div><dt>failed</dt> <dd>no service runs, and one exited with an error, keeps restarting or is unhealthy.</dd></div><div><dt>partly running</dt> <dd>some services run and others don&#39;t.</dd></div><div><dt>running</dt> <dd>every service that has not finished is up.</dd></div><div><dt>stopped</dt> <dd>&#39;treerig up&#39; has finished before, and nothing runs now.</dd></div><div><dt>not started</dt> <dd>&#39;treerig up&#39; has not finished yet.</dd></div></dl>
     <section>
-      <h2 id="checkouts-0">acme.localhost</h2>
+      <h2 id="worktrees-0">acme.localhost</h2>
       <!-- The script makes this focusable if it ever scrolls; a region that
            does not scroll would only be a tab stop that does nothing. -->
-      <div class="table-wrap" role="region" aria-labelledby="checkouts-0">
+      <div class="table-wrap" role="region" aria-labelledby="worktrees-0">
         <table>
-          <thead><tr><th scope="col">Branch</th><th scope="col" class="host">Host</th><th scope="col" class="checkout">Directory</th><th scope="col">State</th><th scope="col">Services</th></tr></thead>
+          <thead><tr><th scope="col">Branch</th><th scope="col" class="host">Host</th><th scope="col" class="directory">Directory</th><th scope="col">State</th><th scope="col">Services</th></tr></thead>
           <tbody><tr>
       <th scope="row"><strong>feature/login</strong><span class="path-compact">~/checkout</span><span class="host-compact"><code>feature-login.acme.localhost</code></span></th>
       <td class="host"><code>feature-login.acme.localhost</code></td>
-      <td class="checkout"><span class="path" title="FIXTURE/checkout">~/checkout</span></td>
+      <td class="directory"><span class="path" title="FIXTURE/checkout">~/checkout</span></td>
       <td><span class="status status-stopped">stopped</span></td>
       <td class="services"><span class="muted">—</span></td>
     </tr></tbody>

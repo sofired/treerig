@@ -43,7 +43,7 @@ An interrupted `worktree remove` also returns the registration to pending,
 since its volumes may already be gone, so the next `up` seeds again rather
 than starting on empty stores. The interrupted command says so and names the
 two ways on: `worktree remove` finishes the removal, `up` starts it again. Until
-then the worktree reads as `removing` in `status` and `worktree list`.
+then the worktree reads as `removing` in `status` and `list`.
 Write `prepare` to be idempotent; write `seed` assuming an empty, migrated
 store.
 

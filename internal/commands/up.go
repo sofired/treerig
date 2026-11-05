@@ -8,12 +8,12 @@ import (
 
 	"github.com/sofired/treerig/internal/backend"
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/hooks"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/worktree"
@@ -29,7 +29,7 @@ type Router interface {
 	Ensure(ctx context.Context) error
 }
 
-// Index is what `up` needs from the checkout index; checkoutindex.Service
+// Index is what `up` needs from the overview; overview.Service
 // (#41) satisfies this, and Up hands UpWithContext bestEffortIndex, which
 // also survives the service failing to build.
 type Index interface {
@@ -67,7 +67,7 @@ type UpResult struct {
 }
 
 // Up is `up`: the CommandContext, the real shared router, and the real
-// checkout index, all built from env.
+// overview, all built from env.
 func Up(ctx context.Context, env *Env, options UpOptions) error {
 	cctx, err := Context(env)
 	if err != nil {
@@ -98,15 +98,15 @@ func realRouter(env *Env, cctx *CommandContext) (Router, error) {
 }
 
 // bestEffortIndex is the Index `up` refreshes afterwards: the same
-// refreshIndexBestEffort `down` and `worktree remove` call, so a checkout
+// refreshOverviewBestEffort `down` and `worktree remove` call, so a checkout
 // index that cannot even be built (a symlinked router state directory)
 // warns rather than failing an `up` that has already succeeded.
 type bestEffortIndex struct{ cctx *CommandContext }
 
-// RefreshBestEffort satisfies Index by delegating to refreshIndexBestEffort
+// RefreshBestEffort satisfies Index by delegating to refreshOverviewBestEffort
 // against the wrapped CommandContext.
 func (i bestEffortIndex) RefreshBestEffort(ctx context.Context, reason string) {
-	refreshIndexBestEffort(ctx, i.cctx, reason)
+	refreshOverviewBestEffort(ctx, i.cctx, reason)
 }
 
 // routeSpecsFromConfig is every declared [service.<name>] as a backend.RouteSpec,
@@ -460,7 +460,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		return store.CompleteInitialization(ctx, ref.WorktreeID, ref.Slug, cctx.writer())
 	}
 	// What follows a successful mutation, once the operation lock is back:
-	// the checkout index is refreshed, and the worktree is announced.
+	// the overview is refreshed, and the worktree is announced.
 	refresh := func(ctx context.Context) { index.RefreshBestEffort(ctx, "up") }
 	announce := func() {
 		cctx.Logger.Info(host + " is up.")
@@ -471,8 +471,10 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		if err := cctx.mutate(ctx, ref, host, false, mutation); err != nil {
 			return nil, err
 		}
-		refresh(ctx)
+		// The announcement first, as `dev` does: the refresh may wait on the
+		// router's lock, and the user should not wait to see the URLs.
 		announce()
+		refresh(ctx)
 		return &UpResult{Registration: *registration, Hooks: ranHooks, URLs: urls}, nil
 	}
 	// `dev`: the same mutation, but under the development-session lock too,

@@ -181,7 +181,7 @@ func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*Unlock
 		// itself is real — otherwise there is nothing for it to secure,
 		// and below finds nothing to unlock without ever having touched
 		// the filesystem. Once it exists, this is the same guard RouterUp
-		// (router.go:79) and newCheckoutIndex (index.go) both take before
+		// (router.go:79) and newOverview (overview.go) both take before
 		// ever touching theirs.
 		exists, err := lstatExists(state.StateDir)
 		if err != nil {
@@ -193,7 +193,7 @@ func UnlockGlobal(ctx context.Context, env *Env, options UnlockOptions) (*Unlock
 			}
 		}
 		// No router.Router to ask for its own ProjectName, the same
-		// position newCheckoutIndex is in (index.go): routerLockScope
+		// position newOverview is in (overview.go): routerLockScope
 		// resolves router.ResolveProjectName()'s default.
 		scope = routerLockScope(state, "")
 	}

@@ -421,7 +421,7 @@ func routerPortsCheck(ctx context.Context, opts doctorOptions, status *router.Ro
 		return &Check{Status: StatusSkip, ID: "router.ports", Subject: "router ports", Detail: text.OneLine(err.Error(), modeMessageCap)}, nil
 	}
 	if len(conflicts) == 0 {
-		return &Check{Status: StatusOK, ID: "router.ports", Subject: "router ports", Detail: "the ports the router needs are free (the index and ping ports are allocated at its first start)"}, nil
+		return &Check{Status: StatusOK, ID: "router.ports", Subject: "router ports", Detail: "the ports the router needs are free (the overview and ping ports are allocated at its first start)"}, nil
 	}
 	lines := make([]string, len(conflicts))
 	for i, conflict := range conflicts {

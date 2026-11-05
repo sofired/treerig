@@ -47,7 +47,7 @@ func TestInit(t *testing.T) {
 			t.Fatalf("Init: %v", err)
 		}
 
-		want := "git -C " + sub + " rev-parse --show-toplevel"
+		want := "git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c safe.bareRepository=explicit -C " + sub + " rev-parse --show-toplevel"
 		if got := runner.Argv(); len(got) != 1 || got[0] != want {
 			t.Errorf("git calls = %q, want %q", got, want)
 		}

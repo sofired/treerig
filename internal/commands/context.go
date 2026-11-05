@@ -86,7 +86,7 @@ type CommandContext struct {
 	// lock and its index page live (neither is under ControlHome: the
 	// router's state is machine-wide, per treerig root — see
 	// internal/layout's RouterStateDir comment). Resolved once here so
-	// newCheckoutIndex needs no Getenv of its own.
+	// newOverview needs no Getenv of its own.
 	RouterState layout.RouterLayout
 	Registry    *registry.Registry
 	// Environ is what Compose inherits.
@@ -97,6 +97,9 @@ type CommandContext struct {
 	Table procid.Table
 	// Lifecycle holds mutations' locks and defers signals; nil builds one that never listens.
 	Lifecycle *lifecycle.Lifecycle
+	// StderrIsTTY says stderr is a terminal, which is when a command may add
+	// the footers that only a person at a terminal reads (Env.StderrIsTTY).
+	StderrIsTTY bool
 }
 
 // ComposeFile is the consumer's Compose file, resolved against the config's directory.
@@ -168,7 +171,7 @@ func Context(env *Env) (*CommandContext, error) {
 // records alone and must still run where there is no usable treerig.toml — in
 // a worktree of an old branch, beside a file with a mistake in it, or outside
 // every repository: `shared down` has to be able to clean up from anywhere, as
-// can `worktree list`, `worktree unlock` and `worktree remove <worktree>`. It
+// can `list`, `worktree unlock` and `worktree remove <worktree>`. It
 // loads the config when there is a usable one, and warns and goes on without
 // it when the file is there but invalid. No treerig.toml anywhere above the
 // working directory is no error either, but a file named with --config that is
@@ -274,6 +277,7 @@ func buildContext(env *Env, loaded *config.Loaded, fallbackRoot string) (*Comman
 		Environ:              env.Environ,
 		Table:                env.Table,
 		Lifecycle:            env.Lifecycle,
+		StderrIsTTY:          env.StderrIsTTY,
 	}, nil
 }
 

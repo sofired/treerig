@@ -579,7 +579,7 @@ func TestRouterPortsCheck(t *testing.T) {
 	})
 	t.Run("is ok when the ports are free", func(t *testing.T) {
 		got := run(newFakeRouterSource(), absent)
-		if got == nil || got.Status != StatusOK || !strings.HasSuffix(got.Detail, "(the index and ping ports are allocated at its first start)") {
+		if got == nil || got.Status != StatusOK || !strings.HasSuffix(got.Detail, "(the overview and ping ports are allocated at its first start)") {
 			t.Fatalf("got %+v", got)
 		}
 	})

@@ -153,8 +153,8 @@ git worktree add ../myapp.feature-x -b feature/x
 cd ../myapp.feature-x && treerig up
 ```
 
-Open both URLs, or open <http://treerig.localhost> to see every checkout on
-the machine.
+Open both URLs, or open <http://treerig.localhost> to see every worktree on
+the machine (`treerig list --all` prints the same list).
 
 **5. Clean up when you're done:**
 
@@ -237,9 +237,9 @@ vulnerability, see [SECURITY.md](SECURITY.md).
 | [Worktrees](docs/worktrees.md) | Development sessions, removing a worktree, renaming one |
 | [Shared services](docs/shared-services.md) | One instance of a service, such as a mail catcher, per repository |
 | [Host routes](docs/host-routes.md) | Route a dev server running on the host at a worktree's hostname |
-| [The overview](docs/checkout-index.md) | The machine-wide page at `http://treerig.localhost` |
+| [The overview](docs/overview.md) | The machine-wide page at `http://treerig.localhost` |
 | [Hooks](docs/hooks.md) | The hook protocol |
-| [State words](docs/commands.md) | What `status`, `worktree list` and the overview print |
+| [State words](docs/commands.md) | What `status`, `list` and the overview print |
 | [Doctor](docs/doctor.md) | What `treerig doctor` checks, and its check ids |
 | [Output and exit codes](docs/output-and-exit-codes.md) | Which stream each command writes to, and how it exits |
 | [Machine-readable output](docs/json-output.md) | The `--json` documents |
@@ -259,7 +259,7 @@ also on [GitHub](https://github.com/sofired/treerig/tree/main/docs).
 ## Status and roadmap
 
 Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
-`status`, `run`, `backup`, `restore`, and `worktree list`, `remove`,
+`status`, `list`, `run`, `backup`, `restore`, and `worktree remove`,
 `rename` and `unlock`), the shared router and the overview, host routes
 (`route`), shared services and `doctor`; `treerig --help` lists the everyday
 commands and `treerig help --all` every command. Releases are listed on the

@@ -6,6 +6,8 @@ lives, what a build does with a version it does not know, and how a change to a
 store adds a migration. The code is `internal/stateformat`; every number below
 is a constant there, pinned by its tests.
 
+> In 1.0 the command `worktree list` is `list`, `index` is `list --all`, and the old index page is the overview ([the command line](cli-1.0.md#removed-and-where-each-job-goes)). This note keeps the names it was written with.
+
 ## Rules
 
 1. **Every store treerig reads back says which format wrote it.** The version is

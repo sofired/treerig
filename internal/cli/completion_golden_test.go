@@ -22,9 +22,9 @@ import (
 	"testing"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/cli"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 )
@@ -32,7 +32,7 @@ import (
 // completionFixture is one hermetic, read-only world for the completion
 // goldens: a treerig.toml with two declared services, and a control home
 // with three registered worktrees across two domains (one with no
-// checkout-index card yet) plus one recoverable-but-unregistered worktree
+// index card yet) plus one recoverable-but-unregistered worktree
 // lock.
 type completionFixture struct {
 	// configPath is the fixture's own treerig.toml, passed to every case as
@@ -76,7 +76,7 @@ const (
 	completionAcmeDomain    = "acme.localhost"
 	completionWidgetsDomain = "widgets.localhost"
 	// completionOddDomain carries a raw tab: neither the registry record's
-	// Domain nor the checkout-index card's Root is revalidated on read (see
+	// Domain nor the index card's Root is revalidated on read (see
 	// describeWorktreeCandidate), so a record written by an older build, or
 	// a branch name that made it into a path, could carry one — and an
 	// unneutralised tab or newline in a completion's value or description
@@ -96,7 +96,7 @@ const (
 // regardless) — so all four of serviceCompletionDescription's branches are
 // exercised, a control home with completionWorktreeA and
 // completionWorktreeB registered under
-// completionAcmeDomain (only A has a checkout-index card, so B completes
+// completionAcmeDomain (only A has a index card, so B completes
 // with no known path) and completionWorktreeC registered under
 // completionWidgetsDomain, plus a lock file for completionOrphanWorktree
 // under completionOrphanRepo with no registration at all — and the three
@@ -239,7 +239,7 @@ func writeCompletionRecord(t *testing.T, controlHome, repositoryID, worktreeID, 
 	}
 }
 
-// writeCompletionCard writes one fixture checkout-index card, creating its
+// writeCompletionCard writes one fixture index card, creating its
 // worktree home directory first the way `up` would have.
 func writeCompletionCard(t *testing.T, controlHome, repositoryID, worktreeID, slug, domain, root string) {
 	t.Helper()

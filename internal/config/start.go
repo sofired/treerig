@@ -11,7 +11,7 @@ import (
 // declared service's [service.<name>.index] label or purpose (#19).
 //
 // Every command that only reads an already-running worktree's config —
-// `down`, `worktree remove`, `status`, `index`, `worktree list`,
+// `down`, `worktree remove`, `status`, `list`,
 // `worktree unlock`, and so on — must load the same file a hand edit or a
 // paste could have left with one, and go ahead regardless: text.Printable,
 // which every text and HTML renderer that shows these fields already runs

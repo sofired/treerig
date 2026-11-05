@@ -280,7 +280,7 @@ func TestCheckPorts(t *testing.T) {
 			t.Fatalf("CheckPorts = %+v, %v", conflicts, err)
 		}
 		line := conflicts[0].Describe()
-		for _, want := range []string{"(the checkout index) is held by container someone-else", "remove " + w.State.StateFile,
+		for _, want := range []string{"(the overview) is held by container someone-else", "remove " + w.State.StateFile,
 			"docker ps --filter publish=" + port(seedIndexPort)} {
 			if !strings.Contains(line, want) {
 				t.Errorf("%q lacks %q", line, want)

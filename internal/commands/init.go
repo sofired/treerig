@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
+	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 )
 
@@ -113,8 +115,10 @@ func withoutGitLocation(environ []string) []string {
 func gitToplevel(ctx context.Context, env *Env) (string, error) {
 	result, err := env.Runner.Run(ctx, run.Spec{
 		Command:      "git",
-		Args:         []string{"-C", env.Cwd, "rev-parse", "--show-toplevel"},
+		Args:         registry.HardenedGitArgs(env.Cwd, "rev-parse", "--show-toplevel"),
 		AllowFailure: true,
+		Timeout:      30 * time.Second,
+		OutputLimit:  64 * 1024,
 		// Git's wording is localised; the "not a git repository" match below
 		// is on the C locale's. The rest of the environment is kept.
 		Env: append(withoutGitLocation(env.Environ), "LC_ALL=C"),

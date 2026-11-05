@@ -70,17 +70,18 @@ func gitRefusesAt(w *commandstest.World, dir string) {
 	}
 }
 
-func TestWorktreeListWithoutConfig(t *testing.T) {
+func TestListWithoutConfig(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("outside a repository lists every registered worktree, as --all does", func(t *testing.T) {
 		w, _, _ := twoRepositories(t)
 		tc := w.ContextWithoutConfig("")
 
-		rows, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
+		report, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
+		rows := report.Entries
 		var hosts []string
 		for _, row := range rows {
 			hosts = append(hosts, row.Host)
@@ -92,12 +93,12 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		if !reflect.DeepEqual(hosts, want) {
 			t.Fatalf("hosts = %v, want %v", hosts, want)
 		}
-		if lines := tc.Logger.Printed; len(lines) != 3 || !strings.HasPrefix(lines[0], "  HOST") {
+		if lines := tc.Logger.Printed; len(lines) != 3 || !strings.HasPrefix(lines[0], "   REPOSITORY ") {
 			t.Fatalf("printed = %q, want a header and two rows", lines)
 		}
 		// The same answer --all gives.
 		all, err := commands.ListWithContext(ctx, w.ContextWithoutConfig("").CommandContext, commands.ListOptions{All: true})
-		if err != nil || !reflect.DeepEqual(all, rows) {
+		if err != nil || !reflect.DeepEqual(all.Entries, rows) {
 			t.Fatalf("--all = %+v, %v; want the rows above", all, err)
 		}
 	})
@@ -109,14 +110,14 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		if _, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
-		var decoded []commands.ListedRegistration
+		var decoded commands.ListReport
 		if len(tc.Logger.Printed) != 1 {
 			t.Fatalf("printed = %q, want one JSON document", tc.Logger.Printed)
 		}
-		if err := json.Unmarshal([]byte(tc.Logger.Printed[0]), &decoded); err != nil || len(decoded) != 2 {
+		if err := json.Unmarshal([]byte(tc.Logger.Printed[0]), &decoded); err != nil || len(decoded.Entries) != 2 {
 			t.Fatalf("decoded = %+v, %v", decoded, err)
 		}
-		for _, row := range decoded {
+		for _, row := range decoded.Entries {
 			if row.Current {
 				t.Errorf("%s is current", row.Host)
 			}
@@ -127,9 +128,9 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.ContextWithoutConfig("")
 
-		rows, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
-		if err != nil || len(rows) != 0 {
-			t.Fatalf("rows = %+v, %v", rows, err)
+		report, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
+		if err != nil || len(report.Entries) != 0 {
+			t.Fatalf("rows = %+v, %v", report.Entries, err)
 		}
 		lines, printed := tc.Logger.Snapshot()
 		if !slices.Equal(lines, []string{"info: No worktrees are registered on this machine."}) || len(printed) != 0 {
@@ -141,10 +142,11 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		w, _, _ := twoRepositories(t)
 		tc := w.ContextWithoutConfig(w.Root)
 
-		rows, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
+		report, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
+		rows := report.Entries
 		if len(rows) != 1 || rows[0].Host != "feature-login.acme.localhost" || !rows[0].Current || rows[0].State != worktree.StateRunning {
 			t.Fatalf("rows = %+v, want this repository's one worktree, current", rows)
 		}
@@ -155,13 +157,13 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		fresh := w.Worktree("fresh", "main", filepath.Join(w.Base, "fresh-common"))
 		tc := w.ContextWithoutConfig(fresh)
 
-		rows, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
-		if err != nil || len(rows) != 0 {
-			t.Fatalf("rows = %+v, %v; want none: the other repositories' worktrees are not this one's", rows, err)
+		report, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
+		if err != nil || len(report.Entries) != 0 {
+			t.Fatalf("rows = %+v, %v; want none: the other repositories' worktrees are not this one's", report.Entries, err)
 		}
 		want := []string{
-			"info: No worktrees are registered for this repository.",
-			"info: Every repository: 'treerig worktree list --all'",
+			"info: No worktrees are registered for this repository. Run 'treerig up' to register this worktree.",
+			"info: Every repository: 'treerig list --all'",
 		}
 		if lines, printed := tc.Logger.Snapshot(); !slices.Equal(lines, want) || len(printed) != 0 {
 			t.Fatalf("lines = %q, printed = %q", lines, printed)
@@ -172,15 +174,17 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		w, _, _ := twoRepositories(t)
 		fresh := w.Worktree("fresh", "main", filepath.Join(w.Base, "fresh-common"))
 		all, err := commands.ListWithContext(ctx, w.ContextWithoutConfig(fresh).CommandContext, commands.ListOptions{All: true})
-		if err != nil || len(all) != 2 {
+		if err != nil || len(all.Entries) != 2 {
 			t.Fatalf("rows = %+v, %v", all, err)
 		}
 		tc := w.ContextWithoutConfig(fresh)
 		if _, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
-		if lines, printed := tc.Logger.Snapshot(); len(lines) != 0 || !slices.Equal(printed, []string{"[]"}) {
-			t.Fatalf("lines = %q, printed = %q", lines, printed)
+		lines, printed := tc.Logger.Snapshot()
+		var decoded commands.ListReport
+		if len(lines) != 0 || len(printed) != 1 || json.Unmarshal([]byte(printed[0]), &decoded) != nil || decoded.Entries == nil || len(decoded.Entries) != 0 {
+			t.Fatalf("lines = %q, printed = %q; want an empty list in a document and no hint", lines, printed)
 		}
 	})
 
@@ -189,13 +193,13 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		fresh := w.Worktree("fresh", "main", filepath.Join(w.Base, "fresh-common"))
 		tc := w.Context(fresh, acme, nil)
 
-		rows, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
-		if err != nil || len(rows) != 0 {
-			t.Fatalf("rows = %+v, %v", rows, err)
+		report, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{})
+		if err != nil || len(report.Entries) != 0 {
+			t.Fatalf("rows = %+v, %v", report.Entries, err)
 		}
 		want := []string{
-			"info: No worktrees are registered for this repository.",
-			"info: Every repository: 'treerig worktree list --all'",
+			"info: No worktrees are registered for this repository. Run 'treerig up' to register this worktree.",
+			"info: Every repository: 'treerig list --all'",
 		}
 		if lines, _ := tc.Logger.Snapshot(); !slices.Equal(lines, want) {
 			t.Fatalf("lines = %q", lines)
@@ -330,7 +334,7 @@ func TestNamedTargetsDoNotDependOnWhereTheyRunFrom(t *testing.T) {
 		lines, _ := tc.Logger.Snapshot()
 		warned := 0
 		for _, line := range lines {
-			if strings.HasPrefix(line, "warn:") && strings.Contains(line, "detected dubious ownership") && strings.Contains(line, "main") {
+			if strings.HasPrefix(line, "warn: Could not tell which repository") && strings.Contains(line, "detected dubious ownership") && strings.Contains(line, "main") {
 				warned++
 			}
 		}

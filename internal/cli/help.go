@@ -66,6 +66,11 @@ func renderHelp(cmd *cobra.Command, width int, all bool) string {
 	}
 	if cmd.HasAvailableSubCommands() {
 		b.WriteString("\n  " + cmd.CommandPath() + " [command]")
+	}
+	if len(cmd.Aliases) > 0 {
+		b.WriteString("\n\nAliases:\n  " + cmd.NameAndAliases())
+	}
+	if cmd.HasAvailableSubCommands() {
 		writeCommands(&b, cmd, width, all)
 	}
 	if cmd.HasAvailableLocalFlags() {
@@ -79,7 +84,7 @@ func renderHelp(cmd *cobra.Command, width int, all bool) string {
 	if cmd.HasAvailableSubCommands() {
 		fmt.Fprintf(&b, "\n\nUse \"%s [command] --help\" for more information about a command.", cmd.CommandPath())
 		if !all && hasMoreGroup(cmd) {
-			b.WriteString("\n" + wrapIndented(fmt.Sprintf("Use \"%s help --all\" for shared services, the router, configuration, the index, the teardown pin and completion.", cmd.CommandPath()), width, 0))
+			b.WriteString("\n" + wrapIndented(fmt.Sprintf("Use \"%s help --all\" for shared services, the router, configuration, the teardown pin and completion.", cmd.CommandPath()), width, 0))
 		}
 	}
 	b.WriteString("\n")

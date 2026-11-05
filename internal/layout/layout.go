@@ -323,7 +323,7 @@ type RouterLayout struct {
 	IndexFile string
 	LockPath  string
 	// StateFile holds the router's own facts that no registration can: the
-	// checkout index's loopback port and, in host mode, the ping port.
+	// overview's loopback port and, in host mode, the ping port.
 	StateFile string
 }
 

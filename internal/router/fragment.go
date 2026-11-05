@@ -11,7 +11,7 @@ package router
 // it, and a sweep only ever touches the names it understands:
 //
 //	<repository-uuid>.<worktree-uuid>.<service>.yaml   a worktree's routed service
-//	index.yaml                                         the checkout index
+//	index.yaml                                         the overview
 //	host.<repository-uuid>.<worktree-uuid>.<name>.yaml a worktree's host route (#6, hostroutes.go)
 //	shared.<repository-uuid>.<name>.yaml               a shared service's routed web UI (shared_routes.go)
 //
@@ -164,7 +164,7 @@ func marshalFragment(doc FragmentDocument) ([]byte, error) {
 	return text.FixJSONLineSeparators(buf.Bytes()), nil
 }
 
-// indexFragmentFile is the checkout index's own dynamic-configuration
+// indexFragmentFile is the overview's own dynamic-configuration
 // fragment's fixed filename — deliberately outside the
 // "<repository-uuid>.<worktree-uuid>.<service>.yaml" pattern ListFragments
 // and RemoveWorktreeFragments look for, so it is never mistaken for, swept
@@ -172,20 +172,20 @@ func marshalFragment(doc FragmentDocument) ([]byte, error) {
 // the router's own permanent resource, not a worktree's.
 const indexFragmentFile = "index.yaml"
 
-// IndexFragmentPath is where the checkout index's own dynamic-configuration
+// IndexFragmentPath is where the overview's own dynamic-configuration
 // fragment lives under state.DynamicDir.
 func IndexFragmentPath(state layout.RouterLayout) string {
 	return filepath.Join(state.DynamicDir, indexFragmentFile)
 }
 
-// IndexFragmentDocument is the checkout index's own dynamic-configuration
+// IndexFragmentDocument is the overview's own dynamic-configuration
 // fragment: the index is routed like any service, to the loopback port it is
 // published on.
 func IndexFragmentDocument(indexPort int) FragmentDocument {
 	return NewFragmentDocument(IndexRouteName, fmt.Sprintf("Host(`%s`)", IndexHost), indexPort)
 }
 
-// WriteIndexFragment writes the checkout index's own dynamic-configuration
+// WriteIndexFragment writes the overview's own dynamic-configuration
 // fragment, atomically, at 0o644 (WriteFragment's mode contract). Called by
 // Ensure on every start, alongside the stack document itself.
 func WriteIndexFragment(state layout.RouterLayout, indexPort int) error {

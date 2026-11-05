@@ -84,11 +84,11 @@ func worktreeCandidates(p *program, cmd *cobra.Command, domain string) (*command
 
 // describeWorktreeCandidate is a registered worktree's own completion
 // description: its domain, and its last-known path when one is on record.
-// Neither the registry record's Domain nor the checkout-index card's Root
+// Neither the registry record's Domain nor the index card's Root
 // is revalidated on read (a record written by an older build, or a branch
 // name that made it into a path, could carry a control character), and a
 // completion's description is otherwise printed by the shell verbatim, so
-// both go through text.Printable the same way `worktree list` prints them
+// both go through text.Printable the same way `list` prints them
 // (internal/commands/list.go) — which also turns a tab, newline or
 // carriage return into a plain space, keeping the description from ever
 // injecting one into cobra's line-based, tab-delimited value/description

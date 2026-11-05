@@ -96,7 +96,7 @@ func repository(t *testing.T) (base, repoDir string) {
 // not implement.
 func registerWorktree(t *testing.T, controlHome, worktreeDir, slug string) *registry.WorktreeIdentity {
 	t.Helper()
-	identities := registry.NewIdentityService(worktreeDir, execRunner{})
+	identities := registry.NewIdentityService(worktreeDir, execRunner{}, nil)
 	identity, err := registrytest.Register(context.Background(), controlHome, identities, worktreeDir, integrationDomain, slug, nil, "complete")
 	if err != nil {
 		t.Fatalf("registerWorktree: %v", err)
@@ -178,14 +178,14 @@ func TestWorktreeRegistryWithRealGit(t *testing.T) {
 		_, repoDir := repository(t)
 		worktreeDir := filepath.Join(filepath.Dir(repoDir), "reused-worktree")
 		git(t, "-C", repoDir, "worktree", "add", "-b", "feature/first", worktreeDir)
-		first, err := registry.NewIdentityService(worktreeDir, execRunner{}).Ensure(ctx, worktreeDir)
+		first, err := registry.NewIdentityService(worktreeDir, execRunner{}, nil).Ensure(ctx, worktreeDir)
 		if err != nil {
 			t.Fatalf("Ensure (first): %v", err)
 		}
 
 		git(t, "-C", repoDir, "worktree", "remove", "--force", worktreeDir)
 		git(t, "-C", repoDir, "worktree", "add", "-b", "feature/second", worktreeDir)
-		second, err := registry.NewIdentityService(worktreeDir, execRunner{}).Ensure(ctx, worktreeDir)
+		second, err := registry.NewIdentityService(worktreeDir, execRunner{}, nil).Ensure(ctx, worktreeDir)
 		if err != nil {
 			t.Fatalf("Ensure (second): %v", err)
 		}
@@ -203,13 +203,13 @@ func TestWorktreeRegistryWithRealGit(t *testing.T) {
 		original := filepath.Join(base, "original-worktree")
 		moved := filepath.Join(base, "moved-worktree")
 		git(t, "-C", repoDir, "worktree", "add", "-b", "feature/move", original)
-		first, err := registry.NewIdentityService(original, execRunner{}).Ensure(ctx, original)
+		first, err := registry.NewIdentityService(original, execRunner{}, nil).Ensure(ctx, original)
 		if err != nil {
 			t.Fatalf("Ensure (original): %v", err)
 		}
 
 		git(t, "-C", repoDir, "worktree", "move", original, moved)
-		second, err := registry.NewIdentityService(moved, execRunner{}).Ensure(ctx, moved)
+		second, err := registry.NewIdentityService(moved, execRunner{}, nil).Ensure(ctx, moved)
 		if err != nil {
 			t.Fatalf("Ensure (moved): %v", err)
 		}
@@ -228,11 +228,11 @@ func TestWorktreeRegistryWithRealGit(t *testing.T) {
 		clone := filepath.Join(base, "clone")
 		git(t, "clone", "--branch", "feature/shared", repoDir, clone)
 
-		first, err := registry.NewIdentityService(repoDir, execRunner{}).Ensure(ctx, repoDir)
+		first, err := registry.NewIdentityService(repoDir, execRunner{}, nil).Ensure(ctx, repoDir)
 		if err != nil {
 			t.Fatalf("Ensure (repository): %v", err)
 		}
-		second, err := registry.NewIdentityService(clone, execRunner{}).Ensure(ctx, clone)
+		second, err := registry.NewIdentityService(clone, execRunner{}, nil).Ensure(ctx, clone)
 		if err != nil {
 			t.Fatalf("Ensure (clone): %v", err)
 		}
@@ -275,7 +275,7 @@ func TestWorktreeRegistryWithRealGit(t *testing.T) {
 		git(t, "init", "--initial-branch=main", repoDir)
 		git(t, "-C", repoDir, "commit", "--allow-empty", "-m", "initial")
 
-		viaSymlink, err := registry.NewIdentityService(repoDir, execRunner{}).Ensure(ctx, repoDir)
+		viaSymlink, err := registry.NewIdentityService(repoDir, execRunner{}, nil).Ensure(ctx, repoDir)
 		if err != nil {
 			t.Fatalf("Ensure (via symlink): %v", err)
 		}
@@ -287,7 +287,7 @@ func TestWorktreeRegistryWithRealGit(t *testing.T) {
 			t.Fatalf("expected Root to be canonicalized: got %q, want %q", viaSymlink.Root, canonicalRepo)
 		}
 
-		viaReal, err := registry.NewIdentityService(canonicalRepo, execRunner{}).Ensure(ctx, canonicalRepo)
+		viaReal, err := registry.NewIdentityService(canonicalRepo, execRunner{}, nil).Ensure(ctx, canonicalRepo)
 		if err != nil {
 			t.Fatalf("Ensure (via real path): %v", err)
 		}
@@ -350,4 +350,45 @@ func TestWorktreeRegistryEnsureWithRealGit(t *testing.T) {
 			t.Fatalf("expected exactly one registration on disk, got %+v, %v", list, err)
 		}
 	})
+}
+
+// The hardened Git calls set safe.bareRepository=explicit, which refuses to
+// open a bare repository by discovery. The layout some people keep their clones
+// in (a `.bare` repository beside a gitfile, with the worktrees as siblings)
+// must go on answering through `-C <worktree>`, since a linked worktree's
+// .git file names its repository explicitly.
+func TestIdentityOfALinkedWorktreeOfABareRepository(t *testing.T) {
+	ctx := context.Background()
+	base, source := repository(t)
+	container := filepath.Join(base, "container")
+	if err := os.MkdirAll(container, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bare := filepath.Join(container, ".bare")
+	git(t, "clone", "--bare", source, bare)
+	if err := os.WriteFile(filepath.Join(container, ".git"), []byte("gitdir: ./.bare\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	worktreeDir := filepath.Join(container, "main")
+	git(t, "-C", bare, "worktree", "add", worktreeDir, "main")
+
+	identities := registry.NewIdentityService(worktreeDir, execRunner{}, nil)
+	if _, present, inside, err := identities.Repository(ctx, worktreeDir); err != nil || !inside || present {
+		t.Fatalf("Repository = present %v, inside %v, %v: want inside the work tree, not yet registered", present, inside, err)
+	}
+	identity, err := identities.Ensure(ctx, worktreeDir)
+	if err != nil || identity.Root != worktreeDir || identity.Branch != "main" {
+		t.Fatalf("Ensure = %+v, %v", identity, err)
+	}
+	entries, err := identities.Entries(ctx)
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	found := false
+	for _, entry := range entries {
+		found = found || (entry.Root == worktreeDir && entry.WorktreeID == identity.WorktreeID)
+	}
+	if !found {
+		t.Fatalf("entries = %+v, want the worktree with its identity", entries)
+	}
 }

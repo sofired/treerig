@@ -1,0 +1,24 @@
+{
+  "url": "http://treerig.localhost",
+  "generatedAt": "TIMESTAMP",
+  "router": {
+    "state": "running",
+    "port": 80
+  },
+  "dockerReachable": true,
+  "cardReadFailures": 0,
+  "entries": [
+    {
+      "repositoryId": "a08b4892-5111-49f1-a47a-5ab988c7f676",
+      "worktreeId": "2b41d9d4-ed88-49c1-be9c-5439bdf6a431",
+      "project": "acme.localhost",
+      "domain": "acme.localhost",
+      "slug": "feature-login",
+      "host": "feature-login.acme.localhost",
+      "current": false,
+      "state": "running",
+      "urls": [],
+      "services": []
+    }
+  ]
+}

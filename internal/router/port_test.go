@@ -93,7 +93,7 @@ func TestRunning(t *testing.T) {
 // TestEnsureNotesAPortChange is #79's notice: a router recreated on a new
 // port says so once, since URLs already open still name the old one.
 func TestEnsureNotesAPortChange(t *testing.T) {
-	const moved = "The shared router moved from port 80 to 8080; URLs already open, the index page included, still use the old port."
+	const moved = "The shared router moved from port 80 to 8080; URLs already open, the overview page included, still use the old port."
 
 	t.Run("says the router moved when a running router served another port", func(t *testing.T) {
 		w := newWorld(t, 8080, "")

@@ -49,9 +49,9 @@ const (
 	// domainMax: a routed hostname is <subdomain>.<slug>.<domain>; with two
 	// 63-character labels ahead of it, the domain gets the rest of 253.
 	domainMax = 253 - (dnsLabelMax+1)*2
-	// maxServiceEntries mirrors internal/checkoutindex/card's own
+	// maxServiceEntries mirrors internal/overview/card's own
 	// maxServices: #16 made `up` record every declared service on the
-	// checkout index card, not only the ones with a [service.<name>.index]
+	// index card, not only the ones with a [service.<name>.index]
 	// table, so the config's own [service] table must not outgrow what the
 	// card can hold. Hardcoded rather than imported from that package: config is
 	// foundational and every command depends on it, while the checkout
@@ -63,6 +63,23 @@ const (
 	// decision 19): each gets a pinned host port, so the count is bounded.
 	maxSharedPorts = 16
 )
+
+// ValidDomain reports whether domain is one project.domain allows: a hostname
+// in lower-case letters, digits, hyphens and dots, within the length that lets
+// <subdomain>.<slug>.<domain> fit in a hostname. A record a build wrote is
+// read back through it, since the domain ends up in a routed hostname and on
+// the overview page.
+func ValidDomain(domain string) bool {
+	if !hostnamePattern.MatchString(domain) || len(domain) > domainMax {
+		return false
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if len(label) > dnsLabelMax {
+			return false
+		}
+	}
+	return true
+}
 
 // hostnameSchema validates project.domain.
 func hostnameSchema() *shape.StringSchema {
@@ -150,11 +167,11 @@ func serviceSchema() *shape.ObjectSchema {
 		// instead (#19).
 		shape.F("index", shape.Object(
 			shape.F("label", shape.String().Min(1).Max(512).
-				Describe("Name shown for the service on the shared checkout index.")),
+				Describe("Name shown for the service on the shared overview.")),
 			shape.F("purpose", shape.String().Max(512).Default("").
-				Describe("What the service is for, shown beside its label on the checkout index.")),
+				Describe("What the service is for, shown beside its label on the overview.")),
 		).Strict().Optional().
-			Describe("Presence on the shared checkout index. Omit to keep the service off the index.")),
+			Describe("Presence on the shared overview. Omit to keep the service off the overview.")),
 	).Strict().
 		KeyHint("name", func(path []string) string {
 			return fmt.Sprintf("the table's key is the service name: [%s]", shape.PathString(path))
@@ -327,13 +344,13 @@ func rootSchema(root string) *shape.ObjectSchema {
 		shape.F("project", project),
 		shape.F("compose", compose),
 		// maxServiceEntries (#16): every declared service is now recorded on
-		// the checkout index's card, whether or not it opted into an index
-		// table (internal/checkoutindex/card's own maxServices, which
+		// the overview's card, whether or not it opted into an index
+		// table (internal/overview/card's own maxServices, which
 		// bounds the card's services array the same way) — so the config
 		// itself must not declare more than a card can hold.
 		shape.F("service", keyedTables(nameKey("The Compose service name"), serviceSchema(), "services", "service",
 			maxServiceEntries,
-			fmt.Sprintf("at most %d [service.<name>] tables; the checkout index's card can name at most that many declared services", maxServiceEntries)).
+			fmt.Sprintf("at most %d [service.<name>] tables; the overview's card can name at most that many declared services", maxServiceEntries)).
 			Describe("Services to route and index, one [service.<name>] table each, named by the Compose service. Services not listed here still run; they just are not routed or indexed.")),
 		shape.F("shared", sharedSchema()),
 		shape.F("hooks", hooksSchema()),

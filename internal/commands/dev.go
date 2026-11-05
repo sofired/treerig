@@ -15,7 +15,7 @@ import (
 )
 
 // Dev is `dev` (#5): the CommandContext, the real shared router, and the
-// real checkout index, all built from env, as for Up.
+// real overview, all built from env, as for Up.
 func Dev(ctx context.Context, env *Env) error {
 	cctx, err := Context(env)
 	if err != nil {

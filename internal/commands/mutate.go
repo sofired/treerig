@@ -172,7 +172,7 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 	}
 	// Best effort: a stale index is an inconvenience, a failed `down`
 	// because of it would not be. Prints nothing when the refresh succeeds.
-	refreshIndexBestEffort(ctx, cctx, "down")
+	refreshOverviewBestEffort(ctx, cctx, "down")
 	cctx.Logger.Info(host + " is down.")
 	return nil
 }

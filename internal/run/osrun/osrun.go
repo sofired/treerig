@@ -135,8 +135,12 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	case interactive:
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	default:
-		stdout = newLimitWriter(run.OutputLimit, overflow)
-		stderr = newLimitWriter(run.OutputLimit, overflow)
+		limit := run.OutputLimit
+		if spec.OutputLimit > 0 {
+			limit = spec.OutputLimit
+		}
+		stdout = newLimitWriter(limit, overflow)
+		stderr = newLimitWriter(limit, overflow)
 		switch spec.Output {
 		case run.Tee:
 			cmd.Stdout = io.MultiWriter(os.Stdout, stdout)

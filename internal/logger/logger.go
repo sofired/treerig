@@ -1,8 +1,8 @@
 // Package logger writes what the tool says about itself.
 //
 // Everything the tool says about itself goes to stderr — progress, waiting
-// notices, warnings, failures — so `treerig index > page.txt` and
-// `treerig worktree list --json | jq` get the output and nothing else. Only
+// notices, warnings, failures — so `treerig list > worktrees.txt` and
+// `treerig list --json | jq` get the output and nothing else. Only
 // Output writes to stdout, and only it is unfiltered: a caller passing a
 // borrowed value through it runs it through text.Printable first, because only
 // the caller knows whether the line is prose, a table column, or exact JSON.

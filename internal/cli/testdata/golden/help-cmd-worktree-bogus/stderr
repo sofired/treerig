@@ -5,8 +5,6 @@ Usage:
   treerig worktree [command]
 
 Available Commands:
-  list        list this repository's worktrees, or every registered worktree
-              outside a repository
   remove      remove a worktree's environment: containers, volumes, networks,
               images, home, and registration
   rename      change this worktree's slug, and with it its hostname

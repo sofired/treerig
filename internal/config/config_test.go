@@ -205,7 +205,7 @@ name = "api"
 	// (#16) Since `up` now records every declared service on the checkout
 	// index card, not only the ones with a [service.<name>.index] table, the
 	// config's own [service] table must not outgrow what a card can hold
-	// (internal/checkoutindex/card's own maxServices) — a deliberate bound
+	// (internal/overview/card's own maxServices) — a deliberate bound
 	// of its own.
 	t.Run("rejects more than 64 declared services", func(t *testing.T) {
 		var services strings.Builder

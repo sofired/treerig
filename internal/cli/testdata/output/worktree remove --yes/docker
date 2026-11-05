@@ -29,5 +29,4 @@ image ls -q --filter label=dev.treerig.managed=true --filter label=dev.treerig.r
 ps -aq --filter label=dev.treerig.managed=true --filter label=dev.treerig.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.treerig.shared=true
 volume inspect --format {{ index .Labels "dev.treerig.managed" }}	{{ index .Labels "com.docker.compose.project" }}	{{ index .Labels "dev.treerig.repository-uuid" }}	{{ index .Labels "dev.treerig.worktree-uuid" }}	{{ index .Labels "com.docker.compose.service" }}	{{ index .Labels "dev.treerig.format" }} v1
 volume rm v1
-ps --all --filter label=dev.treerig.managed=true --format {{.State}}	{{.Status}}	{{.Label "dev.treerig.repository-uuid"}}	{{.Label "dev.treerig.worktree-uuid"}}	{{.Label "com.docker.compose.service"}}	{{.Label "dev.treerig.shared"}}	{{.ID}}
 ps -aq --filter label=dev.treerig.managed=true --filter label=dev.treerig.repository-uuid=a08b4892-5111-49f1-a47a-5ab988c7f676 --filter label=dev.treerig.shared=true

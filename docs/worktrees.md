@@ -80,28 +80,34 @@ other forms.
 
 ## Running without a treerig.toml
 
-`worktree list`, `worktree unlock` and `worktree remove <worktree>` work from
+`list`, `worktree unlock` and `worktree remove <worktree>` work from
 labels and records alone, so they need no `treerig.toml`, and you can run them
 from any directory, inside a repository or not. So does the completion of
 worktree names. They still take `--config <path>` and use that file when it
 parses; a `--config` that names a file that is not there is an error, as for
 every other command.
 
-- **`worktree list`** lists this repository's worktrees when you run it inside
+- **`list`** (`ls`) lists this repository's worktrees when you run it inside
   a Git repository, whether or not it has a usable `treerig.toml`. When treerig
   knows none there, it says `No worktrees are registered for this repository.`
-  and, on stderr, `Every repository: 'treerig worktree list --all'`. Outside
+  and, on stderr, `Every repository: 'treerig list --all'`. Outside
   every Git work tree there is no "this repository", so it lists every
-  registered worktree on the machine, exactly as `--all` does; an empty
-  registry then says `No worktrees are registered on this machine.` Outside a
-  repository the table has no live Git state to read, so BRANCH and ROOT show
-  what `up` last recorded, or `-`, and no row is `directory missing`. The STATE
-  column uses the [state words](commands.md) (`running`, `partly running`,
-  `stopped`, `not started`, `directory missing`, `removing`, …): the command asks
-  Docker once per label namespace, and Git once for the current repository. If
+  registered worktree on the machine, exactly as `--all` does, with the
+  repository first; an empty registry then says `No worktrees are registered on
+  this machine.` Each row has the worktree's name, its STATE (the
+  [state words](commands.md): `running`, `partly running`, `stopped`, `not
+  started`, `directory missing`, `removing`, …), the URL of its first running
+  service and its directory. The command asks Docker once per label namespace,
+  and Git once per repository: for a repository other than the one you are in,
+  through a directory one of its worktrees last ran from, so a directory gone
+  from it is told too, and one Git does not answer for reads `unknown`. If
   Docker does not answer, every row reads `unknown`, the table is still printed,
   and the command exits 1 with the cause once on stderr; the cause of any other
-  `unknown` row is printed on stderr too.
+  `unknown` row is printed on stderr too. On a terminal it ends with how many
+  directories are gone and, inside a repository, with the [overview](overview.md)'s
+  address when the router serves this root's URLs. It takes no lock and writes
+  nothing; `list --all --refresh` (or `list --refresh` outside a repository)
+  rebuilds the overview page.
 - **`worktree unlock <worktree>`** finds the worktree on the whole machine, by
   any of the [names above](#naming-a-worktree). With no name it unlocks the
   worktree you are in, and outside a Git worktree it says so and asks for a
@@ -152,7 +158,7 @@ a removal marker beside the registration (`<id>.removing` in the control home's
 `worktrees` directory for the repository, one line: `format 1`), and the marker
 goes when the registration does. A removal that is interrupted, or that stops
 because a network is still in use, leaves it, and the worktree reads as
-`removing` in `status`, `worktree list` and the overview until `worktree remove`
+`removing` in `status`, `list` and the overview until `worktree remove`
 is run again. `treerig up` calls the removal off instead: it clears the marker.
 A marker of a newer format refuses both, and is left alone. A removal run by a
 0.1.x pinned teardown binary writes no marker, so an interrupted one reads as
@@ -177,7 +183,7 @@ an error, and [Lock recovery](lock-recovery.md) applies. `doctor` deliberately
 does not flag a `not started` worktree: a new worktree is `not started` until its
 first `up` finishes, and so is one whose first `up` failed, and nothing in
 the registration tells either from an interrupted removal, so a check could
-only warn about the ordinary case. `worktree list` shows it as `not started`,
+only warn about the ordinary case. `list` shows it as `not started`,
 or as `removing` when the removal marker is there.
 
 Before `worktree remove` does anything else, it decides which code does the removal.
@@ -245,7 +251,7 @@ Everything keyed by the worktree's IDs stays exactly as it is: the Compose
 project name, and with it every container, network and volume name, the home
 directory, the locks and the pinned loopback ports. treerig renames and deletes
 no volume. What carries the slug moves to the new one: the registration and
-the worktree's index entry, and the overview is refreshed. Route files
+the worktree's index card, and the overview is refreshed. Route files
 are removed, not moved: a worktree with no containers has none that are live,
 and `up` writes them at the new hostname. A Compose file that builds
 `${TREERIG_SLUG}` or `${TREERIG_HOST}` into a volume name would name a new volume

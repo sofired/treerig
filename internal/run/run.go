@@ -53,6 +53,10 @@ type Spec struct {
 	Output       Output
 	// Timeout stops the child after this long; zero means no limit.
 	Timeout time.Duration
+	// OutputLimit is how much of each stream is captured before the child is
+	// stopped; zero means the package's OutputLimit. A caller that expects a
+	// short answer sets a small one, so a runaway child is stopped early.
+	OutputLimit int
 	// KillAfter is how long a SIGTERMed child gets before SIGKILL; zero means 10 s.
 	KillAfter time.Duration
 	// Label names the child in a message about what it left running, as a
@@ -134,7 +138,15 @@ func Failure(spec Spec, result Result) *clierr.Error {
 	case result.TimedOut:
 		reason = fmt.Sprintf("timed out after %d ms", spec.Timeout.Milliseconds())
 	case result.OutputOverflow:
-		reason = fmt.Sprintf("produced more than %d MB of output and was stopped", OutputLimit/(1024*1024))
+		limit := OutputLimit
+		if spec.OutputLimit > 0 {
+			limit = spec.OutputLimit
+		}
+		if limit >= 1024*1024 {
+			reason = fmt.Sprintf("produced more than %d MB of output and was stopped", limit/(1024*1024))
+		} else {
+			reason = fmt.Sprintf("produced more than %d KB of output and was stopped", limit/1024)
+		}
 	case result.Signal != 0:
 		reason = "terminated by " + clierr.SignalName(result.Signal)
 	case detail != "":
@@ -146,7 +158,22 @@ func Failure(spec Spec, result Result) *clierr.Error {
 	if result.TimedOut {
 		code = 124
 	}
-	return clierr.WithCode(fmt.Sprintf("Command failed (%s %s): %s", spec.Command, strings.Join(spec.Args, " "), reason), code)
+	return clierr.WithCode(fmt.Sprintf("Command failed (%s %s): %s", spec.Command, strings.Join(shownArgs(spec), " "), reason), code)
+}
+
+// shownArgs are the arguments a failure names. A caller that hardens Git
+// puts `-c key=value` pairs ahead of everything else; they say nothing of what
+// was asked, and a long message is cut short just where Git's own reason is, so
+// they are left out.
+func shownArgs(spec Spec) []string {
+	args := spec.Args
+	if spec.Command != "git" {
+		return args
+	}
+	for len(args) >= 2 && args[0] == "-c" {
+		args = args[2:]
+	}
+	return args
 }
 
 // Finish applies Spec.AllowFailure: a non-zero exit becomes a Failure unless allowed.

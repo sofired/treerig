@@ -187,7 +187,7 @@ func TestInterruptedMutation(t *testing.T) {
 					t.Fatalf("git init: %v\n%s", err, output)
 				}
 				// Registered as `up` would have: markers, a complete record, a home.
-				identity, err := registry.NewIdentityService(checkout, osrun.New()).Ensure(context.Background(), checkout)
+				identity, err := registry.NewIdentityService(checkout, osrun.New(), nil).Ensure(context.Background(), checkout)
 				if err != nil {
 					t.Fatal(err)
 				}

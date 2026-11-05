@@ -2,22 +2,38 @@
 
 The `--json` documents: the rules that hold for all of them, then the shape of each.
 
-`worktree list`, `doctor`, `status`, `shared status`, `route ls`, `index`
+`list`, `doctor`, `status`, `shared status`, `route ls`
 and `teardown status` take `--json`. With it, stdout carries exactly one JSON
 document, indented and ASCII-only (every non-ASCII character is escaped
 `\uXXXX`), and the exit code is the text form's. Notices, warnings, the
 `doctor` summary and errors stay on stderr in both forms. A command that fails
 before it has anything to report (not in a repository, `route ls` in an unregistered
-worktree, `index` giving up after waiting up to 60 seconds for the router lock)
+worktree, `list --all --refresh` giving up after waiting up to 60 seconds for the router lock)
 prints its usual `[treerig] ERROR:` on stderr, nothing on stdout, and exits 1;
-there is no JSON error document. `status`, `worktree list` and `index` are the
+there is no JSON error document. `status` and `list` are the
 exception when Docker does not answer: they print their document, with
-`unknown` states, and then exit 1 with the cause on stderr. For a check that
-must not wait on a lock, use `status` or `doctor`, which take none.
+`unknown` states, and then exit 1 with the cause on stderr. `list` takes no lock
+unless it is given `--refresh`; `status` and `doctor` never take one.
 
 > **Changed in this release (breaking for scripts).** One set of
 > [state words](commands.md) replaces three vocabularies:
 >
+> - `worktree list` and `index` are gone, with their `--json`. Each is a hidden
+>   stub that prints `[treerig] ERROR: 'treerig worktree list' is now 'treerig
+>   list'.` (`[treerig] ERROR: 'treerig index' is now 'treerig list --all'.`) on
+>   stderr and exits 1, with nothing on stdout, for one release. Read `list
+>   --json` (this repository) or `list --all --json` (every repository)
+>   instead. Both print the one object `index --json` printed, where `worktree
+>   list --json` printed an array, with these differences from `index --json`:
+>   `entries[].status` is `entries[].state`, each entry has `current` (the
+>   array's key) and `urls`, and the document has `router` (absent when
+>   `entries` is empty). `labelNamespace` is no longer printed; every other key
+>   of the array's rows (`repositoryId`, `worktreeId`, `slug`, `domain`, `host`,
+>   `state`, `hint`, `root`, `branch`) is an entry's. `list --json` does not
+>   rebuild the page, as `index --json` did: that is `--refresh`. The entries
+>   are in the page's order (domain, project, then branch or slug, with the
+>   worktrees whose directory is gone last), not the array's (domain, then
+>   slug).
 > - `worktree list`: `state` was `ready`, `pending` or `missing`; it is now
 >   `running`, `starting`, `partly_running`, `failed`, `stopped`, `not_started`,
 >   `removing`, `directory_missing` or `unknown`. A new `hint` says why a state
@@ -31,20 +47,20 @@ must not wait on a lock, use `status` or `doctor`, which take none.
 >   `exitCode`. The same holds for the `shared` entries here and in `shared
 >   status`.
 > - `index`: `entries[].status` was `running`, `partial`, `stopped`, `missing`
->   or `unknown`; it is now the worktree states above (`partial` is
+>   or `unknown`; it is now (as `entries[].state`) the worktree states above (`partial` is
 >   `partly_running`, `missing` is `directory_missing`, and a worktree no `up`
 >   has finished is `not_started`), with `hint` for an unknown one.
 > - Exit codes: `status` already exited 1 and printed nothing when Docker did
 >   not answer; it now prints its document first. `worktree list` and `index`
->   used to exit 0 with `unknown` rows (or, for `list`, without asking Docker);
->   they now exit 1.
+>   used to exit 0 with `unknown` rows (or, for `worktree list`, without asking
+>   Docker); `list`, which replaces them, exits 1.
 > - `urls` is gone, and `urls --json` with it: the command is a hidden stub
 >   that prints `'treerig urls' is now 'treerig status'.` on stderr and exits 1,
 >   with nothing on stdout, for one release. Read `status --json` instead. Its
 >   `services` array has every entry of the old array that was a service or a
 >   host route (the same `service` and `port` keys, and `"hostRoute": true`
 >   on a host route), each with its `url` while it can load. It has no
->   `label` or `purpose` (they described the overview's links; `index --json`
+>   `label` or `purpose` (they described the overview's links; `list --json`
 >   still has them), and, unlike `urls --json`, an unregistered worktree is
 >   not an error: it prints `{"registered": false, "services": []}` and exits 0.
 >   `status --json` also gains `router`, `dockerError`, `url` and, for a host
@@ -57,7 +73,7 @@ Rules that hold for every document:
 - An optional key is omitted when it has no value, never `null`; a list is
   `[]` when empty.
 - The name of a worktree's own service is under the key `service`, in `status`
-  and `index` (including the `shared` entries of `index`). A shared
+  and `list` (including the `shared` entries of `list`). A shared
   service in `status` and `shared status` is under `name`, and so is a host
   route in `route ls`.
 - Free text (`subject`, `detail`, `label`, `purpose`, `branch`, paths) is for
@@ -74,13 +90,6 @@ the answer to rely on. When it prints nothing at all and exits 1, the pin could
 not be read (it is of a newer format, or not one treerig wrote): stdout is empty
 and stderr says why.
 
-**`worktree list --json`** prints one array, `[]` when there is nothing,
-sorted by domain and then slug. Each row has `repositoryId`, `worktreeId`,
-`slug`, `domain`, `host`, `state` (`running`, `starting`, `partly_running`, `failed`,
-`stopped`, `not_started`, `removing`, `directory_missing` or `unknown`: see
-[State words](commands.md)) and `current`, plus `hint` (what made an `unknown` state
-unknown), `root`, `branch` and `labelNamespace` when they are known.
-
 **`doctor --json`** is described in [doctor.md](doctor.md#machine-readable-report).
 
 **`route ls --json`** prints one array of `{"name", "url", "port"}`, by route
@@ -91,7 +100,7 @@ host listens on. An unregistered worktree is an error: exit 1 and no document.
 
 **`status --json`** is always printed: the document is the same whatever the
 worktree's state. It has the worktree's `host`, its `state` (one of the worktree
-states `worktree list` uses, and `hint` when it is `unknown`), the shared
+states `list` uses, and `hint` when it is `unknown`), the shared
 router's state under `router`, and `services`: one entry per declared service,
 then one per host route, in that order.
 
@@ -210,13 +219,35 @@ URLs. Unlike
 `status` it works from a worktree that is not yet registered, as long as the
 repository has been brought up once.
 
-**`index --json`** prints what the index page is built from, in the page's
-order. Like the text form it refreshes the page, which takes the shared
-router's lock and waits up to a minute for it; use `status` or `doctor` for a
-check that takes no lock. Only services that declare `[service.<name>.index]` are
-listed, and each has a `label`; `purpose` is absent when there
-is none.
+**`list --json`** prints one object: what the overview page is built from, in
+the page's order, with each worktree's state and URLs. `list --all --json`, or
+`list --json` outside a repository, has every worktree on the machine;
+otherwise `entries` are the repository's own. It takes no lock and writes
+nothing, unless it is given `--refresh` (with `--all`, or outside a
+repository), which rebuilds the page under the shared router's lock and waits
+up to a minute for it. Only services that declare `[service.<name>.index]` are
+in `services`, and each has a `label`; `purpose` is absent when there is none.
 
+- `url` is where the overview answers. `generatedAt` is when this document was
+  read.
+- `router` is `{"state", "port"?, "detail"?}`, as in `status --json`: the
+  shared router's state, `running`, `stopped` or `unknown`, and the one that
+  decides whether an `entries[].urls` is filled (below). It is absent when
+  `entries` is empty: with no worktree there is no URL to explain, and the
+  router is not read.
+- `dockerReachable` is true when Docker answered, and also when it was not
+  needed: with nothing registered it is not asked.
+- `entries[].current` is true for the worktree the command ran in, and false
+  everywhere else, outside a repository included.
+- `entries[].urls` are the addresses that load now, `{"service", "url"}` each,
+  in the order `treerig.toml` declares the services: a running service's, while
+  the router serves this root's URLs, as in `status --json`. It is `[]`
+  otherwise, for a stopped worktree or a stopped router (look at `state` and
+  at `router`), and for a service that is not routed. Host routes are not in it
+  (nothing asks whether their process listens), and neither is a service the
+  last `up` did not record: the card holds only the services it routed. A
+  service's `url` in `services` is the address it is routed at whether it runs
+  or not.
 - `branch` is `""` for a detached HEAD and absent when nothing knows it;
   `root` is absent when unknown. `project` is the project name `up` last
   recorded, and the domain when nothing was recorded.
@@ -231,14 +262,21 @@ is none.
 - `identityError` (Git could not say which worktrees exist) appears only when
   that happened, and `cardReadFailures` counts index cards that could not be
   read.
-- `entries[].status` is a worktree state: `running`, `starting`, `partly_running`,
+- `entries[].state` is a worktree state: `running`, `starting`, `partly_running`,
   `failed`, `stopped`, `not_started`, `removing`, `directory_missing` or `unknown`
   (see [State words](commands.md)), with `hint` naming the cause of an unknown one.
+- Git is asked about every repository that has a worktree. One it does not
+  answer for, within five seconds, makes its worktrees `unknown`, each with the
+  same `hint`; the cause is on stderr once.
 
 ```json
 {
   "url": "http://treerig.localhost",
   "generatedAt": "2026-09-28T10:00:00.000Z",
+  "router": {
+    "state": "running",
+    "port": 80
+  },
   "dockerReachable": true,
   "cardReadFailures": 0,
   "entries": [
@@ -251,7 +289,14 @@ is none.
       "host": "feature-login.acme.localhost",
       "branch": "feature/login",
       "root": "/src/acme.feature-login",
-      "status": "running",
+      "current": true,
+      "state": "running",
+      "urls": [
+        {
+          "service": "api",
+          "url": "http://feature-login.acme.localhost"
+        }
+      ],
       "services": [
         {
           "service": "api",
@@ -271,8 +316,10 @@ is none.
       "host": "old-spike.acme.localhost",
       "branch": "spike",
       "root": "/mnt/work/acme.old-spike",
-      "status": "unknown",
+      "current": false,
+      "state": "unknown",
       "hint": "Its parent directory is missing or empty: is the volume mounted?",
+      "urls": [],
       "services": []
     }
   ],
