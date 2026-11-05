@@ -12,6 +12,7 @@ import (
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/shared"
 	"github.com/sofired/treerig/internal/text"
@@ -549,7 +550,8 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 			return err
 		}
 	}
-	empty := fmt.Sprintf("No shared services of this repository to stop (Docker label namespace %s).", namespace)
+	empty := "No shared services of this repository to stop."
+	cctx.Logger.Detail(fmt.Sprintf("Looked for shared services under the Docker label namespace %s.", namespace))
 	repositoryID, present, err := cctx.Registry.Identities.RepositoryID(ctx, cctx.Registry.Identities.Root)
 	if err != nil {
 		return err
@@ -702,12 +704,17 @@ func checkServiceName(name string) error {
 }
 
 // withProgressIf runs removal of one resource, with a progress line for a
-// container, which can take a while to stop.
+// container, which can take a while to stop. The line names the service, not
+// the container: its name is Compose's project and an index.
 func withProgressIf(resource shared.Resource, cctx *CommandContext, action func() error) error {
 	if resource.Kind != "container" {
 		return action()
 	}
-	return withProgress(cctx.Logger, "Stopping "+resource.Name, action)
+	name := resource.Service
+	if name == "" {
+		name = resource.Name
+	}
+	return cctx.phase(progress.PhaseSpec{Verb: "Stopping", What: text.Printable(name)}, action)
 }
 
 // sharedDownPlan is what `shared down` will remove, all verified.

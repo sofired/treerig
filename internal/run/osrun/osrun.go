@@ -141,17 +141,19 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 		}
 		stdout = newLimitWriter(limit, overflow)
 		stderr = newLimitWriter(limit, overflow)
+		var shownOut, shownErr io.Writer // nil: shown nowhere
 		switch spec.Output {
 		case run.Tee:
-			cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
-			cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
+			shownOut, shownErr = os.Stdout, os.Stderr
 		case run.TeeToStderr:
-			cmd.Stdout = io.MultiWriter(os.Stderr, stdout)
-			cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
-		default: // run.Capture
-			cmd.Stdout = stdout
-			cmd.Stderr = stderr
+			shownOut, shownErr = os.Stderr, os.Stderr
 		}
+		outLines := newLineWriter(shownOut, spec.HideLine, spec.Observe)
+		errLines := newLineWriter(shownErr, spec.HideLine, spec.Observe)
+		defer outLines.flush()
+		defer errLines.flush()
+		cmd.Stdout = io.MultiWriter(outLines, stdout)
+		cmd.Stderr = io.MultiWriter(errLines, stderr)
 		if spec.Input != nil {
 			cmd.Stdin = bytes.NewReader(spec.Input)
 		}

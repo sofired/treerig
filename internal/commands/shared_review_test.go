@@ -322,11 +322,15 @@ func TestSharedDownOnARepositoryNeverBroughtUp(t *testing.T) {
 	port := 8025
 	tc.Loaded.Config.Shared = &config.Shared{File: "compose.shared.yaml", Service: []config.SharedService{{Name: "mailpit", Port: &port, UsedBy: []string{"api"}}}}
 
-	t.Run("prints the empty line and succeeds, the namespace named", func(t *testing.T) {
+	t.Run("prints the empty line and succeeds, the namespace named only with -v", func(t *testing.T) {
+		tc.Logger.Verbose = true
+		defer func() { tc.Logger.Verbose = false }()
 		if err := commands.SharedDownWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "treerig"}, commands.SharedDownOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(strings.Join(tc.Logger.Lines, "\n"), "No shared services of this repository to stop (Docker label namespace dev.treerig).") {
+		joined := strings.Join(tc.Logger.Lines, "\n")
+		if !strings.Contains(joined, "info: No shared services of this repository to stop.\n") && !strings.HasSuffix(joined, "info: No shared services of this repository to stop.") ||
+			!strings.Contains(joined, "detail: Looked for shared services under the Docker label namespace dev.treerig.") {
 			t.Fatalf("lines = %v", tc.Logger.Lines)
 		}
 	})

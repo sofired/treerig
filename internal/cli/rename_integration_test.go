@@ -106,7 +106,7 @@ func TestWorktreeRenameThroughTheBinary(t *testing.T) {
 			t.Fatalf("the index page still names the old slug or not the new one")
 		}
 
-		if _, stderr, code := renameRun(t, f, binary, "down"); code != 0 || !strings.Contains(stderr, "login.acme.localhost is down.") {
+		if _, stderr, code := renameRun(t, f, binary, "down"); code != 0 || !strings.Contains(stderr, "login.acme.localhost is not running. Nothing to stop.") {
 			t.Fatalf("down: exit %d\n%s", code, stderr)
 		}
 		if routes := routeFiles(t, f); len(routes) != 0 {

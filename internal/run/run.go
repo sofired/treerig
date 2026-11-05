@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/sofired/treerig/internal/clierr"
 )
@@ -20,7 +21,10 @@ type Output int
 const (
 	// Capture keeps both streams for the caller and shows nothing.
 	Capture Output = iota
-	// Tee shows stdout on this process's stdout and stderr on its stderr while capturing both.
+	// Tee shows stdout on this process's stdout and stderr on its stderr while
+	// capturing both. No caller uses it since Compose's transcript moved to
+	// Transcript (stderr, and only with -v); it stays as the one mode in which
+	// a child's stdout is the command's own result, which hooks no longer are.
 	Tee
 	// TeeToStderr shows both streams on this process's stderr while capturing them, for a
 	// caller whose own stdout is a report the child's output must not interleave with.
@@ -34,6 +38,17 @@ const (
 	// only the process group. See internal/run/osrun for how.
 	Interactive
 )
+
+// Transcript is where the transcript of a child whose own progress treerig
+// re-tells in its own words goes: Docker Compose's, say. With -v it is shown on
+// this process's stderr, as the child wrote it, and without it nothing is
+// shown. Either way the output is captured, so a failure can quote it.
+func Transcript(verbose bool) Output {
+	if verbose {
+		return TeeToStderr
+	}
+	return Capture
+}
 
 // OutputLimit is how much of each stream is captured before the child is stopped.
 const OutputLimit = 100 * 1024 * 1024
@@ -64,6 +79,17 @@ type Spec struct {
 	// arguments or an absolute path. Empty uses the executable's base name
 	// and "command".
 	Label string
+	// HideLine, when set, keeps a line of the child's output off the stream a
+	// Tee shows it on; the line is still captured, so a failure reads it. It is
+	// asked once per complete line, without the line break. Capture and
+	// Interactive ignore it.
+	HideLine func(line string) bool
+	// Observe, when set, is called with each complete line the child writes on
+	// either stream, except those HideLine hides, without the line break, as it
+	// arrives and whatever Output says is shown; a last line without a break comes when the child ends.
+	// It may be called from two goroutines at once. Interactive ignores it. It
+	// is how a long phase learns what the child last said.
+	Observe func(line string)
 	// InheritLocks hands the locks held in the context to the child as extra
 	// file descriptors, so the lock stays held while the child runs even if
 	// this process dies. For docker and docker compose only.
@@ -129,10 +155,7 @@ func (e *StartError) ExitStatus() int { return e.ExitCode }
 // Failure is the error a rejecting Run returns for a command that ran and did
 // not succeed: "Command failed (cmd args): reason", exiting 124 on a timeout.
 func Failure(spec Spec, result Result) *clierr.Error {
-	detail := strings.TrimSpace(result.Stderr)
-	if detail == "" {
-		detail = strings.TrimSpace(result.Stdout)
-	}
+	detail := Tail(firstNonBlank(result.Stderr, result.Stdout), FailureTailLines)
 	var reason string
 	switch {
 	case result.TimedOut:
@@ -151,14 +174,83 @@ func Failure(spec Spec, result Result) *clierr.Error {
 		reason = "terminated by " + clierr.SignalName(result.Signal)
 	case detail != "":
 		reason = detail
+		detail = ""
 	default:
 		reason = fmt.Sprintf("exit %d", result.ExitCode)
+	}
+	// What the child said last is the evidence, whichever way it ended: a
+	// start that timed out or was killed has nothing else to show.
+	if detail != "" {
+		reason += "\nLast output:\n" + detail
 	}
 	code := 1
 	if result.TimedOut {
 		code = 124
 	}
 	return clierr.WithCode(fmt.Sprintf("Command failed (%s %s): %s", spec.Command, strings.Join(shownArgs(spec), " "), reason), code)
+}
+
+// FailureTailLines is how many of the last lines of a child's output a
+// failure quotes.
+const FailureTailLines = 50
+
+// firstNonBlank is the first of values with something in it.
+func firstNonBlank(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Limits on what Tail quotes, so that a child that wrote one enormous line
+// (or none at all, only bytes) cannot make a failure message enormous either.
+const (
+	tailMaxBytes     = 8 * 1024
+	tailMaxLineBytes = 500
+)
+
+// Tail is the end of text, for a message: at most n lines, each cut to 500
+// bytes, and at most 8 KiB in all, with a line saying how many lines came
+// before when it had to leave some out.
+func Tail(text string, n int) string {
+	// Only the end can matter, so a huge capture is not even split.
+	omitted := false
+	if len(text) > 4*tailMaxBytes {
+		text, omitted = strings.ToValidUTF8(text[len(text)-4*tailMaxBytes:], ""), true
+	}
+	text = strings.TrimSpace(text)
+	// Nothing printable (NUL bytes from /dev/zero, say) is no evidence.
+	if strings.IndexFunc(text, func(r rune) bool { return !unicode.IsSpace(r) && !unicode.IsControl(r) }) < 0 {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	dropped := 0
+	if len(lines) > n {
+		dropped = len(lines) - n
+		lines = lines[len(lines)-n:]
+	}
+	for i, line := range lines {
+		if len(line) > tailMaxLineBytes {
+			lines[i] = strings.ToValidUTF8(line[:tailMaxLineBytes], "") + "..."
+		}
+	}
+	// Whole lines from the end, while they fit.
+	size, keep := 0, len(lines)
+	for keep > 0 && size+len(lines[keep-1])+1 <= tailMaxBytes {
+		keep--
+		size += len(lines[keep]) + 1
+	}
+	dropped += keep
+	lines = lines[keep:]
+	if dropped == 0 && !omitted {
+		return strings.Join(lines, "\n")
+	}
+	if omitted && dropped == 0 {
+		return "(earlier output left out)\n" + strings.Join(lines, "\n")
+	}
+	return fmt.Sprintf("(%d earlier lines left out)\n%s", dropped, strings.Join(lines, "\n"))
 }
 
 // shownArgs are the arguments a failure names. A caller that hardens Git

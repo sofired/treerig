@@ -144,7 +144,7 @@ func (s *Stack) compose(ctx context.Context, l layout.Shared, extra []string) er
 	args := []string{"up", "--detach", "--wait", "--wait-timeout", strconv.Itoa(timeout)}
 	args = append(args, extra...)
 	full := s.composeArgs(args, s.o.ComposeFile, l.OverridePath)
-	spec := run.Spec{Env: s.environment(), AllowFailure: true, Output: run.Tee}
+	spec := run.Spec{Env: s.environment(), AllowFailure: true, Output: run.Transcript(s.o.Verbose), Observe: s.o.Observe}
 	result, err := docker.Run(ctx, s.o.Runner, full, spec)
 	if err != nil {
 		return err

@@ -19,19 +19,6 @@ import (
 	"github.com/sofired/treerig/internal/worktree"
 )
 
-// OutputMode is where a hook's output is streamed.
-type OutputMode int
-
-const (
-	// Terminal tees both of the hook's streams to this process's own
-	// matching stream, exactly as they would appear run directly.
-	Terminal OutputMode = iota
-	// Stderr tees both streams to this process's stderr instead, for a
-	// caller (doctor's verify) whose own stdout is a report the hook's
-	// output must not interleave with.
-	Stderr
-)
-
 // HookContext is what one worktree's hooks need to run: the environment
 // (built once, shared with Compose — see worktree.Environment), and where to
 // run and log them. Named HookContext, not Context, so a call site holding
@@ -43,7 +30,9 @@ type HookContext struct {
 	// Hooks are the configured hooks; RunCommand does not read them.
 	Hooks  config.Hooks
 	Logger logger.Logger
-	Runner run.Runner
+	// Progress shows the hook's phase; nil is the plain writer over Logger.
+	Progress progress.Progress
+	Runner   run.Runner
 	// Environ is the environment a hook inherits on top of; os.Environ() in
 	// production, so a hook that calls out to other tools sees a normal shell.
 	Environ []string
@@ -67,7 +56,6 @@ type RunOptions struct {
 	// Argument is passed as the hook's first argument — the backup/restore
 	// bundle directory, for BundleStages.
 	Argument *string
-	Output   OutputMode
 	// Timeout stops the hook after this long, replacing the hook's own
 	// [hooks.timeout] entry; zero leaves that entry in charge, and no entry
 	// means no limit.
@@ -262,7 +250,9 @@ func formatTimeout(d time.Duration) string {
 
 // RunHook runs one hook. The command is resolved relative to the project
 // root, runs with the project root as its working directory, sees the hook
-// environment on top of the parent's, and has its output streamed. Any
+// environment on top of the parent's, and has its output streamed to this
+// process's stderr, whatever the stream the hook wrote it on: stdout belongs to
+// the command's own result. Any
 // non-zero exit is a failure attributed to the stage — and so, distinctly,
 // is a hook that never ran at all or was ended by a signal. Reports whether
 // the stage was configured at all.
@@ -286,28 +276,29 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 	if opts.Argument != nil {
 		args = append(args, *opts.Argument)
 	}
-	output := run.Tee
-	if opts.Output == Stderr {
-		output = run.TeeToStderr
-	}
-
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = hctx.Hooks.TimeoutFor(stage)
 	}
 
 	ran := false
-	err = progress.WithProgress(hctx.Logger, fmt.Sprintf("Running %s hook", stage), func() error {
+	err = progress.Or(hctx.Progress, hctx.Logger).Phase(progress.PhaseSpec{Verb: "Running", What: fmt.Sprintf("%s hook", stage), Passthrough: true}, func() error {
+		started := time.Now()
 		result, runErr := hctx.Runner.Run(ctx, run.Spec{
 			Command:      resolved,
 			Args:         args,
 			Dir:          hctx.Source.ProjectRoot,
 			Env:          environment(hctx, hookKind, string(stage)),
-			Output:       output,
+			Output:       run.TeeToStderr,
 			Label:        string(stage) + " hook",
 			Timeout:      timeout,
 			AllowFailure: true,
 		})
+		if runErr == nil {
+			// Only with -v (the logger decides): the exit code and the time,
+			// never the hook's arguments or environment.
+			hctx.Logger.Detail(fmt.Sprintf("The %s hook exited %d after %s.", stage, result.ExitCode, hookDuration(time.Since(started))))
+		}
 		if err := finish(hookKind, string(stage), resolved, timeout, result, runErr); err != nil {
 			return err
 		}
@@ -360,7 +351,6 @@ type LifecycleOptions struct {
 	// LifecycleOrder returns.
 	Stages   []config.HookStage
 	Argument *string
-	Output   OutputMode
 	Timeout  time.Duration
 }
 
@@ -384,7 +374,7 @@ func RunLifecycle(ctx context.Context, hctx HookContext, opts LifecycleOptions) 
 		if !wantedSet[stage] {
 			continue
 		}
-		didRun, err := RunHook(ctx, stage, hctx, RunOptions{Argument: opts.Argument, Output: opts.Output, Timeout: opts.Timeout})
+		didRun, err := RunHook(ctx, stage, hctx, RunOptions{Argument: opts.Argument, Timeout: opts.Timeout})
 		if err != nil {
 			return ran, err
 		}
@@ -393,4 +383,12 @@ func RunLifecycle(ctx context.Context, hctx HookContext, opts LifecycleOptions) 
 		}
 	}
 	return ran, nil
+}
+
+// hookDuration is d in whole seconds, or "less than a second".
+func hookDuration(d time.Duration) string {
+	if d < time.Second {
+		return "less than a second"
+	}
+	return fmt.Sprintf("%ds", int(d.Round(time.Second)/time.Second))
 }

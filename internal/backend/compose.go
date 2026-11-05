@@ -133,6 +133,13 @@ type Options struct {
 	WaitTimeoutSeconds *int
 	// Timeouts overrides this runtime's per-call docker timeouts (#14).
 	Timeouts Timeouts
+	// Verbose is -v: Compose's transcript is shown, on stderr, as it writes it.
+	// Without it `up` and `down` are quiet and treerig tells what happened in
+	// its own words; a failure still quotes what Compose said.
+	Verbose bool
+	// Observe is called with each line Compose writes during `up` and `down`,
+	// whatever Verbose says is shown (progress.Latest.Set, for the heartbeat).
+	Observe func(line string)
 }
 
 // Compose is the Compose runtime.
@@ -269,9 +276,13 @@ func IsActiveEndpoints(err error) bool {
 // through run.Failure, the same wording and exit code (124 on a timeout) any
 // other bounded call gets, rather than a bespoke message that silently
 // dropped all of it.
+//
+// Compose's transcript is shown only with Options.Verbose. Whether shown or
+// quoted in a failure, it never carries Compose's "No resource found to
+// remove" warning: a project with nothing left is not a problem to report.
 func (c *Compose) Down(ctx context.Context, ref worktree.Ref) error {
 	args := []string{"down", "--remove-orphans"}
-	spec := run.Spec{AllowFailure: true, Output: run.Tee}
+	spec := run.Spec{AllowFailure: true, Output: run.Transcript(c.options.Verbose), HideLine: docker.IsNoResourceWarning, Observe: c.options.Observe}
 	result, err := c.compose(ctx, ref, args, nil, spec)
 	if err != nil {
 		return err
@@ -283,7 +294,80 @@ func (c *Compose) Down(ctx context.Context, ref worktree.Ref) error {
 		c.options.Logger.Info(fmt.Sprintf("A network of %s is kept while something else is attached to it.", c.project(ref)))
 		return nil
 	}
+	result.Stderr = docker.WithoutNoResourceWarning(result.Stderr)
 	return run.Failure(run.Spec{Command: "docker", Args: c.composeArgs(ref, args, nil), Timeout: spec.Timeout}, result)
+}
+
+// Observing returns the runtime with observe called for each line Compose
+// writes during `up` and `down`; the receiver is not changed.
+func (c *Compose) Observing(observe func(line string)) *Compose {
+	clone := *c
+	clone.options.Observe = observe
+	return &clone
+}
+
+// Leftover is what of a worktree's Compose project is still on the daemon.
+type Leftover struct {
+	// Running is whether any container of the project is up (running,
+	// restarting or paused).
+	Running bool
+	// Containers is whether the project has any container at all, stopped ones
+	// included.
+	Containers bool
+	// Networks is whether the project has a network.
+	Networks bool
+}
+
+// Any reports whether `compose down` has something to remove.
+func (l Leftover) Any() bool { return l.Running || l.Containers || l.Networks }
+
+// ProbeTimeout is how long an introspection call (Leftover included) waits for
+// Docker.
+func (c *Compose) ProbeTimeout() time.Duration { return c.timeouts.Probe }
+
+// Leftover asks the daemon what the worktree's project still has, by Compose's
+// own project label: its containers and their states in one listing, and its
+// networks in another, both under one deadline (the probe timeout).
+//
+// When the deadline passes while the caller's context is still live, the error
+// is ErrLeftoverTimeout, not a bare "context deadline exceeded".
+func (c *Compose) Leftover(ctx context.Context, ref worktree.Ref) (Leftover, error) {
+	bounded, cancel := context.WithTimeout(ctx, c.timeouts.Probe)
+	defer cancel()
+	left, err := c.leftover(bounded, ref)
+	// Whatever the runner made of the cancelled call, a deadline that passed
+	// while the caller's context is live is the timeout.
+	if err != nil && ctx.Err() == nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+		return Leftover{}, ErrLeftoverTimeout
+	}
+	return left, err
+}
+
+// ErrLeftoverTimeout is Leftover not hearing from Docker within the probe
+// timeout. The caller words it, with the worktree and the command name.
+var ErrLeftoverTimeout = errors.New("the Docker daemon did not answer in time while checking what is left of a worktree")
+
+// leftover is Leftover's two listings.
+func (c *Compose) leftover(ctx context.Context, ref worktree.Ref) (Leftover, error) {
+	filter := ComposeProjectLabel + "=" + c.project(ref)
+	listed, err := docker.Run(ctx, c.options.Runner, []string{"ps", "--all", "--filter", "label=" + filter, "--format", "{{.State}}"}, run.Spec{})
+	if err != nil {
+		return Leftover{}, err
+	}
+	var left Leftover
+	for _, state := range strings.Fields(listed.Stdout) {
+		left.Containers = true
+		switch state {
+		case "running", "restarting", "paused":
+			left.Running = true
+		}
+	}
+	networks, err := c.list(ctx, resourceTypeOf("network"), []string{filter})
+	if err != nil {
+		return Leftover{}, err
+	}
+	left.Networks = len(networks) > 0
+	return left, nil
 }
 
 // LogTail is how many lines of each container's history Logs shows before it
@@ -535,6 +619,18 @@ var resourceTypes = []resourceType{
 	{kind: "volume", listArguments: []string{"volume", "ls", "-q"}, inspectCommand: []string{"volume", "inspect"}, removeArgs: []string{"volume", "rm"}},
 	{kind: "network", listArguments: []string{"network", "ls", "-q"}, inspectCommand: []string{"network", "inspect"}, removeArgs: []string{"network", "rm"}},
 	{kind: "image", listArguments: []string{"image", "ls", "-q"}, inspectCommand: []string{"image", "inspect"}, removeArgs: []string{"image", "rm"}, labelPrefix: ".Config"},
+}
+
+// resourceTypeOf is the resource type of kind ("container", "volume",
+// "network" or "image"); it panics on any other, which is a mistake in the
+// caller and not a runtime condition.
+func resourceTypeOf(kind string) resourceType {
+	for _, candidate := range resourceTypes {
+		if candidate.kind == kind {
+			return candidate
+		}
+	}
+	panic("backend: no resource type " + kind)
 }
 
 // list is every kind's ID matching all of filters, deduplicated and sorted:

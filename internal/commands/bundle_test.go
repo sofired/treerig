@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -115,8 +116,9 @@ func TestBackup(t *testing.T) {
 		if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
 			t.Fatalf("bundle directory: %v, %v; want a directory with mode 0700", info, err)
 		}
-		if _, printed := bw.tc.Logger.Snapshot(); len(printed) != 0 {
-			t.Errorf("printed %v on stdout", printed)
+		// stdout is the path and nothing else: the hook's output went to stderr.
+		if _, printed := bw.tc.Logger.Snapshot(); !slices.Equal(printed, []string{dir}) {
+			t.Errorf("printed %v on stdout, want only %q", printed, dir)
 		}
 		lines, _ := bw.tc.Logger.Snapshot()
 		want := "info: Backed up feature-login.acme.localhost to " + dir + "."

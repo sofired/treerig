@@ -2,12 +2,14 @@ package commands
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"github.com/sofired/treerig/internal/backend"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lifecycle"
 	"github.com/sofired/treerig/internal/lock"
-	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/registry"
@@ -125,15 +127,6 @@ func (c *CommandContext) requireRegistration(ctx context.Context) (*registry.Wor
 	return registration, nil
 }
 
-// withProgress logs a phase and an elapsed-time heartbeat while it runs. A
-// thin alias kept here so this package's own mutations read the way they
-// always have; internal/hooks calls internal/progress directly, since it
-// cannot import this package (this package will come to import it, for the
-// lifecycle hooks in `up`'s body).
-func withProgress(log logger.Logger, phase string, action func() error) error {
-	return progress.WithProgress(log, phase, action)
-}
-
 // Down is `down`.
 func Down(ctx context.Context, env *Env) error {
 	cctx, err := Context(env)
@@ -146,14 +139,29 @@ func Down(ctx context.Context, env *Env) error {
 // DownWithContext stops the worktree's services. Data survives; `worktree
 // remove` is the destructive verb. `down` defers signals like every other
 // mutation (issue #23).
+//
+// It tells what happened in its own words. A worktree that is not registered,
+// and one with nothing left in Docker, are "Nothing to stop" and exit 0 (the
+// decided design, docs/design/cli-1.0.md, "Everything else"). One
+// with only stopped containers or a network left is cleaned up through
+// `compose down` all the same, and also reported as not running: nothing was
+// stopped. Compose's own transcript is shown only with -v.
 func DownWithContext(ctx context.Context, cctx *CommandContext) error {
-	registration, err := cctx.requireRegistration(ctx)
+	registration, err := cctx.Registry.Current(ctx)
 	if err != nil {
 		return err
 	}
+	if registration == nil {
+		cctx.Logger.Info("This worktree is not registered. Nothing to stop.")
+		return nil
+	}
 	ref := toRef(registration.RegisteredWorktree)
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)
+	// What Compose last said, for the heartbeat to carry.
+	var latest progress.Latest
 	runtime := cctx.RuntimeFor(cctx.Loaded.Config.LabelNamespace(), &registration.RegisteredWorktree, cctx.RouterPort)
+	runtime = runtime.Observing(latest.Set)
+	wasRunning := false
 	if err := cctx.mutate(ctx, ref, host, false, func(ctx context.Context) error {
 		// Unroutes before the worktree's own teardown, unconditionally —
 		// see unrouteWorktree's own comment for why.
@@ -166,13 +174,39 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 		if err := disconnectShared(ctx, cctx, ref, cctx.Loaded.Config.LabelNamespace(), cctx.Loaded.Config.LabelNamespace()); err != nil {
 			return err
 		}
-		return withProgress(cctx.Logger, "Stopping "+host, func() error { return runtime.Down(ctx, ref) })
+		// Asked before anything is announced: "Stopping" is said only when
+		// something runs. The question has a deadline of its own.
+		left, err := runtime.Leftover(ctx, ref)
+		if errors.Is(err, backend.ErrLeftoverTimeout) {
+			return clierr.WithCode(fmt.Sprintf("Docker didn't answer within %s while checking what is left of %s. Run '%s doctor' to see why.",
+				runtime.ProbeTimeout(), host, cctx.CommandName), 124)
+		}
+		if err != nil {
+			return err
+		}
+		switch {
+		case left.Running:
+			wasRunning = true
+			return cctx.phase(progress.PhaseSpec{Verb: "Stopping", What: host, Note: latest.Get}, func() error {
+				return runtime.Down(ctx, ref)
+			})
+		case left.Any():
+			// Nothing runs, but a stopped container or a network is left:
+			// Compose removes it, and treerig says only that nothing ran.
+			cctx.Logger.Detail(fmt.Sprintf("%s has no running service; removing what is left of its Compose project (containers: %t, networks: %t).", host, left.Containers, left.Networks))
+			return runtime.Down(ctx, ref)
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
 	// Best effort: a stale index is an inconvenience, a failed `down`
 	// because of it would not be. Prints nothing when the refresh succeeds.
 	refreshOverviewBestEffort(ctx, cctx, "down")
+	if !wasRunning {
+		cctx.Logger.Info(host + " is not running. Nothing to stop.")
+		return nil
+	}
 	cctx.Logger.Info(host + " is down.")
 	return nil
 }

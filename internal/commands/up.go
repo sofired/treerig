@@ -14,6 +14,7 @@ import (
 	"github.com/sofired/treerig/internal/hooks"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/overview/card"
+	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/worktree"
@@ -129,7 +130,7 @@ func routeSpecsFromConfig(services []config.Service, ports map[string]int) []bac
 // and no other verb does (urlVariables is composeURLVariables' result).
 // RuntimeFor has neither the explicit ports nor the routes, which only `up`
 // knows, so up builds its runtime here.
-func upRuntime(cctx *CommandContext, namespace string, ports map[string]int, urlVariables [][2]string) *backend.Compose {
+func upRuntime(cctx *CommandContext, namespace string, ports map[string]int, urlVariables [][2]string, observe func(line string)) *backend.Compose {
 	routes := routeSpecsFromConfig(cctx.Loaded.Config.Service, ports)
 	return backend.NewCompose(backend.Options{
 		ComposeFile:    cctx.ComposeFile(),
@@ -145,6 +146,8 @@ func upRuntime(cctx *CommandContext, namespace string, ports map[string]int, url
 		URLVariables:   urlVariables,
 		Routes:         routes,
 		SharedUse:      sharedUseMap(cctx.Loaded.Config),
+		Verbose:        cctx.Verbose,
+		Observe:        observe,
 	})
 }
 
@@ -322,7 +325,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		// for every Compose call below. startSharedForUp, earlier, builds the
 		// same from the registration Ensure returned and the same router port.
 		urlVariables := composeURLVariables(cctx.Loaded.Config, found, routerSvc.Port())
-		inspector := upRuntime(cctx, ownNamespace, nil, urlVariables)
+		inspector := upRuntime(cctx, ownNamespace, nil, urlVariables, nil)
 		// Refused before allocating, so no port is ever recorded for a
 		// service that cannot publish one.
 		if err := inspector.CheckPublishable(ctx, ref); err != nil {
@@ -376,9 +379,12 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 		if len(options.Services) > 0 {
 			what = strings.Join(options.Services, ", ")
 		}
-		runtime := upRuntime(cctx, ownNamespace, ports, urlVariables)
+		// What Compose last said, for the heartbeat to carry: without -v a hung
+		// or killed start still leaves its last words.
+		var latest progress.Latest
+		runtime := upRuntime(cctx, ownNamespace, ports, urlVariables, latest.Set)
 		start := func() error {
-			return withProgress(cctx.Logger, "Starting "+what+" for "+host, func() error {
+			return cctx.phase(progress.PhaseSpec{Verb: "Starting", What: what + " for " + host, Note: latest.Get}, func() error {
 				return runtime.Up(ctx, ref, options.Services)
 			})
 		}
@@ -447,7 +453,7 @@ func UpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, 
 				ConfigFile:  cctx.Loaded.File,
 				ProjectRoot: cctx.Loaded.Root,
 			},
-			Ref: ref, Hooks: cctx.Loaded.Config.Hooks, Logger: cctx.Logger, Runner: cctx.Runner, Environ: cctx.Environ,
+			Ref: ref, Hooks: cctx.Loaded.Config.Hooks, Logger: cctx.Logger, Progress: cctx.Progress, Runner: cctx.Runner, Environ: cctx.Environ,
 			ComposeFile: cctx.ComposeFile(),
 			Routes:      hookRoutes, Shared: sharedAddrs(cctx, ref.RepositoryID),
 			SharedURLs: sharedURLs(cctx, ref.RepositoryID, routerSvc.Port()),

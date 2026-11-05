@@ -16,6 +16,7 @@ import (
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/overview/card"
+	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/text"
@@ -230,11 +231,11 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			return err
 		}
 		if containsKind(current, "container") {
-			if err := withProgress(cctx.Logger, "Stopping "+host, func() error { return runtime.Down(ctx, ref) }); err != nil {
+			if err := cctx.phase(progress.PhaseSpec{Verb: "Stopping", What: host}, func() error { return runtime.Down(ctx, ref) }); err != nil {
 				return err
 			}
 		}
-		if err := withProgress(cctx.Logger, "Removing "+host, func() error {
+		if err := cctx.phase(progress.PhaseSpec{Verb: "Removing", What: host}, func() error {
 			// Re-verified after `down`; every resource is checked before any is removed.
 			owned, err := runtime.Inventory(ctx, ref)
 			if err != nil {

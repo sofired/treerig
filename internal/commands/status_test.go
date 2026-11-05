@@ -3,12 +3,13 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/commands/commandstest"
 	"github.com/sofired/treerig/internal/config"
@@ -124,11 +125,130 @@ func TestWorktreeDown(t *testing.T) {
 		}
 	})
 
-	t.Run("asks for an up first when the worktree is not registered", func(t *testing.T) {
+	// downCalls are the recorded `compose down` calls.
+	downCalls := func(w *commandstest.World) []run.Spec {
+		var calls []run.Spec
+		for _, spec := range w.Runner.Calls() {
+			if spec.Command == "docker" && slices.Contains(spec.Args, "compose") && slices.Contains(spec.Args, "down") {
+				calls = append(calls, spec)
+			}
+		}
+		return calls
+	}
+
+	t.Run("says nothing was running, and runs no Compose, when the project has nothing left", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
-		err := commands.DownWithContext(ctx, w.Context("", acme, nil).CommandContext)
-		if err == nil || !regexp.MustCompile(regexp.QuoteMeta("This worktree is not registered. Run 'treerig up' first.")).MatchString(err.Error()) {
+		w.Register("", acme, "feature-login", brand.LabelNamespace)
+		tc := w.Context("", acme, nil)
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+			t.Fatalf("Down: %v", err)
+		}
+		lines, printed := tc.Logger.Snapshot()
+		if want := []string{"info: feature-login.acme.localhost is not running. Nothing to stop."}; !slices.Equal(lines, want) || len(printed) != 0 {
+			t.Fatalf("lines = %q, printed = %q, want %q", lines, printed, want)
+		}
+		if calls := downCalls(w); len(calls) != 0 {
+			t.Fatalf("ran compose down %d time(s) with nothing to remove", len(calls))
+		}
+	})
+
+	t.Run("still runs Compose, and says nothing was running, while a stopped container remains", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		for _, id := range w.Docker.Owned(ref, brand.LabelNamespace) {
+			if !strings.HasPrefix(id, "v") {
+				w.Docker.SetStatus(id, "exited")
+			}
+		}
+		tc := w.Context("", acme, nil)
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+			t.Fatalf("Down: %v", err)
+		}
+		lines, _ := tc.Logger.Snapshot()
+		if want := []string{"info: feature-login.acme.localhost is not running. Nothing to stop."}; !slices.Equal(lines, want) {
+			t.Fatalf("lines = %q, want %q", lines, want)
+		}
+		if calls := downCalls(w); len(calls) != 1 {
+			t.Fatalf("ran compose down %d time(s), want 1 to remove the stopped container", len(calls))
+		}
+		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 1 || !strings.HasPrefix(left[0], "v") {
+			t.Fatalf("owned after down = %v, want only the data volume", left)
+		}
+	})
+
+	// What the daemon's silence looks like depends on the runner: it can hand
+	// back the error of a cancelled call (the probe deadline passed), or a
+	// Result that says the call timed out. Both must end `down` with exit 124.
+	t.Run("exits 124 when Docker does not answer in time while checking what is left", func(t *testing.T) {
+		isLeftoverProbe := func(spec run.Spec) bool {
+			return spec.Command == "docker" && slices.Contains(spec.Args, "ps") && slices.Contains(spec.Args, "{{.State}}")
+		}
+		for _, tc := range []struct {
+			name    string
+			handler func(ctx context.Context) (run.Result, error)
+			message string
+		}{
+			{"the runner returns the cancelled call's error", func(ctx context.Context) (run.Result, error) {
+				<-ctx.Done()
+				return run.Result{}, ctx.Err()
+			}, "Docker didn't answer within 20ms while checking what is left of feature-login.acme.localhost. Run 'treerig doctor' to see why."},
+			{"the runner returns a Result that timed out", func(context.Context) (run.Result, error) {
+				return run.Result{TimedOut: true, ExitCode: -1}, nil
+			}, "timed out"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				w := commandstest.New(t, "feature/login", acme)
+				w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+				inner := w.Runner.Handler
+				w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+					if isLeftoverProbe(spec) {
+						return tc.handler(ctx)
+					}
+					return inner(ctx, spec)
+				}
+				cctx := w.Context("", acme, nil)
+				cctx.DockerTimeouts.Probe = 20 * time.Millisecond
+
+				err := commands.DownWithContext(ctx, cctx.CommandContext)
+				if err == nil || clierr.Code(err) != 124 || !strings.Contains(err.Error(), tc.message) {
+					t.Fatalf("err = %v (code %d), want exit 124 mentioning %q", err, clierr.Code(err), tc.message)
+				}
+				if calls := downCalls(w); len(calls) != 0 {
+					t.Fatalf("ran compose down %d time(s) after the probe failed", len(calls))
+				}
+			})
+		}
+	})
+
+	t.Run("keeps Compose's transcript off unless -v is set", func(t *testing.T) {
+		for _, verbose := range []bool{false, true} {
+			w := commandstest.New(t, "feature/login", acme)
+			w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+			tc := w.Context("", acme, nil)
+			tc.Verbose = verbose
+			if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+				t.Fatalf("Down: %v", err)
+			}
+			want := run.Capture
+			if verbose {
+				want = run.TeeToStderr
+			}
+			calls := downCalls(w)
+			if len(calls) != 1 || calls[0].Output != want {
+				t.Fatalf("verbose %v: down calls = %+v, want one with output %v", verbose, calls, want)
+			}
+		}
+	})
+
+	t.Run("says there is nothing to stop, and exits 0, when the worktree is not registered", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		tc := w.Context("", acme, nil)
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
 			t.Fatalf("err = %v", err)
+		}
+		lines, printed := tc.Logger.Snapshot()
+		if want := []string{"info: This worktree is not registered. Nothing to stop."}; !slices.Equal(lines, want) || len(printed) != 0 {
+			t.Fatalf("lines = %q, printed = %q", lines, printed)
 		}
 		scan, err := registry.ScanRegistrations(w.ControlHome)
 		if err != nil {
