@@ -1,5 +1,7 @@
 # Configuration design
 
+> In 1.0 the command `urls` is `status` ([the command line](cli-1.0.md#removed-and-where-each-job-goes)). This note keeps the names it was written with.
+
 How `treerig.toml` is shaped, and how its JSON Schema and examples relate to
 the code that validates it. The file is half of treerig's public contract (the
 other half is the hook protocol), so each choice here is a compatibility

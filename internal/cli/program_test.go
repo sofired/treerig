@@ -142,7 +142,7 @@ func TestRootHelpIsGrouped(t *testing.T) {
 		t.Errorf("help --all should show More and not advertise itself:\n%s", all)
 	}
 	// Everything a user needs today is on the default screen.
-	for _, name := range []string{"init", "up", "dev", "down", "status", "urls", "worktree", "run", "backup", "restore", "route", "doctor"} {
+	for _, name := range []string{"init", "up", "dev", "down", "status", "worktree", "run", "backup", "restore", "route", "doctor"} {
 		if !strings.Contains(def, "\n  "+name+" ") {
 			t.Errorf("default screen does not list %q:\n%s", name, def)
 		}
@@ -182,12 +182,13 @@ func TestUngroupedCommandsListLast(t *testing.T) {
 }
 
 // leafPaths are the command paths below the root of every command that runs
-// something: no group, no help, no completion.
+// something: no group, no help, no completion, and no hidden stub of a removed
+// command (it parses no flags at all, so it declares none).
 func leafPaths(root *cobra.Command) [][]string {
 	var paths [][]string
 	visitCommands(root, func(cmd *cobra.Command) {
 		// Cobra's help and completion commands are not this tree's to declare flags on.
-		if cmd == root || cmd.HasSubCommands() || cmd.Name() == "help" || strings.HasPrefix(cmd.CommandPath(), "treerig completion") || strings.HasPrefix(cmd.Name(), "__") {
+		if cmd == root || cmd.HasSubCommands() || cmd.DisableFlagParsing || cmd.Name() == "help" || strings.HasPrefix(cmd.CommandPath(), "treerig completion") || strings.HasPrefix(cmd.Name(), "__") {
 			return
 		}
 		paths = append(paths, strings.Fields(strings.TrimPrefix(cmd.CommandPath(), "treerig ")))
@@ -319,4 +320,49 @@ func TestDevTeardownIsHiddenButAccepted(t *testing.T) {
 	if strings.Contains(renderHelp(remove, 80, true), "dev-teardown") {
 		t.Errorf("help lists --dev-teardown")
 	}
+}
+
+// A removed command is a hidden stub that names its replacement and exits 1,
+// whatever it is given, flags included.
+func TestRemovedCommandStubs(t *testing.T) {
+	for _, args := range [][]string{
+		{"urls"}, {"urls", "--json"}, {"urls", "--help"}, {"urls", "-v"}, {"urls", "--config", "x.toml"}, {"urls", "somewhere", "--unknown"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := Main(append([]string{"treerig"}, args...), strings.NewReader(""), &stdout, &stderr, func(string) (string, bool) { return "", false })
+			if code != 1 || stdout.Len() != 0 || stderr.String() != "[treerig] ERROR: 'treerig urls' is now 'treerig status'.\n" {
+				t.Errorf("exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+			}
+		})
+	}
+
+	t.Run("it names the command it was invoked as", func(t *testing.T) {
+		var stderr bytes.Buffer
+		code := Main([]string{"trig", "urls"}, strings.NewReader(""), io.Discard, &stderr, func(string) (string, bool) { return "", false })
+		if code != 1 || stderr.String() != "[trig] ERROR: 'trig urls' is now 'trig status'.\n" {
+			t.Errorf("exit %d, stderr %q", code, stderr.String())
+		}
+	})
+
+	t.Run("help about it gives the pointer too", func(t *testing.T) {
+		var stdout bytes.Buffer
+		code := Main([]string{"treerig", "help", "urls"}, strings.NewReader(""), &stdout, io.Discard, func(string) (string, bool) { return "", false })
+		if code != 0 || !strings.HasPrefix(stdout.String(), "'treerig urls' is now 'treerig status'.\n") {
+			t.Errorf("exit %d, stdout %q", code, stdout.String())
+		}
+	})
+
+	t.Run("it is hidden from help and from the groups", func(t *testing.T) {
+		root, _ := testProgram()
+		urls, _, err := root.Find([]string{"urls"})
+		if err != nil || !urls.Hidden || !urls.DisableFlagParsing || urls.GroupID != "" {
+			t.Fatalf("urls = %+v, %v", urls, err)
+		}
+		for _, all := range []bool{false, true} {
+			if strings.Contains(renderHelp(root, 80, all), "urls") {
+				t.Errorf("help (all = %v) lists the stub", all)
+			}
+		}
+	})
 }

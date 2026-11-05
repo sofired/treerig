@@ -262,13 +262,13 @@ type SharedStatusAddr struct {
 // read makes every definition unknown with a warning. Docker listing or
 // inspection errors and connection-check errors still fail the report;
 // cancellation during a definition read is returned rather than ignored.
-func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, worktreeID string) ([]SharedStatusEntry, error) {
+// namespace is the label namespace the shared stack is labelled under.
+func sharedStatuses(ctx context.Context, cctx *CommandContext, repositoryID, worktreeID, namespace string) ([]SharedStatusEntry, error) {
 	cfg := cctx.Loaded.Config
 	services := cfg.SharedServices()
 	if len(services) == 0 {
 		return nil, nil
 	}
-	namespace := cfg.LabelNamespace()
 	stack := cctx.sharedStack(repositoryID, namespace, nil)
 	instances, unproven, err := stack.Statuses(ctx, sharedNames(services))
 	if err != nil {
@@ -468,7 +468,7 @@ func SharedStatusWithContext(ctx context.Context, cctx *CommandContext, options 
 		repositoryID, present = id, found
 	}
 	if present {
-		statuses, err = sharedStatuses(ctx, cctx, repositoryID, worktreeID)
+		statuses, err = sharedStatuses(ctx, cctx, repositoryID, worktreeID, cctx.Loaded.Config.LabelNamespace())
 		if err != nil {
 			return err
 		}

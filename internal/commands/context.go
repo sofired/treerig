@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"time"
 
 	"github.com/sofired/treerig/internal/backend"
 	"github.com/sofired/treerig/internal/brand"
@@ -48,7 +49,7 @@ type CommandContext struct {
 	UserHome string
 	// RouterPort is TREERIG_ROUTER_PORT, then settings.toml's [router] port
 	// under the checked treerig root, then 80 (settings.ResolveRouterPort,
-	// #79) — the port `urls` prints routed services on. It is the same
+	// #79) — the port `status` builds routed URLs with. It is the same
 	// value a running RouterService would report as its own `port`,
 	// without needing one built.
 	// Home is the treerig root (TREERIG_HOME) this context resolved and checked
@@ -60,6 +61,13 @@ type CommandContext struct {
 	// settings file consulted (#79), the one resolution this context made:
 	// `up` builds its router from it rather than resolving again.
 	RouterPortResolution settings.PortResolution
+	// RouterProject is the shared router's Compose project name, which
+	// `status` asks whether its container is up; empty means router.DefaultName.
+	// Only a test that runs a router of its own sets it.
+	RouterProject string
+	// HostRouteBudget is how long `status` gives the connects to every host
+	// route's port together; zero means a second.
+	HostRouteBudget time.Duration
 	// PortRange is where routed services' loopback ports are allocated from
 	// (settings.toml's [ports] range, else layout.DefaultPortRange, #119);
 	// the zero value means the default.
@@ -113,7 +121,7 @@ func (c *CommandContext) LabelRuntime(namespace string) *backend.Compose {
 
 // RuntimeFor is LabelRuntime for a worktree whose registration is at hand: its
 // Compose invocations also get TREERIG_URL and TREERIG_SERVICE_URL_<NAME>
-// (#177), built from registered and routerPort the way `treerig urls` builds
+// (#177), built from registered and routerPort the way `treerig status` builds
 // them. A nil registered or an unresolved (not positive) routerPort leaves
 // them unset. Callers pass the router port their command works with:
 // CommandContext.RouterPort, or the running Router's Port() in `up` and `dev`.

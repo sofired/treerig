@@ -11,7 +11,7 @@ import (
 )
 
 // ServiceRoute is one declared service's routed URL — the shared building
-// block for `treerig urls` (commands.WorktreeURLs wraps Routes), hooks
+// block for `treerig status` and `up`, hooks
 // and `treerig run`'s commands (ServiceURLVariables). Subdomain and Path travel with it only so RootRoute can tell a route
 // claiming the host root outright from one that merely shares that host
 // under a path or a different subdomain.
@@ -28,7 +28,7 @@ type ServiceRoute struct {
 // Routes is the URL each of services will answer on, in config order: the
 // host is <slug>.<domain>, prefixed by a service's own subdomain when it
 // declares one and suffixed by its path when it declares one, with the
-// router's port folded in exactly as `treerig urls` folds it in — omitted
+// router's port folded in exactly as `treerig status` folds it in — omitted
 // when it is the default HTTP port, 80.
 func Routes(services []config.Service, slug, domain string, port int) []ServiceRoute {
 	host := layout.WorktreeHost(slug, domain)
@@ -89,7 +89,7 @@ func RootRoute(routes []ServiceRoute) *ServiceRoute {
 // Hooks and `treerig run` commands receive these through ServiceURLVariables;
 // the worktree's own Compose invocations receive exactly these pairs, built
 // by the same call from the same routes, so ${TREERIG_URL} in compose.yaml is
-// the URL `treerig urls` prints (#177). Shared services' Compose invocations
+// the URL `treerig status` shows (#177). Shared services' Compose invocations
 // never do: the shared definition must not vary by worktree.
 func URLVariables(routes []ServiceRoute) [][2]string {
 	var pairs [][2]string

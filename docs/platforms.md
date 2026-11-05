@@ -98,6 +98,7 @@ Check with `curl -sSI http://treerig.localhost` (add the port if you changed
 it): any `HTTP/1.1 …` status line means the resolver is fine (the router
 answered), `Could not resolve host` means it is not, and a connection error
 means resolution worked and the router simply isn't running. Where it fails,
-`/etc/hosts` has no wildcards, so add every hostname `treerig urls` prints for
-the worktree — `<slug>.<domain>` and any `<subdomain>.<slug>.<domain>` — plus
-`treerig.localhost`; or use `curl --resolve` / a `Host:` header.
+`/etc/hosts` has no wildcards, so add the hostname of every service
+`treerig status` lists (`<slug>.<domain>` and any `<subdomain>.<slug>.<domain>`;
+start the worktree first, as `status` shows a URL only for a running service),
+plus `treerig.localhost`; or use `curl --resolve` / a `Host:` header.

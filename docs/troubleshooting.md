@@ -32,10 +32,35 @@ curl: (6) Could not resolve host: feature-login.acme.localhost
 **Fix:** run `curl -sSI http://treerig.localhost` and read the answer. If the router is not on port 80, add its port, as in `curl -sSI http://treerig.localhost:8080`. `treerig router status` prints the port and says whether `TREERIG_ROUTER_PORT`, `[router] port` in `settings.toml` or the default of 80 chose it; `treerig doctor` says the same.
 
 - An `HTTP/1.1` status line: resolution works, and the router answered.
-- `Could not resolve host`: add every hostname `treerig urls` prints, plus `treerig.localhost`, to `/etc/hosts` (it has no wildcards), or use `curl --resolve`.
+- `Could not resolve host`: add the hostname of every service `treerig status` lists (`<slug>.<domain>` and any `<subdomain>.<slug>.<domain>`; start the worktree first, as `status` shows a URL only for a running service), plus `treerig.localhost`, to `/etc/hosts` (it has no wildcards), or use `curl --resolve`.
 - A connection error: resolution works and the router is not running. Run `treerig router up`.
 
 **Why:** Chrome and Firefox map `*.localhost` to your own machine themselves. Other clients use the system resolver, and on plain glibc or musl systems (Debian, Alpine) it does not. See [Hostname resolution](platforms.md#hostname-resolution).
+
+## `status` shows `-` where a URL should be
+
+```text
+  SERVICE  STATE    URL
+  web      running  -
+```
+
+**Fix:** `status` shows a URL only while its service is `running` (a host
+route: `listening`) and the router's container is up, started by this treerig
+root and serving the port the URLs name. It fetches nothing to find out.
+Stderr says which of these is missing:
+
+- `The router is stopped, so no URL loads`: run `treerig up`, which starts the router.
+- `The router runs on port N, not M`: run `treerig router up`, which restarts it on the port this root is set to.
+- `The router belongs to a different treerig root`: run `treerig router down`, then `treerig up`.
+- `The router's state couldn't be read, so no URL is shown`: run `treerig doctor` to see why.
+
+If stderr says nothing, the service is not `running`: `treerig status` names its
+state. A service that has no `[service.<name>]` table has no URL at all.
+
+**Why:** a URL for a service that is not running, or behind a router that is
+not, would be a link that fails. `status --json` carries the same answer: `url`
+is absent, and `router` has its `state` (`running`, `stopped` or `unknown`),
+the `port` it serves and, when it is unknown or not this root's, a `detail`.
 
 ## A dev server answers 403 or "Invalid Host header"
 
@@ -78,7 +103,7 @@ For a routed Compose service: the browser or `curl` gets `502 Bad Gateway` from 
 
 **Fix:** make the app listen on `0.0.0.0`, not `localhost`: [Listen on 0.0.0.0](compose.md#listen-on-0000) has the setting for common dev servers. Then check that `port` or `expose` is the port it listens on.
 
-**Still 502?** Find which side is broken. Get the service's pinned port from `treerig urls --json` (its `port` key; if there is none, run `treerig up` first), then ask it directly:
+**Still 502?** Find which side is broken. Get the service's pinned port from `treerig status --json` (its `port` key; if there is none, run `treerig up` first), then ask it directly:
 
 ```bash
 curl -i http://127.0.0.1:<pinned port>/

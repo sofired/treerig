@@ -1,11 +1,12 @@
 package commands_test
 
-// Loopback ports (#119): what `up`, `worktree remove`, `urls`, `status` and
+// Loopback ports (#119): what `up`, `worktree remove`, `status` and
 // `run` do with the port each routed service is allocated.
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -519,37 +520,39 @@ func TestPortReporting(t *testing.T) {
 		return w, tc, ref
 	}
 
-	t.Run("urls --json adds a port key for a service with one, and the URLs are unchanged", func(t *testing.T) {
-		_, tc, _ := registered(t)
-		list, err := commands.UrlsWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true})
-		if err != nil {
+	t.Run("status --json keeps the hostname URL beside the port", func(t *testing.T) {
+		w, tc, _ := registered(t)
+		w.Docker.AddRouter(true)
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
-		if list[0].Service != "api" || list[0].Port != 30010 || list[0].URL != "http://feature-login.acme.localhost" {
-			t.Fatalf("api = %+v", list[0])
+		var report commands.StatusReport
+		if err := json.Unmarshal([]byte(printedText(tc)), &report); err != nil {
+			t.Fatal(err)
 		}
-		if list[1].Port != 0 || list[1].URL != "http://mail.feature-login.acme.localhost" {
-			t.Fatalf("mail = %+v", list[1])
+		api, mail := report.Services[0], report.Services[1]
+		if api.Service != "api" || api.Port != 30010 || api.URL != "http://feature-login.acme.localhost" {
+			t.Fatalf("api = %+v", api)
 		}
-		printed := printedText(tc)
-		if !strings.Contains(printed, `"port": 30010`) || strings.Count(printed, `"port"`) != 1 {
-			t.Fatalf("json = %s", printed)
+		if mail.Port != 0 || mail.URL != "http://mail.feature-login.acme.localhost" {
+			t.Fatalf("mail = %+v", mail)
 		}
 	})
 
-	t.Run("the text form of urls does not mention ports", func(t *testing.T) {
-		_, tc, _ := registered(t)
-		if _, err := commands.UrlsWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
+	t.Run("the text form of status does not mention ports", func(t *testing.T) {
+		w, tc, _ := registered(t)
+		w.Docker.AddRouter(true)
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		if printed := printedText(tc); strings.Contains(printed, "30010") {
-			t.Fatalf("urls printed a port: %q", printed)
+			t.Fatalf("status printed a port: %q", printed)
 		}
 	})
 
 	t.Run("status --json adds a port key for a routed service with one", func(t *testing.T) {
 		_, tc, _ := registered(t)
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
 		printed := printedText(tc)

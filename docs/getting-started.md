@@ -57,8 +57,8 @@ treerig config validate     # parse and check the file
 treerig config schema       # print its JSON Schema, for editors
 treerig up                   # register this worktree, start its services, run prepare (+ seed the first time)
 treerig dev                  # the same, then follow its logs until Ctrl-C
-treerig status               # this worktree's state and each service's
-treerig urls                 # print its routed URLs
+treerig status               # this worktree's state, each service's, and its URLs while its services run
+treerig status feature-x     # another worktree's, by slug, host, UUID or path
 treerig route add web --port 5173 --subdomain app   # route a dev server on the host at app.<slug>.<domain>
 treerig route ls             # this worktree's host routes
 treerig run plan             # run one of the project's own [commands], on the terminal

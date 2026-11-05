@@ -15,7 +15,7 @@ probing forward, past every port in any registration of this control home and
 any port something on the machine is already using. The router still reaches
 the service by its hostname exactly as before; the port is for tools that
 must bypass it, and reaches them as `TREERIG_SERVICE_PORT_<NAME>` and the
-`port` key of `urls --json` and `status --json`. `up` refuses to start when a
+`port` key of `status --json`. `up` refuses to start when a
 pinned port is held by anything but this worktree's own container, proven by
 its ownership labels rather than its name, and says who holds it: another
 treerig worktree, a container by name, or another process. `treerig up

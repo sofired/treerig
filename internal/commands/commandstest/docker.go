@@ -354,6 +354,14 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			for _, id := range sortedKeys(d.resources["container"]) {
 				labels := d.resources["container"][id]
 				if labels["com.docker.compose.project"] == project {
+					// `ps --quiet <service>` prints container IDs, as the
+					// router's lookup reads them.
+					if slices.Contains(args, "--quiet") {
+						if service := args[len(args)-1]; labels["com.docker.compose.service"] == service {
+							lines = append(lines, id)
+						}
+						continue
+					}
 					encoded, _ := json.Marshal(map[string]any{
 						"Service": labels["com.docker.compose.service"], "State": d.statusOf(id), "Health": d.health[id], "ExitCode": d.exitCodes[id],
 					})
@@ -373,6 +381,14 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 			return ok("")
 		}
 		return ok("")
+	}
+
+	// `docker inspect <id>` of a container, as the router's lookup asks it.
+	if len(args) == 2 && args[0] == "inspect" {
+		if labels, present := d.resources["container"][args[1]]; present {
+			return ok(d.containerDocument(args[1], labels))
+		}
+		return run.Finish(spec, run.Result{Stderr: "Error: No such object: " + args[1], ExitCode: 1})
 	}
 
 	kind := map[string]string{"ps": "container", "volume": "volume", "network": "network", "image": "image", "inspect": "container", "rm": "container"}[args[0]]

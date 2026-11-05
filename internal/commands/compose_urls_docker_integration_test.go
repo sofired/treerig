@@ -4,7 +4,7 @@ package commands_test
 
 // The routed URLs reach compose.yaml (#177) on a real daemon: a Compose file
 // that interpolates ${TREERIG_URL} and ${TREERIG_SERVICE_URL_<NAME>} starts
-// containers that see exactly the URLs `treerig urls` prints, the router's
+// containers that see exactly the URLs `treerig status` shows, the router's
 // (non-default) port included, and a second `up` over the same inputs leaves
 // them alone.
 
@@ -18,6 +18,7 @@ import (
 
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/logger"
 )
 
 // composeURLsCompose reads the worktree's routed URLs into each container's
@@ -87,13 +88,20 @@ func TestComposeInterpolatesTheRoutedURLsOnARealDaemon(t *testing.T) {
 	result := w.up(t)
 	w.eventually(t, host, func(status int, body string) bool { return status == 200 && body == "hello from web\n" })
 
-	// What `treerig urls` prints for this worktree, with the walk's router port.
-	listed, err := commands.UrlsWithContext(context.Background(), w.context(t), commands.OutputOptions{})
-	if err != nil {
-		t.Fatalf("urls: %v", err)
+	// What `treerig status` shows for this worktree, with the walk's router
+	// port: both services run and the router is up, so each has its URL.
+	cctx, log := w.context(t), &logger.Recording{}
+	cctx.Logger, cctx.RouterProject = log, w.svc.ProjectName
+	if _, err := commands.StatusWithContext(context.Background(), cctx, commands.StatusOptions{JSON: true}); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	_, printed := log.Snapshot()
+	var report commands.StatusReport
+	if len(printed) != 1 || json.Unmarshal([]byte(printed[0]), &report) != nil {
+		t.Fatalf("status printed %q, want one JSON document", printed)
 	}
 	urls := map[string]string{}
-	for _, entry := range listed {
+	for _, entry := range report.Services {
 		urls[entry.Service] = entry.URL
 	}
 	if w.port == 80 || !strings.HasSuffix(urls["web"], fmt.Sprintf(":%d", w.port)) {
@@ -105,11 +113,11 @@ func TestComposeInterpolatesTheRoutedURLsOnARealDaemon(t *testing.T) {
 	relayID, relay := containerEnv(t, project, "mail-relay")
 	for name, want := range map[string]string{"PUBLIC_URL": urls["web"], "WEB_URL": urls["web"]} {
 		if web[name] != want {
-			t.Errorf("web sees %s = %q, treerig urls prints %q", name, web[name], want)
+			t.Errorf("web sees %s = %q, treerig status shows %q", name, web[name], want)
 		}
 	}
 	if relay["RELAY_URL"] != urls["mail-relay"] || urls["mail-relay"] == "" {
-		t.Errorf("mail-relay sees RELAY_URL = %q, treerig urls prints %q", relay["RELAY_URL"], urls["mail-relay"])
+		t.Errorf("mail-relay sees RELAY_URL = %q, treerig status shows %q", relay["RELAY_URL"], urls["mail-relay"])
 	}
 
 	// The same inputs interpolate the same, so a second up recreates nothing.

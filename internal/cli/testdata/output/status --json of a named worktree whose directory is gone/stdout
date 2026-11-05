@@ -1,0 +1,6 @@
+{
+  "registered": true,
+  "host": "feature-login.acme.localhost",
+  "state": "directory_missing",
+  "services": []
+}

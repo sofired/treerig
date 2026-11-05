@@ -184,14 +184,16 @@ cannot reach the host's loopback.
 A `port` is also routed, through the same proxy as your
 services, at `<name>.shared.<domain>` (`mailpit.shared.acme.localhost`), under
 the domain the service was first pinned with. `shared` is therefore reserved:
-a branch that slugs to `shared` gets a suffixed slug. The route file is written when the service is up
-and removed by `shared down`; `treerig shared up` starts the router first when
-it has a web UI to route, its own or a dependency's. `TREERIG_SHARED_URL_<NAME>` gives hooks and `treerig run`
-the URL (router port included), `status` and `shared status` print it (and
-`--json` carries it as `url`), and the overview lists it in a group of
-its own beneath the checkouts. Two repositories on one domain cannot both
-route a shared service of the same name: the second is refused when it would
-become routed, naming the first; rename one of the services, or run `shared
+a branch that slugs to `shared` gets a suffixed slug. The route file is written
+when the service is up and removed by `shared down`; `treerig shared up` starts
+the router first when it has a web UI to route, its own or a dependency's.
+`TREERIG_SHARED_URL_<NAME>` gives hooks and `treerig run` the URL (router port
+included), `shared status` prints it (and `--json` carries it as `url`),
+`status` shows it in a row named `<name> (shared)` while the service runs and
+the router is up, and the overview lists it in a group of its own beneath the
+worktrees. Two repositories on one domain cannot both route a shared service of
+the same name: the second is refused when it would become routed, naming the
+first; rename one of the services, or run `shared
 down --volumes` where the first lives, which deletes its record. A container
 stopped any other way than `shared down` (a reboot, `docker stop`) keeps its
 route file and the hostname answers 502 until `shared up` or `up` starts it

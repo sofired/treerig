@@ -1,3 +1,4 @@
 feature-login.acme.localhost   partly running
-  api   running
-  mail  not created
+  SERVICE  STATE        URL
+  api      running      http://feature-login.acme.localhost
+  mail     not created  -

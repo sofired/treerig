@@ -33,6 +33,7 @@ import (
 	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/ports"
 	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // Docker-call timeouts (#14): containerID and inspect are quick
@@ -1092,6 +1093,10 @@ type Running struct {
 	Mode Mode
 	// Port is the port label, 0 when it carries none or cannot be read.
 	Port int
+	// Inspected is false when the container exists but `docker inspect` could
+	// not be read: Up is then a guess (an inspect failure is no evidence
+	// either way), and State reads it as unknown.
+	Inspected bool
 }
 
 // Running reads the router container's state and labels.
@@ -1110,9 +1115,68 @@ func (r *Router) Running(ctx context.Context) (Running, error) {
 	return runningFrom(*read.inspected), nil
 }
 
+// Condition is whether the router's container is up.
+type Condition string
+
+// The conditions State reports.
+const (
+	// ConditionRunning is a router container that runs.
+	ConditionRunning Condition = "running"
+	// ConditionStopped is no router container, or one that does not run.
+	ConditionStopped Condition = "stopped"
+	// ConditionUnknown is a router that could not be read: Docker did not
+	// answer, or the container could not be inspected.
+	ConditionUnknown Condition = "unknown"
+)
+
+// Observed is what a command that only reports on the router needs to know of it:
+// whether it runs, on which port and for whom.
+type Observed struct {
+	Condition Condition
+	// Port is the port the running router serves, read off its container;
+	// 0 when it is not running or carries no port label.
+	Port int
+	// Foreign is true for a running router that this treerig root did not
+	// start (or that carries no ownership label at all), so Ensure would
+	// refuse it.
+	Foreign bool
+	// Detail says why the condition is unknown, or whose router a foreign one
+	// is; empty otherwise.
+	Detail string
+}
+
+// State reads the router container once, without a lock and without writing
+// anything. A failure to read it is a Condition, not an error: the caller
+// reports on the router, it does not depend on it.
+func (r *Router) State(ctx context.Context) Observed {
+	read, err := r.readRouter(ctx)
+	if err != nil {
+		return Observed{Condition: ConditionUnknown, Detail: text.OneLine(err.Error(), 300)}
+	}
+	switch {
+	case !read.present:
+		return Observed{Condition: ConditionStopped}
+	case read.inspected == nil:
+		return Observed{Condition: ConditionUnknown, Detail: "The router container exists but could not be inspected."}
+	case read.inspected.State.Status != "running":
+		return Observed{Condition: ConditionStopped}
+	}
+	state := Observed{Condition: ConditionRunning, Port: runningFrom(*read.inspected).Port}
+	// ownershipOf fails only for a container that was not inspected, which the
+	// cases above have already answered, so its error cannot occur here.
+	owner, _ := ownershipOf(read)
+	switch {
+	case !owner.Labelled:
+		state.Foreign, state.Detail = true, "The router carries no ownership label."
+	case owner.Home != r.home:
+		state.Foreign, state.Detail = true, "The router belongs to the treerig root "+text.OneLine(owner.Home, 200)+"."
+	}
+	return state
+}
+
 // runningFrom reads a Running off an inspected router container.
 func runningFrom(inspected ContainerInspect) Running {
-	running := Running{Present: true, Up: inspected.State.Status == "running", Mode: Mode(inspected.Config.Labels[RouterModeLabel])}
+	running := Running{Present: true, Inspected: true, Up: inspected.State.Status == "running", Mode: Mode(inspected.Config.Labels[RouterModeLabel])}
 	if port, err := strconv.Atoi(inspected.Config.Labels[RouterPortLabel]); err == nil && port > 0 {
 		running.Port = port
 	}

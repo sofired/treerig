@@ -459,7 +459,7 @@ func TestStatusReportsTheSharedURL(t *testing.T) {
 		tc.Loaded.Config.Shared.Service[0].Ports = []int{1025}
 		w.mustUp(t, tc)
 		tc.Logger.Lines, tc.Logger.Printed = nil, nil
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()

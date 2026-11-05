@@ -134,7 +134,7 @@ type ListOptions struct {
 	JSON bool
 }
 
-// OutputOptions are the flags `doctor`, `status`, `urls` and `index` share:
+// OutputOptions are the flags `doctor` and `index` share:
 // JSON prints one JSON document on stdout in place of the text form. The
 // exit code is the same either way.
 type OutputOptions struct {

@@ -578,8 +578,8 @@ backup  = "./backup.sh"
 		if result.Stdout != "" {
 			t.Errorf("stdout = %q, want empty", result.Stdout)
 		}
-		if !strings.Contains(result.Stderr, "Not registered") {
-			t.Errorf("stderr = %q, want it to say Not registered", result.Stderr)
+		if !strings.Contains(result.Stderr, " is not registered. Run 'treerig up' to create its environment.") {
+			t.Errorf("stderr = %q, want it to say the worktree is not registered", result.Stderr)
 		}
 	})
 

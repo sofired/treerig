@@ -30,12 +30,12 @@ func TestWorktreeStatus(t *testing.T) {
 		w.Docker.Services = []string{"api\x1b[2K\u202ex"}
 		tc := w.Context("", acme, nil)
 
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		// The exact row: filtered, still legible, still padded into its column.
 		_, printed := tc.Logger.Snapshot()
-		if !slices.Contains(printed, "  api�[2K�x  not created") {
+		if !slices.Contains(printed, "  api�[2K�x  not created  -") {
 			t.Fatalf("printed = %q", printed)
 		}
 	})
@@ -44,22 +44,20 @@ func TestWorktreeStatus(t *testing.T) {
 		// A registry record's domain is deliberately looser than the config's
 		// hostname rule, because removal has to find a record it cannot parse.
 		w := commandstest.New(t, "feature/login", acme)
-		ref := w.Register("", acme, "feature-login", brand.LabelNamespace)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api", "mail")
+		w.Docker.AddRouter(true)
 		writeRecord(t, w, &registry.WorktreeIdentity{RepositoryID: ref.RepositoryID, WorktreeID: ref.WorktreeID},
 			"acme\x1b[2K\u202ex.localhost", "feature-login", ns(brand.LabelNamespace))
 
 		tc := w.Context("", acme, nil)
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := commands.UrlsWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()
-		if printed[0] != "feature-login.acme�[2K�x.localhost   stopped" {
+		if printed[0] != "feature-login.acme�[2K�x.localhost   running" {
 			t.Fatalf("first line = %q", printed[0])
 		}
-		if !slices.Contains(printed, "api   http://feature-login.acme�[2K�x.localhost") {
+		if !slices.Contains(printed, "  api      running  http://feature-login.acme�[2K�x.localhost") {
 			t.Fatalf("printed = %q", printed)
 		}
 	})
@@ -74,7 +72,7 @@ func TestWorktreeStatus(t *testing.T) {
 		tc := w.Context("", acme, nil)
 		tc.Loaded.Config.Service[0].Index = &config.ServiceIndex{Label: "a\tb", Purpose: "the \u202eAPI"}
 
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatalf("StatusWithContext: %v", err)
 		}
 	})
@@ -82,12 +80,12 @@ func TestWorktreeStatus(t *testing.T) {
 	t.Run("says, as a notice, that a worktree never brought up is not registered", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
-		statuses, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{})
+		statuses, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{})
 		if err != nil || statuses != nil {
 			t.Fatalf("statuses = %v, err = %v", statuses, err)
 		}
 		lines, printed := tc.Logger.Snapshot()
-		if len(printed) != 0 || !slices.Contains(lines, "info: Not registered — run 'treerig up' to create this worktree's environment.") {
+		if len(printed) != 0 || !slices.Contains(lines, "info: worktree is not registered. Run 'treerig up' to create its environment.") {
 			t.Fatalf("lines = %q, printed = %q", lines, printed)
 		}
 		scan, err := registry.ScanRegistrations(w.ControlHome)
@@ -167,7 +165,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		w.Docker.Services = []string{"api"}
 		tc := w.Context("", acme, nil)
 
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()
@@ -190,7 +188,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		if err := json.Unmarshal([]byte(printed[0]), &spelled); err != nil || spelled.State != "stopped" || spelled.Services[0].State != "not_created" {
 			t.Fatalf("the document spells its states %+v (%v): %s", spelled, err, printed[0])
 		}
-		if len(got.Services) != 1 || got.Services[0].Service != "api" || got.Services[0].State != worktree.NotCreated {
+		if len(got.Services) != 1 || got.Services[0].Service != "api" || got.Services[0].State != worktree.NotCreated.JSON() {
 			t.Fatalf("services = %+v", got.Services)
 		}
 		var raw struct {
@@ -221,7 +219,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 			return inner(ctx, spec)
 		}
 		tc := w.Context("", acme, nil)
-		_, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true})
+		_, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true})
 		if err != nil {
 			return tc, nil, err
 		}
@@ -243,7 +241,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(services) != 1 || services[0].State != worktree.Unknown || services[0].Detail != "weird" {
+		if len(services) != 1 || services[0].State != worktree.Unknown.JSON() || services[0].Detail != "weird" {
 			t.Fatalf("services = %+v", services)
 		}
 	})
@@ -270,7 +268,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 			return inner(ctx, spec)
 		}
 		tc := w.Context("", acme, nil)
-		_, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true})
+		_, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true})
 		if err == nil || !strings.Contains(err.Error(), "Compose could not list services") {
 			t.Fatalf("err = %v", err)
 		}
@@ -304,14 +302,14 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
 
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
 		lines, printed := tc.Logger.Snapshot()
 		if got := strings.Join(printed, "\n"); got != "{\n  \"registered\": false,\n  \"services\": []\n}" {
 			t.Fatalf("stdout = %q", got)
 		}
-		if !slices.Contains(lines, "info: Not registered — run 'treerig up' to create this worktree's environment.") {
+		if !slices.Contains(lines, "info: worktree is not registered. Run 'treerig up' to create its environment.") {
 			t.Fatalf("lines = %q", lines)
 		}
 	})

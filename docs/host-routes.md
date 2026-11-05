@@ -33,11 +33,16 @@ shows the URL) and it writes the file and changes nothing else. `up` and `down`
 leave host routes alone, so a route survives `down` (the process on the host is
 not treerig's to stop) and the hostname answers `502 Bad Gateway` until something
 listens on the port. `worktree remove` removes them before the registration.
-`treerig urls` (`urls --json` marks them `"hostRoute": true`), the overview,
-and `TREERIG_SERVICE_URL_<NAME>` and `TREERIG_SERVICE_PORT_<NAME>` in hooks and
-`treerig run` include them; the index lists them from the registration and does
-not know whether the process is up. `doctor` lists each one with whether its
-port answers (a stopped dev server is `ok`, with the 502 note; only a port that
+`treerig status` (a row named `<name> (host route)`; `status --json` marks it
+`"hostRoute": true`), the overview, and `TREERIG_SERVICE_URL_<NAME>` and
+`TREERIG_SERVICE_PORT_<NAME>` in hooks and `treerig run` include them; the
+index lists them from the registration and does not know whether the process is
+up. `status` says `listening` when a TCP connection to the port on `127.0.0.1`
+succeeds within about a second, and `not listening` when none does. That means
+a TCP listener is there, not that it is this worktree's dev server: another
+process on the port reads the same, and the router would send it the requests.
+`status` shows the route's URL only while it is listening and the router runs.
+`doctor` lists each one with whether its port answers (a stopped dev server is `ok`, with the 502 note; only a port that
 answers on `::1` alone is a warning), and probes each through the router.
 
 ## Bind `127.0.0.1`

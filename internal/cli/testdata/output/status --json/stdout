@@ -2,10 +2,15 @@
   "registered": true,
   "host": "feature-login.acme.localhost",
   "state": "partly_running",
+  "router": {
+    "state": "running",
+    "port": 80
+  },
   "services": [
     {
       "service": "api",
-      "state": "running"
+      "state": "running",
+      "url": "http://feature-login.acme.localhost"
     },
     {
       "service": "mail",

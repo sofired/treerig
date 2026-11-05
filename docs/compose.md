@@ -56,7 +56,7 @@ services:
       CORS_ORIGIN: "${TREERIG_URL}"
 ```
 
-These are exactly the URLs `treerig urls` prints, the router's port included.
+These are the URLs `treerig status` shows, the router's port included. `status` shows one only while its service runs; the variables are set whether it does or not.
 
 These URLs are for browsers, and for configuration that is sent to a browser: public URLs and CORS origins. A container that calls another container uses the service name on the worktree's network, for example `http://api:8080`.
 
