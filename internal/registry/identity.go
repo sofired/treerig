@@ -353,9 +353,11 @@ func (s *IdentityService) Ensure(ctx context.Context, worktree string) (*Worktre
 	return identity, nil
 }
 
-// notARepository is the text of Git's refusal outside every repository, in
-// the C locale Repository asks in.
-const notARepository = "not a git repository"
+// notARepository is the start of Git's refusal outside every repository, in
+// the C locale Repository asks in. The parenthesis is what tells it from the
+// refusal for a .git file or GIT_DIR that names a missing directory ("not a git
+// repository: <path>"), which is a broken repository, not the absence of one.
+const notARepository = "not a git repository (or any"
 
 // topLevel asks Git for the top level of the work tree containing worktree.
 // Only Git's refusal for a directory outside every repository is returned as
@@ -379,7 +381,7 @@ func (s *IdentityService) topLevel(ctx context.Context, worktree string) (top st
 		return strings.TrimSpace(result.Stdout), nil, nil
 	}
 	failure := run.Failure(spec, result)
-	if result.ExitCode != 0 && !result.TimedOut && result.Signal == 0 && strings.Contains(result.Stderr, notARepository) {
+	if result.ExitCode != 0 && !result.TimedOut && !result.OutputOverflow && result.Signal == 0 && strings.Contains(result.Stderr, notARepository) {
 		return "", failure, nil
 	}
 	return "", nil, failure

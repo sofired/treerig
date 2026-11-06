@@ -184,6 +184,24 @@ func TestWorktreeListWithoutConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("--all from a directory Git does not trust warns with Git's reason and lists every repository as recorded; without --all it is Git's error", func(t *testing.T) {
+		w, _, _ := twoRepositories(t)
+		cwd := w.Outside()
+		gitRefusesAt(w, cwd)
+		tc := w.ContextWithoutConfig(cwd)
+
+		rows, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{All: true})
+		if err != nil || len(rows) != 2 {
+			t.Fatalf("rows = %+v, %v; want both repositories' worktrees", rows, err)
+		}
+		lines, _ := tc.Logger.Snapshot()
+		if len(lines) != 1 || !strings.HasPrefix(lines[0], "warn:") || !strings.Contains(lines[0], "detected dubious ownership") {
+			t.Fatalf("lines = %q, want one warning with Git's reason", lines)
+		}
+		_, err = commands.ListWithContext(ctx, w.ContextWithoutConfig(cwd).CommandContext, commands.ListOptions{})
+		wantErr(t, err, `detected dubious ownership`)
+	})
+
 	t.Run("with a treerig.toml and no identity yet it says the same", func(t *testing.T) {
 		w, _, _ := twoRepositories(t)
 		fresh := w.Worktree("fresh", "main", filepath.Join(w.Base, "fresh-common"))

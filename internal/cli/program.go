@@ -139,7 +139,7 @@ var configCommands = []string{
 // configOptional are the configCommands that work without a treerig.toml (they
 // use commands.ContextWithoutConfig), so their --config says the default may
 // not exist.
-var configOptional = []string{"worktree list", "worktree remove", "worktree unlock"}
+var configOptional = []string{"shared down", "worktree list", "worktree remove", "worktree unlock"}
 
 // declareGroupsAndConfig gives each of the root's commands its help group
 // (rootGroups) and each command that reads treerig.toml its --config flag

@@ -339,6 +339,31 @@ func TestIdentityServiceRepository(t *testing.T) {
 		}
 	})
 
+	t.Run("a broken .git file or GIT_DIR is an error, not the absence of a repository", func(t *testing.T) {
+		for _, stderr := range []string{
+			"fatal: not a git repository: /nonexistent/x",
+			"fatal: not a git repository: '/nonexist'",
+		} {
+			runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+				return run.Result{ExitCode: 128, Stderr: stderr + "\n"}, nil
+			}}
+			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), stderr) || inside {
+				t.Fatalf("%q: Repository = %q, %v, %v, %v; want an error naming Git's words", stderr, id, present, inside, err)
+			}
+		}
+	})
+
+	t.Run("a refusal whose output overflowed is an error, not an answer", func(t *testing.T) {
+		runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+			return run.Result{ExitCode: 128, OutputOverflow: true, Stderr: "fatal: not a git repository (or any of the parent directories): .git\n"}, nil
+		}}
+		_, _, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+		if err == nil || inside {
+			t.Fatalf("Repository = inside %v, %v; want an error", inside, err)
+		}
+	})
+
 	t.Run("still reports a Git that could not be started", func(t *testing.T) {
 		runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
 			return run.Result{}, &run.StartError{Command: "git", Code: "ENOENT", Detail: "was not found on PATH (ENOENT).", ExitCode: 127}
