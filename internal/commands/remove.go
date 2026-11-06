@@ -94,7 +94,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			return nil, err
 		}
 		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s belongs to, so %s is treated as another repository's worktree: %s",
-			text.Printable(cctx.Cwd), text.Printable(options.Identifier), text.OneLine(err.Error(), 200)))
+			text.Printable(cctx.Cwd), text.Printable(options.Identifier), text.OneLine(commandReason(err), 200)))
 		repositoryID, present, inside = "", false, false
 	}
 	target, err := resolveRemoveTarget(ctx, cctx, options, inside)
@@ -673,4 +673,19 @@ func summarize(result *RemoveResult) string {
 		parts = append(parts, "identity marker")
 	}
 	return strings.Join(parts, ", ")
+}
+
+// commandReason is what a failed command said, without run.Failure's
+// "Command failed (git -C <dir> ...): " in front of it. A warning that names
+// the directory itself has no use for the command line, which repeats the
+// directory: with a long one (macOS's temporary directories, say) it would
+// use up the room the reason needs.
+func commandReason(err error) string {
+	message := err.Error()
+	if rest, ok := strings.CutPrefix(message, "Command failed ("); ok {
+		if _, reason, found := strings.Cut(rest, "): "); found {
+			return reason
+		}
+	}
+	return message
 }
