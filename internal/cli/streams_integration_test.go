@@ -381,7 +381,7 @@ backup  = "./backup.sh"
 		// echoed again inside the stack trace, printed outside the logger.
 		hostile := filepath.Join(cwd, "missing\x1b[2K.toml")
 
-		result := runTreerig(t, binary, cwd, []string{"--config", hostile, "config", "validate"}, treerigOptions{debug: true})
+		result := runTreerig(t, binary, cwd, []string{"config", "validate", "--config", hostile}, treerigOptions{debug: true})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)

@@ -6,8 +6,9 @@ Usage:
   treerig route rm <name> [flags]
 
 Flags:
-  -h, --help   help for rm
+      --config string   path to treerig.toml (default: nearest above cwd)
+  -h, --help            help for rm
 
 Global Flags:
-      --config string   path to treerig.toml (default: nearest above cwd)
-  -V, --version         output the version number
+      --progress mode   how to show progress: auto or plain (one line per
+                        change) (default "auto")

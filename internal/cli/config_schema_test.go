@@ -10,15 +10,15 @@ import (
 )
 
 // TestConfigSchemaPrintsTheCommittedSchema runs `config schema` through
-// cli.Main, naming a config file that does not exist: the command reads no
-// configuration, so it prints schema/treerig.schema.json regardless.
+// cli.Main with no configuration to read: the command reads none (and takes no
+// --config), so it prints schema/treerig.schema.json wherever it runs.
 func TestConfigSchemaPrintsTheCommittedSchema(t *testing.T) {
 	want, err := os.ReadFile("../../schema/treerig.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	args := []string{"treerig", "config", "schema", "--config", "/nonexistent-treerig-config-x7z.toml"}
+	args := []string{"treerig", "config", "schema"}
 	if code := cli.Main(args, strings.NewReader(""), &stdout, &stderr, emptyGetenv); code != 0 {
 		t.Fatalf("exit code = %d, stderr:\n%s", code, stderr.String())
 	}
