@@ -2,11 +2,9 @@
 
 The failures people hit most: the message you see, how to fix it, and why it happens.
 
-Start with `treerig doctor`: it checks prerequisites, the registry, locks, the router and this worktree, and it names what is wrong. The entries below quote what treerig prints; a name, path, port or number in a quote stands for your own. Run as `trig`, the `[treerig]` prefix on errors and warnings reads `[trig]`, and some hints still say `treerig`; either name works.
+Start with `treerig doctor`: it checks prerequisites, the registry, locks, the router and this checkout, and it names what is wrong. The entries below quote what treerig prints; a name, path, port or number in a quote stands for your own. Run as `trig`, the `[treerig]` prefix on errors and warnings reads `[trig]`, and some hints still say `treerig`; either name works.
 
-Jump to the symptom you see:
-
-**Hostnames and services**
+Jump to:
 
 - [A hostname does not resolve](#a-hostname-does-not-resolve)
 - [A dev server answers 403 or "Invalid Host header"](#a-dev-server-answers-403-or-invalid-host-header)
@@ -14,20 +12,14 @@ Jump to the symptom you see:
 - [A service declares no port](#a-service-declares-no-port)
 - [The hostname answers 502 Bad Gateway](#the-hostname-answers-502-bad-gateway)
 - [A route is stale](#a-route-is-stale)
-- [A pinned port is held](#a-pinned-port-is-held)
-
-**Locks and removal**
-
 - [A lock is held](#a-lock-is-held)
 - [Refusing to use state from a newer treerig](#refusing-to-use-state-from-a-newer-treerig)
 - [`worktree remove` refuses to run](#worktree-remove-refuses-to-run)
 - [`worktree remove` cannot delete a directory](#worktree-remove-cannot-delete-a-directory)
-
-**Prerequisites and diagnostics**
-
 - [`doctor` reports a failure](#doctor-reports-a-failure)
 - [Rootless or remote Docker is refused](#rootless-or-remote-docker-is-refused)
 - [Docker Compose is too old](#docker-compose-is-too-old)
+- [A pinned port is held](#a-pinned-port-is-held)
 
 ## A hostname does not resolve
 
@@ -138,7 +130,7 @@ The same sentence follows `Refusing to touch the container …` and similar open
 
 **Fix:** upgrade the treerig you are running, or run the newer one. Do not delete the state to get past the message. See [Stored-state format](settings.md#stored-state-format).
 
-**Why:** something on this machine, a stored file or a Docker resource, was written by a newer treerig than the one you ran, perhaps from another worktree or a different install. This build does not read, repair, rewrite or delete it.
+**Why:** something on this machine, a stored file or a Docker resource, was written by a newer treerig than the one you ran, perhaps from another checkout or a different install. This build does not read, repair, rewrite or delete it.
 
 ## `worktree remove` refuses to run
 
@@ -245,9 +237,3 @@ Stop what holds it, or run 'treerig up --reallocate-port <service>' to give the 
 **Fix:** stop the holder, or run `treerig up --reallocate-port api` to give that service a new port. See [Ports](routing.md#ports).
 
 **Why:** something else took the port treerig pinned for the service: another treerig worktree, a container (named in the message), or another process. `up` proves a container is the worktree's own by its labels, never by its name.
-
-## Related reading
-
-- [Doctor](doctor.md) — the checks behind the diagnostic output.
-- [Platform notes](platforms.md) — Docker and hostname resolution differences.
-- [Output and exit codes](output-and-exit-codes.md) — interpreting command results.
