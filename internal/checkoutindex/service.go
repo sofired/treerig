@@ -73,7 +73,7 @@ type Registry interface {
 // from — registry.Registry's own Identities field satisfies this.
 type Identities interface {
 	ActiveIdentities(ctx context.Context) ([]registry.WorktreeIdentity, error)
-	RepositoryID(ctx context.Context, worktree string) (id string, present bool, err error)
+	Repository(ctx context.Context, worktree string) (id string, present, inside bool, err error)
 }
 
 // Options configure a Service.
@@ -398,7 +398,10 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 	var identities []registry.WorktreeIdentity
 	var currentRepositoryID *string
 	var identityError *IdentityFailureInput
-	repositoryID, present, err := s.opts.Identities.RepositoryID(ctx, s.opts.IdentityRoot)
+	// Outside every Git work tree there is no current repository to be
+	// unable to identify: the page then lists every worktree, as it does for
+	// a repository treerig has no identity for.
+	repositoryID, present, _, err := s.opts.Identities.Repository(ctx, s.opts.IdentityRoot)
 	switch {
 	case err != nil:
 		reason := fmt.Sprintf("Git could not identify the repository at %s: %s", s.opts.IdentityRoot, err)

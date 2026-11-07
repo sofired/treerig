@@ -1,11 +1,13 @@
-list registered worktrees
+list this repository's worktrees, or every registered worktree outside a
+repository
 
 Usage:
   treerig worktree list [flags]
 
 Flags:
       --all             every repository and domain on this machine
-      --config string   path to treerig.toml (default: nearest above cwd)
+      --config string   path to treerig.toml (default: nearest above cwd, if
+                        any)
   -h, --help            help for list
       --json            machine-readable output
 

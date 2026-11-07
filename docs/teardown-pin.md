@@ -197,6 +197,14 @@ build refuses. Otherwise:
   swapped in between: on Linux it is run through `/proc/self/fd`, so `/proc` must
   be mounted; on macOS, where a file cannot be run through an open descriptor,
   the path is checked again immediately before.
+- A pin from before `worktree remove` worked without a `treerig.toml` (0.1.x)
+  still needs one in the directory it runs from, or named with `--config`. When
+  there is none in reach and the pin is a release older than the running build,
+  the line above ends with a sentence saying the pin may need one: if it stops
+  with `No treerig.toml found`, run the removal from inside the worktree's
+  repository, or pass `--config <that repository's treerig.toml>`. A file pin, a
+  pin as new as the running build, and a development build get no such
+  sentence.
 - It refuses, removes nothing, and says what to run when a development build has
   no pin; whatever the build, when the pin is of a newer format or not one
   treerig wrote; the stored binary is missing

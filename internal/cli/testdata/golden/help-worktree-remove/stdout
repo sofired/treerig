@@ -6,13 +6,13 @@ Usage:
 
 Flags:
       --config string            path to treerig.toml (default: nearest above
-                                 cwd)
+                                 cwd, if any)
       --domain string            narrow a slug registered under more than one
                                  domain
   -h, --help                     help for remove
       --label-namespace string   supply the Docker label namespace when nothing
                                  on disk records it (a worktree of another
-                                 repository)
+                                 repository, or run without a treerig.toml)
       --yes                      skip the confirmation phrase
 
 Global Flags:

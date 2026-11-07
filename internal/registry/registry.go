@@ -39,6 +39,10 @@ type Options struct {
 	// makes ahead of a write — this package does not read the environment
 	// itself for it, only the entry point does.
 	UserHome string
+	// Environ is the process environment Git's refusal outside a repository
+	// is asked in (Repository adds the C locale to it); nil inherits this
+	// process's own.
+	Environ []string
 }
 
 // Registry is the worktree registry's read path for one checkout: identity,
@@ -72,9 +76,11 @@ func New(opts Options) *Registry {
 	if invocation == "" {
 		invocation = commandName
 	}
+	identities := NewIdentityService(opts.Root, opts.Runner)
+	identities.environ = opts.Environ
 	return &Registry{
 		ControlHome:    layout.ControlLayout(opts.ControlHome).ControlHome,
-		Identities:     NewIdentityService(opts.Root, opts.Runner),
+		Identities:     identities,
 		root:           opts.Root,
 		domain:         opts.Domain,
 		labelNamespace: opts.LabelNamespace,
@@ -223,7 +229,10 @@ func (r *Registry) Current(ctx context.Context) (*WorktreeRegistration, error) {
 	if record == nil {
 		return nil, nil
 	}
-	if record.Domain != r.domain {
+	// No domain means no treerig.toml was loaded (a command that runs without
+	// one), so there is nothing for the record to disagree with. The invariant
+	// that makes "" a safe sentinel: a loaded config always has a domain.
+	if r.domain != "" && record.Domain != r.domain {
 		r.logger.Warn(fmt.Sprintf(
 			"This worktree is registered as %s, but %s now says %s. Run '%s up' to reconcile.",
 			layout.WorktreeHost(record.Slug, record.Domain), brand.ConfigFile, r.domain, r.commandName,
