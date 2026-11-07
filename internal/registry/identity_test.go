@@ -343,6 +343,8 @@ func TestIdentityServiceRepository(t *testing.T) {
 		for _, stderr := range []string{
 			"fatal: not a git repository: /nonexistent/x",
 			"fatal: not a git repository: '/nonexist'",
+			// A path may hold the refusal's own words.
+			"fatal: not a git repository: /tmp/not a git repository (or any of the parent directories)/x",
 		} {
 			runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
 				return run.Result{ExitCode: 128, Stderr: stderr + "\n"}, nil
@@ -350,6 +352,21 @@ func TestIdentityServiceRepository(t *testing.T) {
 			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
 			if err == nil || !strings.Contains(err.Error(), stderr) || inside {
 				t.Fatalf("%q: Repository = %q, %v, %v, %v; want an error naming Git's words", stderr, id, present, inside, err)
+			}
+		}
+	})
+
+	t.Run("either of Git's refusals outside every repository is the answer outside, not an error", func(t *testing.T) {
+		for _, stderr := range []string{
+			"fatal: not a git repository (or any of the parent directories): .git",
+			"fatal: not a git repository (or any parent up to mount point /home)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).",
+		} {
+			runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+				return run.Result{ExitCode: 128, Stderr: stderr + "\n"}, nil
+			}}
+			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+			if err != nil || inside || present || id != "" {
+				t.Fatalf("%q: Repository = %q, %v, %v, %v; want outside every repository", stderr, id, present, inside, err)
 			}
 		}
 	})

@@ -101,6 +101,20 @@ func TestContextWithoutConfigRules(t *testing.T) {
 		}
 	})
 
+	t.Run("records the treerig.toml it set aside, and none when there was none to find", func(t *testing.T) {
+		dir := registrytest.TempDir(t)
+		if cctx, _, err := build(t, dir, ""); err != nil || cctx.SetAsideConfig != "" {
+			t.Fatalf("with none: SetAsideConfig = %q, err = %v", cctx.SetAsideConfig, err)
+		}
+		file := filepath.Join(dir, "treerig.toml")
+		if err := os.WriteFile(file, []byte("not = [valid"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if cctx, _, err := build(t, dir, ""); err != nil || cctx.SetAsideConfig != file {
+			t.Fatalf("with a broken one: SetAsideConfig = %q, err = %v; want %s", cctx.SetAsideConfig, err, file)
+		}
+	})
+
 	t.Run("refuses a --config that names a file that is not there, and does not build a context", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
 		missing := filepath.Join(dir, "nowhere", "treerig.toml")

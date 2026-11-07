@@ -94,7 +94,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			return nil, err
 		}
 		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s belongs to, so %s is treated as another repository's worktree: %s",
-			text.Printable(cctx.Cwd), text.Printable(options.Identifier), text.OneLine(commandReason(err), 200)))
+			text.Printable(cctx.Registry.Identities.Root), text.Printable(options.Identifier), text.OneLine(commandReason(err), 200)))
 		repositoryID, present, inside = "", false, false
 	}
 	target, err := resolveRemoveTarget(ctx, cctx, options, inside)
@@ -317,7 +317,7 @@ func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options Remo
 	if options.Identifier == "" {
 		if !inside {
 			return nil, clierr.Newf("There is no worktree to remove here: %s is not inside a Git worktree. "+
-				"Name one with '%s worktree remove <slug|uuid>'.", cctx.Cwd, cctx.CommandName)
+				"Name one with '%s worktree remove <slug|uuid>'.", text.Printable(cctx.Registry.Identities.Root), cctx.CommandName)
 		}
 		current, err := cctx.Registry.Current(ctx)
 		if err != nil {
@@ -391,14 +391,18 @@ func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, 
 	}
 	// Nothing records it. Where the user is decides what they can do about it:
 	// a worktree of this repository whose treerig.toml was set aside needs the
-	// file fixed; any other needs the command run from inside its repository,
-	// naming the target, since a bare 'worktree remove' there would remove the
-	// worktree they are in.
+	// file fixed, and one with none needs it run where the file is; any other
+	// needs the command run from inside its repository, naming the target,
+	// since a bare 'worktree remove' there would remove the worktree they are
+	// in.
 	// TODO(#211): --label-namespace goes with the flag; this then asks for nothing but the repository.
 	where, remedy := "from here:", fmt.Sprintf("Run '%s worktree remove %s' from inside the repository that created it", cctx.CommandName, target.Slug)
 	switch {
-	case local:
+	case local && cctx.SetAsideConfig != "":
 		where, remedy = "from this directory: its "+brand.ConfigFile+" could not be used to find out, and", "Fix "+brand.ConfigFile
+	case local:
+		where, remedy = "from this directory: it has no "+brand.ConfigFile+" to find out from, and",
+			"Run it from a worktree of a branch that has "+brand.ConfigFile
 	case cctx.Loaded != nil:
 		where = "from this repository: it belongs to a different one, and"
 	}

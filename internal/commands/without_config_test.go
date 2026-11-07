@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -324,10 +325,21 @@ func TestWorktreeRemoveWithoutConfig(t *testing.T) {
 	t.Run("in a worktree whose treerig.toml is unusable refuses, naming the file, when nothing else records the namespace", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		registerRecordingNothing(t, w, w.Root, acme, "feature-login", brand.LabelNamespace)
+		tc := w.ContextWithoutConfig(w.Root)
+		tc.SetAsideConfig = filepath.Join(w.Root, brand.ConfigFile)
 
-		_, err := remove(t, w.ContextWithoutConfig(w.Root), approved(commands.RemoveOptions{}))
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
 		wantErr(t, err, `^Cannot remove feature-login\.acme\.localhost from this directory: its treerig\.toml could not be used to find out, and nothing on disk records which Docker labels its resources carry\. `+
 			`Fix treerig\.toml, or pass --label-namespace \(dev\.treerig unless that project set project\.label-namespace\)\.$`)
+	})
+
+	t.Run("in a worktree with no treerig.toml refuses, saying there is none to fix, when nothing else records the namespace", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		registerRecordingNothing(t, w, w.Root, acme, "feature-login", brand.LabelNamespace)
+
+		_, err := remove(t, w.ContextWithoutConfig(w.Root), approved(commands.RemoveOptions{}))
+		wantErr(t, err, `^Cannot remove feature-login\.acme\.localhost from this directory: it has no treerig\.toml to find out from, and nothing on disk records which Docker labels its resources carry\. `+
+			`Run it from a worktree of a branch that has treerig\.toml, or pass --label-namespace \(dev\.treerig unless that project set project\.label-namespace\)\.$`)
 	})
 }
 
@@ -413,8 +425,12 @@ func TestWorktreeUnlockWithoutConfig(t *testing.T) {
 
 	t.Run("outside a repository, with no name, there is no worktree to unlock and it says how to name one", func(t *testing.T) {
 		w, _, _ := twoRepositories(t)
-		_, err := unlock(t, w.ContextWithoutConfig(""), commands.UnlockOptions{})
-		wantErr(t, err, `^There is no worktree to unlock here: .* is not inside a Git worktree\. Name one with 'treerig worktree unlock <slug\|uuid>'\.$`)
+		// The directory checked is the one named: with --config that is the
+		// config's own, not the working directory.
+		tc := w.ContextWithoutConfig("")
+		tc.Cwd = filepath.Join(w.Outside(), "elsewhere")
+		_, err := unlock(t, tc, commands.UnlockOptions{})
+		wantErr(t, err, `^There is no worktree to unlock here: `+regexp.QuoteMeta(w.Outside())+` is not inside a Git worktree\. Name one with 'treerig worktree unlock <slug\|uuid>'\.$`)
 		_, err = unlock(t, w.ContextWithoutConfig(""), commands.UnlockOptions{Shared: true})
 		wantErr(t, err, `Name one with 'treerig worktree unlock --shared <slug\|uuid>'\.$`)
 	})
