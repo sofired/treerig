@@ -261,8 +261,8 @@ also on [GitHub](https://github.com/sofired/treerig/tree/main/docs).
 Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
 `status`, `urls`, `run`, `backup`, `restore`, and `worktree list`, `remove`,
 `rename` and `unlock`), the shared router and checkout index, host routes
-(`route`), shared services and `doctor`; `treerig --help` lists every
-command. Releases are listed on the
+(`route`), shared services and `doctor`; `treerig --help` lists the everyday
+commands and `treerig help --all` every command. Releases are listed on the
 [releases page](https://github.com/sofired/treerig/releases).
 
 `worktree remove` refuses development builds, which includes a build from

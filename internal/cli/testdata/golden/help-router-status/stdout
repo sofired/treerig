@@ -7,5 +7,5 @@ Flags:
   -h, --help   help for status
 
 Global Flags:
-      --config string   path to treerig.toml (default: nearest above cwd)
-  -V, --version         output the version number
+      --progress mode   how to show progress: auto or plain (one line per
+                        change) (default "auto")

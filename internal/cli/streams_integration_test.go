@@ -381,7 +381,7 @@ backup  = "./backup.sh"
 		// echoed again inside the stack trace, printed outside the logger.
 		hostile := filepath.Join(cwd, "missing\x1b[2K.toml")
 
-		result := runTreerig(t, binary, cwd, []string{"--config", hostile, "config", "validate"}, treerigOptions{debug: true})
+		result := runTreerig(t, binary, cwd, []string{"config", "validate", "--config", hostile}, treerigOptions{debug: true})
 
 		if result.Code != 1 {
 			t.Errorf("exit code = %d, want 1", result.Code)
@@ -460,7 +460,7 @@ backup  = "./backup.sh"
 		if !regexp.MustCompile(`(?m)^ {2}ok {4}router +not running`).MatchString(result.Stdout) {
 			t.Errorf("stdout = %q, want an ok router check", result.Stdout)
 		}
-		if !regexp.MustCompile(`(?m)^\[treerig\] No checks failed \(1 warning\(s\), 1 skipped\)\.$`).MatchString(result.Stderr) {
+		if !regexp.MustCompile(`(?m)^No checks failed \(1 warning\(s\), 1 skipped\)\.$`).MatchString(result.Stderr) {
 			t.Errorf("stderr = %q, want the no-failures notice", result.Stderr)
 		}
 		// The one warning is that nothing is pinned for `worktree remove`; it is

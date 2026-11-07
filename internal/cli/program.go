@@ -37,14 +37,140 @@ var errVersionRequested = errors.New("cli: version requested")
 type program struct {
 	buildEnv func(configPath string) (*commands.Env, error)
 	exitCode *int
+	// args is the command line after the program's name, as the root parses it.
+	args []string
 }
 
-// env resolves cmd's own --config (root's persistent flag, inherited by
-// every command) into a commands.Env for cmd's action.
+// env resolves cmd's own --config (declared by addConfigFlag on each command
+// that reads treerig.toml; "" on one that does not) and root's persistent
+// -v/--verbose and --progress into a commands.Env for cmd's action.
 func (p *program) env(cmd *cobra.Command) (*commands.Env, error) {
-	configPath, _ := cmd.Flags().GetString("config")
-	return p.buildEnv(configPath)
+	configPath, _ := cmd.Flags().GetString(configFlag)
+	env, err := p.buildEnv(configPath)
+	if err != nil {
+		return nil, err
+	}
+	// Both are the root's persistent flags, which every command's flag set
+	// has, so these lookups cannot fail; a hand-built command without them
+	// reads as the defaults.
+	env.Verbose, _ = cmd.Flags().GetBool(verboseFlag)
+	if f := cmd.Flags().Lookup(progressFlag); f != nil {
+		env.Progress = commands.ProgressMode(f.Value.String())
+	}
+	if env.Progress == "" {
+		env.Progress = commands.ProgressAuto
+	}
+	return env, nil
 }
+
+// The names of the flags this tree declares in more than one place, or reads
+// back from a command's flag set.
+const (
+	configFlag   = "config"
+	verboseFlag  = "verbose"
+	progressFlag = "progress"
+)
+
+// The help groups of the root command, in the order its help lists them.
+// moreGroup is the one the default screen hides and `help --all` shows.
+const (
+	startGroup    = "start"
+	dayGroup      = "day"
+	tasksGroup    = "tasks"
+	problemsGroup = "problems"
+	moreGroup     = "more"
+)
+
+// addConfigFlag declares --config on cmd, a command that reads treerig.toml.
+// It is a flag of that command alone, so help, completion and the unknown
+// flag error of a command that reads no configuration (init, router,
+// teardown, config schema) all follow from where it is declared.
+func addConfigFlag(cmd *cobra.Command) {
+	cmd.Flags().String(configFlag, "", fmt.Sprintf("path to %s (default: nearest above cwd)", brand.ConfigFile))
+	_ = cmd.MarkFlagFilename(configFlag, "toml")
+}
+
+// rootGroups is the help group of each of the root's own commands. It maps
+// today's command set onto the groups docs/design/cli-1.0.md names, until
+// that design's commands (open, logs, list, remove, rename) exist: the
+// everyday commands are on the default screen, and what is not (shared
+// services, the router, configuration, the teardown pin, the index,
+// completion and help itself) is under More, which `help --all` shows.
+// A command missing here is listed last, ungrouped.
+var rootGroups = map[string]string{
+	"init":       startGroup,
+	"up":         startGroup,
+	"dev":        dayGroup,
+	"down":       dayGroup,
+	"status":     dayGroup,
+	"urls":       dayGroup,
+	"worktree":   dayGroup,
+	"run":        tasksGroup,
+	"backup":     tasksGroup,
+	"restore":    tasksGroup,
+	"route":      tasksGroup,
+	"doctor":     problemsGroup,
+	"config":     moreGroup,
+	"index":      moreGroup,
+	"router":     moreGroup,
+	"shared":     moreGroup,
+	"teardown":   moreGroup,
+	"completion": moreGroup,
+	"help":       moreGroup,
+}
+
+// configCommands are the commands, by path below the root, that read
+// treerig.toml and so take --config. init, config schema, router and teardown
+// read none.
+var configCommands = []string{
+	"config validate", "config show",
+	"dev", "up", "down", "status", "urls",
+	"run", "backup", "restore", "index", "doctor",
+	"route add", "route rm", "route ls",
+	"shared up", "shared down", "shared status",
+	"worktree list", "worktree remove", "worktree rename", "worktree unlock",
+}
+
+// declareGroupsAndConfig gives each of the root's commands its help group
+// (rootGroups) and each command that reads treerig.toml its --config flag
+// (configCommands). A path that names no command is a mistake in the tables
+// above, and panics so that any test of the tree finds it.
+func declareGroupsAndConfig(root *cobra.Command) {
+	for _, cmd := range root.Commands() {
+		cmd.GroupID = rootGroups[cmd.Name()]
+	}
+	for _, path := range configCommands {
+		cmd, rest, err := root.Find(strings.Fields(path))
+		if err != nil || len(rest) > 0 || cmd == root {
+			panic(fmt.Sprintf("cli: configCommands names no command: %q", path))
+		}
+		addConfigFlag(cmd)
+	}
+}
+
+// progressValue is --progress's pflag.Value: one of commands.ProgressModes,
+// "auto" by default, and a usage error for any other. It reports its type as
+// "mode", which is the value name help shows (--progress mode).
+type progressValue commands.ProgressMode
+
+// String is the mode as given.
+func (v *progressValue) String() string { return string(*v) }
+
+// Set accepts one of commands.ProgressModes.
+func (v *progressValue) Set(s string) error {
+	if !slices.Contains(commands.ProgressModes, commands.ProgressMode(s)) {
+		names := make([]string, len(commands.ProgressModes))
+		for i, m := range commands.ProgressModes {
+			names[i] = string(m)
+		}
+		return fmt.Errorf("must be one of: %s", strings.Join(names, ", "))
+	}
+	*v = progressValue(s)
+	return nil
+}
+
+// Type is the value name help shows after the flag.
+func (*progressValue) Type() string { return "mode" }
 
 // exit records the exit code the process should end with when the current
 // action returns nil: doctor's own diagnostic code, or router status's
@@ -116,6 +242,9 @@ func exactArgs(n int, what string) cobra.PositionalArgs {
 // long flag, in the same shape unknownSubcommand gives an unknown command
 // (pflag, unlike cobra, suggests nothing itself).
 func flagError(cmd *cobra.Command, err error) error {
+	if refusal := misplacedFlag(cmd, err); refusal != nil {
+		return refusal
+	}
 	msg := err.Error()
 	typed, ok := strings.CutPrefix(msg, "unknown flag: --")
 	if !ok {
@@ -131,6 +260,34 @@ func flagError(cmd *cobra.Command, err error) error {
 		msg += "\n\nDid you mean this?\n\t" + strings.Join(suggestions, "\n\t")
 	}
 	return clierr.New(msg)
+}
+
+// misplacedFlag is the error for a flag this tree has, but not on cmd: --config
+// on a command that reads no treerig.toml, and -V/--version anywhere but the
+// root. It is nil for any other flag error, and pflag's bare "unknown flag"
+// would say nothing of why these are refused.
+func misplacedFlag(cmd *cobra.Command, err error) error {
+	root := cmd.Root()
+	// pflag names the rest of the cluster after the flag it could not place
+	// ("in -Vx"), so -V is matched on that prefix, not on the whole message.
+	if strings.HasPrefix(err.Error(), "unknown shorthand flag: 'V' in -") {
+		return clierr.Newf("-V is only accepted on its own: run '%s -V'.", root.CommandPath())
+	}
+	switch err.Error() {
+	case "unknown flag: --config":
+		switch {
+		case cmd.CommandPath() == root.CommandPath()+" init":
+			return clierr.Newf("'%s' writes %s at the root of the Git repository you run it in; it does not take --config.",
+				cmd.CommandPath(), brand.ConfigFile)
+		case cmd.HasSubCommands():
+			return clierr.Newf("'%s' does not take --config itself: give it to the command that reads %s, after that command's name.",
+				cmd.CommandPath(), brand.ConfigFile)
+		}
+		return clierr.Newf("'%s' reads no %s, so it does not take --config.", cmd.CommandPath(), brand.ConfigFile)
+	case "unknown flag: --version":
+		return clierr.Newf("--version is only accepted on its own: run '%s --version'.", root.CommandPath())
+	}
+	return nil
 }
 
 // isNear is cobra's own test for suggesting a command name, applied to a
@@ -162,6 +319,32 @@ func editDistance(a, b string) int {
 		prev = cur
 	}
 	return prev[len(b)]
+}
+
+// firstPositional is the first word in args that cobra would take as a
+// command name, by cobra's own rules for finding one (stripFlags): a long
+// flag without "=" that is not a boolean, or a lone short one, takes the next
+// argument as its value, known flag or not, and nothing after "--" counts.
+func firstPositional(flags *pflag.FlagSet, args []string) (string, bool) {
+	takesValue := func(f *pflag.Flag) bool { return f == nil || f.NoOptDefVal == "" }
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return "", false
+		case strings.HasPrefix(a, "--") && !strings.Contains(a, "="):
+			if takesValue(flags.Lookup(a[2:])) {
+				i++
+			}
+		case strings.HasPrefix(a, "-") && !strings.Contains(a, "=") && len(a) == 2:
+			if takesValue(flags.ShorthandLookup(a[1:])) {
+				i++
+			}
+		case a != "" && !strings.HasPrefix(a, "-"):
+			return a, true
+		}
+	}
+	return "", false
 }
 
 // unknownSubcommand rejects a positional argument on a command group that
@@ -196,7 +379,7 @@ func unknownSubcommand(cmd *cobra.Command, args []string) error {
 // nothing left to name as the culprit.
 func bareGroup(p *program) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		writeHelp(cmd, cmd.ErrOrStderr())
+		writeHelp(cmd, cmd.ErrOrStderr(), false)
 		p.exit(1)
 		return nil
 	}
@@ -209,9 +392,11 @@ func bareGroup(p *program) func(cmd *cobra.Command, args []string) error {
 // own help, to stdout, exit 0 — walking the full path given, not just its
 // first word. A path with words that name no command shows the help of the
 // deepest command it did name (root's, if none), to stderr, exit 1, the same
-// as any other unresolvable name in this tree.
+// as any other unresolvable name in this tree. With --all, root's help also
+// lists the More group.
 func newHelpCommand(p *program) *cobra.Command {
-	return &cobra.Command{
+	var all bool
+	help := &cobra.Command{
 		Use:   "help [command]",
 		Short: "display help for command",
 		Args:  cobra.ArbitraryArgs,
@@ -232,14 +417,16 @@ func newHelpCommand(p *program) *cobra.Command {
 			// it by hand first, the same way cobra's own help command does.
 			target.InitDefaultHelpFlag()
 			if err != nil || len(rest) > 0 {
-				writeHelp(target, root.ErrOrStderr())
+				writeHelp(target, root.ErrOrStderr(), all)
 				p.exit(1)
 				return nil
 			}
-			writeHelp(target, root.OutOrStdout())
+			writeHelp(target, root.OutOrStdout(), all)
 			return nil
 		},
 	}
+	help.Flags().BoolVar(&all, "all", false, "also list the commands the default screen leaves out")
+	return help
 }
 
 // addCompletion adds cobra's "completion <shell>" command, which prints a
@@ -264,16 +451,16 @@ func addCompletion(root *cobra.Command, p *program) {
 	}
 
 	// Cobra completes file names wherever it is told nothing else. Only
-	// --config names a file; no positional argument and no other flag value
-	// in this tree does. Flag completions live in a cobra-wide map, locked
-	// for concurrent use, that gains an entry for each flag of each tree.
-	_ = root.MarkPersistentFlagFilename("config", "toml")
+	// --config (addConfigFlag marks it as a .toml file) names a file; no
+	// positional argument and no other flag value in this tree does. Flag
+	// completions live in a cobra-wide map, locked for concurrent use, that
+	// gains an entry for each flag of each tree.
 	visitCommands(root, func(cmd *cobra.Command) {
 		if cmd.ValidArgsFunction == nil && len(cmd.ValidArgs) == 0 {
 			cmd.ValidArgsFunction = cobra.NoFileCompletions
 		}
 		cmd.LocalNonPersistentFlags().VisitAll(func(f *pflag.Flag) {
-			if f.Value.Type() == "string" {
+			if f.Value.Type() == "string" && f.Name != configFlag {
 				_ = cmd.RegisterFlagCompletionFunc(f.Name, cobra.NoFileCompletions)
 			}
 		})
@@ -340,6 +527,9 @@ func runSuggestion(path, name string, rest []string) string {
 // for an unknown flag, where the mistake almost always was leaving out "--"
 // (`treerig run plan -auto-approve`), the spelling that passes it on.
 func runFlagError(cmd *cobra.Command, err error) error {
+	if refusal := misplacedFlag(cmd, err); refusal != nil {
+		return refusal
+	}
 	base := flagError(cmd, err)
 	msg := err.Error()
 	var flag string
@@ -389,10 +579,47 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		SilenceUsage:  true,
 		Args:          usageArgs(unknownSubcommand),
 	}
-	root.PersistentFlags().String("config", "", fmt.Sprintf("path to %s (default: nearest above cwd)", brand.ConfigFile))
-	root.PersistentFlags().BoolP("version", "V", false, "output the version number")
-	root.SetFlagErrorFunc(flagError)
+	root.AddGroup(
+		&cobra.Group{ID: startGroup, Title: "Start here"},
+		&cobra.Group{ID: dayGroup, Title: "Day to day"},
+		&cobra.Group{ID: tasksGroup, Title: "Project tasks"},
+		&cobra.Group{ID: problemsGroup, Title: "Problems"},
+		&cobra.Group{ID: moreGroup, Title: "More"},
+	)
+	// -V is the root's alone, so no other page lists it; -v is the verbose
+	// flag of every command. pflag tells them apart by case.
+	root.Flags().BoolP("version", "V", false, "output the version number")
+	root.PersistentFlags().BoolP(verboseFlag, "v", false, "show what treerig runs, and every detail")
+	// TODO(#205): shown once something reads it; until then help would promise
+	// what it does not do. It still parses, so scripts and the gate's filter
+	// can rely on it.
+	_ = root.PersistentFlags().MarkHidden(verboseFlag)
+	progress := progressValue(commands.ProgressAuto)
+	root.PersistentFlags().Var(&progress, progressFlag, "how to show progress: auto or plain (one line per change) (default \"auto\")")
+	// pflag quotes a default only for a "string" flag, and this one is named
+	// "mode" in help, so the default is written in the usage instead.
+	root.PersistentFlags().Lookup(progressFlag).DefValue = ""
+	_ = root.RegisterFlagCompletionFunc(progressFlag, cobra.FixedCompletions([]cobra.Completion{
+		// TODO(#208): "redraw on a terminal", once the live writer does.
+		cobra.CompletionWithDesc(string(commands.ProgressAuto), "the default"),
+		cobra.CompletionWithDesc(string(commands.ProgressPlain), "one line per change"),
+	}, cobra.ShellCompDirectiveNoFileComp))
+	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		// The root parses only when no command was found, so a word left on the
+		// line names a command that does not exist: that is the mistake to
+		// report, not a flag that could have gone after it.
+		if cmd == cmd.Root() {
+			if word, ok := firstPositional(cmd.Flags(), p.args); ok {
+				return usageArgs(unknownSubcommand)(cmd, []string{word})
+			}
+		}
+		return flagError(cmd, err)
+	})
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Only the root has -V; no other command's flag set has "version".
+		if cmd != cmd.Root() {
+			return nil
+		}
 		if v, _ := cmd.Flags().GetBool("version"); v {
 			fmt.Fprintln(cmd.OutOrStdout(), version)
 			return errVersionRequested
@@ -400,8 +627,11 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		return nil
 	}
 	root.RunE = bareGroup(p)
-	root.SetHelpCommand(newHelpCommand(p))
-	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { writeHelp(cmd, cmd.OutOrStdout()) })
+	help := newHelpCommand(p)
+	help.GroupID = moreGroup
+	root.SetHelpCommand(help)
+	root.SetCompletionCommandGroupID(moreGroup)
+	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { writeHelp(cmd, cmd.OutOrStdout(), false) })
 
 	root.AddCommand(&cobra.Command{
 		Use:   "init",
@@ -903,6 +1133,9 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 	remove.Flags().String("label-namespace", "", "supply the Docker label namespace when nothing on disk records it (a worktree of another repository)")
 	remove.Flags().Bool("yes", false, "skip the confirmation phrase")
 	remove.Flags().Bool("dev-teardown", false, "remove with this build's own code, not a pinned teardown binary")
+	// Still accepted, but not advertised: it is a developer's escape hatch,
+	// and the refusal on a development build names it.
+	_ = remove.Flags().MarkHidden("dev-teardown")
 	remove.ValidArgsFunction = identifierCompletionFunc(p, false)
 	_ = remove.RegisterFlagCompletionFunc("domain", domainCompletionFunc(p))
 	worktree.AddCommand(remove)
@@ -1040,6 +1273,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 
 	root.SetOut(stdout)
 	root.SetErr(stderr)
+	declareGroupsAndConfig(root)
 	// Must run after every RegisterFlagCompletionFunc above it (identifier
 	// and --domain completion on remove and unlock): addCompletion's own
 	// loop registers cobra.NoFileCompletions on every string flag that has

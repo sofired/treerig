@@ -211,7 +211,7 @@ Missing a source to pin: pass --release X.Y.Z or --latest to download and verify
 --release must be a version such as 1.2.3 or 0.1.0-rc.1, without a leading v.
 ```
 
-(The root's persistent `-V, --version` is the build's own version, so no pin flag
+(The root's own `-V, --version` is the build's own version, so no pin flag
 uses that name.) The usage line shows the three forms as `(--release X.Y.Z |
 --latest | --file PATH)`, and the description spells out the three forms, because
 the full `--file` triple does not fit the 80-column usage line.

@@ -1,0 +1,12 @@
+display help for command
+
+Usage:
+  treerig help [command] [flags]
+
+Flags:
+      --all    also list the commands the default screen leaves out
+  -h, --help   help for help
+
+Global Flags:
+      --progress mode   how to show progress: auto or plain (one line per
+                        change) (default "auto")

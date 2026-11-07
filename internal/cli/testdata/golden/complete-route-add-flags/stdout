@@ -1,5 +1,5 @@
+--progress	how to show progress: auto or plain (one line per change) (default "auto")
 --config	path to treerig.toml (default: nearest above cwd)
---version	output the version number
 --help	help for add
 --path	route only this URL path prefix, which must start with /
 --port	the port the process on the host listens on, at 127.0.0.1 (required)

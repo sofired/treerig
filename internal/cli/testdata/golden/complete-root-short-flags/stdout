@@ -1,0 +1,6 @@
+--help	help for treerig
+-h	help for treerig
+--progress	how to show progress: auto or plain (one line per change) (default "auto")
+--version	output the version number
+-V	output the version number
+:4

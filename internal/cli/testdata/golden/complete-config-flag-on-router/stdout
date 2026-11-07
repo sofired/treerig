@@ -1,0 +1,3 @@
+--progress	how to show progress: auto or plain (one line per change) (default "auto")
+--help	help for up
+:4
