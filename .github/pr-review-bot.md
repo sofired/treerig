@@ -1,6 +1,3 @@
----
-approve off
----
 # Review guidelines for treerig
 
 treerig gives every Git worktree a durable identity, its own Docker Compose project and data directory, and a
