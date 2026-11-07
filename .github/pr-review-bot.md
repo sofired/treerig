@@ -1,5 +1,5 @@
 ---
-approve: off
+approve off
 ---
 # Review guidelines for treerig
 
