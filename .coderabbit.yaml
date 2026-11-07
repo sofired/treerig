@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit reviews pull requests in this repository and does nothing else:
+# it comments and reviews, and never edits a pull request, commits, opens a
+# pull request or an issue, or labels or assigns anything. Every setting below
+# switches off something that would.
+reviews:
+  # Not appended to the pull request's description.
+  high_level_summary: false
+  auto_apply_labels: false
+  auto_assign_reviewers: false
+  poem: false
+  in_progress_fortune: false
+  finishing_touches:
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+chat:
+  art: false
+  integrations:
+    jira:
+      usage: disabled
+    linear:
+      usage: disabled
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
