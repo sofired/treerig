@@ -12,7 +12,6 @@ import (
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lifecycle"
 	"github.com/sofired/treerig/internal/lock"
-	"github.com/sofired/treerig/internal/ports"
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/shared"
@@ -340,13 +339,14 @@ func sharedPhrase(names []string) string {
 func heldPin(ctx context.Context, cctx *CommandContext, service string, pins map[int]int, cause error) *clierr.Error {
 	for _, container := range slices.Sorted(mapKeys(pins)) {
 		host := pins[container]
-		if cctx.portProbe().Free(ctx, host) {
+		free, why := cctx.portProbe().Free(ctx, host)
+		if free {
 			continue
 		}
 		refusal := clierr.Newf(
-			"Cannot start shared service %s: its pinned port %s (container port %d) is held by another process (%s). "+
+			"Cannot start shared service %s: its pinned port %s (container port %d) is held by %s. "+
 				"Stop what holds it, or run '%s shared up --reallocate-port %s:%d' to give the port another number.",
-			service, loopbackAddr(host), container, ports.LookupHint(cctx.OS, host), cctx.CommandName, service, container)
+			service, loopbackAddr(host), container, describeHolders(cctx.OS, host, []string{anotherProcess}, why), cctx.CommandName, service, container)
 		if cause != nil {
 			refusal.ExitCode = clierr.Code(cause)
 			refusal.Cause = cause
