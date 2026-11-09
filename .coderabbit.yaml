@@ -1,12 +1,35 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 #
 # CodeRabbit reviews pull requests in this repository and does nothing else:
-# it comments and reviews, and never edits a pull request, commits, opens a
-# pull request or an issue, or labels or assigns anything. Every setting below
-# switches off something that would.
+# it comments, reviews and requests changes. It never edits a pull request,
+# commits, opens a pull request or an issue, or labels or assigns anything, and
+# it doesn't offer to, so nothing (an agent included) can take up an offer
+# without the owner's approval. Every setting below switches off something
+# that would act or offer to.
+#
+# One exception has no setting: if someone asks for a GitHub issue in an
+# @coderabbitai mention, CodeRabbit can open one. It only does so when asked,
+# so nobody here asks it.
+
+# Everything not set here comes from the organization's settings (the review
+# profile, change requests and the rest), as it did before this file.
+inheritance: true
+
+tone_instructions: >-
+  Review only. State findings and how to fix them. Never offer to open issues,
+  commit, push, apply fixes, or generate code, tests or docs, and never ask
+  whether you should.
+
 reviews:
-  # Not appended to the pull request's description.
+  # No "Prompt for AI Agents" block in review comments: it is written for a
+  # coding agent to act on.
+  enable_prompt_for_ai_agents: false
+  # Not appended to the pull request's description, and no placeholder that
+  # would bring it back: the summary and title placeholders are words nobody
+  # writes, since they can't be switched off.
   high_level_summary: false
+  high_level_summary_placeholder: "@coderabbitai-summary-is-off-in-this-repository"
+  auto_title_placeholder: "@coderabbitai-title-is-off-in-this-repository"
   auto_apply_labels: false
   auto_assign_reviewers: false
   poem: false
