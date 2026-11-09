@@ -7,9 +7,10 @@
 # without the owner's approval. Every setting below switches off something
 # that would act or offer to.
 #
-# One exception has no setting: if someone asks for a GitHub issue in an
-# @coderabbitai mention, CodeRabbit can open one. It only does so when asked,
-# so nobody here asks it.
+# Some @coderabbitai commands have no setting to switch them off, and each
+# acts only when someone posts it: asking for a GitHub issue, `evaluate custom
+# finishing touch` (which opens a pull request), and `approve`. Nobody here
+# posts them.
 
 # Everything not set here comes from the organization's settings (the review
 # profile, change requests and the rest), as it did before this file.
@@ -21,6 +22,11 @@ tone_instructions: >-
   whether you should.
 
 reviews:
+  # It reviews and requests changes but never approves: a disabled override
+  # with no teams or paths matches every pull request.
+  auto_approvals:
+    overrides:
+      - enabled: false
   # No "Prompt for AI Agents" block in review comments: it is written for a
   # coding agent to act on.
   enable_prompt_for_ai_agents: false
@@ -47,6 +53,8 @@ reviews:
       enabled: false
     simplify:
       enabled: false
+    # No recipes, so none comes down from the organization's settings.
+    custom: []
 chat:
   art: false
   integrations:
