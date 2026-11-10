@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"testing"
+
 	"context"
 	"time"
 
@@ -89,3 +91,12 @@ func SetReleaseLimitsForTest(limits releasefetch.Limits) (restore func()) {
 
 // ReleaseLimitsForTest reports the bounds `teardown pin --release` uses now.
 func ReleaseLimitsForTest() releasefetch.Limits { return releaseLimits }
+
+// SetFindConfigFileForTest replaces the gate's treerig.toml lookup for the
+// rest of the test.
+func SetFindConfigFileForTest(t testing.TB, find func(startDir string) (string, bool, error)) {
+	t.Helper()
+	previous := findConfigFile
+	findConfigFile = find
+	t.Cleanup(func() { findConfigFile = previous })
+}
