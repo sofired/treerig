@@ -183,7 +183,9 @@ func TestContextWithoutConfigRules(t *testing.T) {
 }
 
 // scratchEnv is an Env whose working directory is cwd, with a scratch treerig
-// home and a runner that fails the test if anything calls it.
+// home and a runner that fails the test if anything calls it. The scratch home
+// keeps the machine's own settings and registrations out of the test, and the
+// runner proves that building a context runs nothing.
 func scratchEnv(t *testing.T, cwd, configPath string) (*commands.Env, *logger.Recording) {
 	t.Helper()
 	home := registrytest.TempDir(t)
