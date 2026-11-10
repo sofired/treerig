@@ -23,10 +23,14 @@ tone_instructions: >-
 
 reviews:
   # It reviews and requests changes but never approves: a disabled override
-  # with no teams or paths matches every pull request.
+  # whose paths match every file withholds approval on every pull request.
+  # CodeRabbit refuses an override with neither teams nor paths (the published
+  # schema doesn't say so), and approvals can't be switched off globally
+  # without also switching off change requests.
   auto_approvals:
     overrides:
       - enabled: false
+        paths: ["**"]
   # No "Prompt for AI Agents" block in review comments: it is written for a
   # coding agent to act on.
   enable_prompt_for_ai_agents: false
