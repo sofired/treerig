@@ -325,11 +325,18 @@ func TestUpRefusesAHeldPort(t *testing.T) {
 			pw.tc.OS = os
 			pw.Probe.Occupy(port)
 			_, err := pw.up(t, commands.UpOptions{})
-			wantErr(t, err, `api: 127\.0\.0\.1:`+strconv.Itoa(port)+` is held by another process \(find it with: `)
+			wantErr(t, err, `api: 127\.0\.0\.1:`+strconv.Itoa(port)+` is held by another process: binding it failed \(address already in use\); find it with: `)
 			if !strings.Contains(err.Error(), fmt.Sprintf(hint, port)) {
 				t.Fatalf("%s: err = %v, want the hint %q", os, err, fmt.Sprintf(hint, port))
 			}
 		}
+	})
+
+	t.Run("says what the probe saw when it judged the port busy", func(t *testing.T) {
+		pw, port := firstUp(t)
+		pw.Probe.OccupyBecause("connecting to it succeeded", port)
+		_, err := pw.up(t, commands.UpOptions{})
+		wantErr(t, err, `api: 127\.0\.0\.1:`+strconv.Itoa(port)+` is held by another process: connecting to it succeeded; find it with: `)
 	})
 
 	t.Run("ignores a record that names the port when this worktree's own container publishes it", func(t *testing.T) {

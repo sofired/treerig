@@ -11,12 +11,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // Probe answers whether a loopback port is free to publish on. The allocator
@@ -24,8 +26,11 @@ import (
 // LoopbackProbe is the real one.
 type Probe interface {
 	// Free reports whether nothing is bound to or listening on
-	// 127.0.0.1:port. A cancelled context is never "free".
-	Free(ctx context.Context, port int) bool
+	// 127.0.0.1:port. A cancelled context is never "free". When the port is
+	// not free, why says what the probe saw, as a phrase that completes
+	// "held by another process: ..." ("binding it failed (address already
+	// in use)"); it is empty when the port is free.
+	Free(ctx context.Context, port int) (free bool, why string)
 }
 
 // dialTimeout bounds LoopbackProbe's connection attempt. A refused
@@ -42,23 +47,18 @@ const dialTimeout = 250 * time.Millisecond
 type LoopbackProbe struct{}
 
 // Free is Probe's Free.
-func (LoopbackProbe) Free(ctx context.Context, port int) bool {
+func (LoopbackProbe) Free(ctx context.Context, port int) (bool, string) {
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	var listen net.ListenConfig
 	listener, err := listen.Listen(ctx, "tcp4", address)
 	if err != nil {
-		return false
+		return false, bindReason(ctx, err)
 	}
 	// A listener that will not close still proved the port was free.
 	_ = listener.Close()
-	dialer := net.Dialer{Timeout: dialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp4", address)
-	if err != nil {
-		// Refused means free; a cancelled context proves nothing.
-		return ctx.Err() == nil
-	}
-	_ = conn.Close()
-	return false
+	// A refusal, or any other failure to connect, after a bind that worked:
+	// free.
+	return dialVerdict(ctx, address, false)
 }
 
 // DialProbe is the Probe for a port treerig does not allocate but must find
@@ -71,14 +71,85 @@ func (LoopbackProbe) Free(ctx context.Context, port int) bool {
 type DialProbe struct{}
 
 // Free is Probe's Free.
-func (DialProbe) Free(ctx context.Context, port int) bool {
+func (DialProbe) Free(ctx context.Context, port int) (bool, string) {
+	return dialVerdict(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), true)
+}
+
+// dialVerdict dials address and judges the port by the answer, for both
+// probes. A refusal proves it free; a connection proves it held, and the
+// probe closes it at once without sending anything. Any other failure
+// (a timeout, a filtered port) proves nothing: it counts as busy when
+// strict, which DialProbe is because it has no bind to fall back on, and as
+// free otherwise, because LoopbackProbe's bind has already succeeded.
+func dialVerdict(ctx context.Context, address string, strict bool) (bool, string) {
 	dialer := net.Dialer{Timeout: dialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-	if err != nil {
-		return ctx.Err() == nil && errors.Is(err, syscall.ECONNREFUSED)
+	conn, err := dialer.DialContext(ctx, "tcp4", address)
+	switch {
+	case err == nil:
+		_ = conn.Close()
+		return false, acceptedReason
+	case ctx.Err() != nil:
+		return false, cancelledReason
+	case errors.Is(err, syscall.ECONNREFUSED) || !strict:
+		return true, ""
 	}
-	_ = conn.Close()
-	return false
+	return false, dialReason(err)
+}
+
+// What a probe says when it judges a port busy. Each completes "held by
+// another process: ...", except cancelledReason, which says nothing about a
+// holder: callers return the context's error and never print it.
+const (
+	acceptedReason  = "connecting to it succeeded"
+	cancelledReason = "the check was cancelled before it could tell"
+)
+
+// bindReason says why binding 127.0.0.1:port failed, from the error's
+// operating-system code where it has one. The codes are the same on Linux
+// and macOS: only the wording of an error without one varies, and that is
+// quoted.
+func bindReason(ctx context.Context, err error) string {
+	switch {
+	case ctx.Err() != nil:
+		return cancelledReason
+	case errors.Is(err, syscall.EADDRINUSE):
+		return "binding it failed (address already in use)"
+	case errors.Is(err, syscall.EACCES):
+		return "binding it failed (permission denied)"
+	}
+	return "binding it failed (" + quoteError(err) + ")"
+}
+
+// dialReason says why dialling 127.0.0.1:port neither connected nor was
+// refused, so the port counts as busy.
+func dialReason(err error) string {
+	var netErr net.Error
+	if errors.Is(err, os.ErrDeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+		return "connecting to it timed out"
+	}
+	return "connecting to it failed (" + quoteError(err) + ")"
+}
+
+// quoteError is err for a message: the operating system's own text when
+// the error carries an error number, which drops the "dial tcp4
+// 127.0.0.1:1: connect:" a reader already knows, else the whole error.
+func quoteError(err error) string {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return text.OneLine(errno.Error(), 100)
+	}
+	return text.OneLine(err.Error(), 100)
+}
+
+// DescribeProcess is how a message names a holder that is neither a container
+// nor a registration: "another process: <why>; find it with: <hint>", where
+// why is what the probe saw (Probe's Free) and the hint is LookupHint's. An
+// empty why gives "another process (<hint>)".
+func DescribeProcess(goos string, port int, why string) string {
+	if why == "" {
+		return "another process (" + LookupHint(goos, port) + ")"
+	}
+	return "another process: " + why + "; " + LookupHint(goos, port)
 }
 
 // LookupHint is how to find the process holding port, for the operating
@@ -133,7 +204,7 @@ func Pick(ctx context.Context, r layout.PortRange, probe Probe, taken map[int]bo
 			return 0, ErrProbeLimit
 		}
 		probed++
-		if probe.Free(ctx, port) {
+		if free, _ := probe.Free(ctx, port); free {
 			return port, nil
 		}
 	}
