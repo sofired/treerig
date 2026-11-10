@@ -335,11 +335,15 @@ func sharedPhrase(names []string) string {
 // while the service that publishes it is not running: it names the service,
 // the container port and address, how to find the holder, and the way out,
 // instead of Docker's bind error. nil when every pin is free. cause, when a
-// start has already failed, becomes the refusal's cause.
-func heldPin(ctx context.Context, cctx *CommandContext, service string, pins map[int]int, cause error) *clierr.Error {
+// start has already failed, becomes the refusal's cause. A probe cut short by
+// ctx proves nothing about a holder, so that is ctx's error instead.
+func heldPin(ctx context.Context, cctx *CommandContext, service string, pins map[int]int, cause error) error {
 	for _, container := range slices.Sorted(mapKeys(pins)) {
 		host := pins[container]
 		free, why := cctx.portProbe().Free(ctx, host)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if free {
 			continue
 		}

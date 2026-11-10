@@ -42,3 +42,15 @@ func TestInspectPortCancelled(t *testing.T) {
 		}
 	})
 }
+
+func TestHeldPinCancelled(t *testing.T) {
+	t.Run("returns the context's error, not a refusal naming another process, when the probe was cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		cctx := &CommandContext{CommandName: "treerig", OS: "linux", PortProbe: cancellingProbe{cancel}}
+		err := heldPin(ctx, cctx, "mailpit", map[int]int{1025: 30111}, nil)
+		if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "another process") {
+			t.Fatalf("err = %v, want context.Canceled", err)
+		}
+	})
+}
