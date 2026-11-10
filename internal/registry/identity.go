@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/sofired/treerig/internal/brand"
@@ -356,16 +355,39 @@ func (s *IdentityService) Ensure(ctx context.Context, worktree string) (*Worktre
 // notARepository is how Git's refusal outside every repository begins, in the
 // C locale Repository asks in: "... (or any of the parent directories)", or
 // "... (or any parent up to mount point <dir>)". It is matched at the start of
-// Git's first line, never anywhere in it: the refusal for a .git file or
-// GIT_DIR naming a missing directory is "fatal: not a git repository: <path>",
-// a broken repository rather than the absence of one, and its path may hold
-// any text.
+// Git's first line that is not a warning (refusalLine), never anywhere in it:
+// the refusal for a .git file or GIT_DIR naming a missing directory is
+// "fatal: not a git repository: <path>", a broken repository rather than the
+// absence of one, and its path may hold any text, line breaks included.
 const notARepository = "fatal: not a git repository (or any "
 
-// firstLine is s up to its first line break.
-func firstLine(s string) string {
-	line, _, _ := strings.Cut(s, "\n")
-	return line
+// refusalLine is the line of Git's stderr that says why it stopped: the first
+// one after any warnings it printed first ("warning: ..."). Only those leading
+// warnings are passed over, so a line break inside a path that comes after
+// the fatal line can never stand in for it.
+func refusalLine(stderr string) string {
+	for _, line := range strings.Split(stderr, "\n") {
+		if !strings.HasPrefix(line, "warning: ") {
+			return line
+		}
+	}
+	return ""
+}
+
+// probeEnviron is environ for the top-level probe: Git's own trace variables
+// (GIT_TRACE, GIT_TRACE2_EVENT and the rest) are dropped, since a trace file
+// Git cannot open makes it warn on stderr, and LC_ALL=C makes the refusal's
+// wording the one notARepository matches. Every other variable, GIT_DIR and
+// GIT_WORK_TREE included, is the caller's.
+func probeEnviron(environ []string) []string {
+	out := make([]string, 0, len(environ)+1)
+	for _, entry := range environ {
+		if strings.HasPrefix(entry, "GIT_TRACE") {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, "LC_ALL=C")
 }
 
 // topLevel asks Git for the top level of the work tree containing worktree.
@@ -380,7 +402,7 @@ func (s *IdentityService) topLevel(ctx context.Context, worktree string) (top st
 		AllowFailure: true,
 	}
 	if s.environ != nil {
-		spec.Env = append(slices.Clone(s.environ), "LC_ALL=C")
+		spec.Env = probeEnviron(s.environ)
 	}
 	result, err := s.runner.Run(ctx, spec)
 	if err != nil {
@@ -390,7 +412,7 @@ func (s *IdentityService) topLevel(ctx context.Context, worktree string) (top st
 		return strings.TrimSpace(result.Stdout), nil, nil
 	}
 	failure := run.Failure(spec, result)
-	if result.ExitCode != 0 && !result.TimedOut && !result.OutputOverflow && result.Signal == 0 && strings.HasPrefix(firstLine(result.Stderr), notARepository) {
+	if result.ExitCode != 0 && !result.TimedOut && !result.OutputOverflow && result.Signal == 0 && strings.HasPrefix(refusalLine(result.Stderr), notARepository) {
 		return "", failure, nil
 	}
 	return "", nil, failure
