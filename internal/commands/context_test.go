@@ -103,15 +103,23 @@ func TestContextWithoutConfigRules(t *testing.T) {
 
 	t.Run("records the treerig.toml it set aside, and none when there was none to find", func(t *testing.T) {
 		dir := registrytest.TempDir(t)
-		if cctx, _, err := build(t, dir, ""); err != nil || cctx.SetAsideConfig != "" {
-			t.Fatalf("with none: SetAsideConfig = %q, err = %v", cctx.SetAsideConfig, err)
+		cctx, _, err := build(t, dir, "")
+		if err != nil {
+			t.Fatalf("with none: %v", err)
+		}
+		if cctx.SetAsideConfig != "" {
+			t.Fatalf("with none: SetAsideConfig = %q, want none", cctx.SetAsideConfig)
 		}
 		file := filepath.Join(dir, "treerig.toml")
 		if err := os.WriteFile(file, []byte("not = [valid"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if cctx, _, err := build(t, dir, ""); err != nil || cctx.SetAsideConfig != file {
-			t.Fatalf("with a broken one: SetAsideConfig = %q, err = %v; want %s", cctx.SetAsideConfig, err, file)
+		cctx, _, err = build(t, dir, "")
+		if err != nil {
+			t.Fatalf("with a broken one: %v", err)
+		}
+		if cctx.SetAsideConfig != file {
+			t.Fatalf("with a broken one: SetAsideConfig = %q, want %s", cctx.SetAsideConfig, file)
 		}
 	})
 
