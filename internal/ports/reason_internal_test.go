@@ -43,7 +43,8 @@ func TestDescribeProcess(t *testing.T) {
 
 func TestDialVerdict(t *testing.T) {
 	ctx := context.Background()
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	var listen net.ListenConfig
+	listener, err := listen.Listen(ctx, "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Skipf("no loopback: %v", err)
 	}
