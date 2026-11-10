@@ -1005,13 +1005,18 @@ func (r *Router) portConflicts(ctx context.Context, read routerRead, options Sta
 	}
 	var conflicts []PortConflict
 	for _, need := range needs {
-		if own[need.Port] || r.startProbe(need.Port).Free(ctx, need.Port) {
+		if own[need.Port] {
 			continue
 		}
+		free, why := r.startProbe(need.Port).Free(ctx, need.Port)
+		// A cancelled probe says nothing about a holder.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		need.Holders, need.Container, err = r.holders(ctx, need.Port)
+		if free {
+			continue
+		}
+		need.Holders, need.Container, err = r.holders(ctx, need.Port, why)
 		if err != nil {
 			return nil, err
 		}
@@ -1060,9 +1065,9 @@ func (r *Router) CheckPorts(ctx context.Context) ([]PortConflict, error) {
 }
 
 // holders names what holds port: the containers publishing it, else
-// "another process" with the command that finds it. A failure to ask Docker
-// only costs the names.
-func (r *Router) holders(ctx context.Context, port int) (string, bool, error) {
+// "another process" with what the probe saw (why) and the command that finds
+// it. A failure to ask Docker only costs the names.
+func (r *Router) holders(ctx context.Context, port int, why string) (string, bool, error) {
 	result, err := docker.Run(ctx, r.runner, []string{"ps", "--filter", "publish=" + strconv.Itoa(port), "--format", "{{.Names}}"},
 		run.Spec{AllowFailure: true, Timeout: r.timeouts.Probe})
 	if err != nil {
@@ -1077,7 +1082,7 @@ func (r *Router) holders(ctx context.Context, port int) (string, bool, error) {
 		names = append(names, "container "+name)
 	}
 	if len(names) == 0 {
-		return fmt.Sprintf("another process (%s)", ports.LookupHint(r.clientOS, port)), false, nil
+		return ports.DescribeProcess(r.clientOS, port, why), false, nil
 	}
 	return strings.Join(names, " and "), true, nil
 }

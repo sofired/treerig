@@ -58,7 +58,7 @@ When the container itself fails to start, the message is `The shared router fail
 
 **Fix:** stop the holder, or move the router. Put `[router]` / `port = 8080` in `~/.treerig/settings.toml`, or set `TREERIG_ROUTER_PORT=8080`. The URLs treerig prints follow the new port. See [Settings](settings.md) and [Environment variables](environment.md).
 
-**Why:** something else listens on the router's port. The message names the holder: a container, or "another process" with the command that finds it.
+**Why:** something else listens on the router's port. The message names the holder: a container, or "another process" with what the probe saw and the command that finds it.
 
 ## A service declares no port
 
@@ -230,10 +230,10 @@ A remote daemon is refused too, with `treerig routes through a proxy that reache
 
 ```text
 Cannot start: a routed service's pinned loopback port is in use.
-  api: 127.0.0.1:20417 is held by another process (…)
+  api: 127.0.0.1:20417 is held by another process: binding it failed (address already in use); find it with: ss -ltnp 'sport = :20417'
 Stop what holds it, or run 'treerig up --reallocate-port <service>' to give the service another port.
 ```
 
 **Fix:** stop the holder, or run `treerig up --reallocate-port api` to give that service a new port. See [Ports](routing.md#ports).
 
-**Why:** something else took the port treerig pinned for the service: another treerig worktree, a container (named in the message), or another process. `up` proves a container is the worktree's own by its labels, never by its name.
+**Why:** something else took the port treerig pinned for the service: another treerig worktree, a container (named in the message), or another process. For another process the message also says what the probe saw: `binding it failed (address already in use)`, `connecting to it succeeded`, or the system's own text for any other error. `binding it failed (permission denied)` means the system refused treerig the bind, not that another process holds the port. `up` proves a container is the worktree's own by its labels, never by its name.

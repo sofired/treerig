@@ -376,7 +376,7 @@ func TestEnsureChecksThePortsAreFree(t *testing.T) {
 		stopped(t, w, router.ModeHost)
 		w.Probe.Busy[8080] = true
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "held by another process (find it with: ss -ltnp 'sport = :8080')") {
+		if err == nil || !strings.Contains(err.Error(), "held by another process: binding it failed (address already in use); find it with: ss -ltnp 'sport = :8080'") {
 			t.Fatalf("got %v", err)
 		}
 	})

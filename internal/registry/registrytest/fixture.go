@@ -48,8 +48,16 @@ type FreeProbe struct {
 	Busy map[int]bool
 }
 
-// Free is ports.Probe's Free.
-func (p FreeProbe) Free(_ context.Context, port int) bool { return !p.Busy[port] }
+// Free is ports.Probe's Free. A busy port's reason is FreeProbeWhy.
+func (p FreeProbe) Free(_ context.Context, port int) (bool, string) {
+	if p.Busy[port] {
+		return false, FreeProbeWhy
+	}
+	return true, ""
+}
+
+// FreeProbeWhy is the reason FreeProbe gives for a port in Busy.
+const FreeProbeWhy = "binding it failed (address already in use)"
 
 // WriteRecord writes a fixture registry record directly to disk, bypassing
 // the registry lock. This build has no Ensure (only `up` creates records), so
