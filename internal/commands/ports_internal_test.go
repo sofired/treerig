@@ -53,4 +53,15 @@ func TestHeldPinCancelled(t *testing.T) {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 	})
+
+	t.Run("keeps a failed start's own error when the probe after it was cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		cctx := &CommandContext{CommandName: "treerig", OS: "linux", PortProbe: cancellingProbe{cancel}}
+		failed := errors.New("compose up failed")
+		err := heldPin(ctx, cctx, "mailpit", map[int]int{1025: 30111}, failed)
+		if !errors.Is(err, failed) || strings.Contains(err.Error(), "another process") {
+			t.Fatalf("err = %v, want the start's own error", err)
+		}
+	})
 }

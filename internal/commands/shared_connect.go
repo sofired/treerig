@@ -336,12 +336,16 @@ func sharedPhrase(names []string) string {
 // the container port and address, how to find the holder, and the way out,
 // instead of Docker's bind error. nil when every pin is free. cause, when a
 // start has already failed, becomes the refusal's cause. A probe cut short by
-// ctx proves nothing about a holder, so that is ctx's error instead.
+// ctx proves nothing about a holder: then a start that failed keeps its own
+// error, as it would with every pin free, and otherwise it is ctx's error.
 func heldPin(ctx context.Context, cctx *CommandContext, service string, pins map[int]int, cause error) error {
 	for _, container := range slices.Sorted(mapKeys(pins)) {
 		host := pins[container]
 		free, why := cctx.portProbe().Free(ctx, host)
 		if err := ctx.Err(); err != nil {
+			if cause != nil {
+				return cause
+			}
 			return err
 		}
 		if free {
