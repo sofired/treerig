@@ -375,7 +375,10 @@ func TestNamedTargetsDoNotDependOnWhereTheyRunFrom(t *testing.T) {
 		gitRefusesAt(w, w.Root)
 
 		_, err := remove(t, w.ContextWithoutConfig(w.Root), approved(commands.RemoveOptions{Identifier: "feature-login"}))
-		wantErr(t, err, `nothing on disk records which Docker labels its resources carry`)
+		// Git's refusal is the trouble, not where the command ran: the target may
+		// be this repository's own.
+		wantErr(t, err, `^Cannot remove feature-login\.acme\.localhost from here: Git could not tell which repository this is \(see the warning above\), and nothing on disk records which Docker labels its resources carry\. `+
+			`Fix what Git reported and run it again, or pass --label-namespace \(dev\.treerig unless that project set project\.label-namespace\)\.$`)
 		if left := w.Docker.Owned(ref, "dev.oldns"); len(left) != 2 {
 			t.Fatalf("something was removed: %v", left)
 		}
