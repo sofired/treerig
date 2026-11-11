@@ -11,6 +11,7 @@ import (
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/text"
 )
 
@@ -156,12 +157,14 @@ func identifierCompletionFunc(p *program, includeOrphans bool) func(cmd *cobra.C
 	}
 }
 
-// isPathPrefix reports whether word could be the start of a path form of a
-// worktree name ("/", "./", "../" or "~"; a lone "." included), which is a
-// directory for the shell to complete, not a registered name. It is the prefix
-// of registry.IsPathName's rule: keep the two in step.
+// isPathPrefix reports whether word is, or completes to, a path form of a
+// worktree name: a lone "." or "..", or a word starting "./", "../", "/" or
+// "~". Those are directories for the shell to complete, not registered names.
+// It is registry.IsPathName's rule, so a hidden directory such as ".github"
+// is not one: the shell would insert ".github/", which IsPathName refuses, and
+// no slug or host starts with a dot, so name completion loses nothing.
 func isPathPrefix(word string) bool {
-	return strings.HasPrefix(word, "/") || strings.HasPrefix(word, ".") || strings.HasPrefix(word, "~")
+	return registry.IsPathName(word)
 }
 
 // domainCompletionFunc is `worktree remove --domain`'s and `worktree
