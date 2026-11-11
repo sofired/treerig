@@ -222,7 +222,12 @@ jobs:
       # A cached package is installed (as root) only when its SHA-256 is the one
       # the image's own apt lists give for that package and version. Those lists
       # were checked against Ubuntu's signed InRelease when the image was built,
-      # so a tampered or corrupted cache entry is downloaded afresh instead.
+      # so a tampered or corrupted cache entry is downloaded afresh instead. For
+      # the same reason only the version those lists name is ever cached: a
+      # newer one from a refreshed list could not be vouched for by a later run
+      # on this image. A bad entry under this image's key is not replaced by the
+      # job (a cache cannot be updated in place); 'gh cache delete <key>' clears
+      # it, and until then the job downloads, warning that it did.
       - name: Name the zsh package cache
         id: zsh-key
         run: |
@@ -270,11 +275,25 @@ jobs:
           mkdir -p "$DEBS"
           cd "$DEBS" || exit 1
           apt=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          # The version the image's lists name, without refreshing them, so what
+          # is cached is what a later run on this image can verify.
+          candidate() { apt-cache policy "$1" | sed -n 's/^  Candidate: //p'; }
+          zsh_version=$(candidate zsh)
+          common_version=$(candidate zsh-common)
+          if [ -n "$zsh_version" ] && [ "$zsh_version" != "(none)" ] &&
+            apt-get "${apt[@]}" download "zsh=$zsh_version" "zsh-common=$common_version"; then
+            sudo dpkg -i ./*.deb
+            echo "debs=true" >> "$GITHUB_OUTPUT"
+            echo "zsh installed from the archive: $(zsh --version)"
+            exit 0
+          fi
+          # That version is gone from the archive (or the lists don't name
+          # one): install the current one through apt, and cache nothing.
+          rm -f ./*.deb
+          echo "::warning::zsh $zsh_version is not downloadable; installing the archive's current zsh, uncached."
           sudo apt-get "${apt[@]}" update
-          apt-get "${apt[@]}" download zsh zsh-common
-          sudo dpkg -i ./*.deb
-          echo "debs=true" >> "$GITHUB_OUTPUT"
-          echo "zsh installed from the archive: $(zsh --version)"
+          sudo apt-get "${apt[@]}" install -y --no-install-recommends zsh
+          echo "zsh installed from the archive, uncached: $(zsh --version)"
 
       # Saved under this image's key whenever they were installed but that key
       # had nothing: downloaded now, or restored from an older image's.
