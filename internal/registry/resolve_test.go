@@ -570,6 +570,23 @@ func TestResolveFailsWhereSkippingCouldNameTheWrongWorktree(t *testing.T) {
 		}
 	})
 
+	t.Run("an unreadable record whose directory differs from the path only in case still refuses", func(t *testing.T) {
+		// On a case-insensitive filesystem LOCKED/wt and locked/wt are one
+		// directory, so the record could be the one meant, and the comparison
+		// folds case on every platform. Where the filesystem tells them apart
+		// (Linux), LOCKED/wt is a readable directory of its own, which proves
+		// the folding; where it doesn't, the test above covers the same record.
+		reg, base := lockedWorld(t)
+		target := filepath.Join(base, "LOCKED", "wt")
+		if err := os.MkdirAll(target, 0o700); err != nil {
+			t.Skipf("the filesystem folds case, so LOCKED is the unreadable locked: %v", err)
+		}
+		_, err := reg.Resolve(ctx, target, registry.NameOptions{})
+		if err == nil || !strings.Contains(err.Error(), "Could not resolve the directory of app.acme.localhost") || errors.Is(err, registry.ErrNoWorktree) {
+			t.Fatalf("got %v, want the unreadable record to block the lookup", err)
+		}
+	})
+
 	t.Run("a recorded directory that cannot be resolved and cannot contain the path is skipped", func(t *testing.T) {
 		reg, base := lockedWorld(t)
 		got, err := reg.Resolve(ctx, filepath.Join(base, "good"), registry.NameOptions{})
