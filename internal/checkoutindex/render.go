@@ -31,15 +31,15 @@ type legendEntry struct {
 // (the design's table in docs/design/cli-1.0.md, "State words", in a clause
 // each), in the order the states are decided.
 var legendEntries = []legendEntry{
-	{worktree.StateRemoving, "a removal was interrupted: 'treerig worktree remove' finishes it."},
+	{worktree.StateRemoving, "a removal was interrupted: '" + brand.Name + " worktree remove' finishes it."},
 	{worktree.StateDirectoryMissing, "Git no longer has the worktree's directory."},
 	{worktree.StateUnknown, "treerig couldn't tell (Docker or Git didn't answer, or a record couldn't be read); the row says why."},
 	{worktree.StateStarting, "a health check has not passed yet."},
 	{worktree.StateFailed, "no service runs, and one exited with an error, keeps restarting or is unhealthy."},
 	{worktree.StatePartlyRunning, "some services run and others don't."},
 	{worktree.StateRunning, "every service that has not finished is up."},
-	{worktree.StateStopped, "'treerig up' has finished before, and nothing runs now."},
-	{worktree.StateNotStarted, "'treerig up' has not finished yet."},
+	{worktree.StateStopped, "'" + brand.Name + " up' has finished before, and nothing runs now."},
+	{worktree.StateNotStarted, "'" + brand.Name + " up' has not finished yet."},
 }
 
 // legendHTML is the legend as a definition list, one entry a line.

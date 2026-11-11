@@ -404,7 +404,11 @@ with a short budget.
   alone, so `remove --gone` (#211) can require the first. `Git does not call it
   prunable (Git 2.31 or newer says so).` is the hint for an absent directory Git
   lists but does not call prunable. A mount table with a line treerig cannot
-  read is treated as unreadable, not skipped. Hints carry the next step where
+  read is treated as unreadable, not skipped. Each look at the disk (is the directory there, is its parent empty) is
+  bounded to 5 seconds, so a hung network mount makes the state `unknown`,
+  never missing, and never blocks a command for good. A hint puts the cause
+  first and leaves out the paths and command lines it came from, so a long path
+  cannot cut it off. Hints carry the next step where
   there is one: a locked entry says `connect it, or run 'git worktree unlock'`,
   and an unlisted one `run 'treerig worktree remove <slug>' if it is gone`.
 - **Services and exits (as built).** A service is `stopped`, not `starting`,

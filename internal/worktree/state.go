@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/sofired/treerig/internal/brand"
 )
 
 // State is where a worktree stands, as every command, the overview page and
@@ -284,6 +286,9 @@ type Inputs struct {
 	// service appears once per replica, and a declared service with none as
 	// NotCreated.
 	Services []ServiceStatus
+	// CommandName is what the commands a hint names are run by (the name
+	// this build was invoked as); empty reads as brand.Name.
+	CommandName string
 }
 
 // Classification is a worktree's state, with the cause when it is Unknown.
@@ -339,7 +344,7 @@ func Classify(in Inputs) Classification {
 		default:
 			// Unknown, a state added later, or the zero value: nothing may
 			// guess what it means.
-			return Classification{State: StateUnknown, Hint: unknownServiceHint(service)}
+			return Classification{State: StateUnknown, Hint: unknownServiceHint(service, in.CommandName)}
 		}
 	}
 	switch {
@@ -358,7 +363,10 @@ func Classify(in Inputs) Classification {
 }
 
 // unknownServiceHint says why a service's state cannot be told.
-func unknownServiceHint(service ServiceStatus) string {
+func unknownServiceHint(service ServiceStatus, command string) string {
+	if command == "" {
+		command = brand.Name
+	}
 	name := "A service"
 	if service.Service != "" {
 		name = service.Service
@@ -369,7 +377,7 @@ func unknownServiceHint(service ServiceStatus) string {
 	case service.State == Unknown && service.Detail == "exited":
 		return "No exit code was reported for " + name + ", which exited."
 	case service.State == Unknown && service.Detail == PausedDetail:
-		return name + " is paused, which treerig has no word for: run 'treerig down' to stop it, then 'treerig up'."
+		return name + " is paused, which treerig has no word for: run '" + command + " down' to stop it, then '" + command + " up'."
 	case service.State == Unknown && service.Detail != "":
 		return name + " is in a state treerig has no word for (Docker says " + service.Detail + ")."
 	case service.State == Unknown || service.State == "":

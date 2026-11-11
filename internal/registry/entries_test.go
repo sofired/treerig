@@ -2,9 +2,11 @@ package registry_test
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
@@ -83,6 +85,32 @@ func TestIdentityServiceEntries(t *testing.T) {
 		}
 		if gone.PrunableReason == "" {
 			t.Fatal("Git's reason for calling it prunable was dropped")
+		}
+	})
+
+	t.Run("reports a directory that never answers as one that could not be checked, and goes on", func(t *testing.T) {
+		f := newIdentityFixture(t, "main")
+		if _, err := f.identities.Ensure(ctx, f.root); err != nil {
+			t.Fatal(err)
+		}
+		hung := addLinked(t, f, "feature-hung")
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		f.identities.StatWith(func(path string) (fs.FileInfo, error) {
+			if path == hung {
+				<-release
+			}
+			return os.Stat(path)
+		}, 20*time.Millisecond)
+		entries, err := f.identities.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e := entries[1]; e.StatErr == nil || e.Exists || e.WorktreeID != "" {
+			t.Fatalf("hung = %+v", e)
+		}
+		if e := entries[0]; e.StatErr != nil || !e.Exists {
+			t.Fatalf("main = %+v", e)
 		}
 	})
 

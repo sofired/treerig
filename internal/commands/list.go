@@ -11,6 +11,7 @@ import (
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
 	"github.com/sofired/treerig/internal/worktreestate"
@@ -73,7 +74,7 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 			return nil, err
 		}
 		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s is in, so every worktree is listed as last recorded: %s",
-			text.Printable(reg.Identities.Root), text.OneLine(commandReason(err), 200)))
+			text.Printable(reg.Identities.Root), text.OneLine(run.Reason(err), 200)))
 		repositoryID, present, inside = "", false, false
 	}
 	if !inside {
@@ -129,7 +130,7 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 	report := worktreestate.Report{Docker: worktreestate.Inventory{Answered: true}}
 	if len(records) > 0 {
 		report, err = worktreestate.New(worktreestate.Options{
-			ControlHome: cctx.ControlHome, Runner: cctx.Runner, InventoryTimeout: listDockerBudget,
+			ControlHome: cctx.ControlHome, Runner: cctx.Runner, InventoryTimeout: listDockerBudget, CommandName: cctx.CommandName,
 		}).Gather(ctx, worktreestate.Request{
 			Subjects: subjects, Namespaces: worktreestate.Namespaces(cctx.ControlHome, records, cards), Repositories: repositories,
 		})

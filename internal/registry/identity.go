@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
@@ -87,7 +88,16 @@ type IdentityService struct {
 	// machine. Nil inherits this process's own, and then a localised refusal
 	// is an error instead of an answer.
 	environ []string
+	// stat and statLimit are how Entries asks whether a listed root is there:
+	// os.Stat under StatLimit by default. A test swaps them.
+	stat      func(path string) (fs.FileInfo, error)
+	statLimit time.Duration
 }
+
+// StatLimit is how long Entries waits for the file system to say whether one
+// listed directory is there: a directory on a hung network mount would block
+// the call for good, and its entry reads as one that could not be checked.
+const StatLimit = 5 * time.Second
 
 // NewIdentityService answers identity questions for the checkout at root.
 func NewIdentityService(root string, runner run.Runner) *IdentityService {
@@ -632,7 +642,10 @@ func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) 
 	}
 	for i, worktree := range listed {
 		entry := WorktreeEntry{ListedWorktree: worktree}
-		info, statErr := os.Stat(worktree.Root)
+		info, statErr := s.statRoot(ctx, worktree.Root)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		switch {
 		case statErr == nil:
 			entry.Exists = info.IsDir()
@@ -666,6 +679,20 @@ func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) 
 		entries[i] = entry
 	}
 	return entries, nil
+}
+
+// statRoot is os.Stat, given up on after the service's limit (StatLimit unless
+// a test set another), so one directory that never answers cannot hold up the
+// listing.
+func (s *IdentityService) statRoot(ctx context.Context, root string) (fs.FileInfo, error) {
+	stat, limit := s.stat, s.statLimit
+	if stat == nil {
+		stat = os.Stat
+	}
+	if limit <= 0 {
+		limit = StatLimit
+	}
+	return files.Within(ctx, limit, func() (fs.FileInfo, error) { return stat(root) })
 }
 
 // identityFromGitDir finds the worktree whose files were at root among the

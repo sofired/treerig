@@ -18,6 +18,7 @@ import (
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
 )
@@ -97,7 +98,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		}
 		gitFailed = true
 		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s belongs to, so %s is treated as another repository's worktree: %s",
-			text.Printable(cctx.Registry.Identities.Root), text.Printable(options.Identifier), text.OneLine(commandReason(err), 200)))
+			text.Printable(cctx.Registry.Identities.Root), text.Printable(options.Identifier), text.OneLine(run.Reason(err), 200)))
 		repositoryID, present, inside = "", false, false
 	}
 	scope := repositoryID
@@ -197,8 +198,17 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 				return err
 			}
 		}
-		// Teardown starts here, so the marker goes down before anything is
-		// changed: a removal that is interrupted from now on leaves the
+		// What is there now, read under the lock before anything is changed: a
+		// container that appeared since the prompt is stopped, not killed. A
+		// failure to read it ends the removal with nothing touched and no
+		// marker, so a healthy worktree never reads as removing.
+		current, err := runtime.Inventory(ctx, ref)
+		if err != nil {
+			return err
+		}
+		// Teardown starts here, so the marker goes down before the first
+		// change (routes are unrouted next, which can fail part-way): a
+		// removal that is interrupted or fails from now on leaves the
 		// worktree reading as removing until it is run again, and the
 		// registration deletion below takes the marker with it. A marker of a
 		// newer format refuses the removal before it touches anything.
@@ -225,12 +235,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		}
 		// `down` acts on the project name, so any target can be stopped
 		// gracefully before its containers are reaped; skipped when there is
-		// nothing to stop. Decided under the lock, so a container that appeared
-		// since the prompt is stopped rather than killed.
-		current, err := runtime.Inventory(ctx, ref)
-		if err != nil {
-			return err
-		}
+		// nothing to stop (current, above).
 		if containsKind(current, "container") {
 			if err := withProgress(cctx.Logger, "Stopping "+host, func() error { return runtime.Down(ctx, ref) }); err != nil {
 				return err
@@ -715,19 +720,4 @@ func summarize(result *RemoveResult) string {
 		parts = append(parts, "identity marker")
 	}
 	return strings.Join(parts, ", ")
-}
-
-// commandReason is what a failed command said, without run.Failure's
-// "Command failed (git -C <dir> ...): " in front of it. A warning that names
-// the directory itself has no use for the command line, which repeats the
-// directory: with a long one (macOS's temporary directories, say) it would
-// use up the room the reason needs.
-func commandReason(err error) string {
-	message := err.Error()
-	if rest, ok := strings.CutPrefix(message, "Command failed ("); ok {
-		if _, reason, found := strings.Cut(rest, "): "); found {
-			return reason
-		}
-	}
-	return message
 }

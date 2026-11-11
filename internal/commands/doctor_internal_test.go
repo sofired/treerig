@@ -2087,6 +2087,114 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatalf("got %+v, want %+v", *warning, want)
 		}
 	})
+
+	// lostWarning is the one warning the This checkout section holds.
+	lostWarning := func(t *testing.T, f *checkoutFixture) Check {
+		t.Helper()
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var warnings []Check
+		for _, c := range section(sections, "This checkout") {
+			if c.Status == StatusWarn {
+				warnings = append(warnings, c)
+			}
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("warnings = %+v", warnings)
+		}
+		return warnings[0]
+	}
+
+	t.Run("names the command it was invoked as in the remedy for a registration nothing records a directory for", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.register("feature-login")
+		gone := filepath.Join(f.base, "gone")
+		if err := os.MkdirAll(filepath.Join(f.common, "worktrees", "gone"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(gone, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.git.Add(gone, "feature/gone", f.common)
+		f.registerAt(gone, "feature-gone")
+		f.git.SetActive([]string{f.root})
+		if err := os.RemoveAll(gone); err != nil {
+			t.Fatal(err)
+		}
+		opts := f.opts()
+		opts.CommandName = "bt"
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var details []string
+		for _, c := range section(sections, "This checkout") {
+			if c.Status == StatusWarn {
+				details = append(details, c.Detail)
+			}
+		}
+		if len(details) != 1 || !strings.Contains(details[0], "run 'bt worktree remove feature-gone' if it is gone") {
+			t.Fatalf("details = %q", details)
+		}
+	})
+
+	t.Run("says so when a registration Git no longer lists has an interrupted removal", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.register("feature-login")
+		gone := filepath.Join(f.base, "gone")
+		if err := os.MkdirAll(filepath.Join(f.common, "worktrees", "gone"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(gone, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.git.Add(gone, "feature/gone", f.common)
+		registered := f.registerAt(gone, "feature-gone")
+		marker := layout.WorktreeLayout(f.controlHome, registered.RepositoryID, registered.WorktreeID).RemovalPath
+		if err := os.WriteFile(marker, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f.git.SetActive([]string{f.root})
+		if err := os.RemoveAll(gone); err != nil {
+			t.Fatal(err)
+		}
+		got := lostWarning(t, f)
+		want := fmt.Sprintf("registered, but Git no longer lists it, and a removal of it was interrupted. Finish it with 'treerig worktree remove %s'.", registered.WorktreeID)
+		if got.ID != "checkout.missing" || got.Detail != want {
+			t.Fatalf("got %+v, want detail %q", got, want)
+		}
+	})
+
+	t.Run("says so when a registration's directory is there but no worktree Git lists carries its identity", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.register("feature-login")
+		other := filepath.Join(f.base, "other")
+		if err := os.MkdirAll(filepath.Join(f.common, "worktrees", "other"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(other, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.git.Add(other, "feature/other", f.common)
+		registered := f.registerAt(other, "feature-other")
+		if err := card.WriteIndexCard(f.controlHome, registered.RepositoryID, registered.WorktreeID, card.IndexCard{
+			Project: "acme", Domain: fixtureDomain, Slug: "feature-other", Host: "feature-other." + fixtureDomain, Root: other,
+			Branch: "feature/other", LabelNamespace: brand.LabelNamespace, Services: []card.IndexService{}, UpdatedAt: "2026-09-21T10:00:00.000Z",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		// The worktree's marker is lost, so Git's entry for the directory carries no identity.
+		if err := os.Remove(filepath.Join(f.common, "worktrees", "other", "treerig", "worktree-id")); err != nil {
+			t.Fatal(err)
+		}
+		got := lostWarning(t, f)
+		want := fmt.Sprintf("registered, but no worktree Git lists carries its identity, though a directory is there (its state reads stopped). If it is gone, remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)
+		if got.ID != "checkout.missing" || got.Detail != want {
+			t.Fatalf("got %+v, want detail %q", got, want)
+		}
+	})
 }
 
 /* --------------------------------------------------------- findCheckout ---- */

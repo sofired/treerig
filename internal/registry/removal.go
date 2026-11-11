@@ -68,8 +68,8 @@ func (s *Store) Removing(worktreeID string) (bool, error) {
 			return true, nil
 		}
 	}
-	return false, clierr.Newf("Removal marker is not in a format %s wrote: %s. It only records that a removal began: delete it, "+
-		"and run `worktree remove` again if the worktree is to go.", brand.Name, file)
+	return false, clierr.Newf("Removal marker is not in a format %s wrote. It only records that a removal began: delete it, "+
+		"and run `worktree remove` again if the worktree is to go: %s", brand.Name, file)
 }
 
 // MarkRemoving writes worktreeID's removal marker under the registry lock,

@@ -2,6 +2,7 @@ package worktreestate
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/checkoutindex/card"
@@ -54,7 +55,7 @@ func Namespaces(controlHome string, registrations []registry.RegisteredWorktree,
 func SubjectOf(record registry.RegisteredWorktree, indexCard *card.IndexCard, readErr error) Subject {
 	subject := Subject{Registration: record}
 	if readErr != nil {
-		subject.Unreadable = fmt.Sprintf("Its index card couldn't be read: %s.", text.OneLine(readErr.Error(), 200))
+		subject.Unreadable = fmt.Sprintf("Its index card couldn't be read: %s.", text.OneLine(strings.TrimSuffix(reasonOf(readErr), "."), 200))
 		return subject
 	}
 	if indexCard == nil {

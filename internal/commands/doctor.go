@@ -1357,7 +1357,9 @@ func resolutionCheck(id, instance, subject string, resolution hooks.Resolution, 
 // lostWorktreeChecks warns about each registration of this repository that Git
 // no longer lists (reg.PruneCandidates), judged by worktreestate: one whose
 // directory is gone, on positive evidence, is `directory missing`; one that
-// might be gone, or whose state cannot be told, is `unknown`, with the cause.
+// might be gone, or whose state cannot be told, is `unknown`, with the cause; one
+// whose removal was interrupted is `removing`; and one whose directory is there
+// under no identity of its own reads whatever its containers say.
 // Docker is not asked: this is the state of the directory, not of what runs.
 func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutRegistry) ([]Check, error) {
 	candidates, err := reg.PruneCandidates(ctx)
@@ -1379,7 +1381,7 @@ func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutReg
 		indexCard, cardErr := card.ReadIndexCard(opts.ControlHome, record.RepositoryID, record.WorktreeID)
 		subjects[i] = worktreestate.SubjectOf(record, indexCard, cardErr)
 	}
-	report, err := worktreestate.New(worktreestate.Options{ControlHome: opts.ControlHome, Runner: opts.Runner}).Gather(ctx, worktreestate.Request{
+	report, err := worktreestate.New(worktreestate.Options{ControlHome: opts.ControlHome, Runner: opts.Runner, CommandName: opts.CommandName}).Gather(ctx, worktreestate.Request{
 		Subjects:     subjects,
 		Repositories: map[string]worktreestate.Repository{candidates[0].RepositoryID: worktreestate.Answered{Listed: entries}},
 	})
@@ -1397,6 +1399,19 @@ func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutReg
 		case worktree.StateUnknown:
 			checks = append(checks, Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
 				"registered, but Git no longer lists it, and treerig cannot tell whether its directory is gone. %s", result.Hint)})
+		case worktree.StateRemoving:
+			// An interrupted removal leaves the marker, and a worktree whose
+			// directory was already gone can be one.
+			checks = append(checks, Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
+				"registered, but Git no longer lists it, and a removal of it was interrupted. Finish it with '%s worktree remove %s'.",
+				opts.CommandName, record.WorktreeID)})
+		default:
+			// A directory Git lists at the recorded place, with no identity of
+			// its own (its marker was lost): the registration is not lost for
+			// want of a directory, but nothing ties the two together.
+			checks = append(checks, Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
+				"registered, but no worktree Git lists carries its identity, though a directory is there (its state reads %s). If it is gone, remove what it left with '%s worktree remove %s'.",
+				result.State, opts.CommandName, record.WorktreeID)})
 		}
 	}
 	return checks, nil

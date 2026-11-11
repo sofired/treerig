@@ -2,6 +2,7 @@ package stateformat_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -136,6 +137,18 @@ func TestNewer(t *testing.T) {
 	t.Run("takes the verb of what was declined", func(t *testing.T) {
 		if got := stateformat.Newer("touch", "container c1", "2", 1).Error(); !strings.HasPrefix(got, "Refusing to touch container c1: ") {
 			t.Errorf("got %q", got)
+		}
+	})
+
+	t.Run("gives the reason without the verb or the path, for a hint with no room for them", func(t *testing.T) {
+		long := "/very/long/" + strings.Repeat("x", 300)
+		reason, ok := stateformat.Reason(fmt.Errorf("wrapped: %w", stateformat.Newer("use", "the removal marker "+long, "2", 1)))
+		want := "format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again"
+		if !ok || reason != want {
+			t.Errorf("got %q, %v; want %q", reason, ok, want)
+		}
+		if _, ok := stateformat.Reason(clierr.New("Invalid identity marker: x")); ok {
+			t.Error("another refusal has a reason")
 		}
 	})
 }

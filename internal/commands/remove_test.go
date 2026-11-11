@@ -2,6 +2,7 @@ package commands_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -42,7 +43,28 @@ func remove(t *testing.T, tc *commandstest.TestContext, options commands.RemoveO
 	return commands.RemoveWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "treerig"}, options)
 }
 
-// kinds returns resources' Kind values, in order, for asserting what a
+// failingAt wraps a Runner so that the nth Docker call whose arguments contain
+// match fails with err, as a daemon that stops answering does.
+type failingAt struct {
+	run.Runner
+	match string
+	nth   int
+	err   error
+	seen  int
+}
+
+// Run delegates every call, failing the one picked.
+func (r *failingAt) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	if strings.Contains(" "+strings.Join(spec.Args, " ")+" ", r.match) {
+		r.seen++
+		if r.seen == r.nth {
+			return run.Result{}, r.err
+		}
+	}
+	return r.Runner.Run(ctx, spec)
+}
+
+// kinds returns resources' Kind values values, in order, for asserting what a
 // removal touched without comparing full OwnedResource values.
 func kinds(resources []worktree.OwnedResource) []string {
 	var out []string
@@ -132,6 +154,42 @@ func TestWorktreeRemove(t *testing.T) {
 		}
 		if exists(t, paths.RemovalPath) || exists(t, paths.RecordPath) {
 			t.Fatal("the marker or the registration survived")
+		}
+	})
+
+	t.Run("leaves no removal marker when it fails before it has changed anything", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		tc := w.Context("", acme, nil)
+		// The first container listing by project (the plan, before the lock)
+		// answers; the second, under the lock and before anything is stopped,
+		// does not.
+		tc.Runner = &failingAt{Runner: tc.Runner, match: " ps -aq --filter label=com.docker.compose.project=", nth: 2, err: errors.New("Cannot connect to the Docker daemon")}
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "Cannot connect to the Docker daemon")
+		if exists(t, paths.RemovalPath) {
+			t.Fatal("a removal that changed nothing left a marker, so a healthy worktree would read removing")
+		}
+		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 2 {
+			t.Fatalf("the worktree's resources = %v", left)
+		}
+		if !exists(t, paths.Home) || !exists(t, paths.RecordPath) {
+			t.Fatal("the home or the registration was touched")
+		}
+	})
+
+	t.Run("leaves the removal marker when it fails after it has destroyed something", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		tc := w.Context("", acme, nil)
+		w.Docker.Add("volume", commandstest.Ownership(ref, brand.LabelNamespace))
+		tc.Runner = &failingAt{Runner: tc.Runner, match: " volume rm ", nth: 1, err: errors.New("volume is in use")}
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "volume is in use")
+		if !exists(t, paths.RemovalPath) {
+			t.Fatal("a removal that stopped the containers left no marker")
 		}
 	})
 

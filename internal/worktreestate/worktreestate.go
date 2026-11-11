@@ -14,12 +14,16 @@ package worktreestate
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/stateformat"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
 )
@@ -33,7 +37,24 @@ type Options struct {
 	InventoryTimeout time.Duration
 	// Mounts reads the mount table; nil reads the machine's. A test supplies its own.
 	Mounts func() (Mounts, error)
+	// CommandName is what the commands a hint names are run by (the name this
+	// build was invoked as); empty reads as brand.Name.
+	CommandName string
+	// ProbeTimeout bounds each question put to the file system about a
+	// directory (is it there, is its parent empty); zero uses
+	// DefaultProbeTimeout.
+	ProbeTimeout time.Duration
+	// Exists and ParentOf answer those questions; nil asks the disk. A test
+	// supplies its own, to stand in for a mount that never answers.
+	Exists   func(path string) (bool, error)
+	ParentOf func(parent string) (string, error)
 }
+
+// DefaultProbeTimeout is how long the Gatherer waits for the file system to
+// answer one question about a directory. A directory on a hung network mount
+// would otherwise block `status`, `worktree list` and the overview for good;
+// one that does not answer in time reads as unknown, never as gone.
+const DefaultProbeTimeout = 5 * time.Second
 
 // Gatherer gathers the inputs of Classify. It is made for one run: it reads
 // the mount table at most once.
@@ -42,6 +63,10 @@ type Gatherer struct {
 	runner           run.Runner
 	inventoryTimeout time.Duration
 	readMounts       func() (Mounts, error)
+	command          string
+	probeTimeout     time.Duration
+	exists           func(path string) (bool, error)
+	parentOf         func(parent string) (string, error)
 
 	mountsOnce sync.Once
 	mounts     Mounts
@@ -53,6 +78,20 @@ func New(options Options) *Gatherer {
 	g := &Gatherer{
 		controlHome: options.ControlHome, runner: options.Runner,
 		inventoryTimeout: options.InventoryTimeout, readMounts: options.Mounts,
+		command: options.CommandName, probeTimeout: options.ProbeTimeout,
+		exists: options.Exists, parentOf: options.ParentOf,
+	}
+	if g.command == "" {
+		g.command = brand.Name
+	}
+	if g.probeTimeout <= 0 {
+		g.probeTimeout = DefaultProbeTimeout
+	}
+	if g.exists == nil {
+		g.exists = pathExists
+	}
+	if g.parentOf == nil {
+		g.parentOf = realParent
 	}
 	if g.inventoryTimeout <= 0 {
 		g.inventoryTimeout = DefaultInventoryTimeout
@@ -190,7 +229,7 @@ func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) 
 				return Report{}, ctxErr
 			}
 			if report.GitError == "" {
-				report.GitError = gitErr.Error()
+				report.GitError = reasonOf(gitErr)
 				report.GitHint = couldNotCheck(gitErr)
 			}
 		}
@@ -206,6 +245,9 @@ func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) 
 	}
 
 	for _, subject := range request.Subjects {
+		if err := ctx.Err(); err != nil {
+			return Report{}, err
+		}
 		record := subject.Registration
 		key := Key(record.RepositoryID, record.WorktreeID)
 		in := g.history(subject)
@@ -213,10 +255,10 @@ func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) 
 		if answered, asked := git[record.RepositoryID]; asked {
 			var found evidence
 			if answered.err != nil {
-				found = g.directoryOf(nil, nil, subject.RecordedRoot, record.Slug, answered.err)
+				found = g.directoryOf(ctx, nil, nil, subject.RecordedRoot, record.Slug, answered.err)
 			} else {
 				entry, matched := entryFor(answered.entries, record.WorktreeID, subject.RecordedRoot)
-				found = g.directoryOf(entry, answered.entries, subject.RecordedRoot, record.Slug, nil)
+				found = g.directoryOf(ctx, entry, answered.entries, subject.RecordedRoot, record.Slug, nil)
 				// A basis is only for a verdict reached: undetermined (an
 				// entry nobody can identify, a damaged one, a parent that
 				// cannot be checked) judged nothing.
@@ -240,6 +282,11 @@ func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) 
 		}
 		classified := worktree.Classify(in)
 		report.States[key] = Result{State: classified.State, Hint: classified.Hint, Basis: basis}
+	}
+	// A cancellation during the last probe left that state unknown, which is
+	// no answer to hand back.
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
 	}
 	return report, nil
 }
@@ -268,18 +315,46 @@ func (g *Gatherer) Current(record registry.RegisteredWorktree, services []worktr
 func (g *Gatherer) history(subject Subject) worktree.Inputs {
 	record := subject.Registration
 	store := registry.NewStore(g.controlHome, record.RepositoryID)
-	var in worktree.Inputs
+	in := worktree.Inputs{CommandName: g.command}
 	initialization, err := store.Initialization(record.WorktreeID, record.Slug)
 	if err != nil {
-		in.RecordError = text.OneLine(err.Error(), 300)
+		in.RecordError = recordProblem("registration", err)
 	}
 	in.Started = initialization == registry.Complete
 	removing, err := store.Removing(record.WorktreeID)
 	if err != nil && in.RecordError == "" {
-		in.RecordError = text.OneLine(err.Error(), 300)
+		in.RecordError = recordProblem("removal marker", err)
 	}
 	in.Removing = removing
 	return in
+}
+
+// recordProblem is why a record of the worktree (what names it) could not be
+// read, as a hint. The reason comes first and the path never appears: the hint
+// sits on a worktree's own row, and a long path (macOS's temporary directories)
+// would use up the room, cutting off the reason.
+func recordProblem(what string, err error) string {
+	if reason, ok := stateformat.Reason(err); ok {
+		return text.OneLine("Its "+what+" is "+reason+".", 300)
+	}
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return text.OneLine("Its "+what+" couldn't be read: "+pathErr.Err.Error()+".", 300)
+	}
+	return text.OneLine(err.Error(), 300)
+}
+
+// reasonOf is why err happened, without the paths and command lines it names:
+// what is left is the cause, which a hint puts where the cause is read first.
+func reasonOf(err error) string {
+	if reason, ok := stateformat.Reason(err); ok {
+		return "a record it reads is " + reason
+	}
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err.Error()
+	}
+	return run.Reason(err)
 }
 
 // entryFor is the entry of the repository's worktree list that is this
