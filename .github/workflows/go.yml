@@ -212,29 +212,61 @@ jobs:
           diff "$RUNNER_TEMP/first-checksums.txt" dist/checksums.txt
 
       # install.sh's completion setup is checked against a real interactive zsh,
-      # which the runner image may not carry; verify-snapshot.sh fails under CI
-      # rather than skip that check. The runner's DNS has failed to resolve
-      # Ubuntu's archives for minutes at a time, so the install is retried with
-      # backoff (about four minutes in all) on top of apt's own retries.
+      # and the deb against Ubuntu's own zsh; the runner image carries neither,
+      # and verify-snapshot.sh fails under CI rather than skip those checks.
+      # Ubuntu's archives have been unresolvable from the runners for ten
+      # minutes and more at a time, which retries cannot outlast, so zsh's
+      # packages are cached: a hit installs them offline, and only a miss asks
+      # the archive, once and briefly. The key is the runner image's version,
+      # and an older image's packages are taken when there is none for this one.
+      - name: Name the zsh package cache
+        id: zsh-key
+        run: |
+          echo "key=zsh-debs-$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+          echo "prefix=zsh-debs-$ImageOS-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore zsh's packages
+        id: zsh-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/zsh-debs
+          key: ${{ steps.zsh-key.outputs.key }}
+          restore-keys: ${{ steps.zsh-key.outputs.prefix }}
+
       - name: Install zsh
+        id: zsh
+        timeout-minutes: 5
+        env:
+          DEBS: ${{ runner.temp }}/zsh-debs
         run: |
           if command -v zsh >/dev/null; then
             echo "zsh is already installed: $(zsh --version)"
             exit 0
           fi
-          for wait in 15 30 60 90 0; do
-            if sudo apt-get -o Acquire::Retries=3 update &&
-              sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends zsh; then
-              exit 0
-            fi
-            if [ "$wait" -eq 0 ]; then
-              break
-            fi
-            echo "::warning::Installing zsh failed; trying again in ${wait}s."
-            sleep "$wait"
-          done
-          echo "::error::Could not install zsh after five tries."
-          exit 1
+          if compgen -G "$DEBS/*.deb" >/dev/null && sudo dpkg -i "$DEBS"/*.deb; then
+            echo "debs=true" >> "$GITHUB_OUTPUT"
+            echo "zsh installed from the cache: $(zsh --version)"
+            exit 0
+          fi
+          echo "No usable cached packages; downloading zsh from Ubuntu's archive."
+          rm -rf "$DEBS"
+          mkdir -p "$DEBS"
+          cd "$DEBS" || exit 1
+          apt=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          sudo apt-get "${apt[@]}" update
+          apt-get "${apt[@]}" download zsh zsh-common
+          sudo dpkg -i ./*.deb
+          echo "debs=true" >> "$GITHUB_OUTPUT"
+          echo "zsh installed from the archive: $(zsh --version)"
+
+      # Saved under this image's key whenever they were installed but that key
+      # had nothing: downloaded now, or restored from an older image's.
+      - name: Save zsh's packages
+        if: steps.zsh.outputs.debs == 'true' && steps.zsh-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/zsh-debs
+          key: ${{ steps.zsh-key.outputs.key }}
 
       - name: Verify the artifacts, the tap formula and install.sh
         run: packaging/verify-snapshot.sh dist
