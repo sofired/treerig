@@ -37,8 +37,9 @@ missing file; on later refreshes a stale copy only produces a warning.
 
 `index` needs a `treerig.toml` — the nearest one above the working directory,
 or the one `--config <path>` names — even though what it prints spans the
-machine, as does every verb that starts, stops or inspects a project. Three
+machine, as does every verb that starts, stops or inspects a project. Some
 verbs and the completion of worktree names read only labels and records, and
 work without one: `worktree list` (see [Running without a treerig.toml](worktrees.md#running-without-a-treerigtoml)),
-`worktree unlock` and `worktree remove <worktree>`. `router` works without
-one too.
+`worktree unlock`, `worktree remove <worktree>` and `shared down` (which takes
+`--label-namespace` for a project with a custom namespace). `router` works
+without one too.

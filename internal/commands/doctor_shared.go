@@ -130,7 +130,11 @@ func sharedChecks(ctx context.Context, opts doctorOptions, loaded *config.Loaded
 	for _, service := range loaded.Config.SharedServices() {
 		instance := instances[service.Name]
 		checks = append(checks, d.serviceCheck(service, instance, definition, definitionErr == nil))
-		checks = append(checks, d.portChecks(ctx, service, instance)...)
+		portLines, err := d.portChecks(ctx, service, instance)
+		if err != nil {
+			return nil, err
+		}
+		checks = append(checks, portLines...)
 		checks = append(checks, d.routeCheck(service, instance)...)
 	}
 
@@ -238,18 +242,18 @@ func (d *sharedDoctor) serviceCheck(service config.SharedService, instance share
 // portChecks are one service's `shared.port` lines: a declared container
 // port with no pinned host port, a pinned port the running container does not
 // publish, and a pinned port something else holds while the service is down.
-func (d *sharedDoctor) portChecks(ctx context.Context, service config.SharedService, instance shared.Instance) []Check {
+func (d *sharedDoctor) portChecks(ctx context.Context, service config.SharedService, instance shared.Instance) ([]Check, error) {
 	name := service.Name
 	record, hasRecord := d.records[name]
 	if len(service.ContainerPorts()) == 0 {
-		return nil
+		return nil, nil
 	}
 	if !hasRecord {
 		if instance.Live() {
 			return []Check{{Status: StatusWarn, ID: "shared.record", Instance: name, Subject: "shared service " + name + " record",
-				Detail: fmt.Sprintf("running, but this control home has no record of its pinned ports. '%s shared up --recreate %s' pins new ones", d.opts.CommandName, name)}}
+				Detail: fmt.Sprintf("running, but this control home has no record of its pinned ports. '%s shared up --recreate %s' pins new ones", d.opts.CommandName, name)}}, nil
 		}
-		return nil
+		return nil, nil
 	}
 	probe := d.opts.PortProbe
 	if probe == nil {
@@ -277,15 +281,22 @@ func (d *sharedDoctor) portChecks(ctx context.Context, service config.SharedServ
 					Detail: fmt.Sprintf("%s is pinned, but the running container does not publish it. '%s shared up --recreate %s' recreates it on the pinned port",
 						loopbackAddr(host), d.opts.CommandName, name)})
 			}
-		case probe.Free(ctx, host):
-			checks = append(checks, Check{Status: StatusOK, ID: "shared.port", Instance: instanceKey, Subject: subject, Detail: loopbackAddr(host) + " is free"})
 		default:
+			free, why := probe.Free(ctx, host)
+			// A cancelled probe says nothing about a holder.
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if free {
+				checks = append(checks, Check{Status: StatusOK, ID: "shared.port", Instance: instanceKey, Subject: subject, Detail: loopbackAddr(host) + " is free"})
+				continue
+			}
 			checks = append(checks, Check{Status: StatusWarn, ID: "shared.port", Instance: instanceKey, Subject: subject,
-				Detail: fmt.Sprintf("%s is in use by another process, so %s cannot start on it. Stop that process, or run '%s shared up --reallocate-port %s:%d'",
-					loopbackAddr(host), name, d.opts.CommandName, name, container)})
+				Detail: fmt.Sprintf("%s is held by %s. %s cannot start on it. Stop that process, or run '%s shared up --reallocate-port %s:%d'",
+					loopbackAddr(host), text.OneLine(ports.DescribeProcess(d.opts.OS, host, why), 300), name, d.opts.CommandName, name, container)})
 		}
 	}
-	return checks
+	return checks, nil
 }
 
 // routeCheck is a routed service's `shared.route` line. A running instance

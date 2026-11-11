@@ -85,6 +85,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	// Where the command runs from, asked once: which repository it is in (if
 	// any) decides what no name means, and whether the target is local.
 	repositoryID, present, inside, err := cctx.Registry.Identities.Repository(ctx, cctx.Registry.Identities.Root)
+	gitFailed := false
 	if err != nil {
 		// A named target does not depend on where the command runs from: a
 		// Git problem here (an unsafe directory, a corrupt .git) only means the
@@ -94,8 +95,9 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if options.Identifier == "" {
 			return nil, err
 		}
+		gitFailed = true
 		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s belongs to, so %s is treated as another repository's worktree: %s",
-			text.Printable(cctx.Cwd), text.Printable(options.Identifier), text.OneLine(err.Error(), 200)))
+			text.Printable(cctx.Registry.Identities.Root), text.Printable(options.Identifier), text.OneLine(commandReason(err), 200)))
 		repositoryID, present, inside = "", false, false
 	}
 	scope := repositoryID
@@ -125,7 +127,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	}
 	paths := layout.WorktreeLayout(cctx.ControlHome, target.RepositoryID, target.WorktreeID)
 	local := present && repositoryID == target.RepositoryID
-	namespace, err := targetNamespace(cctx, target, local, options)
+	namespace, err := targetNamespace(cctx, target, local, gitFailed, options)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +336,7 @@ func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options Remo
 	if options.Identifier == "" {
 		if !inside {
 			return nil, clierr.Newf("There is no worktree to remove here: %s is not inside a Git worktree. "+
-				"Name one with '%s worktree remove <worktree>'.", cctx.Cwd, cctx.CommandName)
+				"Name one with '%s worktree remove <worktree>'.", text.Printable(cctx.Registry.Identities.Root), cctx.CommandName)
 		}
 		current, err := cctx.Registry.Current(ctx)
 		if err != nil {
@@ -377,7 +379,7 @@ func targetIdentity(ctx context.Context, cctx *CommandContext, worktreeID string
 // and would delete the registration that points at the data.
 // --label-namespace is for a worktree none of those describe, and never an
 // override of one they do.
-func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, local bool, options RemoveOptions) (string, error) {
+func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, local, gitFailed bool, options RemoveOptions) (string, error) {
 	flag := options.LabelNamespace
 	if flag != "" && !brand.LabelNamespacePattern.MatchString(flag) {
 		return "", clierr.Newf("--label-namespace must look like a reverse domain, e.g. dev.example, not \"%s\".", flag)
@@ -401,14 +403,23 @@ func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, 
 	}
 	// Nothing records it. Where the user is decides what they can do about it:
 	// a worktree of this repository whose treerig.toml was set aside needs the
-	// file fixed; any other needs the command run from inside its repository,
-	// naming the target, since a bare 'worktree remove' there would remove the
-	// worktree they are in.
+	// file fixed, and one with none needs it run where the file is. When Git
+	// could not say which repository this is, the target was only taken for
+	// another's (local is false), so Git's trouble is what to fix. Any other
+	// needs the command run from inside its repository, naming the target,
+	// since a bare 'worktree remove' there would remove the worktree they are
+	// in.
 	// TODO(#211): --label-namespace goes with the flag; this then asks for nothing but the repository.
 	where, remedy := "from here:", fmt.Sprintf("Run '%s worktree remove %s' from inside the repository that created it", cctx.CommandName, target.Slug)
 	switch {
-	case local:
+	case local && cctx.SetAsideConfig != "":
 		where, remedy = "from this directory: its "+brand.ConfigFile+" could not be used to find out, and", "Fix "+brand.ConfigFile
+	case local:
+		where, remedy = "from this directory: it has no "+brand.ConfigFile+" to find out from, and",
+			"Run it from a worktree of a branch that has "+brand.ConfigFile
+	case gitFailed:
+		where, remedy = "from here: Git could not tell which repository this is (see the warning above), and",
+			"Fix what Git reported and run it again"
 	case cctx.Loaded != nil:
 		where = "from this repository: it belongs to a different one, and"
 	}
@@ -683,4 +694,19 @@ func summarize(result *RemoveResult) string {
 		parts = append(parts, "identity marker")
 	}
 	return strings.Join(parts, ", ")
+}
+
+// commandReason is what a failed command said, without run.Failure's
+// "Command failed (git -C <dir> ...): " in front of it. A warning that names
+// the directory itself has no use for the command line, which repeats the
+// directory: with a long one (macOS's temporary directories, say) it would
+// use up the room the reason needs.
+func commandReason(err error) string {
+	message := err.Error()
+	if rest, ok := strings.CutPrefix(message, "Command failed ("); ok {
+		if _, reason, found := strings.Cut(rest, "): "); found {
+			return reason
+		}
+	}
+	return message
 }

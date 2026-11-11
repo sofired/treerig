@@ -560,6 +560,16 @@ func TestServiceOutsideAnyRepository(t *testing.T) {
 	if snapshot.IdentityError != nil {
 		t.Fatalf("identityError = %+v, want none outside a repository", snapshot.IdentityError)
 	}
+	var got []string
+	for _, entry := range snapshot.Entries {
+		got = append(got, entry.RepositoryID+"/"+entry.WorktreeID)
+	}
+	want := []string{regs[0].RepositoryID + "/" + regs[0].WorktreeID, regs[1].RepositoryID + "/" + regs[1].WorktreeID}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("entries = %v, want exactly the two registrations %v", got, want)
+	}
 }
 
 // TestServiceCountsUnindexedServiceTowardStatus is #16: a service the
