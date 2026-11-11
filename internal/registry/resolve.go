@@ -71,11 +71,10 @@ type NameCandidate struct {
 }
 
 // uuidShape is the 36-character form of a UUID: 8-4-4-4-12 hexadecimal
-// digits. It is looser than uuidPattern on purpose: a name that has the shape
-// is read as a UUID whatever its version bits (it is the one 8-4-4-4-12 pattern:
-// the commands package asks IsUUID too, and uuidPattern is the stricter form a
-// stored record's own IDs must have), so a mistyped one says "no such
-// worktree" instead of falling through to the slug rule.
+// digits, whatever its version and variant bits. uuidPattern (identity.go),
+// which a stored record's own IDs must match, also requires those bits. A name
+// is read as a UUID by this looser shape, so a mistyped UUID reports "no such
+// worktree" instead of being read as a slug.
 var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // IsUUID reports whether name is a worktree UUID in its 36-character form.
@@ -84,9 +83,10 @@ func IsUUID(name string) bool {
 }
 
 // IsPathName reports whether name is written as a path: "." or "..", or a
-// name that starts with "/", "./", "../" or "~". Shell completion asks it too
-// (isPathPrefix in internal/cli). Anything else is never read as a directory, so a directory called feature-x cannot change what
-// 'treerig worktree remove feature-x' means.
+// name that starts with "/", "./", "../" or "~". Anything else is never read
+// as a directory, so a directory called feature-x cannot change what
+// 'treerig worktree remove feature-x' means. Shell completion uses the same
+// rule (isPathPrefix in internal/cli).
 func IsPathName(name string) bool {
 	switch name {
 	case ".", "..":
