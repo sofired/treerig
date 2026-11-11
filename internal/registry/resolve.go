@@ -84,10 +84,8 @@ func IsUUID(name string) bool {
 }
 
 // IsPathName reports whether name is written as a path: "." or "..", or a
-// name that starts with "/", "./", "../" or "~". Shell completion's
-// isPathPrefix (internal/cli) is the prefix of this: keep the two in step.
-// Anything else is never read
-// as a directory, so a directory called feature-x cannot change what
+// name that starts with "/", "./", "../" or "~". Shell completion asks it too
+// (isPathPrefix in internal/cli). Anything else is never read as a directory, so a directory called feature-x cannot change what
 // 'treerig worktree remove feature-x' means.
 func IsPathName(name string) bool {
 	switch name {
@@ -99,18 +97,21 @@ func IsPathName(name string) bool {
 }
 
 // Resolve reads name as the worktree it names, or an error that says why it
-// names none. The forms cannot overlap, so the order they are tried in does not
-// change an answer:
+// names none. It tries a UUID, then a path, then a host, then a slug. The forms
+// cannot overlap, so that order does not change an answer:
 //
 //   - a UUID (36 characters, hexadecimal) names that worktree;
 //   - a path form ("." or "..", or a name starting with "/", "./", "../" or "~")
 //     names the worktree whose recorded directory is its longest match, after
 //     both are resolved through symbolic links. A path inside a directory, not
 //     at its root, is accepted only with opts.WithinDirectory;
-//   - a name with a dot is a host, which names the registered worktree with
-//     exactly that host (compared without regard to case);
-//   - anything else is a slug (a hostname label has no dot): this
-//     repository's first, else it must be unique on the machine.
+//   - otherwise the name is compared, without regard to case, with every
+//     registered host, and one that equals a host names the worktree with
+//     exactly that host;
+//   - anything left is a slug: this repository's first, else it must be unique
+//     on the machine. A slug is a hostname label and has no dot, and a host
+//     always has one, so a slug never equals a host and the host check cannot
+//     take a slug's place.
 //
 // A name that matches nothing fails with an error for which
 // errors.Is(err, ErrNoWorktree) holds. A name that matches several lists their
@@ -200,14 +201,23 @@ func (r *Registry) single(name string, matches []RegisteredWorktree, hint string
 }
 
 // ambiguous is the refusal that lists every candidate's host and UUID, so the
-// next command can name one of them.
+// next command can name one of them. When two candidates share a host, naming
+// by host (or narrowing with --domain) would be refused the same way, so it
+// advises the UUID alone and drops hint.
 func (r *Registry) ambiguous(subject string, matches []RegisteredWorktree, hint string) error {
 	listed := make([]string, len(matches))
+	hosts := make(map[string]bool, len(matches))
 	for i, record := range matches {
-		listed[i] = fmt.Sprintf("%s (%s)", text.Printable(layout.WorktreeHost(record.Slug, record.Domain)), record.WorktreeID)
+		host := text.Printable(layout.WorktreeHost(record.Slug, record.Domain))
+		hosts[strings.ToLower(host)] = true
+		listed[i] = fmt.Sprintf("%s (%s)", host, record.WorktreeID)
 	}
 	sort.Strings(listed)
-	return clierr.Newf("%s: %s. Name one by its host or its UUID%s.", subject, strings.Join(listed, ", "), hint)
+	advice := "Name one by its host or its UUID" + hint + "."
+	if len(hosts) < len(matches) {
+		advice = "Name one by its UUID."
+	}
+	return clierr.Newf("%s: %s. %s", subject, strings.Join(listed, ", "), advice)
 }
 
 // narrowToRepository prefers the current repository's own worktrees among

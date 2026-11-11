@@ -132,7 +132,12 @@ func TestResolve(t *testing.T) {
 		// A host.
 		{title: "an exact host names that worktree", name: "lone." + widgetsDomain, want: idLone},
 		{title: "a host wins over every other repository's claim on the same slug", name: "twin." + widgetsDomain, want: idTwinTwo, with: inRepo(repoOne)},
-		{title: "a host claimed by two worktrees lists both with their UUIDs", name: "dup." + acmeDomain, fail: "'dup.acme.localhost' names more than one worktree: dup.acme.localhost (" + idDupOne + "), dup.acme.localhost (" + idDupTwo + ")"},
+		{title: "a host claimed by two worktrees lists both with their UUIDs", name: "dup." + acmeDomain, fail: "'dup.acme.localhost' names more than one worktree: dup.acme.localhost (" + idDupOne + "), dup.acme.localhost (" + idDupTwo + "). Name one by its UUID."},
+		{title: "a slug two worktrees share in one domain advises the UUID alone, with no --domain hint", name: "dup", with: outside,
+			fail: "'dup' names more than one worktree: dup.acme.localhost (" + idDupOne + "), dup.acme.localhost (" + idDupTwo + "). Name one by its UUID."},
+		{title: "--domain does not narrow a slug two worktrees share in one domain, and the UUID is the way out", name: "dup",
+			with: func(o *registry.NameOptions) { o.Domain = acmeDomain; o.RepositoryID = scopeOf("") },
+			fail: "dup.acme.localhost (" + idDupTwo + "). Name one by its UUID."},
 		{title: "a host is read without regard to case", name: "LONE." + strings.ToUpper(widgetsDomain), want: idLone},
 		{title: "a host that is not registered is not found", name: "lone.acme.localhost", fail: "No worktree is registered as lone.acme.localhost.", none: true},
 		// A slug.
