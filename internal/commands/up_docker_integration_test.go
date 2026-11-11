@@ -414,6 +414,73 @@ func TestUpDownRemoveOnARealDaemon(t *testing.T) {
 	w.downAndRemove(t, result, host)
 }
 
+// TestRemoveFromOutsideARepositoryOnARealDaemon is #200 against a real daemon:
+// a worktree that is up is removed by its slug from a directory that is in no
+// Git repository and has no treerig.toml above it, under the namespace its
+// registration records, and leaves nothing of itself in Docker, the router or
+// the control home. Nothing is warned about Git or the missing file, and the
+// index refresh that follows does not mistake the directory for a repository.
+func TestRemoveFromOutsideARepositoryOnARealDaemon(t *testing.T) {
+	w := newWalk(t)
+	result := w.up(t)
+	registration := result.Registration
+	if len(w.owned(t, registration.WorktreeID, "ps", "-q")) == 0 {
+		t.Fatal("nothing is running after up")
+	}
+
+	elsewhere := filepath.Join(w.base, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := &logger.Recording{}
+	outside := *w.env
+	outside.Cwd, outside.Logger = elsewhere, log
+	cctx, err := commands.ContextWithoutConfig(&outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cctx.Loaded != nil {
+		t.Fatalf("a treerig.toml was loaded from %s", elsewhere)
+	}
+
+	removed, err := commands.RemoveWithContext(context.Background(), cctx, &outside, commands.RemoveOptions{Identifier: "feature-walk", Yes: true})
+	if err != nil {
+		t.Fatalf("worktree remove from outside: %v", err)
+	}
+	if !removed.Registration || !removed.Home {
+		t.Fatalf("result = %+v", removed)
+	}
+	for _, kind := range [][]string{{"ps", "-aq"}, {"volume", "ls", "-q"}, {"network", "ls", "-q"}, {"image", "ls", "-q"}} {
+		if left := w.owned(t, registration.WorktreeID, kind...); len(left) != 0 {
+			t.Fatalf("%v left behind: %v", kind, left)
+		}
+	}
+	w.requireNoRouteFiles(t, registration.WorktreeID)
+	paths := layout.WorktreeLayout(w.controlHome, registration.RepositoryID, registration.WorktreeID)
+	for _, path := range []string{paths.Home, paths.RecordPath} {
+		if found, _ := files.PathExists(path); found {
+			t.Fatalf("%s survived worktree remove", path)
+		}
+	}
+	// The directory is not this command's to touch: its identity marker stays
+	// until a removal that runs from the repository (or the later removal of
+	// the directory itself) takes it.
+	// TODO(#211): removal from outside the repository removes the marker too.
+	marker := filepath.Join(w.checkout, ".git", "treerig", "worktree-id")
+	if found, _ := files.PathExists(marker); !found {
+		t.Errorf("%s was removed from outside the repository", marker)
+	}
+	// Nothing here is a reason to warn: not Git's refusal for the index
+	// refresh that follows, not a domain the missing treerig.toml would have
+	// said. No warning is expected at all.
+	lines, _ := log.Snapshot()
+	for _, line := range lines {
+		if strings.HasPrefix(line, "warn:") {
+			t.Errorf("unexpected warning: %q", line)
+		}
+	}
+}
+
 // TestUpUsesTheSettingsFilePortOnARealDaemon is #79 against a real daemon:
 // with the router's port set only in settings.toml under the treerig root,
 // every command resolves that port — the context `up` builds, the URLs it

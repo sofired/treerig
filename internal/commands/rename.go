@@ -94,7 +94,7 @@ func RenameWithContext(ctx context.Context, cctx *CommandContext, options Rename
 	}
 	// The record's namespace, then the card's, then this config's: the one
 	// the worktree's containers are actually labelled under.
-	namespace, err := targetNamespace(cctx, &registration.RegisteredWorktree, true, RemoveOptions{})
+	namespace, err := targetNamespace(cctx, &registration.RegisteredWorktree, true, false, RemoveOptions{})
 	if err != nil {
 		return nil, err
 	}

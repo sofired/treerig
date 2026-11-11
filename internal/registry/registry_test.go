@@ -105,6 +105,24 @@ func TestRegistryCurrent(t *testing.T) {
 			t.Fatalf("expected a warning about the domain mismatch, got %+v", lines)
 		}
 	})
+
+	// A command that runs without a treerig.toml opens the registry with no
+	// domain. The schema requires project.domain, so "" never comes from a
+	// loaded config, and there is nothing for the record to disagree with.
+	t.Run("says nothing of the domain when it was opened with none", func(t *testing.T) {
+		f := newRegistryFixture(t, "feature/login", "")
+		if _, err := registrytest.Register(ctx, f.controlHome, f.registry.Identities, f.root, acmeDomain, "feature-login", nil, "complete"); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+
+		current, err := f.registry.Current(ctx)
+		if err != nil || current == nil || current.Domain != acmeDomain {
+			t.Fatalf("Current = %+v, %v", current, err)
+		}
+		if lines, _ := f.log.Snapshot(); len(lines) != 0 {
+			t.Fatalf("expected nothing logged, got %+v", lines)
+		}
+	})
 }
 
 func TestRegistryListAndListAll(t *testing.T) {

@@ -377,10 +377,9 @@ func TestOutputGoldens(t *testing.T) {
 		name  string
 		args  []string
 		decoy bool
-		// outsideCheckout runs from the fixture's own base instead of its
-		// checkout — doctor's "no checkout" case needs a directory with no
-		// treerig.toml above it.
-		outsideCheckout bool
+		// outsideRepository runs from the fixture's own base instead of its
+		// worktree, a directory with no Git repository or treerig.toml above it.
+		outsideRepository bool
 		// excludeStdoutLines drops any stdout line containing one of these
 		// substrings from both the golden and the live run before
 		// comparing — doctor's Node.js line, recorded in the golden but
@@ -423,7 +422,7 @@ func TestOutputGoldens(t *testing.T) {
 		{name: "index --json", args: []string{"index", "--json"}, checkIndexPage: true},
 		{
 			name: "doctor --json", args: []string{"doctor", "--json"}, unorderedDocker: true,
-			outsideCheckout: true,
+			outsideRepository: true,
 		},
 		{name: "down", args: []string{"down"}, checkIndexPage: true},
 		{name: "worktree remove --yes", args: []string{"worktree", "remove", "--yes"}, checkIndexPage: true},
@@ -438,6 +437,16 @@ func TestOutputGoldens(t *testing.T) {
 		// are covered by internal/lock's own tests instead.
 		{name: "worktree unlock of an unknown identifier", args: []string{"worktree", "unlock", "nope"}},
 		{name: "worktree unlock with nothing held", args: []string{"worktree", "unlock"}},
+		// #200: the same verbs from a directory that is no repository and has no
+		// treerig.toml above it. list shows every registered worktree, as
+		// --all does; remove and unlock find their target by slug and need
+		// nothing else; with no name there is nothing to act on.
+		{name: "worktree list outside a repository", args: []string{"worktree", "list"}, outsideRepository: true},
+		{name: "worktree list --json outside a repository", args: []string{"worktree", "list", "--json"}, outsideRepository: true},
+		{name: "worktree remove --yes of a slug outside a repository", args: []string{"worktree", "remove", "--yes", "feature-login"}, outsideRepository: true},
+		{name: "worktree remove outside a repository, naming nothing", args: []string{"worktree", "remove", "--yes"}, outsideRepository: true},
+		{name: "worktree unlock of a slug outside a repository", args: []string{"worktree", "unlock", "feature-login"}, outsideRepository: true},
+		{name: "worktree unlock outside a repository, naming nothing", args: []string{"worktree", "unlock"}, outsideRepository: true},
 		// doctor: every other line (Prerequisites' Git/Docker checks,
 		// Registry, Locks, Router, This checkout) is byte-identical once the
 		// Node.js, treerig root and router state lines are excluded — the
@@ -451,7 +460,7 @@ func TestOutputGoldens(t *testing.T) {
 		// `git` on whatever machine runs this test, which a frozen golden
 		// cannot otherwise agree with on every future runner.
 		{
-			name: "doctor with no checkout", args: []string{"doctor"}, outsideCheckout: true,
+			name: "doctor with no checkout", args: []string{"doctor"}, outsideRepository: true,
 			excludeStdoutLines: []string{
 				"Node.js", "treerig root", "router state",
 			},
@@ -568,7 +577,7 @@ func TestOutputGoldens(t *testing.T) {
 				pinWithEnv(t, binary, gotFixture.checkout, gotFixture.environ(), "golden-pin")
 			}
 			gotDir := gotFixture.checkout
-			if tc.outsideCheckout {
+			if tc.outsideRepository {
 				gotDir = gotFixture.base
 			}
 			got := gotFixture.runIn(t, gotDir, append([]string{binary}, tc.args...), tc.checkIndexPage)

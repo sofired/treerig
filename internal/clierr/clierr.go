@@ -23,9 +23,14 @@ type Exiter interface {
 // failure that hid others — a hook that failed while its lock could not be
 // released, say — carries them in Cause and Suppressed so all are reported.
 type Error struct {
-	Message    string
-	ExitCode   int
-	Cause      error
+	Message  string
+	ExitCode int
+	Cause    error
+	// Kind is what errors.Is reports for this failure besides its Cause,
+	// without the top level printing it as a second, "caused by" line: the
+	// message already says everything the user needs. It must be a comparable
+	// sentinel (os.ErrNotExist, say), since Is compares it with ==.
+	Kind       error
 	Suppressed []error
 	// Notice marks an end that is not a failure: a session the user ended.
 	// The top level reports the message as information, not as an error,
@@ -41,6 +46,9 @@ func (e *Error) ExitStatus() int { return e.ExitCode }
 
 // Unwrap exposes the cause to errors.Is and errors.As.
 func (e *Error) Unwrap() error { return e.Cause }
+
+// Is reports whether target is the failure's Kind.
+func (e *Error) Is(target error) bool { return e.Kind != nil && e.Kind == target }
 
 // New is an expected failure that exits 1.
 func New(message string) *Error { return &Error{Message: message, ExitCode: 1} }

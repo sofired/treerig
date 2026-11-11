@@ -189,7 +189,7 @@ func TestWorktreeUnlock(t *testing.T) {
 		wantErr(t, err, `^No worktree is registered as nobody\.$`)
 
 		_, err = unlock(t, tc, commands.UnlockOptions{})
-		wantErr(t, err, `This checkout has never been brought up`)
+		wantErr(t, err, `This worktree has never been brought up`)
 	})
 
 	t.Run("finds a lock a first up left behind before it registered, by the checkout's own markers", func(t *testing.T) {

@@ -986,7 +986,7 @@ func hintSharedDown(ctx context.Context, cctx *CommandContext, repositoryID, nam
 	if !local {
 		cctx.Logger.Info(fmt.Sprintf(
 			"That was its repository's last registered worktree, and that repository's shared services are still running (%s). "+
-				"Run '%s shared down' from a checkout of that repository to stop them; add --volumes to delete their data too.",
+				"Run '%s shared down' from inside that repository to stop them; add --volumes to delete their data too.",
 			strings.Join(services, ", "), cctx.CommandName))
 		return
 	}

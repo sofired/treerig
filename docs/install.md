@@ -318,9 +318,10 @@ read-only: no lock is taken, Docker is never touched, and nothing is
 written:
 
 - `worktree remove` and `worktree unlock` complete a registered worktree's
-  slug, described with its domain and its last-known path; `worktree
-  unlock` also offers a worktree it can still recover a stale lock for even
-  though it was never registered (or is no longer), named by its UUID.
+  slug, described with its domain and its last-known path, from any directory:
+  no `treerig.toml` is needed. `worktree unlock` also offers a worktree it can
+  still recover a stale lock for even though it was never registered (or is no
+  longer), named by its UUID.
 - `worktree rename` completes nothing: the new slug is yours to choose.
 - `--domain` on `worktree remove` and `worktree unlock` completes a
   registered domain, and narrows the slugs offered to that domain once one
@@ -336,8 +337,10 @@ written:
   lists them, each described by its command line. Only the name is completed,
   never what follows it.
 
-A registry that is missing, empty or unreadable, or a `treerig.toml` that
-cannot be found or parsed, completes nothing rather than failing.
+A registry that is missing, empty or unreadable completes nothing rather than
+failing. So does a `treerig.toml` that cannot be found or parsed, for the
+completions read from it: service names, shared services and `run`'s commands.
+Worktree names never need one, so a broken `treerig.toml` doesn't stop them.
 
 `install.sh` sets completion up for you (see
 [What the script sets up for completion](#what-the-script-sets-up-for-completion)),

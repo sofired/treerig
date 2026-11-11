@@ -49,6 +49,11 @@ type completionFixture struct {
 	// unreadableControlHome exists, but its own repositories directory is
 	// a plain file rather than a directory, so scanning it fails.
 	unreadableControlHome string
+	// outside is a directory that is in no Git repository and has no
+	// treerig.toml above it, for the cases that complete without one: a
+	// case that sets outside runs from here, not from wherever the test
+	// binary happens to be.
+	outside string
 }
 
 // Fixed, valid-shaped identifiers for the completion fixture: every one
@@ -198,7 +203,13 @@ file = "compose.yaml"
 		t.Fatalf("write unreadable registry stand-in: %v", err)
 	}
 
+	outside := filepath.Join(base, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+
 	return completionFixture{
+		outside:               outside,
 		configPath:            configPath,
 		noCommandsConfigPath:  noCommandsConfigPath,
 		controlHome:           controlHome,
@@ -279,6 +290,9 @@ type completionGoldenCase struct {
 	name        string
 	args        []string
 	controlHome func(completionFixture) string
+	// outside runs the case from the fixture's directory outside every
+	// repository.
+	outside bool
 }
 
 // populated is every completionGoldenCase's default controlHome selector:
@@ -352,6 +366,38 @@ func TestGoldenCompletion(t *testing.T) {
 			name:        "complete-worktree-remove-registry-unreadable",
 			args:        []string{"__complete", "worktree", "remove", "--config", fixture.configPath, ""},
 			controlHome: func(f completionFixture) string { return f.unreadableControlHome },
+		},
+		// With no treerig.toml in reach (this test runs from a directory with
+		// none above it) worktree names still complete, from the registry
+		// alone: the populated control home offers every registered worktree,
+		// an empty one offers none, and only the shell is told to take no
+		// files.
+		{
+			name:    "complete-worktree-remove-identifier-no-config",
+			outside: true,
+			args:    []string{"__complete", "worktree", "remove", ""},
+		},
+		{
+			name:    "complete-worktree-unlock-identifier-no-config",
+			outside: true,
+			args:    []string{"__complete", "worktree", "unlock", ""},
+		},
+		{
+			name:    "complete-worktree-remove-domain-flag-no-config",
+			outside: true,
+			args:    []string{"__complete", "worktree", "remove", "--domain", ""},
+		},
+		{
+			name:        "complete-no-file-arguments",
+			outside:     true,
+			args:        []string{"__complete", "worktree", "remove", ""},
+			controlHome: func(f completionFixture) string { return f.emptyControlHome },
+		},
+		{
+			name:        "complete-no-file-flag-value",
+			outside:     true,
+			args:        []string{"__complete", "worktree", "remove", "--domain", ""},
+			controlHome: func(f completionFixture) string { return f.emptyControlHome },
 		},
 		{
 			name: "complete-worktree-unlock-identifier",
@@ -434,7 +480,13 @@ func TestGoldenCompletion(t *testing.T) {
 			}
 			getenv := getenvWithControlHome(controlHome(fixture))
 
-			dir := filepath.Join("testdata", "golden", tc.name)
+			dir, err := filepath.Abs(filepath.Join("testdata", "golden", tc.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.outside {
+				t.Chdir(fixture.outside)
+			}
 			var stdout, stderr bytes.Buffer
 			args := append([]string{"treerig"}, tc.args...)
 			code := cli.Main(args, strings.NewReader(""), &stdout, &stderr, getenv)
