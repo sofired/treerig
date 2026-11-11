@@ -295,6 +295,12 @@ its directory can resolve to an outer worktree; a destructive verb cannot be
 misled that way, since it accepts only a root. The resolver returns the
 recorded root with the worktree (`Resolved.Root`), so a caller that needs the
 directory (`status`, #203) does not read the card again.
+A record that cannot be read does not stop a path from naming the others when
+it could not be the one meant: a recorded directory that cannot be resolved
+(a parent it cannot enter) is skipped unless it is the path typed or a
+parent of that path. An index card that cannot be read has no known directory, so it
+could be the one meant, and the lookup fails and says to name the worktree by
+its host or its UUID.
 - **Anything else is a slug**: this repository's first. Outside a repository,
   or for a slug this repository doesn't have, it must be unique on the machine;
   otherwise the error lists the matching hosts and UUIDs.

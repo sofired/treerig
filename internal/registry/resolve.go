@@ -280,9 +280,15 @@ func (r *Registry) currentRepositoryID(ctx context.Context, opts NameOptions) st
 // skipped. Under WithinDirectory that can attribute
 // a path inside its directory to an outer worktree; a destructive caller never
 // accepts a path that is not a root, so it cannot. A card that exists and
-// cannot be read (an I/O failure) fails the lookup, as does a recorded
-// directory that cannot be resolved for a reason other than being gone, since
-// skipping either could name the wrong worktree.
+// cannot be read (an I/O failure) fails the lookup, since its directory is
+// unknown and it could be the one meant. A recorded directory that cannot be
+// resolved for a reason other than being gone (a permission-denied ancestor)
+// fails it only when that directory could contain the path: its text, compared
+// without regard to case, is the path or one of its parents, spelled as typed
+// or resolved. An unreadable one that cannot contain it is skipped, so one
+// broken record does not stop 'worktree remove' and 'worktree unlock' naming
+// the others. The test is on text, so a directory reached only through a
+// symbolic link that cannot be read is not seen as a candidate.
 func (r *Registry) resolvePath(records []RegisteredWorktree, name string, opts NameOptions) (*Resolved, error) {
 	target, err := r.pathTarget(name, opts)
 	if err != nil {
@@ -310,11 +316,17 @@ func (r *Registry) resolvePath(records []RegisteredWorktree, name string, opts N
 			continue
 		}
 		path, err := canonicalOrGone(seen.Root)
-		if err != nil {
-			return nil, clierr.Wrap(fmt.Sprintf("Could not resolve the directory of %s. Name the worktree by its host or its UUID instead", host), err)
+		var info os.FileInfo
+		if err == nil {
+			info, err = os.Stat(path)
+			if isGone(err) {
+				err = nil
+			}
 		}
-		info, err := os.Stat(path)
-		if err != nil && !isGone(err) {
+		if err != nil {
+			if !couldContain(seen.Root, target, physical) {
+				continue
+			}
 			return nil, clierr.Wrap(fmt.Sprintf("Could not resolve the directory of %s. Name the worktree by its host or its UUID instead", host), err)
 		}
 		roots = append(roots, recorded{record: record, root: seen.Root, path: path, info: info})
@@ -378,6 +390,20 @@ func (r *Registry) resolvePath(records []RegisteredWorktree, name string, opts N
 	}
 	found.Root = best[0].root
 	return found, nil
+}
+
+// couldContain reports whether root, as text, is one of the given paths or a
+// parent of one, compared whole component by whole component and without
+// regard to case (a case-insensitive filesystem spells a directory two ways).
+func couldContain(root string, paths ...string) bool {
+	root = strings.ToLower(filepath.Clean(root))
+	for _, path := range paths {
+		path = strings.ToLower(path)
+		if path == root || strings.HasPrefix(path, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // usableRoot reports whether a card's recorded directory can take part in
