@@ -66,7 +66,15 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 	reg := cctx.Registry
 	repositoryID, present, inside, err := reg.Identities.Repository(ctx, reg.Identities.Root)
 	if err != nil {
-		return nil, err
+		// --all asks for no repository's own worktrees, so Git's trouble here
+		// (an unsafe directory, a corrupt .git) costs it only the live state,
+		// which the records and index cards stand in for.
+		if !options.All {
+			return nil, err
+		}
+		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s is in, so every worktree is listed as last recorded: %s",
+			text.Printable(reg.Identities.Root), text.OneLine(commandReason(err), 200)))
+		repositoryID, present, inside = "", false, false
 	}
 	if !inside {
 		options.All = true

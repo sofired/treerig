@@ -87,6 +87,11 @@ type publisherLister interface {
 type portState struct {
 	// Free is true when nothing answers on the port.
 	Free bool
+	// Why is what the probe saw when it judged the port busy ("binding it
+	// failed (address already in use)"). It is the whole explanation for
+	// "another process" and says nothing about a container or a
+	// registration.
+	Why string
 	// Own are this worktree's containers publishing the port.
 	Own []backend.PortPublisher
 	// Others describe every other holder: another worktree's registration,
@@ -99,14 +104,14 @@ type portState struct {
 // registration accounts for it.
 const anotherProcess = "another process"
 
-// describeHolders joins holders for a message, giving "another process" its
-// lookup hint.
-func describeHolders(goos string, port int, holders []string) string {
+// describeHolders joins holders for a message, giving "another process" what
+// the probe saw (why, which may be empty) and its lookup hint.
+func describeHolders(goos string, port int, holders []string, why string) string {
 	described := make([]string, len(holders))
 	for i, holder := range holders {
 		described[i] = holder
 		if holder == anotherProcess {
-			described[i] = fmt.Sprintf("%s (%s)", holder, ports.LookupHint(goos, port))
+			described[i] = ports.DescribeProcess(goos, port, why)
 		}
 	}
 	return strings.Join(described, " and ")
@@ -123,7 +128,11 @@ func describeHolders(goos string, port int, holders []string) string {
 // busy port that no container of this worktree publishes. When no container
 // and no registration accounts for a busy port it is "another process".
 func inspectPort(ctx context.Context, probe ports.Probe, lister publisherLister, ref worktree.Ref, port int, askDocker bool, claimants func() []registry.PortClaim) (portState, error) {
-	free := probe.Free(ctx, port)
+	free, why := probe.Free(ctx, port)
+	// A cancelled probe says nothing about a holder.
+	if err := ctx.Err(); err != nil {
+		return portState{}, err
+	}
 	if free && !askDocker {
 		return portState{Free: true}, nil
 	}
@@ -134,7 +143,7 @@ func inspectPort(ctx context.Context, probe ports.Probe, lister publisherLister,
 	if free && len(publishers) == 0 {
 		return portState{Free: true}, nil
 	}
-	var state portState
+	state := portState{Why: why}
 	for _, publisher := range publishers {
 		switch {
 		case publisher.Own:
@@ -191,6 +200,8 @@ type blockedPort struct {
 	Service string
 	Port    int
 	Others  []string
+	// Why is the probe's reason, for "another process".
+	Why string
 }
 
 // blockedPorts inspects every routed service's port and returns the ones held
@@ -209,7 +220,7 @@ func blockedPorts(ctx context.Context, cctx *CommandContext, lister publisherLis
 			return nil, err
 		}
 		if len(state.Others) > 0 {
-			blocked = append(blocked, blockedPort{Service: service, Port: port, Others: state.Others})
+			blocked = append(blocked, blockedPort{Service: service, Port: port, Others: state.Others, Why: state.Why})
 		}
 	}
 	return blocked, nil
@@ -220,7 +231,7 @@ func blockedPorts(ctx context.Context, cctx *CommandContext, lister publisherLis
 func portRefusal(commandName, goos string, blocked []blockedPort) *clierr.Error {
 	var lines []string
 	for _, entry := range blocked {
-		lines = append(lines, fmt.Sprintf("  %s: 127.0.0.1:%d is held by %s", entry.Service, entry.Port, describeHolders(goos, entry.Port, entry.Others)))
+		lines = append(lines, fmt.Sprintf("  %s: 127.0.0.1:%d is held by %s", entry.Service, entry.Port, describeHolders(goos, entry.Port, entry.Others, entry.Why)))
 	}
 	return clierr.Newf(
 		"Cannot start: a routed service's pinned loopback port is in use.\n%s\n"+

@@ -168,8 +168,9 @@ Removed so far (at least): <what>. It is still registered and now reads
 off and runs the seed hook again.` The counts are a lower bound (the resource being
 removed when the signal came is not counted), and "nothing confirmed yet"
 stands when none is known to be gone. The command names the target as you
-typed it (`'treerig worktree remove <worktree> --domain <domain>'`), or by its UUID when
-you named it by a path, and leaves out
+typed it when that was its UUID or its host, and by its UUID when you named it
+by a slug or a path (a slug can name another worktree from another repository,
+and a path reads from the directory it is run in), and leaves out
 `up` when it is another worktree's removal that was interrupted. A signal
 during the earlier `compose down` destroys nothing and prints no such notice,
 and neither does one that also left a lock unreleased: that is reported as

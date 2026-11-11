@@ -131,7 +131,12 @@ func portCheck(ctx context.Context, opts doctorOptions, probe ports.Probe, runti
 // heldPortCheck is portCheck's answer about who holds an allocated port.
 func heldPortCheck(ctx context.Context, opts doctorOptions, probe ports.Probe, runtime *backend.Compose, ref worktree.Ref, port int, service, subject string) (Check, error) {
 	address := fmt.Sprintf("127.0.0.1:%d", port)
-	if probe.Free(ctx, port) {
+	free, _ := probe.Free(ctx, port)
+	// A cancelled probe says nothing about a holder.
+	if err := ctx.Err(); err != nil {
+		return Check{}, err
+	}
+	if free {
 		return Check{Status: StatusOK, ID: "checkout.ports", Instance: service, Subject: subject, Detail: address + " is free"}, nil
 	}
 	if !opts.DockerAnswered {
@@ -162,6 +167,6 @@ func heldPortCheck(ctx context.Context, opts doctorOptions, probe ports.Probe, r
 	default:
 		return Check{Status: StatusFail, ID: "checkout.ports", Instance: service, Subject: subject, Detail: fmt.Sprintf(
 			"%s is held by %s. Stop it, or run '%s up --reallocate-port %s' to move %s to another port.",
-			address, text.OneLine(describeHolders(opts.OS, port, state.Others), 300), opts.CommandName, service, service)}, nil
+			address, text.OneLine(describeHolders(opts.OS, port, state.Others, state.Why), 300), opts.CommandName, service, service)}, nil
 	}
 }

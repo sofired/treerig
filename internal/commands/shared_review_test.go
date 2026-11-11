@@ -21,6 +21,7 @@ import (
 	"github.com/sofired/treerig/internal/logger"
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/shared"
 	"github.com/sofired/treerig/internal/worktree"
 )
@@ -413,7 +414,7 @@ func TestPinnedPortHeldByAHostProcess(t *testing.T) {
 		ups := w.sharedUps(t, tc)
 
 		_, err := w.up(t, tc)
-		want := []string{"Cannot start shared service mailpit", "127.0.0.1:" + itoa(record.Ports[1025]), "container port 1025", "find it with:", "treerig shared up --reallocate-port mailpit:1025"}
+		want := []string{"Cannot start shared service mailpit", "127.0.0.1:" + itoa(record.Ports[1025]), "container port 1025", "is held by another process: " + registrytest.FreeProbeWhy + "; find it with:", "treerig shared up --reallocate-port mailpit:1025"}
 		for _, part := range want {
 			if err == nil || !strings.Contains(err.Error(), part) {
 				t.Fatalf("up: %v, want %q", err, part)

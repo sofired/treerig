@@ -212,10 +212,97 @@ jobs:
           diff "$RUNNER_TEMP/first-checksums.txt" dist/checksums.txt
 
       # install.sh's completion setup is checked against a real interactive zsh,
-      # which the runner image may not carry; verify-snapshot.sh fails under CI
-      # rather than skip that check.
+      # and the deb against Ubuntu's own zsh; the runner image carries neither,
+      # and verify-snapshot.sh fails under CI rather than skip those checks.
+      # Ubuntu's archives have been unresolvable from the runners for ten
+      # minutes and more at a time, which retries cannot outlast, so zsh's
+      # packages are cached: a hit installs them offline, and only a miss asks
+      # the archive, once and briefly. The key is the runner image's version,
+      # and an older image's packages are taken when there is none for this one.
+      # A cached package is installed (as root) only when its SHA-256 is the one
+      # the image's own apt lists give for that package and version. Those lists
+      # were checked against Ubuntu's signed InRelease when the image was built,
+      # so a tampered or corrupted cache entry is downloaded afresh instead. For
+      # the same reason only the version those lists name is ever cached: a
+      # newer one from a refreshed list could not be vouched for by a later run
+      # on this image. A bad entry under this image's key is not replaced by the
+      # job (a cache cannot be updated in place); 'gh cache delete <key>' clears
+      # it, and until then the job downloads, warning that it did.
+      - name: Name the zsh package cache
+        id: zsh-key
+        run: |
+          echo "key=zsh-debs-$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+          echo "prefix=zsh-debs-$ImageOS-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore zsh's packages
+        id: zsh-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/zsh-debs
+          key: ${{ steps.zsh-key.outputs.key }}
+          restore-keys: ${{ steps.zsh-key.outputs.prefix }}
+
       - name: Install zsh
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh
+        id: zsh
+        timeout-minutes: 5
+        env:
+          DEBS: ${{ runner.temp }}/zsh-debs
+        run: |
+          if command -v zsh >/dev/null; then
+            echo "zsh is already installed: $(zsh --version)"
+            exit 0
+          fi
+          # verified: every cached package's SHA-256 is one the image's apt
+          # lists give for its package and version.
+          verified() {
+            local deb pkg ver sum
+            for deb in "$DEBS"/*.deb; do
+              pkg=$(dpkg-deb -f "$deb" Package) && ver=$(dpkg-deb -f "$deb" Version) || return 1
+              sum=$(sha256sum "$deb") && sum=${sum%% *}
+              if ! apt-cache show "$pkg=$ver" 2>/dev/null | grep -qxF "SHA256: $sum"; then
+                echo "::warning::$(basename "$deb") is not the $pkg $ver the image's apt lists know; downloading instead."
+                return 1
+              fi
+            done
+          }
+          if compgen -G "$DEBS/*.deb" >/dev/null && verified && sudo dpkg -i "$DEBS"/*.deb; then
+            echo "debs=true" >> "$GITHUB_OUTPUT"
+            echo "zsh installed from the cache: $(zsh --version)"
+            exit 0
+          fi
+          echo "No usable cached packages; downloading zsh from Ubuntu's archive."
+          rm -rf "$DEBS"
+          mkdir -p "$DEBS"
+          cd "$DEBS" || exit 1
+          apt=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          # The version the image's lists name, without refreshing them, so what
+          # is cached is what a later run on this image can verify.
+          candidate() { apt-cache policy "$1" | sed -n 's/^  Candidate: //p'; }
+          zsh_version=$(candidate zsh)
+          common_version=$(candidate zsh-common)
+          if [ -n "$zsh_version" ] && [ "$zsh_version" != "(none)" ] &&
+            apt-get "${apt[@]}" download "zsh=$zsh_version" "zsh-common=$common_version"; then
+            sudo dpkg -i ./*.deb
+            echo "debs=true" >> "$GITHUB_OUTPUT"
+            echo "zsh installed from the archive: $(zsh --version)"
+            exit 0
+          fi
+          # That version is gone from the archive (or the lists don't name
+          # one): install the current one through apt, and cache nothing.
+          rm -f ./*.deb
+          echo "::warning::zsh $zsh_version is not downloadable; installing the archive's current zsh, uncached."
+          sudo apt-get "${apt[@]}" update
+          sudo apt-get "${apt[@]}" install -y --no-install-recommends zsh
+          echo "zsh installed from the archive, uncached: $(zsh --version)"
+
+      # Saved under this image's key whenever they were installed but that key
+      # had nothing: downloaded now, or restored from an older image's.
+      - name: Save zsh's packages
+        if: steps.zsh.outputs.debs == 'true' && steps.zsh-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/zsh-debs
+          key: ${{ steps.zsh-key.outputs.key }}
 
       - name: Verify the artifacts, the tap formula and install.sh
         run: packaging/verify-snapshot.sh dist
