@@ -480,7 +480,7 @@ func TestResolveNamesADirectoryByFileIdentityThroughAnAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(base, "real"), filepath.Join(base, "alias")); err != nil {
-		t.Skipf("no symbolic links here: %v", err)
+		t.Fatal(err)
 	}
 	registerWithCard(t, controlHome, repoOne, idApp, "app", acmeDomain, filepath.Join(base, "alias"))
 	reg := registry.New(registry.Options{ControlHome: controlHome, Root: base})
@@ -511,6 +511,9 @@ func TestResolveNamesADirectoryByFileIdentity(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(base, "Repo", "src"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// This case needs a case-insensitive filesystem, so it runs on the macOS
+	// CI job and skips on Linux. The alias test below covers the same
+	// file-identity match on every platform.
 	if _, err := os.Stat(filepath.Join(base, "repo")); err != nil {
 		t.Skip("the filesystem tells Repo and repo apart, so there is no second spelling to name")
 	}
