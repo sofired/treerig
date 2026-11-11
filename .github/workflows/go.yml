@@ -219,6 +219,10 @@ jobs:
       # packages are cached: a hit installs them offline, and only a miss asks
       # the archive, once and briefly. The key is the runner image's version,
       # and an older image's packages are taken when there is none for this one.
+      # A cached package is installed (as root) only when its SHA-256 is the one
+      # the image's own apt lists give for that package and version. Those lists
+      # were checked against Ubuntu's signed InRelease when the image was built,
+      # so a tampered or corrupted cache entry is downloaded afresh instead.
       - name: Name the zsh package cache
         id: zsh-key
         run: |
@@ -243,7 +247,20 @@ jobs:
             echo "zsh is already installed: $(zsh --version)"
             exit 0
           fi
-          if compgen -G "$DEBS/*.deb" >/dev/null && sudo dpkg -i "$DEBS"/*.deb; then
+          # verified: every cached package's SHA-256 is one the image's apt
+          # lists give for its package and version.
+          verified() {
+            local deb pkg ver sum
+            for deb in "$DEBS"/*.deb; do
+              pkg=$(dpkg-deb -f "$deb" Package) && ver=$(dpkg-deb -f "$deb" Version) || return 1
+              sum=$(sha256sum "$deb") && sum=${sum%% *}
+              if ! apt-cache show "$pkg=$ver" 2>/dev/null | grep -qxF "SHA256: $sum"; then
+                echo "::warning::$(basename "$deb") is not the $pkg $ver the image's apt lists know; downloading instead."
+                return 1
+              fi
+            done
+          }
+          if compgen -G "$DEBS/*.deb" >/dev/null && verified && sudo dpkg -i "$DEBS"/*.deb; then
             echo "debs=true" >> "$GITHUB_OUTPUT"
             echo "zsh installed from the cache: $(zsh --version)"
             exit 0
