@@ -475,7 +475,7 @@ func TestWorktreeRemove(t *testing.T) {
 	t.Run("refuses when this worktree was never registered", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		_, err := remove(t, w.Context("", acme, nil), approved(commands.RemoveOptions{}))
-		wantErr(t, err, regexp.QuoteMeta("This worktree is not registered; nothing to remove. Name another with 'treerig worktree remove <slug|uuid>'."))
+		wantErr(t, err, regexp.QuoteMeta("This worktree is not registered; nothing to remove. Name another with 'treerig worktree remove <worktree>'."))
 	})
 }
 

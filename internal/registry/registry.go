@@ -3,8 +3,6 @@ package registry
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
@@ -76,6 +74,10 @@ func New(opts Options) *Registry {
 	if invocation == "" {
 		invocation = commandName
 	}
+	log := opts.Logger
+	if log == nil {
+		log = logger.Silent{}
+	}
 	identities := NewIdentityService(opts.Root, opts.Runner)
 	identities.environ = opts.Environ
 	return &Registry{
@@ -84,7 +86,7 @@ func New(opts Options) *Registry {
 		root:           opts.Root,
 		domain:         opts.Domain,
 		labelNamespace: opts.LabelNamespace,
-		logger:         opts.Logger,
+		logger:         log,
 		commandName:    commandName,
 		invocation:     invocation,
 		userHome:       opts.UserHome,
@@ -271,58 +273,6 @@ func (r *Registry) ListAll(ctx context.Context) ([]RegisteredWorktree, error) {
 // `doctor` command reports.
 func (r *Registry) ScanAll(ctx context.Context) (RegistryScan, error) {
 	return ScanRegistrations(r.ControlHome)
-}
-
-// FindGlobal looks a worktree up by its UUID (unique everywhere) or its
-// slug. A slug is only unique within a domain, so domain ("" means
-// unrestricted) narrows the match. A slug found under several domains is an
-// error asking for one; a hostname claimed by several worktrees is an error
-// naming them. Never a guess.
-func (r *Registry) FindGlobal(ctx context.Context, identifier, domain string) (*RegisteredWorktree, error) {
-	scan, err := ScanRegistrations(r.ControlHome)
-	if err != nil {
-		return nil, err
-	}
-	for _, record := range scan.Records {
-		if record.WorktreeID == identifier {
-			found := record
-			return &found, nil
-		}
-	}
-
-	var bySlug []RegisteredWorktree
-	for _, record := range scan.Records {
-		if record.Slug == identifier && (domain == "" || record.Domain == domain) {
-			bySlug = append(bySlug, record)
-		}
-	}
-	if len(bySlug) == 0 {
-		return nil, nil
-	}
-	if len(bySlug) == 1 {
-		return &bySlug[0], nil
-	}
-
-	domainSet := map[string]bool{}
-	var domains []string
-	for _, record := range bySlug {
-		if !domainSet[record.Domain] {
-			domainSet[record.Domain] = true
-			domains = append(domains, record.Domain)
-		}
-	}
-	sort.Strings(domains)
-	if len(domains) == 1 {
-		claimants := make([]string, len(bySlug))
-		for i, record := range bySlug {
-			claimants[i] = record.WorktreeID
-		}
-		return nil, clierr.Newf(
-			"Hostname %s is registered to more than one worktree (%s); address one by its UUID.",
-			layout.WorktreeHost(identifier, domains[0]), strings.Join(claimants, ", "),
-		)
-	}
-	return nil, clierr.Newf("Slug %s exists under %s; specify a domain.", identifier, strings.Join(domains, ", "))
 }
 
 // PruneCandidates are registrations whose worktree Git no longer lists, or
