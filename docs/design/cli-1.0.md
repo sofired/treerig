@@ -1,8 +1,9 @@
 # The command line for 1.0
 
 **Status.** Decided by the owner on 2026-10-23 and being built, in the order
-of work, tracked in #220. Built so far: plain notices without the prefix
-(#198).
+of work, tracked in #220. Built so far: steps 2 to 5, plain notices without
+the prefix (#198), help groups (#199), commands that don't need a treerig.toml
+(#200) and the name resolver (#201).
 
 **Basis.** Two usability reviews of v0.1.0, by a CLI interface designer and a
 usability specialist, each run against a live stack on a release build in
@@ -1081,39 +1082,67 @@ runs a new build with the previous release pinned.
    `status`, `list`, the index page and JSON.
 7. **`status`** with URLs and the router's state; `urls` becomes a stub.
 8. **`list`** at top level, outside repositories, `--all`, `--refresh`;
-   `worktree list` and `index` become stubs; `internal/checkoutindex` becomes
-   `internal/overview` and `docs/checkout-index.md` becomes `docs/overview.md`.
+   `worktree list` and `index` become stubs.
+   - 8a. **The stored-state migration harness** (#29): reading the previous
+     format, upgrading it under the registry lock, fixtures per format.
+   - 8b. **The overview rename**: `internal/checkoutindex` becomes
+     `internal/overview` and `docs/checkout-index.md` becomes `docs/overview.md`,
+     a pure rename with no behaviour change, in a pull request of its own (see
+     #245 on large pull requests).
+   - 8c. **The index card's format bump** (#227): the card records every
+     declared service, upgraded through 8a's harness, with any other change to
+     the card or its stored names in the same bump, so an older build breaks
+     once.
 9. **Quiet output and `-v`**: the backend's output mode, redaction, hook output
    to stderr, `down`, `shared` and `router down` wording, the `Progress`
    interface with the plain writer.
+   - 9a. **`logs`**, ahead of the failure summary, which uses its non-follow
+     `logs --tail`.
 10. **`up` failure summary**: exit codes from `ps`, `logs --tail`, the build
     ring buffer, the evidence budget, the failure table.
-11. **`logs`**, then **`up -f`** with `dev` as a stub, and the locks.md update.
+11. **`up -f`** with `dev` as a stub, and the locks.md update (before step 16,
+    which edits locks.md too).
 12. **Live progress writer.**
 13. **Route wait** for `up` and `route add`.
 14. **Teardown gate contract**: [teardown.md](teardown.md) first (`teardown
     run`, the probe for older pins, the steps, the Git step's scope and
-    environment variables), then the code and the release-smoke leg.
-15. **`remove`** at top level with `--domain` gone, its prompt and preflight,
-    then the directory step, then `--gone`.
+    environment variables), then the code and the release-smoke leg (its
+    old-pin leg needs a previous release to pin: #243).
+    - 14a. **`treerig.toml` discovery stops at the repository boundary** (#240),
+      so the destructive verbs after it never read another repository's file.
+15. **`remove`** at top level with `--domain` and `--label-namespace` gone, its
+    prompt and preflight, then the directory step, then `--gone`.
 16. **`rename`** restarting, with locks.md first.
 17. **`unlock`** at top level with `--list`, `--domain` gone.
+    - 17a. **`backup`'s default directory** under the treerig root (#250), a
+      stored-state change, ahead of step 18's `restore` prompt, which reads its
+      manifest.
 18. **Confirmations**: `[y/N]` in `internal/commands/prompt.go` for every
     prompt, and `restore`'s new prompt and plan.
 19. **`doctor`**: `causedBy` and `fix`, then the runtime checks, then the new
     default and the `checkout.*` check IDs renamed to `worktree.*`, then the
     exit rule.
-20. **The rest**: `route list|remove`, `init` validation, `open`, `backup`'s
-    default, the `$` warning, `--label-namespace` gone from `remove`.
+20. **The rest**, one pull request each: `route list|remove` (#247), `init`
+    validation (#248), `open` (#249) and the `$` warning (#251).
 21. **First-screen wording** and one-line descriptions, once the set is final.
 22. **"Checkout" removed** from everything still using it, with the
-    `internal/style` test that keeps it out (see [Words](#words)), before 1.0.
-23. **Stub removal**, a release later.
+    `internal/style` test that keeps it out (see [Words](#words)), before 1.0,
+    with no other pull request open while it lands.
+    - 22a. **The upgrade notes and the breaking-changes notes complete** (#241,
+      #246). Each pull request above adds its own lines as it lands; this step
+      checks nothing is missing before the 1.0 release.
+23. **Stub removal**, a release after 1.0.
+
+Steps keep their numbers, which the issues quote; a lettered step is one added
+or moved since the order was first written (2026-11-13). Work outside this
+order lands when it is ready: the `teardown pin` message fix (#189) now, and
+the agent guide (#192) after steps 11 and 19, once the commands it documents
+are final.
 
 Docs that quote changed commands or output change in the pull request that
 changes them: the README; getting-started, commands, worktrees, doctor,
 output-and-exit-codes, json-output, troubleshooting, host-routes,
-overview (today's checkout-index, renamed in step 8), teardown-pin, concepts,
+overview (today's checkout-index, renamed in step 8b), teardown-pin, concepts,
 glossary, install, hooks, routing,
 shared-services, platforms, compose, settings, lock-recovery, trust-model,
 configuration and upgrading-from-a-pre-rename-build under `docs/`;
