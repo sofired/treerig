@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/stateformat"
@@ -232,6 +234,87 @@ func TestRemovalMarker(t *testing.T) {
 		}
 		if removing, err := store.Removing(wtA); err == nil || removing {
 			t.Fatalf("Removing = %v, %v; want a refusal", removing, err)
+		}
+	})
+
+	// withinASecond runs f and fails the test, not the suite, if it blocks.
+	withinASecond := func(t *testing.T, f func()) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() { defer close(done); f() }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("reading the marker blocked")
+		}
+	}
+
+	t.Run("refuses a FIFO without blocking on it", func(t *testing.T) {
+		store, controlHome := setup(t)
+		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		if err := syscall.Mkfifo(file, 0o600); err != nil {
+			t.Skipf("no FIFOs here: %v", err)
+		}
+		withinASecond(t, func() {
+			if removing, err := store.Removing(wtA); err == nil || removing || !strings.Contains(err.Error(), "must be a regular file") {
+				t.Errorf("Removing = %v, %v; want a refusal", removing, err)
+			}
+		})
+	})
+
+	t.Run("refuses a marker longer than a marker can be, as malformed", func(t *testing.T) {
+		store, controlHome := setup(t)
+		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		if err := os.WriteFile(file, []byte("format 1\n"+strings.Repeat("x", 1<<20)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		removing, err := store.Removing(wtA)
+		if err == nil || removing || errors.Is(err, stateformat.ErrNewer) || !strings.Contains(err.Error(), "is not in a format") {
+			t.Fatalf("Removing = %v, %v; want the malformed refusal", removing, err)
+		}
+	})
+
+	t.Run("clears only a marker that reads as current, and leaves any other alone", func(t *testing.T) {
+		store, controlHome := setup(t)
+		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		for _, contents := range []string{"garbage\n", "format 2\n", ""} {
+			if err := os.WriteFile(file, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ClearRemoving(ctx, wtA, testWriter); err == nil {
+				t.Fatalf("%q: ClearRemoving = nil, want a refusal", contents)
+			}
+			if data, err := os.ReadFile(file); err != nil || string(data) != contents {
+				t.Fatalf("%q: the marker was touched: %q, %v", contents, data, err)
+			}
+		}
+		if err := os.Remove(file); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "elsewhere")
+		if err := os.WriteFile(target, []byte("format 1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, file); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.ClearRemoving(ctx, wtA, testWriter); err == nil {
+			t.Fatal("ClearRemoving of a symbolic link = nil, want a refusal")
+		}
+		if _, err := os.Lstat(file); err != nil {
+			t.Fatalf("the link was deleted: %v", err)
+		}
+		if err := os.Remove(file); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.MarkRemoving(ctx, wtA, "feature-login", testWriter); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.ClearRemoving(ctx, wtA, testWriter); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(file); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a current marker survived clearing: %v", err)
 		}
 	})
 }

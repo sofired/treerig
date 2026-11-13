@@ -3,15 +3,18 @@ package registry
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/stateformat"
+	"golang.org/x/sys/unix"
 )
 
 // The removal marker (docs/design/state.md). `worktree remove` writes it
@@ -36,27 +39,62 @@ func (s *Store) removalMarkerPath(worktreeID string) string {
 	return layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID).RemovalPath
 }
 
+// maxMarkerBytes bounds what Removing reads: a marker is one short line, so
+// anything longer is not one this build wrote.
+const maxMarkerBytes = 256
+
+var (
+	errMarkerNotRegular = errors.New("not a regular file")
+	errMarkerTooLarge   = errors.New("larger than a marker")
+)
+
+// readMarker reads the removal marker at path defensively: opened without
+// following a symbolic link and without blocking (a FIFO swapped in after any
+// earlier look cannot hang the open), required to be a regular file by the
+// descriptor itself, and read no further than maxMarkerBytes (errMarkerTooLarge
+// past that), so a planted file cannot hang or exhaust a command that reads
+// every worktree's state.
+func readMarker(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, errMarkerNotRegular
+		}
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errMarkerNotRegular
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxMarkerBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxMarkerBytes {
+		return nil, errMarkerTooLarge
+	}
+	return data, nil
+}
+
 // Removing reports whether a removal of worktreeID was started and has not
 // finished. A marker of a newer format is refused (stateformat.Newer), and one
 // that is not a marker this build wrote is an error naming the file: neither
 // is read as "no removal", and neither is touched.
 func (s *Store) Removing(worktreeID string) (bool, error) {
 	file := s.removalMarkerPath(worktreeID)
-	info, err := os.Lstat(file)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+	data, err := readMarker(file)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case errors.Is(err, errMarkerNotRegular):
 		return false, clierr.Newf("Removal marker must be a regular file, not a symbolic link: %s", file)
-	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
+	case errors.Is(err, errMarkerTooLarge):
+		data = nil
+	case err != nil:
 		return false, err
 	}
 	first, _, _ := strings.Cut(strings.TrimSuffix(string(data), "\n"), "\n")
@@ -97,18 +135,15 @@ func (s *Store) MarkRemoving(ctx context.Context, worktreeID, expectedSlug strin
 
 // ClearRemoving takes worktreeID's removal marker away under the registry
 // lock, for an `up` that brings the worktree back. There being no marker is
-// not an error; a marker of a newer format is refused and left alone.
+// not an error; any marker this build cannot read (newer, foreign, malformed,
+// not a regular file) is refused and left alone.
 func (s *Store) ClearRemoving(ctx context.Context, worktreeID string, writer Writer) error {
 	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID), writer.UserHome); err != nil {
 		return err
 	}
 	return s.withRegistryLock(ctx, writer, func(context.Context) error {
-		if _, err := s.Removing(worktreeID); err != nil && errors.Is(err, stateformat.ErrNewer) {
-			return err
-		}
-		if err := os.Remove(s.removalMarkerPath(worktreeID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return nil
+		// Only a marker that reads as current is deleted: a newer, foreign,
+		// oversized or non-regular one is refused and left alone.
+		return s.dropRemovalMarker(worktreeID)
 	})
 }

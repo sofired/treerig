@@ -201,7 +201,10 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		// What is there now, read under the lock before anything is changed: a
 		// container that appeared since the prompt is stopped, not killed. A
 		// failure to read it ends the removal with nothing touched and no
-		// marker, so a healthy worktree never reads as removing.
+		// marker. From the marker on, a failure leaves it: the steps below can
+		// fail part-way and nothing proves they changed nothing, so the
+		// worktree reads removing (whatever its containers say) until another
+		// remove finishes the job or `up` brings it back.
 		current, err := runtime.Inventory(ctx, ref)
 		if err != nil {
 			return err

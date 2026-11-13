@@ -105,7 +105,14 @@ finished; `up` clears one it finds, which calls the removal off. `remove` holds 
 worktree's operation lock from writing the marker to its last deletion, and `up`
 looks only once it holds the same lock, so a marker `up` finds is an interrupted
 removal's, never one still running; a removal in progress makes `up` wait for
-the lock like any other verb. A removal by a
+the lock like any other verb. The marker goes down after the last read that can
+end the removal with nothing touched (the inventory under the lock), and before
+the first change (unrouting). From there on a failure, an interruption or a
+signal leaves it: the steps that follow (unrouting, detaching shared services,
+`down`, the reaps) can fail part-way, and nothing proves a failed one changed
+nothing, so the worktree reads `removing`, whatever its containers say, until
+another `remove` finishes the job or `up` brings it back. It is read without
+following a symbolic link or blocking, and no further than 256 bytes. A removal by a
 0.1.x pin writes none, so an interrupted one reads as `not started` or `stopped`. A 0.1.x pin that finishes a removal this build began leaves the marker behind,
 with no registration for it to name: harmless, since a worktree with no
 registration is not listed, and removed by the next `Store.Remove` or cleared by
@@ -277,9 +284,11 @@ section that covers it:
 
 `doctor` does not look at Docker resources, so a container, network or image of
 a newer format is reported by the command that tried to touch it.
-Nor does it read removal markers: a marker of a newer format is reported by the
-commands that read it (`status`, `worktree list`, the overview as an `unknown`
-state, `worktree remove` and `up` as a refusal).
+It reads removal markers only for the registrations of this repository that Git
+no longer lists (the missing-worktrees check, which asks `worktreestate` for each
+one's state); a marker of a newer format is otherwise reported by the commands
+that read it (`status`, `worktree list`, the overview as an `unknown` state,
+`worktree remove` and `up` as a refusal).
 
 ## Adding a migration (a sketch)
 

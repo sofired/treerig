@@ -21,6 +21,7 @@ import (
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 const acme = "acme.localhost"
@@ -190,6 +191,42 @@ func TestWorktreeRemove(t *testing.T) {
 		wantErr(t, err, "volume is in use")
 		if !exists(t, paths.RemovalPath) {
 			t.Fatal("a removal that stopped the containers left no marker")
+		}
+	})
+
+	t.Run("leaves the worktree reading as removing when a step after the first change fails, until up brings it back", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		tc := w.Context("", acme, nil)
+		// The route files are already unrouted when the shared stack is
+		// listed, so the failure is one that may have changed something.
+		tc.Runner = &failingAt{Runner: tc.Runner, match: " label=dev.treerig.shared=true", nth: 1, err: errors.New("Cannot connect to the Docker daemon")}
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "Cannot connect to the Docker daemon")
+		if !exists(t, paths.RemovalPath) {
+			t.Fatal("a removal that failed after its first change left no marker")
+		}
+		reads := func() worktree.State {
+			t.Helper()
+			record := registry.RegisteredWorktree{RepositoryID: ref.RepositoryID, WorktreeID: ref.WorktreeID, Slug: "feature-login", Domain: acme}
+			gathered := worktreestate.New(worktreestate.Options{ControlHome: w.ControlHome, Runner: w.Runner, Mounts: commandstest.NoAutomounts})
+			return gathered.Current(record, []worktree.ServiceStatus{{Service: "api", State: worktree.Running}}, worktree.DirectoryPresent, "").State
+		}
+		if got := reads(); got != worktree.StateRemoving {
+			t.Fatalf("the worktree reads %q, want removing, whatever its containers say", got)
+		}
+
+		upCtx := w.Context("", acme, nil)
+		givePorts(upCtx)
+		if _, err := up(t, upCtx, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+			t.Fatalf("Up: %v", err)
+		}
+		if exists(t, paths.RemovalPath) {
+			t.Fatal("up did not clear the marker")
+		}
+		if got := reads(); got != worktree.StateRunning {
+			t.Fatalf("after up the worktree reads %q, want running by its containers", got)
 		}
 	})
 
