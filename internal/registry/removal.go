@@ -44,6 +44,7 @@ func (s *Store) removalMarkerPath(worktreeID string) string {
 const maxMarkerBytes = 256
 
 var (
+	errMarkerSymlink    = errors.New("a symbolic link")
 	errMarkerNotRegular = errors.New("not a regular file")
 	errMarkerTooLarge   = errors.New("larger than a marker")
 )
@@ -58,7 +59,7 @@ func readMarker(path string) ([]byte, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ELOOP) {
-			return nil, errMarkerNotRegular
+			return nil, errMarkerSymlink
 		}
 		return nil, err
 	}
@@ -90,8 +91,10 @@ func (s *Store) Removing(worktreeID string) (bool, error) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return false, nil
-	case errors.Is(err, errMarkerNotRegular):
+	case errors.Is(err, errMarkerSymlink):
 		return false, clierr.Newf("Removal marker must be a regular file, not a symbolic link: %s", file)
+	case errors.Is(err, errMarkerNotRegular):
+		return false, clierr.Newf("Removal marker must be a regular file: %s", file)
 	case errors.Is(err, errMarkerTooLarge):
 		data = nil
 	case err != nil:

@@ -727,6 +727,16 @@ func TestGatherDirectory(t *testing.T) {
 		if got.State != worktree.StateDirectoryMissing {
 			t.Fatalf("with Docker down and the directory gone: %+v", got)
 		}
+		// The marker outranks the evidence: a removal that got as far as the
+		// directory reads as the removal it is.
+		marker := filepath.Join(w.controlHome, "repositories", record.RepositoryID, "worktrees", record.WorktreeID+".removing")
+		if err := os.WriteFile(marker, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got = stateOf(t, w.gather(local(gone(root)), worktreestate.Subject{Registration: record}), record)
+		if got.State != worktree.StateRemoving {
+			t.Fatalf("with a removal marker as well: %+v", got)
+		}
 	})
 }
 

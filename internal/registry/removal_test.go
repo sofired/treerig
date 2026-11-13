@@ -256,8 +256,9 @@ func TestRemovalMarker(t *testing.T) {
 			t.Skipf("no FIFOs here: %v", err)
 		}
 		withinASecond(t, func() {
-			if removing, err := store.Removing(wtA); err == nil || removing || !strings.Contains(err.Error(), "must be a regular file") {
-				t.Errorf("Removing = %v, %v; want a refusal", removing, err)
+			// A FIFO is not a symbolic link, so the refusal must not say it is.
+			if removing, err := store.Removing(wtA); err == nil || removing || !strings.Contains(err.Error(), "must be a regular file") || strings.Contains(err.Error(), "symbolic link") {
+				t.Errorf("Removing = %v, %v; want a refusal that names no symbolic link", removing, err)
 			}
 		})
 	})

@@ -19,7 +19,7 @@ func TestInterruptNotice(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		marked bool
+		stage  removalStage
 		cause  error
 		err    error
 		result *RemoveResult
@@ -27,47 +27,53 @@ func TestInterruptNotice(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "resources and the home directory, with both next steps", marked: true, cause: sigint, err: sigint,
+			name: "resources and the home directory, with both next steps", stage: removalPending, cause: sigint, err: sigint,
 			result: &RemoveResult{Resources: volume, Home: true}, next: both,
 			want: prefix + "Removed so far (at least): 1 volume, home directory. It is still registered and now reads 'removing': " +
 				"'treerig worktree remove' finishes the removal, 'treerig up' calls it off and runs the seed hook again.",
 		},
 		{
-			name: "the home directory alone", marked: true, cause: sigint, err: sigint,
+			name: "the home directory alone", stage: removalPending, cause: sigint, err: sigint,
 			result: &RemoveResult{Home: true}, next: both,
 			want: prefix + "Removed so far (at least): home directory. It is still registered and now reads 'removing': " +
 				"'treerig worktree remove' finishes the removal, 'treerig up' calls it off and runs the seed hook again.",
 		},
 		{
-			name: "nothing confirmed, and no up for another worktree", marked: true, cause: sigint, err: sigint,
+			name: "nothing confirmed, and no up for another worktree", stage: removalPending, cause: sigint, err: sigint,
 			result: &RemoveResult{}, next: nextSteps{finish: "treerig worktree remove other"},
 			want: prefix + "Removed so far: nothing confirmed yet. It is still registered and now reads 'removing': " +
 				"'treerig worktree remove other' finishes the removal.",
 		},
 		{
-			name: "the signal named is the cause's, not the error's", marked: true, cause: sighup, err: sigint,
+			name: "the signal named is the cause's, not the error's", stage: removalPending, cause: sighup, err: sigint,
 			result: &RemoveResult{}, next: both,
 			want: "Interrupted (SIGHUP) while removing " + host + ". Removed so far: nothing confirmed yet. It is still registered and now reads 'removing': " +
 				"'treerig worktree remove' finishes the removal, 'treerig up' calls it off and runs the seed hook again.",
 		},
-		{name: "the registration was never marked pending", marked: false, cause: sigint, err: sigint, result: &RemoveResult{}, next: both},
-		{name: "the registration is already gone", marked: true, cause: sigint, err: sigint, result: &RemoveResult{Registration: true}, next: both},
-		{name: "no signal ended the context", marked: true, cause: nil, err: sigint, result: &RemoveResult{}, next: both},
-		{name: "the context ended for another reason", marked: true, cause: errors.New("deadline"), err: sigint, result: &RemoveResult{}, next: both},
-		{name: "the error is something else, whatever the cause", marked: true, cause: sigint, err: errors.New("refused"), result: &RemoveResult{}, next: both},
-		{name: "the error was rebuilt around a release failure, as lifecycle.attach does", marked: true, cause: sigint, err: &clierr.Error{Message: sigint.Error(), ExitCode: 1, Cause: errors.New("lock released late")}, result: &RemoveResult{}, next: both},
-		{name: "there is no error", marked: true, cause: sigint, err: nil, result: &RemoveResult{Registration: true}, next: both},
+		{
+			name: "the marker is down but nothing destroyed: up calls it off without seeding", stage: removalMarked, cause: sigint, err: sigint,
+			result: &RemoveResult{}, next: both,
+			want: prefix + "Removed so far: nothing confirmed yet. It is still registered and now reads 'removing': " +
+				"'treerig worktree remove' finishes the removal, 'treerig up' calls it off.",
+		},
+		{name: "the removal marker was never written", stage: removalNotStarted, cause: sigint, err: sigint, result: &RemoveResult{}, next: both},
+		{name: "the registration is already gone", stage: removalPending, cause: sigint, err: sigint, result: &RemoveResult{Registration: true}, next: both},
+		{name: "no signal ended the context", stage: removalPending, cause: nil, err: sigint, result: &RemoveResult{}, next: both},
+		{name: "the context ended for another reason", stage: removalPending, cause: errors.New("deadline"), err: sigint, result: &RemoveResult{}, next: both},
+		{name: "the error is something else, whatever the cause", stage: removalPending, cause: sigint, err: errors.New("refused"), result: &RemoveResult{}, next: both},
+		{name: "the error was rebuilt around a release failure, as lifecycle.attach does", stage: removalPending, cause: sigint, err: &clierr.Error{Message: sigint.Error(), ExitCode: 1, Cause: errors.New("lock released late")}, result: &RemoveResult{}, next: both},
+		{name: "there is no error", stage: removalPending, cause: sigint, err: nil, result: &RemoveResult{Registration: true}, next: both},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			if got := interruptNotice(tc.marked, tc.cause, tc.err, tc.result, host, tc.next); got != tc.want {
+			if got := interruptNotice(tc.stage, tc.cause, tc.err, tc.result, host, tc.next); got != tc.want {
 				t.Fatalf("notice = %q\nwant     %q", got, tc.want)
 			}
 		})
 	}
 
 	t.Run("filters the host", func(t *testing.T) {
-		got := interruptNotice(true, sigint, sigint, &RemoveResult{}, "evil\x1b[2Jhost", both)
+		got := interruptNotice(removalPending, sigint, sigint, &RemoveResult{}, "evil\x1b[2Jhost", both)
 		if want := "Interrupted (SIGINT) while removing evil\ufffd[2Jhost."; got[:len(want)] != want {
 			t.Fatalf("notice = %q, want it to start %q", got, want)
 		}

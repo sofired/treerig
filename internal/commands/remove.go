@@ -176,7 +176,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	store := cctx.Registry.Store(target.RepositoryID)
 	// Set once the registration is pending, which is when an interruption
 	// has left something worth telling the user about.
-	marked := false
+	stage := removalNotStarted
 	err = cctx.mutate(ctx, ref, host, true, func(ctx context.Context) error {
 		// The lock was free while the prompt was up: another removal may have
 		// finished, or an `up` may have re-labelled the worktree's resources.
@@ -218,6 +218,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if err := store.MarkRemoving(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 			return err
 		}
+		stage = removalMarked
 		// Unroutes before this worktree's own resources are reaped — see
 		// unrouteWorktree's own comment. Runs regardless of which resource
 		// kinds current (below) turns out to hold, and works even for a
@@ -255,7 +256,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			if err := store.MarkPending(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 				return err
 			}
-			marked = true
+			stage = removalPending
 			// What `down` took, in case the signal lands before the first reap.
 			result.Resources = excludeResources(current, owned)
 			// Again, immediately before the first Reap: cheap, idempotent,
@@ -332,7 +333,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	if err != nil {
 		// After the locks are released, so the notice is the last thing
 		// said before the process dies by the signal.
-		if notice := interruptNotice(marked, context.Cause(ctx), err, result, host, removeNextSteps(cctx.CommandName, retry, here)); notice != "" {
+		if notice := interruptNotice(stage, context.Cause(ctx), err, result, host, removeNextSteps(cctx.CommandName, retry, here)); notice != "" {
 			cctx.Logger.Info(notice)
 		}
 		return nil, err
@@ -673,20 +674,36 @@ type nextSteps struct {
 	restart string
 }
 
-// interruptNotice is what an interrupted removal says once the worktree is
-// pending, or "" when it has nothing to add. It speaks only when all of these
-// hold: the registration was marked pending; it still exists; a signal is why
-// the context ended (cause); and err is that interruption alone. An error
-// that carries more (a lock that could not be released, say) is reported on
-// its own and recovered through the lock, so a pending notice would mislead.
+// removalStage is how far a removal got, for what an interruption says.
+type removalStage int
+
+const (
+	// removalNotStarted: no removal marker yet, so nothing reads "removing".
+	removalNotStarted removalStage = iota
+	// removalMarked: the marker is down, so the worktree reads "removing",
+	// but no data has been destroyed; an `up` calls it off as it was.
+	removalMarked
+	// removalPending: data is being destroyed and the registration is
+	// pending, so an `up` calls it off and seeds again.
+	removalPending
+)
+
+// interruptNotice is what an interrupted removal says once the worktree reads
+// "removing", or "" when it has nothing to add. It speaks only when all of
+// these hold: the removal marker was written (stage); the registration still
+// exists; a signal is why the context ended (cause); and err is that
+// interruption alone. An error that carries more (a lock that could not be
+// released, say) is reported on its own and recovered through the lock, so
+// the notice would mislead. Only a pending removal destroyed data, so only
+// then does calling it off run the seed hook again.
 //
 // The resources counted are a lower bound: the one being removed when the
 // signal came, and those after it, are not counted even if the daemon
 // finished the one in flight. The line is filtered as a whole, since it
 // carries the host.
-func interruptNotice(marked bool, cause, err error, result *RemoveResult, host string, next nextSteps) string {
+func interruptNotice(stage removalStage, cause, err error, result *RemoveResult, host string, next nextSteps) string {
 	var interrupted, plain *clierr.Cancelled
-	if !marked || result.Registration || !errors.As(cause, &interrupted) || !errors.As(err, &plain) {
+	if stage == removalNotStarted || result.Registration || !errors.As(cause, &interrupted) || !errors.As(err, &plain) {
 		return ""
 	}
 	var gone []string
@@ -701,8 +718,11 @@ func interruptNotice(marked bool, cause, err error, result *RemoveResult, host s
 		removed = "Removed so far (at least): " + strings.Join(gone, ", ")
 	}
 	steps := fmt.Sprintf("'%s' finishes the removal", next.finish)
-	if next.restart != "" {
+	switch {
+	case next.restart != "" && stage == removalPending:
 		steps += fmt.Sprintf(", '%s' calls it off and runs the seed hook again", next.restart)
+	case next.restart != "":
+		steps += fmt.Sprintf(", '%s' calls it off", next.restart)
 	}
 	return text.Printable(fmt.Sprintf("Interrupted (%s) while removing %s. %s. It is still registered and now reads 'removing': %s.",
 		clierr.SignalName(interrupted.Signal), host, removed, steps))

@@ -160,21 +160,22 @@ A marker of a newer format refuses both, and is left alone. A removal run by a
 signal, leaves the marker: the worktree reads `removing` until the removal is run
 again and finishes. See [State words](commands.md).
 
-A SIGINT, SIGTERM or SIGHUP that arrives once the removal has started
-destroying things leaves the worktree `removing`, and treerig says so on stderr
+A SIGINT, SIGTERM or SIGHUP that arrives once the removal has started (its
+marker is written) leaves the worktree `removing`, and treerig says so on stderr
 before it dies by the signal: `Interrupted (<signal>) while removing <host>.
 Removed so far (at least): <what>. It is still registered and now reads
 'removing': 'treerig worktree remove' finishes the removal, 'treerig up' calls it
-off and runs the seed hook again.` The counts are a lower bound (the resource being
+off and runs the seed hook again.` Before anything is destroyed (a signal during
+`compose down`, say) it says only that `'treerig up' calls it off`: there is
+nothing to seed again. The counts are a lower bound (the resource being
 removed when the signal came is not counted), and "nothing confirmed yet"
 stands when none is known to be gone. The command names the target as you
 typed it when that was its UUID or its host, and by its UUID when you named it
 by a slug or a path (a slug can name another worktree from another repository,
 and a path reads from the directory it is run in), and leaves out
 `up` when it is another worktree's removal that was interrupted. A signal
-during the earlier `compose down` destroys nothing and prints no such notice,
-and neither does one that also left a lock unreleased: that is reported as
-an error, and [Lock recovery](lock-recovery.md) applies. `doctor` deliberately
+that also left a lock unreleased prints no such notice: that is reported as an
+error, and [Lock recovery](lock-recovery.md) applies. `doctor` deliberately
 does not flag a `not started` worktree: a new worktree is `not started` until its
 first `up` finishes, and so is one whose first `up` failed, and nothing in
 the registration tells either from an interrupted removal, so a check could
