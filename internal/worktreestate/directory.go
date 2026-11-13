@@ -64,7 +64,7 @@ func (g *Gatherer) mountTable() (Mounts, error) {
 // signal that the volume may simply not be mounted, and Git also reports an
 // existing directory as prunable when its administrative files are gone,
 // which is a repair, not a deletion.
-func (g *Gatherer) directoryOf(ctx context.Context, entry *registry.WorktreeEntry, listed []registry.WorktreeEntry, recordedRoot, slug string, gitErr error) evidence {
+func (g *Gatherer) directoryOf(p *probes, entry *registry.WorktreeEntry, listed []registry.WorktreeEntry, recordedRoot, slug string, gitErr error) evidence {
 	switch {
 	case gitErr != nil:
 		return undetermined(couldNotCheck(gitErr))
@@ -90,14 +90,14 @@ func (g *Gatherer) directoryOf(ctx context.Context, entry *registry.WorktreeEntr
 				return undetermined(hintUnidentified)
 			}
 		}
-		there, err := g.pathThere(ctx, recordedRoot)
+		there, err := p.exists(recordedRoot)
 		switch {
 		case err != nil:
 			return undetermined(couldNotCheck(err))
 		case there:
 			return undetermined(hintDamaged)
 		}
-		return g.parentEvidence(ctx, recordedRoot)
+		return g.parentEvidence(p, recordedRoot)
 	case entry.IdentityErr != nil:
 		return undetermined(couldNotCheck(entry.IdentityErr))
 	case entry.StatErr != nil:
@@ -111,7 +111,7 @@ func (g *Gatherer) directoryOf(ctx context.Context, entry *registry.WorktreeEntr
 	case !entry.Prunable:
 		return undetermined(hintNotPrunable)
 	}
-	return g.parentEvidence(ctx, entry.Root)
+	return g.parentEvidence(p, entry.Root)
 }
 
 // pathExists reports whether path is there, an error being any failure to tell
@@ -127,10 +127,42 @@ func pathExists(path string) (bool, error) {
 	return false, err
 }
 
-// pathThere is pathExists under the Gatherer's probe timeout: a path that does
-// not answer in time is an error, never "absent".
-func (g *Gatherer) pathThere(ctx context.Context, path string) (bool, error) {
-	return files.Within(ctx, g.probeTimeout, func() (bool, error) { return g.exists(path) })
+// probes is the questions one Gather puts to the file system, all under one
+// budget: a hung mount under several worktrees costs the run the probe timeout
+// once, not once a worktree, and what is spent is spent. A parent directory
+// shared by several worktrees is asked about once.
+type probes struct {
+	g      *Gatherer
+	ctx    context.Context
+	parent map[string]parentAnswer
+}
+
+// parentAnswer is what looking at one parent directory found.
+type parentAnswer struct {
+	real string
+	err  error
+}
+
+// newProbes starts the budget of one Gather; stop releases it.
+func (g *Gatherer) newProbes(ctx context.Context) (*probes, context.CancelFunc) {
+	budget, stop := context.WithTimeout(ctx, g.probeTimeout)
+	return &probes{g: g, ctx: budget, parent: map[string]parentAnswer{}}, stop
+}
+
+// exists is pathExists under the budget: a path that does not answer in time
+// is an error, never "absent".
+func (p *probes) exists(path string) (bool, error) {
+	return files.Within(p.ctx, p.g.probeTimeout, func() (bool, error) { return p.g.exists(path) })
+}
+
+// realParent is Gatherer.parentOf under the budget, answered once per parent.
+func (p *probes) realParent(parent string) (string, error) {
+	if known, ok := p.parent[parent]; ok {
+		return known.real, known.err
+	}
+	real, err := files.Within(p.ctx, p.g.probeTimeout, func() (string, error) { return p.g.parentOf(parent) })
+	p.parent[parent] = parentAnswer{real, err}
+	return real, err
 }
 
 // realParent opens parent, reads one name from it and resolves its symbolic
@@ -151,14 +183,14 @@ func realParent(parent string) (string, error) {
 // parentEvidence judges the absence of path from its parent: the directory is
 // gone only if the parent is a real, non-empty directory the mount table does
 // not put below an automount placeholder. The parent is looked at under the
-// probe timeout, so a mount that does not answer reads as a parent that could
-// not be checked.
-func (g *Gatherer) parentEvidence(ctx context.Context, path string) evidence {
+// run's probe budget, so a mount that does not answer reads as a parent that
+// could not be checked.
+func (g *Gatherer) parentEvidence(p *probes, path string) evidence {
 	parent := filepath.Dir(path)
 	if parent == path {
 		return undetermined(hintParent)
 	}
-	real, err := files.Within(ctx, g.probeTimeout, func() (string, error) { return g.parentOf(parent) })
+	real, err := p.realParent(parent)
 	switch {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, io.EOF):
 		return undetermined(hintParent)

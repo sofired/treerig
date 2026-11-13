@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -111,6 +112,40 @@ func TestIdentityServiceEntries(t *testing.T) {
 		}
 		if e := entries[0]; e.StatErr != nil || !e.Exists {
 			t.Fatalf("main = %+v", e)
+		}
+	})
+
+	t.Run("gives every directory it stats one budget together, not one each", func(t *testing.T) {
+		f := newIdentityFixture(t, "main")
+		if _, err := f.identities.Ensure(ctx, f.root); err != nil {
+			t.Fatal(err)
+		}
+		hung := map[string]bool{}
+		for i := range 5 {
+			hung[addLinked(t, f, fmt.Sprintf("feature-hung-%d", i))] = true
+		}
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		const budget = 200 * time.Millisecond
+		f.identities.StatWith(func(path string) (fs.FileInfo, error) {
+			if hung[path] {
+				<-release
+			}
+			return os.Stat(path)
+		}, budget)
+		start := time.Now()
+		entries, err := f.identities.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Five budgets would be a second.
+		if elapsed := time.Since(start); elapsed > 3*budget {
+			t.Fatalf("took %s for five hung directories, want about one budget (%s)", elapsed, budget)
+		}
+		for _, e := range entries[1:] {
+			if e.StatErr == nil || e.Exists {
+				t.Fatalf("entry = %+v", e)
+			}
 		}
 	})
 

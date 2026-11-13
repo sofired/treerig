@@ -40,8 +40,8 @@ type Options struct {
 	// CommandName is what the commands a hint names are run by (the name this
 	// build was invoked as); empty reads as brand.Name.
 	CommandName string
-	// ProbeTimeout bounds each question put to the file system about a
-	// directory (is it there, is its parent empty); zero uses
+	// ProbeTimeout bounds, in all, the questions one Gather puts to the file
+	// system about directories (is it there, is its parent empty); zero uses
 	// DefaultProbeTimeout.
 	ProbeTimeout time.Duration
 	// Exists and ParentOf answer those questions; nil asks the disk. A test
@@ -50,8 +50,8 @@ type Options struct {
 	ParentOf func(parent string) (string, error)
 }
 
-// DefaultProbeTimeout is how long the Gatherer waits for the file system to
-// answer one question about a directory. A directory on a hung network mount
+// DefaultProbeTimeout is how long one Gather waits, in all, for the file system
+// to answer its questions about directories. A directory on a hung network mount
 // would otherwise block `status`, `worktree list` and the overview for good;
 // one that does not answer in time reads as unknown, never as gone.
 const DefaultProbeTimeout = 5 * time.Second
@@ -244,6 +244,9 @@ func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) 
 		}
 	}
 
+	// Every look at a directory draws on one budget for the whole run.
+	disk, stopDisk := g.newProbes(ctx)
+	defer stopDisk()
 	for _, subject := range request.Subjects {
 		if err := ctx.Err(); err != nil {
 			return Report{}, err
@@ -255,10 +258,10 @@ func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) 
 		if answered, asked := git[record.RepositoryID]; asked {
 			var found evidence
 			if answered.err != nil {
-				found = g.directoryOf(ctx, nil, nil, subject.RecordedRoot, record.Slug, answered.err)
+				found = g.directoryOf(disk, nil, nil, subject.RecordedRoot, record.Slug, answered.err)
 			} else {
 				entry, matched := entryFor(answered.entries, record.WorktreeID, subject.RecordedRoot)
-				found = g.directoryOf(ctx, entry, answered.entries, subject.RecordedRoot, record.Slug, nil)
+				found = g.directoryOf(disk, entry, answered.entries, subject.RecordedRoot, record.Slug, nil)
 				// A basis is only for a verdict reached: undetermined (an
 				// entry nobody can identify, a damaged one, a parent that
 				// cannot be checked) judged nothing.

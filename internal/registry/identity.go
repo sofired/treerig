@@ -94,9 +94,10 @@ type IdentityService struct {
 	statLimit time.Duration
 }
 
-// StatLimit is how long Entries waits for the file system to say whether one
-// listed directory is there: a directory on a hung network mount would block
-// the call for good, and its entry reads as one that could not be checked.
+// StatLimit is how long one Entries call waits, in all, for the file system to
+// say whether its listed directories are there: a directory on a hung network
+// mount would block the call for good, and its entry reads as one that could
+// not be checked.
 const StatLimit = 5 * time.Second
 
 // NewIdentityService answers identity questions for the checkout at root.
@@ -640,9 +641,17 @@ func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) 
 		commonErr = err
 		return commonDir, repositoryID, commonErr
 	}
+	// One budget for every root this call stats, not one each: a hung mount
+	// under several worktrees costs the call StatLimit once.
+	limit := s.statLimit
+	if limit <= 0 {
+		limit = StatLimit
+	}
+	statCtx, stopStats := context.WithTimeout(ctx, limit)
+	defer stopStats()
 	for i, worktree := range listed {
 		entry := WorktreeEntry{ListedWorktree: worktree}
-		info, statErr := s.statRoot(ctx, worktree.Root)
+		info, statErr := s.statRoot(statCtx, limit, worktree.Root)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
@@ -681,16 +690,13 @@ func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) 
 	return entries, nil
 }
 
-// statRoot is os.Stat, given up on after the service's limit (StatLimit unless
-// a test set another), so one directory that never answers cannot hold up the
+// statRoot is os.Stat, given up on when ctx (the one budget of an Entries call,
+// limit long) is spent, so a directory that never answers cannot hold up the
 // listing.
-func (s *IdentityService) statRoot(ctx context.Context, root string) (fs.FileInfo, error) {
-	stat, limit := s.stat, s.statLimit
+func (s *IdentityService) statRoot(ctx context.Context, limit time.Duration, root string) (fs.FileInfo, error) {
+	stat := s.stat
 	if stat == nil {
 		stat = os.Stat
-	}
-	if limit <= 0 {
-		limit = StatLimit
 	}
 	return files.Within(ctx, limit, func() (fs.FileInfo, error) { return stat(root) })
 }

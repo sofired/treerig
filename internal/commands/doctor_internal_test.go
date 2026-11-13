@@ -2190,7 +2190,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := lostWarning(t, f)
-		want := fmt.Sprintf("registered, but no worktree Git lists carries its identity, though a directory is there (its state reads stopped). If it is gone, remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)
+		want := fmt.Sprintf("registered, but no worktree Git lists carries its identity, though a directory is at the place it was recorded. If it is gone, remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)
 		if got.ID != "checkout.missing" || got.Detail != want {
 			t.Fatalf("got %+v, want detail %q", got, want)
 		}

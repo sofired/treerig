@@ -1359,7 +1359,8 @@ func resolutionCheck(id, instance, subject string, resolution hooks.Resolution, 
 // directory is gone, on positive evidence, is `directory missing`; one that
 // might be gone, or whose state cannot be told, is `unknown`, with the cause; one
 // whose removal was interrupted is `removing`; and one whose directory is there
-// under no identity of its own reads whatever its containers say.
+// under no identity of its own is warned about without a state (doctor asks
+// Docker nothing here, so a state would only guess).
 // Docker is not asked: this is the state of the directory, not of what runs.
 func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutRegistry) ([]Check, error) {
 	candidates, err := reg.PruneCandidates(ctx)
@@ -1408,10 +1409,12 @@ func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutReg
 		default:
 			// A directory Git lists at the recorded place, with no identity of
 			// its own (its marker was lost): the registration is not lost for
-			// want of a directory, but nothing ties the two together.
+			// want of a directory, but nothing ties the two together. The state
+			// is not said: this check asks Docker nothing, so what it reads
+			// (stopped, say) would not tell whether anything runs.
 			checks = append(checks, Check{ID: "checkout.missing", Instance: record.WorktreeID, Status: StatusWarn, Subject: subject, Detail: fmt.Sprintf(
-				"registered, but no worktree Git lists carries its identity, though a directory is there (its state reads %s). If it is gone, remove what it left with '%s worktree remove %s'.",
-				result.State, opts.CommandName, record.WorktreeID)})
+				"registered, but no worktree Git lists carries its identity, though a directory is at the place it was recorded. If it is gone, remove what it left with '%s worktree remove %s'.",
+				opts.CommandName, record.WorktreeID)})
 		}
 	}
 	return checks, nil

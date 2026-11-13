@@ -94,7 +94,7 @@ func TestParseInventory(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects a line that does not have exactly six fields", func(t *testing.T) {
+	t.Run("rejects a line that does not have exactly seven fields", func(t *testing.T) {
 		for _, bad := range []string{
 			"running\tUp\tonly-three",
 			// The right number of fields, without the ID.

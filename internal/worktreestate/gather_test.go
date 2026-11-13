@@ -3,6 +3,7 @@ package worktreestate_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -468,6 +469,55 @@ func TestGatherDirectory(t *testing.T) {
 			got := stateOf(t, w.gather(local(), worktreestate.Subject{Registration: record, RecordedRoot: root}), record)
 			if got.State != worktree.StateUnknown || got.Hint != "treerig couldn't check it: the file system did not answer within 20ms." {
 				t.Fatalf("got %+v", got)
+			}
+		})
+
+		t.Run("for every worktree together, within one budget and not one each", func(t *testing.T) {
+			w, _, _, root := setup(t)
+			const budget = 200 * time.Millisecond
+			w.tune = func(o *worktreestate.Options) {
+				o.ProbeTimeout = budget
+				o.Exists = func(string) (bool, error) { hang(); return false, nil }
+			}
+			var subjects []worktreestate.Subject
+			var records []registry.RegisteredWorktree
+			for i := range 6 {
+				id := fmt.Sprintf("33333333-3333-4333-8333-33333333333%d", i)
+				record := w.register(id, fmt.Sprintf("hung-%d", i), "complete")
+				records = append(records, record)
+				subjects = append(subjects, worktreestate.Subject{Registration: record, RecordedRoot: root + fmt.Sprint(i)})
+			}
+			start := time.Now()
+			report := w.gather(local(), subjects...)
+			// Six budgets would be 1.2s; the run draws on one.
+			if elapsed := time.Since(start); elapsed > 3*budget {
+				t.Fatalf("took %s for six worktrees on a hung mount, want about one budget (%s)", elapsed, budget)
+			}
+			for _, record := range records {
+				got := stateOf(t, report, record)
+				if got.State != worktree.StateUnknown || got.Hint != "treerig couldn't check it: the file system did not answer within 200ms." {
+					t.Fatalf("%s: %+v", record.Slug, got)
+				}
+			}
+		})
+
+		t.Run("asks about a parent shared by several worktrees once", func(t *testing.T) {
+			w, _, parent, _ := setup(t)
+			var asked atomic.Int32
+			w.tune = func(o *worktreestate.Options) {
+				o.ParentOf = func(string) (string, error) { asked.Add(1); return parent, nil }
+			}
+			var subjects []worktreestate.Subject
+			var entries []registry.WorktreeEntry
+			for i := range 3 {
+				id := fmt.Sprintf("33333333-3333-4333-8333-33333333333%d", i)
+				record := w.register(id, fmt.Sprintf("gone-%d", i), "complete")
+				subjects = append(subjects, worktreestate.Subject{Registration: record})
+				entries = append(entries, entry(id, filepath.Join(parent, fmt.Sprintf("gone-%d", i)), func(e *registry.WorktreeEntry) { e.Exists, e.Prunable = false, true }))
+			}
+			w.gather(local(entries...), subjects...)
+			if got := asked.Load(); got != 1 {
+				t.Fatalf("the shared parent was looked at %d times", got)
 			}
 		})
 
