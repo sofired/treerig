@@ -130,7 +130,7 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 	report := worktreestate.Report{Docker: worktreestate.Inventory{Answered: true}}
 	if len(records) > 0 {
 		report, err = worktreestate.New(worktreestate.Options{
-			ControlHome: cctx.ControlHome, Runner: cctx.Runner, InventoryTimeout: listDockerBudget, CommandName: cctx.CommandName,
+			ControlHome: cctx.ControlHome, Runner: cctx.Runner, InventoryTimeout: listDockerBudget, CommandName: cctx.CommandName, Mounts: cctx.Mounts,
 		}).Gather(ctx, worktreestate.Request{
 			Subjects: subjects, Namespaces: worktreestate.Namespaces(cctx.ControlHome, records, cards), Repositories: repositories,
 		})

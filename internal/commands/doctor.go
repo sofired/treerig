@@ -1382,7 +1382,7 @@ func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutReg
 		indexCard, cardErr := card.ReadIndexCard(opts.ControlHome, record.RepositoryID, record.WorktreeID)
 		subjects[i] = worktreestate.SubjectOf(record, indexCard, cardErr)
 	}
-	report, err := worktreestate.New(worktreestate.Options{ControlHome: opts.ControlHome, Runner: opts.Runner, CommandName: opts.CommandName}).Gather(ctx, worktreestate.Request{
+	report, err := worktreestate.New(worktreestate.Options{ControlHome: opts.ControlHome, Runner: opts.Runner, CommandName: opts.CommandName, Mounts: opts.Mounts}).Gather(ctx, worktreestate.Request{
 		Subjects:     subjects,
 		Repositories: map[string]worktreestate.Repository{candidates[0].RepositoryID: worktreestate.Answered{Listed: entries}},
 	})
@@ -1665,6 +1665,8 @@ func doctorSummary(sections []Section) doctorSummaryLine {
 // doctor_internal_test.go).
 type doctorOptions struct {
 	CommandName string
+	// Mounts reads the mount table for the state words; nil reads the machine's.
+	Mounts      func() (worktreestate.Mounts, error)
 	ControlHome string
 	// Arch and Version are the running build's GOARCH and version, for the
 	// teardown pin checks (OS is below); NoExec asks whether a path's

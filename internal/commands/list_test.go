@@ -16,6 +16,7 @@ import (
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 const acmeDomain = "acme.localhost"
@@ -117,6 +118,41 @@ func TestWorktreeList(t *testing.T) {
 			if got[slug] != expect {
 				t.Fatalf("slug %s: got %v, want %v (all: %+v)", slug, got[slug], expect, rows)
 			}
+		}
+	})
+
+	t.Run("reads a directory as unknown, not gone, when the mount table puts its parent below an automount", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acmeDomain)
+		gone := w.Worktree("gone", "feature/gone")
+		register(t, w, w.Root, acmeDomain, "feature-login", "complete")
+		register(t, w, gone, acmeDomain, "feature-gone", "complete")
+		if err := os.RemoveAll(gone); err != nil {
+			t.Fatal(err)
+		}
+		parent, err := filepath.EvalSymlinks(filepath.Dir(gone))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cctx := w.Context(w.Root, acmeDomain, nil)
+		// The table the test is given, not the machine's, decides.
+		cctx.Mounts = func() (worktreestate.Mounts, error) {
+			return worktreestate.Mounts{"/": "ext4", parent: "autofs"}, nil
+		}
+		rows, err := commands.ListWithContext(ctx, cctx.CommandContext, commands.ListOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := false
+		for _, row := range rows {
+			if row.Slug == "feature-gone" {
+				seen = true
+				if row.State != worktree.StateUnknown {
+					t.Fatalf("state = %q, want unknown", row.State)
+				}
+			}
+		}
+		if !seen {
+			t.Fatalf("no row for feature-gone in %+v", rows)
 		}
 	})
 

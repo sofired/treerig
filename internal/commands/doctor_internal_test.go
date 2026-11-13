@@ -41,6 +41,7 @@ import (
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/settings"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 /* -------------------------------------------------------------- fakes ---- */
@@ -287,7 +288,7 @@ func testOpts(t *testing.T, overrides func(*doctorOptions)) doctorOptions {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
 	opts := doctorOptions{
-		CommandName: "treerig", ControlHome: filepath.Join(base, "control"),
+		CommandName: "treerig", Mounts: noAutomounts, ControlHome: filepath.Join(base, "control"),
 		Home: home, RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(base, "user-home"),
 		RouterPort: settings.PortResolution{Port: 80, Source: settings.PortDefault, SettingsPath: layout.SettingsPathFrom(home)},
 		Runner:     newDoctorRunner(nil), Logger: logger.Silent{},
@@ -448,7 +449,7 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 func (f *checkoutFixture) opts() doctorOptions {
 	home := filepath.Join(f.base, "home")
 	return doctorOptions{
-		CommandName: "treerig", ControlHome: f.controlHome, Home: home,
+		CommandName: "treerig", Mounts: noAutomounts, ControlHome: f.controlHome, Home: home,
 		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(f.base, "user-home"),
 		Runner: f.runner, Logger: logger.Silent{},
 		Router: newFakeRouterSource(), Checkout: checkoutIsLoaded(f.loaded), Invocation: "treerig doctor",
@@ -2949,4 +2950,10 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 			t.Errorf("the docs/doctor.md row for checkout.hooks.resolve does not name the stage %q", stage)
 		}
 	}
+}
+
+// noAutomounts is a mount table with nothing automounted, so a state word
+// never depends on the machine the tests run on.
+func noAutomounts() (worktreestate.Mounts, error) {
+	return worktreestate.Mounts{"/": "ext4"}, nil
 }

@@ -98,7 +98,7 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Output
 			servicesHint = "Compose couldn't read this worktree: " + text.OneLine(statusErr.Error(), 250)
 		}
 	}
-	state := worktreestate.New(worktreestate.Options{ControlHome: cctx.ControlHome, Runner: cctx.Runner, CommandName: cctx.CommandName}).
+	state := worktreestate.New(worktreestate.Options{ControlHome: cctx.ControlHome, Runner: cctx.Runner, CommandName: cctx.CommandName, Mounts: cctx.Mounts}).
 		Current(registration.RegisteredWorktree, containers, worktree.DirectoryPresent, servicesHint)
 	statuses := worktree.Summarize(containers)
 	host := layout.WorktreeHost(ref.Slug, registration.Domain)

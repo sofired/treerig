@@ -57,7 +57,7 @@ type Registry interface {
 }
 
 // Identities is what the checkout index reads about the current repository's
-// worktrees, answering for whichever checkout the service was started from —
+// worktrees, answering for whichever worktree the service was started from —
 // registry.Registry's own Identities field satisfies this.
 type Identities interface {
 	Entries(ctx context.Context) ([]registry.WorktreeEntry, error)
