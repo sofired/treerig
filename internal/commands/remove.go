@@ -143,10 +143,12 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		stackNamespace = cctx.stackNamespace()
 	}
 
-	// A removal marker this build cannot read (a newer format, or not one it
-	// wrote) refuses the removal here, before the inventory and the prompt:
-	// nothing is asked or touched on the strength of state it cannot judge.
-	if _, err := cctx.Registry.Store(target.RepositoryID).Removing(target.WorktreeID); err != nil {
+	// A removal marker of a newer format (or one that cannot be looked at)
+	// refuses the removal here, before the inventory and the prompt: nothing is
+	// asked or touched on the strength of state it cannot judge. One this build
+	// did not write is no reason to refuse: this command clears it, with a
+	// warning.
+	if err := cctx.Registry.Store(target.RepositoryID).CheckRemovable(target.WorktreeID); err != nil {
 		return nil, err
 	}
 
@@ -215,8 +217,14 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		// worktree reading as removing until it is run again, and the
 		// registration deletion below takes the marker with it. A marker of a
 		// newer format refuses the removal before it touches anything.
-		if err := store.MarkRemoving(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
+		replaced, err := store.BeginRemoval(ctx, target.WorktreeID, target.Slug, cctx.writer())
+		if err != nil {
 			return err
+		}
+		if replaced != nil {
+			// Not a failure: an explicit removal is the way out of a marker
+			// nothing can use.
+			cctx.Logger.Warn(fmt.Sprintf("%s: %v.", host, replaced))
 		}
 		stage = removalMarked
 		// Unroutes before this worktree's own resources are reaped — see
@@ -319,7 +327,13 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			if !result.Registration {
 				return err
 			}
-			cctx.Logger.Warn(fmt.Sprintf("%s: %v. Delete the file by hand.", host, err))
+			var cleared *registry.ClearedMarker
+			if errors.As(err, &cleared) {
+				// Not a failure: the removal is how an unusable marker goes.
+				cctx.Logger.Warn(fmt.Sprintf("%s: %v.", host, cleared))
+			} else {
+				cctx.Logger.Warn(fmt.Sprintf("%s: %v. Delete the file by hand.", host, err))
+			}
 		}
 		// TODO(#211): a removal from outside the repository (not local) leaves the marker in the directory too.
 		if identity != nil {

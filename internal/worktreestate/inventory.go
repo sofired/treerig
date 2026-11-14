@@ -44,6 +44,8 @@ type Container struct {
 	State    worktree.ServiceState
 	ExitCode int
 	Detail   string
+	// Why is why an exit 137 could not be read (worktree.ServiceStatus.Why).
+	Why string
 }
 
 // Available means running, and not reporting itself unhealthy or still
@@ -52,7 +54,7 @@ func (c Container) Available() bool { return c.State == worktree.Running }
 
 // Status is the container as one of a worktree's services.
 func (c Container) Status() worktree.ServiceStatus {
-	return worktree.ServiceStatus{Service: c.Service, State: c.State, ExitCode: c.ExitCode, Detail: c.Detail}
+	return worktree.ServiceStatus{Service: c.Service, State: c.State, ExitCode: c.ExitCode, Detail: c.Detail, Why: c.Why}
 }
 
 // healthPattern matches the health a `docker ps` status announces in
@@ -222,38 +224,33 @@ func (g *Gatherer) Inventory(ctx context.Context, namespaces []string) (Inventor
 	return Inventory{Answered: true, Containers: all}, nil
 }
 
-// inspectConcurrency bounds how many containers readKills inspects at once.
-const inspectConcurrency = 8
-
 // readKills asks Docker about each container that exited 137, the one exit
 // `docker ps` cannot explain: a stop (`compose stop`, a reboot) and the
-// out-of-memory killer both leave it. The inspects run concurrently under one
-// shared deadline (budget, what the inventory timeout has left), so many such
-// containers cost no more than one. A container that cannot be inspected, or
-// that there is no budget left to inspect, stays unknown: nothing assumes it
-// was a stop. Only a cancellation is an error.
+// out-of-memory killer both leave it (docker.ReadExits, under what the
+// inventory timeout has left, budget). A container that cannot be inspected,
+// or that there is no budget left to inspect, stays unknown, with the reason
+// where there is one: nothing assumes it was a stop. Only a cancellation is an
+// error.
 func (g *Gatherer) readKills(ctx context.Context, containers []Container, budget time.Duration) error {
 	if budget <= 0 {
 		return ctx.Err()
 	}
-	deadline, cancel := context.WithTimeout(ctx, budget)
-	defer cancel()
-	var group errgroup.Group
-	group.SetLimit(inspectConcurrency)
-	for i := range containers {
-		container := &containers[i]
-		if container.State != worktree.Unknown || container.Detail != worktree.CauseNotRead {
-			continue
-		}
-		group.Go(func() error {
-			inspected, found, err := docker.InspectContainer(deadline, g.runner, container.ID, budget)
-			if err == nil && found {
-				reading := worktree.ContainerStatus("exited", "", inspected.ExitCode, true, inspected.OOMKilled, true)
-				container.State, container.ExitCode, container.Detail = reading.State, reading.ExitCode, text.Printable(reading.Detail)
-			}
-			return nil
-		})
+	inspect := func(ctx context.Context, id string, timeout time.Duration) (docker.Container, bool, error) {
+		return docker.InspectContainer(ctx, g.runner, id, timeout)
 	}
-	_ = group.Wait()
-	return ctx.Err()
+	return docker.ReadExits(ctx, containers, budget, inspect,
+		func(container *Container) string {
+			if container.State != worktree.Unknown || container.Detail != worktree.CauseNotRead {
+				return ""
+			}
+			return container.ID
+		},
+		func(container *Container, reading docker.ExitReading) {
+			if !reading.Read {
+				container.Why = reading.Why()
+				return
+			}
+			status := worktree.ContainerStatus("exited", "", reading.ExitCode, true, reading.OOMKilled, true)
+			container.State, container.ExitCode, container.Detail = status.State, status.ExitCode, text.Printable(status.Detail)
+		})
 }

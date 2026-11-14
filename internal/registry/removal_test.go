@@ -318,4 +318,89 @@ func TestRemovalMarker(t *testing.T) {
 			t.Fatalf("a current marker survived clearing: %v", err)
 		}
 	})
+
+	t.Run("lets an explicit removal clear a marker that is no marker this build wrote, and says so", func(t *testing.T) {
+		for _, c := range []struct {
+			name  string
+			plant func(t *testing.T, file, outside string)
+		}{
+			{"garbage", func(t *testing.T, file, _ string) {
+				if err := os.WriteFile(file, []byte("not a marker\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}},
+			{"an unknown format", func(t *testing.T, file, _ string) {
+				if err := os.WriteFile(file, []byte("format 0\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}},
+			{"a symbolic link", func(t *testing.T, file, outside string) {
+				if err := os.Symlink(outside, file); err != nil {
+					t.Fatal(err)
+				}
+			}},
+			{"a FIFO", func(t *testing.T, file, _ string) {
+				if err := syscall.Mkfifo(file, 0o600); err != nil {
+					t.Skipf("no FIFOs here: %v", err)
+				}
+			}},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				store, controlHome := setup(t)
+				file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+				outside := filepath.Join(t.TempDir(), "outside")
+				if err := os.WriteFile(outside, []byte("format 1\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				c.plant(t, file, outside)
+
+				var removed bool
+				var err error
+				withinASecond(t, func() { removed, err = store.Remove(ctx, wtA, "feature-login", testWriter) })
+				var cleared *registry.ClearedMarker
+				if !removed || !errors.As(err, &cleared) || cleared.File != file {
+					t.Fatalf("Remove = %v, %v; want the registration removed with a *ClearedMarker naming %s", removed, err, file)
+				}
+				if _, statErr := os.Lstat(file); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("the marker path survived: %v", statErr)
+				}
+				if _, statErr := os.Stat(store.RecordPath(wtA)); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("the registration survived: %v", statErr)
+				}
+				if data, readErr := os.ReadFile(outside); readErr != nil || string(data) != "format 1\n" {
+					t.Fatalf("what the link pointed at was touched: %q, %v", data, readErr)
+				}
+			})
+		}
+	})
+
+	t.Run("begins an explicit removal over a marker nothing can use, and still refuses a newer one", func(t *testing.T) {
+		store, controlHome := setup(t)
+		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		if err := os.WriteFile(file, []byte("garbage\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.MarkRemoving(ctx, wtA, "feature-login", testWriter); err == nil {
+			t.Fatal("MarkRemoving replaced a marker it cannot use")
+		}
+		cleared, err := store.BeginRemoval(ctx, wtA, "feature-login", testWriter)
+		if err != nil || cleared == nil || cleared.File != file {
+			t.Fatalf("BeginRemoval = %+v, %v; want the garbage marker reported as cleared", cleared, err)
+		}
+		if removing, err := store.Removing(wtA); err != nil || !removing {
+			t.Fatalf("Removing = %v, %v; want a current marker now", removing, err)
+		}
+		if again, err := store.BeginRemoval(ctx, wtA, "feature-login", testWriter); err != nil || again != nil {
+			t.Fatalf("BeginRemoval over a current marker = %+v, %v", again, err)
+		}
+		if err := os.WriteFile(file, []byte("format 2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.BeginRemoval(ctx, wtA, "feature-login", testWriter); !errors.Is(err, stateformat.ErrNewer) {
+			t.Fatalf("BeginRemoval over a newer marker: %v", err)
+		}
+		if data, _ := os.ReadFile(file); string(data) != "format 2\n" {
+			t.Fatalf("the newer marker was changed: %q", data)
+		}
+	})
 }

@@ -339,13 +339,18 @@ func refuseUnreadable(what, consequence string, problems []RegistryProblem) erro
 
 // dropRemovalMarker deletes worktreeID's removal marker, which being absent
 // already is fine. Removal finishing is the one thing that deletes it besides
-// ClearRemoving.
+// ClearRemoving. Only a marker this build can read is deleted: a newer or
+// foreign one is refused, not cleared (docs/design/state.md).
 func (s *Store) dropRemovalMarker(worktreeID string) error {
-	// Only a marker this build can read is deleted: a newer or foreign one is
-	// refused, not cleared (docs/design/state.md).
 	if _, err := s.Removing(worktreeID); err != nil {
 		return err
 	}
+	return s.unlinkRemovalMarker(worktreeID)
+}
+
+// unlinkRemovalMarker deletes the file at the marker's path, whatever it is,
+// without opening it (os.Remove does not follow a symbolic link).
+func (s *Store) unlinkRemovalMarker(worktreeID string) error {
 	remove := os.Remove
 	if s.removeFile != nil {
 		remove = s.removeFile
@@ -356,11 +361,34 @@ func (s *Store) dropRemovalMarker(worktreeID string) error {
 	return nil
 }
 
+// ClearedMarker is what Store.Remove returns, with the registration removed,
+// when it also deleted a file at the removal marker's path that was no marker
+// this build wrote (garbage, a foreign format, oversized, a symbolic link or
+// another kind of file): an explicit removal is the way out of one, but the
+// user is told what went.
+type ClearedMarker struct {
+	// File is the path that was deleted, and Reason why it was no marker.
+	File   string
+	Reason error
+}
+
+// Error words the warning.
+func (c *ClearedMarker) Error() string {
+	return fmt.Sprintf("%s was not a removal marker this build wrote; this removal cleared it (%s)", c.File, c.Reason)
+}
+
+// Unwrap is why it was no marker.
+func (c *ClearedMarker) Unwrap() error { return c.Reason }
+
 // Remove deletes a registration, reporting whether there was one to delete.
-// A record that now names another slug changed concurrently, and is kept.
+// A record that now names another slug changed concurrently, and is kept. A
+// removal marker of a newer format refuses the removal; one that is no marker
+// this build wrote does not (it is the recovery command), and is deleted with
+// the registration, which Remove reports as a *ClearedMarker.
 //
 // removed is true together with an error only when the registration is gone
-// and its removal marker could not be deleted: the error names the marker,
+// and either its marker could not be deleted or an unusable one was deleted
+// (*ClearedMarker); in the first case the error names the marker,
 // and the caller treats it as a warning, since nothing depends on the marker
 // once no registration names it (a later Remove or an `up` that registers the
 // worktree again deletes it). Every other error leaves the registration where
@@ -372,9 +400,15 @@ func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, wri
 	removed := false
 	err := s.withRegistryLock(ctx, writer, func(context.Context) error {
 		// Before the record goes: a marker that cannot be deleted must not
-		// leave a deleted record behind it.
-		if _, err := s.Removing(worktreeID); err != nil {
+		// leave a deleted record behind it. A newer one is never touched, and
+		// one that cannot be looked at says nothing; an unusable one is no
+		// reason to refuse the command that clears it.
+		var cleared *ClearedMarker
+		switch kind, err := s.examineMarker(worktreeID); kind {
+		case markerNewer, markerFailed:
 			return err
+		case markerUnusable:
+			cleared = &ClearedMarker{File: s.removalMarkerPath(worktreeID), Reason: err}
 		}
 		current, err := s.Find(worktreeID)
 		if err != nil {
@@ -383,7 +417,7 @@ func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, wri
 		if current == nil {
 			// A marker with no registration is what a removal that died
 			// between the two deletions left; it names nothing.
-			return s.dropRemovalMarker(worktreeID)
+			return s.unlinkRemovalMarker(worktreeID)
 		}
 		if current.Slug != expectedSlug {
 			return clierr.Newf("Worktree %s changed concurrently; its registration was retained.", expectedSlug)
@@ -395,8 +429,11 @@ func (s *Store) Remove(ctx context.Context, worktreeID, expectedSlug string, wri
 		// The record first: a removal that dies between the two leaves a
 		// marker no registration points at, never a registration that looks
 		// finished.
-		if err := s.dropRemovalMarker(worktreeID); err != nil {
+		if err := s.unlinkRemovalMarker(worktreeID); err != nil {
 			return fmt.Errorf("the registration is gone, but its removal marker %s was not deleted: %w", s.removalMarkerPath(worktreeID), err)
+		}
+		if cleared != nil {
+			return cleared
 		}
 		return nil
 	})

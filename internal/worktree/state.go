@@ -161,6 +161,10 @@ type ServiceStatus struct {
 	ExitCode int
 	// Detail is Docker's own word for an Unknown state; empty otherwise.
 	Detail string
+	// Why is, for a service Unknown with Detail CauseNotRead, why Docker
+	// could not be asked (the container is gone, or a short reason it failed);
+	// empty otherwise.
+	Why string
 }
 
 // Text is the state as a line of `status` prints it: the word, and the exit
@@ -373,6 +377,9 @@ func unknownServiceHint(service ServiceStatus, command string) string {
 	}
 	switch {
 	case service.State == Unknown && service.Detail == CauseNotRead:
+		if service.Why != "" {
+			return "Whether " + name + " was stopped or killed for running out of memory (it exited 137) couldn't be read: " + service.Why + "."
+		}
 		return "Whether " + name + " was stopped or killed for running out of memory (it exited 137) couldn't be read."
 	case service.State == Unknown && service.Detail == "exited":
 		return "No exit code was reported for " + name + ", which exited."

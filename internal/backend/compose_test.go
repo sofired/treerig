@@ -548,7 +548,7 @@ func TestDownStatus(t *testing.T) {
 			{Service: "builder", State: worktree.Exited, ExitCode: 137},
 			{Service: "quiet", State: worktree.Exited, ExitCode: 3},
 			{Service: "worker", State: worktree.Unknown, Detail: "exited"},
-			{Service: "worker", State: worktree.Unknown, Detail: worktree.CauseNotRead},
+			{Service: "worker", State: worktree.Unknown, Detail: worktree.CauseNotRead, Why: "the container is gone"},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %+v", got)

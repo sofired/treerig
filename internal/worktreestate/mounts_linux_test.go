@@ -1,11 +1,12 @@
-//go:build linux
+//go:build linux && integration
 
 package worktreestate
 
 import "testing"
 
-// TestReadMountsOnLinux reads the real mount table, which always lists the
-// root filesystem.
+// TestReadMountsOnLinux is an integration smoke test, not a unit test: it reads
+// the machine's real mount table, which always lists the root filesystem. The
+// parser is covered by fixtures (mounts_test.go).
 func TestReadMountsOnLinux(t *testing.T) {
 	mounts, err := readMounts()
 	if err != nil {

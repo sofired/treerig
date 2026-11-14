@@ -10,7 +10,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/commands"
@@ -227,6 +229,61 @@ func TestWorktreeRemove(t *testing.T) {
 		}
 		if got := reads(); got != worktree.StateRunning {
 			t.Fatalf("after up the worktree reads %q, want running by its containers", got)
+		}
+	})
+
+	t.Run("removes a worktree whose removal marker is garbage, a symbolic link or a FIFO, warning that it went", func(t *testing.T) {
+		for _, kind := range []string{"garbage", "a symbolic link", "a FIFO"} {
+			t.Run(kind, func(t *testing.T) {
+				w := commandstest.New(t, "feature/login", acme)
+				ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+				paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+				outside := filepath.Join(t.TempDir(), "outside")
+				if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				switch kind {
+				case "garbage":
+					err = os.WriteFile(paths.RemovalPath, []byte("garbage\n"), 0o600)
+				case "a symbolic link":
+					err = os.Symlink(outside, paths.RemovalPath)
+				default:
+					err = syscall.Mkfifo(paths.RemovalPath, 0o600)
+				}
+				if err != nil {
+					t.Skipf("cannot plant %s: %v", kind, err)
+				}
+				tc := w.Context("", acme, nil)
+				done := make(chan struct{})
+				var result *commands.RemoveResult
+				go func() {
+					defer close(done)
+					result, err = remove(t, tc, approved(commands.RemoveOptions{}))
+				}()
+				select {
+				case <-done:
+				case <-time.After(30 * time.Second):
+					t.Fatal("the removal blocked on the marker")
+				}
+				if err != nil || result == nil || !result.Registration {
+					t.Fatalf("result = %+v, %v", result, err)
+				}
+				if _, statErr := os.Lstat(paths.RemovalPath); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("the marker path survived: %v", statErr)
+				}
+				if data, _ := os.ReadFile(outside); string(data) != "keep" {
+					t.Fatalf("what the link pointed at was touched: %q", data)
+				}
+				lines, _ := tc.Logger.Snapshot()
+				warned := false
+				for _, line := range lines {
+					warned = warned || strings.Contains(line, "warn:") && strings.Contains(line, paths.RemovalPath) && strings.Contains(line, "this removal cleared it")
+				}
+				if !warned {
+					t.Fatalf("no warning naming %s in %q", paths.RemovalPath, lines)
+				}
+			})
 		}
 	})
 

@@ -225,6 +225,36 @@ func TestInventory(t *testing.T) {
 		}
 	})
 
+	t.Run("says why an exit 137 could not be read: the container is gone, or the short reason Docker gave", func(t *testing.T) {
+		long := strings.Repeat("/long/path", 60)
+		runner := &fakerun.Runner{Handler: func(_ context.Context, spec run.Spec) (run.Result, error) {
+			switch {
+			case spec.Args[0] != "container":
+				return run.Result{Stdout: strings.Join([]string{
+					line(repoA, wtA, "vanished", "exited", "Exited (137) 1 hour ago"),
+					line(repoA, wtA, "denied", "exited", "Exited (137) 1 hour ago"),
+				}, "\n")}, nil
+			case spec.Args[2] == "id-vanished":
+				return run.Result{ExitCode: 1, Stderr: "Error: No such container: id-vanished"}, nil
+			}
+			return run.Result{ExitCode: 1, Stderr: "permission denied while trying to connect to " + long}, nil
+		}}
+		got, err := worktreestate.New(worktreestate.Options{Runner: runner}).Inventory(ctx, namespaces[:1])
+		if err != nil || !got.Answered {
+			t.Fatalf("Inventory = %+v, %v", got, err)
+		}
+		hints := map[string]string{}
+		for _, container := range got.Containers {
+			hints[container.Service] = worktree.Classify(worktree.Inputs{Started: true, Services: []worktree.ServiceStatus{container.Status()}}).Hint
+		}
+		if want := "Whether vanished was stopped or killed for running out of memory (it exited 137) couldn't be read: the container is gone."; hints["vanished"] != want {
+			t.Errorf("vanished: %q, want %q", hints["vanished"], want)
+		}
+		if h := hints["denied"]; !strings.Contains(h, "couldn't be read: Could not inspect container id-denied: permission denied while trying to connect") || len(h) > 400 {
+			t.Errorf("denied: %q", h)
+		}
+	})
+
 	t.Run("answers with an empty, non-nil inventory when Docker names no containers", func(t *testing.T) {
 		got, err := worktreestate.New(worktreestate.Options{Runner: (&dockerFake{}).runner()}).Inventory(ctx, namespaces)
 		if err != nil || !got.Answered || got.Containers == nil || len(got.Containers) != 0 {

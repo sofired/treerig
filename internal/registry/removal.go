@@ -81,59 +81,122 @@ func readMarker(path string) ([]byte, error) {
 	return data, nil
 }
 
-// Removing reports whether a removal of worktreeID was started and has not
-// finished. A marker of a newer format is refused (stateformat.Newer), and one
-// that is not a marker this build wrote is an error naming the file: neither
-// is read as "no removal", and neither is touched.
-func (s *Store) Removing(worktreeID string) (bool, error) {
+// markerKind is what looking at a removal marker found.
+type markerKind int
+
+const (
+	// markerAbsent is no marker: no removal.
+	markerAbsent markerKind = iota
+	// markerCurrent is a marker this build wrote.
+	markerCurrent
+	// markerNewer is one a newer treerig wrote: never touched.
+	markerNewer
+	// markerUnusable is a file there that is no marker this build wrote
+	// (garbage, a foreign format, oversized, a symbolic link or another kind of
+	// file): `up` and Removing refuse it, and an explicit removal deletes it.
+	markerUnusable
+	// markerFailed is a marker that could not be looked at (a permission
+	// error, say): nothing can be said about it.
+	markerFailed
+)
+
+// examineMarker looks at worktreeID's removal marker and says what it is, with
+// the error Removing gives for each kind that is not absent or current.
+func (s *Store) examineMarker(worktreeID string) (markerKind, error) {
 	file := s.removalMarkerPath(worktreeID)
 	data, err := readMarker(file)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return false, nil
+		return markerAbsent, nil
 	case errors.Is(err, errMarkerSymlink):
-		return false, clierr.Newf("Removal marker must be a regular file, not a symbolic link: %s", file)
+		return markerUnusable, clierr.Newf("Removal marker must be a regular file, not a symbolic link: %s", file)
 	case errors.Is(err, errMarkerNotRegular):
-		return false, clierr.Newf("Removal marker must be a regular file: %s", file)
+		return markerUnusable, clierr.Newf("Removal marker must be a regular file: %s", file)
 	case errors.Is(err, errMarkerTooLarge):
 		data = nil
 	case err != nil:
-		return false, err
+		return markerFailed, err
 	}
 	first, _, _ := strings.Cut(strings.TrimSuffix(string(data), "\n"), "\n")
 	switch verdict, found := stateformat.Line(first, stateformat.RemovalMarker); verdict {
 	case stateformat.FromNewer:
-		return false, stateformat.Newer("use", "the removal marker "+file, found, stateformat.RemovalMarker)
+		return markerNewer, stateformat.Newer("use", "the removal marker "+file, found, stateformat.RemovalMarker)
 	case stateformat.Current:
 		if string(data) == RemovalMarkerContents() {
-			return true, nil
+			return markerCurrent, nil
 		}
 	}
-	return false, clierr.Newf("Removal marker is not in a format %s wrote. It only records that a removal began: delete it, "+
+	return markerUnusable, clierr.Newf("Removal marker is not in a format %s wrote. It only records that a removal began: delete it, "+
 		"and run `worktree remove` again if the worktree is to go: %s", brand.Name, file)
+}
+
+// Removing reports whether a removal of worktreeID was started and has not
+// finished. A marker of a newer format is refused (stateformat.Newer), and one
+// that is not a marker this build wrote is an error naming the file: neither
+// is read as "no removal", and neither is touched. (`worktree remove` itself
+// clears an unusable one: Store.Remove.)
+func (s *Store) Removing(worktreeID string) (bool, error) {
+	kind, err := s.examineMarker(worktreeID)
+	return kind == markerCurrent, err
+}
+
+// CheckRemovable is the early look `worktree remove` takes at worktreeID's
+// removal marker, before it plans or asks anything: a marker of a newer format,
+// or one that cannot be looked at, is an error; every other state (none, current,
+// or one this build cannot use, which the removal itself clears) is fine.
+func (s *Store) CheckRemovable(worktreeID string) error {
+	switch kind, err := s.examineMarker(worktreeID); kind {
+	case markerNewer, markerFailed:
+		return err
+	}
+	return nil
 }
 
 // MarkRemoving writes worktreeID's removal marker under the registry lock,
 // refusing if the registration is missing or no longer belongs to
-// expectedSlug, and refusing a marker of a newer format that is already
-// there. Writing a marker that is already current changes nothing.
+// expectedSlug, and refusing a marker that is already there and is not
+// current (a newer one, or one this build did not write). Writing a marker
+// that is already current changes nothing.
 func (s *Store) MarkRemoving(ctx context.Context, worktreeID, expectedSlug string, writer Writer) error {
+	_, err := s.markRemoving(ctx, worktreeID, expectedSlug, writer, false)
+	return err
+}
+
+// BeginRemoval is MarkRemoving for an explicit `worktree remove`, the way out
+// of a marker this build cannot use: a file there that is no marker it wrote
+// (garbage, a foreign format, oversized, a symbolic link or another kind of
+// file) is replaced by a current marker, atomically and without opening it, and
+// reported as a *ClearedMarker so the user is told. A marker of a newer format
+// is still refused and never touched.
+func (s *Store) BeginRemoval(ctx context.Context, worktreeID, expectedSlug string, writer Writer) (*ClearedMarker, error) {
+	return s.markRemoving(ctx, worktreeID, expectedSlug, writer, true)
+}
+
+// markRemoving is the writer of both; replaceUnusable says whether a marker
+// that is no marker this build wrote is replaced or refused.
+func (s *Store) markRemoving(ctx context.Context, worktreeID, expectedSlug string, writer Writer, replaceUnusable bool) (*ClearedMarker, error) {
 	if err := files.SecureRegistrationDirectories(layout.WorktreeLayout(s.ControlHome, s.RepositoryID, worktreeID), writer.UserHome); err != nil {
-		return err
+		return nil, err
 	}
-	return s.withRegistryLock(ctx, writer, func(context.Context) error {
+	var cleared *ClearedMarker
+	err := s.withRegistryLock(ctx, writer, func(context.Context) error {
 		if _, _, err := s.readOwnedRecord(worktreeID, expectedSlug); err != nil {
 			return err
 		}
-		marked, err := s.Removing(worktreeID)
-		if err != nil {
-			return err
-		}
-		if marked {
+		switch kind, err := s.examineMarker(worktreeID); {
+		case kind == markerCurrent:
 			return nil
+		case kind == markerUnusable && replaceUnusable:
+			cleared = &ClearedMarker{File: s.removalMarkerPath(worktreeID), Reason: err}
+		case kind != markerAbsent:
+			return err
 		}
 		return files.AtomicWrite(s.removalMarkerPath(worktreeID), []byte(RemovalMarkerContents()), 0o600)
 	})
+	if err != nil {
+		return nil, err
+	}
+	return cleared, nil
 }
 
 // ClearRemoving takes worktreeID's removal marker away under the registry
