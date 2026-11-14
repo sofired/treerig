@@ -56,9 +56,23 @@ var (
 // past that), so a planted file cannot hang or exhaust a command that reads
 // every worktree's state.
 func readMarker(path string) ([]byte, error) {
-	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	return readSmallFile(path, maxMarkerBytes, false)
+}
+
+// readSmallFile reads a small file that every worktree's state read may touch,
+// without letting a planted one hang or exhaust it: opened without blocking (a
+// FIFO cannot hang the open), required to be a regular file by the descriptor
+// itself (errMarkerNotRegular), and read no further than limit bytes
+// (errMarkerTooLarge past that). With follow false a symbolic link is refused
+// (errMarkerSymlink) rather than followed.
+func readSmallFile(path string, limit int, follow bool) ([]byte, error) {
+	flags := os.O_RDONLY | unix.O_NONBLOCK
+	if !follow {
+		flags |= unix.O_NOFOLLOW
+	}
+	file, err := os.OpenFile(path, flags, 0)
 	if err != nil {
-		if errors.Is(err, syscall.ELOOP) {
+		if !follow && errors.Is(err, syscall.ELOOP) {
 			return nil, errMarkerSymlink
 		}
 		return nil, err
@@ -71,11 +85,11 @@ func readMarker(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errMarkerNotRegular
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxMarkerBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > maxMarkerBytes {
+	if len(data) > limit {
 		return nil, errMarkerTooLarge
 	}
 	return data, nil

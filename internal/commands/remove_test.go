@@ -252,7 +252,7 @@ func TestWorktreeRemove(t *testing.T) {
 					err = syscall.Mkfifo(paths.RemovalPath, 0o600)
 				}
 				if err != nil {
-					t.Skipf("cannot plant %s: %v", kind, err)
+					t.Fatalf("cannot plant %s: %v", kind, err)
 				}
 				tc := w.Context("", acme, nil)
 				done := make(chan struct{})

@@ -962,7 +962,8 @@ func TestServiceRefreshTimesOutOnAHungDocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read index file: %v", err)
 	}
-	if !strings.Contains(string(page), "answer within") {
+	// The page is HTML, so the apostrophe in "didn't" is escaped.
+	if !strings.Contains(string(page), "didn&#39;t answer within") {
 		t.Fatalf("page does not say the states are unknown: %s", page)
 	}
 }

@@ -705,6 +705,10 @@ func (s *IdentityService) statRoot(ctx context.Context, limit time.Duration, roo
 // linked worktrees Git keeps under commonDir/worktrees, and reads its
 // worktree marker. It answers "" with no error for one that is not there or
 // carries no marker.
+// maxGitDirBytes bounds the read of a worktree's gitdir file, which holds one
+// path: a file past it is not one Git wrote.
+const maxGitDirBytes = 64 << 10
+
 func identityFromGitDir(commonDir, root string) (string, error) {
 	administrative := filepath.Join(commonDir, "worktrees")
 	children, err := os.ReadDir(administrative)
@@ -720,7 +724,11 @@ func identityFromGitDir(commonDir, root string) (string, error) {
 			continue
 		}
 		dir := filepath.Join(administrative, child.Name())
-		data, err := os.ReadFile(filepath.Join(dir, "gitdir"))
+		// Read like the removal marker, since every state read may come here: a
+		// FIFO or a huge file planted at gitdir cannot hang or exhaust the
+		// listing, and is skipped like an unreadable one. Git follows a
+		// symbolic link here, so this does too.
+		data, err := readSmallFile(filepath.Join(dir, "gitdir"), maxGitDirBytes, true)
 		if err != nil {
 			continue
 		}

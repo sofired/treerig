@@ -253,7 +253,7 @@ func TestRemovalMarker(t *testing.T) {
 		store, controlHome := setup(t)
 		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
 		if err := syscall.Mkfifo(file, 0o600); err != nil {
-			t.Skipf("no FIFOs here: %v", err)
+			t.Fatalf("cannot plant a FIFO: %v", err)
 		}
 		withinASecond(t, func() {
 			// A FIFO is not a symbolic link, so the refusal must not say it is.
@@ -341,7 +341,7 @@ func TestRemovalMarker(t *testing.T) {
 			}},
 			{"a FIFO", func(t *testing.T, file, _ string) {
 				if err := syscall.Mkfifo(file, 0o600); err != nil {
-					t.Skipf("no FIFOs here: %v", err)
+					t.Fatalf("cannot plant a FIFO: %v", err)
 				}
 			}},
 		} {

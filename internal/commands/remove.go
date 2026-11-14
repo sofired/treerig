@@ -176,8 +176,9 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	}
 	result := &RemoveResult{Target: *target}
 	store := cctx.Registry.Store(target.RepositoryID)
-	// Set once the registration is pending, which is when an interruption
-	// has left something worth telling the user about.
+	// How far the removal got, for what an interruption says: not started,
+	// marker written (the worktree reads "removing", nothing destroyed yet),
+	// or registration made pending (data is being destroyed).
 	stage := removalNotStarted
 	err = cctx.mutate(ctx, ref, host, true, func(ctx context.Context) error {
 		// The lock was free while the prompt was up: another removal may have
