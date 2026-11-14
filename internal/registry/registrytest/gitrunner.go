@@ -5,7 +5,10 @@ package registrytest
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -24,11 +27,13 @@ type GitRunner struct {
 	mu         sync.Mutex
 	identities map[string]identity
 	active     []string
+	prunable   map[string]string
+	locked     map[string]bool
 }
 
 // NewGitRunner is an empty in-memory model.
 func NewGitRunner() *GitRunner {
-	return &GitRunner{identities: map[string]identity{}}
+	return &GitRunner{identities: map[string]identity{}, prunable: map[string]string{}, locked: map[string]bool{}}
 }
 
 // Add registers a Git worktree at root on branch, sharing common as its
@@ -101,6 +106,23 @@ func (g *GitRunner) SetActive(active []string) {
 	g.active = append([]string(nil), active...)
 }
 
+// SetPrunable makes `git worktree list` call root prunable for reason, as Git
+// does for an entry whose administrative files are damaged. An entry whose
+// directory is not on disk is prunable without this, as in Git.
+func (g *GitRunner) SetPrunable(root, reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.prunable[root] = reason
+}
+
+// SetLocked makes `git worktree list` report root locked (or not), as `git
+// worktree lock` does.
+func (g *GitRunner) SetLocked(root string, locked bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.locked[root] = locked
+}
+
 // Handler answers `git` calls from the model; every other command exits 0
 // with no output, exactly like fakerun.Runner's own default.
 func (g *GitRunner) Handler() fakerun.Handler {
@@ -135,15 +157,27 @@ func (g *GitRunner) Handler() fakerun.Handler {
 }
 
 // porcelainList renders every active worktree in the NUL-separated format
-// `git worktree list --porcelain -z` produces, enough for callers that only
-// parse root and branch out of it.
+// `git worktree list --porcelain -z` produces: root, branch, and as Git does
+// "locked" for a locked entry and "prunable <reason>" for one whose directory
+// is not on disk (unless locked) or that SetPrunable marked.
 func (g *GitRunner) porcelainList() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	var b strings.Builder
 	for _, root := range g.active {
 		branch := g.identities[root].branch
-		fmt.Fprintf(&b, "worktree %s\x00HEAD deadbeef\x00branch refs/heads/%s\x00\x00", root, branch)
+		fmt.Fprintf(&b, "worktree %s\x00HEAD deadbeef\x00branch refs/heads/%s\x00", root, branch)
+		if g.locked[root] {
+			b.WriteString("locked\x00")
+		}
+		reason, prunable := g.prunable[root]
+		if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) && !g.locked[root] {
+			reason, prunable = "gitdir file points to non-existent location", true
+		}
+		if prunable {
+			fmt.Fprintf(&b, "prunable %s\x00", reason)
+		}
+		b.WriteString("\x00")
 	}
 	return b.String()
 }

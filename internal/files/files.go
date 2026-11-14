@@ -904,6 +904,13 @@ func randomSuffix() string {
 	return hex.EncodeToString(b[:])
 }
 
+// AtomicTemporaryName is the file AtomicWrite writes before renaming it to
+// destination. A writer killed between the two leaves it behind, which is
+// what the sweeps of temporary files look for.
+func AtomicTemporaryName(destination string) string {
+	return fmt.Sprintf("%s.tmp.%d.%s", destination, os.Getpid(), randomSuffix())
+}
+
 // AtomicWrite writes via a temp file and rename, then fsyncs the directory.
 //
 // The temp name carries a random suffix, not just this process's PID: two
@@ -914,7 +921,7 @@ func AtomicWrite(destination string, contents []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 		return err
 	}
-	temporary := fmt.Sprintf("%s.tmp.%d.%s", destination, os.Getpid(), randomSuffix())
+	temporary := AtomicTemporaryName(destination)
 	handle, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
 		return err
@@ -932,9 +939,13 @@ func AtomicWrite(destination string, contents []byte, mode fs.FileMode) error {
 		writeErr = closeErr
 	}
 	if writeErr != nil {
+		_ = os.Remove(temporary)
 		return writeErr
 	}
 	if err := os.Rename(temporary, destination); err != nil {
+		// Nothing is left behind when the destination can't take it (a
+		// directory there, say).
+		_ = os.Remove(temporary)
 		return err
 	}
 	directory, err := os.Open(filepath.Dir(destination))

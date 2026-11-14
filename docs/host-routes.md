@@ -33,7 +33,7 @@ shows the URL) and it writes the file and changes nothing else. `up` and `down`
 leave host routes alone, so a route survives `down` (the process on the host is
 not treerig's to stop) and the hostname answers `502 Bad Gateway` until something
 listens on the port. `worktree remove` removes them before the registration.
-`treerig urls` (`urls --json` marks them `"hostRoute": true`), the checkout index,
+`treerig urls` (`urls --json` marks them `"hostRoute": true`), the overview,
 and `TREERIG_SERVICE_URL_<NAME>` and `TREERIG_SERVICE_PORT_<NAME>` in hooks and
 `treerig run` include them; the index lists them from the registration and does
 not know whether the process is up. `doctor` lists each one with whether its

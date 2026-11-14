@@ -74,7 +74,13 @@ internal/
                           Compose project of their own, connected to each worktree
                           that uses them
   backend/                the Compose backend: labels, overrides, inventory, reap
-  worktree/               what the control plane and backend both say about a worktree
+  worktree/               what the control plane and backend both say about a worktree,
+                          and `Classify`, the one place that turns plain inputs into
+                          the state words
+  worktreestate/          gathers those inputs (registrations and their history, Git's
+                          worktree list, one `docker ps -a` per label namespace, the
+                          mount table) for `status`, `worktree list`, the overview
+                          and `doctor`
   registry/               identity markers, slugs, the registry
   lock/                   flock-based locks and their checked recovery
   binstore/               the content-addressed store `worktree remove

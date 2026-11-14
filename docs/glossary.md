@@ -34,9 +34,9 @@ An executable you name in the `[hooks]` table of `treerig.toml`. treerig runs it
 
 A route from a worktree's hostname to a process on your machine, such as a dev server, rather than to a Compose service. You add one with `treerig route add`. See [Host routes](host-routes.md).
 
-## Index
+## Overview (the index)
 
-The page at `http://treerig.localhost` that lists every checkout on the machine, with its status and links. `treerig index` prints the same thing as text. See [Checkout index](checkout-index.md).
+The overview is the page at `http://treerig.localhost` that lists every worktree on the machine, with its state and links. `treerig index` prints the same thing as text. See [The overview](checkout-index.md).
 
 ## Label namespace
 

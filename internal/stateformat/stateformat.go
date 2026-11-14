@@ -56,6 +56,10 @@ const (
 	// TeardownPin is the version in the teardown pin, teardown/pin.json
 	// under the control home (docs/design/teardown.md).
 	TeardownPin = 1
+	// RemovalMarker is the version in a worktree's removal marker, written
+	// beside its registration when `worktree remove` starts
+	// (docs/design/state.md).
+	RemovalMarker = 1
 )
 
 // Verdict is how a stored version compares with the one this build writes.
@@ -138,7 +142,22 @@ func FormatLine(version int) string { return "format " + strconv.Itoa(version) }
 // and the one supported, and says what to do: upgrade treerig. It exits like any
 // expected failure, and errors.Is(err, ErrNewer) tells it from every other.
 func Newer(verb, subject, found string, supported int) error {
-	return &newerError{refusal: clierr.Newf("Refusing to %s %s: it is %s.", verb, subject, Detail(found, supported))}
+	return &newerError{
+		refusal: clierr.Newf("Refusing to %s %s: it is %s.", verb, subject, Detail(found, supported)),
+		detail:  Detail(found, supported),
+	}
+}
+
+// Reason is the part of a refusal from Newer that says what is wrong, without
+// its verb and subject (and so without the path the subject names), and false
+// for any other error. A hint that has no use for the path, or no room for it
+// before the reason, builds on it.
+func Reason(err error) (string, bool) {
+	var newer *newerError
+	if errors.As(err, &newer) {
+		return newer.detail, true
+	}
+	return "", false
 }
 
 // ErrNewer is what errors.Is finds in every error Newer returns, for a caller
@@ -149,7 +168,10 @@ var ErrNewer = errors.New("state written by a newer treerig")
 // newerError is Newer's error: the plain refusal a user is shown, under a type
 // of its own that also answers errors.Is(ErrNewer). The refusal is not its
 // cause, so a report shows no "caused by" line.
-type newerError struct{ refusal *clierr.Error }
+type newerError struct {
+	refusal *clierr.Error
+	detail  string
+}
 
 // Error is the refusal's message.
 func (e *newerError) Error() string { return e.refusal.Error() }

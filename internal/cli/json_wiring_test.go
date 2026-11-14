@@ -112,11 +112,11 @@ func TestJSONOutputThroughTheProgram(t *testing.T) {
 		}
 	})
 
-	t.Run("index --json prints the snapshot, with services unchecked when Docker is not there", func(t *testing.T) {
+	t.Run("index --json prints the snapshot, with services unchecked, and exits 1, when Docker is not there", func(t *testing.T) {
 		code, stdout, _ := run("index", "--json")
 		var report commands.IndexReport
 		decodeOneDocument(t, stdout, &report)
-		if code != 0 || report.DockerReachable || report.DockerError == nil {
+		if code != 1 || report.DockerReachable || report.DockerError == nil {
 			t.Fatalf("code = %d, report = %+v", code, report)
 		}
 	})

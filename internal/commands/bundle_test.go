@@ -235,6 +235,19 @@ func TestBackup(t *testing.T) {
 		}
 	})
 
+	t.Run("runs the hook in a worktree whose only service is running but unhealthy", func(t *testing.T) {
+		bw := newBundleWorld(t)
+		ids := bw.Docker.Up(bw.ref, brand.LabelNamespace, "api")
+		bw.Docker.SetHealth(ids[0], "unhealthy")
+		dir := filepath.Join(bw.tc.Cwd, "b")
+		if err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: dir}); err != nil {
+			t.Fatalf("err = %v, want the backup to run", err)
+		}
+		if n := len(bw.started()); n != 1 {
+			t.Fatalf("ran %d hooks, want 1", n)
+		}
+	})
+
 	t.Run("exits with the hook's own status; a bundle the hook began keeps its marker and a warning", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")
 		bw.during = func(_ context.Context, spec run.Spec) (run.Result, error) {

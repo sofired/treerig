@@ -295,11 +295,14 @@ func TestInterruptedMutation(t *testing.T) {
 				if found, _ := files.PathExists(paths.RecordPath); !found {
 					t.Fatal("the registration went")
 				}
-				// An interruption past the pending mark says what it left (#149);
-				// one before it left nothing to say.
-				notice := "Interrupted (" + clierr.SignalName(sig) + ") while removing feature-login.acme.localhost. " +
-					"Removed so far: nothing confirmed yet. It is still registered, now pending: " +
-					"'treerig worktree remove' finishes the removal, 'treerig up' starts it again and runs the seed hook again."
+				// Both hang points come after the removal marker, so the worktree
+				// reads "removing" and the notice says so (#149). Past the pending
+				// mark data was destroyed, so calling it off seeds again; in
+				// `compose down` nothing was, so it doesn't.
+				prefix := "Interrupted (" + clierr.SignalName(sig) + ") while removing feature-login.acme.localhost. " +
+					"Removed so far: nothing confirmed yet. It is still registered and now reads 'removing': " +
+					"'treerig worktree remove' finishes the removal, 'treerig up' calls it off"
+				notice := prefix + " and runs the seed hook again."
 				if at == hangInReap {
 					if !strings.Contains(stderr.String(), notice+"\n") {
 						t.Fatalf("stderr lacks the interruption notice %q:\n%s", notice, stderr.String())
@@ -311,8 +314,12 @@ func TestInterruptedMutation(t *testing.T) {
 					if err != nil || json.Unmarshal(data, &record) != nil || record.Initialization != "pending" {
 						t.Fatalf("record = %s, %v; want it pending", data, err)
 					}
+				} else if verb[0] == "worktree" {
+					if !strings.Contains(stderr.String(), prefix+".\n") {
+						t.Fatalf("stderr lacks the notice for a removal that had destroyed nothing, %q:\n%s", prefix+".", stderr.String())
+					}
 				} else if strings.Contains(stderr.String(), "Interrupted (") {
-					t.Fatalf("stderr has an interruption notice for a removal that had destroyed nothing:\n%s", stderr.String())
+					t.Fatalf("`down` printed a removal's interruption notice:\n%s", stderr.String())
 				}
 			})
 		}

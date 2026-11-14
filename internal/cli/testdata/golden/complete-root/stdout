@@ -8,7 +8,7 @@ urls	print this worktree's routed URLs
 run	run one of the project's named commands from treerig.toml [commands]
 backup	run the backup hook, writing a bundle into a directory
 restore	run the restore hook on a bundle directory
-index	refresh the machine-wide checkout index and print it
+index	refresh the machine-wide overview of worktrees and print it
 doctor	check prerequisites, the registry, the router, and this checkout's verify hook
 router	manage the shared local router
 route	route processes running on the host through this worktree's hostname

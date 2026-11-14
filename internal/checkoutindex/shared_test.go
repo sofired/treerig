@@ -11,6 +11,8 @@ import (
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // sharedRecord is mailpit's record in the test repository: its web UI on
@@ -32,7 +34,7 @@ func sharedLine(service string, stateAndStatus ...string) string {
 	if len(stateAndStatus) > 1 {
 		status = stateAndStatus[1]
 	}
-	return strings.Join([]string{state, status, testRepo, "", service, "true"}, "\t")
+	return strings.Join([]string{state, status, testRepo, "", service, "true", "id-" + service}, "\t")
 }
 
 // TestSharedServicesInTheIndex covers the group of shared-service web UIs
@@ -40,7 +42,7 @@ func sharedLine(service string, stateAndStatus ...string) string {
 func TestSharedServicesInTheIndex(t *testing.T) {
 	t.Run("reads a shared container, which has no worktree label, instead of refusing the inventory", func(t *testing.T) {
 		parsed := mustParseInventory(t, sharedLine("mailpit"), testLine(testRegistrations()[0], "api"))
-		if !parsed[0].Shared || parsed[0].WorktreeID != "" || parsed[0].Service != "mailpit" || !parsed[0].Available {
+		if !parsed[0].Shared || parsed[0].WorktreeID != "" || parsed[0].Service != "mailpit" || !parsed[0].Available() {
 			t.Errorf("shared record = %+v", parsed[0])
 		}
 		if parsed[1].Shared {
@@ -50,11 +52,11 @@ func TestSharedServicesInTheIndex(t *testing.T) {
 
 	t.Run("refuses a worktree container without a worktree, and a shared one that names one", func(t *testing.T) {
 		for _, line := range []string{
-			strings.Join([]string{"running", "Up", testRepo, "", "api", ""}, "\t"),
-			strings.Join([]string{"running", "Up", testRepo, testWorktreeIDs[0], "mailpit", "true"}, "\t"),
-			strings.Join([]string{"running", "Up", testRepo, testWorktreeIDs[0], "api", "yes"}, "\t"),
+			strings.Join([]string{"running", "Up", testRepo, "", "api", "", "x"}, "\t"),
+			strings.Join([]string{"running", "Up", testRepo, testWorktreeIDs[0], "mailpit", "true", "x"}, "\t"),
+			strings.Join([]string{"running", "Up", testRepo, testWorktreeIDs[0], "api", "yes", "x"}, "\t"),
 		} {
-			if _, err := ParseContainerInventory(line); err == nil {
+			if _, err := worktreestate.ParseInventory(line); err == nil {
 				t.Errorf("%q was accepted", line)
 			}
 		}
@@ -114,14 +116,14 @@ func TestSharedServicesInTheIndex(t *testing.T) {
 		}
 	})
 
-	t.Run("does not count a shared container toward any checkout's status", func(t *testing.T) {
+	t.Run("does not count a shared container toward any worktree's state", func(t *testing.T) {
 		input := baseSnapshotInput(t)
 		before := BuildSnapshot(input).Entries
 		input.Containers = append(input.Containers, mustParseInventory(t, sharedLine("mailpit"), sharedLine("db", "exited", "Exited (1)"))...)
 		after := BuildSnapshot(input).Entries
 		for i := range before {
-			if before[i].Status != after[i].Status {
-				t.Errorf("%s: %s became %s", before[i].Slug, before[i].Status, after[i].Status)
+			if before[i].State != after[i].State {
+				t.Errorf("%s: %s became %s", before[i].Slug, before[i].State, after[i].State)
 			}
 		}
 	})
@@ -202,14 +204,14 @@ func TestSharedServicesRendering(t *testing.T) {
 		}
 	})
 
-	t.Run("shows the group even before any checkout is indexed", func(t *testing.T) {
+	t.Run("shows the group even before any worktree is indexed", func(t *testing.T) {
 		snapshot := sharedSnapshot(true)
 		snapshot.Entries = nil
 		if !strings.Contains(RenderIndexHTML(snapshot), `id="shared-services"`) {
 			t.Error("the group is missing")
 		}
 		text := FormatIndexText(snapshot, renderTestURL)
-		if !strings.Contains(text, "http://mailpit.shared.acme.localhost") || !strings.Contains(text, "No checkouts have been indexed yet") ||
+		if !strings.Contains(text, "http://mailpit.shared.acme.localhost") || !strings.Contains(text, "No worktrees have been indexed yet") ||
 			!strings.Contains(text, "Shared services: ! not answering") || strings.Contains(text, "\n\n\n") {
 			t.Errorf("text = %q", text)
 		}
@@ -275,7 +277,7 @@ func TestServiceListsSharedServices(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !snapshot.DockerReachable || snapshot.Entries[0].Status != StatusRunning {
+		if !snapshot.DockerReachable || snapshot.Entries[0].State != worktree.StateRunning {
 			t.Errorf("snapshot = %+v", snapshot)
 		}
 	})
@@ -287,7 +289,7 @@ func TestServiceListsSharedServices(t *testing.T) {
 			t.Fatal(err)
 		}
 		format := docker.calls[0].Args[len(docker.calls[0].Args)-1]
-		if !strings.HasSuffix(format, `{{.Label "dev.treerig.shared"}}`) || strings.Count(format, "\t") != 5 {
+		if !strings.HasSuffix(format, "{{.Label \"dev.treerig.shared\"}}\t{{.ID}}") || strings.Count(format, "\t") != 6 {
 			t.Errorf("format = %q", format)
 		}
 	})

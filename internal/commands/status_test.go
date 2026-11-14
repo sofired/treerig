@@ -14,6 +14,7 @@ import (
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // What `status` puts on stdout, and what it refuses to put there: the service
@@ -34,7 +35,7 @@ func TestWorktreeStatus(t *testing.T) {
 		}
 		// The exact row: filtered, still legible, still padded into its column.
 		_, printed := tc.Logger.Snapshot()
-		if !slices.Contains(printed, "  api�[2K�x  absent") {
+		if !slices.Contains(printed, "  api�[2K�x  not created") {
 			t.Fatalf("printed = %q", printed)
 		}
 	})
@@ -55,7 +56,7 @@ func TestWorktreeStatus(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()
-		if printed[0] != "feature-login.acme�[2K�x.localhost" {
+		if printed[0] != "feature-login.acme�[2K�x.localhost   stopped" {
 			t.Fatalf("first line = %q", printed[0])
 		}
 		if !slices.Contains(printed, "api   http://feature-login.acme�[2K�x.localhost") {
@@ -177,10 +178,19 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		if err := json.Unmarshal([]byte(printed[0]), &got); err != nil {
 			t.Fatalf("stdout is not one JSON document: %v\n%q", err, printed)
 		}
-		if !got.Registered || got.Host == nil || *got.Host != "feature-login."+acme {
+		if !got.Registered || got.Host == nil || *got.Host != "feature-login."+acme || got.State == nil || *got.State != worktree.StateStopped {
 			t.Fatalf("report = %+v", got)
 		}
-		if len(got.Services) != 1 || got.Services[0].Service != "api" || got.Services[0].State != "absent" {
+		var spelled struct {
+			State    string `json:"state"`
+			Services []struct {
+				State string `json:"state"`
+			} `json:"services"`
+		}
+		if err := json.Unmarshal([]byte(printed[0]), &spelled); err != nil || spelled.State != "stopped" || spelled.Services[0].State != "not_created" {
+			t.Fatalf("the document spells its states %+v (%v): %s", spelled, err, printed[0])
+		}
+		if len(got.Services) != 1 || got.Services[0].Service != "api" || got.Services[0].State != worktree.NotCreated {
 			t.Fatalf("services = %+v", got.Services)
 		}
 		var raw struct {
@@ -233,7 +243,7 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(services) != 1 || services[0].State != "unknown" || services[0].Detail != "weird" {
+		if len(services) != 1 || services[0].State != worktree.Unknown || services[0].Detail != "weird" {
 			t.Fatalf("services = %+v", services)
 		}
 	})
@@ -248,15 +258,32 @@ func TestWorktreeStatusJSON(t *testing.T) {
 		}
 	})
 
-	t.Run("prints no document, and fails, when Docker cannot list the services", func(t *testing.T) {
-		tc, _, err := runStatusJSON(t, []string{"api"}, func(run.Spec) (run.Result, bool) {
-			return run.Result{ExitCode: 1, Stderr: "daemon is down"}, true
-		})
+	t.Run("prints the document with an unknown state, and fails, when Compose cannot list the services", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		w.Register("", acme, "feature-login", brand.LabelNamespace)
+		w.Docker.Services = []string{"api"}
+		inner := w.Runner.Handler
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if spec.Command == "docker" && slices.Contains(spec.Args, "ps") && slices.Contains(spec.Args, "compose") {
+				return run.Finish(spec, run.Result{ExitCode: 1, Stderr: "daemon is down"})
+			}
+			return inner(ctx, spec)
+		}
+		tc := w.Context("", acme, nil)
+		_, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true})
 		if err == nil || !strings.Contains(err.Error(), "Compose could not list services") {
 			t.Fatalf("err = %v", err)
 		}
-		if _, printed := tc.Logger.Snapshot(); len(printed) != 0 {
-			t.Fatalf("stdout = %q", printed)
+		_, printed := tc.Logger.Snapshot()
+		if len(printed) != 1 {
+			t.Fatalf("stdout = %q, want one document", printed)
+		}
+		var got commands.StatusReport
+		if err := json.Unmarshal([]byte(printed[0]), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.State == nil || *got.State != worktree.StateUnknown || !strings.HasPrefix(got.Hint, "Compose couldn't read this worktree: ") || len(got.Services) != 0 {
+			t.Fatalf("report = %+v", got)
 		}
 	})
 

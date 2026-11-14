@@ -18,25 +18,16 @@ func TestSweepRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		now := time.Now()
-		// files.AtomicWrite leaves its temporary file behind when the rename
-		// fails: here, because the destination is a non-empty directory. That
-		// gives the real name, not one this test spelled.
+		// What a writer killed between AtomicWrite's write and its rename
+		// leaves, under the name AtomicWrite really uses, not one this test
+		// spelled.
 		var real []string
 		for _, destination := range []string{filepath.Join(l.TeardownDir, sum("a binary")), l.PinPath} {
-			if err := os.MkdirAll(filepath.Join(destination, "x"), 0o700); err != nil {
+			temporary := files.AtomicTemporaryName(destination)
+			if err := os.WriteFile(temporary, []byte("partial"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := files.AtomicWrite(destination, []byte("partial"), 0o700); err == nil {
-				t.Fatal("AtomicWrite over a directory succeeded")
-			}
-			matches, _ := filepath.Glob(destination + ".tmp.*")
-			if len(matches) != 1 {
-				t.Fatalf("leftovers for %s: %v", destination, matches)
-			}
-			real = append(real, matches[0])
-			if err := os.RemoveAll(destination); err != nil {
-				t.Fatal(err)
-			}
+			real = append(real, temporary)
 		}
 		for _, path := range real {
 			age(t, path, now, time.Hour)

@@ -6,6 +6,8 @@ import (
 
 	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // testRepoID is testRepo as a variable, for the *string a snapshot input takes.
@@ -18,10 +20,11 @@ func TestHostRoutesOnTheIndex(t *testing.T) {
 		{Name: "web", Port: 5173, Subdomain: "app"},
 		{Name: "api-v1", Port: 8080, Path: &path},
 	}
-	build := func(routerPort int, withCard bool, containers []ContainerRecord, others ...registry.RegisteredWorktree) IndexEntry {
+	build := func(routerPort int, withCard bool, containers []worktreestate.Container, others ...registry.RegisteredWorktree) IndexEntry {
 		input := SnapshotInput{
 			Registrations: append([]registry.RegisteredWorktree{record}, others...), RouterPort: routerPort, Containers: containers,
 			Identities: []registry.WorktreeIdentity{testIdentity(record, "feature/a")}, CurrentRepositoryID: &testRepoID,
+			States: map[string]worktreestate.Result{EntryKey(testRepo, record.WorktreeID): {State: worktree.StateStopped}},
 		}
 		if withCard {
 			input.Cards = map[string]card.IndexCard{EntryKey(testRepo, record.WorktreeID): testCard(record, "acme")}
@@ -37,7 +40,7 @@ func TestHostRoutesOnTheIndex(t *testing.T) {
 	}
 
 	t.Run("lists each host route as a link built from the record, after the services", func(t *testing.T) {
-		entry := build(80, false, []ContainerRecord{})
+		entry := build(80, false, []worktreestate.Container{})
 		if len(entry.Services) != 2 {
 			t.Fatalf("services = %+v", entry.Services)
 		}
@@ -51,29 +54,30 @@ func TestHostRoutesOnTheIndex(t *testing.T) {
 	})
 
 	t.Run("folds in the router's port", func(t *testing.T) {
-		entry := build(8080, false, []ContainerRecord{})
+		entry := build(8080, false, []worktreestate.Container{})
 		if entry.Services[0].URL != "http://app.feature-a.acme.localhost:8080" {
 			t.Fatalf("URL = %q", entry.Services[0].URL)
 		}
 	})
 
-	t.Run("a host route does not change the row's status: only containers do", func(t *testing.T) {
-		with := build(80, true, []ContainerRecord{})
+	t.Run("a host route does not change the row's state: only containers do", func(t *testing.T) {
+		with := build(80, true, []worktreestate.Container{})
 		record.HostRoutes = nil
-		without := build(80, true, []ContainerRecord{})
-		if with.Status != without.Status {
-			t.Fatalf("status with host routes %s, without %s", with.Status, without.Status)
+		without := build(80, true, []worktreestate.Container{})
+		if with.State != without.State {
+			t.Fatalf("state with host routes %s, without %s", with.State, without.State)
 		}
 	})
 
-	t.Run("a checkout Git no longer lists has no available link", func(t *testing.T) {
+	t.Run("a worktree whose directory is missing has no available link", func(t *testing.T) {
 		record.HostRoutes = []registry.HostRoute{{Name: "web", Port: 5173, Subdomain: "app"}}
 		input := SnapshotInput{
-			Registrations: []registry.RegisteredWorktree{record}, RouterPort: 80, Containers: []ContainerRecord{},
+			Registrations: []registry.RegisteredWorktree{record}, RouterPort: 80, Containers: []worktreestate.Container{},
 			CurrentRepositoryID: &testRepoID,
+			States:              map[string]worktreestate.Result{EntryKey(testRepo, record.WorktreeID): {State: worktree.StateDirectoryMissing}},
 		}
 		entry := BuildSnapshot(input).Entries[0]
-		if entry.Status != StatusMissing || len(entry.Services) != 1 || entry.Services[0].Available {
+		if entry.State != worktree.StateDirectoryMissing || len(entry.Services) != 1 || entry.Services[0].Available {
 			t.Fatalf("entry = %+v", entry)
 		}
 	})
@@ -81,7 +85,7 @@ func TestHostRoutesOnTheIndex(t *testing.T) {
 	t.Run("renders in the page", func(t *testing.T) {
 		record.HostRoutes = []registry.HostRoute{{Name: "web", Port: 5173, Subdomain: "app"}}
 		snapshot := BuildSnapshot(SnapshotInput{
-			Registrations: []registry.RegisteredWorktree{record}, RouterPort: 80, Containers: []ContainerRecord{},
+			Registrations: []registry.RegisteredWorktree{record}, RouterPort: 80, Containers: []worktreestate.Container{},
 			Identities: []registry.WorktreeIdentity{testIdentity(record, "feature/a")}, CurrentRepositoryID: &testRepoID,
 		})
 		page := RenderIndexHTML(snapshot)
