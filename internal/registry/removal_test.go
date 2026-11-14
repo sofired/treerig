@@ -403,4 +403,50 @@ func TestRemovalMarker(t *testing.T) {
 			t.Fatalf("the newer marker was changed: %q", data)
 		}
 	})
+
+	// leftovers is what AtomicWrite would leave beside the marker if it failed.
+	leftovers := func(t *testing.T, file string) []string {
+		t.Helper()
+		found, err := filepath.Glob(file + ".tmp.*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return found
+	}
+
+	t.Run("begins an explicit removal over an empty directory at the marker's place", func(t *testing.T) {
+		store, controlHome := setup(t)
+		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		if err := os.Mkdir(file, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cleared, err := store.BeginRemoval(ctx, wtA, "feature-login", testWriter)
+		if err != nil || cleared == nil || cleared.File != file {
+			t.Fatalf("BeginRemoval = %+v, %v; want the directory cleared", cleared, err)
+		}
+		if removing, err := store.Removing(wtA); err != nil || !removing {
+			t.Fatalf("Removing = %v, %v; want a current marker now", removing, err)
+		}
+		if left := leftovers(t, file); len(left) != 0 {
+			t.Fatalf("left behind: %v", left)
+		}
+	})
+
+	t.Run("refuses a directory with something in it, and leaves it and nothing else behind", func(t *testing.T) {
+		store, controlHome := setup(t)
+		file := filepath.Join(controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		if err := os.MkdirAll(filepath.Join(file, "keep"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, err := store.BeginRemoval(ctx, wtA, "feature-login", testWriter)
+		if err == nil || !strings.Contains(err.Error(), "Delete it by hand") || !strings.HasSuffix(err.Error(), file) {
+			t.Fatalf("BeginRemoval = %v; want a refusal naming the directory", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(file, "keep")); statErr != nil {
+			t.Fatalf("what was in the directory went: %v", statErr)
+		}
+		if left := leftovers(t, file); len(left) != 0 {
+			t.Fatalf("left behind: %v", left)
+		}
+	})
 }

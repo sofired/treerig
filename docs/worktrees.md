@@ -157,7 +157,9 @@ is run again. `treerig up` calls the removal off instead: it clears the marker.
 A marker of a newer format refuses both, and is left alone. A marker file that is
 no marker this build wrote (garbage, an unknown format, a symbolic link) blocks
 `up` but not `worktree remove`: the removal replaces it, warns naming the file,
-and deletes it with the registration. A removal run by a
+and deletes it with the registration. The one exception is a directory with
+something in it at the marker's place, which it refuses, naming it: delete it by
+hand and run the removal again. A removal run by a
 0.1.x pinned teardown binary writes no marker, so an interrupted one reads as
 `not started` or `stopped`. Any failure once teardown has started, not only a
 signal, leaves the marker: the worktree reads `removing` until the removal is run

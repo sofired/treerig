@@ -201,7 +201,11 @@ func (s *Store) markRemoving(ctx context.Context, worktreeID, expectedSlug strin
 		case kind == markerCurrent:
 			return nil
 		case kind == markerUnusable && replaceUnusable:
-			cleared = &ClearedMarker{File: s.removalMarkerPath(worktreeID), Reason: err}
+			file := s.removalMarkerPath(worktreeID)
+			cleared = &ClearedMarker{File: file, Reason: err}
+			if err := clearNonRegular(file); err != nil {
+				return err
+			}
 		case kind != markerAbsent:
 			return err
 		}
@@ -211,6 +215,27 @@ func (s *Store) markRemoving(ctx context.Context, worktreeID, expectedSlug strin
 		return nil, err
 	}
 	return cleared, nil
+}
+
+// clearNonRegular deletes what is at file when it is not a regular file, so
+// the atomic write that replaces an unusable marker has somewhere to rename
+// to: a file can't be renamed over a directory. os.Remove takes away that one
+// entry and never follows it, so a symbolic link goes but not its target, and
+// a FIFO, a device or an empty directory goes too. A directory with something
+// in it is refused rather than emptied: what is in it is not treerig's to
+// delete. A regular file is left for the rename to replace.
+func clearNonRegular(file string) error {
+	info, err := os.Lstat(file)
+	if err != nil || info.Mode().IsRegular() {
+		return nil
+	}
+	if err := os.Remove(file); err != nil {
+		if info.IsDir() {
+			return clierr.Newf("The removal marker's place is taken by a directory with something in it. Delete it by hand, then run this again: %s", file)
+		}
+		return err
+	}
+	return nil
 }
 
 // ClearRemoving takes worktreeID's removal marker away under the registry
