@@ -642,16 +642,27 @@ func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) 
 		return commonDir, repositoryID, commonErr
 	}
 	// One budget for every root this call stats, not one each: a hung mount
-	// under several worktrees costs the call StatLimit once.
+	// under several worktrees costs the call StatLimit once. Only the time
+	// spent statting counts against it, not the Git work between the stats:
+	// many healthy worktrees on a slow machine must not use it up and leave
+	// the later directories reading as a file system that did not answer.
 	limit := s.statLimit
 	if limit <= 0 {
 		limit = StatLimit
 	}
-	statCtx, stopStats := context.WithTimeout(ctx, limit)
-	defer stopStats()
+	var spent time.Duration
+	stat := func(root string) (fs.FileInfo, error) {
+		// What is left of the budget; none left, and the stat is not started.
+		left, stop := context.WithTimeout(ctx, limit-spent)
+		defer stop()
+		started := time.Now()
+		info, err := s.statRoot(left, limit, root)
+		spent += time.Since(started)
+		return info, err
+	}
 	for i, worktree := range listed {
 		entry := WorktreeEntry{ListedWorktree: worktree}
-		info, statErr := s.statRoot(statCtx, limit, worktree.Root)
+		info, statErr := stat(worktree.Root)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
@@ -701,14 +712,14 @@ func (s *IdentityService) statRoot(ctx context.Context, limit time.Duration, roo
 	return files.Within(ctx, limit, func() (fs.FileInfo, error) { return stat(root) })
 }
 
-// identityFromGitDir finds the worktree whose files were at root among the
-// linked worktrees Git keeps under commonDir/worktrees, and reads its
-// worktree marker. It answers "" with no error for one that is not there or
-// carries no marker.
 // maxGitDirBytes bounds the read of a worktree's gitdir file, which holds one
 // path: a file past it is not one Git wrote.
 const maxGitDirBytes = 64 << 10
 
+// identityFromGitDir finds the worktree whose files were at root among the
+// linked worktrees Git keeps under commonDir/worktrees, and reads its
+// worktree marker. It answers "" with no error for one that is not there or
+// carries no marker.
 func identityFromGitDir(commonDir, root string) (string, error) {
 	administrative := filepath.Join(commonDir, "worktrees")
 	children, err := os.ReadDir(administrative)
