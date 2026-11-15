@@ -79,6 +79,7 @@ func newCheckoutIndex(cctx *CommandContext, inventoryTimeout time.Duration) (*ch
 		Runner:       cctx.Runner,
 		Logger:       cctx.Logger,
 		Invocation:   cctx.Invocation,
+		Mounts:       cctx.Mounts,
 		// Zero keeps the service's own bound; `index` passes a short one.
 		InventoryTimeout: inventoryTimeout,
 	}), nil

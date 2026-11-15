@@ -323,6 +323,17 @@ func TestIdentityServiceRepository(t *testing.T) {
 		}
 	})
 
+	t.Run("asks without Git's trace variables, which would make it warn, and keeps the caller's others", func(t *testing.T) {
+		f := newIdentityFixture(t, "feature/one")
+		runner := &recordingRunner{Runner: f.runner}
+		environ := []string{"PATH=/bin", "GIT_TRACE=/nowhere/trace", "GIT_TRACE2_EVENT=/nowhere/event", "GIT_DIR=/repo/.git"}
+		identities := registry.New(registry.Options{ControlHome: f.base, Root: f.root, Runner: runner, Environ: environ}).Identities
+		_, _, _, _ = identities.Repository(ctx, filepath.Join(f.base, "elsewhere"))
+		if len(runner.specs) == 0 || !slices.Equal(runner.specs[0].Env, []string{"PATH=/bin", "GIT_DIR=/repo/.git", "LC_ALL=C"}) {
+			t.Fatalf("specs = %+v, want the caller's environment without GIT_TRACE*, plus LC_ALL=C", runner.specs)
+		}
+	})
+
 	t.Run("any other Git failure is an error carrying Git's words, not an answer", func(t *testing.T) {
 		for _, stderr := range []string{
 			"fatal: detected dubious ownership in repository at '/srv/x'",
@@ -336,6 +347,53 @@ func TestIdentityServiceRepository(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), stderr) || inside {
 				t.Fatalf("%q: Repository = %q, %v, %v, %v; want an error naming Git's words", stderr, id, present, inside, err)
 			}
+		}
+	})
+
+	t.Run("a broken .git file or GIT_DIR is an error, not the absence of a repository", func(t *testing.T) {
+		for _, stderr := range []string{
+			"fatal: not a git repository: /nonexistent/x",
+			"fatal: not a git repository: '/nonexist'",
+			// A path may hold the refusal's own words, even after a line break.
+			"fatal: not a git repository: /tmp/not a git repository (or any of the parent directories)/x",
+			"fatal: not a git repository: /tmp/x\nfatal: not a git repository (or any of the parent directories): .git",
+			// A warning first does not hide a broken repository.
+			"warning: could not open '/nowhere/trace' for tracing: No such file or directory\nfatal: not a git repository: /nonexistent/x",
+		} {
+			runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+				return run.Result{ExitCode: 128, Stderr: stderr + "\n"}, nil
+			}}
+			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), stderr) || inside {
+				t.Fatalf("%q: Repository = %q, %v, %v, %v; want an error naming Git's words", stderr, id, present, inside, err)
+			}
+		}
+	})
+
+	t.Run("either of Git's refusals outside every repository is the answer outside, not an error", func(t *testing.T) {
+		for _, stderr := range []string{
+			"fatal: not a git repository (or any of the parent directories): .git",
+			"fatal: not a git repository (or any parent up to mount point /home)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).",
+			// Warnings Git prints first are passed over.
+			"warning: could not open '/nowhere/trace' for tracing: No such file or directory\nfatal: not a git repository (or any of the parent directories): .git",
+		} {
+			runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+				return run.Result{ExitCode: 128, Stderr: stderr + "\n"}, nil
+			}}
+			id, present, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+			if err != nil || inside || present || id != "" {
+				t.Fatalf("%q: Repository = %q, %v, %v, %v; want outside every repository", stderr, id, present, inside, err)
+			}
+		}
+	})
+
+	t.Run("a refusal whose output overflowed is an error, not an answer", func(t *testing.T) {
+		runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
+			return run.Result{ExitCode: 128, OutputOverflow: true, Stderr: "fatal: not a git repository (or any of the parent directories): .git\n"}, nil
+		}}
+		_, _, inside, err := registry.NewIdentityService(t.TempDir(), runner).Repository(ctx, t.TempDir())
+		if err == nil || inside {
+			t.Fatalf("Repository = inside %v, %v; want an error", inside, err)
 		}
 	})
 

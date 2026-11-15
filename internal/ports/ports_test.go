@@ -88,13 +88,17 @@ func TestLoopbackProbe(t *testing.T) {
 			t.Skipf("no loopback: %v", err)
 		}
 		port := listener.Addr().(*net.TCPAddr).Port
-		if probe.Free(ctx, port) {
+		free, why := probe.Free(ctx, port)
+		if free {
 			t.Fatalf("port %d has a listener but was reported free", port)
+		}
+		if want := "binding it failed (address already in use)"; why != want {
+			t.Fatalf("reason = %q, want %q", why, want)
 		}
 		if err := listener.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if !probe.Free(ctx, port) {
+		if free, _ := probe.Free(ctx, port); !free {
 			t.Fatalf("port %d was closed but reported busy", port)
 		}
 	})
@@ -105,16 +109,17 @@ func TestLoopbackProbe(t *testing.T) {
 			t.Skipf("no wildcard listener: %v", err)
 		}
 		defer func() { _ = listener.Close() }()
-		if port := listener.Addr().(*net.TCPAddr).Port; probe.Free(ctx, port) {
-			t.Fatalf("port %d has a wildcard listener but was reported free", port)
+		port := listener.Addr().(*net.TCPAddr).Port
+		if free, why := probe.Free(ctx, port); free || why == "" {
+			t.Fatalf("port %d has a wildcard listener: Free = %v, %q", port, free, why)
 		}
 	})
 
 	t.Run("does not call a port free once the context is cancelled", func(t *testing.T) {
 		cancelled, cancel := context.WithCancel(ctx)
 		cancel()
-		if probe.Free(cancelled, 39999) {
-			t.Fatal("a cancelled context reported a port free")
+		if free, why := probe.Free(cancelled, 39999); free || why != "the check was cancelled before it could tell" {
+			t.Fatalf("a cancelled context: Free = %v, %q", free, why)
 		}
 	})
 }
@@ -129,13 +134,17 @@ func TestDialProbe(t *testing.T) {
 			t.Skipf("no loopback: %v", err)
 		}
 		port := listener.Addr().(*net.TCPAddr).Port
-		if probe.Free(ctx, port) {
+		free, why := probe.Free(ctx, port)
+		if free {
 			t.Fatalf("port %d has a listener but was reported free", port)
+		}
+		if want := "connecting to it succeeded"; why != want {
+			t.Fatalf("reason = %q, want %q", why, want)
 		}
 		if err := listener.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if !probe.Free(ctx, port) {
+		if free, _ := probe.Free(ctx, port); !free {
 			t.Fatalf("port %d was closed but reported busy", port)
 		}
 	})
@@ -145,7 +154,7 @@ func TestDialProbe(t *testing.T) {
 			_ = conn.Close()
 			t.Skip("something listens on 127.0.0.1:80 here")
 		}
-		if !probe.Free(ctx, 80) {
+		if free, _ := probe.Free(ctx, 80); !free {
 			t.Fatal("a free privileged port was reported busy")
 		}
 	})
@@ -153,8 +162,8 @@ func TestDialProbe(t *testing.T) {
 	t.Run("does not call a port free once the context is cancelled", func(t *testing.T) {
 		cancelled, cancel := context.WithCancel(ctx)
 		cancel()
-		if probe.Free(cancelled, 39999) {
-			t.Fatal("a cancelled context reported a port free")
+		if free, why := probe.Free(cancelled, 39999); free || why != "the check was cancelled before it could tell" {
+			t.Fatalf("a cancelled context: Free = %v, %q", free, why)
 		}
 	})
 }

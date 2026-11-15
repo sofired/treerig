@@ -1,5 +1,5 @@
 --progress	how to show progress: auto or plain (one line per change) (default "auto")
---config	path to treerig.toml (default: nearest above cwd)
+--config	path to treerig.toml (default: nearest above cwd, if any)
 --help	help for down
 --label-namespace	supply the Docker label namespace when there is no usable treerig.toml to say it
 --volumes	also delete the data volumes and release the pinned ports

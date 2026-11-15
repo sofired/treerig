@@ -18,6 +18,7 @@ import (
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
 )
@@ -85,6 +86,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	// Where the command runs from, asked once: which repository it is in (if
 	// any) decides what no name means, and whether the target is local.
 	repositoryID, present, inside, err := cctx.Registry.Identities.Repository(ctx, cctx.Registry.Identities.Root)
+	gitFailed := false
 	if err != nil {
 		// A named target does not depend on where the command runs from: a
 		// Git problem here (an unsafe directory, a corrupt .git) only means the
@@ -94,8 +96,9 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		if options.Identifier == "" {
 			return nil, err
 		}
+		gitFailed = true
 		cctx.Logger.Warn(fmt.Sprintf("Could not tell which repository %s belongs to, so %s is treated as another repository's worktree: %s",
-			text.Printable(cctx.Cwd), text.Printable(options.Identifier), text.OneLine(err.Error(), 200)))
+			text.Printable(cctx.Registry.Identities.Root), text.Printable(options.Identifier), text.OneLine(run.Reason(err), 200)))
 		repositoryID, present, inside = "", false, false
 	}
 	scope := repositoryID
@@ -125,7 +128,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	}
 	paths := layout.WorktreeLayout(cctx.ControlHome, target.RepositoryID, target.WorktreeID)
 	local := present && repositoryID == target.RepositoryID
-	namespace, err := targetNamespace(cctx, target, local, options)
+	namespace, err := targetNamespace(cctx, target, local, gitFailed, options)
 	if err != nil {
 		return nil, err
 	}
@@ -140,10 +143,12 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		stackNamespace = cctx.stackNamespace()
 	}
 
-	// A removal marker this build cannot read (a newer format, or not one it
-	// wrote) refuses the removal here, before the inventory and the prompt:
-	// nothing is asked or touched on the strength of state it cannot judge.
-	if _, err := cctx.Registry.Store(target.RepositoryID).Removing(target.WorktreeID); err != nil {
+	// A removal marker of a newer format (or one that cannot be looked at)
+	// refuses the removal here, before the inventory and the prompt: nothing is
+	// asked or touched on the strength of state it cannot judge. One this build
+	// did not write is no reason to refuse: this command clears it, with a
+	// warning.
+	if err := cctx.Registry.Store(target.RepositoryID).CheckRemovable(target.WorktreeID); err != nil {
 		return nil, err
 	}
 
@@ -171,9 +176,10 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	}
 	result := &RemoveResult{Target: *target}
 	store := cctx.Registry.Store(target.RepositoryID)
-	// Set once the registration is pending, which is when an interruption
-	// has left something worth telling the user about.
-	marked := false
+	// How far the removal got, for what an interruption says: not started,
+	// marker written (the worktree reads "removing", nothing destroyed yet),
+	// or registration made pending (data is being destroyed).
+	stage := removalNotStarted
 	err = cctx.mutate(ctx, ref, host, true, func(ctx context.Context) error {
 		// The lock was free while the prompt was up: another removal may have
 		// finished, or an `up` may have re-labelled the worktree's resources.
@@ -195,14 +201,33 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 				return err
 			}
 		}
-		// Teardown starts here, so the marker goes down before anything is
-		// changed: a removal that is interrupted from now on leaves the
+		// What is there now, read under the lock before anything is changed: a
+		// container that appeared since the prompt is stopped, not killed. A
+		// failure to read it ends the removal with nothing touched and no
+		// marker. From the marker on, a failure leaves it: the steps below can
+		// fail part-way and nothing proves they changed nothing, so the
+		// worktree reads removing (whatever its containers say) until another
+		// remove finishes the job or `up` brings it back.
+		current, err := runtime.Inventory(ctx, ref)
+		if err != nil {
+			return err
+		}
+		// Teardown starts here, so the marker goes down before the first
+		// change (routes are unrouted next, which can fail part-way): a
+		// removal that is interrupted or fails from now on leaves the
 		// worktree reading as removing until it is run again, and the
 		// registration deletion below takes the marker with it. A marker of a
 		// newer format refuses the removal before it touches anything.
-		if err := store.MarkRemoving(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
+		replaced, err := store.BeginRemoval(ctx, target.WorktreeID, target.Slug, cctx.writer())
+		if err != nil {
 			return err
 		}
+		if replaced != nil {
+			// Not a failure: an explicit removal is the way out of a marker
+			// nothing can use.
+			cctx.Logger.Warn(fmt.Sprintf("%s: %v.", host, replaced))
+		}
+		stage = removalMarked
 		// Unroutes before this worktree's own resources are reaped — see
 		// unrouteWorktree's own comment. Runs regardless of which resource
 		// kinds current (below) turns out to hold, and works even for a
@@ -223,12 +248,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		}
 		// `down` acts on the project name, so any target can be stopped
 		// gracefully before its containers are reaped; skipped when there is
-		// nothing to stop. Decided under the lock, so a container that appeared
-		// since the prompt is stopped rather than killed.
-		current, err := runtime.Inventory(ctx, ref)
-		if err != nil {
-			return err
-		}
+		// nothing to stop (current, above).
 		if containsKind(current, "container") {
 			if err := withProgress(cctx.Logger, "Stopping "+host, func() error { return runtime.Down(ctx, ref) }); err != nil {
 				return err
@@ -245,7 +265,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			if err := store.MarkPending(ctx, target.WorktreeID, target.Slug, cctx.writer()); err != nil {
 				return err
 			}
-			marked = true
+			stage = removalPending
 			// What `down` took, in case the signal lands before the first reap.
 			result.Resources = excludeResources(current, owned)
 			// Again, immediately before the first Reap: cheap, idempotent,
@@ -308,7 +328,13 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 			if !result.Registration {
 				return err
 			}
-			cctx.Logger.Warn(fmt.Sprintf("%s: %v. Delete the file by hand.", host, err))
+			var cleared *registry.ClearedMarker
+			if errors.As(err, &cleared) {
+				// Not a failure: the removal is how an unusable marker goes.
+				cctx.Logger.Warn(fmt.Sprintf("%s: %v.", host, cleared))
+			} else {
+				cctx.Logger.Warn(fmt.Sprintf("%s: %v. Delete the file by hand.", host, err))
+			}
 		}
 		// TODO(#211): a removal from outside the repository (not local) leaves the marker in the directory too.
 		if identity != nil {
@@ -322,7 +348,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 	if err != nil {
 		// After the locks are released, so the notice is the last thing
 		// said before the process dies by the signal.
-		if notice := interruptNotice(marked, context.Cause(ctx), err, result, host, removeNextSteps(cctx.CommandName, retry, here)); notice != "" {
+		if notice := interruptNotice(stage, context.Cause(ctx), err, result, host, removeNextSteps(cctx.CommandName, retry, here)); notice != "" {
 			cctx.Logger.Info(notice)
 		}
 		return nil, err
@@ -355,7 +381,7 @@ func resolveRemoveTarget(ctx context.Context, cctx *CommandContext, options Remo
 	if options.Identifier == "" {
 		if !inside {
 			return nil, clierr.Newf("There is no worktree to remove here: %s is not inside a Git worktree. "+
-				"Name one with '%s worktree remove <worktree>'.", cctx.Cwd, cctx.CommandName)
+				"Name one with '%s worktree remove <worktree>'.", text.Printable(cctx.Registry.Identities.Root), cctx.CommandName)
 		}
 		current, err := cctx.Registry.Current(ctx)
 		if err != nil {
@@ -398,7 +424,7 @@ func targetIdentity(ctx context.Context, cctx *CommandContext, worktreeID string
 // and would delete the registration that points at the data.
 // --label-namespace is for a worktree none of those describe, and never an
 // override of one they do.
-func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, local bool, options RemoveOptions) (string, error) {
+func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, local, gitFailed bool, options RemoveOptions) (string, error) {
 	flag := options.LabelNamespace
 	if flag != "" && !brand.LabelNamespacePattern.MatchString(flag) {
 		return "", clierr.Newf("--label-namespace must look like a reverse domain, e.g. dev.example, not \"%s\".", flag)
@@ -422,14 +448,23 @@ func targetNamespace(cctx *CommandContext, target *registry.RegisteredWorktree, 
 	}
 	// Nothing records it. Where the user is decides what they can do about it:
 	// a worktree of this repository whose treerig.toml was set aside needs the
-	// file fixed; any other needs the command run from inside its repository,
-	// naming the target, since a bare 'worktree remove' there would remove the
-	// worktree they are in.
+	// file fixed, and one with none needs it run where the file is. When Git
+	// could not say which repository this is, the target was only taken for
+	// another's (local is false), so Git's trouble is what to fix. Any other
+	// needs the command run from inside its repository, naming the target,
+	// since a bare 'worktree remove' there would remove the worktree they are
+	// in.
 	// TODO(#211): --label-namespace goes with the flag; this then asks for nothing but the repository.
 	where, remedy := "from here:", fmt.Sprintf("Run '%s worktree remove %s' from inside the repository that created it", cctx.CommandName, target.Slug)
 	switch {
-	case local:
+	case local && cctx.SetAsideConfig != "":
 		where, remedy = "from this directory: its "+brand.ConfigFile+" could not be used to find out, and", "Fix "+brand.ConfigFile
+	case local:
+		where, remedy = "from this directory: it has no "+brand.ConfigFile+" to find out from, and",
+			"Run it from a worktree of a branch that has "+brand.ConfigFile
+	case gitFailed:
+		where, remedy = "from here: Git could not tell which repository this is (see the warning above), and",
+			"Fix what Git reported and run it again"
 	case cctx.Loaded != nil:
 		where = "from this repository: it belongs to a different one, and"
 	}
@@ -654,20 +689,36 @@ type nextSteps struct {
 	restart string
 }
 
-// interruptNotice is what an interrupted removal says once the worktree is
-// pending, or "" when it has nothing to add. It speaks only when all of these
-// hold: the registration was marked pending; it still exists; a signal is why
-// the context ended (cause); and err is that interruption alone. An error
-// that carries more (a lock that could not be released, say) is reported on
-// its own and recovered through the lock, so a pending notice would mislead.
+// removalStage is how far a removal got, for what an interruption says.
+type removalStage int
+
+const (
+	// removalNotStarted: no removal marker yet, so nothing reads "removing".
+	removalNotStarted removalStage = iota
+	// removalMarked: the marker is down, so the worktree reads "removing",
+	// but no data has been destroyed; an `up` calls it off as it was.
+	removalMarked
+	// removalPending: data is being destroyed and the registration is
+	// pending, so an `up` calls it off and seeds again.
+	removalPending
+)
+
+// interruptNotice is what an interrupted removal says once the worktree reads
+// "removing", or "" when it has nothing to add. It speaks only when all of
+// these hold: the removal marker was written (stage); the registration still
+// exists; a signal is why the context ended (cause); and err is that
+// interruption alone. An error that carries more (a lock that could not be
+// released, say) is reported on its own and recovered through the lock, so
+// the notice would mislead. Only a pending removal destroyed data, so only
+// then does calling it off run the seed hook again.
 //
 // The resources counted are a lower bound: the one being removed when the
 // signal came, and those after it, are not counted even if the daemon
 // finished the one in flight. The line is filtered as a whole, since it
 // carries the host.
-func interruptNotice(marked bool, cause, err error, result *RemoveResult, host string, next nextSteps) string {
+func interruptNotice(stage removalStage, cause, err error, result *RemoveResult, host string, next nextSteps) string {
 	var interrupted, plain *clierr.Cancelled
-	if !marked || result.Registration || !errors.As(cause, &interrupted) || !errors.As(err, &plain) {
+	if stage == removalNotStarted || result.Registration || !errors.As(cause, &interrupted) || !errors.As(err, &plain) {
 		return ""
 	}
 	var gone []string
@@ -682,8 +733,11 @@ func interruptNotice(marked bool, cause, err error, result *RemoveResult, host s
 		removed = "Removed so far (at least): " + strings.Join(gone, ", ")
 	}
 	steps := fmt.Sprintf("'%s' finishes the removal", next.finish)
-	if next.restart != "" {
+	switch {
+	case next.restart != "" && stage == removalPending:
 		steps += fmt.Sprintf(", '%s' calls it off and runs the seed hook again", next.restart)
+	case next.restart != "":
+		steps += fmt.Sprintf(", '%s' calls it off", next.restart)
 	}
 	return text.Printable(fmt.Sprintf("Interrupted (%s) while removing %s. %s. It is still registered and now reads 'removing': %s.",
 		clierr.SignalName(interrupted.Signal), host, removed, steps))

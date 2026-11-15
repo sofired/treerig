@@ -288,8 +288,10 @@ func TestWorktreeRemoveInterrupted(t *testing.T) {
 		}
 	})
 
-	t.Run("prints no notice when the signal lands before the worktree is pending", func(t *testing.T) {
-		// `compose down` is the last step before the registration is marked.
+	t.Run("says it reads removing, and that up calls it off without seeding, when the signal lands before the worktree is pending", func(t *testing.T) {
+		// `compose down` is the last step before the registration is marked
+		// pending, and comes after the removal marker: the worktree reads
+		// "removing", but nothing was destroyed, so up has nothing to seed.
 		out := interruption{match: " compose ", nth: 1, services: []string{"api"}}.remove(t)
 		if out.err == nil {
 			t.Fatal("RemoveWithContext = nil, want the cancellation")
@@ -297,8 +299,9 @@ func TestWorktreeRemoveInterrupted(t *testing.T) {
 		if out.state != registry.Complete {
 			t.Fatalf("initialization = %v, want complete: nothing was destroyed", out.state)
 		}
-		if got := interruptedLines(out.lines); len(got) != 0 {
-			t.Fatalf("notice = %q, want none", got)
+		got := interruptedLines(out.lines)
+		if len(got) != 1 || !strings.Contains(got[0], "now reads 'removing'") || !strings.Contains(got[0], "calls it off.") || strings.Contains(got[0], "seed hook") {
+			t.Fatalf("notice = %q, want one that says it reads removing and that up calls it off, without seeding", got)
 		}
 	})
 

@@ -175,7 +175,8 @@ func TestDoctorSharedServices(t *testing.T) {
 				held = &check
 			}
 		}
-		if held == nil || held.Status != commands.StatusWarn || !strings.Contains(held.Detail, "treerig shared up --reallocate-port mailpit:1025") {
+		if held == nil || held.Status != commands.StatusWarn || !strings.Contains(held.Detail, "treerig shared up --reallocate-port mailpit:1025") ||
+			!strings.Contains(held.Detail, "is held by another process: "+registrytest.FreeProbeWhy+"; find it with: ") {
 			t.Fatalf("check = %+v", held)
 		}
 	})

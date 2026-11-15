@@ -79,7 +79,12 @@ func (s *statusSubject) checkDirectory(ctx context.Context, gatherer *worktreest
 				host, cctx.CommandName),
 		}, nil
 	}
-	switch directory, hint := gatherer.RecordedDirectory(s.root); directory {
+	directory, hint := gatherer.RecordedDirectory(ctx, s.root)
+	// A cancelled look is no verdict on the directory.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	switch directory {
 	case worktree.DirectoryGone:
 		return &statusStop{
 			directory: worktree.DirectoryGone,

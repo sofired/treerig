@@ -102,7 +102,7 @@ start.
 | `router.port` | `router` | | the resolved router port and where it came from |
 | `checkout.config` | `checkout` | | this checkout's `treerig.toml` |
 | `checkout.worktree` | `checkout` | | whether this worktree is registered |
-| `checkout.missing` | `checkout` | worktree ID | a registration of this repository that Git no longer lists: `warn` that its directory is gone (`directory missing`, judged on positive evidence), or that treerig cannot tell whether it is, with the cause (see [State words](commands.md#directory-missing)) |
+| `checkout.missing` | `checkout` | worktree ID | a registration of this repository that Git no longer lists: `warn` that its directory is gone (`directory missing`, judged on positive evidence), that treerig cannot tell whether it is, with the cause (see [State words](commands.md#directory-missing)), that a removal of it was interrupted (`removing`), or that a directory is there but no worktree Git lists carries its identity |
 | `checkout.missing-scan` | `checkout` | | the scan for missing worktrees failed |
 | `checkout.ports` | `checkout` | the routed service's name | whether its allocated loopback port is free or held by this worktree's own container (`fail` when anything else holds it, `skip` before one is allocated) |
 | `checkout.published-port` | `checkout` | the routed service's name | a routed service whose own Compose file also publishes a fixed host port |

@@ -2,9 +2,12 @@ package registry_test
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
@@ -86,6 +89,98 @@ func TestIdentityServiceEntries(t *testing.T) {
 		}
 	})
 
+	t.Run("reports a directory that never answers as one that could not be checked, and goes on", func(t *testing.T) {
+		f := newIdentityFixture(t, "main")
+		if _, err := f.identities.Ensure(ctx, f.root); err != nil {
+			t.Fatal(err)
+		}
+		hung := addLinked(t, f, "feature-hung")
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		f.identities.StatWith(func(path string) (fs.FileInfo, error) {
+			if path == hung {
+				<-release
+			}
+			return os.Stat(path)
+		}, 20*time.Millisecond)
+		entries, err := f.identities.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e := entries[1]; e.StatErr == nil || e.Exists || e.WorktreeID != "" {
+			t.Fatalf("hung = %+v", e)
+		}
+		if e := entries[0]; e.StatErr != nil || !e.Exists {
+			t.Fatalf("main = %+v", e)
+		}
+	})
+
+	t.Run("gives every directory it stats one budget together, not one each", func(t *testing.T) {
+		f := newIdentityFixture(t, "main")
+		if _, err := f.identities.Ensure(ctx, f.root); err != nil {
+			t.Fatal(err)
+		}
+		hung := map[string]bool{}
+		for i := range 5 {
+			hung[addLinked(t, f, fmt.Sprintf("feature-hung-%d", i))] = true
+		}
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		const budget = 200 * time.Millisecond
+		f.identities.StatWith(func(path string) (fs.FileInfo, error) {
+			if hung[path] {
+				<-release
+			}
+			return os.Stat(path)
+		}, budget)
+		start := time.Now()
+		entries, err := f.identities.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Five budgets would be a second.
+		if elapsed := time.Since(start); elapsed > 3*budget {
+			t.Fatalf("took %s for five hung directories, want about one budget (%s)", elapsed, budget)
+		}
+		for _, e := range entries[1:] {
+			if e.StatErr == nil || e.Exists {
+				t.Fatalf("entry = %+v", e)
+			}
+		}
+	})
+
+	t.Run("charges only the stats to the budget, not the Git work between them", func(t *testing.T) {
+		f := newIdentityFixture(t, "main")
+		if _, err := f.identities.Ensure(ctx, f.root); err != nil {
+			t.Fatal(err)
+		}
+		for i := range 4 {
+			linked := addLinked(t, f, fmt.Sprintf("feature-%d", i))
+			if _, err := f.identities.Ensure(ctx, linked); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Every Git call takes 20ms, so the Git work for these healthy
+		// worktrees comes to well over the stat budget; the stats themselves
+		// are instant.
+		const budget = 100 * time.Millisecond
+		slow := registry.NewIdentityService(f.root, slowRunner{Runner: f.runner, delay: 20 * time.Millisecond})
+		slow.StatWith(os.Stat, budget)
+		start := time.Now()
+		entries, err := slow.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if elapsed := time.Since(start); elapsed < budget {
+			t.Fatalf("the Git work took %s, under the %s budget, so this proves nothing", elapsed, budget)
+		}
+		for _, e := range entries {
+			if e.StatErr != nil || !e.Exists {
+				t.Fatalf("entry %s = %+v; want it checked, not timed out by the Git work", e.Root, e)
+			}
+		}
+	})
+
 	t.Run("reports a locked entry as locked, and not prunable", func(t *testing.T) {
 		f := newIdentityFixture(t, "main")
 		if _, err := f.identities.Ensure(ctx, f.root); err != nil {
@@ -155,4 +250,16 @@ func TestIdentityServiceEntries(t *testing.T) {
 			t.Fatal("expected Git's failure")
 		}
 	})
+}
+
+// slowRunner is a runner whose every call takes delay longer.
+type slowRunner struct {
+	run.Runner
+	delay time.Duration
+}
+
+// Run is run.Runner's Run.
+func (r slowRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	time.Sleep(r.delay)
+	return r.Runner.Run(ctx, spec)
 }

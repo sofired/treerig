@@ -50,7 +50,7 @@ func symlinkedCommandContext(t *testing.T, target string) (*CommandContext, *log
 		ControlHome: controlHome, Root: t.TempDir(), Runner: &fakerun.Runner{}, Logger: log, CommandName: "treerig",
 	})
 	return &CommandContext{
-		CommandName: "treerig", Invocation: "treerig", Logger: log, Runner: &fakerun.Runner{},
+		CommandName: "treerig", Mounts: noAutomounts, Invocation: "treerig", Logger: log, Runner: &fakerun.Runner{},
 		ControlHome: controlHome, RouterPort: 80, RouterState: routerState, Registry: reg,
 	}, log
 }

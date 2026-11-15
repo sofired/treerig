@@ -204,10 +204,11 @@ func runBundleHook(ctx context.Context, cctx *CommandContext, stage config.HookS
 	return nil
 }
 
-// anyRunning reports whether at least one service is running.
+// anyRunning reports whether at least one service is running. A container
+// failing its health check is still running, and a hook can still run in it.
 func anyRunning(statuses []worktree.ServiceStatus) bool {
 	for _, status := range statuses {
-		if status.State == worktree.Running {
+		if status.State == worktree.Running || status.State == worktree.Unhealthy {
 			return true
 		}
 	}

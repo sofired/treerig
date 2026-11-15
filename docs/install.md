@@ -337,8 +337,10 @@ written:
   lists them, each described by its command line. Only the name is completed,
   never what follows it.
 
-A registry that is missing, empty or unreadable, or a `treerig.toml` that
-cannot be found or parsed, completes nothing rather than failing.
+A registry that is missing, empty or unreadable completes nothing rather than
+failing. So does a `treerig.toml` that cannot be found or parsed, for the
+completions read from it: service names, shared services and `run`'s commands.
+Worktree names never need one, so a broken `treerig.toml` doesn't stop them.
 
 `install.sh` sets completion up for you (see
 [What the script sets up for completion](#what-the-script-sets-up-for-completion)),

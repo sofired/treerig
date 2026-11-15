@@ -61,7 +61,9 @@ cause:
 | `Its parent directory is missing or empty: is the volume mounted?` | the parent is missing, empty or below an automount placeholder |
 | `Git's records for it are damaged: 'git worktree repair' may fix them.` | Git calls the worktree prunable but its directory exists |
 | `Git has it locked, so its directory may be on a drive that is not connected: connect it, or run 'git worktree unlock'.` | the directory is absent and the worktree is locked |
-| `treerig couldn't check it: <the error>.` | a permission error, Git or the mount table failing (a mount table with a line treerig can't read counts as failing) |
+| `Git does not call it prunable (Git 2.31 or newer says so).` | the directory is absent, the worktree is not locked, and Git does not call it prunable |
+| `Git lists a worktree treerig has no identity for, which might be this one moved.` | Git no longer lists this worktree, and lists another, elsewhere, that carries no treerig identity |
+| `treerig couldn't check it: <the error>.` | a permission error, Git or the mount table failing (a mount table with a line treerig can't read counts as failing), or the file system not answering within the 5 seconds a run gives it in all (a hung network mount) |
 
 Git can't tell a directory moved without `git worktree move` from a deleted one:
 a moved worktree reads `directory missing` too, and `git worktree repair`
@@ -207,7 +209,10 @@ at a time, within that one second.
   words). `index` makes the same Docker budget and exits 1 the same way when
   Docker does not answer; the page it wrote says so.
 - **`doctor`** warns about a registration Git no longer lists, as `directory
-  missing`, or as unknown, with the cause.
+  missing`, as `removing` (its removal was interrupted), or as unknown, with the
+  cause. A directory Git lists with no identity of its own, at the place the
+  registration recorded, is warned about too, without a state: `doctor` asks
+  Docker nothing here.
 
 Their machine-readable forms are in [Machine-readable output](json-output.md).
 

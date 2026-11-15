@@ -546,6 +546,25 @@ func TestTeardownGate(t *testing.T) {
 	})
 
 	t.Run("says what an older pin may need when there is no treerig.toml for it to read, and only then", func(t *testing.T) {
+		// The gate looks for a treerig.toml from the working directory up to the
+		// filesystem root. A stray one above the test's temporary directory (in
+		// /tmp or the home directory) would answer for every case, so the lookup
+		// here walks the same way but stops at the fixture's own root.
+		withinFixture := func(f *gateFixture) func(string) (string, bool, error) {
+			root := filepath.Dir(f.dir)
+			return func(dir string) (string, bool, error) {
+				for {
+					candidate := filepath.Join(dir, "treerig.toml")
+					if _, err := os.Stat(candidate); err == nil {
+						return candidate, true, nil
+					}
+					if dir == root || filepath.Dir(dir) == dir {
+						return "", false, nil
+					}
+					dir = filepath.Dir(dir)
+				}
+			}
+		}
 		const hint = "This pin (1.2.3) may need a treerig.toml: if it stops with \"No treerig.toml found\", run the removal from inside the worktree's repository, or pass --config <that repository's treerig.toml>."
 		tomlAbove := func(t *testing.T, f *gateFixture) {
 			if err := os.WriteFile(filepath.Join(f.dir, "treerig.toml"), []byte("[project]\n"), 0o600); err != nil {
@@ -573,6 +592,7 @@ func TestTeardownGate(t *testing.T) {
 			}, false},
 		} {
 			f := newGateFixture(t)
+			commands.SetFindConfigFileForTest(t, withinFixture(f))
 			tc.setup(t, f)
 			_ = f.remove(commands.RemoveOptions{Identifier: "feature-x", Yes: true, Version: tc.version})
 			if len(f.calls) != 1 {

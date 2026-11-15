@@ -175,11 +175,14 @@ file = "compose.yaml"
 	// completionWorktreeB gets no card: its own row completes with no known path.
 	writeCompletionRecord(t, controlHome, completionRepoAcme2, completionWorktreeC, "widgets-main", completionWidgetsDomain)
 	writeCompletionCard(t, controlHome, completionRepoAcme2, completionWorktreeC, "widgets-main", completionWidgetsDomain, "/worktrees/widgets-main")
-	// completionWorktreeD shares completionWorktreeA's slug in another
-	// repository and domain, so neither slug names one alone and each completes
+	// completionWorktreeD shares completionWorktreeA's slug in another domain
+	// of the same repository, so neither slug names one alone and each completes
 	// as its host (the resolver's slug rule, registry.Registry.NameCandidates).
-	writeCompletionRecord(t, controlHome, completionRepoAcme2, completionWorktreeD, "feature-login", completionWidgetsDomain)
-	writeCompletionCard(t, controlHome, completionRepoAcme2, completionWorktreeD, "feature-login", completionWidgetsDomain, "/worktrees/widgets-login")
+	// It stays in one repository on purpose: a slug shared across repositories
+	// makes the resolver ask Git which one is current, and these goldens never
+	// run Git (the registry's own tests cover that narrowing with a fake).
+	writeCompletionRecord(t, controlHome, completionRepoAcme1, completionWorktreeD, "feature-login", completionWidgetsDomain)
+	writeCompletionCard(t, controlHome, completionRepoAcme1, completionWorktreeD, "feature-login", completionWidgetsDomain, "/worktrees/widgets-login")
 	// completionOddDomain/completionOddRoot pin describeWorktreeCandidate's
 	// and domainCompletionFunc's own text.Printable calls: written straight
 	// to disk (registrytest.WriteRecord/card.WriteIndexCard bypass the

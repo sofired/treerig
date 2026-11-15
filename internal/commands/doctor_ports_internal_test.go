@@ -127,7 +127,7 @@ func TestDoctorLoopbackPorts(t *testing.T) {
 		opts := f.opts()
 		opts.PortProbe = registrytest.FreeProbe{Busy: map[int]bool{30010: true}}
 		lines := portLines(t, f, opts, "checkout.ports")
-		if len(lines) != 1 || lines[0].Status != StatusFail || !strings.Contains(lines[0].Detail, "is held by another process") {
+		if len(lines) != 1 || lines[0].Status != StatusFail || !strings.Contains(lines[0].Detail, "is held by another process: "+registrytest.FreeProbeWhy+"; find it with: ") {
 			t.Fatalf("lines = %+v", lines)
 		}
 	})
