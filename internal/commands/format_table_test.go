@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // TestFormatTable pins the exact column alignment against literal expected
@@ -14,15 +15,15 @@ func TestFormatTable(t *testing.T) {
 	root := func(s string) *string { return &s }
 
 	rows := []commands.ListedRegistration{
-		{Slug: "feature-login", Domain: "acme.localhost", Host: "feature-login.acme.localhost", State: commands.StateReady, Branch: branch("feature/login"), Root: root("/repo/worktree"), Current: true},
-		{Slug: "feature-other", Domain: "acme.localhost", Host: "feature-other.acme.localhost", State: commands.StateReady, Branch: branch("feature/other"), Root: root("/repo/other"), Current: false},
+		{Slug: "feature-login", Domain: "acme.localhost", Host: "feature-login.acme.localhost", State: worktree.StateRunning, Branch: branch("feature/login"), Root: root("/repo/worktree"), Current: true},
+		{Slug: "feature-other", Domain: "acme.localhost", Host: "feature-other.acme.localhost", State: worktree.StateRunning, Branch: branch("feature/other"), Root: root("/repo/other"), Current: false},
 	}
 
 	got := commands.FormatTable(rows, false)
 	want := []string{
-		"  HOST                          STATE  BRANCH         ROOT",
-		"* feature-login.acme.localhost  ready  feature/login  /repo/worktree",
-		"  feature-other.acme.localhost  ready  feature/other  /repo/other",
+		"  HOST                          STATE    BRANCH         ROOT",
+		"* feature-login.acme.localhost  running  feature/login  /repo/worktree",
+		"  feature-other.acme.localhost  running  feature/other  /repo/other",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d lines, want %d: %+v", len(got), len(want), got)
@@ -35,11 +36,11 @@ func TestFormatTable(t *testing.T) {
 
 	t.Run("a missing root or branch prints -", func(t *testing.T) {
 		got := commands.FormatTable([]commands.ListedRegistration{
-			{Slug: "gone", Domain: "acme.localhost", Host: "gone.acme.localhost", State: commands.StateMissing},
+			{Slug: "gone", Domain: "acme.localhost", Host: "gone.acme.localhost", State: worktree.StateDirectoryMissing},
 		}, false)
 		want := []string{
-			"  HOST                 STATE    BRANCH  ROOT",
-			"  gone.acme.localhost  missing  -       -",
+			"  HOST                 STATE              BRANCH  ROOT",
+			"  gone.acme.localhost  directory missing  -       -",
 		}
 		if len(got) != len(want) {
 			t.Fatalf("got %+v", got)

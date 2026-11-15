@@ -29,6 +29,7 @@ import (
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/run/fakerun"
 	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // services every test config declares.
@@ -214,6 +215,7 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 	tc := &TestContext{
 		CommandContext: &commands.CommandContext{
 			CommandName: "treerig",
+			Mounts:      NoAutomounts,
 			Invocation:  "treerig",
 			Logger:      log,
 			Runner:      w.Runner,
@@ -270,6 +272,7 @@ func (w *World) ContextWithoutConfig(cwd string) *TestContext {
 	return &TestContext{
 		CommandContext: &commands.CommandContext{
 			CommandName: "treerig",
+			Mounts:      NoAutomounts,
 			Invocation:  "treerig",
 			Logger:      log,
 			Runner:      w.Runner,
@@ -375,4 +378,11 @@ func (w *World) SetPorts(ref worktree.Ref, ports map[string]int) {
 	}); err != nil {
 		w.t.Fatalf("SetPorts: %v", err)
 	}
+}
+
+// NoAutomounts is a mount table with nothing automounted, which every
+// command-level test gives its context so a state word never depends on the
+// machine the tests run on.
+func NoAutomounts() (worktreestate.Mounts, error) {
+	return worktreestate.Mounts{"/": "ext4"}, nil
 }

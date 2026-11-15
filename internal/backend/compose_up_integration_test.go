@@ -225,8 +225,8 @@ func TestComposeRuntimeAgainstARealDaemon(t *testing.T) {
 		t.Fatalf("Status after down: %v", err)
 	}
 	for _, s := range statuses {
-		if s.State != worktree.Absent {
-			t.Fatalf("expected every service absent after down, got %+v", statuses)
+		if s.State != worktree.NotCreated {
+			t.Fatalf("expected every service not created after down, got %+v", statuses)
 		}
 	}
 	// Down is reversible: the named volume and the built image are still there for reap to find.

@@ -27,6 +27,11 @@ type Container struct {
 	// Health is "starting", "healthy" or "unhealthy" for a container with a
 	// health check, and "" for one without.
 	Health string
+	// ExitCode is how the container last ended; zero for one that never ran.
+	ExitCode int
+	// OOMKilled is whether Docker says the kernel killed it for running out
+	// of memory.
+	OOMKilled bool
 	// Labels are the container's labels.
 	Labels map[string]string
 	// Networks are the networks the container is attached to, by name.
@@ -66,8 +71,10 @@ type containerDocument struct {
 	ID    string `json:"Id"`
 	Name  string `json:"Name"`
 	State struct {
-		Status string `json:"Status"`
-		Health *struct {
+		Status    string `json:"Status"`
+		ExitCode  int    `json:"ExitCode"`
+		OOMKilled bool   `json:"OOMKilled"`
+		Health    *struct {
 			Status string `json:"Status"`
 		} `json:"Health"`
 	} `json:"State"`
@@ -130,6 +137,7 @@ func InspectContainer(ctx context.Context, runner run.Runner, id string, timeout
 		ID:       document.ID,
 		Name:     strings.TrimPrefix(document.Name, "/"),
 		Status:   document.State.Status,
+		ExitCode: document.State.ExitCode, OOMKilled: document.State.OOMKilled,
 		Labels:   document.Config.Labels,
 		Networks: map[string]Endpoint{},
 		Ports:    map[string][]PortBinding{},

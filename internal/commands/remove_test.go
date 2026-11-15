@@ -2,6 +2,7 @@ package commands_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,7 +10,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/commands"
@@ -20,6 +23,7 @@ import (
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 const acme = "acme.localhost"
@@ -42,7 +46,28 @@ func remove(t *testing.T, tc *commandstest.TestContext, options commands.RemoveO
 	return commands.RemoveWithContext(context.Background(), tc.CommandContext, &commands.Env{CommandName: "treerig"}, options)
 }
 
-// kinds returns resources' Kind values, in order, for asserting what a
+// failingAt wraps a Runner so that the nth Docker call whose arguments contain
+// match fails with err, as a daemon that stops answering does.
+type failingAt struct {
+	run.Runner
+	match string
+	nth   int
+	err   error
+	seen  int
+}
+
+// Run delegates every call, failing the one picked.
+func (r *failingAt) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	if strings.Contains(" "+strings.Join(spec.Args, " ")+" ", r.match) {
+		r.seen++
+		if r.seen == r.nth {
+			return run.Result{}, r.err
+		}
+	}
+	return r.Runner.Run(ctx, spec)
+}
+
+// kinds returns resources' Kind values values, in order, for asserting what a
 // removal touched without comparing full OwnedResource values.
 func kinds(resources []worktree.OwnedResource) []string {
 	var out []string
@@ -111,6 +136,177 @@ func TestWorktreeRemove(t *testing.T) {
 		lines, _ := tc.Logger.Snapshot()
 		if last := lines[len(lines)-1]; last != "info: Removed feature-login.acme.localhost: 2 containers, 1 volume, home directory, registration, identity marker." {
 			t.Fatalf("last line = %q", last)
+		}
+		// The removal marker it wrote when it started is gone with the registration.
+		if exists(t, paths.RemovalPath) {
+			t.Fatal("the removal marker survived a completed removal")
+		}
+	})
+
+	t.Run("finishes an interrupted removal, and the marker goes with the registration", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		// What an interrupted removal left: the marker, beside a registration.
+		if err := os.WriteFile(paths.RemovalPath, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+		if result, err := remove(t, tc, approved(commands.RemoveOptions{})); err != nil || !result.Registration {
+			t.Fatalf("result = %+v, %v", result, err)
+		}
+		if exists(t, paths.RemovalPath) || exists(t, paths.RecordPath) {
+			t.Fatal("the marker or the registration survived")
+		}
+	})
+
+	t.Run("leaves no removal marker when it fails before it has changed anything", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		tc := w.Context("", acme, nil)
+		// The first container listing by project (the plan, before the lock)
+		// answers; the second, under the lock and before anything is stopped,
+		// does not.
+		tc.Runner = &failingAt{Runner: tc.Runner, match: " ps -aq --filter label=com.docker.compose.project=", nth: 2, err: errors.New("Cannot connect to the Docker daemon")}
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "Cannot connect to the Docker daemon")
+		if exists(t, paths.RemovalPath) {
+			t.Fatal("a removal that changed nothing left a marker, so a healthy worktree would read removing")
+		}
+		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 2 {
+			t.Fatalf("the worktree's resources = %v", left)
+		}
+		if !exists(t, paths.Home) || !exists(t, paths.RecordPath) {
+			t.Fatal("the home or the registration was touched")
+		}
+	})
+
+	t.Run("leaves the removal marker when it fails after it has destroyed something", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		tc := w.Context("", acme, nil)
+		w.Docker.Add("volume", commandstest.Ownership(ref, brand.LabelNamespace))
+		tc.Runner = &failingAt{Runner: tc.Runner, match: " volume rm ", nth: 1, err: errors.New("volume is in use")}
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "volume is in use")
+		if !exists(t, paths.RemovalPath) {
+			t.Fatal("a removal that stopped the containers left no marker")
+		}
+	})
+
+	t.Run("leaves the worktree reading as removing when a step after the first change fails, until up brings it back", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		tc := w.Context("", acme, nil)
+		// The route files are already unrouted when the shared stack is
+		// listed, so the failure is one that may have changed something.
+		tc.Runner = &failingAt{Runner: tc.Runner, match: " label=dev.treerig.shared=true", nth: 1, err: errors.New("Cannot connect to the Docker daemon")}
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "Cannot connect to the Docker daemon")
+		if !exists(t, paths.RemovalPath) {
+			t.Fatal("a removal that failed after its first change left no marker")
+		}
+		reads := func() worktree.State {
+			t.Helper()
+			record := registry.RegisteredWorktree{RepositoryID: ref.RepositoryID, WorktreeID: ref.WorktreeID, Slug: "feature-login", Domain: acme}
+			gathered := worktreestate.New(worktreestate.Options{ControlHome: w.ControlHome, Runner: w.Runner, Mounts: commandstest.NoAutomounts})
+			return gathered.Current(record, []worktree.ServiceStatus{{Service: "api", State: worktree.Running}}, worktree.DirectoryPresent, "").State
+		}
+		if got := reads(); got != worktree.StateRemoving {
+			t.Fatalf("the worktree reads %q, want removing, whatever its containers say", got)
+		}
+
+		upCtx := w.Context("", acme, nil)
+		givePorts(upCtx)
+		if _, err := up(t, upCtx, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+			t.Fatalf("Up: %v", err)
+		}
+		if exists(t, paths.RemovalPath) {
+			t.Fatal("up did not clear the marker")
+		}
+		if got := reads(); got != worktree.StateRunning {
+			t.Fatalf("after up the worktree reads %q, want running by its containers", got)
+		}
+	})
+
+	t.Run("removes a worktree whose removal marker is garbage, a symbolic link or a FIFO, warning that it went", func(t *testing.T) {
+		for _, kind := range []string{"garbage", "a symbolic link", "a FIFO"} {
+			t.Run(kind, func(t *testing.T) {
+				w := commandstest.New(t, "feature/login", acme)
+				ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+				paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+				outside := filepath.Join(t.TempDir(), "outside")
+				if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				switch kind {
+				case "garbage":
+					err = os.WriteFile(paths.RemovalPath, []byte("garbage\n"), 0o600)
+				case "a symbolic link":
+					err = os.Symlink(outside, paths.RemovalPath)
+				default:
+					err = syscall.Mkfifo(paths.RemovalPath, 0o600)
+				}
+				if err != nil {
+					t.Fatalf("cannot plant %s: %v", kind, err)
+				}
+				tc := w.Context("", acme, nil)
+				done := make(chan struct{})
+				var result *commands.RemoveResult
+				go func() {
+					defer close(done)
+					result, err = remove(t, tc, approved(commands.RemoveOptions{}))
+				}()
+				select {
+				case <-done:
+				case <-time.After(30 * time.Second):
+					t.Fatal("the removal blocked on the marker")
+				}
+				if err != nil || result == nil || !result.Registration {
+					t.Fatalf("result = %+v, %v", result, err)
+				}
+				if _, statErr := os.Lstat(paths.RemovalPath); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("the marker path survived: %v", statErr)
+				}
+				if data, _ := os.ReadFile(outside); string(data) != "keep" {
+					t.Fatalf("what the link pointed at was touched: %q", data)
+				}
+				lines, _ := tc.Logger.Snapshot()
+				warned := false
+				for _, line := range lines {
+					warned = warned || strings.Contains(line, "warn:") && strings.Contains(line, paths.RemovalPath) && strings.Contains(line, "this removal cleared it")
+				}
+				if !warned {
+					t.Fatalf("no warning naming %s in %q", paths.RemovalPath, lines)
+				}
+			})
+		}
+	})
+
+	t.Run("refuses a removal marker of a newer format before it touches anything", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, ref.RepositoryID, ref.WorktreeID)
+		newer := []byte("format 2\n")
+		if err := os.WriteFile(paths.RemovalPath, newer, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
+		wantErr(t, err, "written by a newer treerig")
+		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 2 {
+			t.Fatalf("a refused removal touched the worktree's resources: %v", left)
+		}
+		if !exists(t, paths.Home) || !exists(t, paths.RecordPath) {
+			t.Fatal("a refused removal deleted the home or the registration")
+		}
+		if data, _ := os.ReadFile(paths.RemovalPath); string(data) != string(newer) {
+			t.Fatalf("the newer marker was changed: %q", data)
 		}
 	})
 

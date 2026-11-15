@@ -13,7 +13,7 @@
       "host": "feature-login.acme.localhost",
       "branch": "feature/login",
       "root": "FIXTURE/checkout",
-      "status": "stopped",
+      "status": "running",
       "services": []
     }
   ]

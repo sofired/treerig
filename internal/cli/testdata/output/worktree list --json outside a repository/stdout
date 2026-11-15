@@ -6,7 +6,7 @@
     "domain": "acme.localhost",
     "labelNamespace": "dev.treerig",
     "host": "feature-login.acme.localhost",
-    "state": "ready",
+    "state": "running",
     "current": false
   }
 ]

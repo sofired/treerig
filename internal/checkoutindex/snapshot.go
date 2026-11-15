@@ -9,27 +9,16 @@ package checkoutindex
 
 import (
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/sofired/treerig/internal/checkoutindex/card"
-	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/text"
-)
-
-// IndexStatus is a row's state, as the legend on the page explains it.
-type IndexStatus string
-
-const (
-	StatusRunning IndexStatus = "running"
-	StatusPartial IndexStatus = "partial"
-	StatusStopped IndexStatus = "stopped"
-	StatusMissing IndexStatus = "missing"
-	StatusUnknown IndexStatus = "unknown"
+	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // IndexServiceLink is one routed service a row links to.
@@ -76,8 +65,11 @@ type IndexEntry struct {
 	Branch *string
 	// Root is last seen; empty and absent mean the same thing here, since a
 	// root is a path, so it needs no pointer the way Branch does.
-	Root     string
-	Status   IndexStatus
+	Root string
+	// State is the worktree's state, in the words every command uses
+	// (worktree.Classify); Hint names the cause of an unknown one.
+	State    worktree.State
+	Hint     string
 	Services []IndexServiceLink
 }
 
@@ -139,60 +131,6 @@ type IndexSnapshot struct {
 	CardReadFailures int
 }
 
-// ContainerRecord is one managed container, as `docker ps` reports it.
-type ContainerRecord struct {
-	RepositoryID string
-	// WorktreeID is empty for a container of a repository's shared services,
-	// which belong to no worktree (Shared is then true).
-	WorktreeID string
-	Service    string
-	// Shared marks a container of a repository's shared services.
-	Shared bool
-	// Available means running, and not reporting itself unhealthy or still
-	// starting.
-	Available bool
-}
-
-// unhealthyPattern matches a `docker ps` status announcing a container is
-// not ready, case-insensitively, wherever it appears in the status text.
-var unhealthyPattern = regexp.MustCompile(`(?i)\((?:unhealthy|health: starting)\)`)
-
-// ParseContainerInventory parses the tab-separated `docker ps` format the
-// index service asks for: state, status, repository, worktree, service, and
-// the shared label ("true" for a container of a repository's shared
-// services, which carries no worktree label). It never returns a nil slice on success — even
-// for empty output, which means Docker answered and named no containers —
-// since SnapshotInput.Containers uses nil specifically to mean Docker could
-// not be asked at all, and service.go's caller may pass this return value
-// straight through or merge several of them together.
-func ParseContainerInventory(output string) ([]ContainerRecord, error) {
-	records := make([]ContainerRecord, 0, strings.Count(output, "\n")+1)
-	for _, line := range strings.Split(output, "\n") {
-		if line == "" {
-			continue
-		}
-		fields := strings.Split(line, "\t")
-		if len(fields) != 6 {
-			return nil, clierr.New("Docker returned an unrecognized container inventory line.")
-		}
-		state, status, repositoryID, worktreeID, service, sharedLabel := fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]
-		isShared := sharedLabel == "true"
-		// The shared field is exactly "true" or empty: anything else is a
-		// tab inside an earlier field that shifted the rest.
-		if state == "" || repositoryID == "" || service == "" || (sharedLabel != "" && !isShared) || (worktreeID == "") != isShared {
-			return nil, clierr.New("Docker returned an unrecognized container inventory line.")
-		}
-		records = append(records, ContainerRecord{
-			RepositoryID: repositoryID,
-			WorktreeID:   worktreeID,
-			Service:      service,
-			Shared:       isShared,
-			Available:    state == "running" && !unhealthyPattern.MatchString(status),
-		})
-	}
-	return records, nil
-}
-
 // SnapshotInput is everything BuildSnapshot needs.
 type SnapshotInput struct {
 	Registrations []registry.RegisteredWorktree
@@ -208,7 +146,11 @@ type SnapshotInput struct {
 	CurrentRepositoryID *string
 	// Containers is nil when Docker could not be asked; a non-nil, possibly
 	// empty, slice once it could.
-	Containers []ContainerRecord
+	Containers []worktreestate.Container
+	// States is each registration's state, by EntryKey, as
+	// worktreestate.Gatherer classified it. A registration with none reads
+	// unknown: the page never shows a state nothing decided.
+	States map[string]worktreestate.Result
 	// DockerError is what Docker said when it could not be asked; shown to
 	// whoever reads the page.
 	DockerError *string
@@ -224,9 +166,10 @@ type SnapshotInput struct {
 	// card could not be read for a reason other than it never having been
 	// written — most pointedly EMFILE, once thousands of registrations have
 	// exhausted this process's file descriptors. Distinguishing this from
-	// "no card" matters: a checkout that has never come up correctly reads
-	// Stopped or Missing, but one whose card merely could not be opened this
-	// time must not be reported with the same confidence — see entryStatus.
+	// "no card" matters: a worktree that has never come up correctly reads
+	// not started, but one whose card merely could not be opened this time
+	// must not be reported with the same confidence (the Gatherer reads it
+	// as unknown).
 	CardReadFailures map[string]struct{}
 	GeneratedAt      string
 }
@@ -262,9 +205,8 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 		key := EntryKey(record.RepositoryID, record.WorktreeID)
 		indexCard, hasCard := input.Cards[key]
 		identity, hasIdentity := identities[key]
-		local := input.CurrentRepositoryID != nil && record.RepositoryID == *input.CurrentRepositoryID
 
-		var owned []ContainerRecord
+		var owned []worktreestate.Container
 		if dockerReachable {
 			for _, container := range input.Containers {
 				if container.RepositoryID == record.RepositoryID && container.WorktreeID == record.WorktreeID {
@@ -287,15 +229,17 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 			}
 		}
 
-		_, cardReadFailed := input.CardReadFailures[key]
-		status := entryStatus(local, hasIdentity, dockerReachable, cardReadFailed, identityError, declared, owned)
+		state, known := input.States[key]
+		if !known {
+			state = worktreestate.Result{State: worktree.StateUnknown}
+		}
 
 		// (#16) declared is every service the config declared for this
-		// checkout, whether or not it opted into [service.<name>.index] — see
-		// entryStatus below and card.IndexService's own comment — but only
-		// the ones that did get a Label are shown as a link: an unlabelled
-		// entry has no href text or purpose to publish, only a name that
-		// still needs counting toward the row's status.
+		// worktree, whether or not it opted into [service.<name>.index] (the
+		// Gatherer counts them all toward the state, see
+		// card.IndexService's own comment), but only the ones that did get a
+		// Label are shown as a link: an unlabelled entry has no href text or
+		// purpose to publish.
 		services := make([]IndexServiceLink, 0, len(declared))
 		for _, service := range declared {
 			if service.Label == "" {
@@ -303,11 +247,11 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 			}
 			services = append(services, IndexServiceLink{
 				Name: service.Name, Label: service.Label, Purpose: service.Purpose, URL: service.URL,
-				Available: status != StatusMissing && anyContainerAvailable(owned, service.Name),
+				Available: state.State != worktree.StateDirectoryMissing && anyContainerAvailable(owned, service.Name),
 			})
 		}
 
-		services = append(services, hostRouteLinks(record, input.RouterPort, status)...)
+		services = append(services, hostRouteLinks(record, input.RouterPort, state.State)...)
 
 		// A pointer, not `||`: a detached HEAD reports an empty branch,
 		// which is an answer, and must not fall through to the card's stale
@@ -345,7 +289,8 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 			Host:         host,
 			Branch:       branch,
 			Root:         root,
-			Status:       status,
+			State:        state.State,
+			Hint:         state.Hint,
 			Services:     services,
 		}
 	}
@@ -392,7 +337,7 @@ func sharedServices(input SnapshotInput, entries []IndexEntry, dockerReachable b
 		if dockerReachable {
 			for _, container := range input.Containers {
 				available = available || (container.Shared && container.RepositoryID == record.RepositoryID &&
-					container.Service == record.Name && container.Available)
+					container.Service == record.Name && container.Available())
 			}
 		}
 		listed = append(listed, IndexSharedService{
@@ -415,91 +360,11 @@ func sharedServices(input SnapshotInput, entries []IndexEntry, dockerReachable b
 	return listed
 }
 
-// entryStatus mirrors buildSnapshot's status derivation exactly.
-func entryStatus(local, hasIdentity, dockerReachable, cardReadFailed bool, identityError *IdentityFailure, declared []card.IndexService, owned []ContainerRecord) IndexStatus {
-	switch {
-	// (#18) Checked first: a card that could not be read is not evidence of
-	// anything about the checkout itself, so it must outrank every other
-	// answer below, including a live Git identity that would otherwise call
-	// it Running or Partial from containers alone.
-	case cardReadFailed:
-		return StatusUnknown
-	case local && identityError != nil && identityError.RowsUnknown:
-		return StatusUnknown
-	case local && !hasIdentity:
-		return StatusMissing
-	case !dockerReachable:
-		return StatusUnknown
-	}
-	// Counted per service the card names — every service the config
-	// declares, whether or not it also opted into [service.<name>.index] (#16) —
-	// union the containers that exist. A service that never got a container
-	// at all is exactly the one a `Running` pill would lie about, and that
-	// is as true of one with no [service.<name>.index] block as one with: a
-	// stopped, unindexed service still keeps its checkout from reading
-	// Running. A checkout that names none and has none reads Stopped, which
-	// is what a registration that has never been up is.
-	names := make(map[string]struct{}, len(declared)+len(owned))
-	for _, service := range declared {
-		names[service.Name] = struct{}{}
-	}
-	for _, container := range owned {
-		names[container.Service] = struct{}{}
-	}
-	if len(names) == 0 {
-		return StatusStopped
-	}
-	// Every replica of a service carries the same Compose label. A service
-	// answers only when all of its containers do — one healthy replica out
-	// of three is not "every service answers" — but one that answers at all
-	// is not "none do" either, which is what the legend promises Stopped
-	// means.
-	allAnswer, anyAnswers := true, false
-	for name := range names {
-		containers := containersFor(owned, name)
-		all := len(containers) > 0
-		any := false
-		for _, container := range containers {
-			if container.Available {
-				any = true
-			} else {
-				all = false
-			}
-		}
-		if !all {
-			allAnswer = false
-		}
-		if any {
-			anyAnswers = true
-		}
-	}
-	switch {
-	case allAnswer:
-		return StatusRunning
-	case anyAnswers:
-		return StatusPartial
-	default:
-		return StatusStopped
-	}
-}
-
-// containersFor is every container among owned carrying the named service,
-// which may be more than one for a scaled service.
-func containersFor(owned []ContainerRecord, service string) []ContainerRecord {
-	var containers []ContainerRecord
-	for _, container := range owned {
-		if container.Service == service {
-			containers = append(containers, container)
-		}
-	}
-	return containers
-}
-
 // anyContainerAvailable reports whether any container among owned carrying
 // the named service is available.
-func anyContainerAvailable(owned []ContainerRecord, service string) bool {
+func anyContainerAvailable(owned []worktreestate.Container, service string) bool {
 	for _, container := range owned {
-		if container.Service == service && container.Available {
+		if container.Service == service && container.Available() {
 			return true
 		}
 	}
@@ -578,7 +443,7 @@ func sortEntries(entries []IndexEntry) {
 		if c := text.Collate(left.Project, right.Project); c != 0 {
 			return c
 		}
-		if c := missingRank(left.Status) - missingRank(right.Status); c != 0 {
+		if c := missingRank(left.State) - missingRank(right.State); c != 0 {
 			return c
 		}
 		if c := text.Collate(sortKey(left), sortKey(right)); c != 0 {
@@ -588,10 +453,10 @@ func sortEntries(entries []IndexEntry) {
 	})
 }
 
-// missingRank is 1 for a missing entry and 0 otherwise, so subtracting one
+// missingRank is 1 for an entry whose directory is missing and 0 otherwise, so subtracting one
 // rank from another sorts missing entries last.
-func missingRank(status IndexStatus) int {
-	if status == StatusMissing {
+func missingRank(state worktree.State) int {
+	if state == worktree.StateDirectoryMissing {
 		return 1
 	}
 	return 0

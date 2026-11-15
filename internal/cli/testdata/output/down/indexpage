@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-shell="fL1ojuj4b1SQcns7">
+<html lang="en" data-shell="7W06yJ-6E_EYldKA">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,7 +11,7 @@
   <link rel="icon" type="image/png" sizes="16x16" media="(prefers-color-scheme: light)" href="favicon-16.png">
   <link rel="icon" type="image/svg+xml" sizes="any" media="(prefers-color-scheme: dark)" href="favicon-master-dark.svg">
   <link rel="icon" type="image/svg+xml" sizes="any" media="(prefers-color-scheme: light)" href="favicon-master.svg">
-  <title>Checkouts (1)</title>
+  <title>Worktrees (1)</title>
   <style>
     :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
@@ -38,7 +38,7 @@
     td, tbody th { padding: 14px; border-top: 1px solid #e4e7eb; font-size: 14px; font-weight: 400; text-align: left; vertical-align: top; }
     /* A long branch name has to break inside its fixed column, not run over the host. */
     tbody th { color: inherit; overflow-wrap: break-word; }
-    /* Status is wide enough for the missing-checkout remedy to wrap at spaces, not mid-word. */
+    /* The state column is wide enough for a remedy to wrap at spaces, not mid-word. */
     thead th:nth-child(1) { width: 16%; } thead th:nth-child(2) { width: 21%; } thead th:nth-child(3) { width: 18%; } thead th:nth-child(4) { width: 17%; } thead th:nth-child(5) { width: 28%; }
     /* Fixed columns: a host with no hyphen must still break rather than overflow its cell. */
     code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
@@ -47,6 +47,9 @@
     .stale { color: #7f1d1d; font-weight: 650; }
     .waiting { color: #52606d; font-weight: 650; }
     .legend { margin: 18px 2px 0; color: #52606d; font-size: 12px; }
+    .legend dt { display: inline; font-weight: 700; }
+    .legend dt::after { content: ":"; }
+    .legend dd { display: inline; margin: 0; }
     .muted { color: #5f6b7a; }
     .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .services ul { margin: 0; padding: 0; list-style: none; }
@@ -65,9 +68,13 @@
     .service-disabled .service-label, .service-disabled .service-purpose { color: #5f6b7a; text-decoration: none; }
     .status { display: inline-block; min-width: 68px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; text-align: center; }
     .status-running { color: #14532d; background: #dcfce7; }
-    .status-partial { color: #713f12; background: #fef3c7; }
+    .status-starting { color: #1e3a8a; background: #dbeafe; }
+    .status-partly-running { color: #713f12; background: #fef3c7; }
+    .status-failed { color: #7f1d1d; background: #fee2e2; }
     .status-stopped { color: #374151; background: #e5e7eb; }
-    .status-missing { color: #7f1d1d; background: #fee2e2; }
+    .status-not-started { color: #4b5563; background: #f3f4f6; box-shadow: inset 0 0 0 1px #d1d5db; }
+    .status-removing { color: #7c2d12; background: #ffedd5; }
+    .status-directory-missing { color: #7f1d1d; background: #fee2e2; }
     .status-unknown { color: #4c1d95; background: #ede9fe; }
     .guidance { margin-top: 7px; color: #7f1d1d; font-size: 11px; }
     /* The remedy is there to be read and copied: wrap between words where it can. */
@@ -75,7 +82,7 @@
     .empty { padding: 36px; color: #52606d; text-align: center; }
     .notice { margin: 16px 0 0; padding: 10px 14px; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; color: #78350f; font-size: 13px; overflow-wrap: anywhere; }
     /* Where the two service columns start starving each other the table no
-       longer fits either: shed the checkout column — it comes back under the
+       longer fits either: shed the directory column — it comes back under the
        branch, so nothing is unreachable — and stack the service text. */
     @media (max-width: 900px) {
       .checkout { display: none; }
@@ -89,7 +96,7 @@
       td, tbody th { padding: 10px 8px; }
       thead th:nth-child(1) { width: 28%; } thead th:nth-child(2) { width: 22%; } thead th:nth-child(4) { width: 24%; } thead th:nth-child(5) { width: 26%; }
       /* The pill has to fit inside its cell at phone widths, not spill into the services. */
-      .status { min-width: 0; padding: 3px 6px; }
+      .status { min-width: 0; padding: 3px 6px; white-space: normal; }
     }
     /* The narrowest the page claims to support, which is also 400% zoom on a
        1280px window: the status word needs most of what the path gives up. */
@@ -113,9 +120,13 @@
       a.service-link:hover, a.service-link:focus-visible { background: #0c4a6e; }
       a.service-link:hover .service-purpose, a.service-link:focus-visible .service-purpose { color: #cbd5e1; }
       .status-running { color: #bbf7d0; background: #14532d; }
-      .status-partial { color: #fde68a; background: #713f12; }
+      .status-starting { color: #bfdbfe; background: #1e3a8a; }
+      .status-partly-running { color: #fde68a; background: #713f12; }
+      .status-failed { color: #fecaca; background: #7f1d1d; }
       .status-stopped { color: #e5e7eb; background: #374151; }
-      .status-missing { color: #fecaca; background: #7f1d1d; }
+      .status-not-started { color: #d1d5db; background: #1f2937; box-shadow: inset 0 0 0 1px #4b5563; }
+      .status-removing { color: #fed7aa; background: #7c2d12; }
+      .status-directory-missing { color: #fecaca; background: #7f1d1d; }
       .status-unknown { color: #ddd6fe; background: #4c1d95; }
       .guidance, .stale { color: #fca5a5; }
       .waiting { color: #9ca3af; }
@@ -127,23 +138,23 @@
 </head>
 <body>
   <header>
-    <h1>Checkouts</h1>
+    <h1>Worktrees</h1>
     <p class="updated">Updated <time datetime="TIMESTAMP">TIMESTAMP</time> <span class="stale" id="index-stale" role="status"></span></p>
   </header>
   <p class="sr-only" id="index-announcer" aria-live="polite"></p>
-  <main data-body="FINGERPRINT"><p class="legend">Running: every service answers. Partial: some do. Stopped: none do. Missing: the checkout is gone. Unknown: the state could not be read.</p>
+  <main data-body="FINGERPRINT"><dl class="legend"><div><dt>removing</dt> <dd>a removal was interrupted: &#39;treerig worktree remove&#39; finishes it.</dd></div><div><dt>directory missing</dt> <dd>Git no longer has the worktree&#39;s directory.</dd></div><div><dt>unknown</dt> <dd>treerig couldn&#39;t tell (Docker or Git didn&#39;t answer, or a record couldn&#39;t be read); the row says why.</dd></div><div><dt>starting</dt> <dd>a health check has not passed yet.</dd></div><div><dt>failed</dt> <dd>no service runs, and one exited with an error, keeps restarting or is unhealthy.</dd></div><div><dt>partly running</dt> <dd>some services run and others don&#39;t.</dd></div><div><dt>running</dt> <dd>every service that has not finished is up.</dd></div><div><dt>stopped</dt> <dd>&#39;treerig up&#39; has finished before, and nothing runs now.</dd></div><div><dt>not started</dt> <dd>&#39;treerig up&#39; has not finished yet.</dd></div></dl>
     <section>
       <h2 id="checkouts-0">acme.localhost</h2>
       <!-- The script makes this focusable if it ever scrolls; a region that
            does not scroll would only be a tab stop that does nothing. -->
       <div class="table-wrap" role="region" aria-labelledby="checkouts-0">
         <table>
-          <thead><tr><th scope="col">Branch</th><th scope="col" class="host">Host</th><th scope="col" class="checkout">Checkout</th><th scope="col">Status</th><th scope="col">Services</th></tr></thead>
+          <thead><tr><th scope="col">Branch</th><th scope="col" class="host">Host</th><th scope="col" class="checkout">Directory</th><th scope="col">State</th><th scope="col">Services</th></tr></thead>
           <tbody><tr>
       <th scope="row"><strong>feature/login</strong><span class="path-compact">~/checkout</span><span class="host-compact"><code>feature-login.acme.localhost</code></span></th>
       <td class="host"><code>feature-login.acme.localhost</code></td>
       <td class="checkout"><span class="path" title="FIXTURE/checkout">~/checkout</span></td>
-      <td><span class="status status-stopped">Stopped</span></td>
+      <td><span class="status status-stopped">stopped</span></td>
       <td class="services"><span class="muted">—</span></td>
     </tr></tbody>
         </table>

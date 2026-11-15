@@ -77,7 +77,13 @@ type Repository struct {
 type Worktree struct {
 	Repository
 	RecordPath string
-	Home       string
+	// RemovalPath is the marker `worktree remove` writes beside the record
+	// when it starts tearing the worktree down, and deletes with the record
+	// (docs/design/state.md). It is a storage name, pinned by layout_test.go;
+	// its extension keeps a build that does not know it from reading it as a
+	// record.
+	RemovalPath string
+	Home        string
 	// QuarantinePath is renamed-to during removal, so a crash mid-delete leaves a recognizable artifact.
 	QuarantinePath string
 	// BackupsDir is where `backup` puts a bundle when it is given no directory,
@@ -287,6 +293,7 @@ func WorktreeLayout(controlHome, repositoryID, worktreeID string) Worktree {
 	return Worktree{
 		Repository:          repository,
 		RecordPath:          filepath.Join(repository.RegistryDir, worktreeID+".json"),
+		RemovalPath:         filepath.Join(repository.RegistryDir, worktreeID+".removing"),
 		Home:                home,
 		BackupsDir:          filepath.Join(home, BackupsDirName),
 		QuarantinePath:      filepath.Join(repository.InstancesDir, ".deleting-"+worktreeID),

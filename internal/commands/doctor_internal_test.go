@@ -28,6 +28,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
@@ -40,6 +41,7 @@ import (
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/settings"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 /* -------------------------------------------------------------- fakes ---- */
@@ -254,11 +256,21 @@ func (f *fakeRouterSource) RunningPort(context.Context) (int, bool, error) {
 type fakeCheckoutRegistry struct {
 	current         func(ctx context.Context) (*registry.WorktreeRegistration, error)
 	pruneCandidates func(ctx context.Context) ([]registry.RegisteredWorktree, error)
+	// entries is what Git lists; nil lists nothing.
+	entries func(ctx context.Context) ([]registry.WorktreeEntry, error)
 }
 
 // Current delegates to f.current.
 func (f fakeCheckoutRegistry) Current(ctx context.Context) (*registry.WorktreeRegistration, error) {
 	return f.current(ctx)
+}
+
+// Entries delegates to f.entries, and lists nothing when it is not set.
+func (f fakeCheckoutRegistry) Entries(ctx context.Context) ([]registry.WorktreeEntry, error) {
+	if f.entries == nil {
+		return nil, nil
+	}
+	return f.entries(ctx)
 }
 
 // PruneCandidates delegates to f.pruneCandidates.
@@ -276,7 +288,7 @@ func testOpts(t *testing.T, overrides func(*doctorOptions)) doctorOptions {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
 	opts := doctorOptions{
-		CommandName: "treerig", ControlHome: filepath.Join(base, "control"),
+		CommandName: "treerig", Mounts: noAutomounts, ControlHome: filepath.Join(base, "control"),
 		Home: home, RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(base, "user-home"),
 		RouterPort: settings.PortResolution{Port: 80, Source: settings.PortDefault, SettingsPath: layout.SettingsPathFrom(home)},
 		Runner:     newDoctorRunner(nil), Logger: logger.Silent{},
@@ -437,7 +449,7 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 func (f *checkoutFixture) opts() doctorOptions {
 	home := filepath.Join(f.base, "home")
 	return doctorOptions{
-		CommandName: "treerig", ControlHome: f.controlHome, Home: home,
+		CommandName: "treerig", Mounts: noAutomounts, ControlHome: f.controlHome, Home: home,
 		RouterStateDir: layout.RouterStateDirFrom(home), UserHome: filepath.Join(f.base, "user-home"),
 		Runner: f.runner, Logger: logger.Silent{},
 		Router: newFakeRouterSource(), Checkout: checkoutIsLoaded(f.loaded), Invocation: "treerig doctor",
@@ -1945,7 +1957,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		want := []Check{
 			{ID: "checkout.config", Status: StatusOK, Subject: brand.ConfigFile, Detail: f.loaded.File},
 			{ID: "checkout.worktree", Status: StatusFail, Subject: "this worktree", Detail: "Command failed (git rev-parse): not a git repository"},
-			{ID: "checkout.missing-scan", Status: StatusFail, Subject: "missing checkouts", Detail: "Command failed (git worktree list): not a git repository"},
+			{ID: "checkout.missing-scan", Status: StatusFail, Subject: "missing worktrees", Detail: "Command failed (git worktree list): not a git repository"},
 			{ID: "checkout.hooks.resolve", Instance: "verify", Status: StatusOK, Subject: "verify hook file", Detail: "resolves to " + filepath.Join(f.root, "verify")},
 			{ID: "checkout.hooks.verify", Status: StatusSkip, Subject: "verify hook", Detail: "needs this worktree to be identified"},
 		}
@@ -2005,7 +2017,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"ok treerig.toml", "ok this worktree", "fail missing checkouts", "skip api port", "ok verify hook file", "ok verify hook"}
+		want := []string{"ok treerig.toml", "ok this worktree", "fail missing worktrees", "skip api port", "ok verify hook file", "ok verify hook"}
 		checks := section(sections, "This checkout")
 		got := make([]string, len(checks))
 		for i, c := range checks {
@@ -2034,7 +2046,7 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		wantCancelled(t, err, "Operation cancelled by SIGTERM.")
 	})
 
-	t.Run("warns about a registration whose checkout Git no longer lists", func(t *testing.T) {
+	t.Run("warns about a registration whose directory is gone and that Git no longer lists", func(t *testing.T) {
 		f := newCheckoutFixture(t, "")
 		f.register("feature-login")
 		gone := filepath.Join(f.base, "gone")
@@ -2046,6 +2058,13 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 		}
 		f.git.Add(gone, "feature/gone", f.common)
 		registered := f.registerAt(gone, "feature-gone")
+		// `up` wrote a card while it was live, saying where it was.
+		if err := card.WriteIndexCard(f.controlHome, registered.RepositoryID, registered.WorktreeID, card.IndexCard{
+			Project: "acme", Domain: fixtureDomain, Slug: "feature-gone", Host: "feature-gone." + fixtureDomain, Root: gone,
+			Branch: "feature/gone", LabelNamespace: brand.LabelNamespace, Services: []card.IndexService{}, UpdatedAt: "2026-09-21T10:00:00.000Z",
+		}); err != nil {
+			t.Fatal(err)
+		}
 		f.git.SetActive([]string{f.root}) // git worktree list no longer shows "gone"
 		if err := os.RemoveAll(gone); err != nil {
 			t.Fatal(err)
@@ -2064,9 +2083,117 @@ func TestDoctorInACheckoutSections(t *testing.T) {
 			t.Fatal("expected a warning")
 		}
 		want := Check{ID: "checkout.missing", Instance: registered.WorktreeID, Status: StatusWarn, Subject: "feature-gone.acme.localhost", Detail: fmt.Sprintf(
-			"registered, but Git no longer lists its checkout. Remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)}
+			"registered, but its directory is gone: Git no longer has it. Remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)}
 		if *warning != want {
 			t.Fatalf("got %+v, want %+v", *warning, want)
+		}
+	})
+
+	// lostWarning is the one warning the This checkout section holds.
+	lostWarning := func(t *testing.T, f *checkoutFixture) Check {
+		t.Helper()
+		sections, err := doctorSections(context.Background(), f.opts())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var warnings []Check
+		for _, c := range section(sections, "This checkout") {
+			if c.Status == StatusWarn {
+				warnings = append(warnings, c)
+			}
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("warnings = %+v", warnings)
+		}
+		return warnings[0]
+	}
+
+	t.Run("names the command it was invoked as in the remedy for a registration nothing records a directory for", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.register("feature-login")
+		gone := filepath.Join(f.base, "gone")
+		if err := os.MkdirAll(filepath.Join(f.common, "worktrees", "gone"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(gone, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.git.Add(gone, "feature/gone", f.common)
+		f.registerAt(gone, "feature-gone")
+		f.git.SetActive([]string{f.root})
+		if err := os.RemoveAll(gone); err != nil {
+			t.Fatal(err)
+		}
+		opts := f.opts()
+		opts.CommandName = "bt"
+		sections, err := doctorSections(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var details []string
+		for _, c := range section(sections, "This checkout") {
+			if c.Status == StatusWarn {
+				details = append(details, c.Detail)
+			}
+		}
+		if len(details) != 1 || !strings.Contains(details[0], "run 'bt worktree remove feature-gone' if it is gone") {
+			t.Fatalf("details = %q", details)
+		}
+	})
+
+	t.Run("says so when a registration Git no longer lists has an interrupted removal", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.register("feature-login")
+		gone := filepath.Join(f.base, "gone")
+		if err := os.MkdirAll(filepath.Join(f.common, "worktrees", "gone"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(gone, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.git.Add(gone, "feature/gone", f.common)
+		registered := f.registerAt(gone, "feature-gone")
+		marker := layout.WorktreeLayout(f.controlHome, registered.RepositoryID, registered.WorktreeID).RemovalPath
+		if err := os.WriteFile(marker, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f.git.SetActive([]string{f.root})
+		if err := os.RemoveAll(gone); err != nil {
+			t.Fatal(err)
+		}
+		got := lostWarning(t, f)
+		want := fmt.Sprintf("registered, but Git no longer lists it, and a removal of it was interrupted. Finish it with 'treerig worktree remove %s'.", registered.WorktreeID)
+		if got.ID != "checkout.missing" || got.Detail != want {
+			t.Fatalf("got %+v, want detail %q", got, want)
+		}
+	})
+
+	t.Run("says so when a registration's directory is there but no worktree Git lists carries its identity", func(t *testing.T) {
+		f := newCheckoutFixture(t, "")
+		f.register("feature-login")
+		other := filepath.Join(f.base, "other")
+		if err := os.MkdirAll(filepath.Join(f.common, "worktrees", "other"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(other, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f.git.Add(other, "feature/other", f.common)
+		registered := f.registerAt(other, "feature-other")
+		if err := card.WriteIndexCard(f.controlHome, registered.RepositoryID, registered.WorktreeID, card.IndexCard{
+			Project: "acme", Domain: fixtureDomain, Slug: "feature-other", Host: "feature-other." + fixtureDomain, Root: other,
+			Branch: "feature/other", LabelNamespace: brand.LabelNamespace, Services: []card.IndexService{}, UpdatedAt: "2026-09-21T10:00:00.000Z",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		// The worktree's marker is lost, so Git's entry for the directory carries no identity.
+		if err := os.Remove(filepath.Join(f.common, "worktrees", "other", "treerig", "worktree-id")); err != nil {
+			t.Fatal(err)
+		}
+		got := lostWarning(t, f)
+		want := fmt.Sprintf("registered, but no worktree Git lists carries its identity, though a directory is at the place it was recorded. If it is gone, remove what it left with 'treerig worktree remove %s'.", registered.WorktreeID)
+		if got.ID != "checkout.missing" || got.Detail != want {
+			t.Fatalf("got %+v, want detail %q", got, want)
 		}
 	})
 }
@@ -2823,4 +2950,10 @@ func TestDoctorIDsAreTheDocumentedSet(t *testing.T) {
 			t.Errorf("the docs/doctor.md row for checkout.hooks.resolve does not name the stage %q", stage)
 		}
 	}
+}
+
+// noAutomounts is a mount table with nothing automounted, so a state word
+// never depends on the machine the tests run on.
+func noAutomounts() (worktreestate.Mounts, error) {
+	return worktreestate.Mounts{"/": "ext4"}, nil
 }

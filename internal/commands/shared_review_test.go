@@ -23,6 +23,7 @@ import (
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/shared"
+	"github.com/sofired/treerig/internal/worktree"
 )
 
 // twoServices declares a second shared service, cache, beside mailpit, each
@@ -338,7 +339,7 @@ func TestSharedDownOnARepositoryNeverBroughtUp(t *testing.T) {
 		}
 	})
 
-	t.Run("shared status lists the declared services as absent, exit 0", func(t *testing.T) {
+	t.Run("shared status lists the declared services as not created, exit 0", func(t *testing.T) {
 		tc.Logger.Lines, tc.Logger.Printed = nil, nil
 		if err := commands.SharedStatusWithContext(context.Background(), tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
 			t.Fatal(err)
@@ -348,7 +349,7 @@ func TestSharedDownOnARepositoryNeverBroughtUp(t *testing.T) {
 		if err := json.Unmarshal([]byte(strings.Join(printed, "\n")), &report); err != nil || len(report.Shared) != 1 {
 			t.Fatalf("report = %+v, %v\n%v", report, err, printed)
 		}
-		if got := report.Shared[0]; got.Name != "mailpit" || got.State != "absent" || got.Definition != "unknown" || got.Connected || len(got.Addrs) != 0 {
+		if got := report.Shared[0]; got.Name != "mailpit" || got.State != worktree.NotCreated || got.Definition != "unknown" || got.Connected || len(got.Addrs) != 0 {
 			t.Errorf("entry = %+v", got)
 		}
 	})
@@ -536,18 +537,18 @@ func TestStatusUsesTheServiceWordsAndSurvivesOneBadContainer(t *testing.T) {
 		return report.Shared
 	}
 
-	t.Run("an unhealthy container is running with the detail, a restarting one starting", func(t *testing.T) {
+	t.Run("an unhealthy container is unhealthy, a restarting one restarting", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
 		w.mustUp(t, tc)
 		id := w.mailpit(t, tc)
 		w.Docker.SetHealth(id, "unhealthy")
-		if got := entries(t, tc)[0]; got.State != "running" || got.Detail != "unhealthy" {
+		if got := entries(t, tc)[0]; got.State != worktree.Unhealthy || got.Detail != "" {
 			t.Errorf("unhealthy: %+v", got)
 		}
 		w.Docker.SetHealth(id, "healthy")
 		w.Docker.SetStatus(id, "restarting")
-		if got := entries(t, tc)[0]; got.State != "starting" || got.Detail != "" {
+		if got := entries(t, tc)[0]; got.State != worktree.Restarting || got.Detail != "" {
 			t.Errorf("restarting: %+v", got)
 		}
 	})
@@ -558,7 +559,7 @@ func TestStatusUsesTheServiceWordsAndSurvivesOneBadContainer(t *testing.T) {
 		w.mustUp(t, tc)
 		w.Docker.SetStatus(w.mailpit(t, tc), "levitating")
 		got := entries(t, tc)
-		if len(got) != 2 || got[0].State != "unknown" || !strings.Contains(got[0].Detail, "levitating") || got[1].State != "running" {
+		if len(got) != 2 || got[0].State != worktree.Unknown || !strings.Contains(got[0].Detail, "levitating") || got[1].State != worktree.Running {
 			t.Fatalf("entries = %+v", got)
 		}
 		// And the text form of `status` still prints.

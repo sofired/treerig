@@ -28,6 +28,12 @@ type Store struct {
 	ControlHome  string
 	RepositoryID string
 	Directory    string
+
+	// removeFile deletes the removal marker; os.Remove when nil. A test sets
+	// it, since the marker lives in the directory the record does, and a
+	// failure to delete one that a record in the same directory did not have
+	// cannot otherwise be made.
+	removeFile func(string) error
 }
 
 // NewStore is the registrations for one repository, sharing controlHome.

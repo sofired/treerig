@@ -179,6 +179,34 @@ then run 'treerig worktree remove' again to finish.
 
 **Why:** a container that runs as another uid, such as `postgres`, took ownership of files in a bind-mounted directory, and you cannot delete them. Use a named volume for data such a service writes. See [Bind mounts on Linux](platforms.md#bind-mounts-on-linux).
 
+## A worktree reads `unknown`, `directory missing` or `removing`
+
+`treerig status`, `treerig worktree list` and the overview use the same
+[state words](commands.md). Three of them mean something is wrong with what
+treerig looks at, not with your services:
+
+- **`unknown`** names its cause (on stderr in the text forms, as `hint` in
+  `--json`). `Docker is not available: …` (or `Docker didn't answer: …`) means start
+  Docker, or fix the socket it names, and run the command again. `Compose
+  couldn't read this worktree: …` means Docker is fine and Compose is not:
+  fix the Compose file, or upgrade Compose. `Its parent directory is missing or empty:
+  is the volume mounted?` means the worktree's directory is gone, or the volume
+  it lives on is not mounted: mount it, or remove the worktree if it is really
+  gone. `Git's records for it are damaged: 'git worktree repair' may fix them.`
+  means the directory is there but Git has lost track of it. `Git has it
+  locked, …` means `git worktree lock` protects an entry whose directory is
+  absent: connect the drive, or `git worktree unlock` it once it is gone. `treerig
+  couldn't check it: …` names a permission or Git error to fix first.
+- **`directory missing`** means Git no longer has the worktree's directory and
+  the directory's parent is intact, so treerig is sure. `treerig worktree remove
+  <slug>` removes what it left behind. If you moved the directory without `git
+  worktree move`, run `git worktree repair` from it first.
+- **`removing`** means a `worktree remove` started and did not finish (it was
+  interrupted, or a network was still in use). Run `treerig worktree remove
+  <slug>` again to finish it. To keep the worktree instead, run `treerig up`
+  there, which calls the removal off. A removal run by a 0.1.x pinned teardown
+  binary leaves no such sign.
+
 ## `doctor` reports a failure
 
 `treerig doctor` ends with this on stderr, and exits 1 (or with the `verify` hook's own code when that hook failed):

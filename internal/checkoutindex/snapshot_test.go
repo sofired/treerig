@@ -7,6 +7,8 @@ import (
 
 	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/registry"
+	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // (rendering and planIndexUpdate are in render_test.go.)
@@ -96,74 +98,19 @@ func testLine(record registry.RegisteredWorktree, service string, stateAndStatus
 	if len(stateAndStatus) > 1 {
 		status = stateAndStatus[1]
 	}
-	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service, ""}, "\t")
+	return strings.Join([]string{state, status, record.RepositoryID, record.WorktreeID, service, "", "id-" + service}, "\t")
 }
 
-// mustParseInventory is ParseContainerInventory over lines joined with
-// newlines, failing the test on any parse error.
-func mustParseInventory(t *testing.T, lines ...string) []ContainerRecord {
+// mustParseInventory is worktreestate.ParseInventory over lines joined with
+// newlines, failing the test on any parse error. (The parsing itself is
+// tested in internal/worktreestate.)
+func mustParseInventory(t *testing.T, lines ...string) []worktreestate.Container {
 	t.Helper()
-	records, err := ParseContainerInventory(strings.Join(lines, "\n"))
+	records, err := worktreestate.ParseInventory(strings.Join(lines, "\n"))
 	if err != nil {
-		t.Fatalf("ParseContainerInventory: %v", err)
+		t.Fatalf("ParseInventory: %v", err)
 	}
 	return records
-}
-
-// TestParseContainerInventory covers parseContainerInventory.
-func TestParseContainerInventory(t *testing.T) {
-	regs := testRegistrations()
-	r0, r1 := regs[0], regs[1]
-
-	t.Run("marks a container available only when running and not unhealthy or still starting", func(t *testing.T) {
-		parsed := mustParseInventory(t,
-			testLine(r0, "api"),
-			testLine(r0, "mail", "running", "Up 3 seconds (health: starting)"),
-			testLine(r1, "api", "exited", "Exited (0) 2 minutes ago"),
-			testLine(r1, "mail", "running", "Up 5 seconds (unhealthy)"),
-			testLine(r1, "db", "running", "Up 5 seconds"),
-		)
-		got := make([][2]any, len(parsed))
-		for i, c := range parsed {
-			got[i] = [2]any{c.Service, c.Available}
-		}
-		want := [][2]any{{"api", true}, {"mail", false}, {"api", false}, {"mail", false}, {"db", true}}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("got %v, want %v", got, want)
-		}
-	})
-
-	t.Run("rejects a line that does not have exactly six fields", func(t *testing.T) {
-		if _, err := ParseContainerInventory("running\tUp\tonly-three"); err == nil {
-			t.Fatal("expected an error")
-		} else if !strings.Contains(err.Error(), "unrecognized container inventory line") {
-			t.Errorf("error = %q", err.Error())
-		}
-		// A tab inside a status would shift every field right, and the row
-		// would read Stopped rather than being refused.
-		if _, err := ParseContainerInventory("running\tUp 2 seconds\t(healthy)\tr\tw\tapi\t"); err == nil {
-			t.Fatal("expected an error")
-		} else if !strings.Contains(err.Error(), "unrecognized container inventory line") {
-			t.Errorf("error = %q", err.Error())
-		}
-	})
-
-	// Pinned because SnapshotInput.Containers relies on the nil-vs-empty-slice
-	// distinction — nil means Docker could not be asked at all — and a
-	// caller merging several namespaces' inventories could otherwise turn
-	// "asked, found nothing" into "never asked" by accident.
-	t.Run("never returns a nil slice on success, even for empty output", func(t *testing.T) {
-		records, err := ParseContainerInventory("")
-		if err != nil {
-			t.Fatalf("ParseContainerInventory(\"\"): %v", err)
-		}
-		if records == nil {
-			t.Error("got a nil slice, want a non-nil empty slice")
-		}
-		if len(records) != 0 {
-			t.Errorf("got %v, want empty", records)
-		}
-	})
 }
 
 // baseSnapshotInput is BuildSnapshot's defaults. Each test starts here and
@@ -191,8 +138,14 @@ func baseSnapshotInput(t *testing.T) SnapshotInput {
 		Identities:          []registry.WorktreeIdentity{testIdentity(a, "feature/a"), testIdentity(b, "feature/b")},
 		CurrentRepositoryID: &current,
 		Containers:          containers,
-		GeneratedAt:         "2026-09-21T12:00:00.000Z",
-		RouterPort:          80,
+		States: map[string]worktreestate.Result{
+			EntryKey(a.RepositoryID, a.WorktreeID):             {State: worktree.StateRunning},
+			EntryKey(b.RepositoryID, b.WorktreeID):             {State: worktree.StatePartlyRunning},
+			EntryKey(gone.RepositoryID, gone.WorktreeID):       {State: worktree.StateDirectoryMissing},
+			EntryKey(foreign.RepositoryID, foreign.WorktreeID): {State: worktree.StateStopped},
+		},
+		GeneratedAt: "2026-09-21T12:00:00.000Z",
+		RouterPort:  80,
 	}
 }
 
@@ -227,16 +180,16 @@ func servicePairs(services []IndexServiceLink) [][2]any {
 
 // TestBuildSnapshot covers buildSnapshot.
 func TestBuildSnapshot(t *testing.T) {
-	t.Run("derives running, partial, stopped, and missing, sorted by project with missing last", func(t *testing.T) {
+	t.Run("shows the state each registration was classified as, sorted by project with directory missing last", func(t *testing.T) {
 		snapshot := BuildSnapshot(baseSnapshotInput(t))
 		got := make([][3]string, len(snapshot.Entries))
 		for i, e := range snapshot.Entries {
-			got[i] = [3]string{e.Project, e.Slug, string(e.Status)}
+			got[i] = [3]string{e.Project, e.Slug, e.State.String()}
 		}
 		want := [][3]string{
 			{"acme", "feature-a", "running"},
-			{"acme", "feature-b", "partial"},
-			{"acme", "gone", "missing"},
+			{"acme", "feature-b", "partly running"},
+			{"acme", "gone", "directory missing"},
 			{"widgets", "main", "stopped"},
 		}
 		if !reflect.DeepEqual(got, want) {
@@ -252,13 +205,13 @@ func TestBuildSnapshot(t *testing.T) {
 		if branchText(entries[3]) != "branch/main" || entries[3].Root != "/Users/dev/last-seen/main" {
 			t.Errorf("entries[3] = %+v", entries[3])
 		}
-		// A missing checkout still shows where it was last seen.
+		// A worktree whose directory is gone still shows where it was last seen.
 		if branchText(entries[2]) != "branch/gone" || entries[2].Root != "/Users/dev/last-seen/gone" {
 			t.Errorf("entries[2] = %+v", entries[2])
 		}
 	})
 
-	t.Run("links only services whose container is available, and none for a missing checkout", func(t *testing.T) {
+	t.Run("links only services whose container is available, and none for a worktree whose directory is missing", func(t *testing.T) {
 		entries := BuildSnapshot(baseSnapshotInput(t)).Entries
 		if want := [][2]any{{"API", true}, {"Mailpit", true}}; !reflect.DeepEqual(servicePairs(entries[0].Services), want) {
 			t.Errorf("entries[0].services = %v, want %v", servicePairs(entries[0].Services), want)
@@ -271,27 +224,18 @@ func TestBuildSnapshot(t *testing.T) {
 		}
 	})
 
-	t.Run("reports unknown when Docker could not be asked, and stopped when a worktree has no containers", func(t *testing.T) {
-		unknownInput := baseSnapshotInput(t)
-		unknownInput.Containers = nil
-		unknown := BuildSnapshot(unknownInput).Entries
-		gotUnknown := make([]string, len(unknown))
-		for i, e := range unknown {
-			gotUnknown[i] = string(e.Status)
+	t.Run("carries the cause of an unknown state, and reads unknown for a registration nothing classified", func(t *testing.T) {
+		input := baseSnapshotInput(t)
+		regs := testRegistrations()
+		input.States = map[string]worktreestate.Result{
+			EntryKey(regs[0].RepositoryID, regs[0].WorktreeID): {State: worktree.StateUnknown, Hint: "Docker didn't answer: down"},
 		}
-		if want := []string{"unknown", "unknown", "missing", "unknown"}; !reflect.DeepEqual(gotUnknown, want) {
-			t.Errorf("got %v, want %v", gotUnknown, want)
+		entries := BuildSnapshot(input).Entries
+		if got := findBySlug(entries, "feature-a"); got.State != worktree.StateUnknown || got.Hint != "Docker didn't answer: down" {
+			t.Errorf("feature-a = %+v", got)
 		}
-
-		emptyInput := baseSnapshotInput(t)
-		emptyInput.Containers = []ContainerRecord{}
-		empty := BuildSnapshot(emptyInput).Entries
-		gotEmpty := make([]string, len(empty))
-		for i, e := range empty {
-			gotEmpty[i] = string(e.Status)
-		}
-		if want := []string{"stopped", "stopped", "missing", "stopped"}; !reflect.DeepEqual(gotEmpty, want) {
-			t.Errorf("got %v, want %v", gotEmpty, want)
+		if got := findBySlug(entries, "feature-b"); got.State != worktree.StateUnknown || got.Hint != "" {
+			t.Errorf("feature-b = %+v, want unknown with no cause given", got)
 		}
 	})
 
@@ -308,7 +252,7 @@ func TestBuildSnapshot(t *testing.T) {
 		}
 	})
 
-	t.Run("sorts a detached checkout by its slug, having no branch name to sort by", func(t *testing.T) {
+	t.Run("sorts a detached worktree by its slug, having no branch name to sort by", func(t *testing.T) {
 		// `||` in the comparator, not `??`: an empty branch is not a sort key.
 		regs := testRegistrations()
 		input := baseSnapshotInput(t)
@@ -323,9 +267,10 @@ func TestBuildSnapshot(t *testing.T) {
 		}
 	})
 
-	t.Run("is not Running while one replica of a scaled service is down", func(t *testing.T) {
-		// Every replica carries the same Compose service label, so a
-		// service is only answering when all of its containers are.
+	t.Run("links a scaled service while any replica answers", func(t *testing.T) {
+		// Every replica carries the same Compose service label; the state
+		// column says a replica is down, and the link still reaches the
+		// ones that are up.
 		regs := testRegistrations()
 		a := regs[0]
 		input := baseSnapshotInput(t)
@@ -333,23 +278,19 @@ func TestBuildSnapshot(t *testing.T) {
 			testLine(a, "api"), testLine(a, "api", "exited", "Exited (1) 1 minute ago"), testLine(a, "mail"),
 		)
 		scaled := findBySlug(BuildSnapshot(input).Entries, "feature-a")
-		if scaled == nil || scaled.Status != StatusPartial {
-			t.Errorf("scaled = %+v, want status partial", scaled)
+		if want := [][2]any{{"API", true}, {"Mailpit", true}}; scaled == nil || !reflect.DeepEqual(servicePairs(scaled.Services), want) {
+			t.Errorf("services = %v, want %v", scaled, want)
 		}
 	})
 
-	t.Run("is not Running while a declared service has no container at all", func(t *testing.T) {
+	t.Run("does not link a declared service that has no container at all", func(t *testing.T) {
 		// `up --services api` on a worktree that also indexes mail: one
-		// container, two services. A green pill there would say every
-		// service answers.
+		// container, two services.
 		regs := testRegistrations()
 		a := regs[0]
 		input := baseSnapshotInput(t)
 		input.Containers = mustParseInventory(t, testLine(a, "api"))
 		partial := findBySlug(BuildSnapshot(input).Entries, "feature-a")
-		if partial == nil || partial.Status != StatusPartial {
-			t.Errorf("partial = %+v, want status partial", partial)
-		}
 		if want := [][2]any{{"API", true}, {"Mailpit", false}}; !reflect.DeepEqual(servicePairs(partial.Services), want) {
 			t.Errorf("services = %v, want %v", servicePairs(partial.Services), want)
 		}
@@ -360,7 +301,7 @@ func TestBuildSnapshot(t *testing.T) {
 			t.Errorf("DockerReachable = %v, want true", got)
 		}
 		emptyInput := baseSnapshotInput(t)
-		emptyInput.Containers = []ContainerRecord{}
+		emptyInput.Containers = []worktreestate.Container{}
 		if got := BuildSnapshot(emptyInput).DockerReachable; !got {
 			t.Errorf("DockerReachable (empty containers) = %v, want true", got)
 		}
@@ -371,27 +312,7 @@ func TestBuildSnapshot(t *testing.T) {
 		}
 	})
 
-	t.Run("is not Stopped while a scaled service is partly up, and says the same in the link", func(t *testing.T) {
-		// One declared service, three replicas, one down: the legend says
-		// Stopped means none answer, and two of them do.
-		regs := testRegistrations()
-		a := regs[0]
-		input := baseSnapshotInput(t)
-		input.Cards = map[string]card.IndexCard{EntryKey(a.RepositoryID, a.WorktreeID): testCard(a, "acme", hosted(a, apiService)...)}
-		input.Containers = mustParseInventory(t,
-			testLine(a, "api"), testLine(a, "api"), testLine(a, "api", "exited", "Exited (1) 1 minute ago"),
-		)
-		partly := findBySlug(BuildSnapshot(input).Entries, "feature-a")
-		if partly == nil || partly.Status != StatusPartial {
-			t.Errorf("partly = %+v, want status partial", partly)
-		}
-		// The pill and the link cannot contradict each other.
-		if want := []bool{true}; !reflect.DeepEqual(availabilities(partly.Services), want) {
-			t.Errorf("availabilities = %v, want %v", availabilities(partly.Services), want)
-		}
-	})
-
-	t.Run("drops a service the card points somewhere other than this checkout", func(t *testing.T) {
+	t.Run("drops a service the card points somewhere other than this worktree", func(t *testing.T) {
 		// Every field in a card is self-attested, and the card lives in a
 		// home every lifecycle hook is handed. Only the registration says
 		// where a checkout is, so a link anywhere else is not published at
@@ -449,13 +370,4 @@ func TestBuildSnapshot(t *testing.T) {
 			t.Errorf("branch = %q, want nil", branchText(*main))
 		}
 	})
-}
-
-// availabilities is each service's Available flag, in order.
-func availabilities(services []IndexServiceLink) []bool {
-	result := make([]bool, len(services))
-	for i, s := range services {
-		result[i] = s.Available
-	}
-	return result
 }

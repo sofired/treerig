@@ -17,6 +17,7 @@ import (
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/settings"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // CommandContext is everything a verb needs, assembled once per invocation
@@ -29,6 +30,9 @@ import (
 // index.
 type CommandContext struct {
 	CommandName string
+	// Mounts reads the mount table the state words judge a missing directory
+	// by; nil reads the machine's. Only a test sets it.
+	Mounts func() (worktreestate.Mounts, error)
 	// Invocation is the command line as invoked, arguments space-joined;
 	// names this process to whoever waits on a lock it holds.
 	Invocation string

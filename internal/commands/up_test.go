@@ -2,6 +2,7 @@ package commands_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,9 @@ import (
 	"github.com/sofired/treerig/internal/commands/commandstest"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/run"
@@ -101,6 +105,71 @@ func TestUpWithContext(t *testing.T) {
 		}
 		if got == nil || got.Project != tc.Loaded.Config.Project.Name || got.Slug != "feature-login" || got.Domain != acme {
 			t.Fatalf("unexpected index card: %+v", got)
+		}
+	})
+
+	t.Run("calls off an interrupted removal: the worktree stops reading as removing once it is up again", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		first := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, first.RepositoryID, first.WorktreeID)
+		if err := os.WriteFile(paths.RemovalPath, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+
+		if _, err := up(t, tc, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); err != nil {
+			t.Fatalf("Up: %v", err)
+		}
+		if removing, err := tc.Registry.Store(first.RepositoryID).Removing(first.WorktreeID); err != nil || removing {
+			t.Fatalf("Removing = %v, %v; the marker should be gone", removing, err)
+		}
+	})
+
+	t.Run("leaves the removal marker alone while a removal holds the worktree's operation lock", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		first := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, first.RepositoryID, first.WorktreeID)
+		if err := os.WriteFile(paths.RemovalPath, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// `worktree remove` writes the marker and tears down inside this lock,
+		// so a marker seen only once `up` holds it is an interrupted removal's.
+		scope, _ := lock.WorktreeScopes(w.ControlHome, first.RepositoryID, first.WorktreeID, first.Slug, procid.Markers{})
+		held := lock.New(scope, lock.Options{Logger: logger.Silent{}, Watchdog: -1, Holder: "treerig worktree remove"})
+		if _, err := held.Acquire(context.Background(), "test"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = held.Release() }()
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+		defer cancel()
+		if _, err := commands.UpWithContext(ctx, tc.CommandContext, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{}); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("up = %v, want it still waiting for the held operation lock when its context ends", err)
+		}
+		if removing, err := tc.Registry.Store(first.RepositoryID).Removing(first.WorktreeID); err != nil || !removing {
+			t.Fatalf("Removing = %v, %v; the marker must survive a removal in progress", removing, err)
+		}
+	})
+
+	t.Run("refuses a removal marker of a newer format rather than clearing it", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		first := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		paths := layout.WorktreeLayout(w.ControlHome, first.RepositoryID, first.WorktreeID)
+		if err := os.WriteFile(paths.RemovalPath, []byte("format 2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		tc := w.Context("", acme, nil)
+		givePorts(tc)
+
+		_, err := up(t, tc, commandstest.NewFakeRouter(80), &commandstest.FakeIndex{}, commands.UpOptions{})
+		if err == nil || !strings.Contains(err.Error(), "written by a newer treerig") {
+			t.Fatalf("err = %v", err)
+		}
+		if data, _ := os.ReadFile(paths.RemovalPath); string(data) != "format 2\n" {
+			t.Fatalf("the newer marker was changed: %q", data)
 		}
 	})
 

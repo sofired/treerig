@@ -18,25 +18,6 @@ type Ref struct {
 	Slug string
 }
 
-// ServiceState is running, starting, stopped, absent (declared but no
-// container, the state after `down`), or unknown.
-type ServiceState string
-
-const (
-	Running  ServiceState = "running"
-	Starting ServiceState = "starting"
-	Stopped  ServiceState = "stopped"
-	Absent   ServiceState = "absent"
-	Unknown  ServiceState = "unknown"
-)
-
-// ServiceStatus is one declared service's state.
-type ServiceStatus struct {
-	Service string
-	State   ServiceState
-	Detail  string
-}
-
 // OwnedResource is something the backend created for a worktree and can
 // prove it owns. Reaping must refuse any resource whose ownership cannot be verified.
 type OwnedResource struct {

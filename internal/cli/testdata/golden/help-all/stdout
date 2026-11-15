@@ -30,7 +30,7 @@ Problems
 
 More
   config      inspect the project configuration
-  index       refresh the machine-wide checkout index and print it
+  index       refresh the machine-wide overview of worktrees and print it
   router      manage the shared local router
   shared      manage the repository's shared services
   teardown    pin and check the trusted treerig build for worktree removal
