@@ -132,9 +132,13 @@ func TestStatusShowsURLsOnlyWhileTheyLoad(t *testing.T) {
 		}
 	})
 
-	t.Run("probes nothing over HTTP", func(t *testing.T) {
+	// status reports what Docker and the router's state say; it never connects
+	// to a service. With no host routes it asks no listener probe at all, and
+	// it runs nothing but docker and git.
+	t.Run("connects to no service: no listener probe without host routes, and only docker and git run", func(t *testing.T) {
 		w, tc := registered(t)
 		w.Docker.AddRouter(true)
+		tc.Listeners = noListenerProbe{t}
 		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -144,6 +148,15 @@ func TestStatusShowsURLsOnlyWhileTheyLoad(t *testing.T) {
 			}
 		}
 	})
+}
+
+// noListenerProbe fails the test if anything asks it whether a port answers.
+type noListenerProbe struct{ t *testing.T }
+
+// Answers is ports.ListenerProbe's Answers.
+func (p noListenerProbe) Answers(_ context.Context, host string, port int) bool {
+	p.t.Errorf("status probed %s:%d", host, port)
+	return false
 }
 
 func TestStatusJSONCarriesURLsAndTheRouter(t *testing.T) {

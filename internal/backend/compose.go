@@ -210,12 +210,13 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 	// 2.21) is sure to have; --no-path-resolution and --no-env-resolution came
 	// later, so a file's env_file entries are still read.
 	stdout, err := c.composeConfigJSON(ctx, ref, "--no-interpolate")
-	var unavailable *docker.UnavailableError
-	if err != nil && ctx.Err() == nil && !errors.As(err, &unavailable) {
+	if errors.Is(err, errComposeRefused) && ctx.Err() == nil {
 		// Some Compose releases reject a value left uninterpolated in a typed
 		// field (a port, a number); the file may be fine as `up` reads it, so
 		// ask once more the usual way. The first call's benefit, a ${VAR:?}
-		// check that does not fire, stays when it succeeds.
+		// check that does not fire, stays when it succeeds. Only Compose's
+		// own refusal is retried: a call that timed out would only time out
+		// again, doubling the wait before status says it couldn't read it.
 		stdout, err = c.composeConfigJSON(ctx, ref)
 	}
 	if err != nil {
