@@ -84,14 +84,10 @@ const (
 // addConfigFlag declares --config on cmd, a command that reads treerig.toml.
 // It is a flag of that command alone, so help, completion and the unknown
 // flag error of a command that reads no configuration (init, router,
-// teardown, config schema) all follow from where it is declared. optional
-// says the command also runs without one, which its help then says.
-func addConfigFlag(cmd *cobra.Command, optional bool) {
-	usage := fmt.Sprintf("path to %s (default: nearest above cwd)", brand.ConfigFile)
-	if optional {
-		usage = fmt.Sprintf("path to %s (default: nearest above cwd, if any)", brand.ConfigFile)
-	}
-	cmd.Flags().String(configFlag, "", usage)
+// teardown, config schema) all follow from where it is declared. fallback is
+// what its help says the default is.
+func addConfigFlag(cmd *cobra.Command, fallback string) {
+	cmd.Flags().String(configFlag, "", fmt.Sprintf("path to %s (default: %s)", brand.ConfigFile, fallback))
 	_ = cmd.MarkFlagFilename(configFlag, "toml")
 }
 
@@ -125,7 +121,8 @@ var rootGroups = map[string]string{
 
 // configCommands are the commands, by path below the root, that read
 // treerig.toml and so take --config. init, config schema, router and teardown
-// read none. The commands in configOptional also run without one.
+// read none. The commands in configOptional also run without one, or do in
+// some form.
 var configCommands = []string{
 	"config validate", "config show",
 	"dev", "up", "down", "status",
@@ -136,9 +133,15 @@ var configCommands = []string{
 }
 
 // configOptional are the configCommands that work without a treerig.toml (they
-// use commands.ContextWithoutConfig), so their --config says the default may
-// not exist.
-var configOptional = []string{"shared down", "status", "worktree list", "worktree remove", "worktree unlock"}
+// use commands.ContextWithoutConfig), each with what its --config says of the
+// default. status needs one unless a worktree is named, so it says that.
+var configOptional = map[string]string{
+	"shared down":     "nearest above cwd, if any",
+	"status":          "nearest above cwd; none needed when a worktree is named",
+	"worktree list":   "nearest above cwd, if any",
+	"worktree remove": "nearest above cwd, if any",
+	"worktree unlock": "nearest above cwd, if any",
+}
 
 // declareGroupsAndConfig gives each of the root's commands its help group
 // (rootGroups) and each command that reads treerig.toml its --config flag
@@ -153,7 +156,11 @@ func declareGroupsAndConfig(root *cobra.Command) {
 		if err != nil || len(rest) > 0 || cmd == root {
 			panic(fmt.Sprintf("cli: configCommands names no command: %q", path))
 		}
-		addConfigFlag(cmd, slices.Contains(configOptional, path))
+		fallback, optional := configOptional[path]
+		if !optional {
+			fallback = "nearest above cwd"
+		}
+		addConfigFlag(cmd, fallback)
 	}
 }
 

@@ -14,8 +14,8 @@ Usage:
   treerig status [worktree] [flags]
 
 Flags:
-      --config string   path to treerig.toml (default: nearest above cwd, if
-                        any)
+      --config string   path to treerig.toml (default: nearest above cwd; none
+                        needed when a worktree is named)
   -h, --help            help for status
       --json            machine-readable output
 
