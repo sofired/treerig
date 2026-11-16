@@ -768,7 +768,7 @@ func buildProgram(commandName, version string, p *program, stdout, stderr io.Wri
 		Long: "Show a worktree's services, their state and URLs. A URL is shown only while its service runs and the router's container is up; " +
 			"nothing is fetched over HTTP. With no router serving the URLs, it says why on stderr and shows `-` for every URL; --json also carries the router's state. " +
 			"A worktree of another repository is read from its own directory, and a path may lie inside the directory. " +
-			"It exits 0 whatever the state, and 1 when it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, or its treerig.toml wouldn't load.\n\n" + worktreeNameHelp,
+			"It exits 0 whatever the state, and 1 when it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, its treerig.toml wouldn't load, or its Compose file is too large or not a regular file.\n\n" + worktreeNameHelp,
 		Args: maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := p.env(cmd)

@@ -642,7 +642,8 @@ and `state`, the router's state (`running`, `stopped` or `unknown`) and, when
 Docker didn't answer, `dockerError`; scripts that read `urls` read it instead.
 `status` exits 0 whatever the state, since it reports and `doctor` is the check
 that fails, and 1 when it couldn't read the worktree: Docker didn't answer,
-Compose couldn't read it, or its treerig.toml wouldn't load. In a worktree that isn't
+Compose couldn't read it, its treerig.toml wouldn't load, or its Compose file
+is too large or not a regular file. In a worktree that isn't
 registered it prints `feature-x is not registered. Run 'treerig up' to create
 its environment.` on stderr and exits 0.
 
@@ -1100,7 +1101,7 @@ a yes-or-no question whose default is No.
 | Command | 0 | 1 | Other |
 |---|---|---|---|
 | `up` | running | did not start | a hook's own code; 130, 143 or 129 ending `up -f` |
-| `status` | any state | it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, or its treerig.toml wouldn't load (output printed where there is any) | |
+| `status` | any state | it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, its treerig.toml wouldn't load, or its Compose file is too large or not a regular file (output printed where there is any) | |
 | `list` | any state | Docker didn't answer (output still printed) | |
 | `logs` | logs shown | the worktree isn't registered | 130 ending `-f` |
 | `open` | opened, or URL printed | service not running | |

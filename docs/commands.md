@@ -196,7 +196,10 @@ at a time, within that one second.
   FIFO, a device or a huge file that would hang or flood it. That look is not
   a security boundary: Compose opens the file itself, and also reads the files
   it includes or extends, its `env_file`s and its override files, none of which
-  `status` checks. Name only worktrees you trust. In a worktree that is not
+  `status` checks. Before reading its treerig.toml, `status` runs Git in the
+  directory (`git rev-parse`, which runs no hooks but does read that
+  repository's Git configuration) to check that it still belongs to the
+  worktree's repository. Name only worktrees you trust. In a worktree that is not
   registered, `status` says so on stderr, prints nothing on stdout and exits 0.
 - **`worktree list`** has a STATE column, and `--json` a `state` and, for an
   unknown one, a `hint` (on stderr in the text form, unless it is the one cause
