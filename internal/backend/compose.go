@@ -214,13 +214,15 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 		// Some Compose releases reject a value left uninterpolated in a typed
 		// field (a port, a number); the file may be fine as `up` reads it, so
 		// ask once more the usual way. The first call's benefit, a ${VAR:?}
-		// check that does not fire, stays when it succeeds. Only Compose's
-		// own refusal is retried: a call that timed out would only time out
-		// again, doubling the wait before status says it couldn't read it.
-		// Every refusal is retried, not just that one: a missing file or a
-		// YAML error is read twice before it is reported. That costs one
-		// more quick parse, and is chosen over matching Compose's stderr,
-		// whose wording differs between the releases this retry is for.
+		// check that does not fire, stays when it succeeds.
+		//
+		// Any non-zero exit of Compose is retried once this way, whatever it
+		// refused: a missing file or a YAML error is read twice before it is
+		// reported. That costs one more quick parse, and is chosen over
+		// matching Compose's stderr, whose wording differs between the
+		// releases this retry is for. A call that timed out, was killed by a
+		// signal or overflowed its output is not retried: it would only do
+		// so again, doubling the wait before status says it couldn't read it.
 		stdout, err = c.composeConfigJSON(ctx, ref)
 	}
 	if err != nil {
