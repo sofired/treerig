@@ -217,6 +217,10 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 		// check that does not fire, stays when it succeeds. Only Compose's
 		// own refusal is retried: a call that timed out would only time out
 		// again, doubling the wait before status says it couldn't read it.
+		// Every refusal is retried, not just that one: a missing file or a
+		// YAML error is read twice before it is reported. That costs one
+		// more quick parse, and is chosen over matching Compose's stderr,
+		// whose wording differs between the releases this retry is for.
 		stdout, err = c.composeConfigJSON(ctx, ref)
 	}
 	if err != nil {
