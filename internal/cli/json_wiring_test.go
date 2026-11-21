@@ -88,14 +88,14 @@ func TestJSONOutputThroughTheProgram(t *testing.T) {
 		if code != 0 || report.Registered || len(report.Services) != 0 {
 			t.Fatalf("code = %d, report = %+v", code, report)
 		}
-		if !strings.Contains(stderr, "Not registered") {
+		if !strings.Contains(stderr, " is not registered. Run 'treerig up' to create its environment.") {
 			t.Fatalf("stderr = %q", stderr)
 		}
 	})
 
-	t.Run("urls --json keeps the refusal on stderr, exit 1, and prints no document", func(t *testing.T) {
+	t.Run("urls --json gets the pointer to status, exit 1, and prints no document", func(t *testing.T) {
 		code, stdout, stderr := run("urls", "--json")
-		if code != 1 || stdout != "" || !strings.HasPrefix(stderr, "[treerig] ERROR: This worktree is not registered.") {
+		if code != 1 || stdout != "" || stderr != "[treerig] ERROR: 'treerig urls' is now 'treerig status'.\n" {
 			t.Fatalf("code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 		}
 	})

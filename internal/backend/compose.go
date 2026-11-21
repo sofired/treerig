@@ -112,7 +112,7 @@ type Options struct {
 	// Environ is the environment Compose inherits; os.Environ() in production.
 	Environ []string
 	// URLVariables are the worktree's routed URLs as worktree.URLVariables
-	// builds them from the same routes `treerig urls` prints (#177):
+	// builds them from the same routes `treerig status` shows (#177):
 	// TREERIG_URL and TREERIG_SERVICE_URL_<NAME>, handed to every Compose
 	// invocation of the worktree's own project so compose.yaml can interpolate
 	// them. Nil when the router's port could not be resolved: the variables are
@@ -206,7 +206,25 @@ type model struct {
 // the way model expects is refused rather than partially read.
 func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error) {
 	file := c.options.ComposeFile
-	stdout, err := c.composeConfigJSON(ctx, ref)
+	// --no-interpolate is the one `config` flag the documented floor (Compose
+	// 2.21) is sure to have; --no-path-resolution and --no-env-resolution came
+	// later, so a file's env_file entries are still read.
+	stdout, err := c.composeConfigJSON(ctx, ref, "--no-interpolate")
+	if errors.Is(err, errComposeRefused) && ctx.Err() == nil {
+		// Some Compose releases reject a value left uninterpolated in a typed
+		// field (a port, a number); the file may be fine as `up` reads it, so
+		// ask once more the usual way. The first call's benefit, a ${VAR:?}
+		// check that does not fire, stays when it succeeds.
+		//
+		// Any non-zero exit of Compose is retried once this way, whatever it
+		// refused: a missing file or a YAML error is read twice before it is
+		// reported. That costs one more quick parse, and is chosen over
+		// matching Compose's stderr, whose wording differs between the
+		// releases this retry is for. A call that timed out, was killed by a
+		// signal or overflowed its output is not retried: it would only do
+		// so again, doubling the wait before status says it couldn't read it.
+		stdout, err = c.composeConfigJSON(ctx, ref)
+	}
 	if err != nil {
 		return model{}, err
 	}

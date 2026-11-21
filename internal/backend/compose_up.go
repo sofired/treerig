@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -101,18 +102,33 @@ func (c *Compose) ownershipLabels(ref worktree.Ref, withFormat bool) *jsonKV {
 // composeConfigJSON is `docker compose config --format json` against the
 // consumer's file alone, shared by readModel (the lossy map form Status
 // uses) and readOrderedModel (the order-preserving form Up needs).
-func (c *Compose) composeConfigJSON(ctx context.Context, ref worktree.Ref) (string, error) {
+//
+// extra are further `config` flags: Status passes --no-interpolate, since it
+// reads the service names alone and must neither need the file's variables
+// nor fail on one a required-variable check (${VAR:?}) refuses.
+func (c *Compose) composeConfigJSON(ctx context.Context, ref worktree.Ref, extra ...string) (string, error) {
 	file := c.options.ComposeFile
-	result, err := c.compose(ctx, ref, []string{"config", "--format", "json"}, []string{file},
+	result, err := c.compose(ctx, ref, append([]string{"config", "--format", "json"}, extra...), []string{file},
 		run.Spec{AllowFailure: true, Timeout: c.timeouts.Probe})
 	if err != nil {
 		return "", err
 	}
-	if result.ExitCode != 0 {
-		return "", clierr.Newf("Compose could not read %s:\n%s", file, firstNonEmpty(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout)))
+	if result.ExitCode != 0 || result.TimedOut || result.Signal != 0 || result.OutputOverflow {
+		refusal := clierr.Newf("Compose could not read %s:\n%s", file, firstNonEmpty(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout)))
+		// Compose's own answer, as opposed to it not answering in time (or
+		// being killed, or flooding): only that is worth asking again.
+		if !result.TimedOut && result.Signal == 0 && !result.OutputOverflow {
+			refusal.Kind = errComposeRefused
+		}
+		return "", refusal
 	}
 	return result.Stdout, nil
 }
+
+// errComposeRefused marks composeConfigJSON's error when Compose itself
+// exited non-zero, so readModel can tell a file Compose rejects from a call
+// that never finished.
+var errComposeRefused = errors.New("compose refused the file")
 
 // readOrderedModel is the consumer's Compose file as Compose itself
 // resolves it, decoded with every object's key order preserved: the
