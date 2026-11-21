@@ -704,8 +704,8 @@ As built (#203):
   or undetermined directory, one that is now another repository's) prints the
   header and a line on stderr that ends with `Directory: <path>` where there is
   one, and exits 0, since `status` reports states. A directory that is there
-  with no loadable treerig.toml, or a Compose file that is too large, is an
-  error, exit 1.
+  with no loadable treerig.toml, or a Compose file that is too large or not a
+  regular file, is an error, exit 1, as it is for the current worktree.
 - **Not registered.** The slug in the sentence is the one `up` would give: from
   the branch when Git has an identity for the directory, else from the directory's
   name.

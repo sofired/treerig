@@ -121,9 +121,10 @@ then one per host route, in that order.
   document is still printed, with `"state": "unknown"` and no Compose services
   (host routes are still listed, since their ports need no Docker), and the
   command exits 1. It also exits 1 when Compose could not read the worktree
-  (`hint` says so, and there is no `dockerError`), and when the `treerig.toml` of
-  a worktree named on the command line would not load, or its Compose file is too
-  large or not a regular file; it then prints nothing.
+  (`hint` says so, and there is no `dockerError`), and when the worktree's
+  `treerig.toml` would not load, or its Compose file is too large or not a
+  regular file, whether the worktree is named or the current one; it then
+  prints nothing.
   It exits 0 in every other case, whatever the state.
 - `port` is a number (for example `20417`): the routed service's pinned port on
   `127.0.0.1`, or the port a host route's process listens on. It is absent for

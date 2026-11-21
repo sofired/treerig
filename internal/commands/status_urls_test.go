@@ -8,12 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -637,6 +639,42 @@ func TestStatusOfANamedWorktreeWhoseDirectoryCannotBeTrusted(t *testing.T) {
 			}
 		}
 	})
+}
+
+// The worktree status runs in gets the same look at its Compose file as a
+// named one: a pipe there is refused at once, not handed to Compose to wait on.
+func TestStatusRefusesACurrentComposeFileThatIsNotARegularFile(t *testing.T) {
+	w := commandstest.New(t, "feature/login", acme)
+	w.Register("", acme, "feature-login", brand.LabelNamespace, "api", "mail")
+	tc := w.Context("", acme, nil)
+	file := tc.Loaded.Config.Compose.File
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(tc.Loaded.Root, file)
+	}
+	if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(file, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := commands.StatusWithContext(context.Background(), tc.CommandContext, commands.StatusOptions{})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("status is waiting on the pipe")
+	}
+	for _, call := range w.Docker.Calls() {
+		if strings.Contains(call, " config ") {
+			t.Fatalf("Docker was handed it: %s", call)
+		}
+	}
 }
 
 func TestStatusRetriesComposeWithInterpolationWhenItRefusesWithout(t *testing.T) {
