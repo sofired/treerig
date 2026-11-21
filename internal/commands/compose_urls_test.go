@@ -10,6 +10,7 @@ import (
 	"github.com/sofired/treerig/internal/commands/commandstest"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/worktree"
 )
@@ -64,6 +65,20 @@ func composeEnvOf(w *commandstest.World, verb string) []map[string]string {
 	return envs
 }
 
+// worktreeComposeEnvOf is composeEnvOf without the calls about the shared
+// router's own project, which carry no worktree's URLs: `status` asks it
+// whether its container is up.
+func worktreeComposeEnvOf(w *commandstest.World, verb string) []map[string]string {
+	var envs []map[string]string
+	for _, spec := range w.Runner.Calls() {
+		if spec.Command != "docker" || !slices.Contains(spec.Args, verb) || slices.Contains(spec.Args, router.DefaultName) {
+			continue
+		}
+		envs = append(envs, envMap(spec))
+	}
+	return envs
+}
+
 // envMap decodes spec's Env into a map.
 func envMap(spec run.Spec) map[string]string {
 	env := map[string]string{}
@@ -75,7 +90,7 @@ func envMap(spec run.Spec) map[string]string {
 }
 
 func TestComposeSeesTheRoutedURLs(t *testing.T) {
-	t.Run("up hands every Compose call the URLs `urls` prints, router port included (#177)", func(t *testing.T) {
+	t.Run("up hands every Compose call the URLs `status` shows, router port included (#177)", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
@@ -206,10 +221,10 @@ func TestEveryVerbHandsComposeTheRoutedURLs(t *testing.T) {
 		addDashRoute(t, w, ref)
 		tc := w.Context("", acme, nil)
 		tc.RouterPort = 30080
-		if _, err := commands.StatusWithContext(context.Background(), tc.CommandContext, commands.OutputOptions{}); err != nil {
+		if _, err := commands.StatusWithContext(context.Background(), tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatalf("status: %v", err)
 		}
-		requireDash(t, "compose ps", composeEnvOf(w, "ps"))
+		requireDash(t, "compose ps", worktreeComposeEnvOf(w, "ps"))
 	})
 
 	t.Run("backup (restore shares runBundleHook): the Compose call and the hook see the same URLs, host routes included", func(t *testing.T) {

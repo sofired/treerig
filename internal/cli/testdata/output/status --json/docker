@@ -1,2 +1,4 @@
-compose --project-name treerig-5ae52fc96f4e40fdd30f35b5 --project-directory FIXTURE/checkout -f FIXTURE/checkout/compose.yaml config --format json
+compose --project-name treerig-5ae52fc96f4e40fdd30f35b5 --project-directory FIXTURE/checkout -f FIXTURE/checkout/compose.yaml config --format json --no-interpolate
 compose --project-name treerig-5ae52fc96f4e40fdd30f35b5 ps --format json --all
+compose --project-name treerig-router ps --all --quiet router
+inspect routerc1

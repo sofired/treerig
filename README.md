@@ -259,8 +259,8 @@ also on [GitHub](https://github.com/sofired/treerig/tree/main/docs).
 ## Status and roadmap
 
 Built today: the whole worktree lifecycle (`init`, `up`, `dev`, `down`,
-`status`, `urls`, `run`, `backup`, `restore`, and `worktree list`, `remove`,
-`rename` and `unlock`), the shared router and checkout index, host routes
+`status`, `run`, `backup`, `restore`, and `worktree list`, `remove`,
+`rename` and `unlock`), the shared router and the overview, host routes
 (`route`), shared services and `doctor`; `treerig --help` lists the everyday
 commands and `treerig help --all` every command. Releases are listed on the
 [releases page](https://github.com/sofired/treerig/releases).

@@ -2,7 +2,7 @@ package commands
 
 // What the verbs share about host routes (#6, docs/design/routing.md,
 // decision 11): the rule and route file a recorded route produces, the routes
-// of a worktree as `urls`, hooks and `run` list them beside its services', and
+// of a worktree as `status`, hooks and `run` list them beside its services', and
 // the refusal when a shared service takes a host route's name.
 
 import (
@@ -79,7 +79,7 @@ func routesOf(cfg config.Config, slug, domain string, routerPort int, ports map[
 
 // composeURLVariables is the URL environment the worktree's own Compose
 // invocations get (#177): worktree.URLVariables over the same routesOf
-// `treerig urls` prints, so ${TREERIG_URL} in compose.yaml and the URL on the
+// `treerig status` shows, so ${TREERIG_URL} in compose.yaml and the URL on the
 // terminal are one value, router port included. Nil, so the variables stay
 // unset, when w is nil or routerPort is not a resolved port (as `doctor`
 // leaves them out of a hook's environment). The shared stack never gets them.
@@ -104,7 +104,7 @@ func (r worktreeRoutes) ServiceURLs() []ServiceURL {
 	return urlsFromRoutes(r.services, r.Services)
 }
 
-// URLs are every route's URL, services' first: what `urls` and `up` print.
+// URLs are every route's URL, services' first: what `up` prints.
 func (r worktreeRoutes) URLs() []ServiceURL {
 	host := urlsFromRoutes(r.host, r.Host)
 	for i := range host {

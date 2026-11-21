@@ -100,6 +100,10 @@ type dockerFake struct {
 	// timed-out down must not be read as Compose's own "has active
 	// endpoints" refusal even if its stderr happened to contain that text.
 	downTimedOut bool
+	// configTimedOut makes every `compose … config …` call answer as a
+	// timeout: a config read that never finished must not be asked again
+	// the way Compose's own refusal of an uninterpolated value is.
+	configTimedOut bool
 }
 
 // newFake builds a dockerFake with its resource and label maps ready to
@@ -145,6 +149,9 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 			if slices.Contains(args, verb) {
 				switch verb {
 				case "config":
+					if f.configTimedOut {
+						return run.Finish(spec, run.Result{ExitCode: -1, TimedOut: true})
+					}
 					model := composeModel
 					if slices.Contains(spec.Env, "COMPOSE_PROFILES=debug") {
 						model = composeModelWithDebugProfile()
@@ -449,6 +456,17 @@ func TestDownStatus(t *testing.T) {
 		}
 		if config := fake.composeCalls("config"); len(config) != 1 || !slices.Contains(config[0].Args, "--project-directory") {
 			t.Fatalf("config calls = %+v", config)
+		}
+	})
+	t.Run("status asks Compose for the model once when the call times out, not again without --no-interpolate", func(t *testing.T) {
+		fake := newFake()
+		fake.configTimedOut = true
+		rt, _ := newRuntime(t, fake)
+		if _, err := rt.Status(ctx, ref); err == nil {
+			t.Fatal("Status = nil error, want the config read's failure")
+		}
+		if config := fake.composeCalls("config"); len(config) != 1 {
+			t.Fatalf("config calls = %d, want 1: a timed-out read is not retried", len(config))
 		}
 	})
 	t.Run("status accepts the single-array form older Compose releases print", func(t *testing.T) {

@@ -653,7 +653,7 @@ func TestStatusReportsSharedServices(t *testing.T) {
 	shared := func(t *testing.T, tc *commandstest.TestContext) []commands.SharedStatusEntry {
 		t.Helper()
 		tc.Logger.Lines, tc.Logger.Printed = nil, nil
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()
@@ -661,7 +661,11 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		if err := json.Unmarshal([]byte(strings.Join(printed, "\n")), &report); err != nil {
 			t.Fatalf("status --json is not JSON: %v\n%v", err, printed)
 		}
-		return report.Shared
+		entries := make([]commands.SharedStatusEntry, len(report.Shared))
+		for i, entry := range report.Shared {
+			entries[i] = entry.SharedStatusEntry
+		}
+		return entries
 	}
 
 	t.Run("status --json gains a shared array with state, addresses, definition and connection", func(t *testing.T) {
@@ -694,7 +698,7 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		w.Docker.FailCall("label="+brand.SharedLabel(brand.LabelNamespace), "Cannot connect to the Docker daemon", 1, -1)
 
 		tc.Logger.Lines, tc.Logger.Printed = nil, nil
-		statuses, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true})
+		statuses, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true})
 		if err != nil {
 			t.Fatalf("status failed over the shared lookup: %v", err)
 		}
@@ -724,7 +728,7 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		// read is made to fail as a cancelled one would.
 		w.Docker.FailCall("compose.shared.yaml config --format json", "context canceled", 1, -1)
 
-		if _, err := commands.StatusWithContext(cancelled, tc.CommandContext, commands.OutputOptions{JSON: true}); !errors.Is(err, context.Canceled) {
+		if _, err := commands.StatusWithContext(cancelled, tc.CommandContext, commands.StatusOptions{JSON: true}); !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 	})
@@ -761,7 +765,7 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 		tc := w.Context("", acme, nil)
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()
@@ -770,25 +774,54 @@ func TestStatusReportsSharedServices(t *testing.T) {
 		}
 	})
 
-	t.Run("the text form lists them under the services", func(t *testing.T) {
+	t.Run("the text form lists them among the services, named as shared, with their URL while the router runs", func(t *testing.T) {
 		w := newSharedWorld(t)
 		tc := w.context("")
-		result := w.mustUp(t, tc)
-		record, _ := tc.Registry.Store(result.Registration.RepositoryID).FindShared("mailpit")
+		w.mustUp(t, tc)
+		w.Docker.AddRouter(true)
 		tc.Logger.Lines, tc.Logger.Printed = nil, nil
-		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.OutputOptions{}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		_, printed := tc.Logger.Snapshot()
-		want := []string{
-			"  shared services",
-			"    mailpit  running  (definition current, connected, started by feature-login.acme.localhost)",
-			"      url http://mailpit.shared.acme.localhost",
-			"      container port 8025 -> 127.0.0.1:" + itoa(record.Ports[8025]),
-			"      container port 1025 -> 127.0.0.1:" + itoa(record.Ports[1025]),
+		want := "  mailpit (shared)  running  http://mailpit.shared.acme.localhost"
+		if got := printed[len(printed)-1]; got != want {
+			t.Fatalf("printed = %q, want its last line to be %q", printed, want)
 		}
-		if len(printed) < len(want) || !slices.Equal(printed[len(printed)-len(want):], want) {
-			t.Fatalf("printed = %q", printed)
+	})
+
+	t.Run("the text form gives a shared service no URL while the router is stopped", func(t *testing.T) {
+		w := newSharedWorld(t)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		tc.Logger.Lines, tc.Logger.Printed = nil, nil
+		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		_, printed := tc.Logger.Snapshot()
+		if got, want := printed[len(printed)-1], "  mailpit (shared)  running  -"; got != want {
+			t.Fatalf("last line = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("status --json gives a shared service its url only while it runs and the router is up", func(t *testing.T) {
+		w := newSharedWorld(t)
+		tc := w.context("")
+		w.mustUp(t, tc)
+		url := func() string {
+			tc.Logger.Lines, tc.Logger.Printed = nil, nil
+			report, err := statusJSON(t, tc, "")
+			if err != nil || len(report.Shared) != 1 {
+				t.Fatalf("report = %+v, %v", report, err)
+			}
+			return report.Shared[0].URL
+		}
+		if got := url(); got != "" {
+			t.Fatalf("url with the router stopped = %q", got)
+		}
+		w.Docker.AddRouter(true)
+		if got := url(); got != "http://mailpit.shared.acme.localhost" {
+			t.Fatalf("url with the router running = %q", got)
 		}
 	})
 

@@ -1,6 +1,6 @@
 # Configuration
 
-The keys of `treerig.toml`. The machine's own `settings.toml` is in [settings.md](settings.md).
+The keys of `treerig.toml`, which must be a regular file of at most 1 MiB. The machine's own `settings.toml` is in [settings.md](settings.md).
 
 | Key | Meaning |
 | --- | ------- |

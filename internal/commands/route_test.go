@@ -1,7 +1,7 @@
 package commands_test
 
 // Host routes (#6, docs/design/routing.md, decision 11): `route add`, `route
-// rm` and `route ls`, and what `up`, `down`, `worktree remove`, `urls` and
+// rm` and `route ls`, and what `up`, `down`, `worktree remove`, `status` and
 // `run` do with the routes they leave behind.
 
 import (
@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -782,50 +783,62 @@ func TestHostRoutesAcrossTheLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("urls lists the host route after the services, with its port", func(t *testing.T) {
+	t.Run("status lists the host route after the services, with its port and URL while it listens", func(t *testing.T) {
 		rw := hostRouteWorld(t)
-		urls, err := commands.UrlsWithContext(ctx, rw.tc.CommandContext, commands.OutputOptions{})
-		if err != nil {
+		rw.Docker.AddRouter(true)
+		rw.tc.Logger.Printed = nil
+		if _, err := commands.StatusWithContext(ctx, rw.tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if len(urls) != 3 || urls[2].Service != "web" || urls[2].URL != "http://app.feature-login.acme.localhost" || urls[2].Port != 5173 || urls[2].Label != nil {
-			t.Fatalf("urls = %+v", urls)
+		want := []string{
+			"feature-login.acme.localhost   running",
+			"  SERVICE           STATE      URL",
+			"  api               running    http://feature-login.acme.localhost",
+			"  mail              running    http://mail.feature-login.acme.localhost",
+			"  web (host route)  listening  http://app.feature-login.acme.localhost",
+		}
+		if _, printed := rw.tc.Logger.Snapshot(); !slices.Equal(printed, want) {
+			t.Fatalf("printed = %q", printed)
 		}
 	})
 
-	t.Run("urls --json carries the host route like a service", func(t *testing.T) {
+	t.Run("status --json carries the host route like a service, marked as one", func(t *testing.T) {
 		rw := hostRouteWorld(t)
+		rw.Docker.AddRouter(true)
 		rw.tc.Logger.Printed = nil
-		if _, err := commands.UrlsWithContext(ctx, rw.tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
+		if _, err := commands.StatusWithContext(ctx, rw.tc.CommandContext, commands.StatusOptions{JSON: true}); err != nil {
 			t.Fatal(err)
 		}
-		var entries []commands.URLReportEntry
-		if err := json.Unmarshal([]byte(printedText(rw.tc)), &entries); err != nil {
+		var report commands.StatusReport
+		if err := json.Unmarshal([]byte(printedText(rw.tc)), &report); err != nil {
 			t.Fatal(err)
 		}
-		last := entries[len(entries)-1]
-		if last.Service != "web" || last.URL != "http://app.feature-login.acme.localhost" || last.Port != 5173 {
-			t.Fatalf("entries = %+v", entries)
+		last := report.Services[len(report.Services)-1]
+		want := commands.StatusService{Service: "web", HostRoute: true, State: "listening", URL: "http://app.feature-login.acme.localhost", Port: 5173}
+		if last != want {
+			t.Fatalf("last = %+v, want %+v", last, want)
 		}
-	})
-
-	t.Run("urls --json marks only the host route", func(t *testing.T) {
-		rw := hostRouteWorld(t)
-		rw.tc.Logger.Printed = nil
-		if _, err := commands.UrlsWithContext(ctx, rw.tc.CommandContext, commands.OutputOptions{JSON: true}); err != nil {
-			t.Fatal(err)
-		}
-		var entries []commands.URLReportEntry
-		if err := json.Unmarshal([]byte(printedText(rw.tc)), &entries); err != nil {
-			t.Fatal(err)
-		}
-		for _, entry := range entries {
+		for _, entry := range report.Services {
 			if entry.HostRoute != (entry.Service == "web") {
 				t.Errorf("entry %+v", entry)
 			}
 		}
 		if !strings.Contains(printedText(rw.tc), `"hostRoute": true`) {
 			t.Errorf("printed %s", printedText(rw.tc))
+		}
+	})
+
+	t.Run("status says a host route whose process is not there is not listening, and gives it no URL", func(t *testing.T) {
+		rw := hostRouteWorld(t)
+		rw.Docker.AddRouter(true)
+		rw.tc.Listeners = listeningOn()
+		rw.tc.Logger.Printed = nil
+		if _, err := commands.StatusWithContext(ctx, rw.tc.CommandContext, commands.StatusOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		_, printed := rw.tc.Logger.Snapshot()
+		if got := printed[len(printed)-1]; got != "  web (host route)  not listening  -" {
+			t.Fatalf("last row = %q", got)
 		}
 	})
 

@@ -105,10 +105,11 @@ variables, an inherited one of either is dropped and this worktree's set
 instead. The shared service is connected to the worktree's network before
 `prepare` runs, so a hook may use it at once.
 
-`TREERIG_SERVICE_PORT_<NAME>` is the `port` of `urls --json`. Unlike the URLs
+`TREERIG_SERVICE_PORT_<NAME>` is the `port` of `status --json`. Unlike the URLs
 it does not go through the router, and it is allocated before any hook runs.
-`TREERIG_URL` and `TREERIG_SERVICE_URL_<NAME>` are the same URLs `treerig urls`
-prints, router port included exactly as it folds that in there. When
+`TREERIG_URL` and `TREERIG_SERVICE_URL_<NAME>` are the URLs `treerig status`
+shows, router port included exactly as it folds that in there (`status` shows
+one only while its service runs; the variables are always set). When
 `doctor` runs `verify` but can't resolve the router's port, it sets none of
 these three, nor `TREERIG_SHARED_URL_<NAME>`, and its Router section says why.
 (`TREERIG_SHARED_ADDR_…` does not depend on the router and is still set.)
