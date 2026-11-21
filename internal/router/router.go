@@ -25,12 +25,12 @@ import (
 	"time"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/docker"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/ports"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/text"
@@ -132,7 +132,7 @@ type PlaceholderPage func(now time.Time) ([]byte, error)
 
 // defaultPlaceholderPage is the checkout index's own placeholder.
 func defaultPlaceholderPage(now time.Time) ([]byte, error) {
-	return []byte(checkoutindex.PlaceholderHTML(now)), nil
+	return []byte(overview.PlaceholderHTML(now)), nil
 }
 
 // Options configure a Router.
@@ -363,7 +363,7 @@ func secureState(state layout.RouterLayout) error {
 		return err
 	}
 	checked := []string{state.LockPath, state.IndexFile, state.ComposeFile, state.StateFile}
-	for _, name := range checkoutindex.IconNames() {
+	for _, name := range overview.IconNames() {
 		checked = append(checked, filepath.Join(state.IndexDir, name))
 	}
 	for _, file := range checked {
@@ -409,8 +409,8 @@ func (r *Router) write(now time.Time, options StackOptions) error {
 	// The icons the page links, before any page: idempotent, and the page
 	// below (or Refresh's later) must never point at a missing file. A failed
 	// write over an icon an earlier start left is only a warning, as in
-	// checkoutindex.Service.Refresh; with an icon missing the start fails.
-	if err := checkoutindex.EnsureIcons(r.state.IndexDir, r.logger); err != nil {
+	// overview.Service.Refresh; with an icon missing the start fails.
+	if err := overview.EnsureIcons(r.state.IndexDir, r.logger); err != nil {
 		return err
 	}
 	// The index container's health check fetches the page, so one must exist

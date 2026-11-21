@@ -1,4 +1,4 @@
-package checkoutindex
+package overview
 
 import (
 	"crypto/sha256"
@@ -387,7 +387,7 @@ func indexOfFrom(s, substr string, from int) int {
 }
 
 // planIndexUpdate mirrors the identically named browser function embedded
-// in the page as text (internal/checkoutindex/assets/script.js), kept here
+// in the page as text (internal/overview/assets/script.js), kept here
 // so its parsing logic is pinned by ordinary Go tests. Production Go code
 // never calls this — the page runs the embedded script itself — but this
 // must keep parsing a rendered page exactly as that script does, since

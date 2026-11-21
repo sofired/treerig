@@ -3,7 +3,7 @@ package commands
 // The `index` verb (#41), and newCheckoutIndex, which every mutating verb
 // that must refresh the page afterward (`down`, `worktree remove`; `up`
 // takes an Index the same way it takes a Router) builds its real
-// checkoutindex.Service from.
+// overview.Service from.
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lock"
+	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/worktree"
@@ -64,11 +64,11 @@ func routerLockScope(state layout.RouterLayout, projectName string) lock.Scope {
 // index page into whatever the symlink points at — RouterUp's own "refuses a
 // symlinked state directory" test is exactly this check; newCheckoutIndex
 // used to skip it entirely.
-func newCheckoutIndex(cctx *CommandContext, inventoryTimeout time.Duration) (*checkoutindex.Service, error) {
+func newCheckoutIndex(cctx *CommandContext, inventoryTimeout time.Duration) (*overview.Service, error) {
 	if err := router.SecureState(cctx.RouterState); err != nil {
 		return nil, err
 	}
-	return checkoutindex.NewService(checkoutindex.Options{
+	return overview.NewService(overview.Options{
 		ControlHome:  cctx.ControlHome,
 		RouterPort:   cctx.RouterPort,
 		IndexFile:    cctx.RouterState.IndexFile,
@@ -125,7 +125,7 @@ func RefreshIndex(ctx context.Context, env *Env, options OutputOptions) error {
 			return err
 		}
 	} else {
-		cctx.Logger.Output(checkoutindex.FormatIndexText(snapshot, index.URL()))
+		cctx.Logger.Output(overview.FormatIndexText(snapshot, index.URL()))
 	}
 	// The page and the output are complete either way; Docker not answering
 	// still fails the command, as it does `status` and `worktree list`.
@@ -204,8 +204,8 @@ type IndexReportService struct {
 }
 
 // indexReport maps a snapshot onto its JSON document, so the output does not
-// follow checkoutindex's internal types.
-func indexReport(snapshot checkoutindex.IndexSnapshot, url string) IndexReport {
+// follow the overview package's internal types.
+func indexReport(snapshot overview.IndexSnapshot, url string) IndexReport {
 	report := IndexReport{
 		URL: url, GeneratedAt: snapshot.GeneratedAt,
 		DockerReachable: snapshot.DockerReachable, DockerError: snapshot.DockerError,

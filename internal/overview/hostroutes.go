@@ -1,4 +1,4 @@
-package checkoutindex
+package overview
 
 import (
 	"fmt"

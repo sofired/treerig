@@ -1,4 +1,4 @@
-package checkoutindex
+package overview
 
 import (
 	"crypto/sha256"
@@ -15,7 +15,7 @@ import (
 // (parseContainerInventory and buildSnapshot are in snapshot_test.go.)
 //
 // Left out: "survives the round trip through the page as plain JavaScript".
-// Proving the embedded script text (internal/checkoutindex/assets/script.js)
+// Proving the embedded script text (internal/overview/assets/script.js)
 // is valid, self-contained JavaScript that actually runs needs a real
 // JavaScript runtime to execute it in — a property of the embedded asset,
 // not of this package's Go code, and not something a Go test can check.

@@ -1,4 +1,4 @@
-package checkoutindex
+package overview
 
 // Service is tied to a lock.Scope. Plus new tests for #15-#18.
 
@@ -19,12 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/run"
@@ -33,7 +33,7 @@ import (
 	"github.com/sofired/treerig/internal/worktreestate"
 )
 
-// fakeRegistry is a checkoutindex.Registry double.
+// fakeRegistry is a overview.Registry double.
 type fakeRegistry struct {
 	registrations []registry.RegisteredWorktree
 	err           error
@@ -44,7 +44,7 @@ func (f *fakeRegistry) ListAll(context.Context) ([]registry.RegisteredWorktree, 
 	return f.registrations, f.err
 }
 
-// fakeIdentities is a checkoutindex.Identities double.
+// fakeIdentities is a overview.Identities double.
 type fakeIdentities struct {
 	repositoryID        string
 	repositoryIDPresent bool

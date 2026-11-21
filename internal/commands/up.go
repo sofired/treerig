@@ -8,12 +8,12 @@ import (
 
 	"github.com/sofired/treerig/internal/backend"
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/hooks"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/worktree"
@@ -29,7 +29,7 @@ type Router interface {
 	Ensure(ctx context.Context) error
 }
 
-// Index is what `up` needs from the checkout index; checkoutindex.Service
+// Index is what `up` needs from the checkout index; overview.Service
 // (#41) satisfies this, and Up hands UpWithContext bestEffortIndex, which
 // also survives the service failing to build.
 type Index interface {

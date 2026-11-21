@@ -49,7 +49,7 @@ const (
 	// domainMax: a routed hostname is <subdomain>.<slug>.<domain>; with two
 	// 63-character labels ahead of it, the domain gets the rest of 253.
 	domainMax = 253 - (dnsLabelMax+1)*2
-	// maxServiceEntries mirrors internal/checkoutindex/card's own
+	// maxServiceEntries mirrors internal/overview/card's own
 	// maxServices: #16 made `up` record every declared service on the
 	// checkout index card, not only the ones with a [service.<name>.index]
 	// table, so the config's own [service] table must not outgrow what the
@@ -328,7 +328,7 @@ func rootSchema(root string) *shape.ObjectSchema {
 		shape.F("compose", compose),
 		// maxServiceEntries (#16): every declared service is now recorded on
 		// the checkout index's card, whether or not it opted into an index
-		// table (internal/checkoutindex/card's own maxServices, which
+		// table (internal/overview/card's own maxServices, which
 		// bounds the card's services array the same way) — so the config
 		// itself must not declare more than a card can hold.
 		shape.F("service", keyedTables(nameKey("The Compose service name"), serviceSchema(), "services", "service",

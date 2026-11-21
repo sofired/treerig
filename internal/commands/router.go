@@ -20,10 +20,10 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
 	"github.com/sofired/treerig/internal/settings"
@@ -280,7 +280,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 		ControlHome: controlHome, Root: env.Cwd, Runner: env.Runner, Logger: env.Logger,
 		CommandName: env.CommandName, Invocation: env.Invocation, UserHome: userHome,
 	})
-	index := checkoutindex.NewService(checkoutindex.Options{
+	index := overview.NewService(overview.Options{
 		ControlHome: controlHome,
 		RouterPort:  svc.Port,
 		IndexFile:   state.IndexFile,

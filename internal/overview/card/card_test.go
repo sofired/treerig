@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 )
 
 const validCard = `{
