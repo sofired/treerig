@@ -25,8 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/docker"
@@ -212,12 +210,19 @@ func (c *Compose) readModel(ctx context.Context, ref worktree.Ref) (model, error
 	// 2.21) is sure to have; --no-path-resolution and --no-env-resolution came
 	// later, so a file's env_file entries are still read.
 	stdout, err := c.composeConfigJSON(ctx, ref, "--no-interpolate")
-	var unavailable *docker.UnavailableError
-	if err != nil && ctx.Err() == nil && !errors.As(err, &unavailable) {
+	if errors.Is(err, errComposeRefused) && ctx.Err() == nil {
 		// Some Compose releases reject a value left uninterpolated in a typed
 		// field (a port, a number); the file may be fine as `up` reads it, so
 		// ask once more the usual way. The first call's benefit, a ${VAR:?}
 		// check that does not fire, stays when it succeeds.
+		//
+		// Any non-zero exit of Compose is retried once this way, whatever it
+		// refused: a missing file or a YAML error is read twice before it is
+		// reported. That costs one more quick parse, and is chosen over
+		// matching Compose's stderr, whose wording differs between the
+		// releases this retry is for. A call that timed out, was killed by a
+		// signal or overflowed its output is not retried: it would only do
+		// so again, doubling the wait before status says it couldn't read it.
 		stdout, err = c.composeConfigJSON(ctx, ref)
 	}
 	if err != nil {
@@ -354,6 +359,9 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	for _, record := range records {
 		status := worktree.ContainerStatus(record.State, record.Health, record.ExitCode, record.ExitKnown, record.OOMKilled, record.OOMRead)
 		status.Service = record.Service
+		if status.Detail == worktree.CauseNotRead {
+			status.Why = record.Why
+		}
 		// Docker's own word for a state it has no name for is printed later;
 		// it is cleaned here too, as defence in depth.
 		status.Detail = text.Printable(status.Detail)
@@ -376,38 +384,30 @@ func (c *Compose) Status(ctx context.Context, ref worktree.Ref) ([]worktree.Serv
 	return statuses, nil
 }
 
-// inspectConcurrency bounds how many containers completeExits inspects at once.
-const inspectConcurrency = 8
-
 // completeExits asks Docker about each exited container whose story Compose
-// leaves open: one that reported no exit code, and one that exited 137, which
-// is what a stop, a reboot or a daemon restart leaves and also what the
-// out-of-memory killer leaves; only Docker says which. The inspects run
-// concurrently under one shared deadline (the probe timeout), so a worktree
-// with many such containers is no slower than one. A container that cannot be
+// leaves open: one that reported no exit code, and one that exited 137
+// (docker.ReadExits, under the probe timeout). A container that cannot be
 // inspected keeps what Compose said, and an exit 137 whose flag could not be
-// read is then unknown, never assumed to be a stop. Only a cancellation is an
-// error.
+// read is then unknown, never assumed to be a stop, with the reason where
+// there is one. Only a cancellation is an error.
 func (c *Compose) completeExits(ctx context.Context, records []psRecord) error {
-	deadline, cancel := context.WithTimeout(ctx, c.timeouts.Probe)
-	defer cancel()
-	var group errgroup.Group
-	group.SetLimit(inspectConcurrency)
-	for i := range records {
-		record := &records[i]
-		if !strings.EqualFold(record.State, "exited") || record.ID == "" || (record.ExitKnown && record.ExitCode != 137) {
-			continue
-		}
-		group.Go(func() error {
-			container, found, err := docker.InspectContainer(deadline, c.options.Runner, record.ID, c.timeouts.Probe)
-			if err == nil && found {
-				record.ExitCode, record.ExitKnown, record.OOMKilled, record.OOMRead = container.ExitCode, true, container.OOMKilled, true
-			}
-			return nil
-		})
+	inspect := func(ctx context.Context, id string, timeout time.Duration) (docker.Container, bool, error) {
+		return docker.InspectContainer(ctx, c.options.Runner, id, timeout)
 	}
-	_ = group.Wait()
-	return ctx.Err()
+	return docker.ReadExits(ctx, records, c.timeouts.Probe, inspect,
+		func(record *psRecord) string {
+			if !strings.EqualFold(record.State, "exited") || (record.ExitKnown && record.ExitCode != 137) {
+				return ""
+			}
+			return record.ID
+		},
+		func(record *psRecord, reading docker.ExitReading) {
+			if !reading.Read {
+				record.Why = reading.Why()
+				return
+			}
+			record.ExitCode, record.ExitKnown, record.OOMKilled, record.OOMRead = reading.ExitCode, true, reading.OOMKilled, true
+		})
 }
 
 // psRecord is one container of `docker compose ps --format json`.
@@ -424,6 +424,8 @@ type psRecord struct {
 	// OOMRead says Docker was asked and answered.
 	OOMKilled bool
 	OOMRead   bool
+	// Why is why Docker could not be asked (worktree.ServiceStatus.Why).
+	Why string
 }
 
 // parsePsOutput reads `docker compose ps --format json`: one document per

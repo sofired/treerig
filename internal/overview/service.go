@@ -105,6 +105,9 @@ type Options struct {
 	Now func() time.Time
 	// Invocation names this process to whoever waits on the lock.
 	Invocation string
+	// CommandName is what the commands a hint names are run by (the name this
+	// build was invoked as); empty reads as brand.Name.
+	CommandName string
 	// CardConcurrency bounds concurrent card reads (#18); zero uses defaultCardConcurrency.
 	CardConcurrency int
 	// LockTimeout bounds how long Refresh waits for the router lock; zero
@@ -349,7 +352,7 @@ func (s *Service) SnapshotOf(ctx context.Context, onlyRepositoryID string) (Inde
 	gatherer := worktreestate.New(worktreestate.Options{
 		ControlHome: s.opts.ControlHome, Runner: s.opts.Runner,
 		InventoryTimeout: s.opts.InventoryTimeout, Mounts: s.opts.Mounts,
-		GitTimeout: s.opts.GitTimeout, Environ: s.opts.Environ,
+		GitTimeout: s.opts.GitTimeout, Environ: s.opts.Environ, CommandName: s.opts.CommandName,
 	})
 	var inventory worktreestate.Inventory
 	var inventoryErr error

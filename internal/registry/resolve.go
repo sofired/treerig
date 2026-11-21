@@ -71,11 +71,10 @@ type NameCandidate struct {
 }
 
 // uuidShape is the 36-character form of a UUID: 8-4-4-4-12 hexadecimal
-// digits. It is looser than uuidPattern on purpose: a name that has the shape
-// is read as a UUID whatever its version bits (it is the one 8-4-4-4-12 pattern:
-// the commands package asks IsUUID too, and uuidPattern is the stricter form a
-// stored record's own IDs must have), so a mistyped one says "no such
-// worktree" instead of falling through to the slug rule.
+// digits, whatever its version and variant bits. uuidPattern (identity.go),
+// which a stored record's own IDs must match, also requires those bits. A name
+// is read as a UUID by this looser shape, so a mistyped UUID reports "no such
+// worktree" instead of being read as a slug.
 var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // IsUUID reports whether name is a worktree UUID in its 36-character form.
@@ -84,11 +83,10 @@ func IsUUID(name string) bool {
 }
 
 // IsPathName reports whether name is written as a path: "." or "..", or a
-// name that starts with "/", "./", "../" or "~". Shell completion's
-// isPathPrefix (internal/cli) is the prefix of this: keep the two in step.
-// Anything else is never read
+// name that starts with "/", "./", "../" or "~". Anything else is never read
 // as a directory, so a directory called feature-x cannot change what
-// 'treerig worktree remove feature-x' means.
+// 'treerig worktree remove feature-x' means. Shell completion uses the same
+// rule (isPathPrefix in internal/cli).
 func IsPathName(name string) bool {
 	switch name {
 	case ".", "..":
@@ -99,18 +97,21 @@ func IsPathName(name string) bool {
 }
 
 // Resolve reads name as the worktree it names, or an error that says why it
-// names none. The forms cannot overlap, so the order they are tried in does not
-// change an answer:
+// names none. It tries a UUID, then a path, then a host, then a slug. The forms
+// cannot overlap, so that order does not change an answer:
 //
 //   - a UUID (36 characters, hexadecimal) names that worktree;
 //   - a path form ("." or "..", or a name starting with "/", "./", "../" or "~")
 //     names the worktree whose recorded directory is its longest match, after
 //     both are resolved through symbolic links. A path inside a directory, not
 //     at its root, is accepted only with opts.WithinDirectory;
-//   - a name with a dot is a host, which names the registered worktree with
-//     exactly that host (compared without regard to case);
-//   - anything else is a slug (a hostname label has no dot): this
-//     repository's first, else it must be unique on the machine.
+//   - otherwise the name is compared, without regard to case, with every
+//     registered host, and one that equals a host names the worktree with
+//     exactly that host;
+//   - anything left is a slug: this repository's first, else it must be unique
+//     on the machine. A slug is a hostname label and has no dot, and a host
+//     always has one, so a slug never equals a host and the host check cannot
+//     take a slug's place.
 //
 // A name that matches nothing fails with an error for which
 // errors.Is(err, ErrNoWorktree) holds. A name that matches several lists their
@@ -200,14 +201,23 @@ func (r *Registry) single(name string, matches []RegisteredWorktree, hint string
 }
 
 // ambiguous is the refusal that lists every candidate's host and UUID, so the
-// next command can name one of them.
+// next command can name one of them. When two candidates share a host, naming
+// by host (or narrowing with --domain) would be refused the same way, so it
+// advises the UUID alone and drops hint.
 func (r *Registry) ambiguous(subject string, matches []RegisteredWorktree, hint string) error {
 	listed := make([]string, len(matches))
+	hosts := make(map[string]bool, len(matches))
 	for i, record := range matches {
-		listed[i] = fmt.Sprintf("%s (%s)", text.Printable(layout.WorktreeHost(record.Slug, record.Domain)), record.WorktreeID)
+		host := text.Printable(layout.WorktreeHost(record.Slug, record.Domain))
+		hosts[strings.ToLower(host)] = true
+		listed[i] = fmt.Sprintf("%s (%s)", host, record.WorktreeID)
 	}
 	sort.Strings(listed)
-	return clierr.Newf("%s: %s. Name one by its host or its UUID%s.", subject, strings.Join(listed, ", "), hint)
+	advice := "Name one by its host or its UUID" + hint + "."
+	if len(hosts) < len(matches) {
+		advice = "Name one by its UUID."
+	}
+	return clierr.Newf("%s: %s. %s", subject, strings.Join(listed, ", "), advice)
 }
 
 // narrowToRepository prefers the current repository's own worktrees among
@@ -280,9 +290,15 @@ func (r *Registry) currentRepositoryID(ctx context.Context, opts NameOptions) st
 // skipped. Under WithinDirectory that can attribute
 // a path inside its directory to an outer worktree; a destructive caller never
 // accepts a path that is not a root, so it cannot. A card that exists and
-// cannot be read (an I/O failure) fails the lookup, as does a recorded
-// directory that cannot be resolved for a reason other than being gone, since
-// skipping either could name the wrong worktree.
+// cannot be read (an I/O failure) fails the lookup, since its directory is
+// unknown and it could be the one meant. A recorded directory that cannot be
+// resolved for a reason other than being gone (a permission-denied ancestor)
+// fails it only when that directory could contain the path: its text, compared
+// without regard to case, is the path or one of its parents, spelled as typed
+// or resolved. An unreadable one that cannot contain it is skipped, so one
+// broken record does not stop 'worktree remove' and 'worktree unlock' naming
+// the others. The test is on text, so a directory reached only through a
+// symbolic link that cannot be read is not seen as a candidate.
 func (r *Registry) resolvePath(records []RegisteredWorktree, name string, opts NameOptions) (*Resolved, error) {
 	target, err := r.pathTarget(name, opts)
 	if err != nil {
@@ -310,11 +326,17 @@ func (r *Registry) resolvePath(records []RegisteredWorktree, name string, opts N
 			continue
 		}
 		path, err := canonicalOrGone(seen.Root)
-		if err != nil {
-			return nil, clierr.Wrap(fmt.Sprintf("Could not resolve the directory of %s. Name the worktree by its host or its UUID instead", host), err)
+		var info os.FileInfo
+		if err == nil {
+			info, err = os.Stat(path)
+			if isGone(err) {
+				err = nil
+			}
 		}
-		info, err := os.Stat(path)
-		if err != nil && !isGone(err) {
+		if err != nil {
+			if !couldContain(seen.Root, target, physical) {
+				continue
+			}
 			return nil, clierr.Wrap(fmt.Sprintf("Could not resolve the directory of %s. Name the worktree by its host or its UUID instead", host), err)
 		}
 		roots = append(roots, recorded{record: record, root: seen.Root, path: path, info: info})
@@ -378,6 +400,20 @@ func (r *Registry) resolvePath(records []RegisteredWorktree, name string, opts N
 	}
 	found.Root = best[0].root
 	return found, nil
+}
+
+// couldContain reports whether root, as text, is one of the given paths or a
+// parent of one, compared whole component by whole component and without
+// regard to case (a case-insensitive filesystem spells a directory two ways).
+func couldContain(root string, paths ...string) bool {
+	root = strings.ToLower(filepath.Clean(root))
+	for _, path := range paths {
+		path = strings.ToLower(path)
+		if path == root || strings.HasPrefix(path, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // usableRoot reports whether a card's recorded directory can take part in

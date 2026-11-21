@@ -18,6 +18,7 @@ import (
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/settings"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // CommandContext is everything a verb needs, assembled once per invocation
@@ -30,12 +31,19 @@ import (
 // index.
 type CommandContext struct {
 	CommandName string
+	// Mounts reads the mount table the state words judge a missing directory
+	// by; nil reads the machine's. Only a test sets it.
+	Mounts func() (worktreestate.Mounts, error)
 	// Invocation is the command line as invoked, arguments space-joined;
 	// names this process to whoever waits on a lock it holds.
 	Invocation string
 	Logger     logger.Logger
 	Runner     run.Runner
 	Loaded     *config.Loaded
+	// SetAsideConfig is the treerig.toml ContextWithoutConfig found but could
+	// not use, so Loaded is nil; "" when there was none to find, which is the
+	// other reason Loaded is nil there.
+	SetAsideConfig string
 	// Cwd is the physical working directory the command was run from; it
 	// anchors a relative bundle directory (backup, restore), since a hook
 	// runs in the project root instead.
@@ -210,7 +218,14 @@ func ContextWithoutConfig(env *Env) (*CommandContext, error) {
 		}
 		fallbackRoot = filepath.Dir(resolved)
 	}
-	return buildContext(env, loaded, fallbackRoot)
+	cctx, buildErr := buildContext(env, loaded, fallbackRoot)
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	if err != nil {
+		cctx.SetAsideConfig = file
+	}
+	return cctx, nil
 }
 
 // buildContext assembles the CommandContext around loaded, which may be nil

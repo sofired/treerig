@@ -288,13 +288,19 @@ answer:
   one. The resolver's tests include sibling roots that share a prefix. A path
   inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form. Roots are matched by file
-identity where the directory exists, so a case-insensitive filesystem's second
-spelling still finds it. A worktree whose index card is oversized or does not
-parse has no recorded root and is skipped, so a read-only caller's path inside
-its directory can resolve to an outer worktree; a destructive verb cannot be
-misled that way, since it accepts only a root. The resolver returns the
-recorded root with the worktree (`Resolved.Root`), so a caller that needs the
-directory (`status`, #203) does not read the card again.
+  identity where the directory exists, so a case-insensitive filesystem's second
+  spelling still finds it. A worktree whose index card is oversized or does not
+  parse has no recorded root and is skipped, so a read-only caller's path inside
+  its directory can resolve to an outer worktree; a destructive verb cannot be
+  misled that way, since it accepts only a root. The resolver returns the
+  recorded root with the worktree (`Resolved.Root`), so a caller that needs the
+  directory (`status`, #203) does not read the card again.
+  A record that cannot be read does not stop a path from naming the others when
+  it could not be the one meant: a recorded directory that cannot be resolved
+  (a parent it cannot enter) is skipped unless it is the path typed or a
+  parent of that path. An index card that cannot be read has no known directory, so it
+  could be the one meant, and the lookup fails and says to name the worktree by
+  its host or its UUID.
 - **Anything else is a slug**: this repository's first. Outside a repository,
   or for a slug this repository doesn't have, it must be unique on the machine;
   otherwise the error lists the matching hosts and UUIDs.
@@ -398,7 +404,14 @@ with a short budget.
   alone, so `remove --gone` (#211) can require the first. `Git does not call it
   prunable (Git 2.31 or newer says so).` is the hint for an absent directory Git
   lists but does not call prunable. A mount table with a line treerig cannot
-  read is treated as unreadable, not skipped. Hints carry the next step where
+  read is treated as unreadable, not skipped. The looks at the disk (is the directory there, is its parent empty) share one
+  5-second budget per `Gather` (and one per `Entries` call for the stats of the
+  listed directories), not 5 seconds each: once it is spent, the rest read as
+  could not check at once, so a hung network mount makes the states `unknown`,
+  never missing, and never holds a command for much more than that. A parent
+  directory shared by several worktrees is looked at once. A hint puts the cause
+  first and leaves out the paths and command lines it came from, so a long path
+  cannot cut it off. Hints carry the next step where
   there is one: a locked entry says `connect it, or run 'git worktree unlock'`,
   and an unlisted one `run 'treerig worktree remove <slug>' if it is gone`.
 - **Services and exits (as built).** A service is `stopped`, not `starting`,
@@ -632,7 +645,8 @@ and `state`, the router's state (`running`, `stopped` or `unknown`) and, when
 Docker didn't answer, `dockerError`; scripts that read `urls` read it instead.
 `status` exits 0 whatever the state, since it reports and `doctor` is the check
 that fails, and 1 when it couldn't read the worktree: Docker didn't answer,
-Compose couldn't read it, or its treerig.toml wouldn't load. In a worktree that isn't
+Compose couldn't read it, its treerig.toml wouldn't load, or its Compose file
+is too large or not a regular file. In a worktree that isn't
 registered it prints `feature-x is not registered. Run 'treerig up' to create
 its environment.` on stderr and exits 0.
 
@@ -693,8 +707,8 @@ As built (#203):
   or undetermined directory, one that is now another repository's) prints the
   header and a line on stderr that ends with `Directory: <path>` where there is
   one, and exits 0, since `status` reports states. A directory that is there
-  with no loadable treerig.toml, or a Compose file that is too large, is an
-  error, exit 1.
+  with no loadable treerig.toml, or a Compose file that is too large or not a
+  regular file, is an error, exit 1, as it is for the current worktree.
 - **Not registered.** The slug in the sentence is the one `up` would give: from
   the branch when Git has an identity for the directory, else from the directory's
   name.
@@ -1170,7 +1184,7 @@ a yes-or-no question whose default is No.
 | Command | 0 | 1 | Other |
 |---|---|---|---|
 | `up` | running | did not start | a hook's own code; 130, 143 or 129 ending `up -f` |
-| `status` | any state | it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, or its treerig.toml wouldn't load (output printed where there is any) | |
+| `status` | any state | it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, its treerig.toml wouldn't load, or its Compose file is too large or not a regular file (output printed where there is any) | |
 | `list` | any state | Docker didn't answer (output still printed) | |
 | `logs` | logs shown | the worktree isn't registered | 130 ending `-f` |
 | `open` | opened, or URL printed | service not running | |

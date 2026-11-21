@@ -8,12 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -132,9 +134,13 @@ func TestStatusShowsURLsOnlyWhileTheyLoad(t *testing.T) {
 		}
 	})
 
-	t.Run("probes nothing over HTTP", func(t *testing.T) {
+	// status reports what Docker and the router's state say; it never connects
+	// to a service. With no host routes it asks no listener probe at all, and
+	// it runs nothing but docker and git.
+	t.Run("connects to no service: no listener probe without host routes, and only docker and git run", func(t *testing.T) {
 		w, tc := registered(t)
 		w.Docker.AddRouter(true)
+		tc.Listeners = noListenerProbe{t}
 		if _, err := commands.StatusWithContext(ctx, tc.CommandContext, commands.StatusOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -144,6 +150,15 @@ func TestStatusShowsURLsOnlyWhileTheyLoad(t *testing.T) {
 			}
 		}
 	})
+}
+
+// noListenerProbe fails the test if anything asks it whether a port answers.
+type noListenerProbe struct{ t *testing.T }
+
+// Answers is ports.ListenerProbe's Answers.
+func (p noListenerProbe) Answers(_ context.Context, host string, port int) bool {
+	p.t.Errorf("status probed %s:%d", host, port)
+	return false
 }
 
 func TestStatusJSONCarriesURLsAndTheRouter(t *testing.T) {
@@ -236,12 +251,24 @@ func TestStatusJSONCarriesURLsAndTheRouter(t *testing.T) {
 	})
 }
 
-// blockingListeners never answers: each probe waits for its context to end,
-// and the most that waited at once is kept.
+// blockingListeners never answers. Each probe waits until wait probes have
+// been waiting at once (or its context ends), so the count reached does not
+// depend on how fast the probes start; the most that waited at once is kept.
+// The release comes a moment after the count is reached, so probes past a
+// bound that is too loose have time to start and be counted. Under the
+// right bound none can start, so that moment never makes the test flaky.
 type blockingListeners struct {
+	wait    int
+	release chan struct{}
+	once    sync.Once
+
 	mu      sync.Mutex
 	current int
 	peak    int
+}
+
+func newBlockingListeners(wait int) *blockingListeners {
+	return &blockingListeners{wait: wait, release: make(chan struct{})}
 }
 
 // Answers is ports.ListenerProbe's Answers.
@@ -249,8 +276,14 @@ func (b *blockingListeners) Answers(ctx context.Context, _ string, _ int) bool {
 	b.mu.Lock()
 	b.current++
 	b.peak = max(b.peak, b.current)
+	if b.current == b.wait {
+		b.once.Do(func() { time.AfterFunc(50*time.Millisecond, func() { close(b.release) }) })
+	}
 	b.mu.Unlock()
-	<-ctx.Done()
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+	}
 	b.mu.Lock()
 	b.current--
 	b.mu.Unlock()
@@ -259,17 +292,19 @@ func (b *blockingListeners) Answers(ctx context.Context, _ string, _ int) bool {
 
 func TestStatusHostRouteProbesAreBounded(t *testing.T) {
 	rw := newRouteWorld(t)
-	// Two more than may be tried at once, and every one silent until the
-	// shared budget ends: all of them are then not listening, and the number
-	// in flight never passed the bound.
+	// Two more than may be tried at once, none answering. The probes are held
+	// until the bound's worth are in flight, then let go, so a slow runner
+	// cannot end the budget first; the budget only stops a bound below 8 from
+	// hanging the test. Every route is then not listening, and the number in
+	// flight never passed the bound.
 	names := make([]string, 10)
 	for i := range names {
 		names[i] = "r" + strconv.Itoa(i)
 		rw.mustAdd(t, commands.RouteAddOptions{Name: names[i], Port: 5100 + i, Subdomain: names[i]})
 	}
-	probe := &blockingListeners{}
+	probe := newBlockingListeners(8)
 	rw.tc.Listeners = probe
-	rw.tc.HostRouteBudget = 200 * time.Millisecond
+	rw.tc.HostRouteBudget = 10 * time.Second
 
 	if _, err := commands.StatusWithContext(context.Background(), rw.tc.CommandContext, commands.StatusOptions{}); err != nil {
 		t.Fatal(err)
@@ -604,6 +639,42 @@ func TestStatusOfANamedWorktreeWhoseDirectoryCannotBeTrusted(t *testing.T) {
 			}
 		}
 	})
+}
+
+// The worktree status runs in gets the same look at its Compose file as a
+// named one: a pipe there is refused at once, not handed to Compose to wait on.
+func TestStatusRefusesACurrentComposeFileThatIsNotARegularFile(t *testing.T) {
+	w := commandstest.New(t, "feature/login", acme)
+	w.Register("", acme, "feature-login", brand.LabelNamespace, "api", "mail")
+	tc := w.Context("", acme, nil)
+	file := tc.Loaded.Config.Compose.File
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(tc.Loaded.Root, file)
+	}
+	if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(file, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := commands.StatusWithContext(context.Background(), tc.CommandContext, commands.StatusOptions{})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("status is waiting on the pipe")
+	}
+	for _, call := range w.Docker.Calls() {
+		if strings.Contains(call, " config ") {
+			t.Fatalf("Docker was handed it: %s", call)
+		}
+	}
 }
 
 func TestStatusRetriesComposeWithInterpolationWhenItRefusesWithout(t *testing.T) {

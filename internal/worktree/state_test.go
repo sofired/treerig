@@ -173,6 +173,10 @@ func TestClassifyMapsEveryCombinationToOneState(t *testing.T) {
 		if paused.State != worktree.StateUnknown || paused.Hint != "db is paused, which treerig has no word for: run 'treerig down' to stop it, then 'treerig up'." {
 			t.Fatalf("paused = %+v", paused)
 		}
+		renamed := worktree.Classify(worktree.Inputs{CommandName: "bt", Services: []worktree.ServiceStatus{{Service: "db", State: worktree.Unknown, Detail: worktree.PausedDetail}}})
+		if renamed.Hint != "db is paused, which treerig has no word for: run 'bt down' to stop it, then 'bt up'." {
+			t.Fatalf("renamed = %+v", renamed)
+		}
 		hint = worktree.Classify(worktree.Inputs{Services: []worktree.ServiceStatus{{Service: "job", State: worktree.Unknown, Detail: worktree.CauseNotRead}}}).Hint
 		if hint != "Whether job was stopped or killed for running out of memory (it exited 137) couldn't be read." {
 			t.Fatalf("cause hint = %q", hint)

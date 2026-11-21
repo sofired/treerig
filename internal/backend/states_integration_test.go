@@ -16,6 +16,7 @@ import (
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/run/osrun"
 	"github.com/sofired/treerig/internal/worktree"
 	"github.com/sofired/treerig/internal/worktreestate"
@@ -38,7 +39,7 @@ func TestServiceStatesAgreeOnARealDaemon(t *testing.T) {
 	repositoryID, worktreeID := composeUUID(t), composeUUID(t)
 	subject := worktree.Ref{RepositoryID: repositoryID, WorktreeID: worktreeID, Slug: "feature-states"}
 	project := layout.ComposeProjectName(repositoryID, worktreeID)
-	dir := t.TempDir()
+	dir := registrytest.TempDir(t)
 	composeFile := filepath.Join(dir, "compose.yaml")
 	labels := fmt.Sprintf(`    labels:
       %[1]s.managed: "true"
@@ -70,8 +71,8 @@ func TestServiceStatesAgreeOnARealDaemon(t *testing.T) {
 	docker("up", "-d")
 	docker("stop", "-t", "1", "halted")
 
-	controlHome := t.TempDir()
-	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(controlHome, repositoryID, worktreeID), t.TempDir()); err != nil {
+	controlHome := registrytest.TempDir(t)
+	if err := files.SecureWorktreeDirectories(layout.WorktreeLayout(controlHome, repositoryID, worktreeID), registrytest.TempDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	runtime := NewCompose(Options{

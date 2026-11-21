@@ -286,7 +286,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 		IndexFile:   state.IndexFile,
 		Lock:        routerLockScope(state, svc.ProjectName),
 		Registry:    reg, Identities: reg.Identities, IdentityRoot: reg.Identities.Root,
-		Runner: env.Runner, Logger: env.Logger, Invocation: env.Invocation,
+		Runner: env.Runner, Logger: env.Logger, Invocation: env.Invocation, CommandName: env.CommandName,
 	})
 	index.RefreshBestEffort(ctx, "router up")
 	env.Logger.Info(fmt.Sprintf("Router is up on 127.0.0.1:%d%s; index at %s.", svc.Port, routerModeNote(ctx, svc), svc.IndexURL))

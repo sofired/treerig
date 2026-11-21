@@ -125,7 +125,14 @@ func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOpti
 	reg := cctx.Registry
 	repositoryID, present, inside, err := reg.Identities.Repository(ctx, reg.Identities.Root)
 	if err != nil {
-		return ListReport{}, err
+		// --all asks for no repository's own worktrees, so Git's trouble here
+		// (an unsafe directory, a corrupt .git) costs it only the live state,
+		// which the records and index cards stand in for. The overview says
+		// so, with Git's reason, when it asks Git about this directory.
+		if !options.All {
+			return ListReport{}, err
+		}
+		repositoryID, present, inside = "", false, false
 	}
 	all := options.All || !inside
 	if options.Refresh && !all {

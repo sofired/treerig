@@ -88,6 +88,10 @@ type IdentityService struct {
 	// machine. Nil inherits this process's own, and then a localised refusal
 	// is an error instead of an answer.
 	environ []string
+	// stat and statLimit are how Entries asks whether a listed root is there:
+	// os.Stat under StatLimit by default. A test swaps them.
+	stat      func(path string) (fs.FileInfo, error)
+	statLimit time.Duration
 }
 
 // The bounds on every Git question this service asks. A repository is data
@@ -151,6 +155,12 @@ func gitEnvironment(environ []string) []string {
 	}
 	return kept
 }
+
+// StatLimit is how long one Entries call waits, in all, for the file system to
+// say whether its listed directories are there: a directory on a hung network
+// mount would block the call for good, and its entry reads as one that could
+// not be checked.
+const StatLimit = 5 * time.Second
 
 // NewIdentityService answers identity questions for the checkout at root. Git is
 // run with the allow-list of environ, the process environment its caller was
@@ -425,9 +435,27 @@ func (s *IdentityService) Ensure(ctx context.Context, worktree string) (*Worktre
 	return identity, nil
 }
 
-// notARepository is the text of Git's refusal outside every repository, in
-// the C locale Repository asks in.
-const notARepository = "not a git repository"
+// notARepository is how Git's refusal outside every repository begins, in the
+// C locale Repository asks in: "... (or any of the parent directories)", or
+// "... (or any parent up to mount point <dir>)". It is matched at the start of
+// Git's first line that is not a warning (refusalLine), never anywhere in it:
+// the refusal for a .git file or GIT_DIR naming a missing directory is
+// "fatal: not a git repository: <path>", a broken repository rather than the
+// absence of one, and its path may hold any text, line breaks included.
+const notARepository = "fatal: not a git repository (or any "
+
+// refusalLine is the line of Git's stderr that says why it stopped: the first
+// one after any warnings it printed first ("warning: ..."). Only those leading
+// warnings are passed over, so a line break inside a path that comes after
+// the fatal line can never stand in for it.
+func refusalLine(stderr string) string {
+	for _, line := range strings.Split(stderr, "\n") {
+		if !strings.HasPrefix(line, "warning: ") {
+			return line
+		}
+	}
+	return ""
+}
 
 // topLevel asks Git for the top level of the work tree containing worktree.
 // Only Git's refusal for a directory outside every repository is returned as
@@ -445,7 +473,7 @@ func (s *IdentityService) topLevel(ctx context.Context, worktree string) (top st
 		return strings.TrimSpace(result.Stdout), nil, nil
 	}
 	failure := run.Failure(spec, result)
-	if result.ExitCode != 0 && !result.TimedOut && result.Signal == 0 && strings.Contains(result.Stderr, notARepository) {
+	if result.ExitCode != 0 && !result.TimedOut && !result.OutputOverflow && result.Signal == 0 && strings.HasPrefix(refusalLine(result.Stderr), notARepository) {
 		return "", failure, nil
 	}
 	return "", nil, failure
@@ -653,9 +681,31 @@ func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) 
 		commonErr = err
 		return commonDir, repositoryID, commonErr
 	}
+	// One budget for every root this call stats, not one each: a hung mount
+	// under several worktrees costs the call StatLimit once. Only the time
+	// spent statting counts against it, not the Git work between the stats:
+	// many healthy worktrees on a slow machine must not use it up and leave
+	// the later directories reading as a file system that did not answer.
+	limit := s.statLimit
+	if limit <= 0 {
+		limit = StatLimit
+	}
+	var spent time.Duration
+	stat := func(root string) (fs.FileInfo, error) {
+		// What is left of the budget; none left, and the stat is not started.
+		left, stop := context.WithTimeout(ctx, limit-spent)
+		defer stop()
+		started := time.Now()
+		info, err := s.statRoot(left, limit, root)
+		spent += time.Since(started)
+		return info, err
+	}
 	for i, worktree := range listed {
 		entry := WorktreeEntry{ListedWorktree: worktree}
-		info, statErr := os.Stat(worktree.Root)
+		info, statErr := stat(worktree.Root)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		switch {
 		case statErr == nil:
 			entry.Exists = info.IsDir()
@@ -691,6 +741,21 @@ func (s *IdentityService) Entries(ctx context.Context) ([]WorktreeEntry, error) 
 	return entries, nil
 }
 
+// statRoot is os.Stat, given up on when ctx (the one budget of an Entries call,
+// limit long) is spent, so a directory that never answers cannot hold up the
+// listing.
+func (s *IdentityService) statRoot(ctx context.Context, limit time.Duration, root string) (fs.FileInfo, error) {
+	stat := s.stat
+	if stat == nil {
+		stat = os.Stat
+	}
+	return files.Within(ctx, limit, func() (fs.FileInfo, error) { return stat(root) })
+}
+
+// maxGitDirBytes bounds the read of a worktree's gitdir file, which holds one
+// path: a file past it is not one Git wrote.
+const maxGitDirBytes = 64 << 10
+
 // identityFromGitDir finds the worktree whose files were at root among the
 // linked worktrees Git keeps under commonDir/worktrees, and reads its
 // worktree marker. It answers "" with no error for one that is not there or
@@ -710,7 +775,11 @@ func identityFromGitDir(commonDir, root string) (string, error) {
 			continue
 		}
 		dir := filepath.Join(administrative, child.Name())
-		data, err := os.ReadFile(filepath.Join(dir, "gitdir"))
+		// Read like the removal marker, since every state read may come here: a
+		// FIFO or a huge file planted at gitdir cannot hang or exhaust the
+		// listing, and is skipped like an unreadable one. Git follows a
+		// symbolic link here, so this does too.
+		data, err := readSmallFile(filepath.Join(dir, "gitdir"), maxGitDirBytes, true)
 		if err != nil {
 			continue
 		}

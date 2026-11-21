@@ -1,11 +1,12 @@
-//go:build darwin
+//go:build darwin && integration
 
 package worktreestate
 
 import "testing"
 
-// TestReadMountsOnDarwin reads the real mount table, which always lists the
-// root filesystem.
+// TestReadMountsOnDarwin is an integration smoke test, not a unit test: it reads
+// the machine's real mount table, which always lists the root filesystem. The
+// parser is covered by fixtures (mounts_test.go).
 func TestReadMountsOnDarwin(t *testing.T) {
 	mounts, err := readMounts()
 	if err != nil {

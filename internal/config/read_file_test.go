@@ -26,8 +26,10 @@ func TestLoadRefusesWhatIsNotAConfigurationFile(t *testing.T) {
 
 	t.Run("a pipe with no writer is refused at once, not waited on", func(t *testing.T) {
 		path := filepath.Join(dir, "pipe.toml")
+		// treerig builds for Linux and macOS only, both of which have FIFOs:
+		// one that cannot be made is a failure, not a reason to skip.
 		if err := syscall.Mkfifo(path, 0o600); err != nil {
-			t.Skipf("no fifo here: %v", err)
+			t.Fatal(err)
 		}
 		for name, read := range map[string]func() error{
 			"Load":             func() error { _, err := Load(path); return err },

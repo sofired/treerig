@@ -106,6 +106,8 @@ func overviewReader(cctx *CommandContext, use overviewUse) *overview.Service {
 		Runner:             cctx.Runner,
 		Logger:             cctx.Logger,
 		Invocation:         cctx.Invocation,
+		CommandName:        cctx.CommandName,
+		Mounts:             cctx.Mounts,
 		InventoryTimeout:   overviewDockerBudget,
 		GitTimeout:         overviewDockerBudget,
 		Environ:            cctx.Environ,

@@ -3,16 +3,21 @@ package worktreestate_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
+	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/worktree"
 	"github.com/sofired/treerig/internal/worktreestate"
 )
@@ -37,6 +42,8 @@ type world struct {
 	docker      *dockerFake
 	mounts      func() (worktreestate.Mounts, error)
 	mountReads  atomic.Int32
+	// tune, when set, changes the Gatherer's options before it is built.
+	tune func(*worktreestate.Options)
 }
 
 // newWorld is an empty control home, a docker that names no containers, and a
@@ -61,10 +68,14 @@ func (w *world) register(worktreeID, slug, initialization string) registry.Regis
 
 // gatherer is a Gatherer over the world, counting its reads of the mount table.
 func (w *world) gatherer() *worktreestate.Gatherer {
-	return worktreestate.New(worktreestate.Options{
+	options := worktreestate.Options{
 		ControlHome: w.controlHome, Runner: w.docker.runner(),
 		Mounts: func() (worktreestate.Mounts, error) { w.mountReads.Add(1); return w.mounts() },
-	})
+	}
+	if w.tune != nil {
+		w.tune(&options)
+	}
+	return worktreestate.New(options)
 }
 
 // gather classifies subjects, asking Docker about the default namespace and Git about local.
@@ -244,6 +255,31 @@ func TestGatherRemoving(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
+
+	t.Run("keeps the reason of a refusal, however long the path it names", func(t *testing.T) {
+		w := newWorld(t)
+		w.controlHome = filepath.Join(w.controlHome, strings.Repeat("a", 100), strings.Repeat("b", 100), strings.Repeat("c", 100))
+		app := w.register(wtA, "app", "complete")
+		marker := filepath.Join(w.controlHome, "repositories", repoA, "worktrees", wtA+".removing")
+		if err := os.WriteFile(marker, []byte("format 2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := stateOf(t, w.gather(nil, worktreestate.Subject{Registration: app}), app)
+		want := "Its removal marker is format 2, written by a newer treerig, and this build reads format 1. Upgrade treerig, then run this again."
+		if got.State != worktree.StateUnknown || got.Hint != want {
+			t.Fatalf("got %+v, want hint %q", got, want)
+		}
+
+		// A marker that is not one this build wrote names its file after the
+		// reason, so the advice that follows the reason is not cut off either.
+		if err := os.WriteFile(marker, []byte("garbage\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got = stateOf(t, w.gather(nil, worktreestate.Subject{Registration: app}), app)
+		if got.State != worktree.StateUnknown || !strings.Contains(got.Hint, "run `worktree remove` again if the worktree is to go") {
+			t.Fatalf("got %+v", got)
+		}
+	})
 }
 
 // entry is a Git worktree entry for the local repository.
@@ -383,6 +419,137 @@ func TestGatherDirectory(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps the cause of a failed check, however long the path it names", func(t *testing.T) {
+		w, record, _, root := setup(t)
+		long := filepath.Join(root, strings.Repeat("deep-", 80))
+		denied := entry(wtA, root, func(e *registry.WorktreeEntry) {
+			e.Exists, e.StatErr = false, &fs.PathError{Op: "stat", Path: long, Err: syscall.EACCES}
+		})
+		got := stateOf(t, w.gather(local(denied), worktreestate.Subject{Registration: record}), record)
+		if got.State != worktree.StateUnknown || got.Hint != "treerig couldn't check it: permission denied." {
+			t.Fatalf("got %+v", got)
+		}
+
+		failure := run.Failure(run.Spec{Command: "git", Args: []string{"-C", long, "worktree", "list"}},
+			run.Result{ExitCode: 128, Stderr: "fatal: detected dubious ownership"})
+		report := w.gather(map[string]worktreestate.Repository{repoA: repository{err: failure}}, worktreestate.Subject{Registration: record})
+		if got := stateOf(t, report, record); got.Hint != "treerig couldn't check it: fatal: detected dubious ownership." {
+			t.Fatalf("Git's: %+v", got)
+		}
+		if report.GitError != "fatal: detected dubious ownership" {
+			t.Fatalf("GitError = %q", report.GitError)
+		}
+	})
+
+	t.Run("names the command it was invoked as in the remedy a hint gives", func(t *testing.T) {
+		w, record, _, _ := setup(t)
+		w.tune = func(o *worktreestate.Options) { o.CommandName = "bt" }
+		got := stateOf(t, w.gather(local(), worktreestate.Subject{Registration: record}), record)
+		if got.Hint != "Git does not list it and no directory was recorded for it: run 'bt worktree remove old-spike' if it is gone." {
+			t.Fatalf("got %+v", got)
+		}
+		w.containers(line(repoA, wtA, "web", "paused", "Up 1 minute (Paused)"))
+		got = stateOf(t, w.gather(nil, worktreestate.Subject{Registration: record}), record)
+		if !strings.Contains(got.Hint, "run 'bt down' to stop it, then 'bt up'") {
+			t.Fatalf("paused: %+v", got)
+		}
+	})
+
+	t.Run("is unknown, not guessed, when the file system does not answer in time", func(t *testing.T) {
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		hang := func() { <-release }
+
+		t.Run("about the recorded directory", func(t *testing.T) {
+			w, record, _, root := setup(t)
+			w.tune = func(o *worktreestate.Options) {
+				o.ProbeTimeout = 20 * time.Millisecond
+				o.Exists = func(string) (bool, error) { hang(); return false, nil }
+			}
+			got := stateOf(t, w.gather(local(), worktreestate.Subject{Registration: record, RecordedRoot: root}), record)
+			if got.State != worktree.StateUnknown || got.Hint != "treerig couldn't check it: the file system did not answer within 20ms." {
+				t.Fatalf("got %+v", got)
+			}
+		})
+
+		t.Run("for every worktree together, within one budget and not one each", func(t *testing.T) {
+			w, _, _, root := setup(t)
+			const budget = 200 * time.Millisecond
+			w.tune = func(o *worktreestate.Options) {
+				o.ProbeTimeout = budget
+				o.Exists = func(string) (bool, error) { hang(); return false, nil }
+			}
+			var subjects []worktreestate.Subject
+			var records []registry.RegisteredWorktree
+			for i := range 6 {
+				id := fmt.Sprintf("33333333-3333-4333-8333-33333333333%d", i)
+				record := w.register(id, fmt.Sprintf("hung-%d", i), "complete")
+				records = append(records, record)
+				subjects = append(subjects, worktreestate.Subject{Registration: record, RecordedRoot: root + fmt.Sprint(i)})
+			}
+			start := time.Now()
+			report := w.gather(local(), subjects...)
+			// Six budgets would be 1.2s; the run draws on one.
+			if elapsed := time.Since(start); elapsed > 3*budget {
+				t.Fatalf("took %s for six worktrees on a hung mount, want about one budget (%s)", elapsed, budget)
+			}
+			for _, record := range records {
+				got := stateOf(t, report, record)
+				if got.State != worktree.StateUnknown || got.Hint != "treerig couldn't check it: the file system did not answer within 200ms." {
+					t.Fatalf("%s: %+v", record.Slug, got)
+				}
+			}
+		})
+
+		t.Run("asks about a parent shared by several worktrees once", func(t *testing.T) {
+			w, _, parent, _ := setup(t)
+			var asked atomic.Int32
+			w.tune = func(o *worktreestate.Options) {
+				o.ParentOf = func(string) (string, error) { asked.Add(1); return parent, nil }
+			}
+			var subjects []worktreestate.Subject
+			var entries []registry.WorktreeEntry
+			for i := range 3 {
+				id := fmt.Sprintf("33333333-3333-4333-8333-33333333333%d", i)
+				record := w.register(id, fmt.Sprintf("gone-%d", i), "complete")
+				subjects = append(subjects, worktreestate.Subject{Registration: record})
+				entries = append(entries, entry(id, filepath.Join(parent, fmt.Sprintf("gone-%d", i)), func(e *registry.WorktreeEntry) { e.Exists, e.Prunable = false, true }))
+			}
+			w.gather(local(entries...), subjects...)
+			if got := asked.Load(); got != 1 {
+				t.Fatalf("the shared parent was looked at %d times", got)
+			}
+		})
+
+		t.Run("about the parent of a directory Git says is gone", func(t *testing.T) {
+			w, record, _, root := setup(t)
+			w.tune = func(o *worktreestate.Options) {
+				o.ProbeTimeout = 20 * time.Millisecond
+				o.ParentOf = func(string) (string, error) { hang(); return "", nil }
+			}
+			got := stateOf(t, w.gather(local(gone(root)), worktreestate.Subject{Registration: record}), record)
+			if got.State != worktree.StateUnknown || got.Hint != "treerig couldn't check it: the file system did not answer within 20ms." {
+				t.Fatalf("got %+v", got)
+			}
+		})
+
+		t.Run("and stops when the command is cancelled", func(t *testing.T) {
+			w, record, _, root := setup(t)
+			w.tune = func(o *worktreestate.Options) {
+				o.ParentOf = func(string) (string, error) { hang(); return "", nil }
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			time.AfterFunc(20*time.Millisecond, cancel)
+			_, err := w.gatherer().Gather(ctx, worktreestate.Request{
+				Subjects: []worktreestate.Subject{{Registration: record}}, Namespaces: []string{"dev.treerig"},
+				Repositories: local(gone(root)),
+			})
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	})
+
 	t.Run("is unknown, with Git's words, for every worktree of the repository when Git did not answer", func(t *testing.T) {
 		w, record, _, _ := setup(t)
 		foreign := registry.RegisteredWorktree{RepositoryID: "22222222-2222-4222-8222-222222222222", WorktreeID: wtB, Slug: "elsewhere", Domain: "acme.localhost"}
@@ -481,7 +648,7 @@ func TestGatherDirectory(t *testing.T) {
 			})
 		}
 
-		t.Run("a live checkout treerig has no identity for, such as a plain git worktree add or the main worktree, is not this one", func(t *testing.T) {
+		t.Run("a live worktree treerig has no identity for, such as a plain git worktree add or the main worktree, is not this one", func(t *testing.T) {
 			w, record, _, root := setup(t)
 			live := []registry.WorktreeEntry{
 				entry("", filepath.Join(filepath.Dir(root), "unmanaged"), func(e *registry.WorktreeEntry) { e.RepositoryID = "" }),
@@ -560,6 +727,16 @@ func TestGatherDirectory(t *testing.T) {
 		if got.State != worktree.StateDirectoryMissing {
 			t.Fatalf("with Docker down and the directory gone: %+v", got)
 		}
+		// The marker outranks the evidence: a removal that got as far as the
+		// directory reads as the removal it is.
+		marker := filepath.Join(w.controlHome, "repositories", record.RepositoryID, "worktrees", record.WorktreeID+".removing")
+		if err := os.WriteFile(marker, []byte(registry.RemovalMarkerContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got = stateOf(t, w.gather(local(gone(root)), worktreestate.Subject{Registration: record}), record)
+		if got.State != worktree.StateRemoving {
+			t.Fatalf("with a removal marker as well: %+v", got)
+		}
 	})
 }
 
@@ -622,6 +799,14 @@ func TestSubjectOf(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps the cause when the card's path is long", func(t *testing.T) {
+		long := "/" + strings.Repeat("deep/", 80) + "index.json"
+		subject := worktreestate.SubjectOf(record, nil, &fs.PathError{Op: "open", Path: long, Err: syscall.EMFILE})
+		if subject.Unreadable != "Its index card couldn't be read: too many open files." {
+			t.Fatalf("subject = %+v", subject)
+		}
+	})
+
 	t.Run("has nothing to say for a card never written", func(t *testing.T) {
 		if subject := worktreestate.SubjectOf(record, nil, nil); subject.Declared != nil || subject.RecordedRoot != "" || subject.Unreadable != "" {
 			t.Fatalf("subject = %+v", subject)
@@ -647,13 +832,13 @@ func TestRecordedDirectory(t *testing.T) {
 	}
 
 	t.Run("a directory that is there is present", func(t *testing.T) {
-		if got, hint := g.RecordedDirectory(filepath.Join(parent, "sibling")); got != worktree.DirectoryPresent || hint != "" {
+		if got, hint := g.RecordedDirectory(context.Background(), filepath.Join(parent, "sibling")); got != worktree.DirectoryPresent || hint != "" {
 			t.Fatalf("got %v, %q", got, hint)
 		}
 	})
 
 	t.Run("an absent one beside other files is gone", func(t *testing.T) {
-		if got, hint := g.RecordedDirectory(filepath.Join(parent, "gone")); got != worktree.DirectoryGone || hint != "" {
+		if got, hint := g.RecordedDirectory(context.Background(), filepath.Join(parent, "gone")); got != worktree.DirectoryGone || hint != "" {
 			t.Fatalf("got %v, %q", got, hint)
 		}
 	})
@@ -664,7 +849,7 @@ func TestRecordedDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, path := range []string{filepath.Join(empty, "gone"), filepath.Join(parent, "nowhere", "gone")} {
-			got, hint := g.RecordedDirectory(path)
+			got, hint := g.RecordedDirectory(context.Background(), path)
 			if got != worktree.DirectoryUndetermined || !strings.Contains(hint, "is the volume mounted?") {
 				t.Fatalf("%s: got %v, %q", path, got, hint)
 			}
@@ -675,13 +860,13 @@ func TestRecordedDirectory(t *testing.T) {
 		auto := worktreestate.New(worktreestate.Options{
 			Mounts: func() (worktreestate.Mounts, error) { return worktreestate.Mounts{parent: "autofs"}, nil },
 		})
-		if got, _ := auto.RecordedDirectory(filepath.Join(parent, "gone")); got != worktree.DirectoryUndetermined {
+		if got, _ := auto.RecordedDirectory(context.Background(), filepath.Join(parent, "gone")); got != worktree.DirectoryUndetermined {
 			t.Fatalf("automount: got %v", got)
 		}
 		broken := worktreestate.New(worktreestate.Options{
 			Mounts: func() (worktreestate.Mounts, error) { return nil, errors.New("no /proc here") },
 		})
-		if got, hint := broken.RecordedDirectory(filepath.Join(parent, "gone")); got != worktree.DirectoryUndetermined || !strings.Contains(hint, "no /proc here") {
+		if got, hint := broken.RecordedDirectory(context.Background(), filepath.Join(parent, "gone")); got != worktree.DirectoryUndetermined || !strings.Contains(hint, "no /proc here") {
 			t.Fatalf("mount table: got %v, %q", got, hint)
 		}
 	})

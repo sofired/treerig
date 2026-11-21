@@ -18,6 +18,7 @@ import (
 	"github.com/sofired/treerig/internal/procid"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/router"
+	"github.com/sofired/treerig/internal/text"
 )
 
 // The one way a dead holder's worktree lock is cleared, built on the flock
@@ -528,7 +529,8 @@ func resolveUnlockTarget(ctx context.Context, cctx *CommandContext, options Unlo
 	}
 	if !inside {
 		return nil, clierr.Newf(
-			"There is no worktree to unlock here: %s is not inside a Git worktree. Name one with '%s worktree unlock %s<worktree>'.", cctx.Cwd, cctx.CommandName, flag)
+			"There is no worktree to unlock here: %s is not inside a Git worktree. Name one with '%s worktree unlock %s<worktree>'.",
+			text.Printable(cctx.Registry.Identities.Root), cctx.CommandName, flag)
 	}
 	identity, err := cctx.Registry.Identities.Inspect(ctx, cctx.Registry.Identities.Root, registry.InspectOptions{})
 	if err != nil {
