@@ -770,8 +770,9 @@ As built (#204):
   card holds under the worktree's own host and the router's port. `+N more`
   counts the other running ones. Host routes are left out: telling whether
   their process listens takes a connect each, which a listing does not make.
-  The router is read once, at the same time as Docker and within the same five
-  seconds, and with nothing to list it is not read. The notices of `status`
+  The router is read once, started at the same time as Docker and within the
+  same five seconds; with nothing to list the read is cancelled and its answer
+  dropped, so a machine without Docker still lists nothing and exits 0. The notices of `status`
   about the router (stopped, another port, another root's, unreadable) are said
   once on stderr when a service runs whose URL they hide.
 - **Git.** One `git worktree list` per repository that has a worktree, eight at

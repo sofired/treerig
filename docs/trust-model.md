@@ -67,8 +67,12 @@ Five things follow from that, and this tool does not change them:
 
 When treerig asks Git who a directory belongs to, it uses your own Git
 configuration (global, system and XDG, so your `safe.directory` entries apply)
-and nothing from the inherited `GIT_*` environment, with the file system
-monitor and hooks disabled and a time and output limit on every call.
+with the file system monitor and hooks disabled and a time and output limit on
+every call. Of the inherited `GIT_*` environment it keeps only the variables
+that say where that configuration lives (`GIT_CONFIG_GLOBAL`,
+`GIT_CONFIG_SYSTEM`, `GIT_CONFIG_NOSYSTEM`) and how far up Git looks for a
+repository (`GIT_CEILING_DIRECTORIES`, `GIT_DISCOVERY_ACROSS_FILESYSTEM`).
+None of them can point Git at another repository or make it run anything.
 
 What the tool does guarantee is ownership: every resource it creates carries
 its [ownership labels](concepts.md#ownership-labels), and it refuses to touch

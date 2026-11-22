@@ -434,9 +434,12 @@ func (s *Service) askGit(ctx context.Context, gatherer *worktreestate.Gatherer, 
 	var othersErr error
 	var group sync.WaitGroup
 	// The current repository is asked while the others are, so the phase costs
-	// one bound and not two. Its answer is not known yet, so the others are
-	// every repository with a registration; the current one's ID is taken out
-	// of them below, when it is.
+	// one bound and not two. Which one it is is not known yet, so the others
+	// are every repository with a registration, the current one included: it
+	// is asked twice, and the second answer is dropped below. That is one more
+	// `git worktree list` in one of the eight slots, chosen over asking the
+	// others only once the current one has answered, which would cost every
+	// refresh a second bound.
 	asks := s.repositoryAsks(reads)
 	if onlyRepositoryID == "" {
 		group.Go(func() { others, othersErr = gatherer.AskRepositories(ctx, asks) })
