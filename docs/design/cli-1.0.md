@@ -792,7 +792,7 @@ As built (#204):
   `up`, `down`, `remove` and `rename`, which builds the page the same way and
   now also asks about other repositories, does not, so a repository that stays
   offline is not reported after every command.
-- **Git's own run.** Every identity read runs `git -c core.fsmonitor=false -c
+- **Git's own run.** Every identity read, and `init`'s, runs `git -c core.fsmonitor=false -c
   core.hooksPath=/dev/null -c safe.bareRepository=explicit` with an environment
   of `PATH`, `HOME`, `TMPDIR`, `LANG` and `LC_*` from the entry point's, and
   the variables that say where the user's own Git configuration is
@@ -802,8 +802,8 @@ As built (#204):
   (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CONFIG_COUNT` and its `KEY_n`/`VALUE_n`,
   `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`), and the `-c` settings win over the
   user's configuration. Each run has a 30-second timeout and a 4 MiB output
-  cap; every constructor of the identity service takes the environment, so no
-  caller skips the allow-list. `safe.bareRepository=explicit` refuses to find a
+  cap. A caller that passes no environment gets this process's own through the
+  same allow-list, never an inherited one, so none can skip it by forgetting. `safe.bareRepository=explicit` refuses to find a
   bare repository by discovery, but a linked worktree's `.git` file names its
   repository, so `-C <worktree>` still answers for the `.bare` and gitfile
   layout; a test pins it.
@@ -811,8 +811,9 @@ As built (#204):
   is held only to write the page, so a hung Git or Docker cannot hold `up`
   behind it. Under the lock a refresh reads the existing page's generation time
   (one bounded read of its head) and does not write when the page there is
-  newer than its snapshot, so a refresh that read earlier and finished later
-  cannot replace a newer page. A lifecycle refresh gives Docker
+  newer than its snapshot. A snapshot is dated when its read began, so a
+  refresh whose read began earlier and finished later, however slow, cannot
+  replace a newer page. A lifecycle refresh gives Docker
   and Git the same five seconds, and `up` announces its URLs before it
   refreshes.
 - **Nothing registered.** `list` asks Docker and Git nothing and exits 0 on a
