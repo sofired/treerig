@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/run"

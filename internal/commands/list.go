@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/text"
@@ -219,7 +219,7 @@ func EmptyTable(all bool) string {
 }
 
 // describeBranchText is the table's word for a branch, the same wording
-// checkoutindex.DescribeBranch gives, whose `.Text` is the only part a
+// overview.DescribeBranch gives, whose `.Text` is the only part a
 // plain-text table has a use for.
 func describeBranchText(branch string) string {
 	if branch == "" {

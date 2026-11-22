@@ -1,4 +1,4 @@
-package checkoutindex
+package overview
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 )
 
 // TestIndexGolden checks RenderIndexHTML and FormatIndexText against
-// internal/checkoutindex/testdata/index-golden.json, a hand-maintained
+// internal/overview/testdata/index-golden.json, a hand-maintained
 // fixture covering: empty, placeholder, several domains and projects,
 // missing and unknown worktrees, a checkout never brought up, hostile
 // names, long paths needing wrap, and non-ASCII. Every byte must match.

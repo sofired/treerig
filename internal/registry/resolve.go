@@ -12,9 +12,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/text"
 )
 

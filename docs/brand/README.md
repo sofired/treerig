@@ -155,7 +155,7 @@ Notes for wiring the identity into the project; each says whether it is done.
    provides, so it can be uploaded. Not done yet.
 
 3. **Checkout index favicon** (done, in the favicon pull request, #175). The
-   index page, rendered by `internal/checkoutindex/render.go`, links six
+   index page, rendered by `internal/overview/render.go`, links six
    `<link rel="icon">` elements by relative path: the 32 × 32 and 16 × 16 PNGs
    (`sizes="32x32"`, `sizes="16x16"`) and the masters (`sizes="any"`), in that
    order. Each carries `media="(prefers-color-scheme: ...)"`, and in each pair
@@ -175,12 +175,12 @@ Notes for wiring the identity into the project; each says whether it is done.
    before 26 ignores SVG favicons, and a `data:` one too (WebKit bug 236616),
    which is why the files are not embedded in the page.
    `Service.Refresh` and `Router.Ensure` write them beside `index.html` in the
-   router's index directory (`checkoutindex.WriteIcons`, 0644, before the page,
+   router's index directory (`overview.WriteIcons`, 0644, before the page,
    skipping a file that already matches), and the index container serves them
    with the types `image/png` and `image/svg+xml`. The page's
    Content-Security-Policy stays `img-src 'self'`. The files are copied byte for
-   byte from `docs/brand` into `internal/checkoutindex/assets/`, and
-   `TestFaviconsMatchBrand` in `internal/checkoutindex/favicon_test.go` fails
+   byte from `docs/brand` into `internal/overview/assets/`, and
+   `TestFaviconsMatchBrand` in `internal/overview/favicon_test.go` fails
    when a copy differs from its file: after changing the mark, regenerate with
    `build.py`, then copy the files over. The same file's `TestFaviconLinks` pins
    the links, that each names a file `Refresh` writes, and the policy. No

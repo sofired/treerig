@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/overview"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/router"
@@ -126,16 +126,16 @@ func TestRouterLockScope(t *testing.T) {
 // index, and the failure notices the text form shows.
 func TestIndexReportMapsTheSnapshot(t *testing.T) {
 	branch, dockerErr := "main", "docker is not running"
-	snapshot := checkoutindex.IndexSnapshot{
+	snapshot := overview.IndexSnapshot{
 		GeneratedAt:     "2026-09-28T10:00:00.000Z",
 		DockerReachable: true,
 		DockerError:     &dockerErr,
-		IdentityError:   &checkoutindex.IdentityFailure{Reason: "git failed", RowsUnknown: true},
-		Entries: []checkoutindex.IndexEntry{{
+		IdentityError:   &overview.IdentityFailure{Reason: "git failed", RowsUnknown: true},
+		Entries: []overview.IndexEntry{{
 			RepositoryID: "r", WorktreeID: "w", Project: "acme", Domain: "acme.localhost", Slug: "main",
 			Host: "main.acme.localhost", Branch: &branch, Root: "/src/acme", State: worktree.StateRunning,
-			Services: []checkoutindex.IndexServiceLink{{Name: "api", Label: "API", URL: "http://main.acme.localhost", Available: true}},
-		}, {Slug: "bare", State: worktree.StateDirectoryMissing, Services: []checkoutindex.IndexServiceLink{{Name: "db", Label: "db", Purpose: "store"}}}},
+			Services: []overview.IndexServiceLink{{Name: "api", Label: "API", URL: "http://main.acme.localhost", Available: true}},
+		}, {Slug: "bare", State: worktree.StateDirectoryMissing, Services: []overview.IndexServiceLink{{Name: "db", Label: "db", Purpose: "store"}}}},
 		CardReadFailures: 2,
 	}
 	out, err := text.SafeJSON(indexReport(snapshot, "http://index.localhost"))
@@ -206,7 +206,7 @@ func TestIndexReportMapsTheSnapshot(t *testing.T) {
 		t.Fatalf("available must be absent when Docker was not reachable:\n%s", unchecked)
 	}
 
-	empty, err := text.SafeJSON(indexReport(checkoutindex.IndexSnapshot{DockerReachable: true}, "u"))
+	empty, err := text.SafeJSON(indexReport(overview.IndexSnapshot{DockerReachable: true}, "u"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestRefreshIndexJSON(t *testing.T) {
 // array: absent when there are no routed shared UIs, and otherwise one entry
 // each, with "available" present only when Docker was asked.
 func TestIndexReportListsSharedServices(t *testing.T) {
-	snapshot := checkoutindex.IndexSnapshot{DockerReachable: true}
+	snapshot := overview.IndexSnapshot{DockerReachable: true}
 	none, err := text.SafeJSON(indexReport(snapshot, "u"))
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +278,7 @@ func TestIndexReportListsSharedServices(t *testing.T) {
 		t.Fatalf("shared must be absent when there are none:\n%s", none)
 	}
 
-	snapshot.Shared = []checkoutindex.IndexSharedService{{
+	snapshot.Shared = []overview.IndexSharedService{{
 		RepositoryID: routeRepo, Name: "mailpit", Project: "acme", Domain: "acme.localhost",
 		Host: "mailpit.shared.acme.localhost", URL: "http://mailpit.shared.acme.localhost", Available: true,
 	}}

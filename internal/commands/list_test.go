@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/clierr"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/commands/commandstest"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/worktree"

@@ -18,12 +18,12 @@ import (
 	"testing"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/registry/registrytest"
 	"github.com/sofired/treerig/internal/run"
@@ -296,7 +296,7 @@ func projectName(domain string) string {
 }
 
 // indexCardFixture is the on-disk shape of a card fixture, matching
-// card.IndexCard's schema (see internal/checkoutindex/card).
+// card.IndexCard's schema (see internal/overview/card).
 type indexCardFixture struct {
 	Version        int      `json:"version"`
 	Project        string   `json:"project"`

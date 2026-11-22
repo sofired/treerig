@@ -1,16 +1,16 @@
-package checkoutindex
+package overview
 
 import (
 	"encoding/json"
 	"os"
 	"testing"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 )
 
 // TestBuildSnapshotURLFilterGolden checks serviceBelongsToHost against
-// internal/checkoutindex/testdata/url-filter.json, a hand-maintained
+// internal/overview/testdata/url-filter.json, a hand-maintained
 // fixture: every WHATWG URL.parse normalization the filter depends on —
 // scheme and hostname case-folding, a default port dropped, a port's
 // leading zeros, a trailing dot on the hostname, and an IPv6 literal. Its

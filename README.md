@@ -237,7 +237,7 @@ vulnerability, see [SECURITY.md](SECURITY.md).
 | [Worktrees](docs/worktrees.md) | Development sessions, removing a worktree, renaming one |
 | [Shared services](docs/shared-services.md) | One instance of a service, such as a mail catcher, per repository |
 | [Host routes](docs/host-routes.md) | Route a dev server running on the host at a worktree's hostname |
-| [The overview](docs/checkout-index.md) | The machine-wide page at `http://treerig.localhost` |
+| [The overview](docs/overview.md) | The machine-wide page at `http://treerig.localhost` |
 | [Hooks](docs/hooks.md) | The hook protocol |
 | [State words](docs/commands.md) | What `status`, `worktree list` and the overview print |
 | [Doctor](docs/doctor.md) | What `treerig doctor` checks, and its check ids |

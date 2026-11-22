@@ -1,11 +1,11 @@
-package checkoutindex
+package overview
 
 import (
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/worktree"
 	"github.com/sofired/treerig/internal/worktreestate"

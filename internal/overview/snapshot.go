@@ -1,11 +1,11 @@
-// Package checkoutindex builds the checkout index: registry records + cards
+// Package overview builds the checkout index: registry records + cards
 // + Git identities + a container inventory in, one sorted snapshot out, and
 // the HTML and plain-text pages rendered from it. snapshot.go and render.go
 // are pure, so every state a row can be in is reachable from a unit test;
 // service.go is what runs the `docker ps` call that produces a
 // []ContainerRecord and ties this package to disk and the router lock
 // (#41).
-package checkoutindex
+package overview
 
 import (
 	"net/url"
@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/layout"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktree"
@@ -380,7 +380,7 @@ func anyContainerAvailable(owned []worktreestate.Container, service string) bool
 //
 // This filter is meant to match the WHATWG `URL.parse` standard, which
 // normalizes several things Go's net/url does not;
-// internal/checkoutindex/testdata/url-filter.json, a hand-maintained
+// internal/overview/testdata/url-filter.json, a hand-maintained
 // fixture recorded through the real buildSnapshot, is what proves each of
 // the following, rather than a comment asserting it:
 //   - scheme is lower-cased ("HTTP:" -> "http:"): net/url already does this,

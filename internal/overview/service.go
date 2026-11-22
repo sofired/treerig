@@ -1,4 +1,4 @@
-package checkoutindex
+package overview
 
 // The service that ties this package's pure snapshot and render logic to
 // disk, Docker, and the router's own lock (#41). It regenerates the page
@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/worktreestate"

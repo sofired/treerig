@@ -36,7 +36,7 @@ A route from a worktree's hostname to a process on your machine, such as a dev s
 
 ## Overview (the index)
 
-The overview is the page at `http://treerig.localhost` that lists every worktree on the machine, with its state and links. `treerig index` prints the same thing as text. See [The overview](checkout-index.md).
+The overview is the page at `http://treerig.localhost` that lists every worktree on the machine, with its state and links. `treerig index` prints the same thing as text. See [The overview](overview.md).
 
 ## Label namespace
 

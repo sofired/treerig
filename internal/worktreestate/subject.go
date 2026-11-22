@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/sofired/treerig/internal/brand"
-	"github.com/sofired/treerig/internal/checkoutindex/card"
+	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/text"
 )

@@ -58,7 +58,7 @@ const (
 	// and startTimeout.)
 	//
 	// Not every caller of this same lock scope waits this long: the checkout
-	// index (internal/checkoutindex.Service) shares the router's own lock
+	// index (internal/overview.Service) shares the router's own lock
 	// target (internal/commands' routerLockScope) but times its own wait far
 	// shorter (60s), since it is best-effort and must never make `down`,
 	// `worktree remove`, or `up` itself stall behind a daemon that will not
