@@ -134,7 +134,7 @@ type Options struct {
 	// repository that has not answered by then reads unknown.
 	GitTimeout time.Duration
 	// Environ is the process environment Git is run from, through the
-	// allow-list of registry.GitEnvironment; nil is the process's own.
+	// allow-list of registry.GitEnvironment; nil gives Git an empty one.
 	Environ []string
 }
 
@@ -609,8 +609,11 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 	// The snapshot was read before the lock, so a refresh whose read began
 	// earlier can get here after one whose read began later has written: the
 	// newer page stays. Each is stamped when its read began (SnapshotOf), so a
-	// slow early read does not count as the later one.
-	if written, ok := pageGeneratedAt(s.opts.IndexFile); ok && written > snapshot.GeneratedAt {
+	// slow early read does not count as the later one. A page stamped after
+	// now cannot be from a later read: it was written before the clock was set
+	// back (an NTP step, a resumed machine), and is replaced, so that one bad
+	// stamp does not keep every later refresh from writing.
+	if written, ok := pageGeneratedAt(s.opts.IndexFile); ok && written > snapshot.GeneratedAt && written <= s.generatedAt() {
 		return snapshot, nil
 	}
 	if err := files.AtomicWrite(s.opts.IndexFile, []byte(RenderIndexHTML(snapshot)), 0o644); err != nil {

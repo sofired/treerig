@@ -84,8 +84,7 @@ type IdentityService struct {
 	Root   string
 	runner run.Runner
 	// environ is the process environment Git's questions are asked from,
-	// through the allow-list of GitEnvironment; nil is this process's own,
-	// through the same allow-list.
+	// through the allow-list of GitEnvironment; nil is an empty one.
 	environ []string
 	// stat and statLimit are how Entries asks whether a listed root is there:
 	// os.Stat under StatLimit by default. A test swaps them.
@@ -136,13 +135,11 @@ func HardenedGitArgs(dir string, args ...string) []string {
 // GIT_CONFIG_COUNT/KEY_n/VALUE_n, GIT_CONFIG_PARAMETERS or GIT_EXEC_PATH could
 // point Git at a different repository or make it run a program. The -c settings
 // of gitSpec win over whatever the user's configuration says. A nil environ
-// is this process's own, through the same allow-list: a caller that forgets
-// to pass one gets the allow-list all the same, never an inherited
-// environment (a nil Env would hand Git every variable this process has).
+// keeps nothing but LC_ALL=C and GIT_OPTIONAL_LOCKS=0: a caller that forgets
+// to pass the entry point's environment gets an empty one, never an inherited
+// one (a nil Env would hand Git every variable this process has), and library
+// code never reads the process's own.
 func GitEnvironment(environ []string) []string {
-	if environ == nil {
-		environ = os.Environ()
-	}
 	kept := []string{"LC_ALL=C", "GIT_OPTIONAL_LOCKS=0"}
 	for _, entry := range environ {
 		name, _, _ := strings.Cut(entry, "=")
@@ -165,8 +162,8 @@ const StatLimit = 5 * time.Second
 
 // NewIdentityService answers identity questions for the checkout at root. Git is
 // run with the allow-list of environ, the process environment its caller was
-// handed (see GitEnvironment); nil is this process's own environment, through
-// the same allow-list.
+// handed (see GitEnvironment); nil gives Git an empty environment, never this
+// process's.
 func NewIdentityService(root string, runner run.Runner, environ []string) *IdentityService {
 	return &IdentityService{Root: root, runner: runner, environ: environ}
 }

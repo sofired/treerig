@@ -393,8 +393,20 @@ func TestRefreshStampsWhenItsReadBegan(t *testing.T) {
 // A refresh reads before it takes the lock, so one that read earlier can reach
 // the lock after one that read later has written. The newer page stays.
 func TestRefreshKeepsANewerPage(t *testing.T) {
-	h := newServiceHarness(t, &dockerFake{}, testRegistrations()[:1], nil)
-	at := func(clock time.Time) { h.service.opts.Now = func() time.Time { return clock } }
+	docker := &dockerFake{}
+	h := newServiceHarness(t, docker, testRegistrations()[:1], nil)
+	var mu sync.Mutex
+	var clock time.Time
+	at := func(when time.Time) {
+		mu.Lock()
+		clock = when
+		mu.Unlock()
+	}
+	h.service.opts.Now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return clock
+	}
 	read := func() string {
 		page, err := os.ReadFile(h.service.opts.IndexFile)
 		if err != nil {
@@ -406,17 +418,23 @@ func TestRefreshKeepsANewerPage(t *testing.T) {
 	earlier := later.Add(-4 * time.Second)
 
 	// The refresh that read at 12:00:05 finishes first; the one that read at
-	// 12:00:01 finishes after it.
+	// 12:00:01 finishes after it, when the clock has passed 12:00:05.
 	at(later)
 	if _, err := h.service.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	newer := read()
 	at(earlier)
+	docker.mu.Lock()
+	docker.onRun = func() { at(later.Add(500 * time.Millisecond)) }
+	docker.mu.Unlock()
 	snapshot, err := h.service.Refresh(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
+	docker.mu.Lock()
+	docker.onRun = nil
+	docker.mu.Unlock()
 	if read() != newer || !strings.Contains(newer, `<time datetime="2026-09-21T12:00:05.000Z"`) {
 		t.Fatalf("the older refresh overwrote the newer page:\n%s", read())
 	}
@@ -441,5 +459,29 @@ func TestRefreshKeepsANewerPage(t *testing.T) {
 	}
 	if !strings.Contains(read(), `<time datetime="2026-09-21T12:00:01.000Z"`) {
 		t.Fatalf("a page that says nothing was not replaced:\n%s", read())
+	}
+}
+
+// A page stamped after now was written before the clock was set back: no
+// later read made it, so it is replaced, and refreshes do not stop writing
+// until the clock catches up with it.
+func TestRefreshReplacesAPageFromBeforeTheClockWentBack(t *testing.T) {
+	h := newServiceHarness(t, &dockerFake{}, testRegistrations()[:1], nil)
+	ahead := time.Date(2026, 9, 21, 13, 0, 0, 0, time.UTC)
+	h.service.opts.Now = func() time.Time { return ahead }
+	if _, err := h.service.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The clock is stepped back an hour.
+	h.service.opts.Now = func() time.Time { return ahead.Add(-time.Hour) }
+	if _, err := h.service.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(h.service.opts.IndexFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), `<time datetime="2026-09-21T12:00:00.000Z"`) {
+		t.Fatalf("a page stamped after now kept the refresh from writing:\n%s", page)
 	}
 }

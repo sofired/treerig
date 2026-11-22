@@ -367,12 +367,11 @@ func TestIdentityServiceRepository(t *testing.T) {
 		}
 	})
 
-	t.Run("a nil environment is this process's own through the allow-list, never an inherited one", func(t *testing.T) {
-		t.Setenv("GIT_TREERIG_PROBE", "dropped")
+	t.Run("a nil environment is an empty one, never this process's or an inherited one", func(t *testing.T) {
 		t.Setenv("PATH", "/treerig-probe/bin")
 		got := registry.GitEnvironment(nil)
-		if got == nil || slices.Contains(got, "GIT_TREERIG_PROBE=dropped") || !slices.Contains(got, "PATH=/treerig-probe/bin") || !slices.Contains(got, "LC_ALL=C") {
-			t.Fatalf("GitEnvironment(nil) = %q, want the process environment through the allow-list", got)
+		if !slices.Equal(got, []string{"LC_ALL=C", "GIT_OPTIONAL_LOCKS=0"}) {
+			t.Fatalf("GitEnvironment(nil) = %q, want only LC_ALL=C and GIT_OPTIONAL_LOCKS=0", got)
 		}
 	})
 

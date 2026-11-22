@@ -45,7 +45,7 @@ type Options struct {
 	// dead mount does.
 	Stat func(string) (os.FileInfo, error)
 	// Environ is the process environment Git is run from, through the
-	// allow-list of registry.GitEnvironment; nil is the process's own.
+	// allow-list of registry.GitEnvironment; nil gives Git an empty one.
 	Environ []string
 	// CommandName is what the commands a hint names are run by (the name this
 	// build was invoked as); empty reads as brand.Name.

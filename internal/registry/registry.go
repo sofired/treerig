@@ -38,8 +38,7 @@ type Options struct {
 	// itself for it, only the entry point does.
 	UserHome string
 	// Environ is the process environment Git is run from, through the
-	// allow-list of GitEnvironment; nil is this process's own, through the
-	// same allow-list.
+	// allow-list of GitEnvironment; nil gives Git an empty one.
 	Environ []string
 }
 

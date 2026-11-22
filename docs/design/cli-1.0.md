@@ -802,8 +802,9 @@ As built (#204):
   (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CONFIG_COUNT` and its `KEY_n`/`VALUE_n`,
   `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`), and the `-c` settings win over the
   user's configuration. Each run has a 30-second timeout and a 4 MiB output
-  cap. A caller that passes no environment gets this process's own through the
-  same allow-list, never an inherited one, so none can skip it by forgetting. `safe.bareRepository=explicit` refuses to find a
+  cap. Only the entry point reads the process environment; a caller that
+  passes none gives Git an empty one (`LC_ALL=C` and `GIT_OPTIONAL_LOCKS=0`),
+  never an inherited one, so none can skip the allow-list by forgetting. `safe.bareRepository=explicit` refuses to find a
   bare repository by discovery, but a linked worktree's `.git` file names its
   repository, so `-C <worktree>` still answers for the `.bare` and gitfile
   layout; a test pins it.
@@ -813,12 +814,15 @@ As built (#204):
   (one bounded read of its head) and does not write when the page there is
   newer than its snapshot. A snapshot is dated when its read began, so a
   refresh whose read began earlier and finished later, however slow, cannot
-  replace a newer page. A lifecycle refresh gives Docker
+  replace a newer page. A page dated after the current time was written
+  before the clock was set back, and is replaced, so one bad date cannot stop
+  every later refresh from writing. A lifecycle refresh gives Docker
   and Git the same five seconds, and `up` announces its URLs before it
   refreshes.
-- **Nothing registered.** `list` asks Docker and Git nothing and exits 0 on a
-  machine, or in a repository, with no worktree to list, so it works where
-  Docker is not installed.
+- **Nothing registered.** `list` asks Docker nothing and exits 0 on a machine,
+  or in a repository, with no worktree to list, so it works where Docker is
+  not installed. Git is still asked which repository the command runs in,
+  since that decides what there is to list.
 - **Stderr.** The footers are printed only when stderr is a terminal and the
   output is not `--json`. Until `remove --gone` lands (#211) the first reads `1
   directory is gone: 'treerig worktree remove old-spike' removes its worktree.`

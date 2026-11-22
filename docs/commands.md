@@ -83,9 +83,9 @@ worktree's own identity or from the recorded directory alone.
 of another repository is judged by its recorded directory alone). `list --all`,
 `list` outside a repository, and the overview ask Git about every repository
 that has a worktree: the one the command runs in, and any other through a
-directory one of its worktrees last ran from. Each repository answers within
-five seconds, and one that does not shows its worktrees as `unknown` with the
-cause. A repository whose recorded directories are all gone is judged by those
+directory one of its worktrees last ran from, eight at a time and all within
+five seconds together. A repository that has not answered by then shows its
+worktrees as `unknown` with the cause. A repository whose recorded directories are all gone is judged by those
 directories alone.
 
 ## A service
