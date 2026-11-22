@@ -178,22 +178,22 @@ func TestListReportListsSharedServices(t *testing.T) {
 // Docker runners: exactly one document on stdout, the table absent.
 func TestListJSON(t *testing.T) {
 	base := registrytest.TempDir(t)
-	checkout := filepath.Join(base, "checkout")
+	root := filepath.Join(base, "worktree")
 	controlHome := filepath.Join(base, "control")
-	for _, dir := range []string{checkout, controlHome} {
+	for _, dir := range []string{root, controlHome} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	toml := "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n"
-	if err := os.WriteFile(filepath.Join(checkout, brand.ConfigFile), []byte(toml), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, brand.ConfigFile), []byte(toml), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner, git := registrytest.NewFakeRunner()
-	git.Add(checkout, "main", filepath.Join(base, "common"))
+	git.Add(root, "main", filepath.Join(base, "common"))
 	log := &logger.Recording{}
 	env := &Env{
-		CommandName: "treerig", Invocation: "treerig list --all --json", Logger: log, Runner: runner, Cwd: checkout,
+		CommandName: "treerig", Invocation: "treerig list --all --json", Logger: log, Runner: runner, Cwd: root,
 		Getenv: func(key string) (string, bool) {
 			switch key {
 			case "HOME":

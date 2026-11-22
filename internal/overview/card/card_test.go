@@ -603,13 +603,17 @@ func TestRehost(t *testing.T) {
 }
 
 // A card is read as something that may be anything: a pipe nobody writes to or
-// a device is not a card and is reported, not read, and reading it neither
-// blocks nor reads on; a file past the limit is no card.
+// a device in the card's place is not a card, and the stat refuses it before
+// anything is opened; a file past the limit is no card. A regular file swapped
+// for a pipe between that stat and the open is config.ReadRegularFile's to
+// refuse without blocking, and is tested there, on a pipe, directly
+// (internal/config, "a pipe with no writer is refused at once").
 func TestReadIndexCardAtRefusesWhatIsNotARegularFile(t *testing.T) {
 	dir := t.TempDir()
 	fifo := filepath.Join(dir, "fifo")
+	// treerig builds for Linux and macOS only, both of which have FIFOs.
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Skipf("no named pipes here: %v", err)
+		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {

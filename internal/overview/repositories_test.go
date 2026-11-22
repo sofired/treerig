@@ -7,6 +7,7 @@ package overview
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -474,6 +475,32 @@ func TestRefreshKeepsANewerPage(t *testing.T) {
 	}
 	if !strings.Contains(read(), `<time datetime="2026-09-21T12:00:01.000Z"`) {
 		t.Fatalf("a page that says nothing was not replaced:\n%s", read())
+	}
+}
+
+// A lock lost while the page is about to be written (its file replaced, as
+// something outside treerig might) stops the write: another refresh may own
+// the page by then, and this one's may be the older.
+func TestRefreshDoesNotWriteOnceItsLockIsLost(t *testing.T) {
+	h := newServiceHarness(t, &dockerFake{}, testRegistrations()[:1], nil)
+	h.service.opts.LockWatchdog = 10 * time.Millisecond
+	target := h.service.opts.Lock.Target
+	// The icons are written under the lock, just before the page.
+	h.service.writeIcons = func(dir string) (error, error) {
+		if err := os.Remove(target); err != nil {
+			t.Error(err)
+		}
+		if err := os.WriteFile(target, nil, 0o600); err != nil {
+			t.Error(err)
+		}
+		time.Sleep(200 * time.Millisecond)
+		return WriteIcons(dir)
+	}
+	if _, err := h.service.Refresh(context.Background()); err == nil {
+		t.Fatal("Refresh = nil error, want the lost lock's")
+	}
+	if _, err := os.Stat(h.service.opts.IndexFile); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the page was written after the lock was lost: %v", err)
 	}
 }
 

@@ -3,12 +3,14 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/commands"
@@ -66,6 +68,21 @@ func gitRefusesAt(w *commandstest.World, dir string) {
 	w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
 		if spec.Command == "git" && slices.Contains(spec.Args, "--show-toplevel") && slices.Contains(spec.Args, dir) {
 			return run.Result{ExitCode: 128, Stderr: "fatal: detected dubious ownership in repository at '" + dir + "'\n"}, nil
+		}
+		return inner(ctx, spec)
+	}
+}
+
+// gitHangsAt makes Git never answer for dir, whatever its context says, as a
+// git stuck on a hung mount does not; the test's end lets it go.
+func gitHangsAt(t *testing.T, w *commandstest.World, dir string) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	inner := w.Runner.Handler
+	w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+		if spec.Command == "git" && slices.Contains(spec.Args, "--show-toplevel") && slices.Contains(spec.Args, dir) {
+			<-release
+			return run.Result{}, errors.New("released")
 		}
 		return inner(ctx, spec)
 	}
@@ -205,6 +222,28 @@ func TestListWithoutConfig(t *testing.T) {
 		}
 		_, err = commands.ListWithContext(ctx, w.ContextWithoutConfig(cwd).CommandContext, commands.ListOptions{})
 		wantErr(t, err, `detected dubious ownership`)
+	})
+
+	t.Run("a working directory whose Git never answers holds list only for the bound; with --all every repository is still listed", func(t *testing.T) {
+		w, _, _ := twoRepositories(t)
+		cwd := w.Outside()
+		gitHangsAt(t, w, cwd)
+
+		start := time.Now()
+		_, err := commands.ListWithContext(ctx, w.ContextWithoutConfig(cwd).CommandContext, commands.ListOptions{})
+		wantErr(t, err, "Git did not answer within 5s")
+		if took := time.Since(start); took > 10*time.Second {
+			t.Fatalf("list took %s, want about the 5s bound", took)
+		}
+
+		start = time.Now()
+		report, err := commands.ListWithContext(ctx, w.ContextWithoutConfig(cwd).CommandContext, commands.ListOptions{All: true})
+		if err != nil || len(report.Entries) != 2 {
+			t.Fatalf("entries = %+v, %v; want both repositories' worktrees", report.Entries, err)
+		}
+		if took := time.Since(start); took > 20*time.Second {
+			t.Fatalf("list --all took %s, want it bounded", took)
+		}
 	})
 
 	t.Run("with a treerig.toml and no identity yet it says the same", func(t *testing.T) {

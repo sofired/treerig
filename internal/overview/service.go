@@ -114,6 +114,9 @@ type Options struct {
 	// uses defaultLockTimeout, never lock.RouterTimeout — see
 	// defaultLockTimeout's own comment.
 	LockTimeout time.Duration
+	// LockWatchdog is how often the router's lock is checked to still be
+	// ours while the page is written; zero is the lock's own default.
+	LockWatchdog time.Duration
 	// InventoryTimeout bounds one `docker ps` call; zero uses
 	// worktreestate.DefaultInventoryTimeout. A test overrides it to observe the
 	// bound itself without actually waiting on it.
@@ -587,8 +590,9 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 		s.opts.Logger.Warn("The overview cannot show what runs because containers could not be listed: " + *snapshot.DockerError)
 	}
 
-	lk := lock.New(s.opts.Lock, lock.Options{Timeout: s.opts.LockTimeout, Holder: s.opts.Invocation, Logger: s.opts.Logger})
-	if _, err := lk.Acquire(ctx, s.opts.Invocation); err != nil {
+	lk := lock.New(s.opts.Lock, lock.Options{Timeout: s.opts.LockTimeout, Watchdog: s.opts.LockWatchdog, Holder: s.opts.Invocation, Logger: s.opts.Logger})
+	held, err := lk.Acquire(ctx, s.opts.Invocation)
+	if err != nil {
 		return IndexSnapshot{}, err
 	}
 	defer func() {
@@ -615,6 +619,15 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 	// stamp does not keep every later refresh from writing.
 	if written, ok := pageGeneratedAt(s.opts.IndexFile); ok && written > snapshot.GeneratedAt && written <= s.generatedAt() {
 		return snapshot, nil
+	}
+	// The check above and the write below are one step only while the lock is
+	// ours: lost (its file replaced, its record taken over), another refresh
+	// may be writing, and this one's page may be the older.
+	if held.Err() != nil || lk.Lost() {
+		if lost := lk.Err(); lost != nil {
+			return IndexSnapshot{}, lost
+		}
+		return IndexSnapshot{}, context.Cause(held)
 	}
 	if err := files.AtomicWrite(s.opts.IndexFile, []byte(RenderIndexHTML(snapshot)), 0o644); err != nil {
 		return IndexSnapshot{}, err

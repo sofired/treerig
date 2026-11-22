@@ -123,27 +123,45 @@ func List(ctx context.Context, env *Env, options ListOptions) error {
 // there are none it says so and points at --all.
 func ListWithContext(ctx context.Context, cctx *CommandContext, options ListOptions) (ListReport, error) {
 	reg := cctx.Registry
-	repositoryID, present, inside, err := reg.Identities.Repository(ctx, reg.Identities.Root)
+	// Which repository this is, and which of its worktrees, is one question to
+	// the same bound as every other Git question of list's: a working
+	// directory on a hung mount must not hold the command, and a Git stuck in
+	// the kernel does not hear its timeout's signal.
+	type here struct {
+		id              string
+		present, inside bool
+		current         *registry.WorktreeIdentity
+		inspectErr      error
+	}
+	found, err := worktreestate.Within(ctx, overviewDockerBudget, func(ctx context.Context) (here, error) {
+		id, present, inside, err := reg.Identities.Repository(ctx, reg.Identities.Root)
+		if err != nil || !present {
+			return here{id: id, present: present, inside: inside}, err
+		}
+		current, inspectErr := reg.Identities.Inspect(ctx, reg.Identities.Root, registry.InspectOptions{})
+		return here{id: id, present: present, inside: inside, current: current, inspectErr: inspectErr}, nil
+	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ListReport{}, ctxErr
+	}
 	if err != nil {
 		// --all asks for no repository's own worktrees, so Git's trouble here
-		// (an unsafe directory, a corrupt .git) costs it only the live state,
-		// which the records and index cards stand in for. The overview says
-		// so, with Git's reason, when it asks Git about this directory.
+		// (an unsafe directory, a corrupt .git, no answer in time) costs it
+		// only the live state, which the records and index cards stand in for.
+		// The overview says so, with Git's reason, when it asks Git about this
+		// directory.
 		if !options.All {
 			return ListReport{}, err
 		}
-		repositoryID, present, inside = "", false, false
+		found = here{}
 	}
-	all := options.All || !inside
+	if found.inspectErr != nil {
+		return ListReport{}, found.inspectErr
+	}
+	repositoryID, present, current := found.id, found.present, found.current
+	all := options.All || !found.inside
 	if options.Refresh && !all {
 		return ListReport{}, clierr.New("--refresh rebuilds the overview, which lists every repository: add --all.")
-	}
-	var current *registry.WorktreeIdentity
-	if present {
-		current, err = reg.Identities.Inspect(ctx, reg.Identities.Root, registry.InspectOptions{})
-		if err != nil {
-			return ListReport{}, err
-		}
 	}
 
 	// The router is asked while the rest is read, within the same overviewDockerBudget

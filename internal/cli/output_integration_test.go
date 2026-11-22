@@ -138,7 +138,7 @@ type outputRun struct {
 }
 
 type outputFixture struct {
-	base, checkout, controlHome, bin, state string
+	base, worktree, controlHome, bin, state string
 }
 
 // newOutputFixture lays out a registered worktree at base, from scratch: a
@@ -149,9 +149,9 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 	if err := os.RemoveAll(base); err != nil {
 		t.Fatal(err)
 	}
-	f := outputFixture{base: base, checkout: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
+	f := outputFixture{base: base, worktree: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
 		bin: filepath.Join(base, "bin"), state: filepath.Join(base, "state")}
-	for _, dir := range []string{f.checkout, f.bin, f.state} {
+	for _, dir := range []string{f.worktree, f.bin, f.state} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -165,14 +165,14 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(f.checkout, "treerig.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n[service.mail]\nsubdomain = \"mail\"\n", 0o644)
+	write(filepath.Join(f.worktree, "treerig.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n[service.mail]\nsubdomain = \"mail\"\n", 0o644)
 	git := exec.Command("git", "init", "--initial-branch=feature/login", ".")
-	git.Dir = f.checkout
+	git.Dir = f.worktree
 	if output, err := git.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)
 	}
-	write(filepath.Join(f.checkout, ".git", "treerig", "repository-id"), registry.IdentityMarkerContents(fixtureRepo), 0o600)
-	write(filepath.Join(f.checkout, ".git", "treerig", "worktree-id"), registry.IdentityMarkerContents(fixtureWt), 0o600)
+	write(filepath.Join(f.worktree, ".git", "treerig", "repository-id"), registry.IdentityMarkerContents(fixtureRepo), 0o600)
+	write(filepath.Join(f.worktree, ".git", "treerig", "worktree-id"), registry.IdentityMarkerContents(fixtureWt), 0o600)
 	paths := layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt)
 	// This build's own marker format: files.AssertAdoptableControlHome only
 	// cares that the marker exists, not its exact bytes, but this is what a
@@ -519,7 +519,7 @@ func TestOutputGoldens(t *testing.T) {
 		{
 			name: "status of a named worktree, outside a repository", args: []string{"status", "feature-login"},
 			outsideRepository: true, unorderedDocker: true,
-			setup: func(t *testing.T, f outputFixture) { writeFixtureCard(t, f, f.checkout) },
+			setup: func(t *testing.T, f outputFixture) { writeFixtureCard(t, f, f.worktree) },
 		},
 		{
 			name: "status --json of a named worktree whose directory is gone", args: []string{"status", "--json", "feature-login"},
@@ -577,16 +577,16 @@ func TestOutputGoldens(t *testing.T) {
 		// and the router answers on this root's port.
 		{
 			name: "list, a running service's URL", args: []string{"list"}, unorderedDocker: true,
-			setup: func(t *testing.T, f outputFixture) { writeFixtureCardWithServices(t, f, f.checkout) },
+			setup: func(t *testing.T, f outputFixture) { writeFixtureCardWithServices(t, f, f.worktree) },
 		},
 		{
 			name: "list --json, a running service's URL", args: []string{"list", "--json"}, unorderedDocker: true,
-			setup: func(t *testing.T, f outputFixture) { writeFixtureCardWithServices(t, f, f.checkout) },
+			setup: func(t *testing.T, f outputFixture) { writeFixtureCardWithServices(t, f, f.worktree) },
 		},
 		{
 			name: "list, router stopped", args: []string{"list"}, unorderedDocker: true,
 			setup: func(t *testing.T, f outputFixture) {
-				writeFixtureCardWithServices(t, f, f.checkout)
+				writeFixtureCardWithServices(t, f, f.worktree)
 				replaceInFakeDocker(t, f, "echo routerc1; exit 0", "exit 0")
 			},
 		},
@@ -656,14 +656,14 @@ func TestOutputGoldens(t *testing.T) {
 			unorderedDocker: true,
 			setup: func(t *testing.T, f outputFixture) {
 				t.Helper()
-				hooksDir := filepath.Join(f.checkout, "hooks")
+				hooksDir := filepath.Join(f.worktree, "hooks")
 				if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.WriteFile(filepath.Join(hooksDir, "prepare"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				tomlPath := filepath.Join(f.checkout, "treerig.toml")
+				tomlPath := filepath.Join(f.worktree, "treerig.toml")
 				contents, err := os.ReadFile(tomlPath)
 				if err != nil {
 					t.Fatal(err)
@@ -691,7 +691,7 @@ func TestOutputGoldens(t *testing.T) {
 			name: "status, an identity marker with no format line", args: []string{"status"},
 			setup: func(t *testing.T, f outputFixture) {
 				t.Helper()
-				if err := os.WriteFile(filepath.Join(f.checkout, ".git", "treerig", "worktree-id"), []byte(fixtureWt+"\n"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.worktree, ".git", "treerig", "worktree-id"), []byte(fixtureWt+"\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -749,9 +749,9 @@ func TestOutputGoldens(t *testing.T) {
 			// the gate's two lines, with the pinned binary's stored name
 			// scrubbed.
 			if len(tc.args) >= 2 && tc.args[0] == "worktree" && tc.args[1] == "remove" {
-				pinWithEnv(t, binary, gotFixture.checkout, gotFixture.environ(), "golden-pin")
+				pinWithEnv(t, binary, gotFixture.worktree, gotFixture.environ(), "golden-pin")
 			}
-			gotDir := gotFixture.checkout
+			gotDir := gotFixture.worktree
 			if tc.outsideRepository {
 				gotDir = gotFixture.base
 			}
