@@ -1438,6 +1438,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 			ControlHome: opts.ControlHome, Root: loaded.Root, Domain: loaded.Config.Project.Domain,
 			LabelNamespace: loaded.Config.LabelNamespace(), Runner: opts.Runner, Logger: opts.Logger,
 			CommandName: opts.CommandName, Invocation: opts.Invocation, UserHome: opts.UserHome,
+			Environ: opts.Environ,
 		})
 	}
 

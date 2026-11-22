@@ -341,6 +341,55 @@ func TestRefreshTakesNoLockWhileItAsksGit(t *testing.T) {
 	}
 }
 
+// A refresh is stamped when its read began, not when it ended: one that began
+// earlier and was slow, so that the clock has passed the other's stamp by the
+// time Docker answers it, still does not replace the page of one that began
+// later and finished first.
+func TestRefreshStampsWhenItsReadBegan(t *testing.T) {
+	docker := &dockerFake{}
+	h := newServiceHarness(t, docker, testRegistrations()[:1], nil)
+	var mu sync.Mutex
+	clock := time.Date(2026, 9, 21, 12, 0, 3, 0, time.UTC)
+	h.service.opts.Now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return clock
+	}
+	set := func(at time.Time) {
+		mu.Lock()
+		clock = at
+		mu.Unlock()
+	}
+
+	// The read that began at 12:00:03 is written first.
+	if _, err := h.service.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	newer, err := os.ReadFile(h.service.opts.IndexFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The one that began at 12:00:01 waits on Docker until 12:00:09.
+	set(time.Date(2026, 9, 21, 12, 0, 1, 0, time.UTC))
+	docker.mu.Lock()
+	docker.onRun = func() { set(time.Date(2026, 9, 21, 12, 0, 9, 0, time.UTC)) }
+	docker.mu.Unlock()
+	snapshot, err := h.service.Refresh(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(h.service.opts.IndexFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(page) != string(newer) {
+		t.Fatalf("the read that began earlier replaced the newer page:\n%s", page)
+	}
+	if snapshot.GeneratedAt != "2026-09-21T12:00:01.000Z" {
+		t.Fatalf("GeneratedAt = %q, want when the read began", snapshot.GeneratedAt)
+	}
+}
+
 // A refresh reads before it takes the lock, so one that read earlier can reach
 // the lock after one that read later has written. The newer page stays.
 func TestRefreshKeepsANewerPage(t *testing.T) {

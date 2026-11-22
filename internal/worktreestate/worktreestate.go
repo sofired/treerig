@@ -44,8 +44,8 @@ type Options struct {
 	// Stat is os.Stat when nil; a test supplies one that hangs, as a stat on a
 	// dead mount does.
 	Stat func(string) (os.FileInfo, error)
-	// Environ is the process environment Git is run with (see
-	// registry.NewIdentityServiceEnviron); nil inherits the process's.
+	// Environ is the process environment Git is run from, through the
+	// allow-list of registry.GitEnvironment; nil is the process's own.
 	Environ []string
 	// CommandName is what the commands a hint names are run by (the name this
 	// build was invoked as); empty reads as brand.Name.

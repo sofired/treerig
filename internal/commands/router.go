@@ -278,7 +278,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 	// writes covers every registered checkout regardless of cwd.
 	reg := registry.New(registry.Options{
 		ControlHome: controlHome, Root: env.Cwd, Runner: env.Runner, Logger: env.Logger,
-		CommandName: env.CommandName, Invocation: env.Invocation, UserHome: userHome,
+		CommandName: env.CommandName, Invocation: env.Invocation, UserHome: userHome, Environ: env.Environ,
 	})
 	index := overview.NewService(overview.Options{
 		ControlHome: controlHome,
@@ -287,6 +287,7 @@ func RouterUp(ctx context.Context, env *Env) error {
 		Lock:        routerLockScope(state, svc.ProjectName),
 		Registry:    reg, Identities: reg.Identities, IdentityRoot: reg.Identities.Root,
 		Runner: env.Runner, Logger: env.Logger, Invocation: env.Invocation, CommandName: env.CommandName,
+		Environ: env.Environ,
 	})
 	index.RefreshBestEffort(ctx, "router up")
 	env.Logger.Info(fmt.Sprintf("Router is up on 127.0.0.1:%d%s; index at %s.", svc.Port, routerModeNote(ctx, svc), svc.IndexURL))

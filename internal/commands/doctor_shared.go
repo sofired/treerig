@@ -184,6 +184,7 @@ func (d *sharedDoctor) registration(ctx context.Context) (*registry.WorktreeRegi
 		ControlHome: d.opts.ControlHome, Root: d.loaded.Root, Domain: d.loaded.Config.Project.Domain,
 		LabelNamespace: d.namespace, Runner: d.opts.Runner, Logger: d.opts.Logger,
 		CommandName: d.opts.CommandName, Invocation: d.opts.Invocation, UserHome: d.opts.UserHome,
+		Environ: d.opts.Environ,
 	})
 	return reg.Current(ctx)
 }

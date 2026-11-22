@@ -367,6 +367,15 @@ func TestIdentityServiceRepository(t *testing.T) {
 		}
 	})
 
+	t.Run("a nil environment is this process's own through the allow-list, never an inherited one", func(t *testing.T) {
+		t.Setenv("GIT_TREERIG_PROBE", "dropped")
+		t.Setenv("PATH", "/treerig-probe/bin")
+		got := registry.GitEnvironment(nil)
+		if got == nil || slices.Contains(got, "GIT_TREERIG_PROBE=dropped") || !slices.Contains(got, "PATH=/treerig-probe/bin") || !slices.Contains(got, "LC_ALL=C") {
+			t.Fatalf("GitEnvironment(nil) = %q, want the process environment through the allow-list", got)
+		}
+	})
+
 	t.Run("any other Git failure is an error carrying Git's words, not an answer", func(t *testing.T) {
 		for _, stderr := range []string{
 			"fatal: detected dubious ownership in repository at '/srv/x'",

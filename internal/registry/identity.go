@@ -83,10 +83,9 @@ type IdentityService struct {
 	// Root is the checkout this service answers for.
 	Root   string
 	runner run.Runner
-	// environ is the process environment the first Git question of Repository
-	// runs in, with the C locale added so Git's refusal reads the same on every
-	// machine. Nil inherits this process's own, and then a localised refusal
-	// is an error instead of an answer.
+	// environ is the process environment Git's questions are asked from,
+	// through the allow-list of GitEnvironment; nil is this process's own,
+	// through the same allow-list.
 	environ []string
 	// stat and statLimit are how Entries asks whether a listed root is there:
 	// os.Stat under StatLimit by default. A test swaps them.
@@ -106,10 +105,10 @@ const (
 // gitSpec is the Spec for `git -C dir args...`: the repository's own
 // configuration may not run a file system monitor or hooks, or open a bare
 // repository it was not told to; the environment is the allow-list of
-// gitEnvironment; and the run is bounded in time and in output.
+// GitEnvironment; and the run is bounded in time and in output.
 func (s *IdentityService) gitSpec(dir string, args ...string) run.Spec {
 	return run.Spec{
-		Command: "git", Args: HardenedGitArgs(dir, args...), Env: gitEnvironment(s.environ),
+		Command: "git", Args: HardenedGitArgs(dir, args...), Env: GitEnvironment(s.environ),
 		Timeout: gitTimeout, OutputLimit: gitOutputLimit,
 	}
 }
@@ -126,7 +125,7 @@ func HardenedGitArgs(dir string, args ...string) []string {
 	}, args...)
 }
 
-// gitEnvironment is what Git is run with, from the process environment
+// GitEnvironment is what Git is run with, from the process environment
 // environ: the variables a Git needs to find itself and its configuration
 // (PATH, HOME, TMPDIR; and where the user's own configuration lives, which
 // holds their safe.directory entries: XDG_CONFIG_HOME and GIT_CONFIG_GLOBAL,
@@ -136,11 +135,13 @@ func HardenedGitArgs(dir string, args ...string) []string {
 // asking never writes to the repository. No other GIT_* variable is inherited: GIT_DIR, GIT_WORK_TREE,
 // GIT_CONFIG_COUNT/KEY_n/VALUE_n, GIT_CONFIG_PARAMETERS or GIT_EXEC_PATH could
 // point Git at a different repository or make it run a program. The -c settings
-// of gitSpec win over whatever the user's configuration says. Nil
-// environ, as a hand-built test has, inherits the process's own.
-func gitEnvironment(environ []string) []string {
+// of gitSpec win over whatever the user's configuration says. A nil environ
+// is this process's own, through the same allow-list: a caller that forgets
+// to pass one gets the allow-list all the same, never an inherited
+// environment (a nil Env would hand Git every variable this process has).
+func GitEnvironment(environ []string) []string {
 	if environ == nil {
-		return nil
+		environ = os.Environ()
 	}
 	kept := []string{"LC_ALL=C", "GIT_OPTIONAL_LOCKS=0"}
 	for _, entry := range environ {
@@ -164,9 +165,8 @@ const StatLimit = 5 * time.Second
 
 // NewIdentityService answers identity questions for the checkout at root. Git is
 // run with the allow-list of environ, the process environment its caller was
-// handed (see gitEnvironment); there is no constructor without one, so no
-// caller skips the allow-list by forgetting it. Only a test passes nil, which
-// inherits the test's own.
+// handed (see GitEnvironment); nil is this process's own environment, through
+// the same allow-list.
 func NewIdentityService(root string, runner run.Runner, environ []string) *IdentityService {
 	return &IdentityService{Root: root, runner: runner, environ: environ}
 }

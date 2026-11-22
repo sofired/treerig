@@ -133,8 +133,8 @@ type Options struct {
 	// repositories together; zero uses worktreestate.DefaultGitTimeout. A
 	// repository that has not answered by then reads unknown.
 	GitTimeout time.Duration
-	// Environ is the process environment Git is run with
-	// (registry.NewIdentityServiceEnviron); nil inherits the process's.
+	// Environ is the process environment Git is run from, through the
+	// allow-list of registry.GitEnvironment; nil is the process's own.
 	Environ []string
 }
 
@@ -302,6 +302,10 @@ func (s *Service) generatedAt() string {
 // an empty ID is every repository on the machine. Only the repository's own
 // Git is asked, and only its shared services are listed.
 func (s *Service) SnapshotOf(ctx context.Context, onlyRepositoryID string) (IndexSnapshot, error) {
+	// The snapshot is of the moment its read began, before the registry,
+	// Docker and Git are asked: Refresh keeps a page whose read began later,
+	// and a read that began earlier but was slow must not pass for the newer.
+	generatedAt := s.generatedAt()
 	registrations, err := s.opts.Registry.ListAll(ctx)
 	if err != nil {
 		return IndexSnapshot{}, err
@@ -398,7 +402,7 @@ func (s *Service) SnapshotOf(ctx context.Context, onlyRepositoryID string) (Inde
 		IdentityError:       git.identityError,
 		CardReadFailures:    cardReadFailures,
 		GitHints:            git.hints,
-		GeneratedAt:         s.generatedAt(),
+		GeneratedAt:         generatedAt,
 	}), nil
 }
 
@@ -602,8 +606,10 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 	if err := ensureIcons(filepath.Dir(s.opts.IndexFile), s.opts.Logger, s.writeIcons); err != nil {
 		return IndexSnapshot{}, err
 	}
-	// The snapshot was read before the lock, so a refresh that read earlier can
-	// get here after one that read later has written: the newer page stays.
+	// The snapshot was read before the lock, so a refresh whose read began
+	// earlier can get here after one whose read began later has written: the
+	// newer page stays. Each is stamped when its read began (SnapshotOf), so a
+	// slow early read does not count as the later one.
 	if written, ok := pageGeneratedAt(s.opts.IndexFile); ok && written > snapshot.GeneratedAt {
 		return snapshot, nil
 	}

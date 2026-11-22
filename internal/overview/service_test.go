@@ -95,6 +95,8 @@ type dockerFake struct {
 	missing bool
 	failure error
 	timeout bool
+	// onRun, when set, is called on every run before it answers.
+	onRun func()
 }
 
 // Run records spec and answers per whichever of d.failure, d.missing, or
@@ -102,7 +104,11 @@ type dockerFake struct {
 func (d *dockerFake) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Lock()
 	d.calls = append(d.calls, spec)
+	onRun := d.onRun
 	d.mu.Unlock()
+	if onRun != nil {
+		onRun()
+	}
 	if d.failure != nil {
 		return run.Result{}, d.failure
 	}
