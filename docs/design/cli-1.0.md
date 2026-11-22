@@ -797,8 +797,10 @@ As built (#204):
   of `PATH`, `HOME`, `TMPDIR`, `LANG` and `LC_*` from the entry point's, and
   the variables that say where the user's own Git configuration is
   (`XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
-  `GIT_CONFIG_NOSYSTEM`; it holds their `safe.directory` entries), then
-  `LC_ALL=C` and `GIT_OPTIONAL_LOCKS=0`. No other `GIT_*` variable is inherited
+  `GIT_CONFIG_NOSYSTEM`; it holds their `safe.directory` entries) and their
+  limits on how far up Git looks (`GIT_CEILING_DIRECTORIES`,
+  `GIT_DISCOVERY_ACROSS_FILESYSTEM`, which can make it find no repository,
+  never another), then `LC_ALL=C` and `GIT_OPTIONAL_LOCKS=0`. No other `GIT_*` variable is inherited
   (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CONFIG_COUNT` and its `KEY_n`/`VALUE_n`,
   `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`), and the `-c` settings win over the
   user's configuration. Each run has a 30-second timeout and a 4 MiB output

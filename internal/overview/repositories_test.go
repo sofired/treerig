@@ -319,8 +319,13 @@ func TestRefreshWarnsOfDocker(t *testing.T) {
 
 func TestRefreshTakesNoLockWhileItAsksGit(t *testing.T) {
 	git := newGitFake(t, true)
+	// Git does not answer, so the refresh waits out the whole bound in Git:
+	// long enough to try the lock in, short enough for the test.
+	started := make(chan struct{})
+	var once sync.Once
+	git.onGit = func() { once.Do(func() { close(started) }) }
 	h, _ := otherRepository(t, git)
-	h.service.opts.GitTimeout = 300 * time.Millisecond
+	h.service.opts.GitTimeout = 2 * time.Second
 	h.service.opts.LockTimeout = time.Second
 
 	done := make(chan error, 1)
@@ -328,6 +333,11 @@ func TestRefreshTakesNoLockWhileItAsksGit(t *testing.T) {
 		_, err := h.service.Refresh(context.Background())
 		done <- err
 	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refresh never asked Git")
+	}
 	// While Git is being waited on, the router's lock is anyone's.
 	other := lock.New(h.service.opts.Lock, lock.Options{Timeout: 100 * time.Millisecond, Holder: "someone else", Logger: logger.Silent{}})
 	if _, err := other.Acquire(context.Background(), "someone else"); err != nil {
@@ -335,6 +345,11 @@ func TestRefreshTakesNoLockWhileItAsksGit(t *testing.T) {
 	}
 	if err := other.Release(); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the refresh had finished (%v) before the lock was tried, so the test proved nothing", err)
+	default:
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)

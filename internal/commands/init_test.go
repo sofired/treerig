@@ -112,7 +112,7 @@ func TestInit(t *testing.T) {
 		}
 	})
 
-	t.Run("drops what points git at another repository or overrides its settings, and keeps where its configuration lives", func(t *testing.T) {
+	t.Run("drops what points git at another repository or overrides its settings, and keeps where its configuration lives and how far it looks", func(t *testing.T) {
 		root := registrytest.TempDir(t)
 		env, _, runner := initEnv(t, root, root)
 		env.Environ = []string{
@@ -122,13 +122,14 @@ func TestInit(t *testing.T) {
 			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.fsmonitor", "GIT_CONFIG_VALUE_0=/bin/x",
 			"GIT_CONFIG_PARAMETERS='core.hooksPath'='/x'", "GIT_EXEC_PATH=/x",
 			"GIT_CONFIG_GLOBAL=/h/.gitconfig", "HOME=/h",
+			"GIT_CEILING_DIRECTORIES=/home", "GIT_DISCOVERY_ACROSS_FILESYSTEM=0",
 		}
 
 		if err := Init(ctx, env); err != nil {
 			t.Fatal(err)
 		}
 
-		want := "LC_ALL=C GIT_OPTIONAL_LOCKS=0 PATH=/usr/bin GIT_CONFIG_GLOBAL=/h/.gitconfig HOME=/h"
+		want := "LC_ALL=C GIT_OPTIONAL_LOCKS=0 PATH=/usr/bin GIT_CONFIG_GLOBAL=/h/.gitconfig HOME=/h GIT_CEILING_DIRECTORIES=/home GIT_DISCOVERY_ACROSS_FILESYSTEM=0"
 		if got := strings.Join(runner.Calls()[0].Env, " "); got != want {
 			t.Errorf("git environment = %q, want %q", got, want)
 		}

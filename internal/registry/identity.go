@@ -129,7 +129,9 @@ func HardenedGitArgs(dir string, args ...string) []string {
 // (PATH, HOME, TMPDIR; and where the user's own configuration lives, which
 // holds their safe.directory entries: XDG_CONFIG_HOME and GIT_CONFIG_GLOBAL,
 // GIT_CONFIG_SYSTEM, GIT_CONFIG_NOSYSTEM) and to speak a language (LANG,
-// LC_*), then LC_ALL=C so
+// LC_*); the user's own limits on how far up Git looks for a repository
+// (GIT_CEILING_DIRECTORIES, GIT_DISCOVERY_ACROSS_FILESYSTEM), which can make
+// it find none but never another one, nor run anything; then LC_ALL=C so
 // its refusals read the same on every machine, and GIT_OPTIONAL_LOCKS=0 so
 // asking never writes to the repository. No other GIT_* variable is inherited: GIT_DIR, GIT_WORK_TREE,
 // GIT_CONFIG_COUNT/KEY_n/VALUE_n, GIT_CONFIG_PARAMETERS or GIT_EXEC_PATH could
@@ -145,7 +147,8 @@ func GitEnvironment(environ []string) []string {
 		name, _, _ := strings.Cut(entry, "=")
 		switch {
 		case name == "PATH", name == "HOME", name == "TMPDIR", name == "LANG",
-			name == "XDG_CONFIG_HOME", name == "GIT_CONFIG_GLOBAL", name == "GIT_CONFIG_SYSTEM", name == "GIT_CONFIG_NOSYSTEM":
+			name == "XDG_CONFIG_HOME", name == "GIT_CONFIG_GLOBAL", name == "GIT_CONFIG_SYSTEM", name == "GIT_CONFIG_NOSYSTEM",
+			name == "GIT_CEILING_DIRECTORIES", name == "GIT_DISCOVERY_ACROSS_FILESYSTEM":
 			kept = append(kept, entry)
 		case strings.HasPrefix(name, "LC_") && name != "LC_ALL":
 			kept = append(kept, entry)

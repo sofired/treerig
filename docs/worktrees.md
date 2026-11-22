@@ -89,8 +89,9 @@ every other command.
 
 - **`list`** (`ls`) lists this repository's worktrees when you run it inside
   a Git repository, whether or not it has a usable `treerig.toml`. When treerig
-  knows none there, it says `No worktrees are registered for this repository.`
-  and, on stderr, `Every repository: 'treerig list --all'`. Outside
+  knows none there, it says on stderr `No worktrees are registered for this
+  repository. Run 'treerig up' to register this worktree.` and then `Every
+  repository: 'treerig list --all'`. Outside
   every Git work tree there is no "this repository", so it lists every
   registered worktree on the machine, exactly as `--all` does, with the
   repository first; an empty registry then says `No worktrees are registered on
