@@ -229,8 +229,9 @@ at a time, within that one second.
   once), and every URL.
 
   `list` asks Docker once per label namespace, with a budget of about five
-  seconds each, and Git once per repository, eight at a time and within five
-  seconds together. With Docker not answering every worktree is `unknown`, the
+  seconds each. Inside a repository it asks Git only about that repository;
+  `list --all`, `list` outside every repository and the overview ask Git once
+  per repository, eight at a time and within five seconds together. With Docker not answering every worktree is `unknown`, the
   table is still printed, and the command exits 1 with the cause once. On a
   terminal, stderr ends with how many directories are gone and, inside a
   repository, with the overview's address (`Every repository: 'treerig list

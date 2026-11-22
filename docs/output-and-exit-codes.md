@@ -61,7 +61,8 @@ words](commands.md). When Docker cannot be asked, each of them still prints
 everything it can (the states that need Docker read `unknown`) and then exits 1
 with the cause on stderr, once. `status` does the same when Compose, not Docker,
 cannot read the worktree. `list` gives Docker about five seconds a label
-namespace, and Git five seconds a repository.
+namespace, and Git five seconds in all: for the current repository, or with
+`--all` for every repository, eight at a time.
 
 `status` prints its table (or, with `--json`, its document) whatever the state.
 It exits 0 whatever the state, and 1 when it couldn't read the worktree: Docker

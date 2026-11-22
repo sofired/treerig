@@ -97,10 +97,12 @@ every other command.
   this machine.` Each row has the worktree's name, its STATE (the
   [state words](commands.md): `running`, `partly running`, `stopped`, `not
   started`, `directory missing`, `removing`, …), the URL of its first running
-  service and its directory. The command asks Docker once per label namespace,
-  and Git once per repository: for a repository other than the one you are in,
-  through a directory one of its worktrees last ran from, so a directory gone
-  from it is told too, and one Git does not answer for reads `unknown`. If
+  service and its directory. The command asks Docker once per label namespace.
+  Inside a repository it asks Git only about that one; with `--all`, or outside
+  every repository, it asks Git once per repository: for a repository other
+  than the one you are in, through a directory one of its worktrees last ran
+  from, so a directory gone from it is told too, and one Git does not answer
+  for reads `unknown`. If
   Docker does not answer, every row reads `unknown`, the table is still printed,
   and the command exits 1 with the cause once on stderr; the cause of any other
   `unknown` row is printed on stderr too. On a terminal it ends with how many
