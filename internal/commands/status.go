@@ -143,7 +143,7 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Status
 	}
 	record := subject.record
 	host := layout.WorktreeHost(record.Slug, record.Domain)
-	gatherer := worktreestate.New(worktreestate.Options{ControlHome: cctx.ControlHome, Runner: cctx.Runner, CommandName: cctx.CommandName, Mounts: cctx.Mounts})
+	gatherer := worktreestate.New(worktreestate.Options{ControlHome: cctx.ControlHome, Runner: cctx.Runner, CommandName: cctx.CommandName, Mounts: cctx.Mounts, Environ: cctx.Environ})
 
 	if !subject.here {
 		stop, err := subject.checkDirectory(ctx, gatherer, host)

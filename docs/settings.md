@@ -30,7 +30,7 @@ defaults. The router's port is `TREERIG_ROUTER_PORT` when that is set, else the 
 else 80. `router status` and `doctor` say which one applied and name the
 file; `doctor` warns when the running router serves a different port; and
 an `up` that moves the router to a new port says that URLs already open — the
-index page included — still use the old one.
+overview page included — still use the old one.
 
 Because `worktree remove` deletes inside it, the control home must be empty
 or one the tool created earlier — it leaves a `.treerig-control-home` marker to

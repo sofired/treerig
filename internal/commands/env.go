@@ -128,13 +128,17 @@ const (
 // ProgressModes are the values --progress takes, in the order help lists them.
 var ProgressModes = []ProgressMode{ProgressAuto, ProgressPlain}
 
-// ListOptions are `worktree list`'s flags.
+// ListOptions are `list`'s flags.
 type ListOptions struct {
-	All  bool
-	JSON bool
+	// All lists every repository on the machine; outside every Git work tree
+	// that is what `list` does without it.
+	All bool
+	// Refresh rebuilds the overview page under the router lock, and needs All.
+	Refresh bool
+	JSON    bool
 }
 
-// OutputOptions are the flags `doctor` and `index` share:
+// OutputOptions are the flags `doctor`, `route ls` and `shared status` share:
 // JSON prints one JSON document on stdout in place of the text form. The
 // exit code is the same either way.
 type OutputOptions struct {
@@ -163,7 +167,7 @@ type RemoveOptions struct {
 }
 
 // printJSON prints value as the command's one JSON document on stdout, the
-// way `worktree list --json` does: indented, and ASCII-only.
+// way `list --json` does: indented, and ASCII-only.
 func printJSON(cctx *CommandContext, value any) error {
 	out, err := text.SafeJSON(value)
 	if err != nil {

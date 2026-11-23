@@ -80,17 +80,17 @@
           },
           "index": {
             "type": "object",
-            "description": "Presence on the shared checkout index. Omit to keep the service off the index.",
+            "description": "Presence on the shared overview. Omit to keep the service off the overview.",
             "properties": {
               "label": {
                 "type": "string",
-                "description": "Name shown for the service on the shared checkout index.",
+                "description": "Name shown for the service on the shared overview.",
                 "minLength": 1,
                 "maxLength": 512
               },
               "purpose": {
                 "type": "string",
-                "description": "What the service is for, shown beside its label on the checkout index.",
+                "description": "What the service is for, shown beside its label on the overview.",
                 "maxLength": 512,
                 "default": ""
               }

@@ -164,7 +164,7 @@ func TestIdentityServiceEntries(t *testing.T) {
 		// worktrees comes to well over the stat budget; the stats themselves
 		// are instant.
 		const budget = 100 * time.Millisecond
-		slow := registry.NewIdentityService(f.root, slowRunner{Runner: f.runner, delay: 20 * time.Millisecond})
+		slow := registry.NewIdentityService(f.root, slowRunner{Runner: f.runner, delay: 20 * time.Millisecond}, nil)
 		slow.StatWith(os.Stat, budget)
 		start := time.Now()
 		entries, err := slow.Entries(ctx)
@@ -245,7 +245,7 @@ func TestIdentityServiceEntries(t *testing.T) {
 		runner := &fakerun.Runner{Handler: func(context.Context, run.Spec) (run.Result, error) {
 			return run.Result{ExitCode: 128, Stderr: "fatal: detected dubious ownership\n"}, nil
 		}}
-		service := registry.NewIdentityService(registrytest.TempDir(t), runner)
+		service := registry.NewIdentityService(registrytest.TempDir(t), runner, nil)
 		if _, err := service.Entries(ctx); err == nil {
 			t.Fatal("expected Git's failure")
 		}

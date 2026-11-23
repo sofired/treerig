@@ -1,5 +1,5 @@
 // Package worktreestate gathers what worktree.Classify decides a worktree's
-// state from, and is the one place that asks: `status`, `worktree list`, the
+// state from, and is the one place that asks: `status`, `list`, the
 // overview page and `doctor` all call it, so a worktree has the same state
 // word everywhere (docs/design/cli-1.0.md, "State words").
 //
@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,15 @@ type Options struct {
 	InventoryTimeout time.Duration
 	// Mounts reads the mount table; nil reads the machine's. A test supplies its own.
 	Mounts func() (Mounts, error)
+	// GitTimeout bounds everything asked of Git about other repositories
+	// (AskRepositories); zero uses DefaultGitTimeout.
+	GitTimeout time.Duration
+	// Stat is os.Stat when nil; a test supplies one that hangs, as a stat on a
+	// dead mount does.
+	Stat func(string) (os.FileInfo, error)
+	// Environ is the process environment Git is run from, through the
+	// allow-list of registry.GitEnvironment; nil gives Git an empty one.
+	Environ []string
 	// CommandName is what the commands a hint names are run by (the name this
 	// build was invoked as); empty reads as brand.Name.
 	CommandName string
@@ -62,6 +72,9 @@ type Gatherer struct {
 	controlHome      string
 	runner           run.Runner
 	inventoryTimeout time.Duration
+	gitTimeout       time.Duration
+	environ          []string
+	stat             func(string) (os.FileInfo, error)
 	readMounts       func() (Mounts, error)
 	command          string
 	probeTimeout     time.Duration
@@ -77,9 +90,16 @@ type Gatherer struct {
 func New(options Options) *Gatherer {
 	g := &Gatherer{
 		controlHome: options.ControlHome, runner: options.Runner,
-		inventoryTimeout: options.InventoryTimeout, readMounts: options.Mounts,
+		inventoryTimeout: options.InventoryTimeout, gitTimeout: options.GitTimeout,
+		environ: options.Environ, stat: options.Stat, readMounts: options.Mounts,
 		command: options.CommandName, probeTimeout: options.ProbeTimeout,
 		exists: options.Exists, parentOf: options.ParentOf,
+	}
+	if g.stat == nil {
+		g.stat = os.Stat
+	}
+	if g.gitTimeout <= 0 {
+		g.gitTimeout = DefaultGitTimeout
 	}
 	if g.command == "" {
 		g.command = brand.Name
@@ -176,6 +196,10 @@ type Request struct {
 	// the one a command runs in today. A worktree of any other has no
 	// directory evidence.
 	Repositories map[string]Repository
+	// Inventory, when set, is the Docker inventory already taken (for the
+	// namespaces above), so a caller can ask Docker and Git at the same time;
+	// nil asks here.
+	Inventory *Inventory
 }
 
 // Report is what Gather found.
@@ -215,9 +239,14 @@ func DockerHint(reason string) string {
 // it makes the states they decide unknown. Only a failure that must stop the
 // command (a cancellation) is returned.
 func (g *Gatherer) Gather(ctx context.Context, request Request) (Report, error) {
-	inventory, err := g.Inventory(ctx, request.Namespaces)
-	if err != nil {
-		return Report{}, err
+	var inventory Inventory
+	if request.Inventory != nil {
+		inventory = *request.Inventory
+	} else {
+		var err error
+		if inventory, err = g.Inventory(ctx, request.Namespaces); err != nil {
+			return Report{}, err
+		}
 	}
 	report := Report{Docker: inventory, States: make(map[string]Result, len(request.Subjects))}
 

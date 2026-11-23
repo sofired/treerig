@@ -433,7 +433,7 @@ func (f *checkoutFixture) registerAt(root, slug string) registry.RegisteredWorkt
 	if err := files.SecureControlDirectories(layout.ControlLayout(f.controlHome), userHome); err != nil {
 		f.t.Fatal(err)
 	}
-	identities := registry.NewIdentityService(root, f.runner)
+	identities := registry.NewIdentityService(root, f.runner, nil)
 	identity, err := registrytest.Register(context.Background(), f.controlHome, identities, root, fixtureDomain, slug, nil, "complete")
 	if err != nil {
 		f.t.Fatal(err)

@@ -139,7 +139,7 @@ footer{padding-block:36px;border-top:1px solid var(--rule);color:var(--muted);fo
 <section id="name"><div class="head"><div class="eyebrow"><b>Name</b></div><h2>treerig, and <code>trig</code></h2></div>
   <div class="two">
     <div style="display:grid;gap:14px">
-      <p><strong>tree</strong> as in worktree, a checkout of a branch. <strong>rig</strong> as in a full working setup, the way people talk about a dev rig. Each worktree gets one.</p>
+      <p><strong>tree</strong> as in worktree, a branch with a directory of its own. <strong>rig</strong> as in a full working setup, the way people talk about a dev rig. Each worktree gets one.</p>
       <p>Always lower case, <code>treerig</code>, the way it is typed. Capitalise it only to start a sentence. The command is <code>treerig</code>; <code>trig</code> is a short alias.</p>
       <p>Files and settings carry the full name: <code>treerig.toml</code>, <code>TREERIG_HOME</code>, the <code>dev.treerig</code> label namespace.</p>
     </div>
@@ -216,12 +216,12 @@ footer{padding-block:36px;border-top:1px solid var(--rule);color:var(--muted);fo
   <div class="swatches"><div class="sw"><i style="background:#15271E"></i><div><b>Evergreen</b><code>#15271E</code><span>Ink. The mark, text, dark grounds.</span></div></div><div class="sw"><i style="background:#F3F5F1"></i><div><b>Paper</b><code>#F3F5F1</code><span>Light grounds. The mark on dark.</span></div></div><div class="sw"><i style="background:#C4362C"></i><div><b>Signal Red</b><code>#C4362C</code><span>Your branch, and nothing else. #F0715F on dark.</span></div></div><div class="sw"><i style="background:#0E1B15"></i><div><b>Night</b><code>#0E1B15</code><span>Dark grounds behind the mark.</span></div></div><div class="sw"><i style="background:#5C6F62"></i><div><b>Moss</b><code>#5C6F62</code><span>Secondary text, rules, captions on Paper only: 4.90:1. Fails on Night and Evergreen.</span></div></div><div class="sw"><i style="background:#56675C"></i><div><b>Moss Deep</b><code>#56675C</code><span>Secondary text on white and tinted panels: 5.48:1 on Paper.</span></div></div><div class="sw"><i style="background:#9AAEA1"></i><div><b>Moss Light</b><code>#9AAEA1</code><span>Secondary text on dark grounds: 7.54:1 on Night.</span></div></div></div>
   <div class="ratio" aria-label="Rough proportions: mostly paper and evergreen, a little moss, a sliver of red"><i style="flex:46;background:#F3F5F1"></i><i style="flex:38;background:#15271E"></i><i style="flex:12;background:#5C6F62"></i><i style="flex:4;background:#C4362C"></i></div>
   <h3 style="margin-top:34px">State colours</h3>
-  <p class="lede" style="margin-top:8px">For the CLI and the checkout index. These are kept apart from Signal Red so that red stays reserved for “yours”.</p>
+  <p class="lede" style="margin-top:8px">For the CLI and the overview. These are kept apart from Signal Red so that red stays reserved for “yours”.</p>
   <p class="lede" style="margin-top:8px">They are proposed, not in the code yet. Each is a pill fill with white text, never text on Paper. On dark grounds use the lighter variant as text or a marker.</p>
   <div class="states">
     <div class="state"><span class="pill" style="background:#1A7A50">ready</span><span>#1A7A50 · white 5.33:1<br>dark: #3FBF86 · 7.59:1 on Night<br>running and reachable</span></div>
     <div class="state"><span class="pill" style="background:#9A6A0C">pending</span><span>#9A6A0C · white 4.73:1<br>dark: #D9A441 · 7.87:1 on Night<br>first up not finished</span></div>
-    <div class="state"><span class="pill" style="background:#7A2E3A">missing</span><span>#7A2E3A · white 9.21:1<br>dark: #E0707F · 5.73:1 on Night<br>checkout gone</span></div>
+    <div class="state"><span class="pill" style="background:#7A2E3A">missing</span><span>#7A2E3A · white 9.21:1<br>dark: #E0707F · 5.73:1 on Night<br>directory gone</span></div>
   </div>
   <p class="lede" style="margin-top:22px;font-size:14px">License: the code is Apache-2.0, which grants no trademark rights (§6). Use of the name and mark by forks or packagers isn’t covered here.</p>
 </section>
@@ -260,7 +260,7 @@ mail  http://mail.feature-login.acme.localhost
   <div class="uses">
     <figure class="use"><div class="gh"><img src="treerig-logo.svg" alt="treerig"><hr><p><strong>A rig for every branch.</strong> Give every Git worktree a durable identity, an isolated home, and a routed URL.</p></div><figcaption>README header. Use a <code>&lt;picture&gt;</code> element so GitHub swaps in the dark lockup.</figcaption></figure>
     <figure class="use"><div class="social"><img src="treerig-logo-dark.svg" alt=""><b>A rig for every branch.</b><span>$ treerig up → http://<em>feature-login</em>.acme.localhost</span></div><figcaption>Social preview, 1280 × 640. The PNG version shows <code>trig up</code>.</figcaption></figure>
-    <figure class="use"><div class="tabs"><span class="tab"><img src="treerig-favicon-16.svg" width="16" height="16" alt="">treerig.localhost: 4 checkouts</span><span class="tab"><img src="treerig-favicon-16.svg" width="16" height="16" alt="">feature-login.acme.localhost</span></div><figcaption>The 16 px mark is the checkout index's tab icon, light and dark.</figcaption></figure>
+    <figure class="use"><div class="tabs"><span class="tab"><img src="treerig-favicon-16.svg" width="16" height="16" alt="">treerig.localhost: 4 worktrees</span><span class="tab"><img src="treerig-favicon-16.svg" width="16" height="16" alt="">feature-login.acme.localhost</span></div><figcaption>The 16 px mark is the overview's tab icon, light and dark.</figcaption></figure>
   </div>
 </section>
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sofired/treerig/internal/files"
@@ -82,5 +83,22 @@ func TestFillSharedByKindRefusesWhatItCannotFill(t *testing.T) {
 	err := fillSharedByKind(reflect.ValueOf(&value).Elem().Field(0), ".Routes")
 	if err == nil {
 		t.Fatal("a slice was filled")
+	}
+}
+
+// A shared-service record's domain ends up in a routed hostname and on the
+// overview page, so a record is read back only with a domain project.domain
+// would allow.
+func TestParseSharedRecordRefusesADomainNoProjectCouldHave(t *testing.T) {
+	record := func(domain string) []byte {
+		return []byte(fmt.Sprintf(`{"version": 1, "name": "mailpit", "domain": %q, "ports": {"8025": 30001}}`, domain))
+	}
+	if parsed, err := parseSharedRecordJSON(record("acme.localhost")); err != nil || parsed.Domain != "acme.localhost" {
+		t.Fatalf("a good domain: %+v, %v", parsed, err)
+	}
+	for _, domain := range []string{"", "Acme.localhost", "acme localhost", "<script>.localhost", "a..b", "-a.localhost", strings.Repeat("a", 64) + ".localhost"} {
+		if _, err := parseSharedRecordJSON(record(domain)); err == nil {
+			t.Errorf("domain %q was accepted", domain)
+		}
 	}
 }

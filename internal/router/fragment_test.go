@@ -322,7 +322,7 @@ func TestListFragments(t *testing.T) {
 }
 
 func TestIndexFragmentDocument(t *testing.T) {
-	t.Run("routes the checkout index's own host to the loopback port it is published on", func(t *testing.T) {
+	t.Run("routes the overview's own host to the loopback port it is published on", func(t *testing.T) {
 		doc := router.IndexFragmentDocument(30500)
 		encoded, err := json.Marshal(doc)
 		if err != nil {

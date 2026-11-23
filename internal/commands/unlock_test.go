@@ -535,7 +535,7 @@ func TestUnlockGlobal(t *testing.T) {
 
 	// Pins finding 1 of the four-role review of #21: --router used to build
 	// the router's lock scope without ever calling router.SecureState, the
-	// same guard RouterUp and newCheckoutIndex both take before touching
+	// same guard RouterUp and newOverview both take before touching
 	// the router's state directory, unlike ProbeHeld/Clear, which open the
 	// lock file directly with nothing of their own to catch a symlink.
 	t.Run("refuses a symlinked router state directory", func(t *testing.T) {

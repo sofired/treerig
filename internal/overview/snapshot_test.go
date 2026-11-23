@@ -73,7 +73,7 @@ var (
 )
 
 // hosted is the same services, on the host the registration says this
-// checkout has.
+// worktree has.
 func hosted(record registry.RegisteredWorktree, services ...card.IndexService) []card.IndexService {
 	host := record.Slug + "." + record.Domain
 	result := make([]card.IndexService, len(services))
@@ -315,7 +315,7 @@ func TestBuildSnapshot(t *testing.T) {
 	t.Run("drops a service the card points somewhere other than this worktree", func(t *testing.T) {
 		// Every field in a card is self-attested, and the card lives in a
 		// home every lifecycle hook is handed. Only the registration says
-		// where a checkout is, so a link anywhere else is not published at
+		// where a worktree is, so a link anywhere else is not published at
 		// all.
 		regs := testRegistrations()
 		a := regs[0]

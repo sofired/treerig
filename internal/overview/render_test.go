@@ -31,7 +31,7 @@ func countMatches(s string, re *regexp.Regexp) int {
 }
 
 // renderTestEntry is the shared rendering-test fixture: one partial
-// checkout with two services, one available and one not.
+// worktree with two services, one available and one not.
 func renderTestEntry() IndexEntry {
 	return IndexEntry{
 		RepositoryID: testRepo, WorktreeID: testWorktreeIDs[0], Project: "acme", Domain: "acme.localhost", Slug: "feature-a",
@@ -50,13 +50,11 @@ func renderTestSnapshot() IndexSnapshot {
 	return IndexSnapshot{Entries: []IndexEntry{renderTestEntry()}, GeneratedAt: "2026-09-21T12:00:00.000Z", DockerReachable: true}
 }
 
-const renderTestURL = "http://treerig.localhost"
-
 const dockerNoticeHTML = "Docker could not be asked about containers, so no service below has been checked. " +
-	"Rows show unknown unless their directory is missing or their removal is under way. Run <code>treerig index</code> again once it answers."
+	"Rows show unknown unless their directory is missing or their removal is under way. Run <code>treerig list --all --refresh</code> again once it answers."
 
-// pinHomeDir fixes what compactPath's production call sites (renderRow,
-// formatIndexRow) resolve as the current user's home, for the rest of the
+// pinHomeDir fixes what compactPath's production call site (renderRow)
+// resolves as the current user's home, for the rest of the
 // test. Without this, an assertion that wants to check what the row-
 // rendering code does with a path under home would have to call compactPath
 // itself to build the expected value — the same call the code under test
@@ -69,7 +67,7 @@ func pinHomeDir(t *testing.T, home string) {
 	t.Cleanup(func() { userHomeDir = original })
 }
 
-// TestRendering covers the checkout index page's own rendering.
+// TestRendering covers the overview page's own rendering.
 func TestRendering(t *testing.T) {
 	// Fixed and deliberately unrelated to every fixture's root
 	// (/Users/dev/worktrees/feature-a), so compactPath leaves those roots
@@ -101,64 +99,11 @@ func TestRendering(t *testing.T) {
 		if !strings.Contains(RenderIndexHTML(empty), "No worktrees have been indexed yet. Run <code>treerig up</code> in a worktree.") {
 			t.Error("missing empty-state HTML")
 		}
-		if !strings.Contains(FormatIndexText(empty, renderTestURL), "No worktrees have been indexed yet. Run `treerig up` in a worktree.") {
-			t.Error("missing empty-state text")
-		}
 		gone := renderTestEntry()
 		gone.State = worktree.StateDirectoryMissing
 		goneSnapshot := IndexSnapshot{Entries: []IndexEntry{gone}, GeneratedAt: "now", DockerReachable: true}
 		if !strings.Contains(RenderIndexHTML(goneSnapshot), "treerig worktree remove feature-a") {
 			t.Error("missing remove guidance in HTML")
-		}
-		if !strings.Contains(FormatIndexText(goneSnapshot, renderTestURL), "    fix       treerig worktree remove feature-a") {
-			t.Error("missing remove guidance in text")
-		}
-	})
-
-	t.Run("formats the text twin with the index URL, each purpose, the legend, and state markers", func(t *testing.T) {
-		got := strings.Split(FormatIndexText(renderTestSnapshot(), renderTestURL), "\n")
-		want := []string{
-			"Overview  http://treerig.localhost",
-			"Updated   2026-09-21T12:00:00.000Z",
-			"",
-		}
-		want = append(want, strings.Split(legendText(), "\n")...)
-		want = append(want,
-			"Services: ! not answering, ? not checked, - directory missing.",
-			"",
-			"acme · acme.localhost",
-			"  [partly running]  feature/<a>",
-			"    host      feature-a.acme.localhost",
-			// Not under the pinned home, so compactPath leaves it whole; a
-			// hardcoded literal, not a call to compactPath itself, so a
-			// regression there can't hide behind this test calling the same
-			// code it means to check.
-			"    directory /Users/dev/worktrees/feature-a",
-			"      API (REST surface)           http://feature-a.acme.localhost",
-			`    ! Mailpit (Captured "email")   http://mail.feature-a.acme.localhost`,
-		)
-		if len(got) != len(want) {
-			t.Fatalf("got %d lines, want %d\ngot: %v\nwant: %v", len(got), len(want), got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Errorf("line %d: got %q, want %q", i, got[i], want[i])
-			}
-		}
-	})
-
-	t.Run("keeps every text line inside eighty columns, however long the notice", func(t *testing.T) {
-		snapshot := renderTestSnapshot()
-		snapshot.DockerReachable = false
-		snapshot.IdentityError = &IdentityFailure{Reason: "fatal: not a git repository (or any of the parent directories): .git", RowsUnknown: true}
-		wordy := FormatIndexText(snapshot, renderTestURL)
-		for _, line := range strings.Split(wordy, "\n") {
-			if text.JSLen(line) > 80 {
-				t.Errorf("line exceeds 80 columns: %q", line)
-			}
-		}
-		if !strings.Contains(wordy, "not a git repository") {
-			t.Error("missing the identity error's own text")
 		}
 	})
 
@@ -176,16 +121,7 @@ func TestRendering(t *testing.T) {
 		if !strings.Contains(RenderIndexHTML(blank), `<th scope="row"><span class="muted">(no branch)</span>`) {
 			t.Error("missing no-branch markup")
 		}
-		if !strings.Contains(FormatIndexText(blank, renderTestURL), "  [partly running]  (no branch)") {
-			t.Error("missing no-branch text")
-		}
 
-		namedDetached := renderTestEntry()
-		namedDetached.Branch = strPtr("detached")
-		namedSnapshot := IndexSnapshot{Entries: []IndexEntry{namedDetached}, GeneratedAt: renderTestSnapshot().GeneratedAt, DockerReachable: true}
-		if !strings.Contains(FormatIndexText(namedSnapshot, renderTestURL), "  [partly running]  detached") {
-			t.Error("a branch literally named 'detached' should print as itself")
-		}
 		// `detached` is a legal branch name: the parentheses are what tell
 		// them apart.
 		if got, want := DescribeBranch(strPtr("detached")), (DescribedBranch{Text: "detached", Muted: false}); got != want {
@@ -236,13 +172,6 @@ func TestRendering(t *testing.T) {
 		if got := countMatches(widgets, regexp.MustCompile(`<th scope="row">`)); got != 1 {
 			t.Errorf("widgets section rows = %d, want 1", got)
 		}
-		textOut := FormatIndexText(snapshot, renderTestURL)
-		if got := countMatches(textOut, regexp.MustCompile(`(?m)^acme · acme\.localhost$`)); got != 1 {
-			t.Errorf("heading line count = %d, want 1", got)
-		}
-		if !strings.Contains(textOut, "feature/b") {
-			t.Error("missing second row's branch")
-		}
 	})
 
 	t.Run("keeps service links live when Docker was never asked, and says which state is unread", func(t *testing.T) {
@@ -263,13 +192,6 @@ func TestRendering(t *testing.T) {
 		if strings.Contains(html, "(unavailable)") {
 			t.Error("should not claim unavailable when unchecked")
 		}
-		textOut := FormatIndexText(blind, renderTestURL)
-		if !strings.Contains(textOut, "    ? API (REST surface)") {
-			t.Error("missing unchecked marker in text")
-		}
-		if strings.Contains(textOut, "! Mailpit") {
-			t.Error("should not mark Mailpit unavailable when unchecked")
-		}
 		// A worktree whose directory is missing is not in doubt, and nothing was
 		// asked of its services: they are not "not answering", they are
 		// not there.
@@ -286,13 +208,6 @@ func TestRendering(t *testing.T) {
 		if !strings.Contains(gone, "status-directory-missing") {
 			t.Error("missing status-directory-missing class")
 		}
-		goneText := FormatIndexText(blindGone, renderTestURL)
-		if strings.Contains(goneText, "! API") {
-			t.Error("should not mark a service of a worktree with a missing directory unavailable")
-		}
-		if !strings.Contains(goneText, "    - API (REST surface)") {
-			t.Error("missing gone marker in text")
-		}
 	})
 
 	t.Run("says nothing about Docker or Git when there are no rows for it to be about", func(t *testing.T) {
@@ -302,9 +217,6 @@ func TestRendering(t *testing.T) {
 		}
 		if strings.Contains(RenderIndexHTML(nothing), "git exploded") {
 			t.Error("should say nothing about Git with no rows")
-		}
-		if strings.Contains(FormatIndexText(nothing, renderTestURL), "Docker could not be asked") {
-			t.Error("text twin should say nothing about Docker with no rows")
 		}
 		placeholder := RenderIndexHTML(PlaceholderSnapshot("now"))
 		if !strings.Contains(placeholder, "No worktrees have been indexed yet") {
@@ -367,7 +279,7 @@ func TestRendering(t *testing.T) {
 		}
 		// Named once, by the heading it already shows, through an id that
 		// counts sections.
-		if !strings.Contains(html, `<div class="table-wrap" role="region" aria-labelledby="checkouts-0">`) {
+		if !strings.Contains(html, `<div class="table-wrap" role="region" aria-labelledby="worktrees-0">`) {
 			t.Error("missing labelled region")
 		}
 		// Focusable only while it has something to scroll to, which the
@@ -381,7 +293,7 @@ func TestRendering(t *testing.T) {
 		if strings.Contains(html, "<caption") {
 			t.Error("should not use a caption element")
 		}
-		if !strings.Contains(html, `<h2 id="checkouts-0">`) {
+		if !strings.Contains(html, `<h2 id="worktrees-0">`) {
 			t.Error("missing section heading id")
 		}
 	})
@@ -437,22 +349,22 @@ func TestRendering(t *testing.T) {
 		}
 	})
 
-	t.Run("moves the checkout path under the branch on a narrow screen instead of dropping it", func(t *testing.T) {
+	t.Run("moves the directory path under the branch on a narrow screen instead of dropping it", func(t *testing.T) {
 		html := RenderIndexHTML(renderTestSnapshot())
 		narrowParts := strings.SplitN(html, "@media (max-width: 900px)", 2)
 		narrow := ""
 		if len(narrowParts) > 1 {
 			narrow = strings.SplitN(narrowParts[1], "@media", 2)[0]
 		}
-		if !regexp.MustCompile(`\.checkout \{ display: none; \}`).MatchString(narrow) {
-			t.Error("missing checkout hide rule")
+		if !regexp.MustCompile(`\.directory \{ display: none; \}`).MatchString(narrow) {
+			t.Error("missing directory hide rule")
 		}
 		if !regexp.MustCompile(`\.path-compact \{ display: block;`).MatchString(narrow) {
 			t.Error("missing path-compact show rule")
 		}
 		// Rendered either way; the stylesheet decides which one a reader sees.
-		if !strings.Contains(html, `<td class="checkout">`) {
-			t.Error("missing checkout cell")
+		if !strings.Contains(html, `<td class="directory">`) {
+			t.Error("missing directory cell")
 		}
 		phoneParts := strings.SplitN(html, "@media (max-width: 400px)", 2)
 		phone := ""
@@ -511,7 +423,7 @@ func TestRendering(t *testing.T) {
 		}
 	})
 
-	t.Run("renders a registration that has never been up, with nothing to show in either twin", func(t *testing.T) {
+	t.Run("renders a registration that has never been up, with nothing to show", func(t *testing.T) {
 		bare := IndexEntry{
 			RepositoryID: testRepo, WorktreeID: testWorktreeIDs[1], Project: "acme.localhost", Domain: "acme.localhost",
 			Slug: "feature-b", Host: "feature-b.acme.localhost", State: worktree.StateStopped,
@@ -523,36 +435,6 @@ func TestRendering(t *testing.T) {
 		}
 		if strings.Contains(html, `<span class="path-compact">`) {
 			t.Error("should carry no path-compact span with no root")
-		}
-		// The text twin has to say it too, or an empty line reads as an
-		// omission.
-		textOut := FormatIndexText(snapshot, renderTestURL)
-		if !strings.Contains(textOut, "    directory -") {
-			t.Error("missing directory placeholder")
-		}
-		if !strings.Contains(textOut, "    (no services)") {
-			t.Error("missing no-services placeholder")
-		}
-	})
-
-	t.Run("gives a service its own line for the URL rather than one a terminal would fold", func(t *testing.T) {
-		wordyEntry := renderTestEntry()
-		wordyEntry.Services = []IndexServiceLink{{
-			Name: "admin", Label: "Postgres admin", Purpose: "schema browser and query console",
-			URL: "http://admin.feature-a.acme.localhost/console", Available: true,
-		}}
-		wordy := IndexSnapshot{Entries: []IndexEntry{wordyEntry}, GeneratedAt: renderTestSnapshot().GeneratedAt, DockerReachable: true}
-		lines := strings.Split(FormatIndexText(wordy, renderTestURL), "\n")
-		for _, line := range lines {
-			if text.JSLen(line) > 80 {
-				t.Errorf("line exceeds 80 columns: %q", line)
-			}
-		}
-		if !slices.Contains(lines, "      Postgres admin (schema browser and query console)") {
-			t.Error("missing wrapped service name line")
-		}
-		if !slices.Contains(lines, "        http://admin.feature-a.acme.localhost/console") {
-			t.Error("missing indented URL line")
 		}
 	})
 
@@ -573,9 +455,6 @@ func TestRendering(t *testing.T) {
 		if strings.Contains(wholesale, "rather than directory missing") {
 			t.Error("wholesale failure should not mention rows")
 		}
-		if !strings.Contains(strings.Join(strings.Fields(FormatIndexText(wholesaleSnapshot, renderTestURL)), " "), "none is reported as having lost its directory") {
-			t.Error("text twin missing wholesale consequence")
-		}
 	})
 
 	t.Run("keeps a backtick in whatever Git said from marking up the rest of the sentence", func(t *testing.T) {
@@ -585,7 +464,7 @@ func TestRendering(t *testing.T) {
 		start := strings.Index(html, `<p class="notice">`)
 		end := strings.Index(html[start:], "</p>") + start
 		notice := html[start:end]
-		if !strings.Contains(notice, "<code>treerig index</code>") {
+		if !strings.Contains(notice, "<code>treerig list --all --refresh</code>") {
 			t.Error("missing the one legitimate code span")
 		}
 		if got := countMatches(notice, regexp.MustCompile(`<code>`)); got != 1 {
@@ -593,12 +472,15 @@ func TestRendering(t *testing.T) {
 		}
 	})
 
-	t.Run("leaves a word longer than the terminal whole rather than breaking a path", func(t *testing.T) {
-		if got, want := wrapText(strings.Repeat("x", 95), 78), strings.Repeat("x", 95); got != want {
-			t.Errorf("wrapText(95 x's) = %q, want %q", got, want)
-		}
-		if got, want := wrapText("one two three", 7), "one two\nthree"; got != want {
-			t.Errorf("wrapText = %q, want %q", got, want)
+	t.Run("keeps a backtick in whatever Docker said from marking up the rest of the sentence", func(t *testing.T) {
+		snapshot := renderTestSnapshot()
+		snapshot.DockerReachable = false
+		snapshot.DockerError = strPtr("the `docker` command is not on PATH")
+		html := RenderIndexHTML(snapshot)
+		start := strings.Index(html, `<p class="notice">`)
+		notice := html[start : strings.Index(html[start:], "</p>")+start]
+		if got := countMatches(notice, regexp.MustCompile(`<code>`)); got != 1 {
+			t.Errorf("code span count = %d, want 1: %s", got, notice)
 		}
 	})
 
@@ -665,36 +547,14 @@ func TestRendering(t *testing.T) {
 		if hidden := hiddenCharacters(RenderIndexHTML(one)); len(hidden) != 0 {
 			t.Errorf("rendered HTML still carries hidden characters: %q", hidden)
 		}
-		if hidden := hiddenCharacters(FormatIndexText(one, renderTestURL)); len(hidden) != 0 {
-			t.Errorf("formatted text still carries hidden characters: %q", hidden)
-		}
 	})
 
-	t.Run("folds a multi-line reason from Git into a sentence that still fits a terminal", func(t *testing.T) {
-		reason := "fatal: not a git repository\nhint: use the checkout this repository was cloned into, or run it again from there"
+	t.Run("joins a multi-line reason from Git into a sentence", func(t *testing.T) {
+		reason := "fatal: not a git repository\nhint: use the directory this repository was cloned into, or run it again from there"
 		wordy := renderTestSnapshot()
 		wordy.IdentityError = &IdentityFailure{Reason: reason, RowsUnknown: true}
-		textOut := FormatIndexText(wordy, renderTestURL)
-		if strings.Contains(textOut, "�") {
-			t.Error("a line break should fold, not become a replacement character")
-		}
-		for _, line := range strings.Split(textOut, "\n") {
-			if text.JSLen(line) > 80 {
-				t.Errorf("line exceeds 80 columns: %q", line)
-			}
-		}
-		if !strings.Contains(RenderIndexHTML(wordy), "fatal: not a git repository hint: use the checkout") {
+		if !strings.Contains(RenderIndexHTML(wordy), "fatal: not a git repository hint: use the directory") {
 			t.Error("HTML should join the reason's lines with a space")
-		}
-	})
-
-	t.Run("leaves the remove command on one line however long the slug", func(t *testing.T) {
-		long := "feature-a-really-long-branch-name-that-uses-the-whole-slug-budget"
-		goneEntry := renderTestEntry()
-		goneEntry.Slug, goneEntry.State = long, worktree.StateDirectoryMissing
-		gone := IndexSnapshot{Entries: []IndexEntry{goneEntry}, GeneratedAt: renderTestSnapshot().GeneratedAt, DockerReachable: true}
-		if !strings.Contains(FormatIndexText(gone, renderTestURL), "    fix       treerig worktree remove "+long) {
-			t.Error("remove command should stay on one line")
 		}
 	})
 
@@ -717,9 +577,6 @@ func TestRendering(t *testing.T) {
 		}
 		if want := []string{"alpha, beta · b.localhost", "zeta · a.localhost"}; !slices.Equal(headings, want) {
 			t.Errorf("headings = %v, want %v", headings, want)
-		}
-		if !strings.Contains(FormatIndexText(rowsSnapshot, renderTestURL), "alpha, beta · b.localhost") {
-			t.Error("text twin missing the joined heading")
 		}
 	})
 

@@ -8,6 +8,7 @@ package card
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	"github.com/sofired/treerig/internal/brand"
+	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/stateformat"
@@ -213,22 +216,30 @@ func ReadIndexCard(controlHome, repositoryID, worktreeID string) (*IndexCard, er
 // at all, and snapshot.go's caller renders the two differently (Unknown,
 // not Missing or Stopped).
 func ReadIndexCardAt(file string) (*IndexCard, error) {
+	// A card is written by whatever ran `up` in a worktree, so it is read as
+	// something that may be anything: only a regular file, opened without
+	// blocking (a pipe with no writer would hold the listing forever), and read
+	// no further than the limit. What is refused as not being a card is "no
+	// card"; a failure of the read itself is an error.
 	info, err := os.Stat(file)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	if !info.Mode().IsRegular() {
+		// Not a card, and not "no card" either: something is in the card's place
+		// that no `up` wrote, and the worktree's state cannot be told from it.
+		return nil, clierr.Newf("%s is not a regular file.", file)
+	}
 	if info.Size() > maxCardBytes {
 		return nil, nil
 	}
-	data, err := os.ReadFile(file)
+	data, err := config.ReadRegularFile(file, maxCardBytes)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// Raced: gone between the Stat above and this Read (a
-			// concurrent `worktree remove`, say). Still "no card", not a
-			// failure — nothing is actually unreadable.
+		if errors.Is(err, os.ErrNotExist) {
+			// Gone between the stat and the read (a concurrent `worktree remove`).
 			return nil, nil
 		}
 		return nil, err
@@ -376,11 +387,7 @@ type rawNamespaceOnly struct {
 // readLabelNamespace is the one field a card is still useful for when the
 // rest of it does not parse.
 func readLabelNamespace(file string) *string {
-	info, err := os.Stat(file)
-	if err != nil || info.Size() > maxCardBytes {
-		return nil
-	}
-	data, err := os.ReadFile(file)
+	data, err := config.ReadRegularFile(file, maxCardBytes)
 	if err != nil {
 		return nil
 	}

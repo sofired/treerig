@@ -62,7 +62,7 @@ func TestSharedServicesInTheIndex(t *testing.T) {
 		}
 	})
 
-	t.Run("lists a routed record at its shared host, with the project its checkouts gave", func(t *testing.T) {
+	t.Run("lists a routed record at its shared host, with the project its worktrees gave", func(t *testing.T) {
 		input := baseSnapshotInput(t)
 		input.SharedRecords = []registry.SharedRecord{sharedRecord("mailpit")}
 		input.Containers = append(input.Containers, mustParseInventory(t, sharedLine("mailpit"))...)
@@ -144,7 +144,7 @@ func TestSharedServicesInTheIndex(t *testing.T) {
 	})
 }
 
-// sharedSnapshot is a snapshot with one checkout and one shared UI.
+// sharedSnapshot is a snapshot with one worktree and one shared UI.
 func sharedSnapshot(available bool) IndexSnapshot {
 	snapshot := renderTestSnapshot()
 	snapshot.Shared = []IndexSharedService{{
@@ -154,7 +154,7 @@ func sharedSnapshot(available bool) IndexSnapshot {
 	return snapshot
 }
 
-// TestSharedServicesRendering covers the page and the text twin.
+// TestSharedServicesRendering covers the page.
 func TestSharedServicesRendering(t *testing.T) {
 	pinHomeDir(t, "/Users/dev")
 
@@ -162,17 +162,14 @@ func TestSharedServicesRendering(t *testing.T) {
 		if strings.Contains(RenderIndexHTML(renderTestSnapshot()), "Shared services") {
 			t.Error("the group appeared with nothing to list")
 		}
-		if strings.Contains(FormatIndexText(renderTestSnapshot(), renderTestURL), "Shared services") {
-			t.Error("the text group appeared with nothing to list")
-		}
 	})
 
-	t.Run("lists a running UI as a link in a group of its own after the checkouts", func(t *testing.T) {
+	t.Run("lists a running UI as a link in a group of its own after the worktrees", func(t *testing.T) {
 		html := RenderIndexHTML(sharedSnapshot(true))
 		group := strings.Index(html, `id="shared-services"`)
-		checkouts := strings.Index(html, `id="checkouts-0"`)
-		if group < 0 || checkouts < 0 || group < checkouts {
-			t.Fatalf("group at %d, checkouts at %d", group, checkouts)
+		worktrees := strings.Index(html, `id="worktrees-0"`)
+		if group < 0 || worktrees < 0 || group < worktrees {
+			t.Fatalf("group at %d, worktrees at %d", group, worktrees)
 		}
 		for _, want := range []string{
 			`<h2 id="shared-services">Shared services</h2>`,
@@ -210,23 +207,8 @@ func TestSharedServicesRendering(t *testing.T) {
 		if !strings.Contains(RenderIndexHTML(snapshot), `id="shared-services"`) {
 			t.Error("the group is missing")
 		}
-		text := FormatIndexText(snapshot, renderTestURL)
-		if !strings.Contains(text, "http://mailpit.shared.acme.localhost") || !strings.Contains(text, "No worktrees have been indexed yet") ||
-			!strings.Contains(text, "Shared services: ! not answering") || strings.Contains(text, "\n\n\n") {
-			t.Errorf("text = %q", text)
-		}
 		if !strings.Contains(RenderIndexHTML(snapshot), `class="empty"`) {
 			t.Error("the empty-state paragraph is missing")
-		}
-	})
-
-	t.Run("the text twin lists the address on a line of its own, with the state marker", func(t *testing.T) {
-		out := FormatIndexText(sharedSnapshot(false), renderTestURL)
-		if !strings.Contains(out, "Shared services\n  ! mailpit  (acme)\n        http://mailpit.shared.acme.localhost") {
-			t.Errorf("text = %q", out)
-		}
-		if !strings.Contains(FormatIndexText(sharedSnapshot(true), renderTestURL), "Shared services\n    mailpit  (acme)\n") {
-			t.Error("a running UI is marked")
 		}
 	})
 }
@@ -269,7 +251,7 @@ func TestServiceListsSharedServices(t *testing.T) {
 		}
 	})
 
-	t.Run("a shared container does not make Docker unreadable for the checkouts", func(t *testing.T) {
+	t.Run("a shared container does not make Docker unreadable for the worktrees", func(t *testing.T) {
 		docker := &dockerFake{stdout: dockerLine(a, "api", "running", "Up 20 seconds (healthy)") + "\n" + sharedLine("mailpit")}
 		h := newServiceHarness(t, docker, []registry.RegisteredWorktree{a}, []registry.WorktreeIdentity{testIdentity(a, "feature/a")})
 		writeTestCard(t, h.controlHome, a, []card.IndexService{{Name: "api", URL: "http://feature-a.acme.localhost:8080", Label: "API", Purpose: "REST"}})

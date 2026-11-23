@@ -107,7 +107,7 @@ var jsonToolVersionPattern = regexp.MustCompile(`("id": "prerequisites\.git",[^}
 // Every case's expected output, frozen as a golden corpus under
 // testdata/output/<name>/, and replayed against the live binary from here
 // on: same paths, same UUIDs, the same fake docker every time. `down`,
-// `worktree remove`, and `index` itself (#41) all refresh the index, so
+// `worktree remove`, and `list --all --refresh` (#41, #204) all refresh the page, so
 // every docker call each makes is compared, with no exclusion. The one
 // thing that could never match byte for byte between two separate process
 // invocations is real wall-clock time: normalizeTimestamp scrubs it,
@@ -128,7 +128,7 @@ type outputRun struct {
 	Stdout, Stderr string
 	Exit           int
 	Docker         []string
-	// IndexPage is the checkout index page on disk after the run, timestamp-
+	// IndexPage is the overview page on disk after the run, timestamp-
 	// and fixture-path-normalized and with its content fingerprint scrubbed
 	// (see fingerprintPattern), for a case that asks readIndexPage to read it
 	// (down and worktree remove both refresh it as a side effect; "" for a
@@ -138,7 +138,7 @@ type outputRun struct {
 }
 
 type outputFixture struct {
-	base, checkout, controlHome, bin, state string
+	base, worktree, controlHome, bin, state string
 }
 
 // newOutputFixture lays out a registered worktree at base, from scratch: a
@@ -149,9 +149,9 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 	if err := os.RemoveAll(base); err != nil {
 		t.Fatal(err)
 	}
-	f := outputFixture{base: base, checkout: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
+	f := outputFixture{base: base, worktree: filepath.Join(base, "checkout"), controlHome: filepath.Join(base, "control"),
 		bin: filepath.Join(base, "bin"), state: filepath.Join(base, "state")}
-	for _, dir := range []string{f.checkout, f.bin, f.state} {
+	for _, dir := range []string{f.worktree, f.bin, f.state} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -165,14 +165,14 @@ func newOutputFixture(t *testing.T, base string, decoy bool) outputFixture {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(f.checkout, "treerig.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n[service.mail]\nsubdomain = \"mail\"\n", 0o644)
+	write(filepath.Join(f.worktree, "treerig.toml"), "[project]\nname = \"acme\"\ndomain = \"acme.localhost\"\n[compose]\nfile = \"compose.yaml\"\n[service.api]\n[service.mail]\nsubdomain = \"mail\"\n", 0o644)
 	git := exec.Command("git", "init", "--initial-branch=feature/login", ".")
-	git.Dir = f.checkout
+	git.Dir = f.worktree
 	if output, err := git.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)
 	}
-	write(filepath.Join(f.checkout, ".git", "treerig", "repository-id"), registry.IdentityMarkerContents(fixtureRepo), 0o600)
-	write(filepath.Join(f.checkout, ".git", "treerig", "worktree-id"), registry.IdentityMarkerContents(fixtureWt), 0o600)
+	write(filepath.Join(f.worktree, ".git", "treerig", "repository-id"), registry.IdentityMarkerContents(fixtureRepo), 0o600)
+	write(filepath.Join(f.worktree, ".git", "treerig", "worktree-id"), registry.IdentityMarkerContents(fixtureWt), 0o600)
 	paths := layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt)
 	// This build's own marker format: files.AssertAdoptableControlHome only
 	// cares that the marker exists, not its exact bytes, but this is what a
@@ -268,6 +268,23 @@ func writeFixtureCard(t *testing.T, f outputFixture, root string) {
 	}
 }
 
+// writeFixtureCardWithServices writes the index card an `up` of the fixture
+// would have left: root as the directory the worktree was last seen in, and
+// the api service it routed at the fixture's own host.
+func writeFixtureCardWithServices(t *testing.T, f outputFixture, root string) {
+	t.Helper()
+	path := card.IndexCardPath(f.controlHome, fixtureRepo, fixtureWt)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	contents := `{"version": 1, "project": "acme", "domain": "acme.localhost", "slug": "feature-login", "host": "feature-login.acme.localhost", ` +
+		`"root": ` + strconv.Quote(root) + `, "branch": "feature/login", "labelNamespace": "dev.treerig", "services": [` +
+		`{"name": "api", "url": "http://feature-login.acme.localhost", "label": "", "purpose": ""}], "updatedAt": "2026-01-01T00:00:00.000Z"}`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // dockerNotAnswering is the setup of a case whose Docker answers every call
 // that lists containers with the daemon's own refusal.
 func dockerNotAnswering(t *testing.T, f outputFixture) {
@@ -289,7 +306,7 @@ func dockerNotAnswering(t *testing.T, f outputFixture) {
 }
 
 // excludeLines drops every line of stdout containing substr — doctor's own
-// Node.js line, excluded from the comparison the way the checkout-index
+// Node.js line, excluded from the comparison the way the overview
 // refresh's docker calls are excluded from the transcript.
 func excludeLines(stdout, substr string) string {
 	lines := strings.Split(stdout, "\n")
@@ -338,9 +355,9 @@ var pinnedDigestPattern = regexp.MustCompile(`(teardown/)[0-9a-f]{64}`)
 // but doctor's "no checkout" one, which needs a directory with no treerig.toml
 // above it; f.base (this fixture's own root, holding only checkout/, bin/,
 // state/ and control/) is that — and reports what it did. checkIndexPage
-// additionally reads the checkout index page HOME's router state directory
+// additionally reads the overview page HOME's router state directory
 // holds afterward (a case whose verb refreshes the index as a side effect —
-// down, worktree remove, or index itself); a case that never touches the
+// down, worktree remove, or list --all --refresh); a case that never touches the
 // index passes false, so IndexPage stays "" and contributes nothing to the
 // comparison.
 func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIndexPage bool) outputRun {
@@ -383,7 +400,7 @@ func (f outputFixture) runIn(t *testing.T, dir string, command []string, checkIn
 	return run
 }
 
-// readIndexPage reads the checkout index page this fixture's last run
+// readIndexPage reads the overview page this fixture's last run
 // wrote, resolved through layout.RouterState the same way runIn's own env
 // does (HOME=f.base, TREERIG_HOME=f.controlHome). Each call to run() rebuilds
 // the fixture from scratch first (see newOutputFixture), so "" means the
@@ -444,7 +461,7 @@ func TestOutputGoldens(t *testing.T) {
 		// substrings from both the golden and the live run before
 		// comparing — doctor's Node.js line, recorded in the golden but
 		// never printed by this build (there is no Go runtime version to
-		// check), the same way the checkout-index refresh's own docker
+		// check), the same way the overview refresh's own docker
 		// calls are excluded from the transcript above.
 		excludeStdoutLines []string
 		// unorderedDocker compares Docker as a set instead of a sequence:
@@ -452,7 +469,7 @@ func TestOutputGoldens(t *testing.T) {
 		// builds, and which one's call lands in the transcript first is not
 		// itself meaningful.
 		unorderedDocker bool
-		// checkIndexPage additionally compares the checkout index page on
+		// checkIndexPage additionally compares the overview page on
 		// disk (timestamp normalized) for a case whose verb refreshes it.
 		checkIndexPage bool
 		// excludeDockerCalls drops any Docker transcript entry containing one
@@ -473,7 +490,7 @@ func TestOutputGoldens(t *testing.T) {
 		// Docker not answering: still printed, the cause on stderr, and status
 		// exits 1 for the daemon as it did before.
 		{
-			name: "worktree list, an interrupted removal", args: []string{"worktree", "list"},
+			name: "list, an interrupted removal", args: []string{"list"}, unorderedDocker: true,
 			setup: func(t *testing.T, f outputFixture) {
 				t.Helper()
 				marker := layout.WorktreeLayout(f.controlHome, fixtureRepo, fixtureWt).RemovalPath
@@ -502,7 +519,7 @@ func TestOutputGoldens(t *testing.T) {
 		{
 			name: "status of a named worktree, outside a repository", args: []string{"status", "feature-login"},
 			outsideRepository: true, unorderedDocker: true,
-			setup: func(t *testing.T, f outputFixture) { writeFixtureCard(t, f, f.checkout) },
+			setup: func(t *testing.T, f outputFixture) { writeFixtureCard(t, f, f.worktree) },
 		},
 		{
 			name: "status --json of a named worktree whose directory is gone", args: []string{"status", "--json", "feature-login"},
@@ -537,23 +554,47 @@ func TestOutputGoldens(t *testing.T) {
 			},
 		},
 		{name: "status, Docker not answering", args: []string{"status"}, setup: dockerNotAnswering, unorderedDocker: true},
-		{name: "worktree list, Docker not answering", args: []string{"worktree", "list"}, setup: dockerNotAnswering},
-		{name: "index, Docker not answering", args: []string{"index"}, setup: dockerNotAnswering, checkIndexPage: true},
-		// urls is a hidden stub that names its replacement and exits 1 (#203).
+		{name: "list, Docker not answering", args: []string{"list"}, setup: dockerNotAnswering, unorderedDocker: true},
+		{name: "list --all --refresh, Docker not answering", args: []string{"list", "--all", "--refresh"}, setup: dockerNotAnswering, checkIndexPage: true, unorderedDocker: true},
+		// urls, index and worktree list are hidden stubs that name their
+		// replacement and exit 1 (#203, #204).
 		{name: "urls", args: []string{"urls"}},
-		// index's own stdout embeds snapshot.GeneratedAt, real wall-clock
-		// time at the moment each build's own process ran; normalizeTimestamp
-		// scrubs it (both here and in the page below) rather than excluding
-		// the case, so the rest of index's output and every docker call it
-		// makes are still compared exactly.
-		{name: "index", args: []string{"index"}, checkIndexPage: true},
-		{name: "worktree list", args: []string{"worktree", "list"}},
-		{name: "worktree list --json", args: []string{"worktree", "list", "--json"}},
+		{name: "index, a stub", args: []string{"index"}},
+		{name: "index --json, a stub", args: []string{"index", "--json"}},
+		{name: "worktree list, a stub", args: []string{"worktree", "list"}},
+		{name: "worktree list --json, a stub", args: []string{"worktree", "list", "--json"}},
+		// list --all --refresh's own stdout embeds snapshot.GeneratedAt, real
+		// wall-clock time at the moment each build's own process ran;
+		// normalizeTimestamp scrubs it (both here and in the page below)
+		// rather than excluding the case, so the rest of its output and
+		// every docker call it makes are still compared exactly.
+		{name: "list --all --refresh", args: []string{"list", "--all", "--refresh"}, checkIndexPage: true, unorderedDocker: true},
+		{name: "list", args: []string{"list"}, unorderedDocker: true},
+		{name: "list --all", args: []string{"list", "--all"}, unorderedDocker: true},
+		{name: "list --json", args: []string{"list", "--json"}, unorderedDocker: true},
+		// The URL column follows the service and the router (#204): the card
+		// `up` leaves names the service it routed, the fake container runs it,
+		// and the router answers on this root's port.
+		{
+			name: "list, a running service's URL", args: []string{"list"}, unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) { writeFixtureCardWithServices(t, f, f.worktree) },
+		},
+		{
+			name: "list --json, a running service's URL", args: []string{"list", "--json"}, unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) { writeFixtureCardWithServices(t, f, f.worktree) },
+		},
+		{
+			name: "list, router stopped", args: []string{"list"}, unorderedDocker: true,
+			setup: func(t *testing.T, f outputFixture) {
+				writeFixtureCardWithServices(t, f, f.worktree)
+				replaceInFakeDocker(t, f, "echo routerc1; exit 0", "exit 0")
+			},
+		},
 		// #27: the JSON forms of the four verbs above and doctor's, one
 		// document each on stdout, the text form's exit code.
 		{name: "status --json", args: []string{"status", "--json"}, unorderedDocker: true},
 		{name: "urls --json", args: []string{"urls", "--json"}},
-		{name: "index --json", args: []string{"index", "--json"}, checkIndexPage: true},
+		{name: "list --all --refresh --json", args: []string{"list", "--all", "--refresh", "--json"}, checkIndexPage: true, unorderedDocker: true},
 		{
 			name: "doctor --json", args: []string{"doctor", "--json"}, unorderedDocker: true,
 			outsideRepository: true,
@@ -575,8 +616,8 @@ func TestOutputGoldens(t *testing.T) {
 		// treerig.toml above it. list shows every registered worktree, as
 		// --all does; remove and unlock find their target by slug and need
 		// nothing else; with no name there is nothing to act on.
-		{name: "worktree list outside a repository", args: []string{"worktree", "list"}, outsideRepository: true},
-		{name: "worktree list --json outside a repository", args: []string{"worktree", "list", "--json"}, outsideRepository: true},
+		{name: "list outside a repository", args: []string{"list"}, outsideRepository: true, unorderedDocker: true},
+		{name: "list --json outside a repository", args: []string{"list", "--json"}, outsideRepository: true, unorderedDocker: true},
 		{name: "worktree remove --yes of a slug outside a repository", args: []string{"worktree", "remove", "--yes", "feature-login"}, outsideRepository: true},
 		{name: "worktree remove outside a repository, naming nothing", args: []string{"worktree", "remove", "--yes"}, outsideRepository: true},
 		{name: "worktree unlock of a slug outside a repository", args: []string{"worktree", "unlock", "feature-login"}, outsideRepository: true},
@@ -615,14 +656,14 @@ func TestOutputGoldens(t *testing.T) {
 			unorderedDocker: true,
 			setup: func(t *testing.T, f outputFixture) {
 				t.Helper()
-				hooksDir := filepath.Join(f.checkout, "hooks")
+				hooksDir := filepath.Join(f.worktree, "hooks")
 				if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.WriteFile(filepath.Join(hooksDir, "prepare"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				tomlPath := filepath.Join(f.checkout, "treerig.toml")
+				tomlPath := filepath.Join(f.worktree, "treerig.toml")
 				contents, err := os.ReadFile(tomlPath)
 				if err != nil {
 					t.Fatal(err)
@@ -650,7 +691,7 @@ func TestOutputGoldens(t *testing.T) {
 			name: "status, an identity marker with no format line", args: []string{"status"},
 			setup: func(t *testing.T, f outputFixture) {
 				t.Helper()
-				if err := os.WriteFile(filepath.Join(f.checkout, ".git", "treerig", "worktree-id"), []byte(fixtureWt+"\n"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.worktree, ".git", "treerig", "worktree-id"), []byte(fixtureWt+"\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -708,9 +749,9 @@ func TestOutputGoldens(t *testing.T) {
 			// the gate's two lines, with the pinned binary's stored name
 			// scrubbed.
 			if len(tc.args) >= 2 && tc.args[0] == "worktree" && tc.args[1] == "remove" {
-				pinWithEnv(t, binary, gotFixture.checkout, gotFixture.environ(), "golden-pin")
+				pinWithEnv(t, binary, gotFixture.worktree, gotFixture.environ(), "golden-pin")
 			}
-			gotDir := gotFixture.checkout
+			gotDir := gotFixture.worktree
 			if tc.outsideRepository {
 				gotDir = gotFixture.base
 			}

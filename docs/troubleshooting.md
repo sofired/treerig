@@ -37,12 +37,14 @@ curl: (6) Could not resolve host: feature-login.acme.localhost
 
 **Why:** Chrome and Firefox map `*.localhost` to your own machine themselves. Other clients use the system resolver, and on plain glibc or musl systems (Debian, Alpine) it does not. See [Hostname resolution](platforms.md#hostname-resolution).
 
-## `status` shows `-` where a URL should be
+## `status` or `list` shows `-` where a URL should be
 
 ```text
   SERVICE  STATE    URL
   web      running  -
 ```
+
+`treerig list` has the same column, one row a worktree, with the same rule.
 
 **Fix:** `status` shows a URL only while its service is `running` (a host
 route: `listening`) and the router's container is up, started by this treerig
@@ -55,11 +57,14 @@ Stderr says which of these is missing:
 - `The router's state couldn't be read, so no URL is shown`: run `treerig doctor` to see why.
 
 If stderr says nothing, the service is not `running`: `treerig status` names its
-state. A service that has no `[service.<name>]` table has no URL at all.
+state. A service that has no `[service.<name>]` table has no URL at all. In
+`list` a `-` also means that no service of the worktree is running, or that the
+last `up` did not record one as routed; `list` shows the first running service's
+URL and `+N more` for the others.
 
 **Why:** a URL for a service that is not running, or behind a router that is
 not, would be a link that fails. `status --json` carries the same answer: `url`
-is absent, and `router` has its `state` (`running`, `stopped` or `unknown`),
+is absent (in `list --json`, `urls` is `[]`), and `router` has its `state` (`running`, `stopped` or `unknown`),
 the `port` it serves and, when it is unknown or not this root's, a `detail`.
 
 ## A dev server answers 403 or "Invalid Host header"
@@ -206,7 +211,7 @@ then run 'treerig worktree remove' again to finish.
 
 ## A worktree reads `unknown`, `directory missing` or `removing`
 
-`treerig status`, `treerig worktree list` and the overview use the same
+`treerig status`, `treerig list` and the overview use the same
 [state words](commands.md). Three of them mean something is wrong with what
 treerig looks at, not with your services:
 

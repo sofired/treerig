@@ -115,7 +115,7 @@ func runningHint(ctx context.Context, cctx *CommandContext, repositoryID string)
 // A routed web UI is only reachable through the proxy, so when any selected
 // service declares one routerSvc is ensured first, as `up` does, and the
 // route file is written under the shared lock once the service is up; the
-// checkout index is refreshed afterwards, with the lock released. A nil
+// overview is refreshed afterwards, with the lock released. A nil
 // routerSvc or index skips its part, for a caller with no router.
 func SharedUpWithContext(ctx context.Context, cctx *CommandContext, routerSvc Router, index Index, options SharedUpOptions) error {
 	cfg := cctx.Loaded.Config
@@ -595,7 +595,7 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 			return err
 		}
 		if removed {
-			refreshIndexBestEffort(ctx, cctx, "shared down")
+			refreshOverviewBestEffort(ctx, cctx, "shared down")
 			cctx.Logger.Info("Removed the route files of shared services that were not running.")
 		}
 		cctx.Logger.Info(empty)
@@ -687,7 +687,7 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 	// After the shared lock is released: the index takes the router's lock,
 	// which is never nested in another (decision 18).
 	if err == nil && unrouted {
-		refreshIndexBestEffort(ctx, cctx, "shared down")
+		refreshOverviewBestEffort(ctx, cctx, "shared down")
 	}
 	return err
 }

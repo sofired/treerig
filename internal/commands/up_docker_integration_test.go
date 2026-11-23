@@ -64,7 +64,7 @@ seed = "./hooks/record"
 `
 
 // walkRouterRange is where the test routers of this package allocate their
-// checkout-index and ping ports from. It is inside the test range but apart
+// overview and ping ports from. It is inside the test range but apart
 // from the router package's (30900-30999) and from the whole-range picks the
 // binary-driven tests make against a fake Docker: the picks are deterministic,
 // so suites running at the same moment would otherwise race for the same ports.

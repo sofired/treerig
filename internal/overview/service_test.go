@@ -95,6 +95,8 @@ type dockerFake struct {
 	missing bool
 	failure error
 	timeout bool
+	// onRun, when set, is called on every run before it answers.
+	onRun func()
 }
 
 // Run records spec and answers per whichever of d.failure, d.missing, or
@@ -102,7 +104,11 @@ type dockerFake struct {
 func (d *dockerFake) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Lock()
 	d.calls = append(d.calls, spec)
+	onRun := d.onRun
 	d.mu.Unlock()
+	if onRun != nil {
+		onRun()
+	}
 	if d.failure != nil {
 		return run.Result{}, d.failure
 	}
@@ -338,7 +344,7 @@ func TestServiceRefresh(t *testing.T) {
 
 	t.Run("lets a cancelled run through rather than rewriting the page as Unknown", func(t *testing.T) {
 		docker := &dockerFake{failure: &clierr.Cancelled{Signal: syscall.SIGINT}}
-		h := newServiceHarness(t, docker, nil, nil)
+		h := newServiceHarness(t, docker, testRegistrations()[:1], nil)
 		before, _ := os.ReadFile(h.service.opts.IndexFile)
 
 		if _, err := h.service.Refresh(context.Background()); !errors.As(err, new(*clierr.Cancelled)) {
@@ -379,7 +385,7 @@ func TestServiceRefresh(t *testing.T) {
 
 		h.service.RefreshBestEffort(context.Background(), "up")
 
-		if !containsSubstring(snapshotLines(h.logger), "Could not refresh the checkout index after up: registry exploded") {
+		if !containsSubstring(snapshotLines(h.logger), "Could not refresh the overview after up: registry exploded") {
 			t.Fatalf("lines = %v", snapshotLines(h.logger))
 		}
 	})
@@ -458,7 +464,7 @@ func TestServiceRefresh(t *testing.T) {
 
 	t.Run("shows the page rather than failing when Docker answers with a line it cannot read", func(t *testing.T) {
 		docker := &dockerFake{stdout: "running\tUp 2 seconds\t(healthy)\tr\tw\tapi\t"}
-		h := newServiceHarness(t, docker, nil, nil)
+		h := newServiceHarness(t, docker, testRegistrations()[:1], nil)
 
 		snapshot, err := h.service.Refresh(context.Background())
 		if err != nil {
@@ -552,12 +558,12 @@ func TestServiceRefresh(t *testing.T) {
 		if elapsed > 5*time.Second {
 			t.Fatalf("RefreshBestEffort took %s; expected it to give up near LockTimeout (200ms), nowhere near lock.RouterTimeout (20m)", elapsed)
 		}
-		if !containsSubstring(snapshotLines(h.logger), "Could not refresh the checkout index after down:") {
+		if !containsSubstring(snapshotLines(h.logger), "Could not refresh the overview after down:") {
 			t.Fatalf("lines = %v", snapshotLines(h.logger))
 		}
 	})
 
-	t.Run("never calls a checkout missing when Git could not be asked which worktrees exist", func(t *testing.T) {
+	t.Run("never calls a worktree missing when Git could not be asked which worktrees exist", func(t *testing.T) {
 		docker := &dockerFake{}
 		h := newServiceHarness(t, docker, []registry.RegisteredWorktree{a, b}, nil)
 		h.service.opts.Identities = &fakeIdentities{
@@ -627,7 +633,7 @@ func TestServiceOutsideAnyRepository(t *testing.T) {
 }
 
 // TestServiceCountsUnindexedServiceTowardStatus is #16: a service the
-// config never gave a [service.index] block still keeps its checkout from
+// config never gave a [service.index] block still keeps its worktree from
 // reading Running while it is stopped.
 func TestServiceCountsUnindexedServiceTowardStatus(t *testing.T) {
 	regs := testRegistrations()
@@ -888,23 +894,16 @@ func TestServiceCardReadFailureNotice(t *testing.T) {
 	if !strings.Contains(html, "One worktree&#39;s index card could not be read, so its state shows unknown") {
 		t.Fatalf("HTML page missing the card-read-failure notice:\n%s", html)
 	}
-	if !strings.Contains(html, "<code>treerig index</code>") {
-		t.Fatalf("HTML page missing the notice's treerig index command span:\n%s", html)
+	if !strings.Contains(html, "<code>treerig list --all --refresh</code>") {
+		t.Fatalf("HTML page missing the notice's command span:\n%s", html)
 	}
-	// Wrapped for a terminal at 80 columns, so (matching the existing
-	// identityNotice test's own approach) only a short phrase is matched,
-	// not the whole sentence, which a line break could fall in the middle of.
-	text := FormatIndexText(snapshot, h.service.URL())
-	if !strings.Contains(text, "index card could not be read") {
-		t.Fatalf("text page missing the card-read-failure notice:\n%s", text)
-	}
-	if !strings.Contains(strings.Join(strings.Fields(text), " "), "too many open files") {
-		t.Fatalf("text page missing the card-read-failure notice's cause:\n%s", text)
+	if !strings.Contains(html, "too many open files") {
+		t.Fatalf("HTML page missing the card-read-failure notice's cause:\n%s", html)
 	}
 }
 
 // TestServiceRefreshTimesOutOnAHungDocker is #12's precedent applied to the
-// checkout index: a `docker` that never answers must not hang Refresh
+// overview: a `docker` that never answers must not hang Refresh
 // forever. Mirrors internal/router's own TestRouterUpTimesOutOnAHungDocker,
 // but on a fake rather than a real Docker daemon: a real, hanging
 // subprocess (found only through this test's own PATH override), run
@@ -989,7 +988,7 @@ func TestReadCardsWarnsOnceHoweverManyCardsFailed(t *testing.T) {
 
 		svc.readCards([]registry.RegisteredWorktree{a, b})
 
-		want := "warn: Could not read one checkout's index card: feature-a.acme.localhost: simulated EMFILE"
+		want := "warn: Could not read one worktree's index card: feature-a.acme.localhost: simulated EMFILE"
 		lines := snapshotLines(log)
 		if len(lines) != 1 || lines[0] != want {
 			t.Fatalf("lines = %v, want exactly [%q]", lines, want)
@@ -1005,7 +1004,7 @@ func TestReadCardsWarnsOnceHoweverManyCardsFailed(t *testing.T) {
 
 		svc.readCards([]registry.RegisteredWorktree{a, b})
 
-		want := "warn: Could not read 2 checkouts' index cards; the first was feature-a.acme.localhost: simulated EMFILE"
+		want := "warn: Could not read 2 worktrees' index cards; the first was feature-a.acme.localhost: simulated EMFILE"
 		lines := snapshotLines(log)
 		if len(lines) != 1 || lines[0] != want {
 			t.Fatalf("lines = %v, want exactly [%q]", lines, want)

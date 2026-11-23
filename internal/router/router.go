@@ -118,7 +118,7 @@ const DefaultName = brand.Name + "-router"
 // this build ever resolves it to (see Options.ProjectName's own doc
 // comment). New calls this for its own default rather than naming
 // DefaultName directly, and so does internal/commands's routerLockScope,
-// for the two callers with no Router of their own to ask (newCheckoutIndex,
+// for the two callers with no Router of their own to ask (newOverview,
 // commands.UnlockGlobal, #21): one shared function, so a lock scope's
 // project-name marker and the real router's own ProjectName can never
 // independently drift onto two different defaults.
@@ -130,7 +130,7 @@ func ResolveProjectName() string { return DefaultName }
 // supply a stub.
 type PlaceholderPage func(now time.Time) ([]byte, error)
 
-// defaultPlaceholderPage is the checkout index's own placeholder.
+// defaultPlaceholderPage is the overview's own placeholder.
 func defaultPlaceholderPage(now time.Time) ([]byte, error) {
 	return []byte(overview.PlaceholderHTML(now)), nil
 }
@@ -399,7 +399,7 @@ func secureDirectories(root string, dirs []string, mode os.FileMode) error {
 	return nil
 }
 
-// write writes the stack document, the checkout index's own dynamic-
+// write writes the stack document, the overview's own dynamic-
 // configuration fragment, and makes sure the directories it mounts exist and
 // serve.
 func (r *Router) write(now time.Time, options StackOptions) error {
@@ -959,7 +959,7 @@ func (r *Router) ownPorts(ctx context.Context, read routerRead) (map[int]bool, e
 // PortConflict is a port the stack needs that something else holds.
 type PortConflict struct {
 	Port int
-	// What names the port's role: "the router", "the checkout index" or
+	// What names the port's role: "the router", "the overview" or
 	// "the router's ping".
 	What string
 	// Holders names what holds it: containers, else "another process" with
@@ -999,7 +999,7 @@ func (r *Router) portConflicts(ctx context.Context, read routerRead, options Sta
 		{Port: options.Port, What: "the router", Remedy: fmt.Sprintf("choose another port with %s_ROUTER_PORT or [router] port in %s", brand.EnvPrefix, r.settingsFile())},
 	}
 	if options.IndexPort > 0 {
-		needs = append(needs, PortConflict{Port: options.IndexPort, What: "the checkout index", Remedy: stateRemedy, Movable: true})
+		needs = append(needs, PortConflict{Port: options.IndexPort, What: "the overview", Remedy: stateRemedy, Movable: true})
 	}
 	if options.Mode == ModeHost && options.PingPort > 0 {
 		needs = append(needs, PortConflict{Port: options.PingPort, What: "the router's ping", Remedy: stateRemedy, Movable: true})
@@ -1209,7 +1209,7 @@ func (r *Router) notePortChange(priorPort int, wasRunning bool) {
 	if !wasRunning || priorPort == 0 || priorPort == r.Port {
 		return
 	}
-	r.logger.Info(fmt.Sprintf("The shared router moved from port %d to %d; URLs already open, the index page included, still use the old port.", priorPort, r.Port))
+	r.logger.Info(fmt.Sprintf("The shared router moved from port %d to %d; URLs already open, the overview page included, still use the old port.", priorPort, r.Port))
 }
 
 // RouterStatus is what `router status` says, and where.

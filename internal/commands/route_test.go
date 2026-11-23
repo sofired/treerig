@@ -697,7 +697,7 @@ func TestHostRoutesAcrossTheLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("up does not put a host route on the checkout index card, where it would count as a stopped service", func(t *testing.T) {
+	t.Run("up does not put a host route on the index card, where it would count as a stopped service", func(t *testing.T) {
 		rw := hostRouteWorld(t)
 		if _, err := rw.up(t, commands.UpOptions{}); err != nil {
 			t.Fatal(err)

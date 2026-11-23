@@ -37,9 +37,8 @@ type Options struct {
 	// makes ahead of a write — this package does not read the environment
 	// itself for it, only the entry point does.
 	UserHome string
-	// Environ is the process environment Git's refusal outside a repository
-	// is asked in (Repository adds the C locale to it); nil inherits this
-	// process's own.
+	// Environ is the process environment Git is run from, through the
+	// allow-list of GitEnvironment; nil gives Git an empty one.
 	Environ []string
 }
 
@@ -78,8 +77,7 @@ func New(opts Options) *Registry {
 	if log == nil {
 		log = logger.Silent{}
 	}
-	identities := NewIdentityService(opts.Root, opts.Runner)
-	identities.environ = opts.Environ
+	identities := NewIdentityService(opts.Root, opts.Runner, opts.Environ)
 	return &Registry{
 		ControlHome:    layout.ControlLayout(opts.ControlHome).ControlHome,
 		Identities:     identities,

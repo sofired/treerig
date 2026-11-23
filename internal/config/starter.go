@@ -99,7 +99,7 @@ file = {{compose}}
 # [service.api]
 # subdomain = ""        # empty (the default) routes at the worktree host root
 #
-# [service.api.index]    # presence on the shared checkout index; omit to hide
+# [service.api.index]    # presence on the shared overview; omit to hide
 # label   = "API"
 # purpose = "REST surface"
 

@@ -354,7 +354,7 @@ func RemoveWithContext(ctx context.Context, cctx *CommandContext, env *Env, opti
 		return nil, err
 	}
 	// Best effort: prints nothing when the refresh succeeds.
-	refreshIndexBestEffort(ctx, cctx, "worktree remove")
+	refreshOverviewBestEffort(ctx, cctx, "worktree remove")
 	switch {
 	case result.AlreadyGone:
 	case result.NetworkKept:

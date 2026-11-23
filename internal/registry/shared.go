@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/sofired/treerig/internal/clierr"
+	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/files"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/ports"
@@ -46,7 +47,7 @@ type SharedRecord struct {
 	Ports map[int]int
 	// Routed is the container port of the web UI the proxy routes to, one of
 	// Ports' keys; 0 when the service has none. It lives in the record, not
-	// only in treerig.toml, so route repair, `doctor` and the checkout index
+	// only in treerig.toml, so route repair, `doctor` and the overview
 	// can judge a route file from the record alone, as they judge a
 	// worktree's from its registration.
 	Routed int
@@ -101,7 +102,7 @@ type rawSharedRecord struct {
 }
 
 // parseSharedRecordJSON validates data as a shared-service record: version 1,
-// a service name, a non-empty domain, and ports mapping container ports to
+// a service name, a domain that project.domain would allow, and ports mapping container ports to
 // host ports, each 1 to 65535, with no host port used twice, and an optional
 // routed port that is one of the container ports. It returns the
 // record without its repository ID.
@@ -119,7 +120,7 @@ func parseSharedRecordJSON(data []byte) (SharedRecord, error) {
 		return SharedRecord{}, errUnrecognizedShape
 	}
 	if raw.Version == nil || *raw.Version != stateformat.SharedRecord || raw.Name == nil || !slugPattern.MatchString(*raw.Name) ||
-		raw.Domain == nil || *raw.Domain == "" || raw.Ports == nil {
+		raw.Domain == nil || !config.ValidDomain(*raw.Domain) || raw.Ports == nil {
 		return SharedRecord{}, errUnrecognizedShape
 	}
 	record := SharedRecord{Name: *raw.Name, Domain: *raw.Domain, Ports: map[int]int{}}

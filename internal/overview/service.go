@@ -8,8 +8,14 @@ package overview
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/sofired/treerig/internal/brand"
@@ -19,6 +25,7 @@ import (
 	"github.com/sofired/treerig/internal/overview/card"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/text"
 	"github.com/sofired/treerig/internal/worktreestate"
 )
 
@@ -42,13 +49,13 @@ const defaultLockTimeout = 60 * time.Second
 // to observe the bound itself.
 const defaultCardConcurrency = 32
 
-// indexHost is where the checkout index answers, matching
+// indexHost is where the overview answers, matching
 // internal/router/stack.go's own IndexHost; duplicated rather than imported,
 // since internal/router already imports this package for PlaceholderHTML,
 // and the reverse import would cycle.
 const indexHost = brand.Name + ".localhost"
 
-// Registry is what the checkout index reads from the machine-wide worktree
+// Registry is what the overview reads from the machine-wide worktree
 // registry — the slice of *registry.Registry this package actually calls,
 // declared here because this package is the consumer; a test supplies its
 // own double.
@@ -56,8 +63,8 @@ type Registry interface {
 	ListAll(ctx context.Context) ([]registry.RegisteredWorktree, error)
 }
 
-// Identities is what the checkout index reads about the current repository's
-// worktrees, answering for whichever worktree the service was started from —
+// Identities is what the overview reads about the current repository's
+// worktrees, answering for whichever directory the service was started from —
 // registry.Registry's own Identities field satisfies this.
 type Identities interface {
 	Entries(ctx context.Context) ([]registry.WorktreeEntry, error)
@@ -68,7 +75,7 @@ type Identities interface {
 type Options struct {
 	ControlHome string
 	// RouterPort is the port the router publishes; a card's service URL on
-	// any other port is not this checkout's (serviceBelongsToHost).
+	// any other port is not this worktree's (serviceBelongsToHost).
 	RouterPort int
 	// IndexFile is where the rendered page is written: the shared router's
 	// own layout.RouterState(...).IndexFile, never anything under a control
@@ -88,7 +95,7 @@ type Options struct {
 	Lock       lock.Scope
 	Registry   Registry
 	Identities Identities
-	// IdentityRoot is the checkout Identities answers for; named in every
+	// IdentityRoot is the worktree Identities answers for; named in every
 	// message about it being unable to answer, the way
 	// registry.Registry.Identities.Root is here.
 	IdentityRoot string
@@ -98,12 +105,18 @@ type Options struct {
 	Now func() time.Time
 	// Invocation names this process to whoever waits on the lock.
 	Invocation string
+	// CommandName is what the commands a hint names are run by (the name this
+	// build was invoked as); empty reads as brand.Name.
+	CommandName string
 	// CardConcurrency bounds concurrent card reads (#18); zero uses defaultCardConcurrency.
 	CardConcurrency int
 	// LockTimeout bounds how long Refresh waits for the router lock; zero
 	// uses defaultLockTimeout, never lock.RouterTimeout — see
 	// defaultLockTimeout's own comment.
 	LockTimeout time.Duration
+	// LockWatchdog is how often the router's lock is checked to still be
+	// ours while the page is written; zero is the lock's own default.
+	LockWatchdog time.Duration
 	// InventoryTimeout bounds one `docker ps` call; zero uses
 	// worktreestate.DefaultInventoryTimeout. A test overrides it to observe the
 	// bound itself without actually waiting on it.
@@ -111,9 +124,24 @@ type Options struct {
 	// Mounts reads the mount table the worktrees' directories are judged
 	// against; nil reads the machine's. A test supplies its own.
 	Mounts func() (worktreestate.Mounts, error)
+	// QuietDocker leaves out Refresh's warning that Docker could not be asked,
+	// for a caller that says why itself (`list` ends in the cause), so the
+	// cause is given once.
+	QuietDocker bool
+	// WarnOfRepositories says in a warning which repositories Git could not
+	// be asked about. A refresh after `up` leaves it out: a repository that is
+	// offline for good would otherwise be reported after every command.
+	WarnOfRepositories bool
+	// GitTimeout bounds everything asked of Git in one snapshot, all
+	// repositories together; zero uses worktreestate.DefaultGitTimeout. A
+	// repository that has not answered by then reads unknown.
+	GitTimeout time.Duration
+	// Environ is the process environment Git is run from, through the
+	// allow-list of registry.GitEnvironment; nil gives Git an empty one.
+	Environ []string
 }
 
-// Service is the checkout index tied to disk, Docker, and the shared
+// Service is the overview tied to disk, Docker, and the shared
 // router's lock. It satisfies commands.Index.
 type Service struct {
 	opts Options
@@ -207,7 +235,7 @@ func (s *Service) readCards(registrations []registry.RegisteredWorktree) []cardR
 // warnCardReadFailures is readCards' one warning for however many of results
 // failed to read: singular or plural to match cardReadFailureNotice's own
 // house style, naming the count and the first failure (in registration
-// order) with its own checkout and error — enough to start investigating
+// order) with its own worktree and error — enough to start investigating
 // without one line per failed read.
 func (s *Service) warnCardReadFailures(results []cardRead) {
 	count := 0
@@ -226,12 +254,12 @@ func (s *Service) warnCardReadFailures(results []cardRead) {
 		return
 	case 1:
 		s.opts.Logger.Warn(fmt.Sprintf(
-			"Could not read one checkout's index card: %s.%s: %s",
+			"Could not read one worktree's index card: %s.%s: %s",
 			first.record.Slug, first.record.Domain, first.err,
 		))
 	default:
 		s.opts.Logger.Warn(fmt.Sprintf(
-			"Could not read %d checkouts' index cards; the first was %s.%s: %s",
+			"Could not read %d worktrees' index cards; the first was %s.%s: %s",
 			count, first.record.Slug, first.record.Domain, first.err,
 		))
 	}
@@ -250,11 +278,45 @@ func (s *Service) namespaces(reads []cardRead) []string {
 // Snapshot reads the registry, every worktree's card, Git's live worktrees,
 // and Docker's container inventory, classifies every registration with
 // worktreestate, and builds one IndexSnapshot from them. It takes no lock of
-// its own; Refresh is what a caller actually wants.
+// its own, and writes nothing; Refresh is what a caller who wants the page
+// written actually wants.
+//
+// Docker and Git are asked at the same time, each within its bound. Git is
+// asked about every repository that has a registration: the one the service
+// runs in through its Identities, any other through the directories its cards
+// recorded (worktreestate.AskRepositories). A repository that has not answered
+// within Options.GitTimeout reads unknown, and so does a Docker that has not.
 func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
+	return s.SnapshotOf(ctx, "")
+}
+
+// EmptySnapshot is the snapshot of nothing: no worktree, no shared service, and
+// Docker not asked, since nothing needed it.
+func (s *Service) EmptySnapshot() IndexSnapshot {
+	return IndexSnapshot{GeneratedAt: s.generatedAt(), DockerReachable: true}
+}
+
+// generatedAt is the service's clock as the page spells it.
+func (s *Service) generatedAt() string {
+	return s.opts.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+// SnapshotOf is Snapshot for the registrations of one repository, by its ID;
+// an empty ID is every repository on the machine. Only the repository's own
+// Git is asked, and only its shared services are listed.
+func (s *Service) SnapshotOf(ctx context.Context, onlyRepositoryID string) (IndexSnapshot, error) {
+	// The snapshot is of the moment its read began, before the registry,
+	// Docker and Git are asked: Refresh keeps a page whose read began later,
+	// and a read that began earlier but was slow must not pass for the newer.
+	generatedAt := s.generatedAt()
 	registrations, err := s.opts.Registry.ListAll(ctx)
 	if err != nil {
 		return IndexSnapshot{}, err
+	}
+	if onlyRepositoryID != "" {
+		registrations = slices.DeleteFunc(registrations, func(record registry.RegisteredWorktree) bool {
+			return record.RepositoryID != onlyRepositoryID
+		})
 	}
 
 	reads := s.readCards(registrations)
@@ -270,44 +332,57 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 		}
 	}
 
-	var identities []registry.WorktreeIdentity
-	var currentRepositoryID *string
-	var identityError *IdentityFailureInput
-	var repositories map[string]worktreestate.Repository
-	// Outside every Git work tree there is no current repository to be
-	// unable to identify: the page then lists every worktree, as it does for
-	// a repository treerig has no identity for.
-	repositoryID, present, _, err := s.opts.Identities.Repository(ctx, s.opts.IdentityRoot)
-	switch {
-	case err != nil:
-		reason := fmt.Sprintf("Git could not identify the repository at %s: %s", s.opts.IdentityRoot, err)
-		identityError = &IdentityFailureInput{Reason: reason}
-		s.opts.Logger.Warn(reason + ". The overview cannot tell which of its worktrees have lost their directories.")
-	case present:
-		currentRepositoryID = &repositoryID
-		// Asked once, here, so the identities the rows read their branch and
-		// root from and the evidence their state is told from are one answer.
-		entries, entriesErr := s.opts.Identities.Entries(ctx)
-		if entriesErr != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return IndexSnapshot{}, ctxErr
-			}
-			reason := fmt.Sprintf("Git could not list the worktrees of %s: %s", s.opts.IdentityRoot, entriesErr)
-			identityError = &IdentityFailureInput{Reason: reason}
-			s.opts.Logger.Warn(reason + ". The overview shows its worktrees as unknown.")
-		}
-		identities = identitiesOf(repositoryID, entries)
-		repositories = map[string]worktreestate.Repository{repositoryID: worktreestate.Answered{Listed: entries, Err: entriesErr}}
+	sharedRecords, sharedProblems, err := registry.ScanSharedRecords(s.opts.ControlHome)
+	if err != nil {
+		// The shared group is an addition to the page; a control home whose
+		// shared records cannot be listed still gets its worktrees.
+		sharedRecords = nil
+		s.opts.Logger.Warn(fmt.Sprintf("The overview leaves out shared services because their records could not be listed: %s", err))
+	}
+	for _, problem := range sharedProblems {
+		s.opts.Logger.Warn(fmt.Sprintf("The overview leaves out a shared service whose record could not be read: %s: %s", problem.File, problem.Reason))
+	}
+	if onlyRepositoryID != "" {
+		sharedRecords = slices.DeleteFunc(sharedRecords, func(record registry.SharedRecord) bool {
+			return record.RepositoryID != onlyRepositoryID
+		})
+	}
+
+	// Nothing to classify and nothing to show a state of: Docker and Git have
+	// nothing to be asked about.
+	if len(reads) == 0 && len(sharedRecords) == 0 {
+		empty := s.EmptySnapshot()
+		empty.Entries = []IndexEntry{}
+		return empty, nil
+	}
+
+	gatherer := worktreestate.New(worktreestate.Options{
+		ControlHome: s.opts.ControlHome, Runner: s.opts.Runner,
+		InventoryTimeout: s.opts.InventoryTimeout, Mounts: s.opts.Mounts,
+		GitTimeout: s.opts.GitTimeout, Environ: s.opts.Environ, CommandName: s.opts.CommandName,
+	})
+	var inventory worktreestate.Inventory
+	var inventoryErr error
+	var git gitEvidence
+	var gitErr error
+	var phase sync.WaitGroup
+	phase.Go(func() { inventory, inventoryErr = gatherer.Inventory(ctx, s.namespaces(reads)) })
+	phase.Go(func() { git, gitErr = s.askGit(ctx, gatherer, reads, onlyRepositoryID) })
+	phase.Wait()
+	if inventoryErr != nil {
+		return IndexSnapshot{}, inventoryErr
+	}
+	if gitErr != nil {
+		return IndexSnapshot{}, gitErr
 	}
 
 	subjects := make([]worktreestate.Subject, len(reads))
 	for i, read := range reads {
 		subjects[i] = s.subjectOf(read)
 	}
-	report, err := worktreestate.New(worktreestate.Options{
-		ControlHome: s.opts.ControlHome, Runner: s.opts.Runner,
-		InventoryTimeout: s.opts.InventoryTimeout, Mounts: s.opts.Mounts,
-	}).Gather(ctx, worktreestate.Request{Subjects: subjects, Namespaces: s.namespaces(reads), Repositories: repositories})
+	report, err := gatherer.Gather(ctx, worktreestate.Request{
+		Subjects: subjects, Repositories: git.repositories, Inventory: &inventory,
+	})
 	if err != nil {
 		return IndexSnapshot{}, err
 	}
@@ -315,34 +390,159 @@ func (s *Service) Snapshot(ctx context.Context) (IndexSnapshot, error) {
 	if !report.Docker.Answered {
 		reason := report.Docker.Error
 		dockerError = &reason
-		s.opts.Logger.Warn("The overview cannot show what runs because containers could not be listed: " + reason)
-	}
-
-	sharedRecords, sharedProblems, err := registry.ScanSharedRecords(s.opts.ControlHome)
-	if err != nil {
-		// The shared group is an addition to the page; a control home whose
-		// shared records cannot be listed still gets its worktrees.
-		sharedRecords = nil
-		s.opts.Logger.Warn(fmt.Sprintf("The index leaves out shared services because their records could not be listed: %s", err))
-	}
-	for _, problem := range sharedProblems {
-		s.opts.Logger.Warn(fmt.Sprintf("The index leaves out a shared service whose record could not be read: %s: %s", problem.File, problem.Reason))
 	}
 
 	return BuildSnapshot(SnapshotInput{
 		Registrations:       registrations,
 		SharedRecords:       sharedRecords,
 		Cards:               cards,
-		Identities:          identities,
-		CurrentRepositoryID: currentRepositoryID,
+		Identities:          git.identities,
+		CurrentRepositoryID: git.current,
 		Containers:          report.Docker.Containers,
 		States:              report.States,
 		DockerError:         dockerError,
 		RouterPort:          s.opts.RouterPort,
-		IdentityError:       identityError,
+		IdentityError:       git.identityError,
 		CardReadFailures:    cardReadFailures,
-		GeneratedAt:         s.opts.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		GitHints:            git.hints,
+		GeneratedAt:         generatedAt,
 	}), nil
+}
+
+// gitEvidence is everything a snapshot asked of Git: which repository the
+// service runs in, the worktrees Git lists, and what to say of the ones it
+// could not be asked about.
+type gitEvidence struct {
+	current       *string
+	identityError *IdentityFailureInput
+	identities    []registry.WorktreeIdentity
+	repositories  map[string]worktreestate.Repository
+	hints         []string
+}
+
+// askGit asks Git about the repository the service runs in, and, unless the
+// snapshot is of that one alone (onlyRepositoryID), every other repository
+// with a registration, all within one bound. Only a cancellation is an error.
+func (s *Service) askGit(ctx context.Context, gatherer *worktreestate.Gatherer, reads []cardRead, onlyRepositoryID string) (gitEvidence, error) {
+	evidence := gitEvidence{repositories: map[string]worktreestate.Repository{}}
+	budget := s.opts.GitTimeout
+	if budget <= 0 {
+		budget = worktreestate.DefaultGitTimeout
+	}
+
+	var others []worktreestate.RepositoryAnswer
+	var othersErr error
+	var group sync.WaitGroup
+	// The current repository is asked while the others are, so the phase costs
+	// one bound and not two. Which one it is is not known yet, so the others
+	// are every repository with a registration, the current one included: it
+	// is asked twice, and the second answer is dropped below. That is one more
+	// `git worktree list` in one of the eight slots, chosen over asking the
+	// others only once the current one has answered, which would cost every
+	// refresh a second bound.
+	asks := s.repositoryAsks(reads)
+	if onlyRepositoryID == "" {
+		group.Go(func() { others, othersErr = gatherer.AskRepositories(ctx, asks) })
+	}
+
+	type current struct {
+		id      string
+		present bool
+		entries []registry.WorktreeEntry
+		listErr error
+		err     error
+	}
+	// Repository and Entries are one question to the bound: a mount that hangs
+	// under either hangs the command the same.
+	found, err := worktreestate.Within(ctx, budget, func(ctx context.Context) (current, error) {
+		id, present, _, err := s.opts.Identities.Repository(ctx, s.opts.IdentityRoot)
+		if err != nil || !present {
+			return current{id: id, present: present, err: err}, nil
+		}
+		entries, listErr := s.opts.Identities.Entries(ctx)
+		return current{id: id, present: present, entries: entries, listErr: listErr}, nil
+	})
+	if err == nil {
+		err = found.err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		group.Wait()
+		return gitEvidence{}, ctxErr
+	}
+	switch {
+	case err != nil:
+		reason := fmt.Sprintf("Git could not identify the repository at %s: %s", s.opts.IdentityRoot, err)
+		evidence.identityError = &IdentityFailureInput{Reason: reason}
+		s.opts.Logger.Warn(reason + ". Which worktrees have lost their directories can't be told.")
+	case found.present:
+		id := found.id
+		evidence.current = &id
+		if found.listErr != nil {
+			reason := fmt.Sprintf("Git could not list the worktrees of %s: %s", s.opts.IdentityRoot, found.listErr)
+			evidence.identityError = &IdentityFailureInput{Reason: reason}
+			s.opts.Logger.Warn(reason + ". Their states show unknown.")
+			evidence.hints = append(evidence.hints, worktreestate.GitHint(found.listErr))
+		}
+		evidence.identities = identitiesOf(id, found.entries)
+		evidence.repositories[id] = worktreestate.Answered{Listed: found.entries, Err: found.listErr}
+	}
+	group.Wait()
+	if othersErr != nil {
+		return gitEvidence{}, othersErr
+	}
+
+	failed := 0
+	var first error
+	for _, answer := range others {
+		if !answer.Asked || (evidence.current != nil && answer.ID == *evidence.current) {
+			continue
+		}
+		evidence.repositories[answer.ID] = worktreestate.Answered{Listed: answer.Entries, Err: answer.Err}
+		evidence.identities = append(evidence.identities, identitiesOf(answer.ID, answer.Entries)...)
+		if answer.Err != nil {
+			if failed == 0 {
+				first = answer.Err
+			}
+			failed++
+			evidence.hints = append(evidence.hints, worktreestate.GitHint(answer.Err))
+		}
+	}
+	if failed > 0 && s.opts.WarnOfRepositories {
+		s.opts.Logger.Warn(fmt.Sprintf("Git could not list the worktrees of %d %s, so their states show unknown; the first said: %s",
+			failed, plural(failed, "repository", "repositories"), text.OneLine(first.Error(), 300)))
+	}
+	return evidence, nil
+}
+
+// repositoryAsks is one ask per repository with a registration, in the order of
+// their IDs, with the directories its cards recorded, in the order read.
+func (s *Service) repositoryAsks(reads []cardRead) []worktreestate.RepositoryAsk {
+	byID := map[string]*worktreestate.RepositoryAsk{}
+	for _, read := range reads {
+		id := read.record.RepositoryID
+		ask, seen := byID[id]
+		if !seen {
+			ask = &worktreestate.RepositoryAsk{ID: id}
+			byID[id] = ask
+		}
+		if read.card != nil && read.card.Root != "" && !slices.Contains(ask.Roots, read.card.Root) {
+			ask.Roots = append(ask.Roots, read.card.Root)
+		}
+	}
+	asks := make([]worktreestate.RepositoryAsk, 0, len(byID))
+	for _, ask := range byID {
+		asks = append(asks, *ask)
+	}
+	slices.SortFunc(asks, func(left, right worktreestate.RepositoryAsk) int { return strings.Compare(left.ID, right.ID) })
+	return asks
+}
+
+// plural is singular for one and many otherwise.
+func plural(count int, singular, many string) string {
+	if count == 1 {
+		return singular
+	}
+	return many
 }
 
 // identitiesOf is the live worktrees among entries: those whose directory is
@@ -365,8 +565,8 @@ func (s *Service) subjectOf(read cardRead) worktreestate.Subject {
 	return worktreestate.SubjectOf(read.record, read.card, read.err)
 }
 
-// Refresh rebuilds the page under the shared router's lock and writes it to
-// IndexFile, returning the snapshot it wrote. The lock matches the one
+// Refresh takes a snapshot, with no lock held, and writes it to IndexFile under
+// the shared router's lock, returning the snapshot it wrote. The lock matches the one
 // router.Ensure holds around bringing the router up (internal/commands'
 // routerLockScope), taken here the same way — lock.New, Acquire, Release —
 // rather than through internal/lifecycle's full signal-deferring Hold:
@@ -381,8 +581,20 @@ func (s *Service) subjectOf(read cardRead) worktreestate.Subject {
 // lock.RouterTimeout: a best-effort refresh gives up rather than stall the
 // command that asked for it behind a router start.
 func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
-	lk := lock.New(s.opts.Lock, lock.Options{Timeout: s.opts.LockTimeout, Holder: s.opts.Invocation, Logger: s.opts.Logger})
-	lockCtx, err := lk.Acquire(ctx, s.opts.Invocation)
+	// Read first, and under no lock: Git and Docker can take as long as their
+	// bounds, and the router's lock is what `up` waits on to bring the router
+	// up. A page that was read a moment before another refresh wrote its own is
+	// not newer than it; the page says when it was generated.
+	snapshot, err := s.Snapshot(ctx)
+	if err != nil {
+		return IndexSnapshot{}, err
+	}
+	if snapshot.DockerError != nil && !s.opts.QuietDocker {
+		s.opts.Logger.Warn("The overview cannot show what runs because containers could not be listed: " + *snapshot.DockerError)
+	}
+
+	lk := lock.New(s.opts.Lock, lock.Options{Timeout: s.opts.LockTimeout, Watchdog: s.opts.LockWatchdog, Holder: s.opts.Invocation, Logger: s.opts.Logger})
+	held, err := lk.Acquire(ctx, s.opts.Invocation)
 	if err != nil {
 		return IndexSnapshot{}, err
 	}
@@ -394,10 +606,6 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 		_ = lk.Release()
 	}()
 
-	snapshot, err := s.Snapshot(lockCtx)
-	if err != nil {
-		return IndexSnapshot{}, err
-	}
 	// The icons first: the page links them, so it must never be served while
 	// one is missing. A failed write over an icon an earlier refresh left is
 	// only a warning (the page still refreshes, with the older icon); with an
@@ -405,10 +613,61 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 	if err := ensureIcons(filepath.Dir(s.opts.IndexFile), s.opts.Logger, s.writeIcons); err != nil {
 		return IndexSnapshot{}, err
 	}
+	// The snapshot was read before the lock, so a refresh whose read began
+	// earlier can get here after one whose read began later has written: the
+	// newer page stays. Each is stamped when its read began (SnapshotOf), so a
+	// slow early read does not count as the later one. A page stamped after
+	// now cannot be from a later read: it was written before the clock was set
+	// back (an NTP step, a resumed machine), and is replaced, so that one bad
+	// stamp does not keep every later refresh from writing.
+	if written, ok := pageGeneratedAt(s.opts.IndexFile); ok && written > snapshot.GeneratedAt && written <= s.generatedAt() {
+		return snapshot, nil
+	}
+	// The check above and the write below are one step only while the lock is
+	// ours: lost (its file replaced, its record taken over), another refresh
+	// may be writing, and this one's page may be the older.
+	if held.Err() != nil || lk.Lost() {
+		if lost := lk.Err(); lost != nil {
+			return IndexSnapshot{}, lost
+		}
+		return IndexSnapshot{}, context.Cause(held)
+	}
 	if err := files.AtomicWrite(s.opts.IndexFile, []byte(RenderIndexHTML(snapshot)), 0o644); err != nil {
 		return IndexSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+// pageHeadLimit is how much of the page pageGeneratedAt reads: its header,
+// after the styles, is well within it.
+const pageHeadLimit = 64 * 1024
+
+// generatedPattern finds the time the page says it was generated.
+var generatedPattern = regexp.MustCompile(`<time datetime="([^"]*)"`)
+
+// pageGeneratedAt is when the page at path says it was generated, from one
+// bounded read of its head. ok is false for a page that is not there, is not a
+// regular file or does not say, which a refresh then simply replaces. The file
+// is opened without blocking, since a pipe with no writer would hold the router
+// lock forever.
+func pageGeneratedAt(path string) (generated string, ok bool) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	head, err := io.ReadAll(io.LimitReader(file, pageHeadLimit))
+	if err != nil {
+		return "", false
+	}
+	found := generatedPattern.FindSubmatch(head)
+	if found == nil {
+		return "", false
+	}
+	return string(found[1]), true
 }
 
 // RefreshBestEffort satisfies commands.Index: it regenerates the page,
@@ -417,6 +676,6 @@ func (s *Service) Refresh(ctx context.Context) (IndexSnapshot, error) {
 // alone; nothing is printed when the refresh succeeds.
 func (s *Service) RefreshBestEffort(ctx context.Context, reason string) {
 	if _, err := s.Refresh(ctx); err != nil {
-		s.opts.Logger.Warn(fmt.Sprintf("Could not refresh the checkout index after %s: %s", reason, err))
+		s.opts.Logger.Warn(fmt.Sprintf("Could not refresh the overview after %s: %s", reason, err))
 	}
 }

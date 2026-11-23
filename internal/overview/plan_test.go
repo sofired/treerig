@@ -36,7 +36,7 @@ func planTestPage(stamp, main string, titleShellBody ...string) string {
 	)
 }
 
-// planTestEntry is a plain running checkout with no services, used only by
+// planTestEntry is a plain running worktree with no services, used only by
 // the fingerprinting test below.
 var planTestEntry = func() IndexEntry {
 	return IndexEntry{

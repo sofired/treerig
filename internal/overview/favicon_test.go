@@ -351,7 +351,7 @@ func TestEnsureIcons(t *testing.T) {
 	}{
 		{"success logs nothing", nil, nil, false, nil},
 		{"a tolerated failure warns once and returns nil", errors.New("writing the icon favicon-16.png: disk on fire"), nil, false,
-			[]string{"warn: Could not update the favicon files beside the checkout index; keeping the earlier ones: writing the icon favicon-16.png: disk on fire"}},
+			[]string{"warn: Could not update the favicon files beside the overview; keeping the earlier ones: writing the icon favicon-16.png: disk on fire"}},
 		{"a fatal failure is returned and not logged", nil, errors.New("writing the icon favicon-32.png: disk on fire"), true, nil},
 	}
 	for _, tc := range cases {

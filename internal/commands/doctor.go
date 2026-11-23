@@ -415,7 +415,7 @@ func registryChecks(scan registry.RegistryScan, commandName string) []Check {
 			continue
 		}
 		checks = append(checks, Check{Status: StatusFail, ID: "registry.index-host", Instance: record.WorktreeID, Subject: router.IndexHost, Detail: fmt.Sprintf(
-			"is the checkout index's own address, and worktree %s is registered to it. Set another domain in that checkout's %s and run '%s up' there.",
+			"is the overview's own address, and worktree %s is registered to it. Set another domain in that worktree's %s and run '%s up' there.",
 			record.WorktreeID, brand.ConfigFile, commandName)})
 	}
 	return checks
@@ -1382,7 +1382,7 @@ func lostWorktreeChecks(ctx context.Context, opts doctorOptions, reg checkoutReg
 		indexCard, cardErr := card.ReadIndexCard(opts.ControlHome, record.RepositoryID, record.WorktreeID)
 		subjects[i] = worktreestate.SubjectOf(record, indexCard, cardErr)
 	}
-	report, err := worktreestate.New(worktreestate.Options{ControlHome: opts.ControlHome, Runner: opts.Runner, CommandName: opts.CommandName, Mounts: opts.Mounts}).Gather(ctx, worktreestate.Request{
+	report, err := worktreestate.New(worktreestate.Options{ControlHome: opts.ControlHome, Runner: opts.Runner, CommandName: opts.CommandName, Mounts: opts.Mounts, Environ: opts.Environ}).Gather(ctx, worktreestate.Request{
 		Subjects:     subjects,
 		Repositories: map[string]worktreestate.Repository{candidates[0].RepositoryID: worktreestate.Answered{Listed: entries}},
 	})
@@ -1438,6 +1438,7 @@ func checkoutChecks(ctx context.Context, opts doctorOptions, loaded *config.Load
 			ControlHome: opts.ControlHome, Root: loaded.Root, Domain: loaded.Config.Project.Domain,
 			LabelNamespace: loaded.Config.LabelNamespace(), Runner: opts.Runner, Logger: opts.Logger,
 			CommandName: opts.CommandName, Invocation: opts.Invocation, UserHome: opts.UserHome,
+			Environ: opts.Environ,
 		})
 	}
 

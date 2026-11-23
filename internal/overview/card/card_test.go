@@ -2,9 +2,11 @@ package card_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -466,7 +468,7 @@ func TestCardBoundsSharedByReadAndWrite(t *testing.T) {
 		{
 			// (#16) A declared service the config never gave a
 			// [service.index] block still gets a card entry, with "" for its
-			// label and purpose — counted toward the checkout's status, but
+			// label and purpose — counted toward the worktree's status, but
 			// never shown as a link. See card.IndexService's own comment.
 			"a service with no [service.index] block: an empty label and purpose", func(c *card.IndexCard) {
 				c.Services = []card.IndexService{{Name: "N", URL: "http://x.example", Label: "", Purpose: ""}}
@@ -598,4 +600,58 @@ func TestRehost(t *testing.T) {
 			t.Fatalf("changed = %v, %v", changed, err)
 		}
 	})
+}
+
+// A card is read as something that may be anything: a pipe nobody writes to or
+// a device in the card's place is not a card, and the stat refuses it before
+// anything is opened; a file past the limit is no card. A regular file swapped
+// for a pipe between that stat and the open is config.ReadRegularFile's to
+// refuse without blocking, and is tested there, on a pipe, directly
+// (internal/config, "a pipe with no writer is refused at once").
+func TestReadIndexCardAtRefusesWhatIsNotARegularFile(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "fifo")
+	// treerig builds for Linux and macOS only, both of which have FIFOs.
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		got, err := card.ReadIndexCardAt(fifo)
+		if got != nil || err == nil {
+			err = errors.New("a pipe was not refused")
+		} else {
+			err = nil
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("reading a pipe with no writer blocked")
+	}
+
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("/dev/null", link); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := card.ReadIndexCardAt(link); got != nil || err == nil {
+		t.Fatalf("a link to a device: %v, %v", got, err)
+	}
+	if got, err := card.ReadIndexCardAt(dir); got != nil || err == nil {
+		t.Fatalf("a directory: %v, %v", got, err)
+	}
+	big := filepath.Join(dir, "big")
+	if err := os.WriteFile(big, make([]byte, 128*1024+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := card.ReadIndexCardAt(big); got != nil || err != nil {
+		t.Fatalf("an oversized file: %v, %v", got, err)
+	}
+	if got, err := card.ReadIndexCardAt(filepath.Join(dir, "absent")); got != nil || err != nil {
+		t.Fatalf("an absent file: %v, %v", got, err)
+	}
 }

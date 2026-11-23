@@ -401,7 +401,7 @@ func TestEnsureChecksThePortsAreFree(t *testing.T) {
 			t.Fatal("expected a refusal")
 		}
 		for _, want := range []string{
-			"127.0.0.1:" + strconv.Itoa(seedIndexPort) + " (the checkout index) is held by",
+			"127.0.0.1:" + strconv.Itoa(seedIndexPort) + " (the overview) is held by",
 			"127.0.0.1:" + strconv.Itoa(seedPingPort) + " (the router's ping) is held by",
 			"remove " + w.State.StateFile + " so the next start picks another port",
 		} {
@@ -677,7 +677,7 @@ func TestEnsureAllocatesTheRouterStatePorts(t *testing.T) {
 			w.Probe.Busy[port] = true
 		}
 		err := w.Router.Ensure(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "No free port for the checkout index") {
+		if err == nil || !strings.Contains(err.Error(), "No free port for the overview") {
 			t.Fatalf("got %v", err)
 		}
 	})

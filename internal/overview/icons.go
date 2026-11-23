@@ -110,7 +110,7 @@ func WriteIcons(dir string) (warning, err error) {
 
 // iconWarning is the one message a tolerated icon write failure is logged
 // with, whoever writes the icons.
-const iconWarning = "Could not update the favicon files beside the checkout index; keeping the earlier ones: %s"
+const iconWarning = "Could not update the favicon files beside the overview; keeping the earlier ones: %s"
 
 // EnsureIcons is WriteIcons with the policy callers share: a failure over an
 // icon an earlier write left is logged as a warning and the caller goes on to

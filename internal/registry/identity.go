@@ -83,15 +83,78 @@ type IdentityService struct {
 	// Root is the checkout this service answers for.
 	Root   string
 	runner run.Runner
-	// environ is the process environment the first Git question of Repository
-	// runs in, with the C locale added so Git's refusal reads the same on every
-	// machine. Nil inherits this process's own, and then a localised refusal
-	// is an error instead of an answer.
+	// environ is the process environment Git's questions are asked from,
+	// through the allow-list of GitEnvironment; nil is an empty one.
 	environ []string
 	// stat and statLimit are how Entries asks whether a listed root is there:
 	// os.Stat under StatLimit by default. A test swaps them.
 	stat      func(path string) (fs.FileInfo, error)
 	statLimit time.Duration
+}
+
+// The bounds on every Git question this service asks. A repository is data
+// somebody else may have written, so Git is run without what its configuration
+// could make it execute, with an environment of its own choosing, and stopped
+// when it takes too long or says too much.
+const (
+	gitTimeout     = 30 * time.Second
+	gitOutputLimit = 4 * 1024 * 1024
+)
+
+// gitSpec is the Spec for `git -C dir args...`: the repository's own
+// configuration may not run a file system monitor or hooks, or open a bare
+// repository it was not told to; the environment is the allow-list of
+// GitEnvironment; and the run is bounded in time and in output.
+func (s *IdentityService) gitSpec(dir string, args ...string) run.Spec {
+	return run.Spec{
+		Command: "git", Args: HardenedGitArgs(dir, args...), Env: GitEnvironment(s.environ),
+		Timeout: gitTimeout, OutputLimit: gitOutputLimit,
+	}
+}
+
+// HardenedGitArgs are the arguments of `git -C dir args...` with the settings
+// that keep a repository's own configuration from making Git run anything:
+// no file system monitor, no hooks, and no bare repository it was not told to
+// open (`safe.bareRepository=explicit` still lets `-C` name the working tree of
+// a linked worktree whose bare repository sits beside it).
+func HardenedGitArgs(dir string, args ...string) []string {
+	return append([]string{
+		"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "safe.bareRepository=explicit",
+		"-C", dir,
+	}, args...)
+}
+
+// GitEnvironment is what Git is run with, from the process environment
+// environ: the variables a Git needs to find itself and its configuration
+// (PATH, HOME, TMPDIR; and where the user's own configuration lives, which
+// holds their safe.directory entries: XDG_CONFIG_HOME and GIT_CONFIG_GLOBAL,
+// GIT_CONFIG_SYSTEM, GIT_CONFIG_NOSYSTEM) and to speak a language (LANG,
+// LC_*); the user's own limits on how far up Git looks for a repository
+// (GIT_CEILING_DIRECTORIES, GIT_DISCOVERY_ACROSS_FILESYSTEM), which can make
+// it find none but never another one, nor run anything; then LC_ALL=C so
+// its refusals read the same on every machine, and GIT_OPTIONAL_LOCKS=0 so
+// asking never writes to the repository. No other GIT_* variable is inherited: GIT_DIR, GIT_WORK_TREE,
+// GIT_CONFIG_COUNT/KEY_n/VALUE_n, GIT_CONFIG_PARAMETERS or GIT_EXEC_PATH could
+// point Git at a different repository or make it run a program. The -c settings
+// of gitSpec win over whatever the user's configuration says. A nil environ
+// keeps nothing but LC_ALL=C and GIT_OPTIONAL_LOCKS=0: a caller that forgets
+// to pass the entry point's environment gets an empty one, never an inherited
+// one (a nil Env would hand Git every variable this process has), and library
+// code never reads the process's own.
+func GitEnvironment(environ []string) []string {
+	kept := []string{"LC_ALL=C", "GIT_OPTIONAL_LOCKS=0"}
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		switch {
+		case name == "PATH", name == "HOME", name == "TMPDIR", name == "LANG",
+			name == "XDG_CONFIG_HOME", name == "GIT_CONFIG_GLOBAL", name == "GIT_CONFIG_SYSTEM", name == "GIT_CONFIG_NOSYSTEM",
+			name == "GIT_CEILING_DIRECTORIES", name == "GIT_DISCOVERY_ACROSS_FILESYSTEM":
+			kept = append(kept, entry)
+		case strings.HasPrefix(name, "LC_") && name != "LC_ALL":
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }
 
 // StatLimit is how long one Entries call waits, in all, for the file system to
@@ -100,15 +163,17 @@ type IdentityService struct {
 // not be checked.
 const StatLimit = 5 * time.Second
 
-// NewIdentityService answers identity questions for the checkout at root.
-func NewIdentityService(root string, runner run.Runner) *IdentityService {
-	return &IdentityService{Root: root, runner: runner}
+// NewIdentityService answers identity questions for the checkout at root. Git is
+// run with the allow-list of environ, the process environment its caller was
+// handed (see GitEnvironment); nil gives Git an empty environment, never this
+// process's.
+func NewIdentityService(root string, runner run.Runner, environ []string) *IdentityService {
+	return &IdentityService{Root: root, runner: runner, environ: environ}
 }
 
 // gitValue runs git with args in worktree and returns its trimmed stdout.
 func (s *IdentityService) gitValue(ctx context.Context, worktree string, args []string) (string, error) {
-	full := append([]string{"-C", worktree}, args...)
-	result, err := s.runner.Run(ctx, run.Spec{Command: "git", Args: full})
+	result, err := s.runner.Run(ctx, s.gitSpec(worktree, args...))
 	if err != nil {
 		return "", err
 	}
@@ -392,36 +457,14 @@ func refusalLine(stderr string) string {
 	return ""
 }
 
-// probeEnviron is environ for the top-level probe: Git's own trace variables
-// (GIT_TRACE, GIT_TRACE2_EVENT and the rest) are dropped, since a trace file
-// Git cannot open makes it warn on stderr, and LC_ALL=C makes the refusal's
-// wording the one notARepository matches. Every other variable, GIT_DIR and
-// GIT_WORK_TREE included, is the caller's.
-func probeEnviron(environ []string) []string {
-	out := make([]string, 0, len(environ)+1)
-	for _, entry := range environ {
-		if strings.HasPrefix(entry, "GIT_TRACE") {
-			continue
-		}
-		out = append(out, entry)
-	}
-	return append(out, "LC_ALL=C")
-}
-
 // topLevel asks Git for the top level of the work tree containing worktree.
 // Only Git's refusal for a directory outside every repository is returned as
 // refusal, with the failure the caller can report as it always has; every
 // other failure (an unsafe directory, a corrupt repository, a bare one, Git
 // not starting) is err, carrying Git's own words.
 func (s *IdentityService) topLevel(ctx context.Context, worktree string) (top string, refusal, err error) {
-	spec := run.Spec{
-		Command:      "git",
-		Args:         []string{"-C", worktree, "rev-parse", "--show-toplevel"},
-		AllowFailure: true,
-	}
-	if s.environ != nil {
-		spec.Env = probeEnviron(s.environ)
-	}
+	spec := s.gitSpec(worktree, "rev-parse", "--show-toplevel")
+	spec.AllowFailure = true
 	result, err := s.runner.Run(ctx, spec)
 	if err != nil {
 		return "", nil, err
@@ -513,10 +556,7 @@ func (s *IdentityService) RemoveWorktreeMarker(identity WorktreeIdentity) error 
 
 // List is `git worktree list --porcelain -z`, parsed.
 func (s *IdentityService) List(ctx context.Context) ([]ListedWorktree, error) {
-	result, err := s.runner.Run(ctx, run.Spec{
-		Command: "git",
-		Args:    []string{"-C", s.Root, "worktree", "list", "--porcelain", "-z"},
-	})
+	result, err := s.runner.Run(ctx, s.gitSpec(s.Root, "worktree", "list", "--porcelain", "-z"))
 	if err != nil {
 		return nil, err
 	}

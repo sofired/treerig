@@ -1,5 +1,5 @@
 // Package commandstest is a hermetic world for command tests, minus the
-// runtime, router and checkout index, with a fake Git runner and a real
+// runtime, router and overview, with a fake Git runner and a real
 // filesystem control home.
 //
 // World.Context builds a commands.CommandContext directly from a hand-built
@@ -51,7 +51,7 @@ type World struct {
 	// always a fresh temp directory nowhere near it.
 	UserHome string
 	// RouterState is a fake shared router's own state directory: the
-	// checkout index writes its page and takes its lock under here, never
+	// overview writes its page and takes its lock under here, never
 	// under ControlHome — the router's state is machine-wide, per treerig
 	// root, not per control home (see internal/layout's RouterStateDir
 	// comment).
@@ -333,6 +333,21 @@ func (w *World) WriteIndexCard(repositoryID, worktreeID, project, domain, slug, 
 	}
 }
 
+// WriteRoutedCard writes the card an `up` leaves for ref: root as the directory
+// it saw the worktree in, and the services it routed, each with the URL the
+// router serves it at. The worktree's home must exist (Register makes it).
+func (w *World) WriteRoutedCard(ref worktree.Ref, project, domain, root, branch string, routes ...card.IndexService) {
+	w.t.Helper()
+	err := card.WriteIndexCard(w.ControlHome, ref.RepositoryID, ref.WorktreeID, card.IndexCard{
+		Project: project, Domain: domain, Slug: ref.Slug, Host: layout.WorktreeHost(ref.Slug, domain),
+		Root: root, Branch: branch, LabelNamespace: brand.LabelNamespace, Services: routes,
+		UpdatedAt: "2026-01-01T00:00:00.000Z",
+	})
+	if err != nil {
+		w.t.Fatalf("write routed card for %s: %v", ref.Slug, err)
+	}
+}
+
 // Register is what a finished `up` leaves behind, as far as the other verbs
 // can see: identity markers, a complete registration recording namespace, the
 // worktree's home, and one running container per service plus a data volume.
@@ -346,7 +361,7 @@ func (w *World) Register(root, domain, slug, namespace string, services ...strin
 	if err := files.SecureControlDirectories(layout.ControlLayout(w.ControlHome), w.UserHome); err != nil {
 		w.t.Fatalf("control home: %v", err)
 	}
-	identities := registry.NewIdentityService(root, w.Runner)
+	identities := registry.NewIdentityService(root, w.Runner, nil)
 	identity, err := registrytest.Register(context.Background(), w.ControlHome, identities, root, domain, slug, &namespace, "complete")
 	if err != nil {
 		w.t.Fatalf("register %s: %v", slug, err)

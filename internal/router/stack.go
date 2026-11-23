@@ -47,7 +47,7 @@ const (
 
 	RouterService = "router"
 	IndexService  = "index"
-	// IndexHost is where the machine-wide checkout index answers; a
+	// IndexHost is where the machine-wide overview answers; a
 	// storage-contract name like the others.
 	IndexHost  = brand.Name + ".localhost"
 	IndexMount = "/srv/index"
@@ -94,7 +94,7 @@ type StackOptions struct {
 	Mode Mode
 	// Port is the loopback port the proxy serves routes on.
 	Port int
-	// IndexPort is the loopback port the checkout index is published on.
+	// IndexPort is the loopback port the overview is published on.
 	IndexPort int
 	// PingPort is the host-mode ping entrypoint's loopback port; unused in
 	// bridge mode, which has a fixed container-internal one.
@@ -111,7 +111,7 @@ type StackOptions struct {
 	Home string
 }
 
-// IndexURL is where the checkout index answers.
+// IndexURL is where the overview answers.
 func IndexURL(port int) string {
 	if port == 80 {
 		return "http://" + IndexHost

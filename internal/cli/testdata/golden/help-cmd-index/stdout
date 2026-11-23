@@ -1,0 +1,11 @@
+'treerig index' is now 'treerig list --all'.
+
+Usage:
+  treerig index [flags]
+
+Flags:
+  -h, --help   help for index
+
+Global Flags:
+      --progress mode   how to show progress: auto or plain (one line per
+                        change) (default "auto")

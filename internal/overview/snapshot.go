@@ -1,6 +1,6 @@
-// Package overview builds the checkout index: registry records + cards
+// Package overview builds the overview: registry records + cards
 // + Git identities + a container inventory in, one sorted snapshot out, and
-// the HTML and plain-text pages rendered from it. snapshot.go and render.go
+// the HTML page rendered from it. snapshot.go and render.go
 // are pure, so every state a row can be in is reachable from a unit test;
 // service.go is what runs the `docker ps` call that produces a
 // []ContainerRecord and ties this package to disk and the router lock
@@ -31,7 +31,7 @@ type IndexServiceLink struct {
 }
 
 // IndexSharedService is one routed web UI of a repository's shared services,
-// listed in a group of its own beneath the checkouts (docs/design/routing.md,
+// listed in a group of its own beneath the worktrees (docs/design/routing.md,
 // decision 20). It is read from the shared-service records, so it is listed
 // whether or not its container runs.
 type IndexSharedService struct {
@@ -39,7 +39,7 @@ type IndexSharedService struct {
 	// Name is the shared service's name.
 	Name string
 	// Project is the name of a project of the repository, from one of its
-	// checkouts' cards; the domain when none has named it.
+	// worktrees' cards; the domain when none has named it.
 	Project string
 	Domain  string
 	// Host is <name>.shared.<domain>.
@@ -51,7 +51,18 @@ type IndexSharedService struct {
 	Available bool
 }
 
-// IndexEntry is one row of the checkout index.
+// RoutedService is one service a worktree routes, whether or not it opted into
+// a link on the page: what a URL column is built from.
+type RoutedService struct {
+	Name string
+	URL  string
+	// Running means a container of the service is running and not reporting
+	// itself unhealthy or still starting: its URL loads once the router
+	// serves it.
+	Running bool
+}
+
+// IndexEntry is one row of the overview.
 type IndexEntry struct {
 	RepositoryID string
 	WorktreeID   string
@@ -71,6 +82,10 @@ type IndexEntry struct {
 	State    worktree.State
 	Hint     string
 	Services []IndexServiceLink
+	// Routes are every service the worktree routed, in the order treerig.toml
+	// declares them, linked or not; host routes are not among them (nothing
+	// here asks whether their process listens).
+	Routes []RoutedService
 }
 
 // IdentityFailure is what it cost the page that Git could not be asked which
@@ -129,6 +144,10 @@ type IndexSnapshot struct {
 	// written — see SnapshotInput's own field. Zero means every card that
 	// exists was read; render.go shows a notice whenever it is not.
 	CardReadFailures int
+	// GitHints are the unknown-state hints of the repositories Git could not
+	// be asked about: every worktree of one carries its hint, so a caller that
+	// says each unknown row's cause can leave these out and say them once.
+	GitHints []string
 }
 
 // SnapshotInput is everything BuildSnapshot needs.
@@ -155,7 +174,7 @@ type SnapshotInput struct {
 	// whoever reads the page.
 	DockerError *string
 	// RouterPort is the port the router publishes; a service URL on any
-	// other port is not this checkout's.
+	// other port is not this worktree's.
 	RouterPort int
 	// IdentityError is set when Git could not be asked about this
 	// repository. Its type carries only a Reason (#17): whether the rows it
@@ -171,7 +190,9 @@ type SnapshotInput struct {
 	// must not be reported with the same confidence (the Gatherer reads it
 	// as unknown).
 	CardReadFailures map[string]struct{}
-	GeneratedAt      string
+	// GitHints are the hints of the repositories Git could not be asked about.
+	GitHints    []string
+	GeneratedAt string
 }
 
 // EntryKey is the map key a registration's card and identity are found
@@ -218,7 +239,7 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 		host := layout.WorktreeHost(record.Slug, record.Domain)
 		// A card is written into a home every lifecycle hook is handed, so
 		// where a service lives is not something it gets to say: a link
-		// that is not under this checkout's own host is dropped rather than
+		// that is not under this worktree's own host is dropped rather than
 		// published to everyone.
 		var declared []card.IndexService
 		if hasCard {
@@ -241,7 +262,12 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 		// Label are shown as a link: an unlabelled entry has no href text or
 		// purpose to publish.
 		services := make([]IndexServiceLink, 0, len(declared))
+		routes := make([]RoutedService, 0, len(declared))
 		for _, service := range declared {
+			routes = append(routes, RoutedService{
+				Name: service.Name, URL: service.URL,
+				Running: state.State != worktree.StateDirectoryMissing && anyContainerAvailable(owned, service.Name),
+			})
 			if service.Label == "" {
 				continue
 			}
@@ -292,6 +318,7 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 			State:        state.State,
 			Hint:         state.Hint,
 			Services:     services,
+			Routes:       routes,
 		}
 	}
 	// Sorted on the key the page groups on, so a table's rows cannot
@@ -307,14 +334,15 @@ func BuildSnapshot(input SnapshotInput) IndexSnapshot {
 		DockerReachable:  dockerReachable,
 		DockerError:      input.DockerError,
 		CardReadFailures: len(input.CardReadFailures),
+		GitHints:         input.GitHints,
 	}
 }
 
 // sharedServices lists the routed web UIs among the shared-service records,
-// each with the project name one of its repository's checkouts gave, and
+// each with the project name one of its repository's worktrees gave, and
 // whether a container of it answers. A record that routes nothing is not
 // listed. Sorted on domain, project, then name, with the same fixed locale
-// as the checkouts.
+// as the worktrees.
 func sharedServices(input SnapshotInput, entries []IndexEntry, dockerReachable bool) []IndexSharedService {
 	var listed []IndexSharedService
 	for _, record := range input.SharedRecords {
@@ -372,7 +400,7 @@ func anyContainerAvailable(owned []worktreestate.Container, service string) bool
 }
 
 // serviceBelongsToHost is buildSnapshot's URL filter: `http:` on the
-// router's own port, under this checkout's own host (or a subdomain of it).
+// router's own port, under this worktree's own host (or a subdomain of it).
 // Card.go's own urlPattern already restricts a card's URL to a fixed ASCII
 // character set with no userinfo before it ever reaches here; this filter
 // runs anyway, since buildSnapshot is also exercised directly with cards
@@ -439,7 +467,7 @@ func sortEntries(entries []IndexEntry) {
 			return c
 		}
 		// Two projects may share a domain, and so share a table: keep each
-		// one's rows together, with its gone checkouts after its live ones.
+		// one's rows together, with its gone worktrees after its live ones.
 		if c := text.Collate(left.Project, right.Project); c != 0 {
 			return c
 		}
@@ -462,7 +490,7 @@ func missingRank(state worktree.State) int {
 	return 0
 }
 
-// sortKey is `left.branch || left.slug`: a detached checkout has no branch
+// sortKey is `left.branch || left.slug`: a detached worktree has no branch
 // to sort by, so it sorts by the slug that names it instead of sorting
 // ahead of everything.
 func sortKey(entry IndexEntry) string {
@@ -473,7 +501,7 @@ func sortKey(entry IndexEntry) string {
 }
 
 // PlaceholderSnapshot is the page to write before anything has been read: no
-// checkouts, and Docker not asked. DockerReachable false is the honest
+// worktrees, and Docker not asked. DockerReachable false is the honest
 // value — the router writes this while bringing itself up, long before a
 // container has been listed.
 func PlaceholderSnapshot(generatedAt string) IndexSnapshot {
@@ -487,7 +515,7 @@ type DescribedBranch struct {
 	Muted bool
 }
 
-// DescribeBranch describes a checkout's branch for display. The two
+// DescribeBranch describes a worktree's branch for display. The two
 // synthesized answers are parenthesized because "detached" and "unknown"
 // are both legal branch names — parentheses, not styling, are what tells a
 // placeholder from a ref.

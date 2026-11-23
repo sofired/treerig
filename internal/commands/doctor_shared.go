@@ -45,7 +45,7 @@ func sharedSection(ctx context.Context, opts doctorOptions) ([]Check, error) {
 		return nil, nil
 	}
 	return guarded("shared.scan", "shared services", func() ([]Check, error) {
-		identities := registry.NewIdentityService(loaded.Root, opts.Runner)
+		identities := registry.NewIdentityService(loaded.Root, opts.Runner, opts.Environ)
 		repositoryID, present, err := identities.RepositoryID(ctx, loaded.Root)
 		if err != nil {
 			if len(declared) == 0 {
@@ -184,6 +184,7 @@ func (d *sharedDoctor) registration(ctx context.Context) (*registry.WorktreeRegi
 		ControlHome: d.opts.ControlHome, Root: d.loaded.Root, Domain: d.loaded.Config.Project.Domain,
 		LabelNamespace: d.namespace, Runner: d.opts.Runner, Logger: d.opts.Logger,
 		CommandName: d.opts.CommandName, Invocation: d.opts.Invocation, UserHome: d.opts.UserHome,
+		Environ: d.opts.Environ,
 	})
 	return reg.Current(ctx)
 }
