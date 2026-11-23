@@ -450,6 +450,23 @@ func TestRunHookStreams(t *testing.T) {
 		}
 	})
 
+	t.Run("says no exit code with -v for a hook that was stopped, not one that exited", func(t *testing.T) {
+		for _, outcome := range []string{"TIMEOUT", "SIGKILL"} {
+			rec := &logger.Recording{Verbose: true}
+			hctx := newContext(brokenRunner(outcome), config.Hooks{Prepare: str("./hook.sh")})
+			hctx.Logger = rec
+			if _, err := hooks.RunHook(ctx, config.Prepare, hctx, hooks.RunOptions{}); err == nil {
+				t.Fatalf("%s: RunHook = nil error", outcome)
+			}
+			lines, _ := rec.Snapshot()
+			for _, line := range lines {
+				if strings.Contains(line, "hook exited") {
+					t.Errorf("%s: %q", outcome, line)
+				}
+			}
+		}
+	})
+
 	t.Run("says nothing extra without -v", func(t *testing.T) {
 		rec := &logger.Recording{}
 		hctx := newContext(recordingRunner(nil), config.Hooks{Prepare: str("./hook.sh")})

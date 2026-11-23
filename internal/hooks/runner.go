@@ -294,9 +294,12 @@ func RunHook(ctx context.Context, stage config.HookStage, hctx HookContext, opts
 			Timeout:      timeout,
 			AllowFailure: true,
 		})
-		if runErr == nil {
+		if runErr == nil && !result.TimedOut && result.Signal == 0 && !result.OutputOverflow {
 			// Only with -v (the logger decides): the exit code and the time,
-			// never the hook's arguments or environment.
+			// never the hook's arguments or environment. A hook that was
+			// stopped (its timeout, a signal, too much output) has no exit
+			// code of its own, only the runner's placeholder; finish says what
+			// stopped it.
 			hctx.Logger.Detail(fmt.Sprintf("The %s hook exited %d after %s.", stage, result.ExitCode, hookDuration(time.Since(started))))
 		}
 		if err := finish(hookKind, string(stage), resolved, timeout, result, runErr); err != nil {

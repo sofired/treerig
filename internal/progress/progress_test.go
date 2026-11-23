@@ -64,6 +64,13 @@ func (s *syncLogger) Info(message string) {
 	}
 }
 
+// count is how many messages have been recorded.
+func (s *syncLogger) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.lines)
+}
+
 // Warn discards the message.
 func (*syncLogger) Warn(string) {}
 
@@ -221,6 +228,13 @@ func TestPlainPhase(t *testing.T) {
 			}
 		}
 		log.mu.Unlock()
+
+		// A hundred heartbeat periods later, nothing more has been logged.
+		settled := log.count()
+		time.Sleep(20 * time.Millisecond)
+		if after := log.count(); after != settled {
+			t.Fatalf("%d message(s) logged after Phase returned (had %d, now %d)", after-settled, settled, after)
+		}
 	})
 
 	t.Run("waits for an in-flight heartbeat before returning", func(t *testing.T) {

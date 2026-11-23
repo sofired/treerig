@@ -156,7 +156,56 @@ func scratchRouterEnv(t *testing.T, extra string, runner run.Runner) (*commands.
 	return env, state, rec
 }
 
+// recordingRunner keeps every spec it passes on.
+type recordingRunner struct {
+	run.Runner
+	mu    sync.Mutex
+	specs []run.Spec
+}
+
+// owned passes the treerig root on to the runner it wraps, as
+// scratchRouterEnv hands it to its fake.
+func (r *recordingRunner) owned(home string) {
+	if docker, ok := r.Runner.(interface{ owned(home string) }); ok {
+		docker.owned(home)
+	}
+}
+
+func (r *recordingRunner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
+	r.mu.Lock()
+	r.specs = append(r.specs, spec)
+	r.mu.Unlock()
+	return r.Runner.Run(ctx, spec)
+}
+
 func TestRouterUp(t *testing.T) {
+	t.Run("shows Compose's transcript of the start only with -v", func(t *testing.T) {
+		for _, verbose := range []bool{false, true} {
+			docker := &recordingRunner{Runner: &healthyRouterDocker{}}
+			env, _, _ := scratchRouterEnv(t, "", docker)
+			env.Verbose = verbose
+			if err := commands.RouterUp(context.Background(), env); err != nil {
+				t.Fatalf("RouterUp: %v", err)
+			}
+			want := run.Capture
+			if verbose {
+				want = run.TeeToStderr
+			}
+			started := false
+			for _, spec := range docker.specs {
+				if slices.Contains(spec.Args, "up") && slices.Contains(spec.Args, "--wait") {
+					started = true
+					if spec.Output != want {
+						t.Errorf("verbose %v: up output = %v, want %v", verbose, spec.Output, want)
+					}
+				}
+			}
+			if !started {
+				t.Fatalf("verbose %v: the router was never started: %v", verbose, docker.specs)
+			}
+		}
+	})
+
 	t.Run("starts the router in the mode Docker reports and says where it is up", func(t *testing.T) {
 		env, state, rec := scratchRouterEnv(t, "", &healthyRouterDocker{})
 

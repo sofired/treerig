@@ -166,8 +166,9 @@ type Options struct {
 	Page         PlaceholderPage
 	// Timeouts overrides this router's per-call docker timeouts (#14).
 	Timeouts Timeouts
-	// Verbose is -v: Compose's transcript of stopping the router is shown, on
-	// stderr. Without it the caller tells what happened in its own words.
+	// Verbose is -v: Compose's transcript of starting and stopping the router is
+	// shown, on stderr. Without it the caller tells what happened in its own
+	// words.
 	Verbose bool
 	// Progress shows the start of a router that was not running; nil is the
 	// plain writer over Logger.
@@ -892,7 +893,7 @@ func (r *Router) repairRoutes(ctx context.Context) error {
 // containers' last log lines: a port taken after the check above otherwise
 // crash-loops the proxy with Compose reporting only "unhealthy".
 func (r *Router) start(ctx context.Context, observe func(line string)) error {
-	result, err := r.compose(ctx, []string{"up", "--detach", "--wait", "--remove-orphans"}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Start, Observe: observe})
+	result, err := r.compose(ctx, []string{"up", "--detach", "--wait", "--remove-orphans"}, run.Spec{AllowFailure: true, Timeout: r.timeouts.Start, Output: run.Transcript(r.verbose), Observe: observe})
 	if err != nil {
 		return err
 	}
