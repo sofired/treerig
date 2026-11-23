@@ -46,8 +46,10 @@ type Env struct {
 	// Verbose is -v/--verbose (docs/design/cli-1.0.md, "Verbose output"). It
 	// reaches the Compose runtimes, the router and the shared stack, which then
 	// show Compose's transcript, and the logger, which then prints Detail
-	// lines: each Docker command with treerig's own arguments, and paths, IDs
-	// and exit codes. It never prints the environment, arguments after "--",
+	// lines: each Docker command with treerig's own arguments, a hook's exit
+	// code and how long it ran, and a few reasons a best-effort read failed.
+	// Paths, IDs and digests are not shown yet (#211, #215). It never prints
+	// the environment, arguments after "--",
 	// or hook or [commands] arguments, and redacts through text.Redact.
 	Verbose bool
 	// Progress is how progress is shown, decided once by the command line

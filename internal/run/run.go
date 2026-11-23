@@ -213,7 +213,8 @@ const (
 
 // Tail is the end of text, for a message: at most n lines, each cut to 500
 // bytes, and at most 8 KiB in all, with a line saying how many lines came
-// before when it had to leave some out.
+// before when it had to leave some out. A capture so long that only its last
+// 32 KiB was split says "N+": the lines before those were never counted.
 func Tail(text string, n int) string {
 	// Only the end can matter, so a huge capture is not even split.
 	omitted := false
@@ -249,6 +250,9 @@ func Tail(text string, n int) string {
 	}
 	if omitted && dropped == 0 {
 		return "(earlier output left out)\n" + strings.Join(lines, "\n")
+	}
+	if omitted {
+		return fmt.Sprintf("(%d+ earlier lines left out)\n%s", dropped, strings.Join(lines, "\n"))
 	}
 	return fmt.Sprintf("(%d earlier lines left out)\n%s", dropped, strings.Join(lines, "\n"))
 }

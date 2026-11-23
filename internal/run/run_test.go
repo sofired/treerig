@@ -2,6 +2,7 @@ package run_test
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -73,6 +74,16 @@ func TestFailureTailIsBoundedInBytes(t *testing.T) {
 		message := run.Failure(spec, run.Result{Stderr: strings.Repeat("x", 50<<20), ExitCode: 1, OutputOverflow: true}).Error()
 		if len(message) > 2000 {
 			t.Fatalf("message is %d bytes", len(message))
+		}
+	})
+	t.Run("a capture cut short before it was split says its count is a floor", func(t *testing.T) {
+		var b strings.Builder
+		for i := 0; i < 5000; i++ {
+			fmt.Fprintf(&b, "line %04d\n", i)
+		}
+		message := run.Failure(spec, run.Result{Stderr: b.String(), ExitCode: 1}).Error()
+		if !regexp.MustCompile(`\(\d+\+ earlier lines left out\)`).MatchString(message) || !strings.Contains(message, "line 4999") {
+			t.Fatalf("message = %.300q", message)
 		}
 	})
 	t.Run("many long lines keep the end within 8 KiB", func(t *testing.T) {
