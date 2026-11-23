@@ -164,7 +164,7 @@ func TestRunnerExitCodes(t *testing.T) {
 
 	t.Run("captures output even when teed", func(t *testing.T) {
 		result, err := New().Run(context.Background(), run.Spec{
-			Command: "sh", Args: []string{"-c", "echo out; echo err >&2"}, Output: run.Tee,
+			Command: "sh", Args: []string{"-c", "echo out; echo err >&2"}, Output: run.TeeToStderr,
 		})
 		if err != nil {
 			t.Fatal(err)

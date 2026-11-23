@@ -164,31 +164,20 @@ const script = `echo keep-out; echo hide-out; echo keep-err >&2; echo hide-err >
 func TestRunShowsAndHidesLines(t *testing.T) {
 	hide := func(line string) bool { return strings.HasPrefix(line, "hide") }
 
-	t.Run("Tee shows each stream on its own and leaves out the hidden lines, capturing all", func(t *testing.T) {
+	t.Run("TeeToStderr shows both streams on stderr and leaves out the hidden lines, capturing all", func(t *testing.T) {
 		var result run.Result
 		stdout, stderr := captureStreams(t, func() {
 			var err error
-			result, err = New().Run(context.Background(), run.Spec{Command: "sh", Args: []string{"-c", script}, Output: run.Tee, HideLine: hide})
+			result, err = New().Run(context.Background(), run.Spec{Command: "sh", Args: []string{"-c", script}, Output: run.TeeToStderr, HideLine: hide})
 			if err != nil {
-				t.Error(err)
-			}
-		})
-		if stdout != "keep-out\nlast-out" || stderr != "keep-err\nlast-err" {
-			t.Errorf("stdout = %q, stderr = %q", stdout, stderr)
-		}
-		if !strings.Contains(result.Stdout, "hide-out") || !strings.Contains(result.Stderr, "hide-err") {
-			t.Errorf("captured %+v, want the hidden lines too", result)
-		}
-	})
-
-	t.Run("TeeToStderr shows both streams on stderr", func(t *testing.T) {
-		stdout, stderr := captureStreams(t, func() {
-			if _, err := New().Run(context.Background(), run.Spec{Command: "sh", Args: []string{"-c", script}, Output: run.TeeToStderr, HideLine: hide}); err != nil {
 				t.Error(err)
 			}
 		})
 		if stdout != "" || !strings.Contains(stderr, "keep-out\n") || !strings.Contains(stderr, "keep-err\n") || strings.Contains(stderr, "hide") || !strings.Contains(stderr, "last-out") || !strings.Contains(stderr, "last-err") {
 			t.Errorf("stdout = %q, stderr = %q", stdout, stderr)
+		}
+		if !strings.Contains(result.Stdout, "hide-out") || !strings.Contains(result.Stderr, "hide-err") {
+			t.Errorf("captured %+v, want the hidden lines too", result)
 		}
 	})
 

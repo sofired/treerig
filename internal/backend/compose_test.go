@@ -95,6 +95,8 @@ type dockerFake struct {
 	// for Reap.
 	downExitCode int
 	downStderr   string
+	// downStdout is what that failing `down` writes on stdout.
+	downStdout string
 	// downTimedOut makes the next `compose … down …` call answer as a
 	// timeout instead of a clean exit — round 3 of #55's review: a
 	// timed-out down must not be read as Compose's own "has active
@@ -170,7 +172,7 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 						return run.Finish(spec, run.Result{Stderr: f.downStderr, ExitCode: 1, TimedOut: true})
 					}
 					if f.downExitCode != 0 {
-						return run.Finish(spec, run.Result{Stderr: f.downStderr, ExitCode: f.downExitCode})
+						return run.Finish(spec, run.Result{Stdout: f.downStdout, Stderr: f.downStderr, ExitCode: f.downExitCode})
 					}
 				case "ps":
 					if f.psOutput != nil {

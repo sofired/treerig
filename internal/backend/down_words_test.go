@@ -58,6 +58,18 @@ func TestDownTranscript(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+
+	t.Run("does not quote the warning from stdout either, which a failure reads when stderr is blank", func(t *testing.T) {
+		warning := `time="t" level=warning msg="Warning: No resource found to remove for project \"p\"."`
+		fake := newFake()
+		fake.downExitCode = 1
+		fake.downStderr, fake.downStdout = warning, warning
+		rt, _ := newRuntime(t, fake)
+		err := rt.Down(ctx, ref)
+		if err == nil || strings.Contains(err.Error(), "No resource found") {
+			t.Fatalf("err = %v", err)
+		}
+	})
 }
 
 func TestUpTranscript(t *testing.T) {

@@ -145,7 +145,7 @@ func TestRun(t *testing.T) {
 	})
 	t.Run("reads Docker before honouring a caller that wanted failures thrown, passing everything else through", func(t *testing.T) {
 		runner := answering(run.Result{ExitCode: 1, Stderr: "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n"})
-		_, err := Run(ctx, runner, []string{"compose", "down"}, run.Spec{Env: []string{"A=1"}, Output: run.Tee, Timeout: 5 * time.Millisecond})
+		_, err := Run(ctx, runner, []string{"compose", "down"}, run.Spec{Env: []string{"A=1"}, Output: run.TeeToStderr, Timeout: 5 * time.Millisecond})
 		wantError(t, err, "Docker is not available: Cannot connect to the Docker daemon")
 		calls := runner.Calls()
 		if len(calls) != 1 {
@@ -153,7 +153,7 @@ func TestRun(t *testing.T) {
 		}
 		call := calls[0]
 		if call.Command != "docker" || strings.Join(call.Args, " ") != "compose down" || !call.AllowFailure ||
-			call.Output != run.Tee || call.Timeout != 5*time.Millisecond || strings.Join(call.Env, ",") != "A=1" || !call.InheritLocks {
+			call.Output != run.TeeToStderr || call.Timeout != 5*time.Millisecond || strings.Join(call.Env, ",") != "A=1" || !call.InheritLocks {
 			t.Fatalf("passed through %+v", call)
 		}
 	})

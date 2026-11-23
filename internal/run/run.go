@@ -21,11 +21,6 @@ type Output int
 const (
 	// Capture keeps both streams for the caller and shows nothing.
 	Capture Output = iota
-	// Tee shows stdout on this process's stdout and stderr on its stderr while
-	// capturing both. No caller uses it since Compose's transcript moved to
-	// Transcript (stderr, and only with -v); it stays as the one mode in which
-	// a child's stdout is the command's own result, which hooks no longer are.
-	Tee
 	// TeeToStderr shows both streams on this process's stderr while capturing them, for a
 	// caller whose own stdout is a report the child's output must not interleave with.
 	TeeToStderr
@@ -79,8 +74,8 @@ type Spec struct {
 	// arguments or an absolute path. Empty uses the executable's base name
 	// and "command".
 	Label string
-	// HideLine, when set, keeps a line of the child's output off the stream a
-	// Tee shows it on; the line is still captured, so a failure reads it. It is
+	// HideLine, when set, keeps a line of the child's output off the stderr
+	// TeeToStderr shows it on; the line is still captured, so a failure reads it. It is
 	// asked once per complete line, without the line break. Capture and
 	// Interactive ignore it.
 	HideLine func(line string) bool

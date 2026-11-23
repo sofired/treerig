@@ -299,7 +299,10 @@ func (c *Compose) Down(ctx context.Context, ref worktree.Ref) error {
 		c.options.Logger.Info(fmt.Sprintf("A network of %s is kept while something else is attached to it.", c.project(ref)))
 		return nil
 	}
+	// From both streams, as the router's Down does: run.Failure quotes stdout
+	// when stderr is blank.
 	result.Stderr = docker.WithoutNoResourceWarning(result.Stderr)
+	result.Stdout = docker.WithoutNoResourceWarning(result.Stdout)
 	return run.Failure(run.Spec{Command: "docker", Args: c.composeArgs(ref, args, nil), Timeout: spec.Timeout}, result)
 }
 

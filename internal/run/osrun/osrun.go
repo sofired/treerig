@@ -143,8 +143,6 @@ func (r *Runner) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 		stderr = newLimitWriter(limit, overflow)
 		var shownOut, shownErr io.Writer // nil: shown nowhere
 		switch spec.Output {
-		case run.Tee:
-			shownOut, shownErr = os.Stdout, os.Stderr
 		case run.TeeToStderr:
 			shownOut, shownErr = os.Stderr, os.Stderr
 		}
