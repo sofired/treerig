@@ -166,10 +166,14 @@ func (p *Plain) Phase(spec PhaseSpec, action func() error) error {
 // redaction list can promise to catch, and the heartbeat runs without -v, into
 // CI logs; so only this shape is shown, rebuilt from its parts. A name may hold
 // an image's registry and tag ("Image docker.io/library/nginx:1  Pulling") but
-// never "@", so no user:password@host can pass for one.
+// never "@", so no user:password@host can pass for one. The state is any one
+// capitalised word of letters ("Starting", "Healthy", and states a newer
+// Compose adds, such as "Restarted" or "Skipped"), which cannot carry a URL,
+// a variable or a path; a state with more after it ("Healthy (x)") is not
+// this shape, and the note keeps the last line that was.
 var composeStatus = regexp.MustCompile(
 	`^\s*(?:\S\s+)?(Container|Network|Volume|Image|Service)\s+([A-Za-z0-9][A-Za-z0-9_.:/-]*)\s+` +
-		`(Creating|Created|Starting|Started|Waiting|Healthy|Unhealthy|Running|Recreate|Recreated|Restarting|Stopping|Stopped|Killing|Killed|Removing|Removed|Pulling|Pulled|Building|Built|Exited|Error)\s*$`)
+		`([A-Z][a-z]{1,19})\s*$`)
 
 // clip is a note made safe to print: the Compose status in line, if it is one,
 // as "Container web-1 Starting" and cut to noteLimit characters; "" for any

@@ -116,7 +116,11 @@ func redactFlagValue(arg string) string {
 	return Redact(arg)
 }
 
-// secretLike reports whether a flag name contains a secret word.
+// secretLike reports whether a flag name contains a secret word anywhere, not
+// only as a dash-separated word, as sensitiveName does for names: a flag
+// such as --dbpassword or --apitoken has no dash to split on. A flag that
+// only happens to contain one (--no-keyring) loses its value from the line,
+// which costs a -v reader a detail; the other way round would leak a secret.
 func secretLike(flag string) bool {
 	lower := strings.ToLower(flag)
 	for _, word := range secretWords {

@@ -326,6 +326,8 @@ func TestPhaseNote(t *testing.T) {
 			{" \u2714 Volume app_data  Created", "Volume app_data Created"},
 			{"\u280b Image docker.io/library/nginx:1.27  Pulling", "Image docker.io/library/nginx:1.27 Pulling"},
 			{" \u2714 Image postgres:16 Pulled", "Image postgres:16 Pulled"},
+			{" \u2714 Container web-1  Restarted", "Container web-1 Restarted"},
+			{" Container worker-1  Skipped", "Container worker-1 Skipped"},
 		} {
 			if got := heartbeatNote(t, tc.said); got != tc.want {
 				t.Errorf("%q: note = %q, want %q", tc.said, got, tc.want)
@@ -345,6 +347,9 @@ func TestPhaseNote(t *testing.T) {
 			" Container web-1  Starting \x1b[2K; echo abc123",
 			"Error response from daemon: password abc123",
 			"Container web-1 is unhealthy",
+			"Container web-1  Healthy (x)",
+			"Container web-1  STARTED",
+			"Container web-1  Abc123",
 		} {
 			if got := heartbeatNote(t, said); got != "" {
 				t.Errorf("%q: note = %q, want none", said, got)

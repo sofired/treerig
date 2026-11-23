@@ -177,12 +177,9 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 // state and treerig root, but not its port. Down acts by project name alone,
 // so it neither reads settings.toml nor validates TREERIG_ROUTER_PORT — a
 // malformed setting must never keep the router from being stopped (found
-// in review of #79); the default port stands in, unused.
-func routerServiceForDown(env *Env) (*router.Router, error) {
-	home, _, err := checkedHome(env.Getenv)
-	if err != nil {
-		return nil, err
-	}
+// in review of #79); the default port stands in, unused. home is the treerig
+// root, resolved once by the caller.
+func routerServiceForDown(env *Env, home string) (*router.Router, error) {
 	return router.New(router.Options{
 		State:       layout.RouterStateFrom(home),
 		Port:        layout.DefaultRouterPort,
@@ -343,21 +340,25 @@ func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
 // transcript only with -v. It cannot say whether those worktrees run: a route
 // file can outlive a stopped service.
 func RouterDown(ctx context.Context, env *Env) error {
+	// The treerig root, once, for both the router and its route files. Its
+	// checks are the ones every command makes; settings.toml is not read.
 	home, _, err := checkedHome(env.Getenv)
 	if err != nil {
 		return err
 	}
-	svc, err := routerServiceForDown(env)
+	svc, err := routerServiceForDown(env, home)
 	if err != nil {
 		return err
 	}
-	// Both best effort: stopping the router must not wait on either, and a
-	// router whose container cannot be read is stopped as if it ran.
+	// The two reads below are best effort: stopping the router must not wait
+	// on either. A container that is there but stopped was not running; one
+	// whose state cannot be read, or that could not be inspected (its Up is
+	// then a guess), is stopped as if it ran.
 	state, stateErr := svc.Running(ctx)
 	if stateErr != nil {
 		env.Logger.Detail(fmt.Sprintf("Could not read the router's container before stopping it: %s", stateErr))
 	}
-	wasRunning := stateErr != nil || state.Present
+	wasRunning := stateErr != nil || (state.Present && (state.Up || !state.Inspected))
 	routed, routedErr := router.RoutedWorktrees(layout.RouterStateFrom(home))
 	if routedErr != nil {
 		env.Logger.Detail(fmt.Sprintf("Could not count the worktrees with route files: %s", routedErr))

@@ -59,6 +59,8 @@ type healthyRouterDocker struct {
 	mode string
 	// unhealthy makes the router container report an unhealthy state.
 	unhealthy bool
+	// stopped makes the router container one that is there but exited.
+	stopped bool
 	// home is stamped as RouterHomeLabel on every container docFor answers,
 	// so Owner/checkOwnership see this router as owned by whatever treerig
 	// root the test itself resolved, rather than refusing it as foreign.
@@ -120,6 +122,9 @@ func (d *healthyRouterDocker) docFor(service string) router.ContainerInspect {
 		health = "unhealthy"
 	}
 	state := router.InspectState{Status: "running", Health: router.InspectHealth{Status: health}}
+	if d.stopped && service == router.RouterService {
+		state = router.InspectState{Status: "exited"}
+	}
 	if service == router.RouterService {
 		mode := d.mode
 		if mode == "" {
@@ -597,6 +602,33 @@ func TestRouterDownWords(t *testing.T) {
 		}
 		if lines, _ := rec.Snapshot(); !slices.Equal(lines, []string{"info: Router stopped."}) {
 			t.Fatalf("lines = %q", lines)
+		}
+	})
+
+	t.Run("says nothing was running when the router's container is there but stopped", func(t *testing.T) {
+		home := registrytest.TempDir(t)
+		getenv := routerEnvGetenv(map[string]string{"HOME": home})
+		root := filepath.Join(home, ".treerig")
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := router.WriteFragment(layout.RouterStateFrom(root), "0a000000-0000-4000-8000-000000000001", w1, "web",
+			router.NewFragmentDocument("r-"+w1, "Host(`"+w1+".localhost`)", 30001)); err != nil {
+			t.Fatal(err)
+		}
+		docker := &healthyRouterDocker{stopped: true}
+		docker.owned(root)
+		fake := &fakerun.Runner{Handler: docker.Run}
+		rec := &logger.Recording{}
+		env := &commands.Env{CommandName: "treerig", Logger: rec, Getenv: getenv, Runner: fake}
+		if err := commands.RouterDown(context.Background(), env); err != nil {
+			t.Fatalf("RouterDown: %v", err)
+		}
+		if lines, _ := rec.Snapshot(); !slices.Equal(lines, []string{"info: The router is not running. Nothing to stop."}) {
+			t.Fatalf("lines = %q", lines)
+		}
+		if !slices.ContainsFunc(fake.Argv(), func(line string) bool { return strings.Contains(line, " down --remove-orphans") }) {
+			t.Errorf("no compose down call in %v", fake.Argv())
 		}
 	})
 
