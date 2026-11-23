@@ -566,7 +566,7 @@ func TestRouterDownWords(t *testing.T) {
 	}
 	const w1, w2 = "0b000000-0000-4000-8000-000000000001", "0b000000-0000-4000-8000-000000000002"
 
-	t.Run("says how many worktrees keep running and what that costs them", func(t *testing.T) {
+	t.Run("says how many worktrees were routed through it and what that costs them", func(t *testing.T) {
 		env, rec, _ := routedEnv(t, w1, w2)
 		if err := commands.RouterDown(context.Background(), env); err != nil {
 			t.Fatalf("RouterDown: %v", err)
