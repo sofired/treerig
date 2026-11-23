@@ -29,6 +29,7 @@ import (
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/run/fakerun"
 	"github.com/sofired/treerig/internal/worktree"
+	"github.com/sofired/treerig/internal/worktreestate"
 )
 
 // services every test config declares.
@@ -72,18 +73,24 @@ type World struct {
 // while commands run.
 type Probe struct {
 	mu   sync.Mutex
-	busy map[int]bool
+	busy map[int]string
 }
 
-// Occupy marks ports as in use by something outside treerig.
+// Occupy marks ports as in use by something outside treerig, with the reason
+// registrytest.FreeProbeWhy.
 func (p *Probe) Occupy(ports ...int) {
+	p.OccupyBecause(registrytest.FreeProbeWhy, ports...)
+}
+
+// OccupyBecause is Occupy with the reason the probe gives for ports.
+func (p *Probe) OccupyBecause(why string, ports ...int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.busy == nil {
-		p.busy = map[int]bool{}
+		p.busy = map[int]string{}
 	}
 	for _, port := range ports {
-		p.busy[port] = true
+		p.busy[port] = why
 	}
 }
 
@@ -97,10 +104,13 @@ func (p *Probe) Vacate(ports ...int) {
 }
 
 // Free is registry.PortProbe's Free.
-func (p *Probe) Free(_ context.Context, port int) bool {
+func (p *Probe) Free(_ context.Context, port int) (bool, string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return !p.busy[port]
+	if why, busy := p.busy[port]; busy {
+		return false, why
+	}
+	return true, ""
 }
 
 // TestContext is a commands.CommandContext plus the recording logger behind it.
@@ -205,6 +215,7 @@ func (w *World) Context(root, domain string, labelNamespace *string) *TestContex
 	tc := &TestContext{
 		CommandContext: &commands.CommandContext{
 			CommandName: "treerig",
+			Mounts:      NoAutomounts,
 			Invocation:  "treerig",
 			Logger:      log,
 			Runner:      w.Runner,
@@ -261,6 +272,7 @@ func (w *World) ContextWithoutConfig(cwd string) *TestContext {
 	return &TestContext{
 		CommandContext: &commands.CommandContext{
 			CommandName: "treerig",
+			Mounts:      NoAutomounts,
 			Invocation:  "treerig",
 			Logger:      log,
 			Runner:      w.Runner,
@@ -381,4 +393,11 @@ func (w *World) SetPorts(ref worktree.Ref, ports map[string]int) {
 	}); err != nil {
 		w.t.Fatalf("SetPorts: %v", err)
 	}
+}
+
+// NoAutomounts is a mount table with nothing automounted, which every
+// command-level test gives its context so a state word never depends on the
+// machine the tests run on.
+func NoAutomounts() (worktreestate.Mounts, error) {
+	return worktreestate.Mounts{"/": "ext4"}, nil
 }

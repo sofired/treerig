@@ -132,7 +132,12 @@ func TestResolve(t *testing.T) {
 		// A host.
 		{title: "an exact host names that worktree", name: "lone." + widgetsDomain, want: idLone},
 		{title: "a host wins over every other repository's claim on the same slug", name: "twin." + widgetsDomain, want: idTwinTwo, with: inRepo(repoOne)},
-		{title: "a host claimed by two worktrees lists both with their UUIDs", name: "dup." + acmeDomain, fail: "'dup.acme.localhost' names more than one worktree: dup.acme.localhost (" + idDupOne + "), dup.acme.localhost (" + idDupTwo + ")"},
+		{title: "a host claimed by two worktrees lists both with their UUIDs", name: "dup." + acmeDomain, fail: "'dup.acme.localhost' names more than one worktree: dup.acme.localhost (" + idDupOne + "), dup.acme.localhost (" + idDupTwo + "). Name one by its UUID."},
+		{title: "a slug two worktrees share in one domain advises the UUID alone, with no --domain hint", name: "dup", with: outside,
+			fail: "'dup' names more than one worktree: dup.acme.localhost (" + idDupOne + "), dup.acme.localhost (" + idDupTwo + "). Name one by its UUID."},
+		{title: "--domain does not narrow a slug two worktrees share in one domain, and the UUID is the way out", name: "dup",
+			with: func(o *registry.NameOptions) { o.Domain = acmeDomain; o.RepositoryID = scopeOf("") },
+			fail: "dup.acme.localhost (" + idDupTwo + "). Name one by its UUID."},
 		{title: "a host is read without regard to case", name: "LONE." + strings.ToUpper(widgetsDomain), want: idLone},
 		{title: "a host that is not registered is not found", name: "lone.acme.localhost", fail: "No worktree is registered as lone.acme.localhost.", none: true},
 		// A slug.
@@ -463,6 +468,42 @@ func TestResolvedCarriesTheRecordedRoot(t *testing.T) {
 	}
 }
 
+// TestResolveNamesADirectoryByFileIdentityThroughAnAlias runs the file-identity
+// match and its depth count on every filesystem: the recorded root is a
+// symbolic link to the directory, so the two spellings differ in text, not only
+// in case.
+func TestResolveNamesADirectoryByFileIdentityThroughAnAlias(t *testing.T) {
+	ctx := context.Background()
+	base := registrytest.TempDir(t)
+	controlHome := filepath.Join(base, "control")
+	if err := os.MkdirAll(filepath.Join(base, "real", "src"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(base, "real"), filepath.Join(base, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	registerWithCard(t, controlHome, repoOne, idApp, "app", acmeDomain, filepath.Join(base, "alias"))
+	reg := registry.New(registry.Options{ControlHome: controlHome, Root: base})
+
+	for _, spelled := range []string{filepath.Join(base, "real"), filepath.Join(base, "alias")} {
+		got, err := reg.Resolve(ctx, spelled, registry.NameOptions{})
+		if err != nil || got.Record.WorktreeID != idApp {
+			t.Fatalf("the root spelled %s: %+v, %v", spelled, got, err)
+		}
+		_, err = reg.Resolve(ctx, filepath.Join(spelled, "src"), registry.NameOptions{})
+		if err == nil || !strings.Contains(err.Error(), "not its root") {
+			t.Fatalf("a directory inside it, reached through %s, is inside it: %v", spelled, err)
+		}
+		got, err = reg.Resolve(ctx, filepath.Join(spelled, "src"), registry.NameOptions{WithinDirectory: true})
+		if err != nil || got.Record.WorktreeID != idApp {
+			t.Fatalf("within the directory, through %s: %+v, %v", spelled, got, err)
+		}
+	}
+	if _, err := reg.Resolve(ctx, filepath.Join(base, "real-other"), registry.NameOptions{}); !errors.Is(err, registry.ErrNoWorktree) {
+		t.Fatalf("a sibling that merely shares the prefix names nothing: %v", err)
+	}
+}
+
 func TestResolveNamesADirectoryByFileIdentity(t *testing.T) {
 	ctx := context.Background()
 	base := registrytest.TempDir(t)
@@ -470,6 +511,9 @@ func TestResolveNamesADirectoryByFileIdentity(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(base, "Repo", "src"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// This case needs a case-insensitive filesystem, so it runs on the macOS
+	// CI job and skips on Linux. The alias test below covers the same
+	// file-identity match on every platform.
 	if _, err := os.Stat(filepath.Join(base, "repo")); err != nil {
 		t.Skip("the filesystem tells Repo and repo apart, so there is no second spelling to name")
 	}
@@ -492,26 +536,66 @@ func TestResolveFailsWhereSkippingCouldNameTheWrongWorktree(t *testing.T) {
 		t.Skip("root reads every directory, so nothing here is unreadable")
 	}
 
-	t.Run("a recorded directory that cannot be resolved fails the lookup, naming the worktree and the way out", func(t *testing.T) {
-		base := registrytest.TempDir(t)
+	// lockedWorld records /locked/wt, which cannot be resolved once locked is
+	// closed, beside a readable worktree at /good.
+	lockedWorld := func(t *testing.T) (reg *registry.Registry, base string) {
+		base = registrytest.TempDir(t)
 		controlHome := filepath.Join(base, "control")
 		locked := filepath.Join(base, "locked")
 		if err := os.MkdirAll(filepath.Join(locked, "wt"), 0o700); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.MkdirAll(filepath.Join(base, "good", "src"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		registerWithCard(t, controlHome, repoOne, idApp, "app", acmeDomain, filepath.Join(locked, "wt"))
+		registerWithCard(t, controlHome, repoOne, idApp2, "app2", acmeDomain, filepath.Join(base, "good"))
 		if err := os.Chmod(locked, 0); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
-		reg := registry.New(registry.Options{ControlHome: controlHome, Root: base})
+		return registry.New(registry.Options{ControlHome: controlHome, Root: base}), base
+	}
 
-		_, err := reg.Resolve(ctx, base, registry.NameOptions{})
-		if err == nil || !strings.Contains(err.Error(), "Could not resolve the directory of app.acme.localhost. Name the worktree by its host or its UUID instead") {
-			t.Fatalf("got %v", err)
+	t.Run("a path into an unreadable recorded directory, which could be the one named, refuses rather than skip it", func(t *testing.T) {
+		reg, base := lockedWorld(t)
+		for _, target := range []string{filepath.Join(base, "locked", "wt"), filepath.Join(base, "locked", "wt", "src")} {
+			_, err := reg.Resolve(ctx, target, registry.NameOptions{WithinDirectory: true})
+			if err == nil || !strings.Contains(err.Error(), "Could not resolve '"+target+"'") {
+				t.Fatalf("%s: got %v", target, err)
+			}
+			if errors.Is(err, registry.ErrNoWorktree) {
+				t.Fatal("a lookup that could not finish is not 'no such worktree'")
+			}
 		}
-		if errors.Is(err, registry.ErrNoWorktree) {
-			t.Fatal("a lookup that could not finish is not 'no such worktree'")
+	})
+
+	t.Run("an unreadable record whose directory differs from the path only in case still refuses", func(t *testing.T) {
+		// On a case-insensitive filesystem LOCKED/wt and locked/wt are one
+		// directory, so the record could be the one meant, and the comparison
+		// folds case on every platform. Where the filesystem tells them apart
+		// (Linux), LOCKED/wt is a readable directory of its own, which proves
+		// the folding; where it doesn't, the test above covers the same record.
+		reg, base := lockedWorld(t)
+		target := filepath.Join(base, "LOCKED", "wt")
+		if err := os.MkdirAll(target, 0o700); err != nil {
+			t.Skipf("the filesystem folds case, so LOCKED is the unreadable locked: %v", err)
+		}
+		_, err := reg.Resolve(ctx, target, registry.NameOptions{})
+		if err == nil || !strings.Contains(err.Error(), "Could not resolve the directory of app.acme.localhost") || errors.Is(err, registry.ErrNoWorktree) {
+			t.Fatalf("got %v, want the unreadable record to block the lookup", err)
+		}
+	})
+
+	t.Run("a recorded directory that cannot be resolved and cannot contain the path is skipped", func(t *testing.T) {
+		reg, base := lockedWorld(t)
+		got, err := reg.Resolve(ctx, filepath.Join(base, "good"), registry.NameOptions{})
+		if err != nil || got.Record.WorktreeID != idApp2 {
+			t.Fatalf("an unrelated unreadable record blocked the match: %+v, %v", got, err)
+		}
+		// A parent of the unreadable directory is not a candidate either.
+		if _, err := reg.Resolve(ctx, base, registry.NameOptions{}); !errors.Is(err, registry.ErrNoWorktree) {
+			t.Fatalf("got %v", err)
 		}
 	})
 

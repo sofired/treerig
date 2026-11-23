@@ -95,6 +95,8 @@ type dockerFake struct {
 	missing bool
 	failure error
 	timeout bool
+	// onRun, when set, is called on every run before it answers.
+	onRun func()
 }
 
 // Run records spec and answers per whichever of d.failure, d.missing, or
@@ -102,7 +104,11 @@ type dockerFake struct {
 func (d *dockerFake) Run(ctx context.Context, spec run.Spec) (run.Result, error) {
 	d.mu.Lock()
 	d.calls = append(d.calls, spec)
+	onRun := d.onRun
 	d.mu.Unlock()
+	if onRun != nil {
+		onRun()
+	}
 	if d.failure != nil {
 		return run.Result{}, d.failure
 	}
@@ -614,6 +620,16 @@ func TestServiceOutsideAnyRepository(t *testing.T) {
 	if snapshot.IdentityError != nil {
 		t.Fatalf("identityError = %+v, want none outside a repository", snapshot.IdentityError)
 	}
+	var got []string
+	for _, entry := range snapshot.Entries {
+		got = append(got, entry.RepositoryID+"/"+entry.WorktreeID)
+	}
+	want := []string{regs[0].RepositoryID + "/" + regs[0].WorktreeID, regs[1].RepositoryID + "/" + regs[1].WorktreeID}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("entries = %v, want exactly the two registrations %v", got, want)
+	}
 }
 
 // TestServiceCountsUnindexedServiceTowardStatus is #16: a service the
@@ -945,7 +961,8 @@ func TestServiceRefreshTimesOutOnAHungDocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read index file: %v", err)
 	}
-	if !strings.Contains(string(page), "answer within") {
+	// The page is HTML, so the apostrophe in "didn't" is escaped.
+	if !strings.Contains(string(page), "didn&#39;t answer within") {
 		t.Fatalf("page does not say the states are unknown: %s", page)
 	}
 }

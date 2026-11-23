@@ -37,9 +37,8 @@ type Options struct {
 	// makes ahead of a write — this package does not read the environment
 	// itself for it, only the entry point does.
 	UserHome string
-	// Environ is the process environment Git's refusal outside a repository
-	// is asked in (Repository adds the C locale to it); nil inherits this
-	// process's own.
+	// Environ is the process environment Git is run from, through the
+	// allow-list of GitEnvironment; nil gives Git an empty one.
 	Environ []string
 }
 
@@ -274,7 +273,7 @@ func (r *Registry) ScanAll(ctx context.Context) (RegistryScan, error) {
 	return ScanRegistrations(r.ControlHome)
 }
 
-// Entries is every worktree Git lists for this checkout's repository, each
+// Entries is every worktree Git lists for this repository, each
 // with its identity and what is on disk beneath it.
 func (r *Registry) Entries(ctx context.Context) ([]WorktreeEntry, error) {
 	return r.Identities.Entries(ctx)

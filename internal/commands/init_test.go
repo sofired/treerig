@@ -94,7 +94,7 @@ func TestInit(t *testing.T) {
 		}
 	})
 
-	t.Run("asks git in the C locale, keeping the rest of the environment", func(t *testing.T) {
+	t.Run("asks git in the C locale, with the allow-listed environment", func(t *testing.T) {
 		root := registrytest.TempDir(t)
 		env, _, runner := initEnv(t, root, root)
 		env.Environ = []string{"PATH=/usr/bin", "LANG=de_DE.UTF-8"}
@@ -104,29 +104,32 @@ func TestInit(t *testing.T) {
 		}
 
 		calls := runner.Calls()
-		if len(calls) != 1 || strings.Join(calls[0].Env, " ") != "PATH=/usr/bin LANG=de_DE.UTF-8 LC_ALL=C" {
-			t.Errorf("git environment = %q, want the process environment plus LC_ALL=C", calls[0].Env)
+		if len(calls) != 1 || strings.Join(calls[0].Env, " ") != "LC_ALL=C GIT_OPTIONAL_LOCKS=0 PATH=/usr/bin LANG=de_DE.UTF-8" {
+			t.Errorf("git environment = %q, want the allow-list of the process environment, with LC_ALL=C", calls[0].Env)
 		}
 		if len(env.Environ) != 2 {
 			t.Errorf("env.Environ = %q, want it left unchanged", env.Environ)
 		}
 	})
 
-	t.Run("drops the variables that point git at another repository, and only those", func(t *testing.T) {
+	t.Run("drops what points git at another repository or overrides its settings, and keeps where its configuration lives and how far it looks", func(t *testing.T) {
 		root := registrytest.TempDir(t)
 		env, _, runner := initEnv(t, root, root)
 		env.Environ = []string{
 			"PATH=/usr/bin", "GIT_DIR=/other/.git", "GIT_WORK_TREE=/other", "GIT_COMMON_DIR=/other/.git",
 			"GIT_INDEX_FILE=/other/.git/index", "GIT_OBJECT_DIRECTORY=/other/.git/objects",
 			"GIT_IMPLICIT_WORK_TREE=0", "GIT_PREFIX=sub/",
-			"GIT_CEILING_DIRECTORIES=/home", "GIT_CONFIG_COUNT=1", "GIT_DIRECTORY_X=keep", "HOME=/h",
+			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.fsmonitor", "GIT_CONFIG_VALUE_0=/bin/x",
+			"GIT_CONFIG_PARAMETERS='core.hooksPath'='/x'", "GIT_EXEC_PATH=/x",
+			"GIT_CONFIG_GLOBAL=/h/.gitconfig", "HOME=/h",
+			"GIT_CEILING_DIRECTORIES=/home", "GIT_DISCOVERY_ACROSS_FILESYSTEM=0",
 		}
 
 		if err := Init(ctx, env); err != nil {
 			t.Fatal(err)
 		}
 
-		want := "PATH=/usr/bin GIT_CEILING_DIRECTORIES=/home GIT_CONFIG_COUNT=1 GIT_DIRECTORY_X=keep HOME=/h LC_ALL=C"
+		want := "LC_ALL=C GIT_OPTIONAL_LOCKS=0 PATH=/usr/bin GIT_CONFIG_GLOBAL=/h/.gitconfig HOME=/h GIT_CEILING_DIRECTORIES=/home GIT_DISCOVERY_ACROSS_FILESYSTEM=0"
 		if got := strings.Join(runner.Calls()[0].Env, " "); got != want {
 			t.Errorf("git environment = %q, want %q", got, want)
 		}

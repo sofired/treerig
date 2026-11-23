@@ -9,7 +9,7 @@ Usage:
 
 Flags:
       --config string            path to treerig.toml (default: nearest above
-                                 cwd)
+                                 cwd, if any)
   -h, --help                     help for down
       --label-namespace string   supply the Docker label namespace when there is
                                  no usable treerig.toml to say it

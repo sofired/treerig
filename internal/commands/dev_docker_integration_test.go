@@ -74,6 +74,10 @@ func devSessionAfterDown(t *testing.T, compose string) {
 	writeFile(t, filepath.Join(w.checkout, "hooks", "record"), fmt.Sprintf("#!/bin/sh\necho \"$TREERIG_STAGE\" >> %q\n", w.log), 0o755)
 	const host = "feature-walk.walk.localhost"
 	cctx := w.context(t)
+	// The session's locks name the command that holds them, and a remove that
+	// meets one advises Ctrl-C only for a holder that is `treerig dev`, as a
+	// real session's is.
+	cctx.Invocation = "treerig dev"
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	done := make(chan error, 1)

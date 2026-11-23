@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"sync"
 
+	"github.com/sofired/treerig/internal/config"
 	"github.com/sofired/treerig/internal/docker"
 	"github.com/sofired/treerig/internal/layout"
 	"github.com/sofired/treerig/internal/registry"
@@ -141,7 +143,7 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Status
 	}
 	record := subject.record
 	host := layout.WorktreeHost(record.Slug, record.Domain)
-	gatherer := worktreestate.New(worktreestate.Options{ControlHome: cctx.ControlHome, Runner: cctx.Runner})
+	gatherer := worktreestate.New(worktreestate.Options{ControlHome: cctx.ControlHome, Runner: cctx.Runner, CommandName: cctx.CommandName, Mounts: cctx.Mounts, Environ: cctx.Environ})
 
 	if !subject.here {
 		stop, err := subject.checkDirectory(ctx, gatherer, host)
@@ -154,6 +156,16 @@ func StatusWithContext(ctx context.Context, cctx *CommandContext, options Status
 		}
 	}
 	tcx := subject.cctx
+	// Compose reads the Compose file, not treerig, and reopens it by path. This
+	// look, made for the worktree status runs in as for a named one, is only to
+	// refuse, before Compose is started, a FIFO, a device or a huge file that
+	// would hang or flood it: it is not a security boundary (the file can
+	// change after the look, and Compose also reads files the look never sees:
+	// include, extends, env_file and override files). A missing one is
+	// Compose's to report.
+	if err := config.CheckRegularFile(composeFilePath(tcx.Loaded), config.MaxFileSize); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
 	ref := toRef(record)
 	routes := routesOf(tcx.Loaded.Config, record.Slug, record.Domain, cctx.RouterPort, record.Ports, record.HostRoutes)
 

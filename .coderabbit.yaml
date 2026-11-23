@@ -1,0 +1,75 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit reviews pull requests in this repository and does nothing else:
+# it comments, reviews and requests changes. It never edits a pull request,
+# commits, opens a pull request or an issue, or labels or assigns anything, and
+# it doesn't offer to, so nothing (an agent included) can take up an offer
+# without the owner's approval. Every setting below switches off something
+# that would act or offer to.
+#
+# Some @coderabbitai commands have no setting to switch them off, and each
+# acts only when someone posts it: asking for a GitHub issue, `evaluate custom
+# finishing touch` (which opens a pull request), and `approve`. Nobody here
+# posts them.
+
+# Everything not set here comes from the organization's settings (the review
+# profile, change requests and the rest), as it did before this file.
+inheritance: true
+
+tone_instructions: >-
+  Review only. State findings and how to fix them. Never offer to open issues,
+  commit, push, apply fixes, or generate code, tests or docs, and never ask
+  whether you should.
+
+reviews:
+  # It reviews and requests changes but never approves: a disabled override
+  # whose paths match every file withholds approval on every pull request.
+  # CodeRabbit refuses an override with neither teams nor paths (the published
+  # schema doesn't say so), and approvals can't be switched off globally
+  # without also switching off change requests.
+  auto_approvals:
+    overrides:
+      - enabled: false
+        paths: ["**"]
+  # No "Prompt for AI Agents" block in review comments: it is written for a
+  # coding agent to act on.
+  enable_prompt_for_ai_agents: false
+  # Not appended to the pull request's description, and no placeholder that
+  # would bring it back: the summary and title placeholders are words nobody
+  # writes, since they can't be switched off.
+  high_level_summary: false
+  high_level_summary_placeholder: "@coderabbitai-summary-is-off-in-this-repository"
+  auto_title_placeholder: "@coderabbitai-title-is-off-in-this-repository"
+  auto_apply_labels: false
+  auto_assign_reviewers: false
+  poem: false
+  in_progress_fortune: false
+  finishing_touches:
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    # No recipes, so none comes down from the organization's settings.
+    custom: []
+chat:
+  art: false
+  integrations:
+    jira:
+      usage: disabled
+    linear:
+      usage: disabled
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false

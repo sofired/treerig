@@ -268,6 +268,21 @@ func shownArgs(spec Spec) []string {
 	return args
 }
 
+// Reason is what a failed command said, without Failure's "Command failed
+// (cmd args): " in front of it, and any other error as it is. A warning or a
+// hint that names the directory itself has no use for the command line, which
+// repeats it: with a long directory (macOS's temporary ones, say) the line
+// would use up the room the reason needs.
+func Reason(err error) string {
+	message := err.Error()
+	if rest, ok := strings.CutPrefix(message, "Command failed ("); ok {
+		if _, reason, found := strings.Cut(rest, "): "); found {
+			return reason
+		}
+	}
+	return message
+}
+
 // Finish applies Spec.AllowFailure: a non-zero exit becomes a Failure unless allowed.
 func Finish(spec Spec, result Result) (Result, error) {
 	if !spec.AllowFailure && (result.ExitCode != 0 || result.TimedOut || result.OutputOverflow) {

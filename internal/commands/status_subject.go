@@ -2,9 +2,7 @@ package commands
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -79,7 +77,12 @@ func (s *statusSubject) checkDirectory(ctx context.Context, gatherer *worktreest
 				host, cctx.CommandName),
 		}, nil
 	}
-	switch directory, hint := gatherer.RecordedDirectory(s.root); directory {
+	directory, hint := gatherer.RecordedDirectory(ctx, s.root)
+	// A cancelled look is no verdict on the directory.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	switch directory {
 	case worktree.DirectoryGone:
 		return &statusStop{
 			directory: worktree.DirectoryGone,
@@ -109,15 +112,6 @@ func (s *statusSubject) checkDirectory(ctx context.Context, gatherer *worktreest
 	}
 	loaded, err := config.Load(filepath.Join(s.root, brand.ConfigFile))
 	if err != nil {
-		return nil, err
-	}
-	// Compose reads the Compose file, not treerig, and reopens it by path. This
-	// look is only to refuse, before Compose is started, a FIFO, a device or a
-	// huge file that would hang or flood it: it is not a security boundary (the
-	// file can change after the look, and Compose also reads files the look
-	// never sees: include, extends, env_file and override files). A missing one
-	// is Compose's to report.
-	if err := config.CheckRegularFile(composeFilePath(loaded), config.MaxFileSize); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	derived := *cctx

@@ -80,6 +80,11 @@ func newerHint(commandName string, pin teardown.Pin, version string) string {
 		text.Printable(version), text.Printable(pin.Release), pinCommandFor(commandName, version))
 }
 
+// findConfigFile is config.FindConfigFile, which walks from a directory up to
+// the filesystem root. The tests replace it, since what is above their
+// temporary directories is the machine's.
+var findConfigFile = config.FindConfigFile
+
 // needsConfigHint is the sentence that goes with the notice of a run through a
 // pinned release older than the running build, when there is no treerig.toml
 // to find from here (no --config, none above the working directory). This
@@ -98,7 +103,7 @@ func needsConfigHint(env *Env, version string, pin teardown.Pin) string {
 	if pin.IsFile() || !semver.Newer(version, pin.Release) || env.ConfigPath != "" {
 		return ""
 	}
-	if _, found, err := config.FindConfigFile(env.Cwd); err != nil || found {
+	if _, found, err := findConfigFile(env.Cwd); err != nil || found {
 		return ""
 	}
 	return fmt.Sprintf("This pin (%s) may need a %s: if it stops with \"No %s found\", run the removal from inside the worktree's repository, or pass --config <that repository's %s>.",

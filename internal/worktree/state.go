@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/sofired/treerig/internal/brand"
 )
 
 // State is where a worktree stands, as every command, the overview page and
@@ -195,6 +197,10 @@ type ServiceStatus struct {
 	ExitCode int
 	// Detail is Docker's own word for an Unknown state; empty otherwise.
 	Detail string
+	// Why is, for a service Unknown with Detail CauseNotRead, why Docker
+	// could not be asked (the container is gone, or a short reason it failed);
+	// empty otherwise.
+	Why string
 }
 
 // Text is the state as a line of `status` prints it: the word, and the exit
@@ -320,6 +326,9 @@ type Inputs struct {
 	// service appears once per replica, and a declared service with none as
 	// NotCreated.
 	Services []ServiceStatus
+	// CommandName is what the commands a hint names are run by (the name
+	// this build was invoked as); empty reads as brand.Name.
+	CommandName string
 }
 
 // Classification is a worktree's state, with the cause when it is Unknown.
@@ -375,7 +384,7 @@ func Classify(in Inputs) Classification {
 		default:
 			// Unknown, a state added later, or the zero value: nothing may
 			// guess what it means.
-			return Classification{State: StateUnknown, Hint: unknownServiceHint(service)}
+			return Classification{State: StateUnknown, Hint: unknownServiceHint(service, in.CommandName)}
 		}
 	}
 	switch {
@@ -394,18 +403,24 @@ func Classify(in Inputs) Classification {
 }
 
 // unknownServiceHint says why a service's state cannot be told.
-func unknownServiceHint(service ServiceStatus) string {
+func unknownServiceHint(service ServiceStatus, command string) string {
+	if command == "" {
+		command = brand.Name
+	}
 	name := "A service"
 	if service.Service != "" {
 		name = service.Service
 	}
 	switch {
 	case service.State == Unknown && service.Detail == CauseNotRead:
+		if service.Why != "" {
+			return "Whether " + name + " was stopped or killed for running out of memory (it exited 137) couldn't be read: " + service.Why + "."
+		}
 		return "Whether " + name + " was stopped or killed for running out of memory (it exited 137) couldn't be read."
 	case service.State == Unknown && service.Detail == "exited":
 		return "No exit code was reported for " + name + ", which exited."
 	case service.State == Unknown && service.Detail == PausedDetail:
-		return name + " is paused, which treerig has no word for: run 'treerig down' to stop it, then 'treerig up'."
+		return name + " is paused, which treerig has no word for: run '" + command + " down' to stop it, then '" + command + " up'."
 	case service.State == Unknown && service.Detail != "":
 		return name + " is in a state treerig has no word for (Docker says " + service.Detail + ")."
 	case service.State == Unknown || service.State == "":

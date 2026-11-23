@@ -288,13 +288,19 @@ answer:
   one. The resolver's tests include sibling roots that share a prefix. A path
   inside a directory, not its root, is accepted only by `status`; a
   destructive verb asks for the root or another form. Roots are matched by file
-identity where the directory exists, so a case-insensitive filesystem's second
-spelling still finds it. A worktree whose index card is oversized or does not
-parse has no recorded root and is skipped, so a read-only caller's path inside
-its directory can resolve to an outer worktree; a destructive verb cannot be
-misled that way, since it accepts only a root. The resolver returns the
-recorded root with the worktree (`Resolved.Root`), so a caller that needs the
-directory (`status`, #203) does not read the card again.
+  identity where the directory exists, so a case-insensitive filesystem's second
+  spelling still finds it. A worktree whose index card is oversized or does not
+  parse has no recorded root and is skipped, so a read-only caller's path inside
+  its directory can resolve to an outer worktree; a destructive verb cannot be
+  misled that way, since it accepts only a root. The resolver returns the
+  recorded root with the worktree (`Resolved.Root`), so a caller that needs the
+  directory (`status`, #203) does not read the card again.
+  A record that cannot be read does not stop a path from naming the others when
+  it could not be the one meant: a recorded directory that cannot be resolved
+  (a parent it cannot enter) is skipped unless it is the path typed or a
+  parent of that path. An index card that cannot be read has no known directory, so it
+  could be the one meant, and the lookup fails and says to name the worktree by
+  its host or its UUID.
 - **Anything else is a slug**: this repository's first. Outside a repository,
   or for a slug this repository doesn't have, it must be unique on the machine;
   otherwise the error lists the matching hosts and UUIDs.
@@ -398,7 +404,14 @@ with a short budget.
   alone, so `remove --gone` (#211) can require the first. `Git does not call it
   prunable (Git 2.31 or newer says so).` is the hint for an absent directory Git
   lists but does not call prunable. A mount table with a line treerig cannot
-  read is treated as unreadable, not skipped. Hints carry the next step where
+  read is treated as unreadable, not skipped. The looks at the disk (is the directory there, is its parent empty) share one
+  5-second budget per `Gather` (and one per `Entries` call for the stats of the
+  listed directories), not 5 seconds each: once it is spent, the rest read as
+  could not check at once, so a hung network mount makes the states `unknown`,
+  never missing, and never holds a command for much more than that. A parent
+  directory shared by several worktrees is looked at once. A hint puts the cause
+  first and leaves out the paths and command lines it came from, so a long path
+  cannot cut it off. Hints carry the next step where
   there is one: a locked entry says `connect it, or run 'git worktree unlock'`,
   and an unlisted one `run 'treerig worktree remove <slug>' if it is gone`.
 - **Services and exits (as built).** A service is `stopped`, not `starting`,
@@ -718,7 +731,8 @@ and `state`, the router's state (`running`, `stopped` or `unknown`) and, when
 Docker didn't answer, `dockerError`; scripts that read `urls` read it instead.
 `status` exits 0 whatever the state, since it reports and `doctor` is the check
 that fails, and 1 when it couldn't read the worktree: Docker didn't answer,
-Compose couldn't read it, or its treerig.toml wouldn't load. In a worktree that isn't
+Compose couldn't read it, its treerig.toml wouldn't load, or its Compose file
+is too large or not a regular file. In a worktree that isn't
 registered it prints `feature-x is not registered. Run 'treerig up' to create
 its environment.` on stderr and exits 0.
 
@@ -779,8 +793,8 @@ As built (#203):
   or undetermined directory, one that is now another repository's) prints the
   header and a line on stderr that ends with `Directory: <path>` where there is
   one, and exits 0, since `status` reports states. A directory that is there
-  with no loadable treerig.toml, or a Compose file that is too large, is an
-  error, exit 1.
+  with no loadable treerig.toml, or a Compose file that is too large or not a
+  regular file, is an error, exit 1, as it is for the current worktree.
 - **Not registered.** The slug in the sentence is the one `up` would give: from
   the branch when Git has an identity for the directory, else from the directory's
   name.
@@ -842,8 +856,9 @@ As built (#204):
   card holds under the worktree's own host and the router's port. `+N more`
   counts the other running ones. Host routes are left out: telling whether
   their process listens takes a connect each, which a listing does not make.
-  The router is read once, at the same time as Docker and within the same five
-  seconds, and with nothing to list it is not read. The notices of `status`
+  The router is read once, started at the same time as Docker and within the
+  same five seconds; with nothing to list the read is cancelled and its answer
+  dropped, so a machine without Docker still lists nothing and exits 0. The notices of `status`
   about the router (stopped, another port, another root's, unreadable) are said
   once on stderr when a service runs whose URL they hide.
 - **Git.** One `git worktree list` per repository that has a worktree, eight at
@@ -864,18 +879,21 @@ As built (#204):
   `up`, `down`, `remove` and `rename`, which builds the page the same way and
   now also asks about other repositories, does not, so a repository that stays
   offline is not reported after every command.
-- **Git's own run.** Every identity read runs `git -c core.fsmonitor=false -c
+- **Git's own run.** Every identity read, and `init`'s, runs `git -c core.fsmonitor=false -c
   core.hooksPath=/dev/null -c safe.bareRepository=explicit` with an environment
   of `PATH`, `HOME`, `TMPDIR`, `LANG` and `LC_*` from the entry point's, and
   the variables that say where the user's own Git configuration is
   (`XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
-  `GIT_CONFIG_NOSYSTEM`; it holds their `safe.directory` entries), then
-  `LC_ALL=C` and `GIT_OPTIONAL_LOCKS=0`. No other `GIT_*` variable is inherited
+  `GIT_CONFIG_NOSYSTEM`; it holds their `safe.directory` entries) and their
+  limits on how far up Git looks (`GIT_CEILING_DIRECTORIES`,
+  `GIT_DISCOVERY_ACROSS_FILESYSTEM`, which can make it find no repository,
+  never another), then `LC_ALL=C` and `GIT_OPTIONAL_LOCKS=0`. No other `GIT_*` variable is inherited
   (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CONFIG_COUNT` and its `KEY_n`/`VALUE_n`,
   `GIT_CONFIG_PARAMETERS`, `GIT_EXEC_PATH`), and the `-c` settings win over the
   user's configuration. Each run has a 30-second timeout and a 4 MiB output
-  cap; every constructor of the identity service takes the environment, so no
-  caller skips the allow-list. `safe.bareRepository=explicit` refuses to find a
+  cap. Only the entry point reads the process environment; a caller that
+  passes none gives Git an empty one (`LC_ALL=C` and `GIT_OPTIONAL_LOCKS=0`),
+  never an inherited one, so none can skip the allow-list by forgetting. `safe.bareRepository=explicit` refuses to find a
   bare repository by discovery, but a linked worktree's `.git` file names its
   repository, so `-C <worktree>` still answers for the `.bare` and gitfile
   layout; a test pins it.
@@ -883,13 +901,17 @@ As built (#204):
   is held only to write the page, so a hung Git or Docker cannot hold `up`
   behind it. Under the lock a refresh reads the existing page's generation time
   (one bounded read of its head) and does not write when the page there is
-  newer than its snapshot, so a refresh that read earlier and finished later
-  cannot replace a newer page. A lifecycle refresh gives Docker
+  newer than its snapshot. A snapshot is dated when its read began, so a
+  refresh whose read began earlier and finished later, however slow, cannot
+  replace a newer page. A page dated after the current time was written
+  before the clock was set back, and is replaced, so one bad date cannot stop
+  every later refresh from writing. A lifecycle refresh gives Docker
   and Git the same five seconds, and `up` announces its URLs before it
   refreshes.
-- **Nothing registered.** `list` asks Docker and Git nothing and exits 0 on a
-  machine, or in a repository, with no worktree to list, so it works where
-  Docker is not installed.
+- **Nothing registered.** `list` asks Docker nothing and exits 0 on a machine,
+  or in a repository, with no worktree to list, so it works where Docker is
+  not installed. Git is still asked which repository the command runs in,
+  since that decides what there is to list.
 - **Stderr.** The footers are printed only when stderr is a terminal and the
   output is not `--json`. Until `remove --gone` lands (#211) the first reads `1
   directory is gone: 'treerig worktree remove old-spike' removes its worktree.`
@@ -1256,7 +1278,7 @@ a yes-or-no question whose default is No.
 | Command | 0 | 1 | Other |
 |---|---|---|---|
 | `up` | running | did not start | a hook's own code; 130, 143 or 129 ending `up -f` |
-| `status` | any state | it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, or its treerig.toml wouldn't load (output printed where there is any) | |
+| `status` | any state | it couldn't read the worktree: Docker didn't answer, Compose couldn't read it, its treerig.toml wouldn't load, or its Compose file is too large or not a regular file (output printed where there is any) | |
 | `list` | any state | Docker didn't answer (output still printed) | |
 | `logs` | logs shown | the worktree isn't registered | 130 ending `-f` |
 | `open` | opened, or URL printed | service not running | |

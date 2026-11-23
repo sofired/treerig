@@ -50,12 +50,13 @@ configuration and Compose recreates the service's running containers once,
 keeping their volumes. Every later `up` writes the same configuration and
 recreates nothing.
 
-When a port is held by something that is not a container, `up` and `doctor`
-say "another process" and how to find it: `ss -ltnp 'sport = :<port>'` on
-Linux, `lsof -nP -iTCP:<port> -sTCP:LISTEN` on macOS. On Docker Desktop and
-OrbStack the daemon runs in a VM, so those tools name its backend process
-rather than a container; `docker ps --filter publish=<port>` finds the
-container.
+When a port is held by something that is not a container, `up`, `doctor` and
+the router's own messages say "another process", what the probe saw (a failed
+bind with its reason, or a connection that succeeded) and how to find it:
+`ss -ltnp 'sport = :<port>'` on Linux, `lsof -nP -iTCP:<port> -sTCP:LISTEN` on
+macOS. On Docker Desktop and OrbStack the daemon runs in a VM, so those tools
+name its backend process rather than a container;
+`docker ps --filter publish=<port>` finds the container.
 
 ## Router
 

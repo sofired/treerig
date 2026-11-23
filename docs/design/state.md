@@ -107,11 +107,19 @@ finished; `up` clears one it finds, which calls the removal off. `remove` holds 
 worktree's operation lock from writing the marker to its last deletion, and `up`
 looks only once it holds the same lock, so a marker `up` finds is an interrupted
 removal's, never one still running; a removal in progress makes `up` wait for
-the lock like any other verb. A removal by a
+the lock like any other verb. The marker goes down after the last read that can
+end the removal with nothing touched (the inventory under the lock), and before
+the first change (unrouting). From there on a failure, an interruption or a
+signal leaves it: the steps that follow (unrouting, detaching shared services,
+`down`, the reaps) can fail part-way, and nothing proves a failed one changed
+nothing, so the worktree reads `removing`, whatever its containers say, until
+another `remove` finishes the job or `up` brings it back. It is read without
+following a symbolic link or blocking, and no further than 256 bytes. A removal by a
 0.1.x pin writes none, so an interrupted one reads as `not started` or `stopped`. A 0.1.x pin that finishes a removal this build began leaves the marker behind,
-with no registration for it to name: harmless, since a worktree with no
-registration is not listed, and removed by the next `Store.Remove` or cleared by
-an `up` that registers the same worktree again.
+with no registration for it to name. No command reaches it (`worktree remove`
+finds its target through a registration), so it stays until an `up` registers
+the same worktree again and clears it; harmless meanwhile, since a worktree with
+no registration is not listed.
 
 **Docker labels.** `dev.treerig.format` is stamped by the code that stamps
 `managed`, `repository-uuid` and `worktree-uuid`, on every container and network
@@ -194,7 +202,7 @@ still needs.
 | Control home | `files.SecureControlDirectories`, so every command that writes under it | `the control home <path>` |
 | Identity markers | `IdentityService` reads | `the identity marker <path>` |
 | Registrations | `Store.Find`, `Initialization` and every writer; `Scan` reports the file as a problem | `the registration <path>` |
-| Removal marker | `Store.Removing`, so `worktree remove` (before it touches anything), `up`, and the state of a worktree in `status`, `worktree list` and the overview, which then reads `unknown` with this refusal as its hint | `the removal marker <path>` |
+| Removal marker | `Store.Removing`, so `up` and `worktree remove` (before it touches anything, for a newer format only: see below), and the state of a worktree in `status`, `worktree list` and the overview, which then reads `unknown`, the hint giving the refusal's reason first and without the path (`Its removal marker is format 2, written by a newer treerig, …`) | `the removal marker <path>` |
 | Shared records | `Store.FindShared` and every writer; `SharedRecords` reports a problem | `the shared-service record <path>` |
 | Router state | `router.ReadState`, so `Ensure`, `CheckPorts` and port allocation | `the router state <path>` |
 | Lock holder records | taking, clearing and describing a lock | the lock's refusal, above |
@@ -254,7 +262,7 @@ project. treerig's other proof points are teardown, reap, connect and disconnect
 | Control home | An empty marker alone in an otherwise empty directory is written. An empty marker beside other content is refused ("its marker … is empty but the directory already holds treerig state"). Any other contents, a smaller number or text that is not exactly `format <n>` and a newline included, are refused as "not treerig's own format" and never rewritten. |
 | Identity markers | `Invalid identity marker: <file>. A marker is the line "format 1" and then the checkout's UUID. To start over, move the file aside: …` Never rewritten: the markers are the checkout's identity, and a guess would orphan its registration. |
 | Registrations, shared records | `… has an unrecognized version or shape: <file>`: skipped by listings, refused by writers, and blocking port allocation. |
-| Removal marker | `Removal marker is not in a format treerig wrote: <file>. It only records that a removal began: delete it, …` (a symbolic link is refused as `Removal marker must be a regular file, not a symbolic link: <file>`): the worktree reads `unknown` with that as its hint, and `worktree remove` and `up` refuse. Never rewritten. A file that is not there is no removal. |
+| Removal marker | `Removal marker is not in a format treerig wrote. It only records that a removal began: delete it, …: <file>` (a symbolic link is refused as `Removal marker must be a regular file, not a symbolic link: <file>`, and a FIFO, directory or device as `Removal marker must be a regular file: <file>`): the worktree reads `unknown` with that as its hint, and `up` refuses. An explicit `worktree remove` is the way out: it deletes what is there when it is not a regular file (that one entry, never followed, so a symbolic link goes but not its target, and a FIFO, a device or an empty directory goes; a directory with something in it is refused: delete it by hand), replaces it with a current marker atomically, without opening the old one, warns naming the file, and deletes it with the registration. A marker of a newer format is never touched by anything: `worktree remove` refuses it too. A file that is not there is no removal. |
 | Router state | `The router state <file> is not readable. Remove it and run this again; the router picks its ports afresh.` That advice is safe only for unreadable state, not newer, and the router re-picks its ports. |
 | Teardown pin | `Refusing to use the teardown pin <path>: it is not a pin this build wrote. Delete <control home>/teardown/ and pin again.` Never rewritten. |
 | Lock holder record | No record: nothing to recover. |
@@ -279,9 +287,11 @@ section that covers it:
 
 `doctor` does not look at Docker resources, so a container, network or image of
 a newer format is reported by the command that tried to touch it.
-Nor does it read removal markers: a marker of a newer format is reported by the
-commands that read it (`status`, `worktree list`, the overview as an `unknown`
-state, `worktree remove` and `up` as a refusal).
+It reads removal markers only for the registrations of this repository that Git
+no longer lists (the missing-worktrees check, which asks `worktreestate` for each
+one's state); a marker of a newer format is otherwise reported by the commands
+that read it (`status`, `worktree list`, the overview as an `unknown` state,
+`worktree remove` and `up` as a refusal).
 
 ## Adding a migration (a sketch)
 

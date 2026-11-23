@@ -3,11 +3,14 @@ package commands_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sofired/treerig/internal/brand"
 	"github.com/sofired/treerig/internal/commands"
@@ -65,6 +68,21 @@ func gitRefusesAt(w *commandstest.World, dir string) {
 	w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
 		if spec.Command == "git" && slices.Contains(spec.Args, "--show-toplevel") && slices.Contains(spec.Args, dir) {
 			return run.Result{ExitCode: 128, Stderr: "fatal: detected dubious ownership in repository at '" + dir + "'\n"}, nil
+		}
+		return inner(ctx, spec)
+	}
+}
+
+// gitHangsAt makes Git never answer for dir, whatever its context says, as a
+// git stuck on a hung mount does not; the test's end lets it go.
+func gitHangsAt(t *testing.T, w *commandstest.World, dir string) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	inner := w.Runner.Handler
+	w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+		if spec.Command == "git" && slices.Contains(spec.Args, "--show-toplevel") && slices.Contains(spec.Args, dir) {
+			<-release
+			return run.Result{}, errors.New("released")
 		}
 		return inner(ctx, spec)
 	}
@@ -185,6 +203,46 @@ func TestListWithoutConfig(t *testing.T) {
 		var decoded commands.ListReport
 		if len(lines) != 0 || len(printed) != 1 || json.Unmarshal([]byte(printed[0]), &decoded) != nil || decoded.Entries == nil || len(decoded.Entries) != 0 {
 			t.Fatalf("lines = %q, printed = %q; want an empty list in a document and no hint", lines, printed)
+		}
+	})
+
+	t.Run("--all from a directory Git does not trust warns with Git's reason and lists every repository as recorded; without --all it is Git's error", func(t *testing.T) {
+		w, _, _ := twoRepositories(t)
+		cwd := w.Outside()
+		gitRefusesAt(w, cwd)
+		tc := w.ContextWithoutConfig(cwd)
+
+		report, err := commands.ListWithContext(ctx, tc.CommandContext, commands.ListOptions{All: true})
+		if err != nil || len(report.Entries) != 2 {
+			t.Fatalf("entries = %+v, %v; want both repositories' worktrees", report.Entries, err)
+		}
+		lines, _ := tc.Logger.Snapshot()
+		if len(lines) != 1 || !strings.HasPrefix(lines[0], "warn:") || !strings.Contains(lines[0], "detected dubious ownership") {
+			t.Fatalf("lines = %q, want one warning with Git's reason", lines)
+		}
+		_, err = commands.ListWithContext(ctx, w.ContextWithoutConfig(cwd).CommandContext, commands.ListOptions{})
+		wantErr(t, err, `detected dubious ownership`)
+	})
+
+	t.Run("a working directory whose Git never answers holds list only for the bound; with --all every repository is still listed", func(t *testing.T) {
+		w, _, _ := twoRepositories(t)
+		cwd := w.Outside()
+		gitHangsAt(t, w, cwd)
+
+		start := time.Now()
+		_, err := commands.ListWithContext(ctx, w.ContextWithoutConfig(cwd).CommandContext, commands.ListOptions{})
+		wantErr(t, err, "Git did not answer within 5s")
+		if took := time.Since(start); took > 10*time.Second {
+			t.Fatalf("list took %s, want about the 5s bound", took)
+		}
+
+		start = time.Now()
+		report, err := commands.ListWithContext(ctx, w.ContextWithoutConfig(cwd).CommandContext, commands.ListOptions{All: true})
+		if err != nil || len(report.Entries) != 2 {
+			t.Fatalf("entries = %+v, %v; want both repositories' worktrees", report.Entries, err)
+		}
+		if took := time.Since(start); took > 20*time.Second {
+			t.Fatalf("list --all took %s, want it bounded", took)
 		}
 	})
 
@@ -310,10 +368,21 @@ func TestWorktreeRemoveWithoutConfig(t *testing.T) {
 	t.Run("in a worktree whose treerig.toml is unusable refuses, naming the file, when nothing else records the namespace", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
 		registerRecordingNothing(t, w, w.Root, acme, "feature-login", brand.LabelNamespace)
+		tc := w.ContextWithoutConfig(w.Root)
+		tc.SetAsideConfig = filepath.Join(w.Root, brand.ConfigFile)
 
-		_, err := remove(t, w.ContextWithoutConfig(w.Root), approved(commands.RemoveOptions{}))
+		_, err := remove(t, tc, approved(commands.RemoveOptions{}))
 		wantErr(t, err, `^Cannot remove feature-login\.acme\.localhost from this directory: its treerig\.toml could not be used to find out, and nothing on disk records which Docker labels its resources carry\. `+
 			`Fix treerig\.toml, or pass --label-namespace \(dev\.treerig unless that project set project\.label-namespace\)\.$`)
+	})
+
+	t.Run("in a worktree with no treerig.toml refuses, saying there is none to fix, when nothing else records the namespace", func(t *testing.T) {
+		w := commandstest.New(t, "feature/login", acme)
+		registerRecordingNothing(t, w, w.Root, acme, "feature-login", brand.LabelNamespace)
+
+		_, err := remove(t, w.ContextWithoutConfig(w.Root), approved(commands.RemoveOptions{}))
+		wantErr(t, err, `^Cannot remove feature-login\.acme\.localhost from this directory: it has no treerig\.toml to find out from, and nothing on disk records which Docker labels its resources carry\. `+
+			`Run it from a worktree of a branch that has treerig\.toml, or pass --label-namespace \(dev\.treerig unless that project set project\.label-namespace\)\.$`)
 	})
 }
 
@@ -349,7 +418,10 @@ func TestNamedTargetsDoNotDependOnWhereTheyRunFrom(t *testing.T) {
 		gitRefusesAt(w, w.Root)
 
 		_, err := remove(t, w.ContextWithoutConfig(w.Root), approved(commands.RemoveOptions{Identifier: "feature-login"}))
-		wantErr(t, err, `nothing on disk records which Docker labels its resources carry`)
+		// Git's refusal is the trouble, not where the command ran: the target may
+		// be this repository's own.
+		wantErr(t, err, `^Cannot remove feature-login\.acme\.localhost from here: Git could not tell which repository this is \(see the warning above\), and nothing on disk records which Docker labels its resources carry\. `+
+			`Fix what Git reported and run it again, or pass --label-namespace \(dev\.treerig unless that project set project\.label-namespace\)\.$`)
 		if left := w.Docker.Owned(ref, "dev.oldns"); len(left) != 2 {
 			t.Fatalf("something was removed: %v", left)
 		}
@@ -399,8 +471,12 @@ func TestWorktreeUnlockWithoutConfig(t *testing.T) {
 
 	t.Run("outside a repository, with no name, there is no worktree to unlock and it says how to name one", func(t *testing.T) {
 		w, _, _ := twoRepositories(t)
-		_, err := unlock(t, w.ContextWithoutConfig(""), commands.UnlockOptions{})
-		wantErr(t, err, `^There is no worktree to unlock here: .* is not inside a Git worktree\. Name one with 'treerig worktree unlock <worktree>'\.$`)
+		// The directory checked is the one named: with --config that is the
+		// config's own, not the working directory.
+		tc := w.ContextWithoutConfig("")
+		tc.Cwd = filepath.Join(w.Outside(), "elsewhere")
+		_, err := unlock(t, tc, commands.UnlockOptions{})
+		wantErr(t, err, `^There is no worktree to unlock here: `+regexp.QuoteMeta(w.Outside())+` is not inside a Git worktree\. Name one with 'treerig worktree unlock <worktree>'\.$`)
 		_, err = unlock(t, w.ContextWithoutConfig(""), commands.UnlockOptions{Shared: true})
 		wantErr(t, err, `Name one with 'treerig worktree unlock --shared <worktree>'\.$`)
 	})
