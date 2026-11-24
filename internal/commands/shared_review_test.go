@@ -331,7 +331,7 @@ func TestSharedDownOnARepositoryNeverBroughtUp(t *testing.T) {
 		}
 		joined := strings.Join(tc.Logger.Lines, "\n")
 		if !strings.Contains(joined, "info: No shared services of this repository to stop.\n") && !strings.HasSuffix(joined, "info: No shared services of this repository to stop.") ||
-			!strings.Contains(joined, "detail: Looked for shared services under the Docker label namespace dev.treerig.") {
+			!strings.Contains(joined, "detail: Looking for shared services under the Docker label namespace dev.treerig.") {
 			t.Fatalf("lines = %v", tc.Logger.Lines)
 		}
 	})

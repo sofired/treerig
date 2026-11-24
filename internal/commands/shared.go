@@ -551,7 +551,7 @@ func SharedDownWithContext(ctx context.Context, cctx *CommandContext, env *Env, 
 		}
 	}
 	empty := "No shared services of this repository to stop."
-	cctx.Logger.Detail(fmt.Sprintf("Looked for shared services under the Docker label namespace %s.", namespace))
+	cctx.Logger.Detail(fmt.Sprintf("Looking for shared services under the Docker label namespace %s.", namespace))
 	repositoryID, present, err := cctx.Registry.Identities.RepositoryID(ctx, cctx.Registry.Identities.Root)
 	if err != nil {
 		return err
