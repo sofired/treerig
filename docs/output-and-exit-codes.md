@@ -69,7 +69,11 @@ while it runs, so `treerig run plan > out` holds only what `plan` wrote.
 nothing running, and `This worktree is not registered. Nothing to stop.` when it
 was never brought up. Both exit 0. While a stopped container or a network of the
 worktree remains, `down` still runs `docker compose down` to remove it, and
-says nothing about it but that nothing was running. `router down` says `Router
+says nothing about it but that nothing was running, unless that takes more than
+ten seconds, when it says `still removing what is left of <host>` every ten
+seconds. If Docker doesn't answer within 30 seconds while `down` checks what is
+left, it stops there, says so, and exits 124; nothing is stopped or removed.
+`router down` says `Router
 stopped.`, and, when worktrees had route files, `Router stopped. 2 worktrees
 were routed through it; their URLs don't load until you run 'treerig up' in
 each.` (a route file can outlive a service that was stopped by hand, so it does
@@ -145,7 +149,9 @@ non-zero exit code and a `[treerig] ERROR:` line on stderr saying why. Set
 exit code becomes treerig's, and so does a `run` command's, a `backup` or `restore`
 hook's — see [`hooks.md`](hooks.md) — except that a hook which outlives
 its `[hooks.timeout]` limit is stopped and treerig exits 124, not the hook's own
-code ([`hooks.md`](hooks.md#timeouts)). A `dev` session that you end
+code ([`hooks.md`](hooks.md#timeouts)). `down` exits 124 too when Docker doesn't
+answer within 30 seconds while it checks what is left of the worktree: 124
+means something didn't answer in time. A `dev` session that you end
 ends with the status of the signal that ended it: 130 for Ctrl-C, 143 for
 SIGTERM, 129 for SIGHUP.
 
