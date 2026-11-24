@@ -3,6 +3,7 @@ package commands_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -88,6 +89,23 @@ func fixedClock(at time.Time) func() time.Time { return func() time.Time { retur
 func TestBackup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
+	t.Run("refuses a directory whose path it could not print as it is, before creating it or running the hook", func(t *testing.T) {
+		for _, name := range []string{"tab\there", "line\nbreak", "esc\x1b[2J"} {
+			bw := newBundleWorld(t, "api")
+			dir := filepath.Join(bw.tc.Cwd, name)
+			err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: dir})
+			if err == nil || !strings.Contains(err.Error(), "could not print its path as it is") {
+				t.Fatalf("%q: err = %v", name, err)
+			}
+			if len(bw.started()) != 0 {
+				t.Errorf("%q: the hook ran", name)
+			}
+			if _, statErr := os.Stat(dir); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Errorf("%q: the directory was created: %v", name, statErr)
+			}
+		}
+	})
 
 	t.Run("runs the backup hook with the new directory as its last argument and TREERIG_STAGE=backup", func(t *testing.T) {
 		bw := newBundleWorld(t, "api")

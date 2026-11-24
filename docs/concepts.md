@@ -145,4 +145,6 @@ Compose file, so `worktree remove` reaps it.
 worktree's home, which `worktree remove` deletes (its confirmation counts the
 bundles); give it a directory to keep one. `backup` prints the path of the bundle
 it wrote on stdout (the hook's own output goes to stderr), so `dir=$(treerig
-backup)` captures it. A restore overwrites the worktree's live data.
+backup)` captures it exactly; a directory whose path holds a tab, a line break
+or a control character is refused, since its path could not be printed as it
+is. A restore overwrites the worktree's live data.
