@@ -360,10 +360,16 @@ func TestPhaseNote(t *testing.T) {
 	t.Run("adds nothing when there is no note", func(t *testing.T) {
 		defer progress.SetHeartbeatForTest(time.Millisecond)()
 		log := newSyncLogger(2)
-		_ = progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Starting", What: "web", Note: func() string { return "  " }}, func() error {
-			<-log.reached
-			return nil
-		})
+		if err := progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Starting", What: "web", Note: func() string { return "  " }}, func() error {
+			select {
+			case <-log.reached:
+				return nil
+			case <-time.After(failsafe):
+				return errors.New("timed out waiting for a heartbeat")
+			}
+		}); err != nil {
+			t.Fatalf("Phase: %v", err)
+		}
 		if strings.Contains(log.lines[1], ":") {
 			t.Fatalf("heartbeat = %q", log.lines[1])
 		}
@@ -388,10 +394,16 @@ func heartbeatNote(t *testing.T, line string) string {
 	log := newSyncLogger(2)
 	var latest progress.Latest
 	latest.Set(line)
-	_ = progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Starting", What: "web", Note: latest.Get}, func() error {
-		<-log.reached
-		return nil
-	})
+	if err := progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Starting", What: "web", Note: latest.Get}, func() error {
+		select {
+		case <-log.reached:
+			return nil
+		case <-time.After(failsafe):
+			return errors.New("timed out waiting for a heartbeat")
+		}
+	}); err != nil {
+		t.Fatalf("%q: Phase: %v", line, err)
+	}
 	_, note, _ := strings.Cut(log.lines[1], ": ")
 	return note
 }
