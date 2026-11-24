@@ -284,6 +284,28 @@ func TestPlainPhase(t *testing.T) {
 	})
 }
 
+// A quiet phase says nothing when it starts, but a step that runs long still
+// gets its heartbeat.
+func TestPlainPhaseQuiet(t *testing.T) {
+	defer progress.SetHeartbeatForTest(time.Millisecond)()
+	log := newSyncLogger(1)
+	if err := progress.NewPlain(log).Phase(progress.PhaseSpec{Verb: "Removing", What: "what is left of web", Quiet: true}, func() error {
+		select {
+		case <-log.reached:
+			return nil
+		case <-time.After(failsafe):
+			return errors.New("timed out waiting for a heartbeat")
+		}
+	}); err != nil {
+		t.Fatalf("Phase: %v", err)
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if !strings.HasPrefix(log.lines[0], "still removing what is left of web, ") {
+		t.Fatalf("lines = %q, want a heartbeat first and no opening line", log.lines)
+	}
+}
+
 func TestPlainPhaseResult(t *testing.T) {
 	t.Run("announces the phase and returns the action's error", func(t *testing.T) {
 		defer progress.SetHeartbeatForTest(time.Hour)()

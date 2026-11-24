@@ -248,7 +248,9 @@ at a time, within that one second.
   worktree with nothing running reads `feature-x.myapp.localhost is not running.
   Nothing to stop.`, and one that was never brought up `This worktree is not
   registered. Nothing to stop.`; both exit 0. While a stopped container or a network of the
-  worktree remains, `down` removes it all the same, and says so only with `-v`.
+  worktree remains, `down` removes it all the same, and says so only with `-v`;
+  if that takes more than ten seconds it says `still removing what is left of
+  <host>` every ten seconds, as any long step does.
   Docker Compose's own output is shown only with `-v`
   ([Output and exit codes](output-and-exit-codes.md#verbose-output)).
 - **`doctor`** warns about a registration Git no longer lists, as `directory

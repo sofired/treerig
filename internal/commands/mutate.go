@@ -192,9 +192,14 @@ func DownWithContext(ctx context.Context, cctx *CommandContext) error {
 			})
 		case left.Any():
 			// Nothing runs, but a stopped container or a network is left:
-			// Compose removes it, and treerig says only that nothing ran.
+			// Compose removes it, and treerig says only that nothing ran. The
+			// phase is quiet, with no opening line, but keeps its heartbeat:
+			// Compose's down has no timeout, and one that hangs must not
+			// leave a pipe or CI silent.
 			cctx.Logger.Detail(fmt.Sprintf("%s has no running service; removing what is left of its Compose project (containers: %t, networks: %t).", host, left.Containers, left.Networks))
-			return runtime.Down(ctx, ref)
+			return cctx.phase(progress.PhaseSpec{Verb: "Removing", What: "what is left of " + host, Quiet: true, Note: latest.Get}, func() error {
+				return runtime.Down(ctx, ref)
+			})
 		}
 		return nil
 	}); err != nil {

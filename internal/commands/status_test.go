@@ -13,6 +13,7 @@ import (
 	"github.com/sofired/treerig/internal/commands"
 	"github.com/sofired/treerig/internal/commands/commandstest"
 	"github.com/sofired/treerig/internal/config"
+	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/run"
 	"github.com/sofired/treerig/internal/worktree"
@@ -173,6 +174,42 @@ func TestWorktreeDown(t *testing.T) {
 		}
 		if left := w.Docker.Owned(ref, brand.LabelNamespace); len(left) != 1 || !strings.HasPrefix(left[0], "v") {
 			t.Fatalf("owned after down = %v, want only the data volume", left)
+		}
+	})
+
+	t.Run("keeps a heartbeat while it removes what is left, though it announces nothing", func(t *testing.T) {
+		defer progress.SetHeartbeatForTest(time.Millisecond)()
+		w := commandstest.New(t, "feature/login", acme)
+		ref := w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
+		for _, id := range w.Docker.Owned(ref, brand.LabelNamespace) {
+			if !strings.HasPrefix(id, "v") {
+				w.Docker.SetStatus(id, "exited")
+			}
+		}
+		tc := w.Context("", acme, nil)
+		const still = "info: still removing what is left of feature-login.acme.localhost, "
+		heard := func() bool {
+			lines, _ := tc.Logger.Snapshot()
+			return slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, still) })
+		}
+		// A slow compose down: it answers once a heartbeat has been said.
+		inner := w.Runner.Handler
+		w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
+			if spec.Command == "docker" && slices.Contains(spec.Args, "compose") && slices.Contains(spec.Args, "down") {
+				deadline := time.Now().Add(30 * time.Second)
+				for !heard() && time.Now().Before(deadline) {
+					time.Sleep(time.Millisecond)
+				}
+			}
+			return inner(ctx, spec)
+		}
+		if err := commands.DownWithContext(ctx, tc.CommandContext); err != nil {
+			t.Fatalf("Down: %v", err)
+		}
+		lines, _ := tc.Logger.Snapshot()
+		if !heard() || slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "info: Removing") }) ||
+			lines[len(lines)-1] != "info: feature-login.acme.localhost is not running. Nothing to stop." {
+			t.Fatalf("lines = %q, want heartbeats, no opening line, then that nothing ran", lines)
 		}
 	})
 

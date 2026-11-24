@@ -43,6 +43,11 @@ type PhaseSpec struct {
 	// Passthrough says the action's own output owns the terminal while it
 	// runs (a hook): a writer that redraws must not draw over it.
 	Passthrough bool
+	// Quiet leaves the announcement out, for a step that is usually quick and
+	// that the command does not mention by default (down removing what is left
+	// of a stopped worktree). The heartbeat still comes, so a step that hangs
+	// is never silent for long.
+	Quiet bool
 	// Note, when set, answers what the action last reported (the last line
 	// Compose wrote), for the heartbeat to carry: a stuck or killed `up` then
 	// leaves the resource it was on without -v. Only a Compose status line is
@@ -112,14 +117,16 @@ type Plain struct {
 // NewPlain makes the plain writer over log.
 func NewPlain(log logger.Logger) *Plain { return &Plain{log: log} }
 
-// Phase logs the announcement, then a heartbeat every heartbeat while action
-// runs, followed by ": <note>" when spec.Note has something to say. No
+// Phase logs the announcement (unless spec.Quiet), then a heartbeat every
+// heartbeat while action runs, followed by ": <note>" when spec.Note has something to say. No
 // heartbeat is ever logged once Phase has returned: the deferred cleanup waits
 // for the heartbeat goroutine to have actually stopped, not just for it to have
 // been told to, since a tick ready at the same moment as done being closed is
 // not guaranteed to lose a select.
 func (p *Plain) Phase(spec PhaseSpec, action func() error) error {
-	p.log.Info(spec.Verb + " " + spec.What + ".")
+	if !spec.Quiet {
+		p.log.Info(spec.Verb + " " + spec.What + ".")
+	}
 	still := "still " + lowerFirst(spec.Verb) + " " + spec.What
 	started := time.Now()
 	done := make(chan struct{})

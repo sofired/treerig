@@ -78,10 +78,12 @@ Nothing to stop.`
 
 A long step prints one line when it starts (`Starting all services for
 feature-x.myapp.localhost.`) and a line every ten seconds while it runs (`still
-starting all services for feature-x.myapp.localhost, 40s: <the last line Compose
-wrote>`), so a pipe, CI or an agent never sees a silent minute and a hung start
-leaves its last words. A terminal gets the same lines until the live view
-arrives (#208). `CI` set, a stderr that is not a terminal, `TERM=dumb` and
+starting all services for feature-x.myapp.localhost, 40s: <the last Compose
+status line>`), so a pipe, CI or an agent never sees a silent minute and a hung
+start leaves its last words. The note is a Compose status line only, a resource
+and its state (`Container web-1 Starting`): build steps, pulls, warnings and
+errors are left out, since they can echo secrets. A terminal gets the same
+lines until the live view arrives (#208). `CI` set, a stderr that is not a terminal, `TERM=dumb` and
 `--progress=plain` select this form; it is the only one today.
 
 `status` and `list` share one set of [state

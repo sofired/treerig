@@ -610,7 +610,8 @@ As built (#205):
   from its default line (`-v` names it).
 - **Progress.** `progress.Progress` has one method, `Phase(PhaseSpec, action)`;
   `PhaseSpec` has `Verb`, `What`, `Passthrough` (a hook: its output owns the
-  terminal) and `Note`. `progress.Plain` is the one writer: `Starting web for
+  terminal), `Quiet` (no opening line, the heartbeat only: `down` removing what
+  is left of a stopped worktree) and `Note`. `progress.Plain` is the one writer: `Starting web for
   feature-x.` when it starts and `still starting web for feature-x, 40s: <note>`
   every ten seconds (the old `(Ns elapsed)` is gone), on a terminal too until the
   live view exists. The live writer (#208) still needs a poll source for

@@ -91,7 +91,7 @@ func TestBackup(t *testing.T) {
 	defer cancel()
 
 	t.Run("refuses a directory whose path it could not print as it is, before creating it or running the hook", func(t *testing.T) {
-		for _, name := range []string{"tab\there", "line\nbreak", "esc\x1b[2J"} {
+		for _, name := range []string{"tab\there", "line\nbreak", "esc\x1b[2J", "not\xffutf8"} {
 			bw := newBundleWorld(t, "api")
 			dir := filepath.Join(bw.tc.Cwd, name)
 			err := commands.BackupWithContext(ctx, bw.tc.CommandContext, commands.BackupOptions{Dir: dir})

@@ -280,12 +280,13 @@ func prepareBundle(cctx *CommandContext, stage config.HookStage, ref worktree.Re
 	bundle.path = filepath.Clean(dir)
 
 	// backup prints the bundle's path alone on stdout, for
-	// `dir=$(treerig backup)`, so the path must print as it is: one with a
-	// tab, a line break or a control character would either reach a terminal
-	// raw or be altered by text.Printable into a path that does not exist.
-	// Refused before anything is created.
-	if stage == config.Backup && strings.IndexFunc(bundle.path, text.IsControl) >= 0 {
-		return bundle, clierr.Newf("The bundle directory %q holds a tab, a line break or a control character, so backup could not print its path as it is. Give backup a directory without one.", bundle.path)
+	// `dir=$(treerig backup)`, so the path must print as it is: one that
+	// text.Printable would change (a tab, a line break, a control character,
+	// a byte that is not UTF-8) would either reach a terminal raw or be
+	// printed as a path that does not exist. Refused before anything is
+	// created.
+	if stage == config.Backup && text.Printable(bundle.path) != bundle.path {
+		return bundle, clierr.Newf("The bundle directory %q holds a tab, a line break, a control character or a byte that is not UTF-8, so backup could not print its path as it is. Give backup a directory without one.", bundle.path)
 	}
 
 	if stage == config.Backup {
