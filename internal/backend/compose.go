@@ -344,8 +344,11 @@ func (c *Compose) Leftover(ctx context.Context, ref worktree.Ref) (Leftover, err
 	defer cancel()
 	left, err := c.leftover(bounded, ref)
 	// Whatever the runner made of the cancelled call, a deadline that passed
-	// while the caller's context is live is the timeout.
-	if err != nil && ctx.Err() == nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+	// while the caller's context is live is the timeout; so is a call the
+	// runner itself stopped for its time (run.Failure gives that exit code
+	// 124, and nothing else), which can come first, since the listing of
+	// networks carries the same Probe bound as the deadline.
+	if err != nil && ctx.Err() == nil && (errors.Is(bounded.Err(), context.DeadlineExceeded) || clierr.Code(err) == 124) {
 		return Leftover{}, ErrLeftoverTimeout
 	}
 	return left, err

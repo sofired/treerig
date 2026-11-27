@@ -217,28 +217,35 @@ func TestWorktreeDown(t *testing.T) {
 	// back the error of a cancelled call (the probe deadline passed), or a
 	// Result that says the call timed out. Both must end `down` with exit 124.
 	t.Run("exits 124 when Docker does not answer in time while checking what is left", func(t *testing.T) {
-		isLeftoverProbe := func(spec run.Spec) bool {
+		psProbe := func(spec run.Spec) bool {
 			return spec.Command == "docker" && slices.Contains(spec.Args, "ps") && slices.Contains(spec.Args, "{{.State}}")
 		}
+		networkProbe := func(spec run.Spec) bool {
+			return spec.Command == "docker" && slices.Contains(spec.Args, "network") && slices.Contains(spec.Args, "ls")
+		}
+		const message = "Docker didn't answer within 20ms while checking what is left of feature-login.acme.localhost. Run 'treerig doctor' to see why."
 		for _, tc := range []struct {
 			name    string
+			probe   func(run.Spec) bool
 			handler func(ctx context.Context) (run.Result, error)
-			message string
 		}{
-			{"the runner returns the cancelled call's error", func(ctx context.Context) (run.Result, error) {
+			{"the runner returns the cancelled call's error", psProbe, func(ctx context.Context) (run.Result, error) {
 				<-ctx.Done()
 				return run.Result{}, ctx.Err()
-			}, "Docker didn't answer within 20ms while checking what is left of feature-login.acme.localhost. Run 'treerig doctor' to see why."},
-			{"the runner returns a Result that timed out", func(context.Context) (run.Result, error) {
+			}},
+			{"the runner returns a Result that timed out", psProbe, func(context.Context) (run.Result, error) {
 				return run.Result{TimedOut: true, ExitCode: -1}, nil
-			}, "timed out"},
+			}},
+			{"the runner stops the listing of networks for its own time first", networkProbe, func(context.Context) (run.Result, error) {
+				return run.Result{TimedOut: true, ExitCode: -1}, nil
+			}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				w := commandstest.New(t, "feature/login", acme)
 				w.Register("", acme, "feature-login", brand.LabelNamespace, "api")
 				inner := w.Runner.Handler
 				w.Runner.Handler = func(ctx context.Context, spec run.Spec) (run.Result, error) {
-					if isLeftoverProbe(spec) {
+					if tc.probe(spec) {
 						return tc.handler(ctx)
 					}
 					return inner(ctx, spec)
@@ -247,8 +254,8 @@ func TestWorktreeDown(t *testing.T) {
 				cctx.DockerTimeouts.Probe = 20 * time.Millisecond
 
 				err := commands.DownWithContext(ctx, cctx.CommandContext)
-				if err == nil || clierr.Code(err) != 124 || !strings.Contains(err.Error(), tc.message) {
-					t.Fatalf("err = %v (code %d), want exit 124 mentioning %q", err, clierr.Code(err), tc.message)
+				if err == nil || clierr.Code(err) != 124 || !strings.Contains(err.Error(), message) {
+					t.Fatalf("err = %v (code %d), want exit 124 with %q", err, clierr.Code(err), message)
 				}
 				if calls := downCalls(w); len(calls) != 0 {
 					t.Fatalf("ran compose down %d time(s) after the probe failed", len(calls))
