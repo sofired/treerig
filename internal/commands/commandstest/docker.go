@@ -416,6 +416,14 @@ func (d *Docker) Handle(_ context.Context, spec run.Spec) (run.Result, error) {
 				ids = append(ids, id)
 			}
 		}
+		// A listing of states alone, one per line, as `down` asks what is left.
+		if args[0] == "ps" && after(args, "--format") == "{{.State}}" {
+			states := make([]string, len(ids))
+			for i, id := range ids {
+				states[i] = d.statusOf(id)
+			}
+			return ok(strings.Join(states, "\n"))
+		}
 		// The overview's inventory: state, status, then the labels it names,
 		// tab-separated, one container per line, as `docker ps --format` prints.
 		if template := after(args, "--format"); args[0] == "ps" && strings.HasPrefix(template, "{{.State}}\t{{.Status}}\t") {

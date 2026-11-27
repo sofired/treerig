@@ -168,6 +168,8 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 		ModeOverride:        mode,
 		DockerHost:          dockerHost,
 		ClientOS:            env.OS,
+		Verbose:             env.Verbose,
+		Progress:            progressFor(env),
 	})
 }
 
@@ -175,12 +177,9 @@ func routerServiceWith(env *Env, home string, state layout.RouterLayout, resolve
 // state and treerig root, but not its port. Down acts by project name alone,
 // so it neither reads settings.toml nor validates TREERIG_ROUTER_PORT — a
 // malformed setting must never keep the router from being stopped (found
-// in review of #79); the default port stands in, unused.
-func routerServiceForDown(env *Env) (*router.Router, error) {
-	home, _, err := checkedHome(env.Getenv)
-	if err != nil {
-		return nil, err
-	}
+// in review of #79); the default port stands in, unused. home is the treerig
+// root, resolved once by the caller.
+func routerServiceForDown(env *Env, home string) (*router.Router, error) {
 	return router.New(router.Options{
 		State:       layout.RouterStateFrom(home),
 		Port:        layout.DefaultRouterPort,
@@ -190,6 +189,7 @@ func routerServiceForDown(env *Env) (*router.Router, error) {
 		Invocation:  env.Invocation,
 		CommandName: env.CommandName,
 		Home:        home,
+		Verbose:     env.Verbose,
 	})
 }
 
@@ -335,11 +335,56 @@ func RouterStatus(ctx context.Context, env *Env) (failed bool, err error) {
 }
 
 // RouterDown is `router down`: stop the shared router; worktree services
-// keep running but are no longer routed.
+// are not touched, but nothing routes to them any more. It says so in its own
+// words, counting the worktrees that had a route file, and shows Compose's
+// transcript only with -v. It cannot say whether those worktrees run: a route
+// file can outlive a stopped service.
 func RouterDown(ctx context.Context, env *Env) error {
-	svc, err := routerServiceForDown(env)
+	// The treerig root, once, for both the router and its route files. Its
+	// checks are the ones every command makes; settings.toml is not read.
+	home, _, err := checkedHome(env.Getenv)
 	if err != nil {
 		return err
 	}
-	return svc.Down(ctx)
+	svc, err := routerServiceForDown(env, home)
+	if err != nil {
+		return err
+	}
+	// The two reads below are best effort: stopping the router must not wait
+	// on either. A container that is there but stopped was not running; one
+	// whose state cannot be read, or that could not be inspected (its Up is
+	// then a guess), is stopped as if it ran.
+	state, stateErr := svc.Running(ctx)
+	if stateErr != nil {
+		env.Logger.Detail(fmt.Sprintf("Could not read the router's container before stopping it: %s", stateErr))
+	}
+	wasRunning := stateErr != nil || (state.Present && (state.Up || !state.Inspected))
+	routed, routedErr := router.RoutedWorktrees(layout.RouterStateFrom(home))
+	if routedErr != nil {
+		env.Logger.Detail(fmt.Sprintf("Could not count the worktrees with route files: %s", routedErr))
+	}
+	if err := svc.Down(ctx); err != nil {
+		return err
+	}
+	if !wasRunning {
+		env.Logger.Info("The router is not running. Nothing to stop.")
+		return nil
+	}
+	env.Logger.Info(routerStoppedMessage(env.CommandName, routed, routedErr == nil))
+	return nil
+}
+
+// routerStoppedMessage is what `router down` says once the router is gone,
+// with the number of worktrees that had route files, when it could be read.
+func routerStoppedMessage(commandName string, routed int, counted bool) string {
+	switch {
+	case !counted:
+		return fmt.Sprintf("Router stopped. URLs of worktrees routed through it don't load until you run '%s up' in each.", commandName)
+	case routed == 0:
+		return "Router stopped."
+	case routed == 1:
+		return fmt.Sprintf("Router stopped. 1 worktree was routed through it; its URLs don't load until you run '%s up' there.", commandName)
+	default:
+		return fmt.Sprintf("Router stopped. %d worktrees were routed through it; their URLs don't load until you run '%s up' in each.", routed, commandName)
+	}
 }

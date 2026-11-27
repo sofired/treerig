@@ -36,6 +36,12 @@ body:
     validations:
       required: true
   - type: textarea
+    id: verbose
+    attributes:
+      label: Output of the failing command with -v
+      description: Optional. Run the command again as `treerig -v <command>` and paste what it prints on stderr. It includes Docker Compose's own output and each Docker command treerig ran. treerig hides the values of environment variables and secrets in its own lines, but it cannot hide them in Compose's output or your hooks', so read it before pasting.
+      render: text
+  - type: textarea
     id: doctor
     attributes:
       label: treerig doctor output

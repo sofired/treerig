@@ -167,12 +167,23 @@ which cannot be told apart from it.
 
 ## Output and exit codes
 
-Standard output and standard error are streamed to the terminal — both to
-standard error for `verify`, since `doctor`'s standard output is its report.
-Exit zero is success. Any other exit code fails the stage and is preserved as the tool's
-own exit code, so CI sees the same number your script produced — except for a
-hook treerig stopped for outliving its [`[hooks.timeout]`](#timeouts) limit,
-which exits 124 whatever the hook itself was exiting with.
+> **Changed in 1.0.** A hook's standard output now goes to treerig's standard
+> error. Before, `prepare`, `seed`, `backup` and `restore` streamed it to
+> treerig's standard output. A script that read it there adds `2>&1` to read it
+> from the same pipe. That pipe also carries treerig's own notices and warnings,
+> so a script that parsed a hook's output should filter them, or run the hook's
+> script directly.
+
+A hook's standard output and standard error are both streamed to treerig's
+standard error, for every stage (`prepare`, `seed`, `backup`, `restore` and
+`verify`), so that a command's standard output holds only its result: `up`'s URL
+table, the path `backup` wrote, `doctor`'s report.
+
+Exit zero is success. Any other exit code fails the stage and is preserved as
+the tool's own exit code, so CI sees the same number your script produced,
+except for a hook treerig stopped for outliving its
+[`[hooks.timeout]`](#timeouts) limit, which exits 124 whatever the hook itself
+was exiting with.
 
 A hook that cannot be started fails the stage without running, with the
 shell's codes: 127 when the file — or the interpreter on its `#!` line — does
@@ -371,11 +382,10 @@ backups/`), and a backup into the default location says that `worktree
 remove` will delete it. A bundle meant to outlive the worktree, or to be
 copied elsewhere, is given a directory of its own.
 
-**Scripting `backup`.** The hook's output is the command's own standard output
-and error. treerig's closing `Backed up <host> to <dir>.` line, and the notices
-and warnings above, go to standard error; treerig prints nothing on standard
-output. A script that needs the bundle's path passes an explicit directory
-rather than parsing the default.
+**Scripting `backup`.** The hook's output, treerig's closing `Backed up <host> to
+<dir>.` line, and the notices and warnings above go to standard error. Standard
+output holds only the path of the bundle `backup` wrote, so `dir=$(treerig
+backup)` captures it, default location or not.
 
 ### What each command checks, and holds
 

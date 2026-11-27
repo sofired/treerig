@@ -36,6 +36,10 @@ case " $* " in
   *" compose "*" ps "*)
     [ -e "$state/down" ] || echo '{"Service":"api","State":"running"}'
     exit 0 ;;
+  *" ps "*" label=com.docker.compose.project="*)
+    # What is left of the project, as ` + "`down`" + ` asks before it stops anything.
+    [ -e "$state/down" ] || echo running
+    exit 0 ;;
 esac
 exec "$0-fake" "$@"
 `
@@ -131,10 +135,11 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("backup: %v\n%s", err, errOut.String())
 		}
-		if out.String() != "out:backup\n" {
-			t.Errorf("stdout = %q", out.String())
+		// stdout is the path alone; the hook's output is on stderr.
+		if out.String() != dir+"\n" {
+			t.Errorf("stdout = %q, want only %q", out.String(), dir+"\n")
 		}
-		if !strings.Contains(errOut.String(), "err:backup\n") || !strings.Contains(errOut.String(), "Backed up feature-login.acme.localhost to "+dir+".\n") {
+		if !strings.Contains(errOut.String(), "out:backup\n") || !strings.Contains(errOut.String(), "err:backup\n") || !strings.Contains(errOut.String(), "Backed up feature-login.acme.localhost to "+dir+".\n") {
 			t.Errorf("stderr = %q", errOut.String())
 		}
 		log := f.bundleLog(t)
@@ -185,7 +190,7 @@ func TestBackupAndRestoreThroughTheBinary(t *testing.T) {
 	t.Run("restore runs the hook with the existing directory", func(t *testing.T) {
 		dir := filepath.Join(nested, "first")
 		stdout, stderr, code := runFixture(t, f, binary, nil, "restore", dir)
-		if stdout != "out:restore\n" || code != 0 || !strings.Contains(stderr, "Restored feature-login.acme.localhost from "+dir+".\n") {
+		if stdout != "" || code != 0 || !strings.Contains(stderr, "out:restore\n") || !strings.Contains(stderr, "Restored feature-login.acme.localhost from "+dir+".\n") {
 			t.Fatalf("stdout = %q, stderr = %q, code = %d", stdout, stderr, code)
 		}
 		log := f.bundleLog(t)

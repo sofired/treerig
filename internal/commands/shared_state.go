@@ -48,6 +48,7 @@ func (c *CommandContext) sharedStack(repositoryID, namespace string, roots []str
 		Environ:        c.Environ,
 		Runner:         c.Runner,
 		Logger:         c.Logger,
+		Verbose:        c.Verbose,
 	}
 	if c.Loaded != nil {
 		options.ProjectName = c.Loaded.Config.Project.Name

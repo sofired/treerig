@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"slices"
 	"strings"
@@ -11,6 +12,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sofired/treerig/internal/commands"
+	"github.com/sofired/treerig/internal/docker"
+	"github.com/sofired/treerig/internal/lifecycle"
+	"github.com/sofired/treerig/internal/logger"
+	"github.com/sofired/treerig/internal/run"
+	"github.com/sofired/treerig/internal/run/fakerun"
+	"github.com/sofired/treerig/internal/run/osrun"
 )
 
 func TestHelpWrapsToWidth(t *testing.T) {
@@ -285,7 +292,8 @@ func TestVerboseProgressAndVersionFlags(t *testing.T) {
 
 	status = testProgramFind("status")
 	env, _ = (&program{buildEnv: func(string) (*commands.Env, error) { return &commands.Env{}, nil }}).env(status)
-	if env.Verbose || env.Progress != "auto" {
+	// A hand-built Env is not on a terminal, which is plain.
+	if env.Verbose || env.Progress != "plain" {
 		t.Errorf("defaults: verbose %v, progress %q", env.Verbose, env.Progress)
 	}
 
@@ -403,5 +411,100 @@ func TestListCommand(t *testing.T) {
 	}
 	if help := renderHelp(list, 80, false); !strings.Contains(help, "Aliases:\n  list, ls\n") {
 		t.Errorf("help does not name the alias:\n%s", help)
+	}
+}
+
+func TestDecideProgress(t *testing.T) {
+	getenv := func(values map[string]string) func(string) (string, bool) {
+		return func(key string) (string, bool) { v, ok := values[key]; return v, ok }
+	}
+	for _, tc := range []struct {
+		name      string
+		requested commands.ProgressMode
+		env       map[string]string
+		tty       bool
+		want      commands.ProgressMode
+	}{
+		{"auto on a terminal stays auto", commands.ProgressAuto, map[string]string{"TERM": "xterm-256color"}, true, commands.ProgressAuto},
+		{"CI set is plain", commands.ProgressAuto, map[string]string{"CI": "true"}, true, commands.ProgressPlain},
+		{"CI set to empty is not CI", commands.ProgressAuto, map[string]string{"CI": ""}, true, commands.ProgressAuto},
+		{"stderr that is not a terminal is plain", commands.ProgressAuto, nil, false, commands.ProgressPlain},
+		{"TERM=dumb is plain", commands.ProgressAuto, map[string]string{"TERM": "dumb"}, true, commands.ProgressPlain},
+		{"--progress=plain is plain", commands.ProgressPlain, nil, true, commands.ProgressPlain},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := decideProgress(tc.requested, getenv(tc.env), tc.tty); got != tc.want {
+				t.Fatalf("decideProgress = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("reads nothing from a missing environment", func(t *testing.T) {
+		if got := decideProgress(commands.ProgressAuto, nil, true); got != commands.ProgressAuto {
+			t.Fatalf("decideProgress = %q", got)
+		}
+	})
+}
+
+func TestVerboseReachesTheLoggerAndTheRunner(t *testing.T) {
+	build := func(console *logger.Console, runner run.Runner) *program {
+		return &program{verbosity: console, buildEnv: func(string) (*commands.Env, error) {
+			return &commands.Env{Logger: console, Runner: runner}, nil
+		}}
+	}
+	dockerCall := func(env *commands.Env) {
+		// What docker.Run builds: the docker command, with the locks inherited.
+		_, _ = env.Runner.Run(context.Background(), run.Spec{
+			Command: "docker", Args: []string{"compose", "--project-name", "p", "down", "--", "TOKEN=abc"}, InheritLocks: true,
+			Env: []string{"SECRET=env-value"},
+		})
+		_, _ = env.Runner.Run(context.Background(), run.Spec{Command: "./hook.sh", Args: []string{"--token=abc"}})
+	}
+
+	t.Run("with -v each docker command is said, with treerig's arguments only", func(t *testing.T) {
+		var stderr bytes.Buffer
+		root, _ := testProgram()
+		status, _, _ := root.Find([]string{"status"})
+		if err := status.ParseFlags([]string{"-v"}); err != nil {
+			t.Fatal(err)
+		}
+		env, err := build(logger.NewConsole("treerig", io.Discard, &stderr), &fakerun.Runner{}).env(status)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dockerCall(env)
+		if want := "[treerig] docker compose --project-name p down -- ...\n"; stderr.String() != want {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	})
+
+	t.Run("without -v nothing is said", func(t *testing.T) {
+		var stderr bytes.Buffer
+		root, _ := testProgram()
+		status, _, _ := root.Find([]string{"status"})
+		if err := status.ParseFlags(nil); err != nil {
+			t.Fatal(err)
+		}
+		env, err := build(logger.NewConsole("treerig", io.Discard, &stderr), &fakerun.Runner{}).env(status)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dockerCall(env)
+		if stderr.Len() != 0 {
+			t.Fatalf("stderr = %q", stderr.String())
+		}
+	})
+}
+
+// TestTracedRunnerStillQuiesces is -v not costing a mutation its proof that
+// every child was reaped: lifecycle asks the runner for Quiesce.
+func TestTracedRunnerStillQuiesces(t *testing.T) {
+	traced := docker.Traced(osrun.New(), func(string) {})
+	q, ok := traced.(lifecycle.Quiescer)
+	if !ok {
+		t.Fatal("the traced runner is not a lifecycle.Quiescer")
+	}
+	if err := q.Quiesce(context.Background()); err != nil {
+		t.Fatalf("Quiesce: %v", err)
 	}
 }

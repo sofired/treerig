@@ -13,6 +13,7 @@ import (
 	"github.com/sofired/treerig/internal/lifecycle"
 	"github.com/sofired/treerig/internal/lock"
 	"github.com/sofired/treerig/internal/procid"
+	"github.com/sofired/treerig/internal/progress"
 	"github.com/sofired/treerig/internal/registry"
 	"github.com/sofired/treerig/internal/shared"
 	"github.com/sofired/treerig/internal/worktree"
@@ -234,7 +235,9 @@ func ensureSharedLocked(ctx context.Context, cctx *CommandContext, repositoryID,
 		}
 	}
 	everything := slices.Concat(start, recreate)
-	err = withProgress(cctx.Logger, "Starting "+sharedPhrase(everything), func() error {
+	var latest progress.Latest
+	stack = stack.Observing(latest.Set)
+	err = cctx.phase(progress.PhaseSpec{Verb: "Starting", What: sharedPhrase(everything), Note: latest.Get}, func() error {
 		return stack.Up(ctx, shared.UpRequest{
 			Definition: definition, Services: start, Recreate: recreate, Published: published, DefinedBy: plan.DefinedBy,
 		})

@@ -64,7 +64,7 @@ internal/
   shape/                  the small schema library config files are validated
                           against, strict about unknown keys
   hooks/                  hook protocol and sequencer
-  progress/               phase logging with an elapsed-time heartbeat
+  progress/               the Progress interface and its plain writer: a line per phase, a heartbeat
   ports/                  the lock-free loopback port allocator and its free-port probe
   overview/               per-worktree cards, the snapshot, and the rendered overview page
   router/                 the shared router's Compose stack per network mode, mode

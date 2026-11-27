@@ -75,6 +75,10 @@ treerig worktree unlock      # clear a dead holder's lock, once it is checked go
 treerig doctor               # check prerequisites, registry, router; run verify
 ```
 
+`up`, `down` and the other commands that start or stop things say what happened
+in a few lines on stderr. Add `-v` to see Docker Compose's own progress and each
+Docker command treerig runs; a hook's output is always shown, on stderr.
+
 A release build (Homebrew, the install script, a package or an archive) removes
 with itself, so there is nothing to set up. A development build (one built from
 source, which may carry a branch's code) removes only with a pinned teardown

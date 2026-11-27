@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -211,6 +212,27 @@ func TestRouterServiceStatusAndDown(t *testing.T) {
 		err := w.Router.Down(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "did not stop cleanly") || !strings.Contains(err.Error(), "permission denied") {
 			t.Fatalf("got %v", err)
+		}
+	})
+
+	t.Run("quotes only the last lines of a noisy refusal of Compose", func(t *testing.T) {
+		w := newWorld(t, 80, "")
+		w.Fake.downExitCode = 1
+		var noisy strings.Builder
+		for i := 0; i < 5000; i++ {
+			fmt.Fprintf(&noisy, "noise line %d\n", i)
+		}
+		w.Fake.downStderr = noisy.String()
+		err := w.Router.Down(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "did not stop cleanly") {
+			t.Fatalf("got %v", err)
+		}
+		message := err.Error()
+		if !strings.Contains(message, "noise line 4999") || strings.Contains(message, "noise line 100\n") {
+			t.Errorf("expected the end of the output only, got %d bytes", len(message))
+		}
+		if len(message) > 10*1024 {
+			t.Errorf("message is %d bytes, want a bounded tail", len(message))
 		}
 	})
 

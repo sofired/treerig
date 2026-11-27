@@ -244,6 +244,17 @@ at a time, within that one second.
 - **The overview** at `http://treerig.localhost` shows the state as a pill, and
   `list --all --json` has it as `entries[].state`. The page it writes says so
   when Docker does not answer.
+- **`down`** stops what runs and says `feature-x.myapp.localhost is down.`. A
+  worktree with nothing running reads `feature-x.myapp.localhost is not running.
+  Nothing to stop.`, and one that was never brought up `This worktree is not
+  registered. Nothing to stop.`; both exit 0. While a stopped container or a network of the
+  worktree remains, `down` removes it all the same, and says so only with `-v`;
+  if that takes more than ten seconds it says `still removing what is left of
+  <host>` every ten seconds, as any long step does. If Docker doesn't answer
+  within 30 seconds while `down` checks what is left, it stops there, says so,
+  and exits 124; nothing is stopped or removed.
+  Docker Compose's own output is shown only with `-v`
+  ([Output and exit codes](output-and-exit-codes.md#verbose-output)).
 - **`doctor`** warns about a registration Git no longer lists, as `directory
   missing`, as `removing` (its removal was interrupted), or as unknown, with the
   cause. A directory Git lists with no identity of its own, at the place the

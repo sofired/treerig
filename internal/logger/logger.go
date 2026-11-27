@@ -28,22 +28,55 @@ type Logger interface {
 	Info(message string)
 	Warn(message string)
 	Error(message string)
+	// Detail is a line only -v shows, on stderr, run through text.Redact:
+	// the commands treerig runs, IDs and paths. Without -v it says nothing.
+	Detail(message string)
 	// Output is primary command output, unprefixed on stdout so it can be piped.
 	Output(message string)
 }
 
-// Console prefixes warnings and errors with the command name; plain notices
-// carry no prefix.
+// Verbosity is what the command line needs of a logger to hand it -v, which is
+// parsed after the logger is made. *Console implements it.
+type Verbosity interface {
+	SetVerbose(verbose bool)
+}
+
+var _ Verbosity = (*Console)(nil)
+
+// Console prefixes warnings, errors and -v detail lines with the command name;
+// plain notices carry no prefix.
 type Console struct {
 	prefix string
 	stdout io.Writer
 	stderr io.Writer
 	mu     sync.Mutex
+	// verbose is -v: whether Detail says anything.
+	verbose bool
 }
 
 // NewConsole writes notices to stderr and output to stdout.
 func NewConsole(commandName string, stdout, stderr io.Writer) *Console {
 	return &Console{prefix: "[" + commandName + "]", stdout: stdout, stderr: stderr}
+}
+
+// SetVerbose says whether Detail writes (-v). The command line is parsed after
+// the console is made, so the flag reaches it here.
+func (c *Console) SetVerbose(verbose bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.verbose = verbose
+}
+
+// Detail writes "[name] message", redacted, when -v is set, and nothing
+// otherwise. Unlike a plain notice it keeps the prefix, so the commands treerig
+// runs stand out from the Compose transcript that -v prints around them.
+func (c *Console) Detail(message string) {
+	c.mu.Lock()
+	on := c.verbose
+	c.mu.Unlock()
+	if on {
+		c.say(c.prefix + " " + text.Redact(message))
+	}
 }
 
 // Info writes the message with no prefix: plain progress and notices aren't
@@ -115,15 +148,21 @@ func (Silent) Warn(string) {}
 // Error discards the message.
 func (Silent) Error(string) {}
 
+// Detail discards the message.
+func (Silent) Detail(string) {}
+
 // Output discards the message.
 func (Silent) Output(string) {}
 
-// Recording keeps every line, prefixed info:/warn:/error:, and every Output
+// Recording keeps every line, prefixed info:/warn:/error:/detail:, and every Output
 // line in Printed. For tests.
 type Recording struct {
 	mu      sync.Mutex
 	Lines   []string
 	Printed []string
+	// Verbose records Detail lines, as -v shows them; without it they are
+	// dropped. Set it before the recorder is shared, as it is read unlocked.
+	Verbose bool
 }
 
 // record appends line to Lines, locked so concurrent commands can log safely.
@@ -141,6 +180,13 @@ func (r *Recording) Warn(message string) { r.record("warn: " + message) }
 
 // Error records the message prefixed "error: ".
 func (r *Recording) Error(message string) { r.record("error: " + message) }
+
+// Detail records the message, redacted and prefixed "detail: ", when Verbose is set.
+func (r *Recording) Detail(message string) {
+	if r.Verbose {
+		r.record("detail: " + text.Redact(message))
+	}
+}
 
 // Output records the message, unprefixed, in Printed.
 func (r *Recording) Output(message string) {

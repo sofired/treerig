@@ -179,6 +179,8 @@ func TestComposeSeesTheRoutedURLs(t *testing.T) {
 
 	t.Run("down hands Compose the same values `up` did", func(t *testing.T) {
 		w := commandstest.New(t, "feature/login", acme)
+		// `down` has nothing to run Compose for unless `up` left something.
+		w.Docker.Realistic()
 		tc := w.Context("", acme, nil)
 		givePorts(tc)
 		tc.RouterPort = 30080

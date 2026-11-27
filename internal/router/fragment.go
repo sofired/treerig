@@ -334,3 +334,22 @@ func ListFragments(state layout.RouterLayout) ([]FragmentInfo, error) {
 	}
 	return fragments, nil
 }
+
+// RoutedWorktrees is how many worktrees have a route file for a service: the
+// worktrees whose URLs the router serves. `down` removes a worktree's route
+// files, but one stopped any other way (by hand, a crashed container) keeps
+// them, so this counts worktrees that had routes, not worktrees known to be
+// running: after the router stops, it is how many have URLs that no longer
+// load, whatever their services are doing. A listing that cannot be read is
+// an error.
+func RoutedWorktrees(state layout.RouterLayout) (int, error) {
+	fragments, err := ListFragments(state)
+	if err != nil {
+		return 0, err
+	}
+	seen := map[[2]string]bool{}
+	for _, fragment := range fragments {
+		seen[[2]string{fragment.RepositoryID, fragment.WorktreeID}] = true
+	}
+	return len(seen), nil
+}

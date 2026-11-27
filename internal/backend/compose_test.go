@@ -95,11 +95,16 @@ type dockerFake struct {
 	// for Reap.
 	downExitCode int
 	downStderr   string
+	// downStdout is what that failing `down` writes on stdout.
+	downStdout string
 	// downTimedOut makes the next `compose … down …` call answer as a
 	// timeout instead of a clean exit — round 3 of #55's review: a
 	// timed-out down must not be read as Compose's own "has active
 	// endpoints" refusal even if its stderr happened to contain that text.
 	downTimedOut bool
+	// upExitCode/upStderr make `compose … up …` fail the same way.
+	upExitCode int
+	upStderr   string
 	// configTimedOut makes every `compose … config …` call answer as a
 	// timeout: a config read that never finished must not be asked again
 	// the way Compose's own refusal of an uninterpolated value is.
@@ -158,12 +163,16 @@ func (f *dockerFake) Run(_ context.Context, spec run.Spec) (run.Result, error) {
 					}
 					encoded, _ := json.Marshal(model)
 					return ok(string(encoded))
+				case "up":
+					if f.upExitCode != 0 {
+						return run.Finish(spec, run.Result{Stderr: f.upStderr, ExitCode: f.upExitCode})
+					}
 				case "down":
 					if f.downTimedOut {
 						return run.Finish(spec, run.Result{Stderr: f.downStderr, ExitCode: 1, TimedOut: true})
 					}
 					if f.downExitCode != 0 {
-						return run.Finish(spec, run.Result{Stderr: f.downStderr, ExitCode: f.downExitCode})
+						return run.Finish(spec, run.Result{Stdout: f.downStdout, Stderr: f.downStderr, ExitCode: f.downExitCode})
 					}
 				case "ps":
 					if f.psOutput != nil {
